@@ -14,23 +14,209 @@ enum Role {
 }
 
 model User {
-  id            String   @id @default(cuid())
+  id                 String            @id @default(cuid())
+  name               String?
+  email              String            @unique
+  document           String?
+  phone              String?
+  address            String?
+  neighborhood       String?
+  department         String?
+  city               String?
+  password           String
+  role               Role              @default(CLIENTE)
+  image              String?
+  emailVerified      DateTime?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  quotesAsClient     Quote[]           @relation("QuoteClient")
+  quotesCreated      Quote[]           @relation("QuoteCreatedBy")
+  ownedWorkspaces    Workspace[]       @relation("WorkspaceOwner")
+  workspaceMemberships WorkspaceMember[]
+}
+
+enum WorkspaceMemberRole {
+  OWNER
+  ADMIN
+  AGENT
+  VIEWER
+}
+
+enum AgentStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  ARCHIVED
+}
+
+enum ChannelProvider {
+  EVOLUTION
+}
+
+enum WhatsAppChannelStatus {
+  DISCONNECTED
+  CONNECTING
+  QRCODE
+  CONNECTED
+  ERROR
+}
+
+enum ConversationStatus {
+  OPEN
+  PENDING
+  CLOSED
+  ARCHIVED
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  AUDIO
+  VIDEO
+  DOCUMENT
+  LOCATION
+  BUTTON
+  TEMPLATE
+  SYSTEM
+}
+
+enum MessageStatus {
+  RECEIVED
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+model Workspace {
+  id            String            @id @default(cuid())
+  name          String
+  slug          String            @unique
+  ownerId       String?
+  isActive      Boolean           @default(true)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  owner         User?             @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  memberships   WorkspaceMember[]
+  agents        Agent[]
+  channels      WhatsAppChannel[]
+  contacts      Contact[]
+  conversations Conversation[]
+  messages      Message[]
+
+  @@index([ownerId])
+}
+
+model WorkspaceMember {
+  id          String              @id @default(cuid())
+  workspaceId String
+  userId      String
+  role        WorkspaceMemberRole @default(ADMIN)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  workspace   Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
+}
+
+model Agent {
+  id                  String            @id @default(cuid())
+  workspaceId         String
+  name                String
+  slug                String
+  description         String?
+  systemPrompt        String?
+  welcomeMessage      String?
+  fallbackMessage     String?
+  handoffMessage      String?
+  model               String?
+  temperature         Decimal?          @db.Decimal(3, 2)
+  maxTokens           Int?
+  isActive            Boolean           @default(true)
+  status              AgentStatus       @default(DRAFT)
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  workspace           Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  channels            WhatsAppChannel[]
+  conversations       Conversation[]
+  messages            Message[]
+
+  @@unique([workspaceId, slug])
+  @@index([workspaceId, status])
+}
+
+model WhatsAppChannel {
+  id                      String                @id @default(cuid())
+  workspaceId             String
+  agentId                 String?
+  provider                ChannelProvider       @default(EVOLUTION)
+  name                    String
+  phoneNumber             String?
+  evolutionInstanceName   String                @unique
+  evolutionExternalKey    String?
+  status                  WhatsAppChannelStatus @default(DISCONNECTED)
+  qrCode                  String?
+  lastConnectionAt        DateTime?
+  lastDisconnectionAt     DateTime?
+  metadata                Json?
+  createdAt               DateTime              @default(now())
+  updatedAt               DateTime              @updatedAt
+  workspace               Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  agent                   Agent?                @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  conversations           Conversation[]
+  messages                Message[]
+
+  @@index([workspaceId, status])
+  @@index([agentId])
+}
+
+model Contact {
+  id            String         @id @default(cuid())
+  workspaceId   String
   name          String?
-  email         String   @unique
-  document      String?
-  phone         String?
-  address       String?
-  neighborhood  String?
-  department    String?
-  city          String?
-  password      String
-  role          Role     @default(CLIENTE)
-  image         String?
-  emailVerified DateTime?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  quotesAsClient Quote[] @relation("QuoteClient")
-  quotesCreated  Quote[] @relation("QuoteCreatedBy")
+  phoneNumber   String
+  email         String?
+  notes         String?
+  metadata      Json?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  workspace     Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversations Conversation[]
+  messages      Message[]
+
+  @@unique([workspaceId, phoneNumber])
+  @@index([workspaceId, createdAt])
+}
+
+model Conversation {
+  id              String             @id @default(cuid())
+  workspaceId     String
+  agentId         String?
+  channelId       String?
+  contactId       String
+  status          ConversationStatus @default(OPEN)
+  lastMessageAt   DateTime?
+  startedAt       DateTime           @default(now())
+  closedAt        DateTime?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  workspace       Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  agent           Agent?             @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  channel         WhatsAppChannel?   @relation(fields: [channelId], references: [id], onDelete: SetNull)
+  contact         Contact            @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  messages        Message[]
+
+  @@index([workspaceId, status])
+  @@index([contactId, lastMessageAt])
+  @@index([channelId, lastMessageAt])
 }
 
 model Product {
@@ -111,6 +297,22 @@ model AppSetting {
   updatedAt DateTime @updatedAt
 }
 
+model WebhookEventLog {
+  id            String   @id @default(cuid())
+  provider      String
+  event         String?
+  instanceName  String?
+  channelId     String?
+  workspaceId   String?
+  status        String?
+  payload       Json?
+  createdAt     DateTime @default(now())
+
+  @@index([provider, createdAt])
+  @@index([instanceName, createdAt])
+  @@index([workspaceId, createdAt])
+}
+
 enum QuoteStatus {
   DRAFT
   SENT
@@ -158,4 +360,36 @@ model QuoteItem {
   @@index([quoteId])
   @@index([productId])
   @@index([supplierId])
+}
+
+model Message {
+  id             String           @id @default(cuid())
+  workspaceId    String
+  conversationId String
+  channelId      String?
+  contactId      String?
+  agentId        String?
+  externalId     String?
+  direction      MessageDirection
+  type           MessageType      @default(TEXT)
+  status         MessageStatus    @default(RECEIVED)
+  content        String?
+  mediaUrl       String?
+  rawPayload     Json?
+  sentAt         DateTime?
+  deliveredAt    DateTime?
+  readAt         DateTime?
+  failedAt       DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  workspace      Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversation   Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  channel        WhatsAppChannel? @relation(fields: [channelId], references: [id], onDelete: SetNull)
+  contact        Contact?         @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  agent          Agent?           @relation(fields: [agentId], references: [id], onDelete: SetNull)
+
+  @@unique([channelId, externalId])
+  @@index([workspaceId, createdAt])
+  @@index([conversationId, createdAt])
+  @@index([contactId, createdAt])
 }

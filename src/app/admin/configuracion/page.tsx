@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { LockKeyhole, Settings, Users } from "lucide-react";
+import { LockKeyhole, MessageSquareMore, Settings, Users } from "lucide-react";
 import { auth } from "@/auth";
 import { Card } from "@/components/ui/card";
 import { getAdminModuleAccess } from "@/lib/admin-module-access";
@@ -70,9 +70,25 @@ export default async function AdminConfiguracionPage() {
             </Card>
           </Link>
         ) : null}
+
+        {moduleAccess.config_whatsapp ? (
+          <Link href="/admin/configuracion/whatsapp" className="group">
+            <Card className="h-full space-y-3 border border-[var(--line)] transition hover:border-[var(--primary)] hover:shadow-lg">
+              <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
+                <MessageSquareMore className="h-5 w-5" />
+              </div>
+              <div className="space-y-1">
+                <h2 className="text-base font-semibold text-slate-900">Configuracion WhatsApp</h2>
+                <p className="text-sm text-slate-600">
+                  Define la conexion global con Evolution API para toda la aplicacion.
+                </p>
+              </div>
+            </Card>
+          </Link>
+        ) : null}
       </div>
 
-      {!moduleAccess.config_users && !moduleAccess.config_business && !moduleAccess.config_permissions ? (
+      {!moduleAccess.config_users && !moduleAccess.config_business && !moduleAccess.config_permissions && !moduleAccess.config_whatsapp ? (
         <Card className="text-sm text-slate-600">
           No tienes apartados habilitados dentro de configuracion.
         </Card>

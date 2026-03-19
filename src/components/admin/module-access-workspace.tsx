@@ -5,6 +5,7 @@ import { Role } from "@prisma/client";
 import {
   Blocks,
   BriefcaseBusiness,
+  MessageSquareMore,
   LockKeyhole,
   Package,
   ShieldCheck,
@@ -53,6 +54,7 @@ const moduleIconMap = {
   config_users: Users,
   config_business: BriefcaseBusiness,
   config_permissions: UserCog,
+  config_whatsapp: MessageSquareMore,
   products: Package,
   categories: Tags,
   suppliers: Truck,

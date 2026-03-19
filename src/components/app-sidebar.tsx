@@ -69,7 +69,8 @@ export function AppSidebar({ pathname, brandName, adminModuleAccess, user, ...pr
     const canSeeConfig =
       adminModuleAccess.config_users ||
       adminModuleAccess.config_business ||
-      adminModuleAccess.config_permissions;
+      adminModuleAccess.config_permissions ||
+      adminModuleAccess.config_whatsapp;
 
     if (canSeeConfig) {
       navMain.push({
@@ -129,7 +130,8 @@ export function AppSidebar({ pathname, brandName, adminModuleAccess, user, ...pr
   const canAccessConfig =
     adminModuleAccess.config_users ||
     adminModuleAccess.config_business ||
-    adminModuleAccess.config_permissions;
+    adminModuleAccess.config_permissions ||
+    adminModuleAccess.config_whatsapp;
 
   return (
     <Sidebar collapsible="icon" {...props}>

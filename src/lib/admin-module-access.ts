@@ -26,6 +26,13 @@ export const adminModuleDefinitions = [
     group: "Configuracion",
   },
   {
+    key: "config_whatsapp",
+    label: "Configuracion WhatsApp",
+    description: "Configura Evolution API y parametros globales de WhatsApp.",
+    path: "/admin/configuracion/whatsapp",
+    group: "Configuracion",
+  },
+  {
     key: "products",
     label: "Productos",
     description: "Catalogo, creacion y edicion de productos.",
@@ -58,6 +65,13 @@ export const adminModuleDefinitions = [
 export type AdminModuleKey = (typeof adminModuleDefinitions)[number]["key"];
 
 type RoleModuleAccessMap = Partial<Record<Role, AdminModuleKey[]>>;
+
+const defaultAdminVisibleModules = new Set<AdminModuleKey>([
+  "config_users",
+  "config_business",
+  "config_permissions",
+  "config_whatsapp",
+]);
 
 async function ensureAppSettingTable(): Promise<void> {
   await prisma.$executeRawUnsafe(`
@@ -142,7 +156,7 @@ export async function setStoredRoleModuleAccessMap(value: RoleModuleAccessMap): 
 export function getDefaultAdminModuleAccess(role?: Role): Record<AdminModuleKey, boolean> {
   if (role === "ADMIN") {
     return Object.fromEntries(
-      adminModuleDefinitions.map((item) => [item.key, true]),
+      adminModuleDefinitions.map((item) => [item.key, defaultAdminVisibleModules.has(item.key)]),
     ) as Record<AdminModuleKey, boolean>;
   }
 

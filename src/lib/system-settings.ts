@@ -6,7 +6,13 @@ import { siteConfig } from "@/lib/site";
 const CURRENCY_SETTING_KEY = "currency";
 const PRIMARY_COLOR_SETTING_KEY = "primaryColor";
 const BRAND_NAME_SETTING_KEY = "brandName";
+const EVOLUTION_API_BASE_URL_SETTING_KEY = "evolutionApiBaseUrl";
+const EVOLUTION_API_TOKEN_SETTING_KEY = "evolutionApiToken";
+const EVOLUTION_INSTANCE_PREFIX_SETTING_KEY = "evolutionInstancePrefix";
+const EVOLUTION_WEBHOOK_BASE_URL_SETTING_KEY = "evolutionWebhookBaseUrl";
+const EVOLUTION_WEBHOOK_SECRET_SETTING_KEY = "evolutionWebhookSecret";
 const DEFAULT_SYSTEM_PRIMARY_COLOR = "#6d28d9";
+const DEFAULT_EVOLUTION_INSTANCE_PREFIX = "agente-lite";
 
 async function ensureAppSettingTable(): Promise<void> {
   await prisma.$executeRawUnsafe(`
@@ -19,38 +25,46 @@ async function ensureAppSettingTable(): Promise<void> {
   `);
 }
 
-export const getSystemCurrency = cache(async (): Promise<SupportedCurrencyCode> => {
+async function getSettingValue(key: string): Promise<string | null> {
   try {
     await ensureAppSettingTable();
 
     const rows = await prisma.$queryRaw<Array<{ value: string }>>`
       SELECT "value"
       FROM "AppSetting"
-      WHERE "key" = ${CURRENCY_SETTING_KEY}
+      WHERE "key" = ${key}
       LIMIT 1
     `;
 
-    const value = rows[0]?.value;
-    if (value && isSupportedCurrency(value)) {
-      return value;
-    }
-
-    return DEFAULT_SYSTEM_CURRENCY;
+    return rows[0]?.value ?? null;
   } catch {
-    return DEFAULT_SYSTEM_CURRENCY;
+    return null;
   }
-});
+}
 
-export async function setSystemCurrency(currency: SupportedCurrencyCode): Promise<void> {
+async function setSettingValue(key: string, value: string): Promise<void> {
   await ensureAppSettingTable();
   await prisma.$executeRaw`
     INSERT INTO "AppSetting" ("key", "value", "createdAt", "updatedAt")
-    VALUES (${CURRENCY_SETTING_KEY}, ${currency}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    VALUES (${key}, ${value}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     ON CONFLICT ("key")
     DO UPDATE SET
       "value" = EXCLUDED."value",
       "updatedAt" = CURRENT_TIMESTAMP
   `;
+}
+
+export const getSystemCurrency = cache(async (): Promise<SupportedCurrencyCode> => {
+  const value = await getSettingValue(CURRENCY_SETTING_KEY);
+  if (value && isSupportedCurrency(value)) {
+    return value;
+  }
+
+  return DEFAULT_SYSTEM_CURRENCY;
+});
+
+export async function setSystemCurrency(currency: SupportedCurrencyCode): Promise<void> {
+  await setSettingValue(CURRENCY_SETTING_KEY, currency);
 }
 
 function normalizeHexColor(value: string | null | undefined): string | null {
@@ -89,20 +103,8 @@ function darkenHexColor(hex: string, amount = 0.14): string {
 }
 
 export const getSystemPrimaryColor = cache(async (): Promise<string> => {
-  try {
-    await ensureAppSettingTable();
-
-    const rows = await prisma.$queryRaw<Array<{ value: string }>>`
-      SELECT "value"
-      FROM "AppSetting"
-      WHERE "key" = ${PRIMARY_COLOR_SETTING_KEY}
-      LIMIT 1
-    `;
-
-    return normalizeHexColor(rows[0]?.value) ?? DEFAULT_SYSTEM_PRIMARY_COLOR;
-  } catch {
-    return DEFAULT_SYSTEM_PRIMARY_COLOR;
-  }
+  const value = await getSettingValue(PRIMARY_COLOR_SETTING_KEY);
+  return normalizeHexColor(value) ?? DEFAULT_SYSTEM_PRIMARY_COLOR;
 });
 
 export const getSystemPrimaryStrongColor = cache(async (): Promise<string> => {
@@ -116,33 +118,12 @@ export async function setSystemPrimaryColor(color: string): Promise<void> {
     throw new Error("Color primario invalido");
   }
 
-  await ensureAppSettingTable();
-  await prisma.$executeRaw`
-    INSERT INTO "AppSetting" ("key", "value", "createdAt", "updatedAt")
-    VALUES (${PRIMARY_COLOR_SETTING_KEY}, ${normalized}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-    ON CONFLICT ("key")
-    DO UPDATE SET
-      "value" = EXCLUDED."value",
-      "updatedAt" = CURRENT_TIMESTAMP
-  `;
+  await setSettingValue(PRIMARY_COLOR_SETTING_KEY, normalized);
 }
 
 export const getSystemBrandName = cache(async (): Promise<string> => {
-  try {
-    await ensureAppSettingTable();
-
-    const rows = await prisma.$queryRaw<Array<{ value: string }>>`
-      SELECT "value"
-      FROM "AppSetting"
-      WHERE "key" = ${BRAND_NAME_SETTING_KEY}
-      LIMIT 1
-    `;
-
-    const value = rows[0]?.value?.trim();
-    return value || siteConfig.name;
-  } catch {
-    return siteConfig.name;
-  }
+  const value = (await getSettingValue(BRAND_NAME_SETTING_KEY))?.trim();
+  return value || siteConfig.name;
 });
 
 export async function setSystemBrandName(brandName: string): Promise<void> {
@@ -151,13 +132,49 @@ export async function setSystemBrandName(brandName: string): Promise<void> {
     throw new Error("Nombre de marca invalido");
   }
 
-  await ensureAppSettingTable();
-  await prisma.$executeRaw`
-    INSERT INTO "AppSetting" ("key", "value", "createdAt", "updatedAt")
-    VALUES (${BRAND_NAME_SETTING_KEY}, ${normalized}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-    ON CONFLICT ("key")
-    DO UPDATE SET
-      "value" = EXCLUDED."value",
-      "updatedAt" = CURRENT_TIMESTAMP
-  `;
+  await setSettingValue(BRAND_NAME_SETTING_KEY, normalized);
+}
+
+export type EvolutionSettings = {
+  apiBaseUrl: string;
+  apiToken: string;
+  instancePrefix: string;
+  webhookBaseUrl: string;
+  webhookSecret: string;
+};
+
+export const getEvolutionSettings = cache(async (): Promise<EvolutionSettings> => {
+  const [apiBaseUrl, apiToken, instancePrefix, webhookBaseUrl, webhookSecret] = await Promise.all([
+    getSettingValue(EVOLUTION_API_BASE_URL_SETTING_KEY),
+    getSettingValue(EVOLUTION_API_TOKEN_SETTING_KEY),
+    getSettingValue(EVOLUTION_INSTANCE_PREFIX_SETTING_KEY),
+    getSettingValue(EVOLUTION_WEBHOOK_BASE_URL_SETTING_KEY),
+    getSettingValue(EVOLUTION_WEBHOOK_SECRET_SETTING_KEY),
+  ]);
+
+  return {
+    apiBaseUrl: apiBaseUrl?.trim() ?? "",
+    apiToken: apiToken?.trim() ?? "",
+    instancePrefix: instancePrefix?.trim() || DEFAULT_EVOLUTION_INSTANCE_PREFIX,
+    webhookBaseUrl: webhookBaseUrl?.trim() ?? "",
+    webhookSecret: webhookSecret?.trim() ?? "",
+  };
+});
+
+export async function setEvolutionSettings(settings: EvolutionSettings): Promise<void> {
+  const normalized = {
+    apiBaseUrl: settings.apiBaseUrl.trim().replace(/\/+$/, ""),
+    apiToken: settings.apiToken.trim(),
+    instancePrefix: settings.instancePrefix.trim().toLowerCase(),
+    webhookBaseUrl: settings.webhookBaseUrl.trim().replace(/\/+$/, ""),
+    webhookSecret: settings.webhookSecret.trim(),
+  };
+
+  await Promise.all([
+    setSettingValue(EVOLUTION_API_BASE_URL_SETTING_KEY, normalized.apiBaseUrl),
+    setSettingValue(EVOLUTION_API_TOKEN_SETTING_KEY, normalized.apiToken),
+    setSettingValue(EVOLUTION_INSTANCE_PREFIX_SETTING_KEY, normalized.instancePrefix),
+    setSettingValue(EVOLUTION_WEBHOOK_BASE_URL_SETTING_KEY, normalized.webhookBaseUrl),
+    setSettingValue(EVOLUTION_WEBHOOK_SECRET_SETTING_KEY, normalized.webhookSecret),
+  ]);
 }

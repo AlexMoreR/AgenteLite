@@ -39,6 +39,7 @@ export function Navbar({
     config_users?: boolean;
     config_business?: boolean;
     config_permissions?: boolean;
+    config_whatsapp?: boolean;
   };
 }) {
   const { data, status } = useSession();
@@ -51,7 +52,8 @@ export function Navbar({
   const canAccessConfig = Boolean(
     adminModuleAccess?.config_users ||
       adminModuleAccess?.config_business ||
-      adminModuleAccess?.config_permissions,
+      adminModuleAccess?.config_permissions ||
+      adminModuleAccess?.config_whatsapp,
   );
 
   const navLinks: Array<{ label: string; href: string }> = [];

@@ -5,7 +5,12 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { isSupportedCurrency, type SupportedCurrencyCode } from "@/lib/currency";
-import { setSystemBrandName, setSystemCurrency, setSystemPrimaryColor } from "@/lib/system-settings";
+import {
+  setEvolutionSettings,
+  setSystemBrandName,
+  setSystemCurrency,
+  setSystemPrimaryColor,
+} from "@/lib/system-settings";
 
 const updateCurrencySchema = z.object({
   currency: z
@@ -24,6 +29,19 @@ const updatePrimaryColorSchema = z.object({
 
 const updateBrandNameSchema = z.object({
   brandName: z.string().trim().min(2, "Nombre invalido").max(80, "Nombre demasiado largo"),
+});
+
+const updateEvolutionSettingsSchema = z.object({
+  apiBaseUrl: z.string().trim().url("URL invalida"),
+  apiToken: z.string().trim().min(8, "Token invalido"),
+  instancePrefix: z
+    .string()
+    .trim()
+    .min(3, "Prefijo invalido")
+    .max(30, "Prefijo demasiado largo")
+    .regex(/^[a-z0-9-]+$/, "Solo minusculas, numeros y guiones"),
+  webhookBaseUrl: z.string().trim().url("URL invalida"),
+  webhookSecret: z.string().trim().max(120, "Secreto demasiado largo").optional(),
 });
 
 async function requireAdminSession(): Promise<void> {
@@ -99,4 +117,33 @@ export async function adminUpdateBrandNameAction(formData: FormData): Promise<vo
   revalidatePath("/admin/proveedores");
   revalidatePath("/admin/categorias");
   redirect("/admin/configuracion/negocio?ok=Marca+actualizada");
+}
+
+export async function adminUpdateEvolutionSettingsAction(formData: FormData): Promise<void> {
+  await requireAdminSession();
+
+  const parsed = updateEvolutionSettingsSchema.safeParse({
+    apiBaseUrl: formData.get("apiBaseUrl"),
+    apiToken: formData.get("apiToken"),
+    instancePrefix: formData.get("instancePrefix"),
+    webhookBaseUrl: formData.get("webhookBaseUrl"),
+    webhookSecret: formData.get("webhookSecret") || "",
+  });
+
+  if (!parsed.success) {
+    redirect("/admin/configuracion/whatsapp?error=Configuracion+de+Evolution+invalida");
+  }
+
+  await setEvolutionSettings({
+    apiBaseUrl: parsed.data.apiBaseUrl,
+    apiToken: parsed.data.apiToken,
+    instancePrefix: parsed.data.instancePrefix,
+    webhookBaseUrl: parsed.data.webhookBaseUrl,
+    webhookSecret: parsed.data.webhookSecret ?? "",
+  });
+
+  revalidatePath("/admin");
+  revalidatePath("/admin/configuracion");
+  revalidatePath("/admin/configuracion/whatsapp");
+  redirect("/admin/configuracion/whatsapp?ok=Configuracion+de+WhatsApp+actualizada");
 }

@@ -20,7 +20,7 @@ export default async function AdminPage() {
           Administra todos los usuarios, cambia roles y crea nuevas cuentas.
         </p>
         <div className="mt-4 flex flex-wrap gap-2">
-          {(moduleAccess.config_users || moduleAccess.config_business || moduleAccess.config_permissions) ? (
+          {(moduleAccess.config_users || moduleAccess.config_business || moduleAccess.config_permissions || moduleAccess.config_whatsapp) ? (
             <Link
               href="/admin/configuracion"
               className="inline-flex rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
