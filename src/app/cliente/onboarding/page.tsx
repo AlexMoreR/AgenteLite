@@ -24,6 +24,9 @@ export default async function ClienteOnboardingPage({ searchParams }: PageProps)
 
   const params = await searchParams;
   const errorMessage = typeof params.error === "string" ? params.error : "";
+  const returnTo = typeof params.returnTo === "string" && params.returnTo.startsWith("/")
+    ? params.returnTo
+    : "/cliente";
 
   return (
     <section className="app-page grid min-h-[calc(100vh-9rem)] place-items-center px-4 py-10">
@@ -49,6 +52,7 @@ export default async function ClienteOnboardingPage({ searchParams }: PageProps)
         </div>
 
         <form action={completeWorkspaceOnboardingAction} className="grid gap-4 md:grid-cols-2">
+          <input type="hidden" name="returnTo" value={returnTo} />
           <label className="space-y-1.5 md:col-span-2">
             <span className="text-sm font-medium text-slate-700">Nombre del negocio</span>
             <Input

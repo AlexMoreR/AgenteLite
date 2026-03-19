@@ -59,6 +59,8 @@ export function AppShell({ children, initialUser, brandName, adminModuleAccess }
     ? "Inicio"
     : pathname.startsWith("/admin/cotizaciones")
       ? "Cotizaciones"
+    : pathname.startsWith("/cliente/agentes")
+      ? "Agentes"
     : pathname.startsWith("/admin/categorias")
       ? "Categorias"
     : pathname.startsWith("/admin/proveedores")
@@ -91,6 +93,17 @@ export function AppShell({ children, initialUser, brandName, adminModuleAccess }
         { label: "Configuracion", href: "/admin/configuracion", isCurrent: false },
         { label: "Control de modulos", href: "", isCurrent: true },
       ];
+    }
+
+    if (pathname.startsWith("/admin/configuracion/whatsapp")) {
+      return [
+        { label: "Configuracion", href: "/admin/configuracion", isCurrent: false },
+        { label: "Configuracion WhatsApp", href: "", isCurrent: true },
+      ];
+    }
+
+    if (pathname.startsWith("/cliente/agentes")) {
+      return [{ label: "Agentes", href: "", isCurrent: true }];
     }
 
     if (pathname.startsWith("/admin/productos/new")) {

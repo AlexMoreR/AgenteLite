@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Bot,
   FileText,
   LayoutDashboard,
   Package,
@@ -121,6 +122,16 @@ export function AppSidebar({ pathname, brandName, adminModuleAccess, user, ...pr
         items: [{ title: "Listado", url: "/admin/cotizaciones" }],
       });
     }
+  }
+
+  if (user.role === "ADMIN" || user.role === "CLIENTE") {
+    navMain.push({
+      title: "Agentes",
+      url: "/cliente/agentes",
+      icon: Bot,
+      isActive: pathname.startsWith("/cliente/agentes"),
+      items: [{ title: "Estudio", url: "/cliente/agentes" }],
+    });
   }
 
   const teams = [

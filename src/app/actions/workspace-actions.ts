@@ -12,6 +12,11 @@ const workspaceOnboardingSchema = z.object({
   businessType: z.string().trim().min(2, "Tipo de negocio invalido").max(80, "Tipo de negocio invalido"),
   country: z.string().trim().min(2, "Pais invalido").max(80, "Pais invalido"),
   city: z.string().trim().min(2, "Ciudad invalida").max(80, "Ciudad invalida"),
+  returnTo: z.string().trim().optional(),
+});
+
+const resetWorkspaceSchema = z.object({
+  confirm: z.literal("RESET"),
 });
 
 export async function completeWorkspaceOnboardingAction(formData: FormData): Promise<void> {
@@ -25,6 +30,7 @@ export async function completeWorkspaceOnboardingAction(formData: FormData): Pro
     businessType: formData.get("businessType"),
     country: formData.get("country"),
     city: formData.get("city"),
+    returnTo: formData.get("returnTo"),
   });
 
   if (!parsed.success) {
@@ -37,7 +43,7 @@ export async function completeWorkspaceOnboardingAction(formData: FormData): Pro
   });
 
   if (existingMembership) {
-    redirect("/cliente");
+    redirect(parsed.data.returnTo && parsed.data.returnTo.startsWith("/") ? parsed.data.returnTo : "/cliente");
   }
 
   const slug = await generateUniqueWorkspaceSlug(parsed.data.businessName);
@@ -76,5 +82,58 @@ export async function completeWorkspaceOnboardingAction(formData: FormData): Pro
 
   revalidatePath("/cliente");
   revalidatePath("/cliente/onboarding");
+  if (parsed.data.returnTo && parsed.data.returnTo.startsWith("/")) {
+    redirect(`${parsed.data.returnTo}?ok=Negocio+configurado`);
+  }
+
   redirect("/cliente?ok=Negocio+configurado");
+}
+
+export async function resetWorkspaceAction(formData: FormData): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+    redirect("/unauthorized");
+  }
+
+  const parsed = resetWorkspaceSchema.safeParse({
+    confirm: formData.get("confirm"),
+  });
+
+  if (!parsed.success) {
+    redirect("/cliente/agentes?error=Confirmacion+invalida");
+  }
+
+  const membership = await prisma.workspaceMember.findFirst({
+    where: { userId: session.user.id },
+    orderBy: { createdAt: "asc" },
+    select: {
+      workspace: {
+        select: {
+          id: true,
+        },
+      },
+    },
+  });
+
+  if (!membership?.workspace.id) {
+    redirect("/cliente/agentes?error=No+hay+negocio+configurado");
+  }
+
+  await prisma.appSetting.deleteMany({
+    where: {
+      key: {
+        startsWith: `workspace:${membership.workspace.id}:`,
+      },
+    },
+  });
+
+  await prisma.workspace.delete({
+    where: {
+      id: membership.workspace.id,
+    },
+  });
+
+  revalidatePath("/cliente");
+  revalidatePath("/cliente/agentes");
+  redirect("/cliente/agentes?ok=Negocio+reiniciado.+Ahora+puedes+crear+todo+desde+cero");
 }
