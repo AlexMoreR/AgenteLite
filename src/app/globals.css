@@ -1,0 +1,536 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f9fafb;
+  --foreground: #111827;
+  --surface: #ffffff;
+  --surface-strong: #ffffff;
+  --line: #e5e7eb;
+  --line-strong: #d1d5db;
+  --muted: #6b7280;
+  --primary: #2563eb;
+  --primary-strong: #1d4ed8;
+  --success-bg: #f0fdf4;
+  --success-line: #bbf7d0;
+  --success-fg: #166534;
+  --danger-bg: #fef2f2;
+  --danger-line: #fecaca;
+  --danger-fg: #991b1b;
+  --info-bg: #eff6ff;
+  --info-line: #bfdbfe;
+  --info-fg: #1e3a8a;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-poppins);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-poppins), sans-serif;
+  min-height: 100vh;
+  line-height: 1.45;
+}
+
+::selection {
+  background: #e5e7eb;
+  color: #111827;
+}
+
+.saas-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: 0 1px 2px 0 rgb(17 24 39 / 0.03);
+}
+
+.app-page {
+  width: 100%;
+  max-width: none;
+  margin-inline: 0;
+}
+
+.field-select {
+  height: 2.75rem;
+  width: 100%;
+  border-radius: 0.75rem;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  padding-inline: 0.75rem;
+  font-size: 0.875rem;
+  color: #1f2937;
+  outline: none;
+  transition: border-color 120ms ease;
+}
+
+.field-select:focus {
+  border-color: var(--line-strong);
+}
+
+.app-sonner-toast {
+  border: 1px solid var(--line) !important;
+  border-radius: 0.875rem !important;
+  background: var(--surface) !important;
+  color: #0f172a !important;
+  box-shadow: 0 16px 28px -24px rgba(15, 23, 42, 0.35) !important;
+}
+
+.app-sonner-success {
+  border-color: var(--success-line) !important;
+  background: linear-gradient(180deg, #f5fff8 0%, var(--success-bg) 100%) !important;
+  color: var(--success-fg) !important;
+}
+
+.app-sonner-error {
+  border-color: var(--danger-line) !important;
+  background: linear-gradient(180deg, #fff8f8 0%, var(--danger-bg) 100%) !important;
+  color: var(--danger-fg) !important;
+}
+
+.app-sonner-info {
+  border-color: var(--info-line) !important;
+  background: linear-gradient(180deg, #f7faff 0%, var(--info-bg) 100%) !important;
+  color: var(--info-fg) !important;
+}
+
+.app-sonner-title {
+  font-size: 0.875rem !important;
+  font-weight: 600 !important;
+  line-height: 1.3 !important;
+}
+
+.app-sonner-description {
+  margin-top: 0.125rem !important;
+  font-size: 0.8125rem !important;
+  opacity: 0.92 !important;
+}
+
+@keyframes ctaFloat {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-3px) scale(1.035);
+  }
+}
+
+.cta-float {
+  animation: ctaFloat 1.35s ease-in-out infinite;
+}
+
+.cta-float-sync {
+  animation-name: ctaFloat;
+  animation-duration: 1.35s;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+  animation-delay: 0s;
+  animation-fill-mode: both;
+}
+
+.cta-float-delay {
+  animation-delay: 0.18s;
+}
+
+.cta-float-delay-2 {
+  animation-delay: 0.36s;
+}
+
+.cta-float-delay-3 {
+  animation-delay: 0.54s;
+}
+
+.cta-float-delay-4 {
+  animation-delay: 0.72s;
+}
+
+@keyframes promoMarquee {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.promo-marquee-track {
+  display: flex;
+  width: max-content;
+  min-width: 200%;
+  animation: promoMarquee 36s linear infinite;
+}
+
+@keyframes stepperIconZoom {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.14);
+  }
+}
+
+.stepper-icon-zoom {
+  animation: stepperIconZoom 1.25s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .promo-marquee-track {
+    animation: none;
+  }
+  .stepper-icon-zoom {
+    animation: none;
+  }
+}
+
+@page {
+  size: A4 landscape;
+  margin: 3mm;
+}
+
+@media print {
+  .admin-print-sidebar,
+  .admin-print-header {
+    display: none !important;
+  }
+
+  .admin-print-shell,
+  .admin-print-inset,
+  .admin-print-main {
+    min-height: auto !important;
+  }
+
+  .admin-print-inset,
+  .admin-print-main {
+    width: 100% !important;
+    max-width: none !important;
+    flex: 1 1 auto !important;
+  }
+
+  .admin-print-main {
+    padding: 0 !important;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+  }
+
+  body {
+    min-height: auto;
+  }
+
+  .quote-print-root {
+    padding: 0 !important;
+  }
+
+  .quote-print-root .sticky,
+  .quote-print-root .backdrop-blur-md,
+  .quote-print-root .backdrop-blur-sm {
+    backdrop-filter: none !important;
+  }
+
+  .quote-print-stack {
+    gap: 0.55rem !important;
+  }
+
+  .quote-print-hero-layout {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) 22rem !important;
+    gap: 0.55rem !important;
+    align-items: start !important;
+  }
+
+  .quote-print-hero-main {
+    display: contents !important;
+  }
+
+  .quote-print-hero-header {
+    grid-column: 1 / -1 !important;
+  }
+
+  .quote-print-client-panel {
+    grid-column: 1 !important;
+  }
+
+  .quote-print-company-panel {
+    grid-column: 2 !important;
+    align-self: stretch !important;
+    min-width: 0 !important;
+  }
+
+  .quote-print-card,
+  .quote-print-card article,
+  .quote-print-card aside,
+  .quote-print-card footer {
+    break-inside: avoid;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+  }
+
+  .quote-print-card {
+    border-color: #d1d5db !important;
+  }
+
+  .quote-print-hero {
+    background: #fff !important;
+    color: #0f172a !important;
+    border-color: #d1d5db !important;
+    padding: 0.82rem !important;
+  }
+
+  .quote-print-hero-deco,
+  .quote-print-hide {
+    display: none !important;
+  }
+
+  .quote-print-panel {
+    background: #fff !important;
+    border-color: #d1d5db !important;
+    padding: 0.72rem 0.92rem !important;
+    border-radius: 0.8rem !important;
+  }
+
+  .quote-print-hero h1,
+  .quote-print-hero h2,
+  .quote-print-hero p,
+  .quote-print-hero span {
+    color: #0f172a !important;
+  }
+
+  .quote-print-hero-header {
+    margin-bottom: 0.3rem !important;
+  }
+
+  .quote-print-hero-header .h-8,
+  .quote-print-hero-header .w-8 {
+    height: 2.2rem !important;
+    width: 2.2rem !important;
+  }
+
+  .quote-print-hero-header .rounded-lg {
+    border-radius: 0.45rem !important;
+  }
+
+  .quote-print-logo-mark {
+    background: #6d28d9 !important;
+    background-image: none !important;
+    color: #fff !important;
+    -webkit-text-fill-color: #fff !important;
+    fill: #fff !important;
+    text-shadow: none !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+    font-size: 1.2rem !important;
+    font-weight: 800 !important;
+    line-height: 1 !important;
+    font-family: Arial, sans-serif !important;
+  }
+
+  .quote-print-hero .text-sky-100\/80,
+  .quote-print-hero .text-sky-100 {
+    color: #64748b !important;
+  }
+
+  .quote-print-hero .border-white\/15,
+  .quote-print-hero .border-white\/28,
+  .quote-print-hero .border-white\/35,
+  .quote-print-hero .border-white\/55 {
+    border-color: #d1d5db !important;
+  }
+
+  .quote-print-root section,
+  .quote-print-root footer {
+    margin: 0 !important;
+  }
+
+  .quote-print-root img {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .quote-print-root * {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .quote-print-actions {
+    display: none !important;
+  }
+
+  .quote-print-mobile {
+    display: none !important;
+  }
+
+  .quote-print-desktop {
+    display: block !important;
+  }
+
+  .quote-print-company-desktop {
+    display: block !important;
+  }
+
+  .quote-print-client-grid,
+  .quote-print-company-grid {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 0.32rem 0.7rem !important;
+    margin-top: 0.35rem !important;
+  }
+
+  .quote-print-client-desktop,
+  .quote-print-company-desktop {
+    display: none !important;
+  }
+
+  .quote-print-field {
+    min-width: 0 !important;
+  }
+
+  .quote-print-field-label {
+    font-size: 28px !important;
+    font-weight: 600 !important;
+    line-height: 1.05 !important;
+    letter-spacing: 0.03em !important;
+    text-transform: uppercase !important;
+    color: #64748b !important;
+  }
+
+  .quote-print-field-value {
+    margin-top: 0.08rem !important;
+    font-size: 28px !important;
+    font-weight: 400 !important;
+    line-height: 1.1 !important;
+    color: #0f172a !important;
+    word-break: break-word !important;
+  }
+
+  .quote-print-feature-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  }
+
+  .quote-print-root h1 {
+    font-size: 28px !important;
+    line-height: 1.05 !important;
+  }
+
+  .quote-print-root h2,
+  .quote-print-root p,
+  .quote-print-root span,
+  .quote-print-root td,
+  .quote-print-root th,
+  .quote-print-root a {
+    font-size: 28px !important;
+    line-height: 1.2 !important;
+  }
+
+  .quote-print-root .text-base {
+    font-size: 28px !important;
+  }
+
+  .quote-print-root .text-lg {
+    font-size: 28px !important;
+  }
+
+  .quote-print-root .text-sm {
+    font-size: 28px !important;
+  }
+
+  .quote-print-root .text-xs {
+    font-size: 28px !important;
+  }
+
+  .quote-print-root .text-\[11px\] {
+    font-size: 28px !important;
+  }
+
+  .quote-print-root .mt-0\.5,
+  .quote-print-root .mt-1,
+  .quote-print-root .mt-2,
+  .quote-print-root .mt-3 {
+    margin-top: 0.22rem !important;
+  }
+
+  .quote-print-root .pt-2,
+  .quote-print-root .pt-3,
+  .quote-print-root .py-2,
+  .quote-print-root .py-2\.5,
+  .quote-print-root .py-3 {
+    padding-top: 0.3rem !important;
+    padding-bottom: 0.3rem !important;
+  }
+
+  .quote-print-root .px-3,
+  .quote-print-root .px-4 {
+    padding-left: 0.5rem !important;
+    padding-right: 0.5rem !important;
+  }
+
+  .quote-print-root table {
+    font-size: 28px !important;
+  }
+
+  .quote-print-root th,
+  .quote-print-root td {
+    padding: 0.62rem 0.76rem !important;
+  }
+
+  .quote-print-root thead th {
+    font-size: 28px !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.05em !important;
+  }
+
+  .quote-print-root tbody td {
+    font-size: 28px !important;
+    line-height: 1.18 !important;
+  }
+
+  .quote-print-root tbody td p {
+    font-size: inherit !important;
+    line-height: inherit !important;
+  }
+
+  .quote-print-root .h-12.w-12 {
+    height: 4rem !important;
+    width: 4rem !important;
+  }
+
+  .quote-print-root .space-y-4 > :not([hidden]) ~ :not([hidden]) {
+    margin-top: 0.5rem !important;
+  }
+
+  .quote-print-root .leading-relaxed {
+    line-height: 1.24 !important;
+  }
+
+  .quote-print-root .p-4,
+  .quote-print-root .p-5 {
+    padding: 0.65rem !important;
+  }
+
+  .quote-print-root .border-b.border-slate-200\/80.bg-slate-50\/70 h2 {
+    font-size: 28px !important;
+    letter-spacing: 0.04em !important;
+  }
+
+  .quote-print-root section:not(.quote-print-hero) p,
+  .quote-print-root section:not(.quote-print-hero) span,
+  .quote-print-root section:not(.quote-print-hero) a {
+    font-size: 28px !important;
+  }
+
+  .quote-print-root .quote-print-field-label {
+    font-size: 28px !important;
+  }
+
+  .quote-print-root .quote-print-field-value {
+    font-size: 28px !important;
+    font-weight: 400 !important;
+  }
+}
+
+

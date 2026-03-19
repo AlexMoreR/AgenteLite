@@ -1,0 +1,161 @@
+generator client {
+  provider   = "prisma-client-js"
+  engineType = "binary"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  ADMIN
+  EMPLEADO
+  CLIENTE
+}
+
+model User {
+  id            String   @id @default(cuid())
+  name          String?
+  email         String   @unique
+  document      String?
+  phone         String?
+  address       String?
+  neighborhood  String?
+  department    String?
+  city          String?
+  password      String
+  role          Role     @default(CLIENTE)
+  image         String?
+  emailVerified DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  quotesAsClient Quote[] @relation("QuoteClient")
+  quotesCreated  Quote[] @relation("QuoteCreatedBy")
+}
+
+model Product {
+  id                 String            @id @default(cuid())
+  code               String?           @unique
+  slug               String            @unique
+  name               String
+  description        String?
+  price              Decimal           @db.Decimal(10, 2)
+  baseCost           Decimal           @default(0) @db.Decimal(10, 2)
+  retailMarginPct    Decimal           @default(0) @db.Decimal(6, 2)
+  wholesaleMarginPct Decimal           @default(0) @db.Decimal(6, 2)
+  wholesalePrice     Decimal           @default(0) @db.Decimal(10, 2)
+  minWholesaleQty    Int               @default(6)
+  categoryId         String?
+  thumbnailUrl       String
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  category           Category?         @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  images             ProductImage[]
+  suppliers          ProductSupplier[]
+  quoteItems         QuoteItem[]
+}
+
+model ProductImage {
+  id        String   @id @default(cuid())
+  productId String
+  url       String
+  order     Int
+  createdAt DateTime @default(now())
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+}
+
+model Category {
+  id        String    @id @default(cuid())
+  name      String    @unique
+  slug      String    @unique
+  logoUrl   String?
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  products  Product[]
+}
+
+model Supplier {
+  id        String            @id @default(cuid())
+  name      String            @unique
+  email     String?
+  phone     String?
+  isActive  Boolean           @default(true)
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+  products  ProductSupplier[]
+  quoteItems QuoteItem[]
+}
+
+model ProductSupplier {
+  productId    String
+  supplierId   String
+  supplierSku  String?
+  supplierCost Decimal?  @db.Decimal(10, 2)
+  isPreferred  Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  product      Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  supplier     Supplier  @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  @@id([productId, supplierId])
+  @@index([supplierId])
+}
+
+model AppSetting {
+  key       String   @id
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum QuoteStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  REJECTED
+  EXPIRED
+}
+
+model Quote {
+  id          String      @id @default(cuid())
+  code        String      @unique
+  clientId    String
+  createdById String
+  status      QuoteStatus @default(DRAFT)
+  notes       String?
+  validUntil  DateTime?
+  subtotal    Decimal     @default(0) @db.Decimal(12, 2)
+  total       Decimal     @default(0) @db.Decimal(12, 2)
+  shareToken  String      @unique
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  client      User        @relation("QuoteClient", fields: [clientId], references: [id], onDelete: Restrict)
+  createdBy   User        @relation("QuoteCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  items       QuoteItem[]
+
+  @@index([clientId, createdAt])
+  @@index([createdById, createdAt])
+}
+
+model QuoteItem {
+  id         String   @id @default(cuid())
+  quoteId    String
+  productId  String
+  supplierId String?
+  quantity   Int      @default(1)
+  unitPrice  Decimal  @db.Decimal(12, 2)
+  lineTotal  Decimal  @db.Decimal(12, 2)
+  notes      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  quote      Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
+  supplier   Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+
+  @@index([quoteId])
+  @@index([productId])
+  @@index([supplierId])
+}
