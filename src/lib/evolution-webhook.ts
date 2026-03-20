@@ -21,6 +21,24 @@ function pickString(source: UnknownRecord | null, keys: string[]): string | null
   return null;
 }
 
+function pickNestedString(source: UnknownRecord | null, nestedKeys: string[][]): string | null {
+  if (!source) return null;
+
+  for (const path of nestedKeys) {
+    let current: unknown = source;
+
+    for (const key of path) {
+      const record = asRecord(current);
+      current = record?.[key];
+    }
+
+    const value = readString(current);
+    if (value) return value;
+  }
+
+  return null;
+}
+
 export function extractEvolutionInstanceName(payload: unknown): string | null {
   const root = asRecord(payload);
   const data = asRecord(root?.data);
@@ -40,6 +58,63 @@ export function extractEvolutionInstanceName(payload: unknown): string | null {
 export function extractEvolutionEventName(payload: unknown): string | null {
   const root = asRecord(payload);
   return pickString(root, ["event", "type"]);
+}
+
+export function extractEvolutionQrCode(payload: unknown): string | null {
+  const root = asRecord(payload);
+  const data = asRecord(root?.data);
+
+  return (
+    pickString(data, ["base64", "qrcode", "qr", "code"]) ||
+    pickNestedString(data, [
+      ["qrcode", "base64"],
+      ["qrcode", "code"],
+      ["qrCode", "base64"],
+      ["qrCode", "code"],
+    ]) ||
+    pickString(root, ["base64", "qrcode", "qr", "code"]) ||
+    pickNestedString(root, [
+      ["qrcode", "base64"],
+      ["qrcode", "code"],
+      ["qrCode", "base64"],
+      ["qrCode", "code"],
+    ])
+  );
+}
+
+export function extractEvolutionPairingCode(payload: unknown): string | null {
+  const root = asRecord(payload);
+  const data = asRecord(root?.data);
+
+  return (
+    pickString(data, ["pairingCode", "pairing_code"]) ||
+    pickNestedString(data, [["qrcode", "pairingCode"], ["qrCode", "pairingCode"]]) ||
+    pickString(root, ["pairingCode", "pairing_code"])
+  );
+}
+
+export function extractEvolutionConnectionState(payload: unknown): string | null {
+  const root = asRecord(payload);
+  const data = asRecord(root?.data);
+  const instance = asRecord(root?.instance);
+
+  return (
+    pickString(data, ["state", "status", "connection", "connectionStatus"]) ||
+    pickString(instance, ["state", "status", "connection", "connectionStatus"]) ||
+    pickString(root, ["state", "status", "connection", "connectionStatus"])
+  );
+}
+
+export function extractEvolutionPhoneNumber(payload: unknown): string | null {
+  const root = asRecord(payload);
+  const data = asRecord(root?.data);
+  const instance = asRecord(root?.instance);
+
+  return (
+    pickString(data, ["number", "phone", "phoneNumber", "owner"]) ||
+    pickString(instance, ["number", "phone", "phoneNumber", "owner"]) ||
+    pickString(root, ["number", "phone", "phoneNumber", "owner"])
+  );
 }
 
 export function extractEvolutionMessageText(payload: unknown): string | null {
@@ -75,4 +150,3 @@ export function normalizePhoneFromJid(value: string | null): string | null {
 export function isInboundMessageEvent(eventName: string | null): boolean {
   return eventName === "MESSAGES_UPSERT";
 }
-

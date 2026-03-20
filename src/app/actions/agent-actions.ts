@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { generateUniqueAgentSlug } from "@/lib/agent";
+import { createEvolutionChannelForAgent, deleteEvolutionInstance } from "@/lib/evolution";
 import { prisma } from "@/lib/prisma";
 import { generateUniqueWorkspaceSlug, getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
@@ -12,7 +13,6 @@ const createAgentSchema = z.object({
   businessType: z.enum(["productos", "servicios", "citas", "mixto"]),
   ownerName: z.string().trim().min(2, "Nombre invalido").max(80, "Nombre demasiado largo"),
   assistantGreetingName: z.string().trim().min(2, "Nombre invalido").max(80, "Nombre demasiado largo"),
-  ownerIdentity: z.enum(["hombre", "mujer", "prefiero-no-decir"]),
   country: z.string().trim().min(2, "Pais invalido").max(80, "Pais invalido"),
   businessName: z.string().trim().min(2, "Nombre del negocio invalido").max(120, "Nombre demasiado largo"),
   industry: z.string().trim().min(2, "Rubro invalido").max(120, "Rubro invalido"),
@@ -37,12 +37,6 @@ const businessTypeLabelMap = {
   mixto: "modelo mixto de productos y servicios",
 } as const;
 
-const ownerIdentityLabelMap = {
-  hombre: "hombre",
-  mujer: "mujer",
-  "prefiero-no-decir": "sin definir genero",
-} as const;
-
 export async function createAgentAction(formData: FormData): Promise<void> {
   const session = await auth();
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
@@ -53,7 +47,6 @@ export async function createAgentAction(formData: FormData): Promise<void> {
     businessType: formData.get("businessType"),
     ownerName: formData.get("ownerName"),
     assistantGreetingName: formData.get("assistantGreetingName"),
-    ownerIdentity: formData.get("ownerIdentity"),
     country: formData.get("country"),
     businessName: formData.get("businessName"),
     industry: formData.get("industry"),
@@ -96,7 +89,6 @@ export async function createAgentAction(formData: FormData): Promise<void> {
         { key: `workspace:${workspace.id}:country`, value: parsed.data.country },
         { key: `workspace:${workspace.id}:industry`, value: parsed.data.industry },
         { key: `workspace:${workspace.id}:ownerName`, value: parsed.data.ownerName },
-        { key: `workspace:${workspace.id}:ownerIdentity`, value: parsed.data.ownerIdentity },
         { key: `workspace:${workspace.id}:productLink`, value: parsed.data.productLink || "" },
         { key: `workspace:${workspace.id}:socialLinks`, value: parsed.data.socialLinks || "" },
       ],
@@ -128,7 +120,7 @@ export async function createAgentAction(formData: FormData): Promise<void> {
     `Eres ${agentName}, el asistente virtual del negocio ${membership.workspace.name}.`,
     `El negocio es de ${businessTypeLabelMap[parsed.data.businessType]} y pertenece al rubro ${parsed.data.industry}.`,
     `Tu dueno se llama ${parsed.data.ownerName} y prefieres referirte a el o ella como ${parsed.data.assistantGreetingName}.`,
-    `El negocio opera principalmente en ${parsed.data.country} y la referencia de identidad es ${ownerIdentityLabelMap[parsed.data.ownerIdentity]}.`,
+    `El negocio opera principalmente en ${parsed.data.country}.`,
     `El negocio ofrece: ${parsed.data.businessOffering}.`,
     `El modelo de cobro principal es: ${parsed.data.chargeModel}.`,
     `El volumen diario estimado es: ${parsed.data.salesVolume}.`,
@@ -138,7 +130,7 @@ export async function createAgentAction(formData: FormData): Promise<void> {
     "Si te falta informacion, pide datos concretos y sugiere continuar por WhatsApp con un humano cuando sea necesario.",
   ].join(" ");
 
-  await prisma.agent.create({
+  const agent = await prisma.agent.create({
     data: {
       workspaceId: membership.workspace.id,
       name: agentName,
@@ -154,13 +146,42 @@ export async function createAgentAction(formData: FormData): Promise<void> {
     },
   });
 
+  if (parsed.data.connectWhatsappNow === "si" && parsed.data.contactChannel === "whatsapp") {
+    try {
+      await createEvolutionChannelForAgent({
+        workspaceId: membership.workspace.id,
+        workspaceName: membership.workspace.name,
+        agentId: agent.id,
+        agentName: agent.name,
+      });
+
+      revalidatePath("/cliente");
+      revalidatePath("/cliente/agentes");
+      redirect(`/cliente/agentes/${agent.id}/whatsapp?ok=Canal+preparado`);
+    } catch {
+      const existingChannel = await prisma.whatsAppChannel.findFirst({
+        where: {
+          agentId: agent.id,
+          workspaceId: membership.workspace.id,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      revalidatePath("/cliente");
+      revalidatePath("/cliente/agentes");
+      if (existingChannel) {
+        redirect(`/cliente/agentes/${agent.id}/whatsapp?ok=Canal+preparado`);
+      }
+
+      redirect(`/cliente/agentes/${agent.id}/whatsapp?error=No+pudimos+preparar+la+conexion+automatica`);
+    }
+  }
+
   revalidatePath("/cliente");
   revalidatePath("/cliente/agentes");
-  redirect(
-    parsed.data.connectWhatsappNow === "si"
-      ? "/cliente/agentes?ok=Agente+creado.+Siguiente:+conectar+WhatsApp"
-      : "/cliente/agentes?ok=Agente+creado",
-  );
+  redirect("/cliente/agentes?ok=Agente+creado");
 }
 
 export async function deleteAgentAction(formData: FormData): Promise<void> {
@@ -189,9 +210,14 @@ export async function deleteAgentAction(formData: FormData): Promise<void> {
     },
     select: {
       id: true,
+      channels: {
+        select: {
+          id: true,
+          evolutionInstanceName: true,
+        },
+      },
       _count: {
         select: {
-          channels: true,
           conversations: true,
           messages: true,
         },
@@ -203,8 +229,24 @@ export async function deleteAgentAction(formData: FormData): Promise<void> {
     redirect("/cliente/agentes?error=Agente+no+encontrado");
   }
 
-  if (agent._count.channels > 0 || agent._count.conversations > 0 || agent._count.messages > 0) {
+  if (agent._count.conversations > 0 || agent._count.messages > 0) {
     redirect("/cliente/agentes?error=Este+agente+ya+tiene+actividad.+Por+ahora+no+se+puede+eliminar");
+  }
+
+  for (const channel of agent.channels) {
+    try {
+      await deleteEvolutionInstance(channel.evolutionInstanceName);
+    } catch {
+      // Si Evolution no responde o la instancia ya no existe, seguimos con la limpieza local.
+    }
+  }
+
+  if (agent.channels.length > 0) {
+    await prisma.whatsAppChannel.deleteMany({
+      where: {
+        agentId: agent.id,
+      },
+    });
   }
 
   await prisma.agent.delete({

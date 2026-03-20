@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { ComponentType, ReactNode } from "react";
 import {
   BarChart3,
@@ -10,6 +10,7 @@ import {
   CircleDollarSign,
   Globe2,
   Link2,
+  LoaderCircle,
   MessageSquareMore,
   MoreHorizontal,
   Package,
@@ -58,7 +59,7 @@ type StepDefinition = {
 
 const steps: StepDefinition[] = [
   { title: "¿Qué tipo de negocio tienes?", subtitle: "Esto define la base comercial del agente.", icon: Store },
-  { title: "Tu perfil", subtitle: "Así hablará el agente contigo y con tu contexto.", icon: UserRound },
+  { title: "Tu perfil", subtitle: "Así hablará el agente contigo y con tu contexto.", icon: Sparkles },
   { title: "¿Cómo se llama tu negocio?", subtitle: "La marca será parte del contexto del asistente.", icon: Sparkles },
   { title: "¿A qué rubro pertenece?", subtitle: "Eso ayuda a orientar mejor las respuestas del agente.", icon: Tags },
   { title: "¿Qué vende tu negocio?", subtitle: "Describe oferta, beneficios y forma de atención.", icon: Package },
@@ -86,7 +87,11 @@ function ProgressDot({ active, done }: { active: boolean; done: boolean }) {
   return (
     <span
       className={`h-2 rounded-full transition-all ${
-        active ? "w-8 bg-[var(--primary)]" : done ? "w-4 bg-[color-mix(in_srgb,var(--primary)_65%,white)]" : "w-4 bg-slate-200"
+        active
+          ? "w-9 bg-[var(--primary)] shadow-[0_8px_18px_-10px_color-mix(in_srgb,var(--primary)_65%,black)]"
+          : done
+            ? "w-4 bg-[color-mix(in_srgb,var(--primary)_58%,white)]"
+            : "w-4 bg-slate-200"
       }`}
     />
   );
@@ -114,10 +119,10 @@ function ChoiceCard({
   hideIndicator?: boolean;
 }) {
   return (
-    <label className="block cursor-pointer has-[:checked]:[&>span]:border-[var(--primary)] has-[:checked]:[&>span]:bg-[color-mix(in_srgb,var(--primary)_5%,white)] has-[:checked]:[&_.choice-indicator]:border-[var(--primary)] has-[:checked]:[&_.choice-indicator]:bg-[var(--primary)]">
+    <label className="block cursor-pointer has-[:checked]:[&>span]:border-[var(--primary)] has-[:checked]:[&>span]:bg-[linear-gradient(180deg,color-mix(in_srgb,var(--primary)_5%,white)_0%,white_100%)] has-[:checked]:[&>span]:shadow-[0_18px_40px_-28px_color-mix(in_srgb,var(--primary)_45%,black)] has-[:checked]:[&_.choice-indicator]:border-[var(--primary)] has-[:checked]:[&_.choice-indicator]:bg-[var(--primary)]">
       <input type="radio" name={name} value={value} defaultChecked={defaultChecked} className="sr-only" />
       <span
-        className={`relative flex flex-col justify-between rounded-[24px] border border-[rgba(148,163,184,0.18)] bg-white transition hover:border-[var(--primary)]/30 ${
+        className={`relative flex flex-col justify-between rounded-[24px] border border-[rgba(148,163,184,0.16)] bg-[linear-gradient(180deg,#ffffff_0%,#fcfcfd_100%)] transition duration-150 hover:-translate-y-0.5 hover:border-[var(--primary)]/30 hover:shadow-[0_18px_40px_-28px_rgba(15,23,42,0.18)] ${
           compact ? "min-h-[112px] p-4" : "min-h-[138px] p-5"
         }`}
       >
@@ -128,7 +133,7 @@ function ChoiceCard({
                 {badge}
               </span>
             ) : null}
-            <span className="choice-indicator inline-flex h-4 w-4 rounded-full border border-slate-300 bg-white" />
+            <span className="choice-indicator inline-flex h-4 w-4 rounded-full border border-slate-300 bg-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.8)]" />
           </span>
         ) : null}
 
@@ -137,7 +142,7 @@ function ChoiceCard({
         </span>
 
         <span className="block space-y-1.5">
-          <span className={`block font-semibold tracking-[-0.03em] text-slate-950 ${compact ? "text-sm" : "text-base"}`}>{title}</span>
+          <span className={`block font-semibold tracking-[-0.03em] text-slate-950 ${compact ? "text-sm leading-5" : "text-base"}`}>{title}</span>
           {description ? <span className="block text-sm leading-6 text-slate-600">{description}</span> : null}
         </span>
       </span>
@@ -160,14 +165,7 @@ function StepFrame({
 }) {
   return (
     <div className="space-y-6">
-      {compact ? (
-        <div className="flex items-start gap-3">
-          <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
-            <Icon className="h-5 w-5" />
-          </span>
-          <p className="max-w-xl pt-1 text-sm leading-6 text-slate-600">{subtitle}</p>
-        </div>
-      ) : (
+      {!compact ? (
         <div className="space-y-3">
           <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
             <Icon className="h-5 w-5" />
@@ -177,7 +175,7 @@ function StepFrame({
             <p className="max-w-xl text-sm leading-6 text-slate-600">{subtitle}</p>
           </div>
         </div>
-      )}
+      ) : null}
       {children}
     </div>
   );
@@ -188,16 +186,27 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
   const [step, setStep] = useState(0);
   const [pendingDelete, setPendingDelete] = useState<AgentCard | null>(null);
   const [resetOpen, setResetOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
 
   const openCreateFlow = () => {
     setStep(0);
+    setIsSubmitting(false);
     setModalOpen(true);
   };
 
   const nextStep = () => setStep((current) => Math.min(current + 1, steps.length - 1));
   const previousStep = () => setStep((current) => Math.max(current - 1, 0));
-  const closeModal = () => setModalOpen(false);
+  const closeModal = () => {
+    setIsSubmitting(false);
+    setModalOpen(false);
+  };
   const CurrentStepIcon = steps[step].icon;
+
+  const submitCreateFlow = () => {
+    setIsSubmitting(true);
+    formRef.current?.requestSubmit();
+  };
 
   return (
     <>
@@ -290,11 +299,11 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
               </span>
               <div className="space-y-2">
                 <h2 className="text-2xl font-semibold tracking-[-0.04em] text-slate-950">
-                  {hasWorkspace ? "Tu negocio está listo para crear un agente." : "Empieza creando tu primer agente."}
+                  {hasWorkspace ? "Tu negocio está listo para crear tu agente IA." : "Empieza creando tu primer agente IA."}
                 </h2>
                 <p className="text-sm leading-6 text-slate-600">
                   {hasWorkspace
-                    ? `Vamos a usar ${businessName || "tu negocio"} como base y completar el resto en el modal.`
+                    ? `Vamos a usar ${businessName || "tu negocio"} como base para configurar tu agente IA.`
                     : "Crea tu primer agente que vende 24/7 con conocimientos de tu negocio."}
                 </p>
               </div>
@@ -320,10 +329,10 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
           onClick={closeModal}
         >
           <div
-            className="flex h-full w-full max-w-[860px] flex-col overflow-hidden rounded-none border border-[rgba(148,163,184,0.18)] bg-white md:max-h-[92vh] md:rounded-[30px] md:shadow-[0_38px_90px_-44px_rgba(15,23,42,0.48)]"
+            className="flex h-full w-full max-w-[900px] flex-col overflow-hidden rounded-none border border-[rgba(148,163,184,0.18)] bg-[linear-gradient(180deg,#fdfdfd_0%,#ffffff_100%)] md:max-h-[92vh] md:rounded-[32px] md:shadow-[0_42px_110px_-52px_rgba(15,23,42,0.5)]"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="border-b border-[rgba(148,163,184,0.14)] px-5 py-5 md:px-7">
+            <div className="border-b border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfbfd_100%)] px-5 py-6 md:px-8">
               <div className="relative flex items-start justify-center gap-4">
                 <div className="space-y-3 text-center">
                   <div className="flex flex-wrap justify-center gap-2">
@@ -332,7 +341,7 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
                     ))}
                   </div>
                   <div className="space-y-2">
-                    <h2 className="text-[2.2rem] font-semibold tracking-[-0.06em] text-slate-950">{steps[step].title}</h2>
+                    <h2 className="text-[2.2rem] font-semibold tracking-[-0.06em] text-slate-950 md:text-[2.45rem]">{steps[step].title}</h2>
                     <p className="text-base text-slate-600">{steps[step].subtitle}</p>
                   </div>
                 </div>
@@ -348,11 +357,53 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
               </div>
             </div>
 
-            <form action={createAgentAction} noValidate className="flex min-h-0 flex-1 flex-col">
+            <form ref={formRef} action={createAgentAction} noValidate className="flex min-h-0 flex-1 flex-col">
               <input type="hidden" name="agentName" value="" />
 
-              <div className="flex-1 overflow-y-auto px-5 py-6 md:px-7">
-                <div className="mx-auto w-full max-w-[680px]">
+              <div
+                className={
+                  isSubmitting
+                    ? "flex flex-1 items-center justify-center overflow-hidden px-5 py-8 md:px-8 md:py-10"
+                    : "flex-1 overflow-y-auto px-5 py-6 md:px-8 md:py-7"
+                }
+              >
+                {isSubmitting ? (
+                  <div className="mx-auto flex w-full max-w-[480px] flex-col items-center justify-center text-center">
+                    <div className="relative flex h-28 w-28 items-center justify-center">
+                      <div className="absolute inset-0 rounded-full bg-[color-mix(in_srgb,var(--primary)_10%,white)] animate-pulse" />
+                      <div className="absolute inset-[10px] rounded-full border border-[color-mix(in_srgb,var(--primary)_20%,white)]" />
+                      <LoaderCircle className="absolute h-24 w-24 animate-spin text-[color-mix(in_srgb,var(--primary)_42%,white)]" />
+                      <div className="relative inline-flex h-16 w-16 items-center justify-center rounded-[24px] bg-[color-mix(in_srgb,var(--primary)_14%,white)] text-[var(--primary)] shadow-[0_18px_40px_-24px_color-mix(in_srgb,var(--primary)_45%,black)]">
+                        <Bot className="h-8 w-8" />
+                      </div>
+                    </div>
+
+                    <div className="mt-7 space-y-3">
+                      <h3 className="text-[2.1rem] font-semibold tracking-[-0.06em] text-slate-950">
+                        Creando tu agente IA
+                      </h3>
+                      <p className="text-base leading-7 text-slate-600">
+                        Estamos preparando el agente, creando la instancia de WhatsApp y dejando listo el QR de conexión.
+                      </p>
+                    </div>
+
+                    <div className="mt-8 w-full space-y-3">
+                      <div className="h-3 overflow-hidden rounded-full bg-[rgba(148,163,184,0.14)] p-[3px]">
+                        <div className="h-full w-[58%] rounded-full bg-[var(--primary)] shadow-[0_10px_20px_-12px_color-mix(in_srgb,var(--primary)_70%,black)] animate-pulse" />
+                      </div>
+                      <div className="flex items-center justify-between text-[11px] font-medium uppercase tracking-[0.16em] text-slate-500">
+                        <span>Preparando agente</span>
+                        <span>Creando instancia y QR</span>
+                      </div>
+                    </div>
+
+                    <div className="mt-5 inline-flex items-center gap-2 rounded-full border border-[rgba(148,163,184,0.14)] bg-white px-4 py-2 text-sm text-slate-600">
+                      <span className="inline-flex h-2.5 w-2.5 rounded-full bg-[var(--primary)] animate-pulse" />
+                      Esto puede tardar unos segundos
+                    </div>
+                  </div>
+                ) : (
+                <div className="mx-auto w-full max-w-[720px]">
                   <div className={step === 0 ? "block" : "hidden"}>
                     <StepFrame icon={CurrentStepIcon} title="¿Qué tipo de negocio tienes?" subtitle="Elige la opción que mejor representa cómo vende o atiende tu negocio." compact>
                       <div className="grid gap-4 md:grid-cols-2">
@@ -377,41 +428,43 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
 
                   <div className={step === 1 ? "block" : "hidden"}>
                     <StepFrame icon={CurrentStepIcon} title="Tu perfil" subtitle="Así el agente sabrá cómo referirse a ti y desde qué contexto opera." compact>
-                      <div className="grid gap-5 lg:grid-cols-[1fr_0.95fr]">
-                        <div className="space-y-4">
-                          <label className="space-y-2">
-                            <span className="text-sm font-medium text-slate-700">Tu nombre</span>
-                            <Input name="ownerName" placeholder="Ej. Carlos Ramírez" required className="h-12 rounded-2xl border-[rgba(148,163,184,0.18)] bg-white px-4" />
-                          </label>
-                          <label className="space-y-2">
-                            <span className="text-sm font-medium text-slate-700">¿Cómo prefieres que te llame tu asistente?</span>
+                      <div className="space-y-4">
+                        <label className="space-y-2">
+                          <span className="block text-center text-base font-semibold text-slate-800">Tu nombre</span>
+                          <span className="relative block">
+                            <UserRound className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--primary)]" />
+                            <Input
+                              name="ownerName"
+                              placeholder="Ej. Carlos Ramírez"
+                              required
+                              className="h-12 rounded-2xl border-[rgba(148,163,184,0.18)] bg-white pl-11 pr-4"
+                            />
+                          </span>
+                        </label>
+                        <label className="space-y-2">
+                          <span className="block text-center text-base font-semibold text-slate-800">¿Cómo prefieres que te llame tu asistente?</span>
+                          <span className="relative block">
+                            <Sparkles className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--primary)]" />
                             <Input
                               name="assistantGreetingName"
                               placeholder="Ej. Carlos, equipo comercial o doctora Laura"
                               required
-                              className="h-12 rounded-2xl border-[rgba(148,163,184,0.18)] bg-white px-4"
+                              className="h-12 rounded-2xl border-[rgba(148,163,184,0.18)] bg-white pl-11 pr-4"
                             />
-                          </label>
-                          <label className="space-y-2">
-                            <span className="text-sm font-medium text-slate-700">País</span>
-                            <Input name="country" placeholder="Ej. Colombia" required className="h-12 rounded-2xl border-[rgba(148,163,184,0.18)] bg-white px-4" />
-                          </label>
-                        </div>
-
-                        <fieldset className="space-y-3">
-                          <legend className="text-sm font-medium text-slate-700">Identidad</legend>
-                          <div className="grid gap-3 sm:grid-cols-3">
-                            <ChoiceCard name="ownerIdentity" value="hombre" title="Hombre" icon={UserRound} defaultChecked compact />
-                            <ChoiceCard name="ownerIdentity" value="mujer" title="Mujer" icon={UserRound} compact />
-                            <ChoiceCard
-                              name="ownerIdentity"
-                              value="prefiero-no-decir"
-                              title="Prefiero no definirlo"
-                              icon={UserRound}
-                              compact
+                          </span>
+                        </label>
+                        <label className="space-y-2">
+                          <span className="block text-center text-base font-semibold text-slate-800">País</span>
+                          <span className="relative block">
+                            <Globe2 className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--primary)]" />
+                            <Input
+                              name="country"
+                              placeholder="Ej. Colombia"
+                              required
+                              className="h-12 rounded-2xl border-[rgba(148,163,184,0.18)] bg-white pl-11 pr-4"
                             />
-                          </div>
-                        </fieldset>
+                          </span>
+                        </label>
                       </div>
                     </StepFrame>
                   </div>
@@ -552,37 +605,46 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
                     </StepFrame>
                   </div>
                 </div>
+                )}
               </div>
 
-              <div className="flex items-center justify-between border-t border-[rgba(148,163,184,0.14)] bg-white px-5 py-4 md:px-7">
+              {!isSubmitting ? (
+                <div className="flex items-center justify-between border-t border-[rgba(148,163,184,0.14)] bg-[rgba(255,255,255,0.92)] px-5 py-4 backdrop-blur md:px-8">
                 <button
                   type="button"
                   onClick={previousStep}
-                  disabled={step === 0}
+                  disabled={step === 0 || isSubmitting}
                   className="inline-flex h-11 items-center justify-center rounded-2xl border border-[rgba(148,163,184,0.16)] px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   Volver
                 </button>
 
-                {step < steps.length - 1 ? (
+                {isSubmitting ? (
+                  <div className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-5 text-sm font-medium text-white shadow-[0_16px_30px_-20px_color-mix(in_srgb,var(--primary)_65%,black)]">
+                    <LoaderCircle className="h-4 w-4 animate-spin" />
+                    Creando agente IA
+                  </div>
+                ) : step < steps.length - 1 ? (
                   <button
                     type="button"
                     onClick={nextStep}
-                    className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-5 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
+                    className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-5 text-sm font-medium text-white shadow-[0_16px_30px_-20px_color-mix(in_srgb,var(--primary)_65%,black)] transition hover:bg-[var(--primary-strong)]"
                   >
                     Continuar
                     <ChevronRight className="h-4 w-4" />
                   </button>
                 ) : (
                   <button
-                    type="submit"
-                    className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-5 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
+                    type="button"
+                    onClick={submitCreateFlow}
+                    className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-5 text-sm font-medium text-white shadow-[0_16px_30px_-20px_color-mix(in_srgb,var(--primary)_65%,black)] transition hover:bg-[var(--primary-strong)]"
                   >
                     Crear agente
                     <Sparkles className="h-4 w-4" />
                   </button>
                 )}
-              </div>
+                </div>
+              ) : null}
             </form>
           </div>
         </div>

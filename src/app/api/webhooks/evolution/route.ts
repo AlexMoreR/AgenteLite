@@ -1,14 +1,40 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import {
+  extractEvolutionConnectionState,
   extractEvolutionEventName,
   extractEvolutionInstanceName,
   extractEvolutionMessageText,
+  extractEvolutionPairingCode,
+  extractEvolutionPhoneNumber,
+  extractEvolutionQrCode,
   extractEvolutionRemoteJid,
   isInboundMessageEvent,
   normalizePhoneFromJid,
 } from "@/lib/evolution-webhook";
 import { getEvolutionSettings } from "@/lib/system-settings";
+
+function mapChannelStatus(eventName: string | null, rawState: string | null) {
+  const state = rawState?.toLowerCase() ?? "";
+
+  if (eventName === "QRCODE_UPDATED") {
+    return "QRCODE" as const;
+  }
+
+  if (["open", "connected", "connection_open", "online"].includes(state)) {
+    return "CONNECTED" as const;
+  }
+
+  if (["close", "closed", "disconnected", "connection_close", "offline"].includes(state)) {
+    return "DISCONNECTED" as const;
+  }
+
+  if (["connecting", "starting", "syncing"].includes(state)) {
+    return "CONNECTING" as const;
+  }
+
+  return null;
+}
 
 export async function POST(request: Request) {
   const payload = await request.json().catch(() => null);
@@ -61,6 +87,41 @@ export async function POST(request: Request) {
     return NextResponse.json({
       ok: true,
       message: "Webhook received but no matching channel was found",
+      instanceName,
+      event: eventName,
+    });
+  }
+
+  if (eventName === "QRCODE_UPDATED" || eventName === "CONNECTION_UPDATE") {
+    const qrCode = extractEvolutionQrCode(payload);
+    const pairingCode = extractEvolutionPairingCode(payload);
+    const phoneNumber = normalizePhoneFromJid(extractEvolutionPhoneNumber(payload));
+    const nextStatus = mapChannelStatus(eventName, extractEvolutionConnectionState(payload));
+
+    await prisma.whatsAppChannel.update({
+      where: { id: channel.id },
+      data: {
+        ...(qrCode ? { qrCode, status: "QRCODE" } : {}),
+        ...(phoneNumber ? { phoneNumber } : {}),
+        ...(pairingCode ? { metadata: { pairingCode } } : {}),
+        ...(nextStatus ? { status: nextStatus } : {}),
+        ...(nextStatus === "CONNECTED"
+          ? {
+              lastConnectionAt: new Date(),
+              qrCode: null,
+            }
+          : {}),
+        ...(nextStatus === "DISCONNECTED"
+          ? {
+              lastDisconnectionAt: new Date(),
+            }
+          : {}),
+      },
+    });
+
+    return NextResponse.json({
+      ok: true,
+      message: "Channel state updated",
       instanceName,
       event: eventName,
     });
