@@ -63,6 +63,11 @@ export async function POST(request: Request) {
   const eventName = extractEvolutionEventName(payload);
   const instanceName = extractEvolutionInstanceName(payload);
 
+  console.log("[EVOLUTION] webhook_received", {
+    eventName,
+    instanceName,
+  });
+
   const channel = instanceName
     ? await prisma.whatsAppChannel.findUnique({
         where: { evolutionInstanceName: instanceName },
@@ -89,6 +94,10 @@ export async function POST(request: Request) {
   });
 
   if (!channel) {
+    console.warn("[EVOLUTION] channel_not_found", {
+      eventName,
+      instanceName,
+    });
     return NextResponse.json({
       ok: true,
       message: "Webhook received but no matching channel was found",
@@ -124,6 +133,16 @@ export async function POST(request: Request) {
       },
     });
 
+    console.log("[EVOLUTION] channel_state_updated", {
+      eventName,
+      instanceName,
+      channelId: channel.id,
+      nextStatus,
+      phoneNumber,
+      hasQrCode: Boolean(qrCode),
+      hasPairingCode: Boolean(pairingCode),
+    });
+
     return NextResponse.json({
       ok: true,
       message: "Channel state updated",
@@ -147,7 +166,22 @@ export async function POST(request: Request) {
   const messageExternalId = extractEvolutionMessageId(payload);
   const fromMe = extractEvolutionFromMe(payload);
 
+  console.log("[EVOLUTION] inbound_candidate", {
+    eventName,
+    instanceName,
+    channelId: channel.id,
+    fromMe,
+    phoneNumber,
+    hasMessageText: Boolean(messageText?.trim()),
+    messageExternalId,
+  });
+
   if (fromMe || !phoneNumber) {
+    console.log("[EVOLUTION] inbound_skipped", {
+      reason: fromMe ? "from_me" : "missing_phone",
+      eventName,
+      instanceName,
+    });
     return NextResponse.json({
       ok: true,
       message: fromMe
@@ -226,6 +260,13 @@ export async function POST(request: Request) {
     },
   });
 
+  console.log("[EVOLUTION] inbound_saved", {
+    conversationId: conversation.id,
+    contactId: contact.id,
+    agentId: channel.agentId,
+    phoneNumber,
+  });
+
   if (channel.agentId) {
     const agent = await prisma.agent.findUnique({
       where: { id: channel.agentId },
@@ -238,6 +279,17 @@ export async function POST(request: Request) {
         welcomeMessage: true,
         fallbackMessage: true,
       },
+    });
+
+    console.log("[EVOLUTION] agent_loaded", {
+      agentId: channel.agentId,
+      exists: Boolean(agent),
+      status: agent?.status,
+      isActive: agent?.isActive,
+      hasWelcomeMessage: Boolean(agent?.welcomeMessage),
+      hasFallbackMessage: Boolean(agent?.fallbackMessage),
+      hasSystemPrompt: Boolean(agent?.systemPrompt),
+      model: agent?.model ?? null,
     });
 
     if (agent?.isActive && agent.status === "ACTIVE" && channel.evolutionInstanceName && messageText) {
@@ -279,6 +331,14 @@ export async function POST(request: Request) {
 
       if (replyText) {
         try {
+          console.log("[EVOLUTION] auto_reply_sending", {
+            conversationId: conversation.id,
+            agentId: agent.id,
+            phoneNumber,
+            instanceName: channel.evolutionInstanceName,
+            preview: replyText.slice(0, 80),
+          });
+
           const outbound = await sendEvolutionTextMessage({
             instanceName: channel.evolutionInstanceName,
             phoneNumber,
@@ -309,7 +369,21 @@ export async function POST(request: Request) {
               status: "OPEN",
             },
           });
+
+          console.log("[EVOLUTION] auto_reply_sent", {
+            conversationId: conversation.id,
+            agentId: agent.id,
+            phoneNumber,
+            externalId: outbound.externalId,
+          });
         } catch {
+          console.error("[EVOLUTION] auto_reply_failed", {
+            conversationId: conversation.id,
+            agentId: agent.id,
+            phoneNumber,
+            instanceName: channel.evolutionInstanceName,
+          });
+
           await prisma.message.create({
             data: {
               workspaceId: channel.workspaceId,
@@ -325,8 +399,35 @@ export async function POST(request: Request) {
             },
           });
         }
+      } else {
+        console.log("[EVOLUTION] auto_reply_skipped", {
+          reason: "empty_reply",
+          conversationId: conversation.id,
+          agentId: agent.id,
+        });
       }
+    } else {
+      console.log("[EVOLUTION] auto_reply_skipped", {
+        reason: !agent
+          ? "agent_not_found"
+          : !agent.isActive
+            ? "agent_inactive"
+            : agent.status !== "ACTIVE"
+              ? `status_${agent.status}`
+              : !channel.evolutionInstanceName
+                ? "missing_instance"
+                : !messageText
+                  ? "missing_message_text"
+                  : "unknown",
+        conversationId: conversation.id,
+        agentId: channel.agentId,
+      });
     }
+  } else {
+    console.log("[EVOLUTION] auto_reply_skipped", {
+      reason: "channel_without_agent",
+      conversationId: conversation.id,
+    });
   }
 
   return NextResponse.json({
