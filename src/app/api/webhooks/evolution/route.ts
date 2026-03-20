@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
+import { generateAgentReply } from "@/lib/agent-ai";
 import { prisma } from "@/lib/prisma";
 import {
   extractEvolutionConnectionState,
   extractEvolutionEventName,
+  extractEvolutionFromMe,
   extractEvolutionInstanceName,
+  extractEvolutionMessageId,
   extractEvolutionMessageText,
   extractEvolutionPairingCode,
   extractEvolutionPhoneNumber,
@@ -12,6 +15,7 @@ import {
   isInboundMessageEvent,
   normalizePhoneFromJid,
 } from "@/lib/evolution-webhook";
+import { sendEvolutionTextMessage } from "@/lib/evolution";
 import { getEvolutionSettings } from "@/lib/system-settings";
 
 function mapChannelStatus(eventName: string | null, rawState: string | null) {
@@ -62,13 +66,14 @@ export async function POST(request: Request) {
   const channel = instanceName
     ? await prisma.whatsAppChannel.findUnique({
         where: { evolutionInstanceName: instanceName },
-        select: {
-          id: true,
-          workspaceId: true,
-          agentId: true,
-          name: true,
-        },
-      })
+      select: {
+        id: true,
+        workspaceId: true,
+        agentId: true,
+        name: true,
+        evolutionInstanceName: true,
+      },
+    })
     : null;
 
   await prisma.webhookEventLog.create({
@@ -139,11 +144,15 @@ export async function POST(request: Request) {
   const remoteJid = extractEvolutionRemoteJid(payload);
   const phoneNumber = normalizePhoneFromJid(remoteJid);
   const messageText = extractEvolutionMessageText(payload);
+  const messageExternalId = extractEvolutionMessageId(payload);
+  const fromMe = extractEvolutionFromMe(payload);
 
-  if (!phoneNumber) {
+  if (fromMe || !phoneNumber) {
     return NextResponse.json({
       ok: true,
-      message: "Inbound event logged without identifiable phone number",
+      message: fromMe
+        ? "Outbound/self message ignored"
+        : "Inbound event logged without identifiable phone number",
       instanceName,
       event: eventName,
     });
@@ -200,7 +209,7 @@ export async function POST(request: Request) {
       channelId: channel.id,
       contactId: contact.id,
       agentId: channel.agentId ?? null,
-      externalId: remoteJid ? `${remoteJid}-${Date.now()}` : null,
+      externalId: messageExternalId || (remoteJid ? `${remoteJid}-${Date.now()}` : null),
       direction: "INBOUND",
       type: "TEXT",
       status: "RECEIVED",
@@ -216,6 +225,109 @@ export async function POST(request: Request) {
       status: "OPEN",
     },
   });
+
+  if (channel.agentId) {
+    const agent = await prisma.agent.findUnique({
+      where: { id: channel.agentId },
+      select: {
+        id: true,
+        status: true,
+        isActive: true,
+        model: true,
+        systemPrompt: true,
+        welcomeMessage: true,
+        fallbackMessage: true,
+      },
+    });
+
+    if (agent?.isActive && agent.status === "ACTIVE" && channel.evolutionInstanceName && messageText) {
+      const existingOutbound = await prisma.message.findFirst({
+        where: {
+          conversationId: conversation.id,
+          direction: "OUTBOUND",
+        },
+        select: { id: true },
+      });
+
+      let replyText: string | null = null;
+
+      if (!existingOutbound) {
+        replyText = agent.welcomeMessage?.trim() || agent.fallbackMessage?.trim() || null;
+      } else {
+        const recentMessages = await prisma.message.findMany({
+          where: {
+            conversationId: conversation.id,
+          },
+          orderBy: {
+            createdAt: "asc",
+          },
+          take: 8,
+          select: {
+            direction: true,
+            content: true,
+          },
+        });
+
+        replyText = await generateAgentReply({
+          model: agent.model,
+          systemPrompt: agent.systemPrompt,
+          fallbackMessage: agent.fallbackMessage,
+          history: recentMessages,
+          latestUserMessage: messageText,
+        });
+      }
+
+      if (replyText) {
+        try {
+          const outbound = await sendEvolutionTextMessage({
+            instanceName: channel.evolutionInstanceName,
+            phoneNumber,
+            text: replyText,
+          });
+
+          await prisma.message.create({
+            data: {
+              workspaceId: channel.workspaceId,
+              conversationId: conversation.id,
+              channelId: channel.id,
+              contactId: contact.id,
+              agentId: agent.id,
+              externalId: outbound.externalId,
+              direction: "OUTBOUND",
+              type: "TEXT",
+              status: "SENT",
+              content: replyText,
+              sentAt: new Date(),
+              rawPayload: outbound.raw as never,
+            },
+          });
+
+          await prisma.conversation.update({
+            where: { id: conversation.id },
+            data: {
+              lastMessageAt: new Date(),
+              status: "OPEN",
+            },
+          });
+        } catch {
+          await prisma.message.create({
+            data: {
+              workspaceId: channel.workspaceId,
+              conversationId: conversation.id,
+              channelId: channel.id,
+              contactId: contact.id,
+              agentId: agent.id,
+              direction: "OUTBOUND",
+              type: "TEXT",
+              status: "FAILED",
+              content: replyText,
+              failedAt: new Date(),
+            },
+          });
+        }
+      }
+    }
+  }
 
   return NextResponse.json({
     ok: true,

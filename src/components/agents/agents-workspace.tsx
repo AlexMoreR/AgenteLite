@@ -25,7 +25,7 @@ import {
   UserRound,
   X,
 } from "lucide-react";
-import { createAgentAction, deleteAgentAction } from "@/app/actions/agent-actions";
+import { createAgentAction, deleteAgentAction, toggleAgentStatusAction } from "@/app/actions/agent-actions";
 import { resetWorkspaceAction } from "@/app/actions/workspace-actions";
 import { Card } from "@/components/ui/card";
 import {
@@ -79,7 +79,7 @@ const statusLabelMap = {
 
 const statusToneMap = {
   DRAFT: "bg-amber-50 text-amber-700 ring-amber-200",
-  ACTIVE: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+  ACTIVE: "bg-emerald-500 text-white ring-emerald-500 shadow-[0_10px_24px_-18px_rgba(16,185,129,0.8)]",
   PAUSED: "bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)] ring-slate-200",
   ARCHIVED: "bg-rose-50 text-rose-700 ring-rose-200",
 } as const;
@@ -216,7 +216,12 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
           <div className="space-y-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="space-y-1">
-                <h2 className="text-xl font-semibold tracking-[-0.04em] text-slate-950">Agentes creados</h2>
+                <div className="flex items-center gap-3">
+                  <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
+                    <Bot className="h-5 w-5" />
+                  </span>
+                  <h2 className="text-xl font-semibold tracking-[-0.04em] text-slate-950">Agentes creados</h2>
+                </div>
                 <p className="text-sm text-slate-600">Administra tus agentes desde un solo lugar.</p>
               </div>
               <button
@@ -249,6 +254,10 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
                           >
                             {statusLabelMap[agent.status]}
                           </span>
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700 ring-1 ring-emerald-200">
+                            <MessageSquareMore className="h-3.5 w-3.5" />
+                            WhatsApp
+                          </span>
                         </div>
                         <p className="mt-1 truncate text-sm text-slate-600">
                           {agent.description || "Aún no tiene descripción comercial."}
@@ -260,18 +269,33 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
                           <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">Último ajuste</p>
                           <p className="mt-1 text-sm font-medium text-slate-900">{agent.updatedAtLabel}</p>
                         </div>
-                        <div>
-                          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">Canales</p>
-                          <p className="mt-1 text-sm font-medium text-slate-900">{agent.channelCount}</p>
-                        </div>
-                        <div className="max-w-[220px]">
-                          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">Bienvenida</p>
-                          <p className="mt-1 truncate text-sm font-medium text-slate-900">{agent.welcomeMessage || "Pendiente"}</p>
-                        </div>
                       </div>
                     </Link>
 
-                    <div className="flex shrink-0 items-center pr-4">
+                    <div className="flex shrink-0 items-center gap-2 pr-4">
+                      <form action={toggleAgentStatusAction}>
+                        <input type="hidden" name="agentId" value={agent.id} />
+                        <button
+                          type="submit"
+                          className="inline-flex h-7 items-center justify-center bg-transparent p-0 transition hover:opacity-90"
+                          aria-label={agent.status === "ACTIVE" ? `Apagar ${agent.name}` : `Encender ${agent.name}`}
+                        >
+                          <span
+                            className={`relative inline-flex h-7 w-12 shrink-0 rounded-full transition ${
+                              agent.status === "ACTIVE"
+                                ? "bg-emerald-500/90"
+                                : "bg-slate-300"
+                            }`}
+                          >
+                            <span
+                              className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow-[0_2px_10px_-4px_rgba(15,23,42,0.45)] transition-transform ${
+                                agent.status === "ACTIVE" ? "translate-x-5" : "translate-x-0.5"
+                              }`}
+                            />
+                          </span>
+                        </button>
+                      </form>
+
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <button

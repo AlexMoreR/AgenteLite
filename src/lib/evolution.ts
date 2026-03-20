@@ -24,6 +24,26 @@ type EvolutionConnectionStateResponse = {
   };
 };
 
+type EvolutionSendTextResponse = {
+  key?: {
+    id?: string;
+  };
+  message?: {
+    key?: {
+      id?: string;
+    };
+  };
+  data?: {
+    key?: {
+      id?: string;
+    };
+    id?: string;
+  };
+  id?: string;
+  messageId?: string;
+  status?: string;
+};
+
 function normalizeEvolutionState(value: string | null | undefined) {
   return typeof value === "string" && value.trim() ? value.trim().toLowerCase() : null;
 }
@@ -192,4 +212,35 @@ export async function deleteEvolutionInstance(instanceName: string) {
   await evolutionRequest(`/instance/delete/${instanceName}`, {
     method: "DELETE",
   });
+}
+
+export async function sendEvolutionTextMessage(input: {
+  instanceName: string;
+  phoneNumber: string;
+  text: string;
+}) {
+  const response = await evolutionRequest<EvolutionSendTextResponse>(`/message/sendText/${input.instanceName}`, {
+    method: "POST",
+    body: JSON.stringify({
+      number: input.phoneNumber,
+      text: input.text,
+      textMessage: {
+        text: input.text,
+      },
+    }),
+  });
+
+  const externalId =
+    response.key?.id ||
+    response.message?.key?.id ||
+    response.data?.key?.id ||
+    response.data?.id ||
+    response.id ||
+    response.messageId ||
+    null;
+
+  return {
+    externalId,
+    raw: response,
+  };
 }

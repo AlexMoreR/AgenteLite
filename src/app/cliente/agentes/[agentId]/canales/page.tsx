@@ -93,7 +93,7 @@ export default async function ClienteAgenteCanalesPage({ params, searchParams }:
   const effectiveErrorMessage = hasQrCode || channel?.status === "QRCODE" || isConnected ? "" : errorMessage;
 
   return (
-    <AgentPanelShell agentId={agent.id} agentName={agent.name} description={agent.description}>
+    <AgentPanelShell agentId={agent.id}>
       <QueryFeedbackToast
         okMessage={okMessage}
         errorMessage={effectiveErrorMessage}

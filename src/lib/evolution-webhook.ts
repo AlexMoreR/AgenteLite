@@ -128,6 +128,25 @@ export function extractEvolutionMessageText(payload: unknown): string | null {
   return conversation || extendedConversation || pickString(data, ["text", "body"]);
 }
 
+export function extractEvolutionMessageId(payload: unknown): string | null {
+  const root = asRecord(payload);
+  const data = asRecord(root?.data);
+  const key = asRecord(data?.key);
+
+  return (
+    pickString(key, ["id"]) ||
+    pickString(data, ["messageId", "message_id", "id"])
+  );
+}
+
+export function extractEvolutionFromMe(payload: unknown): boolean {
+  const root = asRecord(payload);
+  const data = asRecord(root?.data);
+  const key = asRecord(data?.key);
+
+  return key?.fromMe === true || data?.fromMe === true;
+}
+
 export function extractEvolutionRemoteJid(payload: unknown): string | null {
   const root = asRecord(payload);
   const data = asRecord(root?.data);

@@ -30,6 +30,10 @@ const deleteAgentSchema = z.object({
   agentId: z.string().trim().min(1, "Agente invalido"),
 });
 
+const toggleAgentStatusSchema = z.object({
+  agentId: z.string().trim().min(1, "Agente invalido"),
+});
+
 const businessTypeLabelMap = {
   productos: "venta de productos",
   servicios: "venta de servicios",
@@ -256,4 +260,56 @@ export async function deleteAgentAction(formData: FormData): Promise<void> {
   revalidatePath("/cliente");
   revalidatePath("/cliente/agentes");
   redirect("/cliente/agentes?ok=Agente+eliminado");
+}
+
+export async function toggleAgentStatusAction(formData: FormData): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+    redirect("/unauthorized");
+  }
+
+  const parsed = toggleAgentStatusSchema.safeParse({
+    agentId: formData.get("agentId"),
+  });
+
+  if (!parsed.success) {
+    redirect("/cliente/agentes?error=Agente+invalido");
+  }
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    redirect("/cliente/agentes?error=Debes+configurar+tu+negocio+primero");
+  }
+
+  const agent = await prisma.agent.findFirst({
+    where: {
+      id: parsed.data.agentId,
+      workspaceId: membership.workspace.id,
+    },
+    select: {
+      id: true,
+      status: true,
+      isActive: true,
+    },
+  });
+
+  if (!agent) {
+    redirect("/cliente/agentes?error=Agente+no+encontrado");
+  }
+
+  const nextStatus = agent.status === "ACTIVE" ? "PAUSED" : "ACTIVE";
+
+  await prisma.agent.update({
+    where: { id: agent.id },
+    data: {
+      status: nextStatus,
+      isActive: nextStatus === "ACTIVE",
+    },
+  });
+
+  revalidatePath("/cliente");
+  revalidatePath("/cliente/agentes");
+  redirect(
+    `/cliente/agentes?ok=${nextStatus === "ACTIVE" ? "Agente+encendido" : "Agente+apagado"}`,
+  );
 }

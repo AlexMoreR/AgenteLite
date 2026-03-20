@@ -46,7 +46,7 @@ export default async function ClienteAgentePanelPage({ params }: PageProps) {
   }
 
   return (
-    <AgentPanelShell agentId={agent.id} agentName={agent.name} description={agent.description}>
+    <AgentPanelShell agentId={agent.id}>
       <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
         <Card className="border border-[rgba(148,163,184,0.14)] bg-white p-6">
           <div className="space-y-4">
