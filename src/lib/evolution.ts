@@ -9,6 +9,25 @@ type EvolutionConnectResponse = {
   base64?: string;
 };
 
+type EvolutionConnectionStateResponse = {
+  instance?: {
+    instanceName?: string;
+    state?: string;
+  };
+  state?: string;
+  status?: string;
+  connectionStatus?: string;
+  data?: {
+    state?: string;
+    status?: string;
+    connectionStatus?: string;
+  };
+};
+
+function normalizeEvolutionState(value: string | null | undefined) {
+  return typeof value === "string" && value.trim() ? value.trim().toLowerCase() : null;
+}
+
 function buildWebhookHeaders(secret: string) {
   if (!secret) {
     return undefined;
@@ -45,6 +64,51 @@ async function evolutionRequest<T>(path: string, init?: RequestInit): Promise<T>
   }
 
   return (await response.json().catch(() => ({}))) as T;
+}
+
+export async function getEvolutionConnectionState(instanceName: string) {
+  const settings = await getEvolutionSettings();
+  if (!settings.apiBaseUrl || !settings.apiToken) {
+    return null;
+  }
+
+  try {
+    const response = await evolutionRequest<EvolutionConnectionStateResponse>(`/instance/connectionState/${instanceName}`, {
+      method: "GET",
+    });
+
+    return (
+      normalizeEvolutionState(response.instance?.state) ||
+      normalizeEvolutionState(response.state) ||
+      normalizeEvolutionState(response.status) ||
+      normalizeEvolutionState(response.connectionStatus) ||
+      normalizeEvolutionState(response.data?.state) ||
+      normalizeEvolutionState(response.data?.status) ||
+      normalizeEvolutionState(response.data?.connectionStatus)
+    );
+  } catch {
+    return null;
+  }
+}
+
+export async function getEvolutionConnectionQr(instanceName: string) {
+  const settings = await getEvolutionSettings();
+  if (!settings.apiBaseUrl || !settings.apiToken) {
+    return { qrCode: null, pairingCode: null };
+  }
+
+  try {
+    const response = await evolutionRequest<EvolutionConnectResponse>(`/instance/connect/${instanceName}`, {
+      method: "GET",
+    });
+
+    return {
+      qrCode: response.base64 || response.code || null,
+      pairingCode: response.pairingCode ?? null,
+    };
+  } catch {
+    return { qrCode: null, pairingCode: null };
+  }
 }
 
 export async function createEvolutionChannelForAgent(input: {

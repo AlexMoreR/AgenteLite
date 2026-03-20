@@ -1,0 +1,20 @@
+                  </div>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-2xl bg-slate-50 px-4 py-4">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Paso 1</p>
+                    <p className="mt-2 text-sm font-medium text-slate-900">Abre WhatsApp</p>
+                    <p className="mt-1 text-sm leading-5 text-slate-600">En tu teléfono, abre la aplicación principal.</p>
+                  </div>
+                  <div className="rounded-2xl bg-slate-50 px-4 py-4">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Paso 2</p>
+                    <p className="mt-2 text-sm font-medium text-slate-900">Ve a Dispositivos vinculados</p>
+                    <p className="mt-1 text-sm leading-5 text-slate-600">Entra al menú y toca la opción para vincular un dispositivo.</p>
+                  </div>
+                  <div className="rounded-2xl bg-slate-50 px-4 py-4">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Paso 3</p>
+                    <p className="mt-2 text-sm font-medium text-slate-900">Escanea el código QR</p>
+                    <p className="mt-1 text-sm leading-5 text-slate-600">Apunta la cámara al código para completar la conexión.</p>
+                  </div>
+                </div>

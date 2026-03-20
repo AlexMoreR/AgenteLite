@@ -1,5 +1,6 @@
 ﻿"use client";
 
+import Link from "next/link";
 import { useRef, useState } from "react";
 import type { ComponentType, ReactNode } from "react";
 import {
@@ -228,15 +229,19 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
               </button>
             </div>
 
-            <div className="grid gap-4 xl:grid-cols-2">
+            <div className="space-y-3">
               {agents.map((agent) => (
-                <Card key={agent.id} className="border border-[rgba(148,163,184,0.14)] bg-white p-5">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-start gap-4">
-                      <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
+                <Card
+                  key={agent.id}
+                  className="border border-[rgba(148,163,184,0.14)] bg-white p-0 transition hover:border-[var(--primary)]/30 hover:shadow-[0_16px_40px_-32px_rgba(15,23,42,0.18)]"
+                >
+                  <div className="flex items-center gap-3">
+                    <Link href={`/cliente/agentes/${agent.id}/whatsapp`} className="flex min-w-0 flex-1 items-center gap-4 px-5 py-4">
+                      <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
                         <Bot className="h-5 w-5" />
                       </span>
-                      <div className="space-y-1">
+
+                      <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
                           <h3 className="text-lg font-semibold tracking-[-0.03em] text-slate-950">{agent.name}</h3>
                           <span
@@ -245,46 +250,48 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
                             {statusLabelMap[agent.status]}
                           </span>
                         </div>
-                        <p className="text-sm leading-6 text-slate-600">
+                        <p className="mt-1 truncate text-sm text-slate-600">
                           {agent.description || "Aún no tiene descripción comercial."}
                         </p>
                       </div>
-                    </div>
 
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <button
-                          type="button"
-                          className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-[rgba(148,163,184,0.16)] bg-white text-slate-600 transition hover:bg-slate-50"
-                          aria-label={`Acciones para ${agent.name}`}
-                        >
-                          <MoreHorizontal className="h-4 w-4" />
-                        </button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem
-                          onSelect={() => setPendingDelete(agent)}
-                          className="flex items-center gap-2 text-rose-600 focus:text-rose-700"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                          Eliminar agente
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
+                      <div className="hidden shrink-0 items-center gap-8 lg:flex">
+                        <div>
+                          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">Último ajuste</p>
+                          <p className="mt-1 text-sm font-medium text-slate-900">{agent.updatedAtLabel}</p>
+                        </div>
+                        <div>
+                          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">Canales</p>
+                          <p className="mt-1 text-sm font-medium text-slate-900">{agent.channelCount}</p>
+                        </div>
+                        <div className="max-w-[220px]">
+                          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">Bienvenida</p>
+                          <p className="mt-1 truncate text-sm font-medium text-slate-900">{agent.welcomeMessage || "Pendiente"}</p>
+                        </div>
+                      </div>
+                    </Link>
 
-                  <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                    <div className="rounded-2xl bg-slate-50 px-4 py-3">
-                      <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">Último ajuste</p>
-                      <p className="mt-2 text-sm font-medium text-slate-900">{agent.updatedAtLabel}</p>
-                    </div>
-                    <div className="rounded-2xl bg-slate-50 px-4 py-3">
-                      <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">Canales</p>
-                      <p className="mt-2 text-sm font-medium text-slate-900">{agent.channelCount}</p>
-                    </div>
-                    <div className="rounded-2xl bg-slate-50 px-4 py-3">
-                      <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">Bienvenida</p>
-                      <p className="mt-2 line-clamp-2 text-sm font-medium text-slate-900">{agent.welcomeMessage || "Pendiente"}</p>
+                    <div className="flex shrink-0 items-center pr-4">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            type="button"
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-[rgba(148,163,184,0.16)] bg-white text-slate-600 transition hover:bg-slate-50"
+                            aria-label={`Acciones para ${agent.name}`}
+                          >
+                            <MoreHorizontal className="h-4 w-4" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            onSelect={() => setPendingDelete(agent)}
+                            className="flex items-center gap-2 text-rose-600 focus:text-rose-700"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            Eliminar agente
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                   </div>
                 </Card>
@@ -560,7 +567,7 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
 
                   <div className={step === 7 ? "block" : "hidden"}>
                     <StepFrame icon={CurrentStepIcon} title="¿Dónde atenderás a tus clientes?" subtitle="Define el canal principal para este agente." compact>
-                      <div className="grid gap-4 md:grid-cols-2">
+                      <div className="max-w-[440px]">
                         <ChoiceCard
                           name="contactChannel"
                           value="whatsapp"
@@ -569,14 +576,6 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
                           badge="Activo"
                           icon={MessageSquareMore}
                           defaultChecked
-                        />
-                        <ChoiceCard
-                          name="contactChannel"
-                          value="api-oficial"
-                          title="API oficial"
-                          description="La dejamos preparada para más adelante."
-                          badge="Pronto"
-                          icon={Globe2}
                         />
                       </div>
                     </StepFrame>
@@ -588,8 +587,8 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
                         <ChoiceCard
                           name="connectWhatsappNow"
                           value="si"
-                          title="Sí, quiero conectarlo después"
-                          description="Crear el agente y seguir con la conexión."
+                          title="Sí, quiero conectarlo ahora"
+                          description="Crear el agente y abrir la conexión de inmediato."
                           badge="Recomendado"
                           icon={QrCode}
                           defaultChecked
