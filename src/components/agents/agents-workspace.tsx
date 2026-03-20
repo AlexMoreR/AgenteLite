@@ -236,7 +236,7 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
                   className="border border-[rgba(148,163,184,0.14)] bg-white p-0 transition hover:border-[var(--primary)]/30 hover:shadow-[0_16px_40px_-32px_rgba(15,23,42,0.18)]"
                 >
                   <div className="flex items-center gap-3">
-                    <Link href={`/cliente/agentes/${agent.id}/whatsapp`} className="flex min-w-0 flex-1 items-center gap-4 px-5 py-4">
+                    <Link href={`/cliente/agentes/${agent.id}`} className="flex min-w-0 flex-1 items-center gap-4 px-5 py-4">
                       <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
                         <Bot className="h-5 w-5" />
                       </span>
