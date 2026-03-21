@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { generateUniqueAgentSlug } from "@/lib/agent";
-import { createEvolutionChannelForAgent, deleteEvolutionInstance } from "@/lib/evolution";
+import { createEvolutionChannelForAgent, deleteEvolutionInstance, sendEvolutionTextMessage } from "@/lib/evolution";
 import { prisma } from "@/lib/prisma";
 import { generateUniqueWorkspaceSlug, getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
@@ -32,6 +32,12 @@ const deleteAgentSchema = z.object({
 
 const toggleAgentStatusSchema = z.object({
   agentId: z.string().trim().min(1, "Agente invalido"),
+});
+
+const sendManualAgentReplySchema = z.object({
+  agentId: z.string().trim().min(1, "Agente invalido"),
+  conversationId: z.string().trim().min(1, "Conversacion invalida"),
+  message: z.string().trim().min(1, "Escribe un mensaje").max(2000, "Mensaje demasiado largo"),
 });
 
 const businessTypeLabelMap = {
@@ -312,4 +318,88 @@ export async function toggleAgentStatusAction(formData: FormData): Promise<void>
   redirect(
     `/cliente/agentes?ok=${nextStatus === "ACTIVE" ? "Agente+encendido" : "Agente+apagado"}`,
   );
+}
+
+export async function sendManualAgentReplyAction(formData: FormData): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+    redirect("/unauthorized");
+  }
+
+  const parsed = sendManualAgentReplySchema.safeParse({
+    agentId: formData.get("agentId"),
+    conversationId: formData.get("conversationId"),
+    message: formData.get("message"),
+  });
+
+  const fallbackAgentId = String(formData.get("agentId") || "");
+
+  if (!parsed.success) {
+    redirect(`/cliente/agentes/${fallbackAgentId}/chats?error=No+se+pudo+enviar+el+mensaje`);
+  }
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    redirect("/cliente/agentes?error=Debes+configurar+tu+negocio+primero");
+  }
+
+  const conversation = await prisma.conversation.findFirst({
+    where: {
+      id: parsed.data.conversationId,
+      workspaceId: membership.workspace.id,
+      agentId: parsed.data.agentId,
+    },
+    include: {
+      contact: {
+        select: {
+          id: true,
+          phoneNumber: true,
+        },
+      },
+      channel: {
+        select: {
+          id: true,
+          evolutionInstanceName: true,
+        },
+      },
+    },
+  });
+
+  if (!conversation || !conversation.channel?.evolutionInstanceName || !conversation.contact?.phoneNumber) {
+    redirect(`/cliente/agentes/${parsed.data.agentId}/chats?error=No+se+encontro+el+canal+o+contacto`);
+  }
+
+  const outbound = await sendEvolutionTextMessage({
+    instanceName: conversation.channel.evolutionInstanceName,
+    phoneNumber: conversation.contact.phoneNumber,
+    text: parsed.data.message,
+  });
+
+  await prisma.message.create({
+    data: {
+      workspaceId: membership.workspace.id,
+      conversationId: conversation.id,
+      channelId: conversation.channel.id,
+      contactId: conversation.contact.id,
+      agentId: parsed.data.agentId,
+      externalId: outbound.externalId,
+      direction: "OUTBOUND",
+      type: "TEXT",
+      status: "SENT",
+      content: parsed.data.message,
+      sentAt: new Date(),
+      rawPayload: outbound.raw as never,
+    },
+  });
+
+  await prisma.conversation.update({
+    where: { id: conversation.id },
+    data: {
+      lastMessageAt: new Date(),
+      status: "OPEN",
+    },
+  });
+
+  revalidatePath(`/cliente/agentes/${parsed.data.agentId}/chats`);
+  redirect(`/cliente/agentes/${parsed.data.agentId}/chats?conversationId=${conversation.id}&ok=Mensaje+enviado`);
 }
