@@ -44,6 +44,10 @@ type EvolutionSendTextResponse = {
   status?: string;
 };
 
+type EvolutionProfilePictureResponse = {
+  profilePictureUrl?: string | null;
+};
+
 function normalizeEvolutionState(value: string | null | undefined) {
   return typeof value === "string" && value.trim() ? value.trim().toLowerCase() : null;
 }
@@ -243,4 +247,30 @@ export async function sendEvolutionTextMessage(input: {
     externalId,
     raw: response,
   };
+}
+
+export async function fetchEvolutionProfilePictureUrl(input: {
+  instanceName: string;
+  phoneNumber: string;
+}) {
+  const settings = await getEvolutionSettings();
+  if (!settings.apiBaseUrl || !settings.apiToken || !input.instanceName || !input.phoneNumber) {
+    return null;
+  }
+
+  try {
+    const response = await evolutionRequest<EvolutionProfilePictureResponse>(
+      `/chat/fetchProfilePictureUrl/${input.instanceName}`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          number: input.phoneNumber,
+        }),
+      },
+    );
+
+    return response.profilePictureUrl || null;
+  } catch {
+    return null;
+  }
 }

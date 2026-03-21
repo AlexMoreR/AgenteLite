@@ -15,6 +15,7 @@ import {
 type AgentPanelShellProps = {
   agentId: string;
   children: ReactNode;
+  hideMobileNav?: boolean;
 };
 
 const tabs = [
@@ -26,12 +27,12 @@ const tabs = [
   { key: "automatizar", label: "Escalar/Automatizar", href: "", icon: Workflow, disabled: true },
 ];
 
-export function AgentPanelShell({ agentId, children }: AgentPanelShellProps) {
+export function AgentPanelShell({ agentId, children, hideMobileNav = false }: AgentPanelShellProps) {
   const pathname = usePathname();
 
   return (
-    <section className="w-full space-y-4 overflow-x-hidden">
-      <div className="overflow-x-auto -mt-1">
+    <section className="flex min-h-0 w-full flex-1 flex-col overflow-x-hidden">
+      <div className="hidden overflow-x-auto -mt-1 md:block">
         <nav className="flex min-w-max items-center gap-1.5 rounded-[20px] border border-[rgba(148,163,184,0.14)] bg-white p-2 shadow-[0_12px_30px_-26px_rgba(15,23,42,0.14)]">
           {tabs.map((tab) => {
             const href = typeof tab.href === "function" ? tab.href(agentId) : "";
@@ -68,7 +69,37 @@ export function AgentPanelShell({ agentId, children }: AgentPanelShellProps) {
         </nav>
       </div>
 
-      {children}
+      <div className="mt-0 flex-1 md:mt-0">{children}</div>
+
+      {!hideMobileNav ? (
+        <nav className="sticky bottom-0 z-20 -mx-3 overflow-hidden rounded-t-[18px] border-t border-[rgba(148,163,184,0.14)] bg-white px-0 py-0 md:mx-0 md:hidden">
+          <div className="grid grid-cols-3 gap-0">
+            {tabs
+              .filter((tab) => !tab.disabled)
+              .slice(0, 3)
+              .map((tab) => {
+                const href = typeof tab.href === "function" ? tab.href(agentId) : "";
+                const active = pathname === href;
+                const Icon = tab.icon;
+
+                return (
+                  <Link
+                    key={tab.key}
+                    href={href}
+                    className={`flex min-h-[52px] flex-col items-center justify-center gap-0.5 rounded-none px-0 py-1.5 text-center text-[10px] font-medium transition ${
+                      active
+                        ? "bg-[var(--primary)] text-white"
+                        : "text-slate-600"
+                    }`}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                    <span className="leading-none">{tab.label}</span>
+                  </Link>
+                );
+              })}
+          </div>
+        </nav>
+      ) : null}
     </section>
   );
 }

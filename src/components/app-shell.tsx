@@ -55,6 +55,7 @@ export function AppShell({ children, initialUser, brandName, adminModuleAccess }
   ]);
   const isCategoryStorefrontPath = Boolean(firstSegment) && !reservedStoreSegments.has(firstSegment);
   const showTopMenu = pathname === "/" || pathname.startsWith("/productos") || pathname.startsWith("/categorias") || isCategoryStorefrontPath;
+  const isAgentWorkspacePath = pathname.startsWith("/cliente/agentes/");
   const currentPage = pathname === "/"
     ? "Inicio"
     : pathname.startsWith("/admin/cotizaciones")
@@ -201,7 +202,12 @@ export function AppShell({ children, initialUser, brandName, adminModuleAccess }
                 </Breadcrumb>
               </div>
             </header>
-            <main className="admin-print-main flex flex-1 flex-col p-3 md:p-4">
+            <main
+              className={cn(
+                "admin-print-main flex flex-1 flex-col",
+                isAgentWorkspacePath ? "min-h-0 overflow-hidden p-0 md:p-4" : "p-3 md:p-4",
+              )}
+            >
               {children}
             </main>
           </SidebarInset>
