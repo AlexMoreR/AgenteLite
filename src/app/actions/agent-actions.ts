@@ -388,7 +388,10 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<vo
       status: "SENT",
       content: parsed.data.message,
       sentAt: new Date(),
-      rawPayload: outbound.raw as never,
+      rawPayload: {
+        source: "manual",
+        evolution: outbound.raw,
+      } as never,
     },
   });
 

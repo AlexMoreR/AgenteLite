@@ -1,8 +1,10 @@
 import Image from "next/image";
 import { redirect } from "next/navigation";
-import { ArrowLeft, MessageSquareText, Search, SendHorizonal } from "lucide-react";
+import { ArrowLeft, Bot, MessageSquareText, Search, SendHorizonal, UserRound } from "lucide-react";
 import { auth } from "@/auth";
 import { sendManualAgentReplyAction } from "@/app/actions/agent-actions";
+import { ChatsAutoRefresh } from "@/components/agents/chats-auto-refresh";
+import { ChatScrollAnchor } from "@/components/agents/chat-scroll-anchor";
 import { AgentPanelShell } from "@/components/agents/agent-panel-shell";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { Card } from "@/components/ui/card";
@@ -92,6 +94,7 @@ export default async function ClienteAgenteChatsPage({ params, searchParams }: P
               content: true,
               direction: true,
               createdAt: true,
+              rawPayload: true,
             },
           },
         },
@@ -120,6 +123,9 @@ export default async function ClienteAgenteChatsPage({ params, searchParams }: P
     filteredConversations[0] ||
     null;
   const hasMobileSelection = Boolean(explicitSelectedConversation);
+  const selectedConversationScrollKey = selectedConversation
+    ? `${selectedConversation.id}:${selectedConversation.messages.length}:${selectedConversation.messages.at(-1)?.id ?? ""}`
+    : "empty";
   const evolutionInstanceName = agent.channels[0]?.evolutionInstanceName ?? null;
 
   const avatarUrls = evolutionInstanceName
@@ -142,6 +148,7 @@ export default async function ClienteAgenteChatsPage({ params, searchParams }: P
 
   return (
     <AgentPanelShell agentId={agent.id} hideMobileNav={hasMobileSelection}>
+      <ChatsAutoRefresh />
       <QueryFeedbackToast
         okMessage={okMessage}
         errorMessage={errorMessage}
@@ -250,7 +257,7 @@ export default async function ClienteAgenteChatsPage({ params, searchParams }: P
         >
           {selectedConversation ? (
             <div className="flex min-h-0 h-full w-full flex-1 flex-col">
-              <div className="sticky top-0 z-10 shrink-0 border-b border-[rgba(148,163,184,0.12)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcff_100%)] px-4 py-3 md:static md:px-5">
+              <div className="sticky top-0 z-10 shrink-0 border-b border-[rgba(148,163,184,0.12)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcff_100%)] px-[10px] py-[10px] md:static md:px-[10px]">
                 <div className="flex min-w-0 items-center justify-between gap-4">
                   <div className="flex min-w-0 items-center gap-3">
                     <a
@@ -283,13 +290,18 @@ export default async function ClienteAgenteChatsPage({ params, searchParams }: P
                   </div>
 
                   <span
-                    className={`rounded-full px-3 py-1 text-xs font-medium ${
+                    className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
                       agent.status === "ACTIVE"
                         ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
                         : "bg-slate-100 text-slate-600 ring-1 ring-slate-200"
                     }`}
                   >
-                    IA {agent.status === "ACTIVE" ? "Activa" : "Pausada"}
+                    <span
+                      className={`h-2 w-2 rounded-full ${
+                        agent.status === "ACTIVE" ? "bg-emerald-500" : "bg-slate-400"
+                      }`}
+                    />
+                    <Bot className="h-3.5 w-3.5" />
                   </span>
                 </div>
               </div>
@@ -308,6 +320,12 @@ export default async function ClienteAgenteChatsPage({ params, searchParams }: P
                   <div className="space-y-3">
                   {selectedConversation.messages.map((message, index) => {
                     const outbound = message.direction === "OUTBOUND";
+                    const isManualOutbound =
+                      outbound &&
+                      typeof message.rawPayload === "object" &&
+                      message.rawPayload !== null &&
+                      "source" in message.rawPayload &&
+                      message.rawPayload.source === "manual";
                     const previousMessage = selectedConversation.messages[index - 1];
                     const currentDateKey = new Intl.DateTimeFormat("en-CA").format(message.createdAt);
                     const previousDateKey = previousMessage
@@ -333,24 +351,30 @@ export default async function ClienteAgenteChatsPage({ params, searchParams }: P
                             }`}
                           >
                             <p>{message.content || "-"}</p>
-                            <div className={`mt-1.5 flex items-center justify-end gap-0 text-[10px] ${outbound ? "text-white/80" : "text-slate-400"}`}>
+                            <div className={`mt-1.5 flex items-center justify-end gap-1 text-[10px] ${outbound ? "text-white/80" : "text-slate-400"}`}>
+                              {outbound ? (
+                                isManualOutbound ? <UserRound className="h-3 w-3" /> : <Bot className="h-3 w-3" />
+                              ) : (
+                                <UserRound className="h-3 w-3" />
+                              )}
                               <span>
                                 {new Intl.DateTimeFormat("es-CO", {
                                   hour: "numeric",
                                   minute: "2-digit",
                                 }).format(message.createdAt)}
                               </span>
-                              {outbound ? <span aria-hidden="true">✓✓</span> : null}
+                              {outbound ? <span className="ml-1" aria-hidden="true">✓✓</span> : null}
                             </div>
                           </div>
                         </div>
                       </div>
                     );
                   })}
+                  <ChatScrollAnchor dependencyKey={selectedConversationScrollKey} />
                   </div>
                 </div>
 
-                <div className="sticky bottom-0 z-10 shrink-0 border-t border-[rgba(148,163,184,0.12)] bg-white px-4 py-2 md:static md:px-5 md:py-4">
+                <div className="sticky bottom-0 z-10 shrink-0 border-t border-[rgba(148,163,184,0.12)] bg-white px-2 py-2 md:static md:px-2 md:py-2">
                   <form action={sendManualAgentReplyAction}>
                     <input type="hidden" name="agentId" value={agent.id} />
                     <input type="hidden" name="conversationId" value={selectedConversation.id} />
@@ -360,11 +384,11 @@ export default async function ClienteAgenteChatsPage({ params, searchParams }: P
                         name="message"
                         rows={1}
                         placeholder="Escribe un mensaje..."
-                        className="flex h-11 min-h-0 flex-1 resize-none rounded-2xl border border-[rgba(148,163,184,0.14)] bg-slate-50/80 px-4 py-3 text-sm text-slate-800 placeholder:text-slate-400 outline-none transition focus:border-[var(--primary)] focus:bg-white focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_18%,white)] md:h-12"
+                        className="flex h-10 min-h-0 flex-1 resize-none rounded-2xl border border-[rgba(148,163,184,0.14)] bg-slate-50/80 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 outline-none transition focus:border-[var(--primary)] focus:bg-white focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_18%,white)] md:h-10"
                       />
                       <button
                         type="submit"
-                        className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[var(--primary)] text-white transition hover:bg-[var(--primary-strong)] md:h-12 md:w-12"
+                        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[var(--primary)] text-white transition hover:bg-[var(--primary-strong)] md:h-10 md:w-10"
                         aria-label="Enviar mensaje"
                       >
                         <SendHorizonal className="h-5 w-5" />
