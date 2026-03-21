@@ -376,13 +376,13 @@ export async function POST(request: Request) {
             phoneNumber,
             externalId: outbound.externalId,
           });
-        } catch {
-          console.error("[EVOLUTION] auto_reply_failed", {
-            conversationId: conversation.id,
-            agentId: agent.id,
-            phoneNumber,
-            instanceName: channel.evolutionInstanceName,
-          });
+        } catch (error) {
+          const errorMessage =
+            error instanceof Error ? (error.stack || error.message) : JSON.stringify(error);
+
+          console.error(
+            `[EVOLUTION] auto_reply_failed conversationId=${conversation.id} agentId=${agent.id} phone=${phoneNumber} instance=${channel.evolutionInstanceName} error=${errorMessage}`,
+          );
 
           await prisma.message.create({
             data: {

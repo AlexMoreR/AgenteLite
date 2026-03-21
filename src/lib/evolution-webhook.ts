@@ -57,7 +57,10 @@ export function extractEvolutionInstanceName(payload: unknown): string | null {
 
 export function extractEvolutionEventName(payload: unknown): string | null {
   const root = asRecord(payload);
-  return pickString(root, ["event", "type"]);
+  const rawEvent = pickString(root, ["event", "type"]);
+  if (!rawEvent) return null;
+
+  return rawEvent.trim().replace(/\./g, "_").replace(/\s+/g, "_").toUpperCase();
 }
 
 export function extractEvolutionQrCode(payload: unknown): string | null {
@@ -167,5 +170,5 @@ export function normalizePhoneFromJid(value: string | null): string | null {
 }
 
 export function isInboundMessageEvent(eventName: string | null): boolean {
-  return eventName === "MESSAGES_UPSERT";
+  return eventName === "MESSAGES_UPSERT" || eventName === "MESSAGE_UPSERT";
 }
