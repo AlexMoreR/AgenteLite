@@ -133,6 +133,7 @@ model Agent {
   name                String
   slug                String
   description         String?
+  trainingConfig      Json?
   systemPrompt        String?
   welcomeMessage      String?
   fallbackMessage     String?

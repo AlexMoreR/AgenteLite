@@ -6,6 +6,17 @@ import { z } from "zod";
 import { auth } from "@/auth";
 import { generateUniqueAgentSlug } from "@/lib/agent";
 import {
+  buildAgentSystemPrompt,
+  buildAgentTrainingConfig,
+  buildFallbackMessage,
+  buildHandoffMessage,
+  buildWelcomeMessage,
+  forbiddenRuleOptions,
+  getResponseLengthFromValue,
+  targetAudienceOptions,
+  toneOptions,
+} from "@/lib/agent-training";
+import {
   createEvolutionChannelForAgent,
   deleteEvolutionInstance,
   sendEvolutionPresence,
@@ -15,19 +26,32 @@ import { prisma } from "@/lib/prisma";
 import { generateUniqueWorkspaceSlug, getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
 const createAgentSchema = z.object({
-  businessType: z.enum(["productos", "servicios", "citas", "mixto"]),
-  ownerName: z.string().trim().min(2, "Nombre invalido").max(80, "Nombre demasiado largo"),
-  assistantGreetingName: z.string().trim().min(2, "Nombre invalido").max(80, "Nombre demasiado largo"),
-  country: z.string().trim().min(2, "Pais invalido").max(80, "Pais invalido"),
   businessName: z.string().trim().min(2, "Nombre del negocio invalido").max(120, "Nombre demasiado largo"),
-  industry: z.string().trim().min(2, "Rubro invalido").max(120, "Rubro invalido"),
-  agentName: z.string().trim().max(80, "Nombre demasiado largo").optional(),
-  businessOffering: z.string().trim().min(8, "Describe mejor lo que ofrece tu negocio").max(280, "Descripcion demasiado larga"),
-  productLink: z.string().trim().optional(),
-  socialLinks: z.string().trim().optional(),
-  salesVolume: z.enum(["bajo", "medio", "alto"]),
-  chargeModel: z.enum(["por-producto", "por-servicio", "mixto", "cotizacion"]),
-  contactChannel: z.enum(["whatsapp", "api-oficial"]),
+  businessDescription: z
+    .string()
+    .trim()
+    .min(12, "Cuenta un poco mas sobre lo que vendes")
+    .max(500, "Descripcion demasiado larga"),
+  targetAudiences: z
+    .array(z.enum(targetAudienceOptions))
+    .min(1, "Selecciona al menos un tipo de cliente")
+    .max(5, "Selecciona hasta cinco tipos de cliente"),
+  priceRangeMin: z.string().trim().max(40, "Valor demasiado largo"),
+  priceRangeMax: z.string().trim().max(40, "Valor demasiado largo"),
+  salesTone: z.enum(toneOptions.map((item) => item.value) as [string, ...string[]]),
+  responseLengthValue: z.coerce.number().int().min(0).max(100),
+  useEmojis: z.boolean(),
+  useExpressivePunctuation: z.boolean(),
+  useTuteo: z.boolean(),
+  useCustomerName: z.boolean(),
+  askNameFirst: z.boolean(),
+  offerBestSeller: z.boolean(),
+  handlePriceObjections: z.boolean(),
+  askForOrder: z.boolean(),
+  sendPaymentLink: z.boolean(),
+  handoffToHuman: z.boolean(),
+  forbiddenRules: z.array(z.string()).max(10, "Demasiadas reglas"),
+  customRules: z.string().trim().max(600, "Las reglas personalizadas son demasiado largas"),
   connectWhatsappNow: z.enum(["si", "despues"]),
 });
 
@@ -45,33 +69,36 @@ const sendManualAgentReplySchema = z.object({
   message: z.string().trim().min(1, "Escribe un mensaje").max(2000, "Mensaje demasiado largo"),
 });
 
-const businessTypeLabelMap = {
-  productos: "venta de productos",
-  servicios: "venta de servicios",
-  citas: "negocio basado en reservas o citas",
-  mixto: "modelo mixto de productos y servicios",
-} as const;
-
 export async function createAgentAction(formData: FormData): Promise<void> {
   const session = await auth();
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
     redirect("/unauthorized");
   }
 
+  const rawForbiddenRules = formData
+    .getAll("forbiddenRules")
+    .filter((value): value is string => typeof value === "string" && forbiddenRuleOptions.includes(value as never));
+
   const parsed = createAgentSchema.safeParse({
-    businessType: formData.get("businessType"),
-    ownerName: formData.get("ownerName"),
-    assistantGreetingName: formData.get("assistantGreetingName"),
-    country: formData.get("country"),
     businessName: formData.get("businessName"),
-    industry: formData.get("industry"),
-    agentName: formData.get("agentName"),
-    businessOffering: formData.get("businessOffering"),
-    productLink: formData.get("productLink"),
-    socialLinks: formData.get("socialLinks"),
-    salesVolume: formData.get("salesVolume"),
-    chargeModel: formData.get("chargeModel"),
-    contactChannel: formData.get("contactChannel"),
+    businessDescription: formData.get("businessDescription"),
+    targetAudiences: formData.getAll("targetAudiences"),
+    priceRangeMin: formData.get("priceRangeMin"),
+    priceRangeMax: formData.get("priceRangeMax"),
+    salesTone: formData.get("salesTone"),
+    responseLengthValue: formData.get("responseLengthValue"),
+    useEmojis: formData.get("useEmojis") === "on",
+    useExpressivePunctuation: formData.get("useExpressivePunctuation") === "on",
+    useTuteo: formData.get("useTuteo") === "on",
+    useCustomerName: formData.get("useCustomerName") === "on",
+    askNameFirst: formData.get("askNameFirst") === "on",
+    offerBestSeller: formData.get("offerBestSeller") === "on",
+    handlePriceObjections: formData.get("handlePriceObjections") === "on",
+    askForOrder: formData.get("askForOrder") === "on",
+    sendPaymentLink: formData.get("sendPaymentLink") === "on",
+    handoffToHuman: formData.get("handoffToHuman") === "on",
+    forbiddenRules: rawForbiddenRules,
+    customRules: formData.get("customRules"),
     connectWhatsappNow: formData.get("connectWhatsappNow"),
   });
 
@@ -98,18 +125,6 @@ export async function createAgentAction(formData: FormData): Promise<void> {
       select: { id: true, name: true },
     });
 
-    await prisma.appSetting.createMany({
-      data: [
-        { key: `workspace:${workspace.id}:businessType`, value: parsed.data.businessType },
-        { key: `workspace:${workspace.id}:country`, value: parsed.data.country },
-        { key: `workspace:${workspace.id}:industry`, value: parsed.data.industry },
-        { key: `workspace:${workspace.id}:ownerName`, value: parsed.data.ownerName },
-        { key: `workspace:${workspace.id}:productLink`, value: parsed.data.productLink || "" },
-        { key: `workspace:${workspace.id}:socialLinks`, value: parsed.data.socialLinks || "" },
-      ],
-      skipDuplicates: true,
-    });
-
     membership = {
       role: "OWNER",
       workspace: {
@@ -128,40 +143,57 @@ export async function createAgentAction(formData: FormData): Promise<void> {
     };
   }
 
-  const agentName = parsed.data.agentName?.trim() || `Asistente ${parsed.data.businessName}`;
+  const agentName = `Asistente ${parsed.data.businessName}`;
   const slug = await generateUniqueAgentSlug(membership.workspace.id, agentName);
+  const training = buildAgentTrainingConfig({
+    businessDescription: parsed.data.businessDescription,
+    targetAudiences: parsed.data.targetAudiences,
+    priceRangeMin: parsed.data.priceRangeMin,
+    priceRangeMax: parsed.data.priceRangeMax,
+    salesTone: parsed.data.salesTone,
+    responseLength: getResponseLengthFromValue(parsed.data.responseLengthValue),
+    useEmojis: parsed.data.useEmojis,
+    useExpressivePunctuation: parsed.data.useExpressivePunctuation,
+    useTuteo: parsed.data.useTuteo,
+    useCustomerName: parsed.data.useCustomerName,
+    askNameFirst: parsed.data.askNameFirst,
+    offerBestSeller: parsed.data.offerBestSeller,
+    handlePriceObjections: parsed.data.handlePriceObjections,
+    askForOrder: parsed.data.askForOrder,
+    sendPaymentLink: parsed.data.sendPaymentLink,
+    handoffToHuman: parsed.data.handoffToHuman,
+    forbiddenRules: parsed.data.forbiddenRules,
+    customRules: parsed.data.customRules,
+  });
 
-  const systemPrompt = [
-    `Eres ${agentName}, el asistente virtual del negocio ${membership.workspace.name}.`,
-    `El negocio es de ${businessTypeLabelMap[parsed.data.businessType]} y pertenece al rubro ${parsed.data.industry}.`,
-    `Tu dueno se llama ${parsed.data.ownerName} y prefieres referirte a el o ella como ${parsed.data.assistantGreetingName}.`,
-    `El negocio opera principalmente en ${parsed.data.country}.`,
-    `El negocio ofrece: ${parsed.data.businessOffering}.`,
-    `El modelo de cobro principal es: ${parsed.data.chargeModel}.`,
-    `El volumen diario estimado es: ${parsed.data.salesVolume}.`,
-    `Tu principal canal de seguimiento sera: ${parsed.data.contactChannel}.`,
-    `Link principal del negocio: ${parsed.data.productLink || "no definido"}.`,
-    `Redes sociales: ${parsed.data.socialLinks || "no definidas"}.`,
-    "Si te falta informacion, pide datos concretos y sugiere continuar por WhatsApp con un humano cuando sea necesario.",
-  ].join(" ");
+  const systemPrompt = buildAgentSystemPrompt({
+    agentName,
+    businessName: membership.workspace.name,
+    training,
+  });
 
   const agent = await prisma.agent.create({
     data: {
       workspaceId: membership.workspace.id,
       name: agentName,
       slug,
-      description: parsed.data.businessOffering,
+      description: parsed.data.businessDescription,
+      trainingConfig: training,
       systemPrompt,
-      welcomeMessage: `Hola, soy ${agentName}. Estoy aqui para ayudarte con ${membership.workspace.name}.`,
-      fallbackMessage: "Puedo ayudarte mejor si me cuentas un poco mas sobre lo que necesitas.",
-      handoffMessage: "Si quieres, puedo dejar tu solicitud lista para que un asesor humano continue contigo por WhatsApp.",
+      welcomeMessage: buildWelcomeMessage({
+        agentName,
+        businessName: membership.workspace.name,
+        training,
+      }),
+      fallbackMessage: buildFallbackMessage(training),
+      handoffMessage: buildHandoffMessage(),
       status: "DRAFT",
       model: "gpt-4.1-mini",
       maxTokens: 350,
     },
   });
 
-  if (parsed.data.connectWhatsappNow === "si" && parsed.data.contactChannel === "whatsapp") {
+  if (parsed.data.connectWhatsappNow === "si") {
     try {
       await createEvolutionChannelForAgent({
         workspaceId: membership.workspace.id,
@@ -320,9 +352,7 @@ export async function toggleAgentStatusAction(formData: FormData): Promise<void>
 
   revalidatePath("/cliente");
   revalidatePath("/cliente/agentes");
-  redirect(
-    `/cliente/agentes?ok=${nextStatus === "ACTIVE" ? "Agente+encendido" : "Agente+apagado"}`,
-  );
+  redirect(`/cliente/agentes?ok=${nextStatus === "ACTIVE" ? "Agente+encendido" : "Agente+apagado"}`);
 }
 
 export async function sendManualAgentReplyAction(formData: FormData): Promise<void> {
