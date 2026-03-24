@@ -148,12 +148,13 @@ export async function createEvolutionChannelForAgent(input: {
     throw new Error("Completa primero la configuracion global de WhatsApp");
   }
 
+  const normalizedPrefix = settings.instancePrefix.trim().toLowerCase() || "instancia";
   let sequence = (await prisma.whatsAppChannel.count()) + 1;
-  let instanceName = `instancia-${sequence}`;
+  let instanceName = `${normalizedPrefix}-${sequence}`;
 
   while (await prisma.whatsAppChannel.findUnique({ where: { evolutionInstanceName: instanceName }, select: { id: true } })) {
     sequence += 1;
-    instanceName = `instancia-${sequence}`;
+    instanceName = `${normalizedPrefix}-${sequence}`;
   }
 
   await evolutionRequest("/instance/create", {
