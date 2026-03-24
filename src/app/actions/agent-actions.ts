@@ -16,6 +16,7 @@ import {
   targetAudienceOptions,
   toneOptions,
 } from "@/lib/agent-training";
+import { generateAgentReply } from "@/lib/agent-ai";
 import {
   createEvolutionChannelForAgent,
   deleteEvolutionInstance,
@@ -69,6 +70,19 @@ const sendManualAgentReplySchema = z.object({
   message: z.string().trim().min(1, "Escribe un mensaje").max(2000, "Mensaje demasiado largo"),
 });
 
+const simulateAgentReplySchema = z.object({
+  agentId: z.string().trim().min(1, "Agente invalido"),
+  latestUserMessage: z.string().trim().min(1, "Escribe un mensaje").max(2000, "Mensaje demasiado largo"),
+  history: z
+    .array(
+      z.object({
+        direction: z.enum(["INBOUND", "OUTBOUND"]),
+        content: z.string().trim().max(2000, "Mensaje demasiado largo"),
+      }),
+    )
+    .max(30, "Demasiados mensajes en la prueba"),
+});
+
 const updateAgentTrainingSchema = createAgentSchema.extend({
   agentId: z.string().trim().min(1, "Agente invalido"),
 });
@@ -77,15 +91,19 @@ function collectTrainingFormInput(formData: FormData) {
   const rawForbiddenRules = formData
     .getAll("forbiddenRules")
     .filter((value): value is string => typeof value === "string" && forbiddenRuleOptions.includes(value as never));
+  const getStringValue = (key: string) => {
+    const value = formData.get(key);
+    return typeof value === "string" ? value : "";
+  };
 
   return {
-    businessName: formData.get("businessName"),
-    businessDescription: formData.get("businessDescription"),
+    businessName: getStringValue("businessName"),
+    businessDescription: getStringValue("businessDescription"),
     targetAudiences: formData.getAll("targetAudiences"),
-    priceRangeMin: formData.get("priceRangeMin"),
-    priceRangeMax: formData.get("priceRangeMax"),
-    salesTone: formData.get("salesTone"),
-    responseLengthValue: formData.get("responseLengthValue"),
+    priceRangeMin: getStringValue("priceRangeMin"),
+    priceRangeMax: getStringValue("priceRangeMax"),
+    salesTone: getStringValue("salesTone"),
+    responseLengthValue: getStringValue("responseLengthValue"),
     useEmojis: formData.get("useEmojis") === "on",
     useExpressivePunctuation: formData.get("useExpressivePunctuation") === "on",
     useTuteo: formData.get("useTuteo") === "on",
@@ -97,8 +115,8 @@ function collectTrainingFormInput(formData: FormData) {
     sendPaymentLink: formData.get("sendPaymentLink") === "on",
     handoffToHuman: formData.get("handoffToHuman") === "on",
     forbiddenRules: rawForbiddenRules,
-    customRules: formData.get("customRules"),
-    connectWhatsappNow: formData.get("connectWhatsappNow") || "despues",
+    customRules: getStringValue("customRules"),
+    connectWhatsappNow: getStringValue("connectWhatsappNow") || "despues",
   };
 }
 
@@ -111,7 +129,8 @@ export async function createAgentAction(formData: FormData): Promise<void> {
   const parsed = createAgentSchema.safeParse(collectTrainingFormInput(formData));
 
   if (!parsed.success) {
-    redirect("/cliente/agentes?error=No+se+pudo+crear+el+agente");
+    const message = parsed.error.issues[0]?.message || "No se pudo crear el agente";
+    redirect(`/cliente/agentes?error=${encodeURIComponent(message)}`);
   }
 
   let membership = await getPrimaryWorkspaceForUser(session.user.id);
@@ -195,7 +214,8 @@ export async function createAgentAction(formData: FormData): Promise<void> {
       }),
       fallbackMessage: buildFallbackMessage(training),
       handoffMessage: buildHandoffMessage(),
-      status: "DRAFT",
+      status: "ACTIVE",
+      isActive: true,
       model: "gpt-4.1-mini",
       maxTokens: 350,
     },
@@ -364,21 +384,11 @@ export async function deleteAgentAction(formData: FormData): Promise<void> {
           evolutionInstanceName: true,
         },
       },
-      _count: {
-        select: {
-          conversations: true,
-          messages: true,
-        },
-      },
     },
   });
 
   if (!agent) {
     redirect("/cliente/agentes?error=Agente+no+encontrado");
-  }
-
-  if (agent._count.conversations > 0 || agent._count.messages > 0) {
-    redirect("/cliente/agentes?error=Este+agente+ya+tiene+actividad.+Por+ahora+no+se+puede+eliminar");
   }
 
   for (const channel of agent.channels) {
@@ -389,16 +399,54 @@ export async function deleteAgentAction(formData: FormData): Promise<void> {
     }
   }
 
-  if (agent.channels.length > 0) {
-    await prisma.whatsAppChannel.deleteMany({
-      where: {
-        agentId: agent.id,
-      },
-    });
-  }
+  const channelIds = agent.channels.map((channel) => channel.id);
 
-  await prisma.agent.delete({
-    where: { id: agent.id },
+  await prisma.$transaction(async (tx) => {
+    if (channelIds.length > 0) {
+      await tx.message.deleteMany({
+        where: {
+          workspaceId: membership.workspace.id,
+          OR: [
+            { agentId: agent.id },
+            { channelId: { in: channelIds } },
+            { conversation: { agentId: agent.id } },
+            { conversation: { channelId: { in: channelIds } } },
+          ],
+        },
+      });
+
+      await tx.conversation.deleteMany({
+        where: {
+          workspaceId: membership.workspace.id,
+          OR: [{ agentId: agent.id }, { channelId: { in: channelIds } }],
+        },
+      });
+
+      await tx.whatsAppChannel.deleteMany({
+        where: {
+          id: { in: channelIds },
+          workspaceId: membership.workspace.id,
+        },
+      });
+    } else {
+      await tx.message.deleteMany({
+        where: {
+          workspaceId: membership.workspace.id,
+          OR: [{ agentId: agent.id }, { conversation: { agentId: agent.id } }],
+        },
+      });
+
+      await tx.conversation.deleteMany({
+        where: {
+          workspaceId: membership.workspace.id,
+          agentId: agent.id,
+        },
+      });
+    }
+
+    await tx.agent.delete({
+      where: { id: agent.id },
+    });
   });
 
   revalidatePath("/cliente");
@@ -552,4 +600,60 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<vo
 
   revalidatePath(`/cliente/agentes/${parsed.data.agentId}/chats`);
   redirect(`/cliente/agentes/${parsed.data.agentId}/chats?conversationId=${conversation.id}&ok=Mensaje+enviado`);
+}
+
+export async function simulateAgentReplyAction(input: {
+  agentId: string;
+  latestUserMessage: string;
+  history: Array<{ direction: "INBOUND" | "OUTBOUND"; content: string }>;
+}): Promise<{ ok: true; reply: string } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+    return { ok: false, error: "No autorizado" };
+  }
+
+  const parsed = simulateAgentReplySchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message || "No se pudo probar el agente" };
+  }
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    return { ok: false, error: "Debes configurar tu negocio primero" };
+  }
+
+  const agent = await prisma.agent.findFirst({
+    where: {
+      id: parsed.data.agentId,
+      workspaceId: membership.workspace.id,
+    },
+    select: {
+      id: true,
+      model: true,
+      systemPrompt: true,
+      welcomeMessage: true,
+      fallbackMessage: true,
+    },
+  });
+
+  if (!agent) {
+    return { ok: false, error: "Agente no encontrado" };
+  }
+
+  const trimmedHistory = parsed.data.history.filter((item) => item.content.trim());
+  const hasOutboundHistory = trimmedHistory.some((item) => item.direction === "OUTBOUND");
+
+  if (!hasOutboundHistory && agent.welcomeMessage?.trim()) {
+    return { ok: true, reply: agent.welcomeMessage.trim() };
+  }
+
+  const reply = await generateAgentReply({
+    model: agent.model,
+    systemPrompt: agent.systemPrompt,
+    fallbackMessage: agent.fallbackMessage,
+    history: trimmedHistory,
+    latestUserMessage: parsed.data.latestUserMessage,
+  });
+
+  return { ok: true, reply };
 }

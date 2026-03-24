@@ -6,6 +6,7 @@ import {
   getResponseLengthFromValue,
   getResponseLengthLabel,
   getResponseLengthSliderValue,
+  responseLengthOptions,
   type ResponseLength,
 } from "@/lib/agent-training";
 
@@ -16,6 +17,9 @@ type TrainingResponseLengthFieldProps = {
 
 export function TrainingResponseLengthField({ defaultValue, helpText }: TrainingResponseLengthFieldProps) {
   const [responseLengthValue, setResponseLengthValue] = useState(getResponseLengthSliderValue(defaultValue));
+  const selectedResponseLength = getResponseLengthFromValue(responseLengthValue);
+  const selectedResponseLengthPrompt =
+    responseLengthOptions.find((option) => option.value === selectedResponseLength)?.prompt ?? responseLengthOptions[1].prompt;
 
   return (
     <label className="space-y-2">
@@ -25,7 +29,7 @@ export function TrainingResponseLengthField({ defaultValue, helpText }: Training
           {helpText ? <TrainingHelpPopover title="Longitud de respuesta" description={helpText} /> : null}
         </span>
         <span className="rounded-full bg-[color-mix(in_srgb,var(--primary)_10%,white)] px-3 py-1 text-xs font-semibold text-[var(--primary)]">
-          {getResponseLengthLabel(getResponseLengthFromValue(responseLengthValue))}
+          {getResponseLengthLabel(selectedResponseLength)}
         </span>
       </span>
       <input
@@ -43,6 +47,7 @@ export function TrainingResponseLengthField({ defaultValue, helpText }: Training
         <span>Equilibrado</span>
         <span>Detallado</span>
       </div>
+      <p className="text-sm leading-6 text-slate-600">{selectedResponseLengthPrompt}</p>
     </label>
   );
 }

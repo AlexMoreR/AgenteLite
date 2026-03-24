@@ -231,9 +231,7 @@ export async function sendEvolutionTextMessage(input: {
     body: JSON.stringify({
       number: input.phoneNumber,
       text: input.text,
-      textMessage: {
-        text: input.text,
-      },
+      delay: 1200,
     }),
   });
 
@@ -250,6 +248,50 @@ export async function sendEvolutionTextMessage(input: {
     externalId,
     raw: response,
   };
+}
+
+function isEvolutionConnectionClosedError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /connection closed/i.test(message);
+}
+
+export async function ensureEvolutionInstanceReady(instanceName: string) {
+  const state = await getEvolutionConnectionState(instanceName);
+
+  if (state && ["open", "connected", "connection_open", "online"].includes(state)) {
+    return {
+      recovered: true,
+      state,
+      qrCode: null,
+      pairingCode: null,
+    };
+  }
+
+  const qrData = await getEvolutionConnectionQr(instanceName);
+
+  return {
+    recovered: Boolean(qrData.qrCode || qrData.pairingCode),
+    state,
+    qrCode: qrData.qrCode,
+    pairingCode: qrData.pairingCode,
+  };
+}
+
+export async function sendEvolutionTextMessageWithReconnect(input: {
+  instanceName: string;
+  phoneNumber: string;
+  text: string;
+}) {
+  try {
+    return await sendEvolutionTextMessage(input);
+  } catch (error) {
+    if (!isEvolutionConnectionClosedError(error)) {
+      throw error;
+    }
+
+    await ensureEvolutionInstanceReady(input.instanceName);
+    return sendEvolutionTextMessage(input);
+  }
 }
 
 export async function sendEvolutionPresence(input: {

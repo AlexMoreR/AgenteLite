@@ -29,6 +29,8 @@ const tabs = [
 
 export function AgentPanelShell({ agentId, children, hideMobileNav = false }: AgentPanelShellProps) {
   const pathname = usePathname();
+  const trainingHref = `/cliente/agentes/${agentId}/entrenamiento`;
+  const playgroundHref = `/cliente/agentes/${agentId}/probar`;
 
   return (
     <section className="flex min-h-0 w-full flex-1 flex-col overflow-x-hidden">
@@ -36,7 +38,9 @@ export function AgentPanelShell({ agentId, children, hideMobileNav = false }: Ag
         <nav className="flex min-w-max items-center gap-1.5 rounded-[20px] border border-[rgba(148,163,184,0.14)] bg-white p-2 shadow-[0_12px_30px_-26px_rgba(15,23,42,0.14)]">
           {tabs.map((tab) => {
             const href = typeof tab.href === "function" ? tab.href(agentId) : "";
-            const active = !tab.disabled && pathname === href;
+            const active =
+              !tab.disabled &&
+              (pathname === href || (tab.key === "entrenamiento" && pathname === playgroundHref) || (href === trainingHref && pathname === playgroundHref));
             const Icon = tab.icon;
 
             if (tab.disabled) {
@@ -79,7 +83,7 @@ export function AgentPanelShell({ agentId, children, hideMobileNav = false }: Ag
               .slice(0, 3)
               .map((tab) => {
                 const href = typeof tab.href === "function" ? tab.href(agentId) : "";
-                const active = pathname === href;
+                const active = pathname === href || (tab.key === "entrenamiento" && pathname === playgroundHref);
                 const Icon = tab.icon;
 
                 return (

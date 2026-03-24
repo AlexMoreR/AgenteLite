@@ -23,7 +23,7 @@ import {
   forbiddenRuleOptions,
   getResponseLengthLabel,
   getResponseLengthFromValue,
-  targetAudienceOptions,
+  responseLengthOptions,
   toneOptions,
 } from "@/lib/agent-training";
 import { Card } from "@/components/ui/card";
@@ -54,19 +54,19 @@ type AgentsWorkspaceProps = {
 
 const steps = [
   {
-    title: "Tu negocio",
+    title: "🏪 Tu negocio",
     subtitle: "Ensenale al agente que vendes, para quien y en que rango se mueve tu oferta.",
   },
   {
-    title: "Como habla",
+    title: "💬 Como habla",
     subtitle: "Define el tono, la longitud y los pequenos detalles que hacen que suene como tu negocio.",
   },
   {
-    title: "Como cierra ventas",
+    title: "🤝 Como cierra ventas",
     subtitle: "Activa el comportamiento comercial que quieres ver en la conversacion.",
   },
   {
-    title: "Reglas importantes",
+    title: "🛡️ Reglas importantes",
     subtitle: "Marca lo que nunca debe hacer y deja listo el siguiente paso con WhatsApp.",
   },
 ] as const;
@@ -111,27 +111,6 @@ function StepFrame({
   );
 }
 
-function MultiSelectChip({
-  name,
-  value,
-  label,
-  defaultChecked = false,
-}: {
-  name: string;
-  value: string;
-  label: string;
-  defaultChecked?: boolean;
-}) {
-  return (
-    <label className="cursor-pointer">
-      <input type="checkbox" name={name} value={value} defaultChecked={defaultChecked} className="peer sr-only" />
-      <span className="inline-flex min-h-11 items-center justify-center rounded-full border border-slate-200/90 bg-white px-5 py-2 text-sm font-medium text-slate-700 shadow-[0_10px_24px_-24px_rgba(15,23,42,0.22)] transition peer-checked:border-[var(--primary)] peer-checked:bg-[color-mix(in_srgb,var(--primary)_8%,white)] peer-checked:text-[var(--primary)] peer-focus-visible:ring-2 peer-focus-visible:ring-[color-mix(in_srgb,var(--primary)_24%,white)]">
-        {label}
-      </span>
-    </label>
-  );
-}
-
 function ToneCard({
   value,
   title,
@@ -146,13 +125,15 @@ function ToneCard({
   return (
     <label className="block cursor-pointer">
       <input type="radio" name="salesTone" value={value} defaultChecked={defaultChecked} className="peer sr-only" />
-      <span className="flex min-h-[124px] flex-col justify-between rounded-[24px] border border-[rgba(148,163,184,0.16)] bg-[linear-gradient(180deg,#ffffff_0%,#fcfcfd_100%)] p-5 transition peer-checked:border-[var(--primary)] peer-checked:bg-[linear-gradient(180deg,color-mix(in_srgb,var(--primary)_6%,white)_0%,white_100%)] peer-checked:shadow-[0_18px_40px_-28px_color-mix(in_srgb,var(--primary)_45%,black)] hover:-translate-y-0.5 hover:border-[var(--primary)]/30">
-        <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
-          <Sparkles className="h-5 w-5" />
-        </span>
-        <span className="block space-y-1.5">
-          <span className="block text-base font-semibold tracking-[-0.03em] text-slate-950">{title}</span>
-          <span className="block text-sm leading-6 text-slate-600">{description}</span>
+      <span className="flex min-h-[108px] flex-col rounded-[24px] border border-[rgba(148,163,184,0.16)] bg-[linear-gradient(180deg,#ffffff_0%,#fcfcfd_100%)] p-5 transition peer-checked:border-[var(--primary)] peer-checked:bg-[linear-gradient(180deg,color-mix(in_srgb,var(--primary)_6%,white)_0%,white_100%)] peer-checked:shadow-[0_18px_40px_-28px_color-mix(in_srgb,var(--primary)_45%,black)] hover:-translate-y-0.5 hover:border-[var(--primary)]/30">
+        <span className="flex items-center justify-between gap-3">
+          <span className="flex min-w-0 items-center gap-3">
+            <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
+              <Sparkles className="h-5 w-5" />
+            </span>
+            <span className="block text-base font-semibold tracking-[-0.03em] text-slate-950">{title}</span>
+          </span>
+          <TrainingHelpPopover title={title} description={description} />
         </span>
       </span>
     </label>
@@ -174,12 +155,9 @@ function ToggleRow({
 }) {
   return (
     <label className="group flex min-h-14 cursor-pointer items-center justify-between gap-4 rounded-[22px] border border-[rgba(148,163,184,0.14)] bg-white px-4 py-3 transition-[border-color,box-shadow,transform] duration-200 ease-out hover:border-[color-mix(in_srgb,var(--primary)_24%,white)] active:scale-[0.995]">
-      <span className="space-y-1">
-        <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-900">
+      <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-900">
           <span>{title}</span>
           <TrainingHelpPopover title={title} description={helpText} />
-        </span>
-        <span className="block text-sm leading-6 text-slate-600">{description}</span>
       </span>
       <span className="relative shrink-0">
         <Switch name={name} defaultChecked={defaultChecked} aria-label={title} />
@@ -195,12 +173,19 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
   const [resetOpen, setResetOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [responseLengthValue, setResponseLengthValue] = useState(50);
+  const [audienceMode, setAudienceMode] = useState<"persona" | "empresa">("persona");
+  const [selectedAudiences, setSelectedAudiences] = useState<string[]>(["Mujer"]);
   const formRef = useRef<HTMLFormElement>(null);
+
+  const personaAudienceOptions = ["Mujer", "Hombre", "Jovenes", "Adultos mayores", "Mamas", "Otro"];
+  const empresaAudienceOptions = ["Empresa", "Pymes", "Emprendedores", "Profesionales", "Otro"];
 
   const openCreateFlow = () => {
     setStep(0);
     setIsSubmitting(false);
     setResponseLengthValue(50);
+    setAudienceMode("persona");
+    setSelectedAudiences(["Mujer"]);
     setModalOpen(true);
   };
 
@@ -215,7 +200,31 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
     formRef.current?.requestSubmit();
   };
 
+  const handleAudienceModeChange = (mode: "persona" | "empresa") => {
+    setAudienceMode(mode);
+    setSelectedAudiences(mode === "persona" ? ["Mujer"] : ["Empresa"]);
+  };
+
+  const handleAudienceToggle = (value: string) => {
+    setSelectedAudiences((current) => {
+      const next = current.includes(value) ? current.filter((item) => item !== value) : [...current, value];
+
+      if (next.length === 0) {
+        return audienceMode === "persona" ? ["Mujer"] : ["Empresa"];
+      }
+
+      if (next.length > 5) {
+        return current;
+      }
+
+      return next;
+    });
+  };
+
   const responseLengthLabel = getResponseLengthLabel(getResponseLengthFromValue(responseLengthValue));
+  const responseLengthPrompt =
+    responseLengthOptions.find((option) => option.value === getResponseLengthFromValue(responseLengthValue))?.prompt ??
+    responseLengthOptions[1].prompt;
 
   return (
     <>
@@ -400,7 +409,7 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
                 className={
                   isSubmitting
                     ? "flex flex-1 items-center justify-center overflow-hidden px-5 py-8 md:px-8 md:py-10"
-                    : "flex-1 overflow-y-auto px-5 py-6 md:px-8 md:py-4"
+                    : "flex-1 overflow-y-auto bg-[#f1f3f5] px-5 py-6 md:px-8 md:py-4"
                 }
               >
                 {isSubmitting ? (
@@ -435,65 +444,103 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
                   <div className="mx-auto w-full max-w-[760px]">
                     <div className={step === 0 ? "block" : "hidden"}>
                       <StepFrame>
-                        <div className="rounded-[34px] border border-[color-mix(in_srgb,var(--primary)_16%,white)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--primary)_11%,white)_0%,color-mix(in_srgb,var(--primary)_5%,white)_100%)] p-5 shadow-[0_34px_84px_-58px_color-mix(in_srgb,var(--primary)_34%,black)] md:p-6">
-                          <div className="grid gap-5 md:grid-cols-[320px_minmax(0,1fr)] md:items-stretch">
-                            <div className="flex h-full">
-                              <div className="w-full rounded-[28px] border border-white/85 bg-white/94 p-5 shadow-[0_18px_40px_-30px_rgba(15,23,42,0.2)]">
-                                <label className="block space-y-2.5">
-                                  <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-950">
-                                    <span>Nombre del negocio</span>
-                                    <TrainingHelpPopover
-                                      title="Nombre del negocio"
-                                      description="Este nombre se usara cuando el agente se presente y tambien para identificarlo dentro del negocio."
-                                    />
-                                  </span>
-                                  <Input
-                                    name="businessName"
-                                    placeholder="Ej. Studio Fit Mujer"
-                                    defaultValue={businessName ?? ""}
-                                    required
-                                    className="h-16 rounded-[22px] border border-slate-200 bg-white px-6 text-[15px] text-slate-950 shadow-none placeholder:text-slate-400 focus-visible:border-[var(--primary)] focus-visible:ring-[color-mix(in_srgb,var(--primary)_16%,white)]"
+                        <div className="grid gap-5 md:grid-cols-[320px_minmax(0,1fr)] md:items-start">
+                            <div className="space-y-5">
+                              <label className="block space-y-2.5">
+                                <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-950">
+                                  <span>Nombre del negocio</span>
+                                  <TrainingHelpPopover
+                                    title="Nombre del negocio"
+                                    description="Este nombre se usara cuando el agente se presente y tambien para identificarlo dentro del negocio."
                                   />
-                                </label>
-                              </div>
-                            </div>
-
-                            <label className="block space-y-2.5">
-                              <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-950">
-                                <span>Que vendes</span>
-                                <TrainingHelpPopover
-                                  title="Que vendes"
-                                  description="Describe tus productos o servicios con palabras simples. Mientras mas claro seas, mejor respondera el agente."
+                                </span>
+                                <Input
+                                  name="businessName"
+                                  placeholder="Ej. Studio Fit Mujer"
+                                  defaultValue={businessName ?? ""}
+                                  required
+                                  className="h-16 rounded-[28px] border border-white bg-white px-6 text-[15px] text-slate-950 shadow-[0_18px_38px_-30px_rgba(15,23,42,0.14)] placeholder:text-slate-400 focus-visible:border-[var(--primary)] focus-visible:ring-[color-mix(in_srgb,var(--primary)_16%,white)]"
                                 />
-                              </span>
-                              <div className="overflow-hidden rounded-[30px] border border-white/90 bg-white shadow-[0_22px_46px_-34px_rgba(15,23,42,0.24)] transition focus-within:border-[var(--primary)] focus-within:ring-4 focus-within:ring-[color-mix(in_srgb,var(--primary)_12%,white)]">
-                                <div className="h-2 bg-[linear-gradient(90deg,color-mix(in_srgb,var(--primary)_68%,white)_0%,color-mix(in_srgb,var(--primary)_18%,white)_100%)]" />
+                              </label>
+
+                              <label className="block space-y-2.5">
+                                <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-950">
+                                  <span>Que vendes</span>
+                                  <TrainingHelpPopover
+                                    title="Que vendes"
+                                    description="Describe tus productos o servicios con palabras simples. Mientras mas claro seas, mejor respondera el agente."
+                                  />
+                                </span>
+                              <div className="overflow-hidden rounded-[28px] border border-white bg-white px-5 py-3 shadow-[0_20px_42px_-34px_rgba(15,23,42,0.14)] transition focus-within:border-[var(--primary)] focus-within:ring-4 focus-within:ring-[color-mix(in_srgb,var(--primary)_12%,white)]">
                                 <textarea
                                   name="businessDescription"
                                   rows={5}
                                   required
-                                  className="flex min-h-[196px] w-full resize-none bg-white px-6 py-5 text-[15px] leading-8 text-slate-800 outline-none placeholder:text-slate-400"
+                                  className="flex min-h-[72px] w-full resize-none bg-white py-1 text-[15px] leading-7 text-slate-800 outline-none placeholder:text-slate-400"
                                   placeholder="Ej. Vendemos ropa deportiva para mujer entre 20 y 40 anos. Tenis, licras y tops de marca propia."
                                 />
                               </div>
-                            </label>
-                          </div>
-
-                          <fieldset className="mt-5 rounded-[28px] border border-white/85 bg-white/90 p-5 shadow-[0_18px_38px_-30px_rgba(15,23,42,0.18)]">
-                            <legend className="inline-flex items-center gap-2 text-sm font-semibold text-slate-950">
-                              <span>A quien le vendes</span>
-                              <TrainingHelpPopover
-                                title="A quien le vendes"
-                                description="Selecciona los perfiles que mas te compran. Esto ayuda al agente a responder con mas contexto."
-                              />
-                            </legend>
-                            <div className="mt-4 flex flex-wrap gap-3">
-                              {targetAudienceOptions.map((option, index) => (
-                                <MultiSelectChip key={option} name="targetAudiences" value={option} label={option} defaultChecked={index === 0} />
-                              ))}
+                              </label>
                             </div>
-                          </fieldset>
-                        </div>
+
+                            <div className="space-y-2.5">
+                              <div className="inline-flex items-center gap-2 text-sm font-semibold text-slate-950">
+                                <span>A quien le vendes</span>
+                                <TrainingHelpPopover
+                                  title="A quien le vendes"
+                                  description="Selecciona los perfiles que mas te compran. Esto ayuda al agente a responder con mas contexto."
+                                />
+                              </div>
+                              <div className="rounded-[28px] border border-white bg-white p-5 shadow-[0_18px_38px_-30px_rgba(15,23,42,0.14)]">
+                                <div className="flex flex-wrap gap-2.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAudienceModeChange("persona")}
+                                    className={`inline-flex min-h-11 items-center justify-center rounded-full border px-4 py-2 text-sm font-semibold transition ${
+                                      audienceMode === "persona"
+                                        ? "border-[var(--primary)] bg-[color-mix(in_srgb,var(--primary)_10%,white)] text-[var(--primary)]"
+                                        : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-white"
+                                    }`}
+                                  >
+                                    Persona
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAudienceModeChange("empresa")}
+                                    className={`inline-flex min-h-11 items-center justify-center rounded-full border px-4 py-2 text-sm font-semibold transition ${
+                                      audienceMode === "empresa"
+                                        ? "border-[var(--primary)] bg-[color-mix(in_srgb,var(--primary)_10%,white)] text-[var(--primary)]"
+                                        : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-white"
+                                    }`}
+                                  >
+                                    Empresa
+                                  </button>
+                                </div>
+
+                                <div className="mt-4 flex flex-wrap gap-2.5">
+                                  {(audienceMode === "persona" ? personaAudienceOptions : empresaAudienceOptions).map((option) => (
+                                    <label key={option} className="cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        name="audienceSelector"
+                                        value={option}
+                                        checked={selectedAudiences.includes(option)}
+                                        onChange={() => handleAudienceToggle(option)}
+                                        className="peer sr-only"
+                                      />
+                                      <span className="inline-flex min-h-11 items-center justify-center rounded-full border border-slate-200/90 bg-white px-5 py-2 text-sm font-medium text-slate-700 shadow-[0_10px_24px_-24px_rgba(15,23,42,0.22)] transition peer-checked:border-[var(--primary)] peer-checked:bg-[color-mix(in_srgb,var(--primary)_8%,white)] peer-checked:text-[var(--primary)]">
+                                        {option}
+                                      </span>
+                                    </label>
+                                  ))}
+                                </div>
+
+                                {selectedAudiences.map((audience) => (
+                                  <input key={audience} type="hidden" name="targetAudiences" value={audience} />
+                                ))}
+                              </div>
+                            </div>
+                          </div>
                       </StepFrame>
                     </div>
 
@@ -525,6 +572,7 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
                                 <span>Equilibrado</span>
                                 <span>Detallado</span>
                               </div>
+                              <p className="mt-3 text-sm leading-6 text-slate-600">{responseLengthPrompt}</p>
                             </div>
                           </div>
                           <div className="rounded-[28px] border border-[rgba(148,163,184,0.14)] bg-white p-5">
@@ -624,16 +672,16 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
 
               {!isSubmitting ? (
                 <div className="flex items-center justify-between border-t border-[rgba(148,163,184,0.14)] bg-[rgba(255,255,255,0.92)] px-5 py-4 backdrop-blur md:px-8">
-                  <button type="button" onClick={previousStep} disabled={step === 0 || isSubmitting} className="inline-flex h-11 items-center justify-center rounded-2xl border border-[rgba(148,163,184,0.16)] px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">
+                  <button type="button" onClick={previousStep} disabled={step === 0 || isSubmitting} className="inline-flex h-12 min-w-[120px] items-center justify-center rounded-2xl border border-[rgba(148,163,184,0.18)] bg-white px-5 text-sm font-medium text-slate-700 shadow-[0_10px_24px_-24px_rgba(15,23,42,0.16)] transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">
                     Volver
                   </button>
                   {step < steps.length - 1 ? (
-                    <button type="button" onClick={nextStep} className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-5 text-sm font-medium text-white shadow-[0_16px_30px_-20px_color-mix(in_srgb,var(--primary)_65%,black)] transition hover:bg-[var(--primary-strong)]">
+                    <button type="button" onClick={nextStep} className="inline-flex h-12 min-w-[186px] items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-6 text-sm font-medium text-white shadow-[0_16px_30px_-20px_color-mix(in_srgb,var(--primary)_65%,black)] transition hover:bg-[var(--primary-strong)]">
                       Continuar
                       <ChevronRight className="h-4 w-4" />
                     </button>
                   ) : (
-                    <button type="button" onClick={submitCreateFlow} className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-5 text-sm font-medium text-white shadow-[0_16px_30px_-20px_color-mix(in_srgb,var(--primary)_65%,black)] transition hover:bg-[var(--primary-strong)]">
+                    <button type="button" onClick={submitCreateFlow} className="inline-flex h-12 min-w-[186px] items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-6 text-sm font-medium text-white shadow-[0_16px_30px_-20px_color-mix(in_srgb,var(--primary)_65%,black)] transition hover:bg-[var(--primary-strong)]">
                       Crear agente
                       <Sparkles className="h-4 w-4" />
                     </button>

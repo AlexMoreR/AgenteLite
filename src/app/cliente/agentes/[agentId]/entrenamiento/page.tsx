@@ -1,5 +1,6 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
-import { MessageCircleHeart, Save, Shield, Sparkles } from "lucide-react";
+import { MessageCircleHeart, PlayCircle, Save, Shield, Sparkles } from "lucide-react";
 import { auth } from "@/auth";
 import { updateAgentTrainingAction } from "@/app/actions/agent-actions";
 import { AgentPanelShell } from "@/components/agents/agent-panel-shell";
@@ -117,8 +118,17 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                 <div className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_10%,white)] text-[var(--primary)]">
                   <Sparkles className="h-6 w-6" />
                 </div>
-                <div className="space-y-1.5 pt-0.5">
-                  <h2 className="text-[1.45rem] font-semibold tracking-[-0.04em] text-slate-950">Entrenamiento del agente</h2>
+                <div className="min-w-0 flex-1 space-y-1.5 pt-0.5">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <h2 className="text-[1.45rem] font-semibold tracking-[-0.04em] text-slate-950">Entrenamiento del agente</h2>
+                    <Link
+                      href={`/cliente/agentes/${agent.id}/probar`}
+                      className="inline-flex h-10 items-center gap-2 rounded-2xl bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
+                    >
+                      <PlayCircle className="h-4 w-4" />
+                      Probar agente
+                    </Link>
+                  </div>
                 </div>
               </div>
 

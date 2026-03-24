@@ -47,8 +47,7 @@ export default async function ClienteAgenteChatsPage({ params, searchParams }: P
     redirect("/cliente/agentes?error=Debes+crear+tu+negocio+primero");
   }
 
-  const { agentId } = await params;
-  const paramsData = await searchParams;
+  const [{ agentId }, paramsData] = await Promise.all([params, searchParams]);
   const selectedConversationId = typeof paramsData.conversationId === "string" ? paramsData.conversationId : "";
   const searchQuery = typeof paramsData.q === "string" ? paramsData.q.trim() : "";
   const okMessage = typeof paramsData.ok === "string" ? paramsData.ok : "";
@@ -77,7 +76,63 @@ export default async function ClienteAgenteChatsPage({ params, searchParams }: P
           updatedAt: "desc",
         },
         take: 50,
-        include: {
+        select: {
+          id: true,
+          contact: {
+            select: {
+              id: true,
+              name: true,
+              phoneNumber: true,
+            },
+          },
+          messages: {
+            orderBy: {
+              createdAt: "desc",
+            },
+            take: 1,
+            select: {
+              id: true,
+              content: true,
+              direction: true,
+              createdAt: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!agent) {
+    redirect("/cliente/agentes?error=Agente+no+encontrado");
+  }
+
+  const explicitSelectedConversation =
+    agent.conversations.find((conversation) => conversation.id === selectedConversationId) || null;
+  const filteredConversations = searchQuery
+    ? agent.conversations.filter((conversation) => {
+        const label = getContactLabel(conversation.contact).toLowerCase();
+        const phone = conversation.contact.phoneNumber.toLowerCase();
+        const lastMessage = conversation.messages[0]?.content?.toLowerCase() || "";
+        const query = searchQuery.toLowerCase();
+        return label.includes(query) || phone.includes(query) || lastMessage.includes(query);
+      })
+    : agent.conversations;
+
+  const selectedConversationSummary =
+    filteredConversations.find((conversation) => conversation.id === selectedConversationId) ||
+    filteredConversations[0] ||
+    null;
+  const hasMobileSelection = Boolean(explicitSelectedConversation);
+  const evolutionInstanceName = agent.channels[0]?.evolutionInstanceName ?? null;
+  const selectedConversation = selectedConversationSummary
+    ? await prisma.conversation.findFirst({
+        where: {
+          id: selectedConversationSummary.id,
+          workspaceId: membership.workspace.id,
+          agentId: agent.id,
+        },
+        select: {
+          id: true,
           contact: {
             select: {
               id: true,
@@ -98,49 +153,32 @@ export default async function ClienteAgenteChatsPage({ params, searchParams }: P
             },
           },
         },
-      },
-    },
-  });
-
-  if (!agent) {
-    redirect("/cliente/agentes?error=Agente+no+encontrado");
-  }
-
-  const explicitSelectedConversation =
-    agent.conversations.find((conversation) => conversation.id === selectedConversationId) || null;
-  const filteredConversations = searchQuery
-    ? agent.conversations.filter((conversation) => {
-        const label = getContactLabel(conversation.contact).toLowerCase();
-        const phone = conversation.contact.phoneNumber.toLowerCase();
-        const lastMessage = conversation.messages[conversation.messages.length - 1]?.content?.toLowerCase() || "";
-        const query = searchQuery.toLowerCase();
-        return label.includes(query) || phone.includes(query) || lastMessage.includes(query);
       })
-    : agent.conversations;
-
-  const selectedConversation =
-    filteredConversations.find((conversation) => conversation.id === selectedConversationId) ||
-    filteredConversations[0] ||
-    null;
-  const hasMobileSelection = Boolean(explicitSelectedConversation);
+    : null;
   const selectedConversationScrollKey = selectedConversation
     ? `${selectedConversation.id}:${selectedConversation.messages.length}:${selectedConversation.messages.at(-1)?.id ?? ""}`
     : "empty";
-  const evolutionInstanceName = agent.channels[0]?.evolutionInstanceName ?? null;
+
+  const avatarPhoneNumbers = [
+    ...new Set(
+      [
+        ...filteredConversations.slice(0, 12).map((conversation) => conversation.contact.phoneNumber),
+        selectedConversation?.contact.phoneNumber ?? "",
+      ].filter(Boolean),
+    ),
+  ];
 
   const avatarUrls = evolutionInstanceName
     ? Object.fromEntries(
         (
           await Promise.all(
-            [...new Set(agent.conversations.map((conversation) => conversation.contact.phoneNumber))]
-              .filter(Boolean)
-              .map(async (phoneNumber) => [
+            avatarPhoneNumbers.map(async (phoneNumber) => [
+              phoneNumber,
+              await fetchEvolutionProfilePictureUrl({
+                instanceName: evolutionInstanceName,
                 phoneNumber,
-                await fetchEvolutionProfilePictureUrl({
-                  instanceName: evolutionInstanceName,
-                  phoneNumber,
-                }),
-              ]),
+              }),
+            ]),
           )
         ).filter((entry): entry is [string, string] => Boolean(entry[0] && entry[1])),
       )
@@ -177,7 +215,7 @@ export default async function ClienteAgenteChatsPage({ params, searchParams }: P
             <div className="min-h-0 flex-1 overflow-y-auto divide-y divide-[rgba(148,163,184,0.12)]">
               {filteredConversations.length > 0 ? (
                 filteredConversations.map((conversation) => {
-                  const lastMessage = conversation.messages[conversation.messages.length - 1] ?? null;
+                  const lastMessage = conversation.messages[0] ?? null;
                   const label = getContactLabel(conversation.contact);
                   const isSelected = selectedConversation?.id === conversation.id;
                   const isInbound = lastMessage?.direction === "INBOUND";

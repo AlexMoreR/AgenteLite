@@ -17,7 +17,11 @@ import {
   isInboundMessageEvent,
   normalizePhoneFromJid,
 } from "@/lib/evolution-webhook";
-import { sendEvolutionPresence, sendEvolutionTextMessage } from "@/lib/evolution";
+import {
+  ensureEvolutionInstanceReady,
+  sendEvolutionPresence,
+  sendEvolutionTextMessageWithReconnect,
+} from "@/lib/evolution";
 import { getEvolutionSettings } from "@/lib/system-settings";
 
 function mapChannelStatus(eventName: string | null, rawState: string | null) {
@@ -90,23 +94,22 @@ export async function POST(request: Request) {
 
   const eventName = extractEvolutionEventName(payload);
   const instanceName = extractEvolutionInstanceName(payload);
-
-  console.log("[EVOLUTION] webhook_received", {
-    eventName,
-    instanceName,
-  });
+  const isConnectionEvent = eventName === "QRCODE_UPDATED" || eventName === "CONNECTION_UPDATE";
 
   const channel = instanceName
     ? await prisma.whatsAppChannel.findUnique({
         where: { evolutionInstanceName: instanceName },
-      select: {
-        id: true,
-        workspaceId: true,
-        agentId: true,
-        name: true,
-        evolutionInstanceName: true,
-      },
-    })
+        select: {
+          id: true,
+          workspaceId: true,
+          agentId: true,
+          name: true,
+          evolutionInstanceName: true,
+          status: true,
+          phoneNumber: true,
+          qrCode: true,
+        },
+      })
     : null;
 
   await prisma.webhookEventLog.create({
@@ -134,7 +137,7 @@ export async function POST(request: Request) {
     });
   }
 
-  if (eventName === "QRCODE_UPDATED" || eventName === "CONNECTION_UPDATE") {
+  if (isConnectionEvent) {
     const qrCode = extractEvolutionQrCode(payload);
     const pairingCode = extractEvolutionPairingCode(payload);
     const phoneNumber = normalizePhoneFromJid(extractEvolutionPhoneNumber(payload));
@@ -159,16 +162,6 @@ export async function POST(request: Request) {
             }
           : {}),
       },
-    });
-
-    console.log("[EVOLUTION] channel_state_updated", {
-      eventName,
-      instanceName,
-      channelId: channel.id,
-      nextStatus,
-      phoneNumber,
-      hasQrCode: Boolean(qrCode),
-      hasPairingCode: Boolean(pairingCode),
     });
 
     return NextResponse.json({
@@ -432,7 +425,7 @@ export async function POST(request: Request) {
             });
           }
 
-          const outbound = await sendEvolutionTextMessage({
+          const outbound = await sendEvolutionTextMessageWithReconnect({
             instanceName: channel.evolutionInstanceName,
             phoneNumber,
             text: replyText,
@@ -472,6 +465,20 @@ export async function POST(request: Request) {
         } catch (error) {
           const errorMessage =
             error instanceof Error ? (error.stack || error.message) : JSON.stringify(error);
+
+          if (errorMessage.toLowerCase().includes("connection closed")) {
+            const recovery = await ensureEvolutionInstanceReady(channel.evolutionInstanceName);
+
+            console.warn("[EVOLUTION] auto_reply_connection_closed", {
+              conversationId: conversation.id,
+              agentId: agent.id,
+              instanceName: channel.evolutionInstanceName,
+              recovered: recovery.recovered,
+              state: recovery.state,
+              hasQrCode: Boolean(recovery.qrCode),
+              hasPairingCode: Boolean(recovery.pairingCode),
+            });
+          }
 
           console.error(
             `[EVOLUTION] auto_reply_failed conversationId=${conversation.id} agentId=${agent.id} phone=${phoneNumber} instance=${channel.evolutionInstanceName} error=${errorMessage}`,

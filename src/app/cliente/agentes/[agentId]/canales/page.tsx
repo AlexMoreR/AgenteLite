@@ -49,7 +49,7 @@ export default async function ClienteAgenteCanalesPage({ params, searchParams }:
     redirect("/cliente/agentes?error=Debes+crear+tu+negocio+primero");
   }
 
-  const { agentId } = await params;
+  const [{ agentId }, paramsData] = await Promise.all([params, searchParams]);
   const agent = await prisma.agent.findFirst({
     where: {
       id: agentId,
@@ -71,17 +71,42 @@ export default async function ClienteAgenteCanalesPage({ params, searchParams }:
   const remoteConnectionState = channel?.evolutionInstanceName
     ? await getEvolutionConnectionState(channel.evolutionInstanceName)
     : null;
-  const remoteConnectionQr = channel?.evolutionInstanceName
+  const remoteIsConnected =
+    remoteConnectionState === "open" ||
+    remoteConnectionState === "connected" ||
+    remoteConnectionState === "connection_open" ||
+    remoteConnectionState === "online";
+  const remoteConnectionQr = channel?.evolutionInstanceName && !remoteIsConnected
     ? await getEvolutionConnectionQr(channel.evolutionInstanceName)
     : { qrCode: null, pairingCode: null };
 
-  const paramsData = await searchParams;
+  if (channel?.id && remoteIsConnected && channel.status !== "CONNECTED") {
+    await prisma.whatsAppChannel.update({
+      where: { id: channel.id },
+      data: {
+        status: "CONNECTED",
+        qrCode: null,
+        lastConnectionAt: new Date(),
+      },
+    });
+  }
+
+  if (channel?.id && remoteConnectionQr.qrCode && channel.qrCode !== remoteConnectionQr.qrCode) {
+    await prisma.whatsAppChannel.update({
+      where: { id: channel.id },
+      data: {
+        status: "QRCODE",
+        qrCode: remoteConnectionQr.qrCode,
+        metadata: {
+          pairingCode: remoteConnectionQr.pairingCode ?? null,
+        },
+      },
+    });
+  }
+
   const okMessage = typeof paramsData.ok === "string" ? paramsData.ok : "";
   const errorMessage = typeof paramsData.error === "string" ? paramsData.error : "";
-  const isConnected =
-    remoteConnectionState === "open" ||
-    remoteConnectionState === "connected" ||
-    channel?.status === "CONNECTED";
+  const isConnected = remoteIsConnected || channel?.status === "CONNECTED";
   const rawQrCode = isConnected ? null : remoteConnectionQr.qrCode;
   const qrDataUrl = await buildQrDataUrl(rawQrCode);
   const pairingCode =
