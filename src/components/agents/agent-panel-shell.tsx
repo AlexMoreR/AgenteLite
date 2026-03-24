@@ -22,7 +22,7 @@ const tabs = [
   { key: "resumen", label: "Resumen", href: (agentId: string) => `/cliente/agentes/${agentId}`, icon: Bot },
   { key: "chats", label: "Chats", href: (agentId: string) => `/cliente/agentes/${agentId}/chats`, icon: MessageSquareText },
   { key: "canales", label: "Canales", href: (agentId: string) => `/cliente/agentes/${agentId}/canales`, icon: Cable },
-  { key: "personalidad", label: "Personalidad", href: "", icon: Sparkles, disabled: true },
+  { key: "entrenamiento", label: "Entrenamiento", href: (agentId: string) => `/cliente/agentes/${agentId}/entrenamiento`, icon: Sparkles },
   { key: "conocimiento", label: "Conocimiento", href: "", icon: Brain, disabled: true },
   { key: "automatizar", label: "Escalar/Automatizar", href: "", icon: Workflow, disabled: true },
 ];
@@ -73,7 +73,7 @@ export function AgentPanelShell({ agentId, children, hideMobileNav = false }: Ag
 
       {!hideMobileNav ? (
         <nav className="sticky bottom-0 z-20 -mx-3 overflow-hidden rounded-t-[18px] border-t border-[rgba(148,163,184,0.14)] bg-white px-0 py-0 md:mx-0 md:hidden">
-          <div className="grid grid-cols-3 gap-0">
+          <div className="grid grid-cols-4 gap-0">
             {tabs
               .filter((tab) => !tab.disabled)
               .slice(0, 3)

@@ -112,6 +112,18 @@ export function getResponseLengthFromValue(value: number) {
   return "equilibrado" as const;
 }
 
+export function getResponseLengthSliderValue(value: ResponseLength) {
+  if (value === "muy-corto") {
+    return 0;
+  }
+
+  if (value === "detallado") {
+    return 100;
+  }
+
+  return 50;
+}
+
 export function buildAgentTrainingConfig(input: AgentTrainingConfig): AgentTrainingConfig {
   return {
     ...input,

@@ -69,17 +69,16 @@ const sendManualAgentReplySchema = z.object({
   message: z.string().trim().min(1, "Escribe un mensaje").max(2000, "Mensaje demasiado largo"),
 });
 
-export async function createAgentAction(formData: FormData): Promise<void> {
-  const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
-    redirect("/unauthorized");
-  }
+const updateAgentTrainingSchema = createAgentSchema.extend({
+  agentId: z.string().trim().min(1, "Agente invalido"),
+});
 
+function collectTrainingFormInput(formData: FormData) {
   const rawForbiddenRules = formData
     .getAll("forbiddenRules")
     .filter((value): value is string => typeof value === "string" && forbiddenRuleOptions.includes(value as never));
 
-  const parsed = createAgentSchema.safeParse({
+  return {
     businessName: formData.get("businessName"),
     businessDescription: formData.get("businessDescription"),
     targetAudiences: formData.getAll("targetAudiences"),
@@ -99,8 +98,17 @@ export async function createAgentAction(formData: FormData): Promise<void> {
     handoffToHuman: formData.get("handoffToHuman") === "on",
     forbiddenRules: rawForbiddenRules,
     customRules: formData.get("customRules"),
-    connectWhatsappNow: formData.get("connectWhatsappNow"),
-  });
+    connectWhatsappNow: formData.get("connectWhatsappNow") || "despues",
+  };
+}
+
+export async function createAgentAction(formData: FormData): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+    redirect("/unauthorized");
+  }
+
+  const parsed = createAgentSchema.safeParse(collectTrainingFormInput(formData));
 
   if (!parsed.success) {
     redirect("/cliente/agentes?error=No+se+pudo+crear+el+agente");
@@ -229,6 +237,90 @@ export async function createAgentAction(formData: FormData): Promise<void> {
   revalidatePath("/cliente");
   revalidatePath("/cliente/agentes");
   redirect("/cliente/agentes?ok=Agente+creado");
+}
+
+export async function updateAgentTrainingAction(formData: FormData): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+    redirect("/unauthorized");
+  }
+
+  const parsed = updateAgentTrainingSchema.safeParse({
+    agentId: formData.get("agentId"),
+    ...collectTrainingFormInput(formData),
+  });
+
+  if (!parsed.success) {
+    const fallbackAgentId = String(formData.get("agentId") || "");
+    redirect(`/cliente/agentes/${fallbackAgentId}/entrenamiento?error=No+se+pudo+guardar+el+entrenamiento`);
+  }
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    redirect("/cliente/agentes?error=Debes+configurar+tu+negocio+primero");
+  }
+
+  const agent = await prisma.agent.findFirst({
+    where: {
+      id: parsed.data.agentId,
+      workspaceId: membership.workspace.id,
+    },
+    select: {
+      id: true,
+      name: true,
+    },
+  });
+
+  if (!agent) {
+    redirect("/cliente/agentes?error=Agente+no+encontrado");
+  }
+
+  const training = buildAgentTrainingConfig({
+    businessDescription: parsed.data.businessDescription,
+    targetAudiences: parsed.data.targetAudiences,
+    priceRangeMin: parsed.data.priceRangeMin,
+    priceRangeMax: parsed.data.priceRangeMax,
+    salesTone: parsed.data.salesTone,
+    responseLength: getResponseLengthFromValue(parsed.data.responseLengthValue),
+    useEmojis: parsed.data.useEmojis,
+    useExpressivePunctuation: parsed.data.useExpressivePunctuation,
+    useTuteo: parsed.data.useTuteo,
+    useCustomerName: parsed.data.useCustomerName,
+    askNameFirst: parsed.data.askNameFirst,
+    offerBestSeller: parsed.data.offerBestSeller,
+    handlePriceObjections: parsed.data.handlePriceObjections,
+    askForOrder: parsed.data.askForOrder,
+    sendPaymentLink: parsed.data.sendPaymentLink,
+    handoffToHuman: parsed.data.handoffToHuman,
+    forbiddenRules: parsed.data.forbiddenRules,
+    customRules: parsed.data.customRules,
+  });
+
+  await prisma.agent.update({
+    where: { id: agent.id },
+    data: {
+      description: parsed.data.businessDescription,
+      trainingConfig: training,
+      systemPrompt: buildAgentSystemPrompt({
+        agentName: agent.name,
+        businessName: parsed.data.businessName,
+        training,
+      }),
+      welcomeMessage: buildWelcomeMessage({
+        agentName: agent.name,
+        businessName: parsed.data.businessName,
+        training,
+      }),
+      fallbackMessage: buildFallbackMessage(training),
+      handoffMessage: buildHandoffMessage(),
+    },
+  });
+
+  revalidatePath("/cliente");
+  revalidatePath("/cliente/agentes");
+  revalidatePath(`/cliente/agentes/${agent.id}`);
+  revalidatePath(`/cliente/agentes/${agent.id}/entrenamiento`);
+  redirect(`/cliente/agentes/${agent.id}/entrenamiento?ok=Entrenamiento+actualizado`);
 }
 
 export async function deleteAgentAction(formData: FormData): Promise<void> {
