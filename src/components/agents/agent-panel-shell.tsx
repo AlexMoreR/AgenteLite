@@ -86,13 +86,13 @@ export function AgentPanelShell({ agentId, children, hideMobileNav = false }: Ag
                   <Link
                     key={tab.key}
                     href={href}
-                    className={`flex min-h-[52px] flex-col items-center justify-center gap-0.5 rounded-none px-0 py-1.5 text-center text-[10px] font-medium transition ${
+                    className={`flex min-h-[52px] flex-col items-center justify-center gap-0.5 rounded-t-[14px] px-0 py-1.5 text-center text-[11px] font-medium transition ${
                       active
                         ? "bg-[var(--primary)] text-white"
                         : "text-slate-600"
                     }`}
                   >
-                    <Icon className="h-3.5 w-3.5" />
+                    <Icon className="h-4 w-4" />
                     <span className="leading-none">{tab.label}</span>
                   </Link>
                 );

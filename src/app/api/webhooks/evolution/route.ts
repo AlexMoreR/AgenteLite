@@ -15,7 +15,7 @@ import {
   isInboundMessageEvent,
   normalizePhoneFromJid,
 } from "@/lib/evolution-webhook";
-import { sendEvolutionTextMessage } from "@/lib/evolution";
+import { sendEvolutionPresence, sendEvolutionTextMessage } from "@/lib/evolution";
 import { getEvolutionSettings } from "@/lib/system-settings";
 
 function mapChannelStatus(eventName: string | null, rawState: string | null) {
@@ -305,6 +305,12 @@ export async function POST(request: Request) {
 
       if (!existingOutbound) {
         replyText = agent.welcomeMessage?.trim() || agent.fallbackMessage?.trim() || null;
+        console.log("[EVOLUTION] auto_reply_mode", {
+          conversationId: conversation.id,
+          agentId: agent.id,
+          mode: "welcome",
+          usedFallback: !agent.welcomeMessage?.trim(),
+        });
       } else {
         const recentMessages = await prisma.message.findMany({
           where: {
@@ -327,6 +333,15 @@ export async function POST(request: Request) {
           history: recentMessages,
           latestUserMessage: messageText,
         });
+
+        console.log("[EVOLUTION] auto_reply_mode", {
+          conversationId: conversation.id,
+          agentId: agent.id,
+          mode: "ai",
+          usedFallback:
+            replyText?.trim() === (agent.fallbackMessage?.trim() || "").trim(),
+          historyCount: recentMessages.length,
+        });
       }
 
       if (replyText) {
@@ -338,6 +353,23 @@ export async function POST(request: Request) {
             instanceName: channel.evolutionInstanceName,
             preview: replyText.slice(0, 80),
           });
+
+          try {
+            await sendEvolutionPresence({
+              instanceName: channel.evolutionInstanceName,
+              phoneNumber,
+              presence: "composing",
+              delay: 1200,
+            });
+          } catch (presenceError) {
+            console.warn("[EVOLUTION] presence_failed", {
+              conversationId: conversation.id,
+              agentId: agent.id,
+              phoneNumber,
+              instanceName: channel.evolutionInstanceName,
+              error: presenceError instanceof Error ? presenceError.message : String(presenceError),
+            });
+          }
 
           const outbound = await sendEvolutionTextMessage({
             instanceName: channel.evolutionInstanceName,

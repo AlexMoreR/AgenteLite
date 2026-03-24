@@ -5,7 +5,12 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { generateUniqueAgentSlug } from "@/lib/agent";
-import { createEvolutionChannelForAgent, deleteEvolutionInstance, sendEvolutionTextMessage } from "@/lib/evolution";
+import {
+  createEvolutionChannelForAgent,
+  deleteEvolutionInstance,
+  sendEvolutionPresence,
+  sendEvolutionTextMessage,
+} from "@/lib/evolution";
 import { prisma } from "@/lib/prisma";
 import { generateUniqueWorkspaceSlug, getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
@@ -367,6 +372,17 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<vo
 
   if (!conversation || !conversation.channel?.evolutionInstanceName || !conversation.contact?.phoneNumber) {
     redirect(`/cliente/agentes/${parsed.data.agentId}/chats?error=No+se+encontro+el+canal+o+contacto`);
+  }
+
+  try {
+    await sendEvolutionPresence({
+      instanceName: conversation.channel.evolutionInstanceName,
+      phoneNumber: conversation.contact.phoneNumber,
+      presence: "composing",
+      delay: 900,
+    });
+  } catch {
+    // Si falla el indicador de escritura, igual enviamos el mensaje manual.
   }
 
   const outbound = await sendEvolutionTextMessage({

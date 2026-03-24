@@ -48,6 +48,8 @@ type EvolutionProfilePictureResponse = {
   profilePictureUrl?: string | null;
 };
 
+type EvolutionPresence = "available" | "unavailable" | "composing" | "recording" | "paused";
+
 function normalizeEvolutionState(value: string | null | undefined) {
   return typeof value === "string" && value.trim() ? value.trim().toLowerCase() : null;
 }
@@ -247,6 +249,22 @@ export async function sendEvolutionTextMessage(input: {
     externalId,
     raw: response,
   };
+}
+
+export async function sendEvolutionPresence(input: {
+  instanceName: string;
+  phoneNumber: string;
+  presence?: EvolutionPresence;
+  delay?: number;
+}) {
+  await evolutionRequest(`/chat/sendPresence/${input.instanceName}`, {
+    method: "POST",
+    body: JSON.stringify({
+      number: input.phoneNumber,
+      presence: input.presence ?? "composing",
+      delay: input.delay ?? 1200,
+    }),
+  });
 }
 
 export async function fetchEvolutionProfilePictureUrl(input: {

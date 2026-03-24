@@ -185,7 +185,7 @@ export default async function ClienteAgenteChatsPage({ params, searchParams }: P
                     <a
                       key={conversation.id}
                       href={`/cliente/agentes/${agent.id}/chats?conversationId=${conversation.id}`}
-                      className={`group relative flex items-start gap-3 px-3 py-3 transition ${
+                      className={`group relative grid w-full grid-cols-[44px_minmax(0,1fr)] items-start gap-3 overflow-hidden px-3 py-3 transition ${
                         isSelected ? "bg-[color-mix(in_srgb,var(--primary)_6%,white)]" : "hover:bg-slate-50/80"
                       }`}
                     >
@@ -210,9 +210,9 @@ export default async function ClienteAgenteChatsPage({ params, searchParams }: P
                         </div>
                       )}
 
-                      <div className="min-w-0 flex-1 space-y-0.5">
+                      <div className="min-w-0 overflow-hidden space-y-0.5">
                         <div className="flex items-center justify-between gap-3">
-                          <p className="truncate text-[13px] font-semibold text-slate-950">{label}</p>
+                          <p className="min-w-0 flex-1 truncate text-[13px] font-semibold text-slate-950">{label}</p>
                           <span className="shrink-0 text-[10px] text-slate-500">
                             {lastMessage?.createdAt
                               ? new Intl.DateTimeFormat("es-CO", {
@@ -223,9 +223,9 @@ export default async function ClienteAgenteChatsPage({ params, searchParams }: P
                           </span>
                         </div>
 
-                        <div className="flex items-center gap-2">
+                        <div className="flex min-w-0 max-w-full items-center gap-2 overflow-hidden">
                           {isInbound ? <span className="h-2 w-2 rounded-full bg-emerald-500" /> : null}
-                          <p className="truncate text-[13px] text-slate-600">
+                          <p className="block min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[13px] text-slate-600">
                             {lastMessage?.content || "Sin mensajes visibles aun."}
                           </p>
                         </div>
