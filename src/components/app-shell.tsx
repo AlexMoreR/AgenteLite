@@ -55,6 +55,7 @@ export function AppShell({ children, initialUser, brandName, adminModuleAccess }
   ]);
   const isCategoryStorefrontPath = Boolean(firstSegment) && !reservedStoreSegments.has(firstSegment);
   const showTopMenu = pathname === "/" || pathname.startsWith("/productos") || pathname.startsWith("/categorias") || isCategoryStorefrontPath;
+  const isMarketingHome = pathname === "/";
   const isAgentWorkspacePath = pathname.startsWith("/cliente/agentes/");
   const currentPage = pathname === "/"
     ? "Inicio"
@@ -150,8 +151,10 @@ export function AppShell({ children, initialUser, brandName, adminModuleAccess }
         />
         <main
           className={cn(
-            "mx-auto w-full max-w-6xl px-4 md:px-6",
-            "min-h-[calc(100vh-4rem)] pt-3 pb-8 md:pt-4 md:pb-10",
+            "w-full",
+            isMarketingHome
+              ? "min-h-[calc(100vh-4.5rem)] px-0 pt-0 pb-0"
+              : "mx-auto max-w-6xl px-4 pt-3 pb-8 md:px-6 md:pt-4 md:pb-10",
           )}
         >
           {children}

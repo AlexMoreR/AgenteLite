@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
 import { Fragment } from "react";
 import type { Role } from "@prisma/client";
-import { ChevronDown, Facebook, Instagram, LayoutDashboard, LogOut, Menu, Search, Settings, UserCircle2 } from "lucide-react";
+import { Bot, ChevronDown, Facebook, Instagram, LayoutDashboard, LogOut, Menu, Search, Settings, UserCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -48,6 +48,7 @@ export function Navbar({
   if (pathname === "/login" || pathname === "/register") return null;
   const dashboardHref = user?.role ? roleLinks[user.role] : null;
   const initials = (user?.name ?? user?.email ?? "U").slice(0, 1).toUpperCase();
+  const isMarketingHome = pathname === "/";
 
   const canAccessConfig = Boolean(
     adminModuleAccess?.config_users ||
@@ -82,6 +83,128 @@ export function Navbar({
     { label: "Ofertas", href: "/" },
     { label: "Vende con nosotros", href: "/" },
   ];
+  const marketingLinks = [
+    { label: "Beneficios", href: "#beneficios" },
+    { label: "Como funciona", href: "#como-funciona" },
+    { label: "Panel", href: "/cliente" },
+    { label: "Acceso", href: "/login" },
+  ];
+
+  if (isMarketingHome) {
+    return (
+      <header className="sticky top-0 z-40 border-b border-white/8 bg-[#07111f]/82 backdrop-blur-xl">
+        <div className="mx-auto flex h-18 w-full max-w-7xl items-center justify-between gap-4 px-4 md:px-8">
+          <div className="flex min-w-0 items-center gap-3">
+            <Link href="/" className="inline-flex items-center gap-3 rounded-full" aria-label="Inicio">
+              <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-[#2ed3b7]/20 bg-[#0d2732] text-[#94f0e2]">
+                <Bot className="h-5 w-5" />
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-semibold tracking-[0.2em] text-[#9feede]">
+                  {brandName.toUpperCase()}
+                </span>
+                <span className="block truncate text-xs text-[#8da1b8]">Agentes IA para WhatsApp</span>
+              </span>
+            </Link>
+
+            <nav className="hidden items-center gap-1 lg:flex">
+              {marketingLinks.map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className="rounded-full px-4 py-2 text-sm font-medium text-[#c8d4e3] transition hover:bg-white/6 hover:text-white"
+                >
+                  {item.label}
+                </Link>
+              ))}
+            </nav>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {user ? (
+              <>
+                {dashboardHref ? (
+                  <Button
+                    asChild
+                    variant="ghost"
+                    size="sm"
+                    className="hidden h-10 rounded-full border border-white/10 bg-white/6 px-4 text-white hover:bg-white/10 md:inline-flex"
+                  >
+                    <Link href={dashboardHref}>Ir al dashboard</Link>
+                  </Button>
+                ) : null}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-10 gap-2 rounded-full border border-white/10 bg-white/6 px-2.5 text-white transition hover:bg-white/10"
+                    >
+                      <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-white/10 text-[11px] font-semibold text-white">
+                        {initials}
+                      </span>
+                      <span className="hidden max-w-[10rem] truncate sm:inline">{user.name ?? user.email}</span>
+                      <ChevronDown className="h-4 w-4 text-[#94a3b8]" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56">
+                    <div className="border-b border-slate-100 px-2 py-2">
+                      <p className="truncate text-sm font-medium text-slate-900">{user.name ?? "Usuario"}</p>
+                      <p className="truncate text-xs text-slate-500">{user.email}</p>
+                    </div>
+                    <DropdownMenuItem asChild>
+                      <Link href="/profile" className="flex items-center gap-2">
+                        <UserCircle2 className="h-4 w-4 text-slate-500" />
+                        Perfil
+                      </Link>
+                    </DropdownMenuItem>
+                    {dashboardHref && (
+                      <DropdownMenuItem asChild>
+                        <Link href={dashboardHref} className="flex items-center gap-2">
+                          <LayoutDashboard className="h-4 w-4 text-slate-500" />
+                          Dashboard
+                        </Link>
+                      </DropdownMenuItem>
+                    )}
+                    {user.role === "ADMIN" && canAccessConfig && (
+                      <DropdownMenuItem asChild>
+                        <Link href="/admin/configuracion" className="flex items-center gap-2">
+                          <Settings className="h-4 w-4 text-slate-500" />
+                          Configuracion
+                        </Link>
+                      </DropdownMenuItem>
+                    )}
+                    <DropdownMenuItem onClick={() => signOut({ callbackUrl: "/login" })} className="flex items-center gap-2">
+                      <LogOut className="h-4 w-4 text-slate-500" />
+                      Cerrar sesion
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </>
+            ) : (
+              <>
+                <Button
+                  asChild
+                  variant="ghost"
+                  size="sm"
+                  className="hidden h-10 rounded-full border border-white/10 bg-white/6 px-4 text-white hover:bg-white/10 md:inline-flex"
+                >
+                  <Link href="/login">Iniciar sesion</Link>
+                </Button>
+                <Button
+                  asChild
+                  size="sm"
+                  className="h-10 rounded-full bg-[#2ed3b7] px-4 text-[#04131d] hover:bg-[#58e4cc]"
+                >
+                  <Link href="/register">Crear workspace</Link>
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+      </header>
+    );
+  }
 
   return (
     <header className="sticky top-0 z-40 border-b border-[var(--line)] bg-white/90 backdrop-blur-md">
