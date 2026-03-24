@@ -87,10 +87,10 @@ export default async function HomePage() {
         <div className="mx-auto grid max-w-7xl gap-14 px-4 pb-18 pt-12 md:px-8 md:pb-24 md:pt-20 lg:grid-cols-[minmax(0,1.1fr)_30rem] lg:items-center">
           <div className="space-y-8">
             <div className="space-y-5">
-              <h1 className="max-w-4xl text-5xl font-semibold tracking-[-0.05em] text-white md:text-6xl lg:text-7xl">
+              <h1 className="max-w-4xl text-3xl font-semibold tracking-[-0.05em] text-white md:text-4xl lg:text-5xl">
                 Convierte WhatsApp en tu equipo comercial automatizado.
               </h1>
-              <p className="max-w-2xl text-base leading-8 text-[#b8c6d9] md:text-lg">
+              <p className="max-w-2xl text-sm leading-7 text-[#b8c6d9] md:text-base">
                 {brandName} te permite crear agentes de IA, conectar canales reales de WhatsApp, responder clientes en
                 tiempo real y operar multiples negocios desde una arquitectura SaaS pensada para escalar.
               </p>
