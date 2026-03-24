@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { generateAgentReply } from "@/lib/agent-ai";
 import { prisma } from "@/lib/prisma";
@@ -38,6 +40,32 @@ function mapChannelStatus(eventName: string | null, rawState: string | null) {
   }
 
   return null;
+}
+
+function buildInboundExternalId(input: {
+  messageExternalId: string | null;
+  eventName: string | null;
+  instanceName: string | null;
+  remoteJid: string | null;
+  messageText: string | null;
+  payload: unknown;
+}) {
+  if (input.messageExternalId) {
+    return input.messageExternalId;
+  }
+
+  // Keep retries idempotent even when the provider omits a message id.
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        eventName: input.eventName,
+        instanceName: input.instanceName,
+        remoteJid: input.remoteJid,
+        messageText: input.messageText,
+        payload: input.payload,
+      }),
+    )
+    .digest("hex");
 }
 
 export async function POST(request: Request) {
@@ -164,6 +192,14 @@ export async function POST(request: Request) {
   const phoneNumber = normalizePhoneFromJid(remoteJid);
   const messageText = extractEvolutionMessageText(payload);
   const messageExternalId = extractEvolutionMessageId(payload);
+  const inboundExternalId = buildInboundExternalId({
+    messageExternalId,
+    eventName,
+    instanceName,
+    remoteJid,
+    messageText,
+    payload,
+  });
   const fromMe = extractEvolutionFromMe(payload);
 
   console.log("[EVOLUTION] inbound_candidate", {
@@ -173,7 +209,7 @@ export async function POST(request: Request) {
     fromMe,
     phoneNumber,
     hasMessageText: Boolean(messageText?.trim()),
-    messageExternalId,
+    messageExternalId: inboundExternalId,
   });
 
   if (fromMe || !phoneNumber) {
@@ -236,21 +272,46 @@ export async function POST(request: Request) {
         select: { id: true },
       });
 
-  await prisma.message.create({
-    data: {
-      workspaceId: channel.workspaceId,
-      conversationId: conversation.id,
-      channelId: channel.id,
-      contactId: contact.id,
-      agentId: channel.agentId ?? null,
-      externalId: messageExternalId || (remoteJid ? `${remoteJid}-${Date.now()}` : null),
-      direction: "INBOUND",
-      type: "TEXT",
-      status: "RECEIVED",
-      content: messageText,
-      rawPayload: payload as never,
-    },
-  });
+  try {
+    await prisma.message.create({
+      data: {
+        workspaceId: channel.workspaceId,
+        conversationId: conversation.id,
+        channelId: channel.id,
+        contactId: contact.id,
+        agentId: channel.agentId ?? null,
+        externalId: inboundExternalId,
+        direction: "INBOUND",
+        type: "TEXT",
+        status: "RECEIVED",
+        content: messageText,
+        rawPayload: payload as never,
+      },
+    });
+  } catch (error) {
+    const isDuplicateMessage =
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002";
+
+    if (isDuplicateMessage) {
+      console.log("[EVOLUTION] inbound_duplicate_ignored", {
+        eventName,
+        instanceName,
+        channelId: channel.id,
+        conversationId: conversation.id,
+        externalId: inboundExternalId,
+      });
+
+      return NextResponse.json({
+        ok: true,
+        message: "Duplicate inbound event ignored",
+        instanceName,
+        event: eventName,
+      });
+    }
+
+    throw error;
+  }
 
   await prisma.conversation.update({
     where: { id: conversation.id },
