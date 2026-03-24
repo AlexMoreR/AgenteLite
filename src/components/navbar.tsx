@@ -85,6 +85,7 @@ export function Navbar({
   ];
   const marketingLinks = [
     { label: "Beneficios", href: "#beneficios" },
+    { label: "Precios", href: "#precios" },
     { label: "Como funciona", href: "#como-funciona" },
     { label: "Panel", href: "/cliente" },
     { label: "Acceso", href: "/login" },

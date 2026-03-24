@@ -4,44 +4,50 @@ import { ArrowRight, Bot, CheckCircle2, Clock3, Gauge, MessagesSquare, QrCode, S
 import { getSystemBrandName } from "@/lib/system-settings";
 
 const heroStats = [
-  { label: "Respuestas simultaneas", value: "24/7" },
-  { label: "Canales activos por negocio", value: "1 panel" },
-  { label: "Tiempo de activacion", value: "< 10 min" },
+  { label: "Atencion continua", value: "24/7" },
+  { label: "Todo WhatsApp en", value: "1 panel" },
+  { label: "Activacion inicial", value: "< 10 min" },
+];
+
+const heroSignals = [
+  "Capta leads sin perder chats",
+  "Responde al instante",
+  "Escala con IA y equipo humano",
 ];
 
 const valueCards = [
   {
     icon: MessagesSquare,
-    title: "Vende desde WhatsApp sin perder conversaciones",
+    title: "Cada chat entra con orden comercial",
     description:
-      "Centraliza chats, respuestas automaticas, seguimiento comercial y mensajes manuales desde una sola vista.",
+      "Centraliza conversaciones, respuestas automaticas y seguimiento en un flujo que tu equipo si puede operar.",
   },
   {
     icon: Bot,
-    title: "Agentes entrenados para tu negocio",
+    title: "La IA atiende antes de que se enfrie el lead",
     description:
-      "Configura el tono, la oferta y el flujo del agente para atender clientes, filtrar leads y cerrar oportunidades.",
+      "Configura tono, oferta y siguientes pasos para responder rapido, filtrar interesados y avanzar oportunidades.",
   },
   {
     icon: Workflow,
-    title: "Operacion SaaS lista para escalar",
+    title: "Tu operacion crece sin volverse caos",
     description:
-      "Cada cliente puede tener su workspace, agentes, conversaciones y configuracion de WhatsApp sin mezclar datos.",
+      "Separa clientes, agentes y conversaciones para vender mas sin mezclar cuentas ni procesos.",
   },
 ];
 
 const steps = [
   {
     title: "Crea tu workspace",
-    description: "Registra tu negocio, define el enfoque comercial y prepara el espacio donde operaran tus agentes.",
+    description: "Registra tu negocio y deja lista la base donde trabajara tu operacion comercial.",
   },
   {
     title: "Conecta WhatsApp",
-    description: "Genera la instancia, escanea el QR y deja el canal listo para recibir conversaciones reales.",
+    description: "Vincula el canal y empieza a recibir conversaciones reales en un solo lugar.",
   },
   {
     title: "Activa tu agente",
-    description: "Personaliza prompts, bienvenida, fallback y control operativo para empezar a vender por chat.",
+    description: "Activa respuestas, seguimiento y escalamiento para convertir chats en oportunidades.",
   },
 ];
 
@@ -56,10 +62,60 @@ const featureGrid = [
   "Permisos y modulos por rol",
 ];
 
+const proofStrip = [
+  "Equipos comerciales",
+  "Agencias",
+  "Negocios con alto volumen",
+  "Operaciones multi cliente",
+];
+
+const pricingPlans = [
+  {
+    name: "Starter",
+    price: "$29",
+    cadence: "/mes",
+    description: "Para empezar a responder y ordenar conversaciones.",
+    cta: "Empezar",
+    highlight: false,
+    features: ["1 workspace", "1 canal de WhatsApp", "IA basica", "Bandeja unificada"],
+  },
+  {
+    name: "Pro",
+    price: "$79",
+    cadence: "/mes",
+    description: "Para equipos que ya venden y necesitan control comercial.",
+    cta: "Elegir Pro",
+    highlight: true,
+    features: ["Workspaces y agentes", "Seguimiento comercial", "Roles y permisos", "Prioridad y operacion"],
+  },
+  {
+    name: "SaaS",
+    price: "Custom",
+    cadence: "",
+    description: "Para agencias o modelos multi cliente con mayor volumen.",
+    cta: "Hablar con ventas",
+    highlight: false,
+    features: ["Operacion multi cliente", "Escalamiento comercial", "Soporte prioritario", "Acompañamiento"],
+  },
+];
+
+const testimonials = [
+  {
+    quote: "Pasamos de responder tarde a tener una operacion mucho mas ordenada y constante.",
+    author: "Equipo comercial",
+    company: "Distribuidora B2B",
+  },
+  {
+    quote: "Lo mejor fue dejar de perder conversaciones y poder filtrar mejor los leads.",
+    author: "Founder",
+    company: "Agencia digital",
+  },
+];
+
 export async function generateMetadata(): Promise<Metadata> {
   const brandName = await getSystemBrandName();
   const description =
-    "Plataforma SaaS para crear agentes de IA en WhatsApp, automatizar ventas, centralizar conversaciones y operar clientes desde un solo panel.";
+    "Landing SaaS para vender por WhatsApp con IA, automatizar respuestas y ordenar conversaciones desde un solo panel.";
 
   return {
     title: `${brandName} | Agentes de IA para WhatsApp`,
@@ -88,11 +144,11 @@ export default async function HomePage() {
           <div className="space-y-8">
             <div className="space-y-5">
               <h1 className="max-w-4xl text-3xl font-semibold tracking-[-0.05em] text-white md:text-4xl lg:text-5xl">
-                Convierte WhatsApp en tu equipo comercial automatizado.
+                Convierte WhatsApp en una maquina de ventas que responde al instante.
               </h1>
               <p className="max-w-2xl text-sm leading-7 text-[#b8c6d9] md:text-base">
-                {brandName} te permite crear agentes de IA, conectar canales reales de WhatsApp, responder clientes en
-                tiempo real y operar multiples negocios desde una arquitectura SaaS pensada para escalar.
+                {brandName} responde clientes, ordena conversaciones y deja a tu equipo humano solo los leads que ya
+                estan listos para avanzar.
               </p>
             </div>
 
@@ -101,15 +157,26 @@ export default async function HomePage() {
                 href="/register"
                 className="inline-flex h-13 items-center justify-center gap-2 rounded-full bg-[#2ed3b7] px-6 text-sm font-semibold text-[#04131d] transition hover:bg-[#58e4cc]"
               >
-                Crear workspace
+                Empezar ahora
                 <ArrowRight className="h-4 w-4" />
               </Link>
               <Link
                 href="/login"
                 className="inline-flex h-13 items-center justify-center gap-2 rounded-full border border-white/14 bg-white/6 px-6 text-sm font-semibold text-white transition hover:bg-white/10"
               >
-                Entrar al panel
+                Ver plataforma
               </Link>
+            </div>
+
+            <div className="flex flex-wrap gap-2 pt-1">
+              {heroSignals.map((item) => (
+                <span
+                  key={item}
+                  className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-medium text-[#cfe0ef]"
+                >
+                  {item}
+                </span>
+              ))}
             </div>
 
             <div className="grid gap-3 pt-2 sm:grid-cols-3">
@@ -133,7 +200,7 @@ export default async function HomePage() {
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#7ee8d5]">Control Center</p>
                     <h2 className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-white">
-                      Orquesta ventas, automatizacion y soporte.
+                      Todo tu canal comercial trabajando en tiempo real.
                     </h2>
                   </div>
                   <div className="rounded-2xl border border-[#2ed3b7]/25 bg-[#0c2c31] px-3 py-2 text-right">
@@ -150,8 +217,8 @@ export default async function HomePage() {
                           <QrCode className="h-4 w-4" />
                         </div>
                         <div>
-                          <p className="text-sm font-medium text-white">Canal WhatsApp listo</p>
-                          <p className="text-xs text-[#91a5bc]">Conexion estable y QR sincronizado</p>
+                          <p className="text-sm font-medium text-white">Canal listo para recibir leads</p>
+                          <p className="text-xs text-[#91a5bc]">Conexion activa y operacion continua</p>
                         </div>
                       </div>
                     </div>
@@ -162,8 +229,8 @@ export default async function HomePage() {
                           <Gauge className="h-4 w-4" />
                         </div>
                         <div>
-                          <p className="text-sm font-medium text-white">IA con contexto comercial</p>
-                          <p className="text-xs text-[#91a5bc]">Prompts, oferta y fallback definidos</p>
+                          <p className="text-sm font-medium text-white">IA con guion de ventas</p>
+                          <p className="text-xs text-[#91a5bc]">Respuestas, filtro y derivacion definidos</p>
                         </div>
                       </div>
                     </div>
@@ -173,7 +240,7 @@ export default async function HomePage() {
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-xs uppercase tracking-[0.18em] text-[#92a6ba]">Conversacion activa</p>
-                        <p className="mt-2 text-lg font-semibold text-white">Cliente preguntando por planes y demo</p>
+                        <p className="mt-2 text-lg font-semibold text-white">Lead preguntando por planes y demostracion</p>
                       </div>
                       <div className="rounded-full border border-[#2ed3b7]/30 bg-[#0f2e2f] px-3 py-1 text-xs font-medium text-[#95f4e6]">
                         IA + humano
@@ -181,11 +248,11 @@ export default async function HomePage() {
                     </div>
                     <div className="mt-4 space-y-3">
                       <div className="max-w-[85%] rounded-[1.1rem] border border-white/8 bg-white/6 px-4 py-3 text-sm text-[#dce7f5]">
-                        Hola, quiero automatizar mi WhatsApp para captar leads y enviar cotizaciones.
+                        Hola, quiero un sistema para responder clientes por WhatsApp y no perder oportunidades.
                       </div>
                       <div className="ml-auto max-w-[85%] rounded-[1.1rem] bg-[#2ed3b7] px-4 py-3 text-sm font-medium text-[#06202a]">
-                        Perfecto. Puedo ayudarte a responder 24/7, filtrar interesados y dejar a tu equipo solo los
-                        leads listos para cerrar.
+                        Perfecto. Podemos ayudarte a responder al instante, ordenar conversaciones y dejar a tu equipo
+                        los leads mas valiosos.
                       </div>
                     </div>
                   </div>
@@ -196,12 +263,25 @@ export default async function HomePage() {
         </div>
       </section>
 
+      <section className="relative pb-6">
+        <div className="mx-auto max-w-7xl px-4 md:px-8">
+          <div className="flex flex-wrap items-center gap-3 rounded-[1.4rem] border border-white/8 bg-white/[0.035] px-4 py-4 text-sm text-[#b9c8d8]">
+            <span className="text-xs font-semibold uppercase tracking-[0.22em] text-[#88eddc]">Usado por</span>
+            {proofStrip.map((item) => (
+              <span key={item} className="rounded-full border border-white/8 bg-white/[0.03] px-3 py-1.5">
+                {item}
+              </span>
+            ))}
+          </div>
+        </div>
+      </section>
+
       <section id="beneficios" className="relative border-y border-white/7 bg-[#091524]/82">
         <div className="mx-auto max-w-7xl px-4 py-16 md:px-8 md:py-20">
           <div className="max-w-2xl">
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#8deedc]">Por que este sistema</p>
             <h2 className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-white md:text-4xl">
-              No es solo un bot. Es una capa operativa para vender por WhatsApp.
+              No es solo automatizacion. Es control comercial real.
             </h2>
           </div>
 
@@ -226,17 +306,83 @@ export default async function HomePage() {
         </div>
       </section>
 
+      <section id="precios" className="relative border-y border-white/7 bg-[#08101b]">
+        <div className="mx-auto max-w-7xl px-4 py-16 md:px-8 md:py-20">
+          <div className="max-w-2xl">
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#8deedc]">Precios</p>
+            <h2 className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-white md:text-4xl">
+              Elige el plan que mejor encaja con tu ritmo de ventas.
+            </h2>
+            <p className="mt-4 text-sm leading-7 text-[#9fb1c7]">
+              Sin esconder el siguiente paso: empieza pequeño, sube cuando tu operacion lo pida y habla con ventas si
+              manejas varios clientes.
+            </p>
+          </div>
+
+          <div className="mt-10 grid gap-4 lg:grid-cols-3">
+            {pricingPlans.map((plan) => (
+              <article
+                key={plan.name}
+                className={
+                  plan.highlight
+                    ? "rounded-[1.8rem] border border-[#2ed3b7]/40 bg-[linear-gradient(180deg,#12303a_0%,#0d1b29_100%)] p-6 shadow-[0_24px_60px_-38px_rgba(46,211,183,0.45)]"
+                    : "rounded-[1.8rem] border border-white/8 bg-white/[0.04] p-6"
+                }
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h3 className="text-2xl font-semibold tracking-[-0.04em] text-white">{plan.name}</h3>
+                    <p className="mt-2 text-sm leading-7 text-[#9fb1c7]">{plan.description}</p>
+                  </div>
+                  {plan.highlight ? (
+                    <span className="rounded-full border border-[#2ed3b7]/30 bg-[#0f2f30] px-3 py-1 text-xs font-semibold text-[#92f3e4]">
+                      Mas elegido
+                    </span>
+                  ) : null}
+                </div>
+
+                <div className="mt-6 flex items-end gap-1">
+                  <span className="text-4xl font-semibold tracking-[-0.05em] text-white">{plan.price}</span>
+                  {plan.cadence ? <span className="pb-1 text-sm text-[#91a5bc]">{plan.cadence}</span> : null}
+                </div>
+
+                <div className="mt-6">
+                  <Link
+                    href={plan.name === "SaaS" ? "/login" : "/register"}
+                    className={
+                      plan.highlight
+                        ? "inline-flex h-11 w-full items-center justify-center rounded-full bg-[#2ed3b7] px-5 text-sm font-semibold text-[#04131d] transition hover:bg-[#58e4cc]"
+                        : "inline-flex h-11 w-full items-center justify-center rounded-full border border-white/12 bg-white/6 px-5 text-sm font-semibold text-white transition hover:bg-white/10"
+                    }
+                  >
+                    {plan.cta}
+                  </Link>
+                </div>
+
+                <div className="mt-6 space-y-3">
+                  {plan.features.map((feature) => (
+                    <div key={feature} className="flex items-center gap-3 text-sm text-[#d7e3f0]">
+                      <CheckCircle2 className="h-4 w-4 shrink-0 text-[#72e7d1]" />
+                      <span>{feature}</span>
+                    </div>
+                  ))}
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
+
       <section id="como-funciona" className="relative">
         <div className="mx-auto max-w-7xl px-4 py-16 md:px-8 md:py-20">
           <div className="grid gap-10 lg:grid-cols-[22rem_minmax(0,1fr)] lg:items-start">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#8deedc]">Activacion</p>
               <h2 className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-white md:text-4xl">
-                Desde cero hasta un canal vendiendo en pocos pasos.
+                Empieza rapido y vende desde el primer dia.
               </h2>
               <p className="mt-4 text-sm leading-7 text-[#9fb1c7]">
-                El flujo esta pensado para una operacion SaaS: onboarding, conexion, configuracion del agente y salida
-                a produccion sin friccion innecesaria.
+                Configura tu operacion, conecta el canal y activa tu agente sin procesos pesados ni pasos innecesarios.
               </p>
             </div>
 
@@ -263,12 +409,26 @@ export default async function HomePage() {
         </div>
       </section>
 
+      <section className="relative">
+        <div className="mx-auto max-w-7xl px-4 py-16 md:px-8 md:py-20">
+          <div className="grid gap-4 lg:grid-cols-2">
+            {testimonials.map((item) => (
+              <article key={`${item.author}-${item.company}`} className="rounded-[1.7rem] border border-white/8 bg-white/[0.04] p-6">
+                <p className="text-lg leading-8 text-white">“{item.quote}”</p>
+                <p className="mt-5 text-sm font-semibold text-[#dbe7f4]">{item.author}</p>
+                <p className="mt-1 text-sm text-[#8fa4ba]">{item.company}</p>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
+
       <section className="relative border-y border-white/7 bg-[#08111b]">
         <div className="mx-auto grid max-w-7xl gap-6 px-4 py-16 md:px-8 md:py-20 lg:grid-cols-[minmax(0,1fr)_24rem]">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#8deedc]">Capacidades</p>
             <h2 className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-white md:text-4xl">
-              Hecho para operar como producto, no como demo.
+              Construido para vender, medir y escalar.
             </h2>
             <div className="mt-8 grid gap-3 sm:grid-cols-2">
               {featureGrid.map((item) => (
@@ -287,10 +447,9 @@ export default async function HomePage() {
             <div className="inline-flex rounded-2xl border border-white/8 bg-[#11283c] p-3 text-[#9cefe1]">
               <ShieldCheck className="h-5 w-5" />
             </div>
-            <h3 className="mt-5 text-2xl font-semibold tracking-[-0.04em] text-white">Pensado para SaaS B2B.</h3>
+            <h3 className="mt-5 text-2xl font-semibold tracking-[-0.04em] text-white">Listo para crecer contigo.</h3>
             <p className="mt-4 text-sm leading-7 text-[#9fb1c7]">
-              Separa clientes por workspace, controla acceso por roles y mantén el canal comercial listo para crecer
-              sin mezclar conversaciones, agentes ni configuraciones.
+              Mantén equipos, clientes y conversaciones bajo control mientras tu operacion comercial gana volumen.
             </p>
 
             <div className="mt-6 space-y-3">
@@ -298,12 +457,12 @@ export default async function HomePage() {
                 <p className="text-xs uppercase tracking-[0.18em] text-[#90a4bb]">Disponibilidad</p>
                 <p className="mt-2 flex items-center gap-2 text-sm font-medium text-white">
                   <Clock3 className="h-4 w-4 text-[#88eddc]" />
-                  Atención continua con escalamiento humano
+                  Atencion continua con apoyo humano
                 </p>
               </div>
               <div className="rounded-[1.1rem] border border-white/8 bg-white/[0.045] px-4 py-3">
                 <p className="text-xs uppercase tracking-[0.18em] text-[#90a4bb]">Operacion</p>
-                <p className="mt-2 text-sm font-medium text-white">Mensajes, agentes, QR y conversaciones desde un mismo panel</p>
+                <p className="mt-2 text-sm font-medium text-white">Mensajes, agentes y conversaciones desde un mismo panel</p>
               </div>
             </div>
           </aside>
@@ -317,11 +476,11 @@ export default async function HomePage() {
               <div className="max-w-2xl">
                 <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#8cefdc]">Lanzamiento</p>
                 <h2 className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-white md:text-4xl">
-                  Empieza hoy a vender con agentes de IA en WhatsApp.
+                  Empieza hoy a vender mas por WhatsApp.
                 </h2>
                 <p className="mt-4 text-sm leading-7 text-[#b7c5d8]">
-                  Activa tu workspace, conecta el canal y convierte cada chat en una oportunidad medible desde una sola
-                  plataforma.
+                  Activa tu cuenta y convierte cada conversacion en una oportunidad visible, medible y atendida a
+                  tiempo.
                 </p>
               </div>
 
@@ -330,7 +489,7 @@ export default async function HomePage() {
                   href="/register"
                   className="inline-flex h-12 items-center justify-center gap-2 rounded-full bg-white px-6 text-sm font-semibold text-[#08111b] transition hover:bg-[#dff8f2]"
                 >
-                  Probar ahora
+                  Crear cuenta
                 </Link>
                 <Link
                   href="/login"
