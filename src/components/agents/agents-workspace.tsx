@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { createAgentAction, deleteAgentAction, toggleAgentStatusAction } from "@/app/actions/agent-actions";
 import { resetWorkspaceAction } from "@/app/actions/workspace-actions";
+import { TrainingHelpPopover } from "@/components/agents/training-help-popover";
 import {
   forbiddenRuleOptions,
   getResponseLengthLabel,
@@ -33,6 +34,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 
 type AgentCard = {
   id: string;
@@ -98,23 +100,12 @@ function ProgressDot({ active, done }: { active: boolean; done: boolean }) {
 }
 
 function StepFrame({
-  eyebrow,
-  title,
-  subtitle,
   children,
 }: {
-  eyebrow: string;
-  title: string;
-  subtitle: string;
   children: ReactNode;
 }) {
   return (
-    <section className="space-y-6">
-      <div className="space-y-2">
-        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--primary)]">{eyebrow}</p>
-        <h3 className="text-[1.9rem] font-semibold tracking-[-0.05em] text-slate-950">{title}</h3>
-        <p className="max-w-2xl text-sm leading-6 text-slate-600">{subtitle}</p>
-      </div>
+    <section className="space-y-4 md:space-y-5">
       {children}
     </section>
   );
@@ -134,7 +125,7 @@ function MultiSelectChip({
   return (
     <label className="cursor-pointer">
       <input type="checkbox" name={name} value={value} defaultChecked={defaultChecked} className="peer sr-only" />
-      <span className="inline-flex min-h-11 items-center justify-center rounded-full border border-[rgba(148,163,184,0.18)] bg-white px-4 py-2 text-sm font-medium text-slate-700 transition peer-checked:border-[var(--primary)] peer-checked:bg-[color-mix(in_srgb,var(--primary)_8%,white)] peer-checked:text-[var(--primary)] peer-focus-visible:ring-2 peer-focus-visible:ring-[color-mix(in_srgb,var(--primary)_24%,white)]">
+      <span className="inline-flex min-h-11 items-center justify-center rounded-full border border-slate-200/90 bg-white px-5 py-2 text-sm font-medium text-slate-700 shadow-[0_10px_24px_-24px_rgba(15,23,42,0.22)] transition peer-checked:border-[var(--primary)] peer-checked:bg-[color-mix(in_srgb,var(--primary)_8%,white)] peer-checked:text-[var(--primary)] peer-focus-visible:ring-2 peer-focus-visible:ring-[color-mix(in_srgb,var(--primary)_24%,white)]">
         {label}
       </span>
     </label>
@@ -173,23 +164,25 @@ function ToggleRow({
   title,
   description,
   defaultChecked = false,
+  helpText,
 }: {
   name: string;
   title: string;
   description: string;
   defaultChecked?: boolean;
+  helpText: string;
 }) {
   return (
-    <label className="flex min-h-14 items-center justify-between gap-4 rounded-[22px] border border-[rgba(148,163,184,0.14)] bg-white px-4 py-3">
+    <label className="group flex min-h-14 cursor-pointer items-center justify-between gap-4 rounded-[22px] border border-[rgba(148,163,184,0.14)] bg-white px-4 py-3 transition-[border-color,box-shadow,transform] duration-200 ease-out hover:border-[color-mix(in_srgb,var(--primary)_24%,white)] active:scale-[0.995]">
       <span className="space-y-1">
-        <span className="block text-sm font-semibold text-slate-900">{title}</span>
+        <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-900">
+          <span>{title}</span>
+          <TrainingHelpPopover title={title} description={helpText} />
+        </span>
         <span className="block text-sm leading-6 text-slate-600">{description}</span>
       </span>
       <span className="relative shrink-0">
-        <input type="checkbox" name={name} defaultChecked={defaultChecked} className="peer sr-only" />
-        <span className="inline-flex h-7 w-12 rounded-full bg-slate-300 transition peer-checked:bg-[var(--primary)]">
-          <span className="mt-0.5 ml-0.5 h-6 w-6 rounded-full bg-white shadow-[0_2px_10px_-4px_rgba(15,23,42,0.45)] transition peer-checked:translate-x-5" />
-        </span>
+        <Switch name={name} defaultChecked={defaultChecked} aria-label={title} />
       </span>
     </label>
   );
@@ -373,22 +366,21 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
           onClick={closeModal}
         >
           <div
-            className="flex h-full w-full max-w-[980px] flex-col overflow-hidden rounded-none border border-[rgba(148,163,184,0.18)] bg-[linear-gradient(180deg,#fdfdfd_0%,#ffffff_100%)] md:max-h-[92vh] md:rounded-[32px] md:shadow-[0_42px_110px_-52px_rgba(15,23,42,0.5)]"
+            className="flex h-full w-full max-w-[1120px] flex-col overflow-hidden rounded-none border border-[rgba(148,163,184,0.18)] bg-[linear-gradient(180deg,#fdfdfd_0%,#ffffff_100%)] md:max-h-[92vh] md:rounded-[32px] md:shadow-[0_42px_110px_-52px_rgba(15,23,42,0.5)]"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="border-b border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfbfd_100%)] px-5 py-6 md:px-8">
+            <div className="border-b border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfbfd_100%)] px-5 py-5 md:px-8 md:py-4">
               <div className="relative flex items-start justify-center gap-4">
-                <div className="space-y-3 text-center">
+                <div className="space-y-2 text-center">
                   <div className="flex flex-wrap justify-center gap-2">
                     {steps.map((item, index) => (
                       <ProgressDot key={item.title} active={index === step} done={index < step} />
                     ))}
                   </div>
                   <div className="space-y-2">
-                    <h2 className="text-[2.15rem] font-semibold tracking-[-0.06em] text-slate-950 md:text-[2.35rem]">
-                      Entrena tu vendedor virtual
+                    <h2 className="text-[2rem] font-semibold tracking-[-0.06em] text-slate-950 md:text-[2.1rem]">
+                      {steps[step].title}
                     </h2>
-                    <p className="mx-auto max-w-2xl text-base text-slate-600">{steps[step].subtitle}</p>
                   </div>
                 </div>
 
@@ -408,7 +400,7 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
                 className={
                   isSubmitting
                     ? "flex flex-1 items-center justify-center overflow-hidden px-5 py-8 md:px-8 md:py-10"
-                    : "flex-1 overflow-y-auto px-5 py-6 md:px-8 md:py-7"
+                    : "flex-1 overflow-y-auto px-5 py-6 md:px-8 md:py-4"
                 }
               >
                 {isSubmitting ? (
@@ -442,41 +434,71 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
                 ) : (
                   <div className="mx-auto w-full max-w-[760px]">
                     <div className={step === 0 ? "block" : "hidden"}>
-                      <StepFrame eyebrow="Paso 1" title="Tu negocio" subtitle="Con esto el agente entiende que vendes, para quien y desde que rango debe responder.">
-                        <div className="space-y-5">
-                          <label className="block space-y-2">
-                            <span className="text-sm font-medium text-slate-700">Nombre del negocio</span>
-                            <Input name="businessName" placeholder="Ej. Studio Fit Mujer" defaultValue={businessName ?? ""} required className="h-12 rounded-2xl border-[rgba(148,163,184,0.18)] bg-white px-4" />
-                          </label>
-                          <label className="block space-y-2">
-                            <span className="text-sm font-medium text-slate-700">Que vendes</span>
-                            <p className="text-sm leading-6 text-slate-500">Se especifico. Esto define casi todo lo que el agente sabe.</p>
-                            <textarea name="businessDescription" rows={5} required className="flex w-full rounded-[24px] border border-[rgba(148,163,184,0.18)] bg-white px-4 py-4 text-sm leading-7 text-slate-800 outline-none transition focus:border-[var(--primary)]" placeholder="Ej. Vendemos ropa deportiva para mujer entre 20 y 40 anos. Tenis, licras y tops de marca propia." />
-                          </label>
-                          <fieldset className="space-y-3">
-                            <legend className="text-sm font-medium text-slate-700">A quien le vendes</legend>
-                            <div className="flex flex-wrap gap-2">
+                      <StepFrame>
+                        <div className="rounded-[34px] border border-[color-mix(in_srgb,var(--primary)_16%,white)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--primary)_11%,white)_0%,color-mix(in_srgb,var(--primary)_5%,white)_100%)] p-5 shadow-[0_34px_84px_-58px_color-mix(in_srgb,var(--primary)_34%,black)] md:p-6">
+                          <div className="grid gap-5 md:grid-cols-[320px_minmax(0,1fr)] md:items-stretch">
+                            <div className="flex h-full">
+                              <div className="w-full rounded-[28px] border border-white/85 bg-white/94 p-5 shadow-[0_18px_40px_-30px_rgba(15,23,42,0.2)]">
+                                <label className="block space-y-2.5">
+                                  <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-950">
+                                    <span>Nombre del negocio</span>
+                                    <TrainingHelpPopover
+                                      title="Nombre del negocio"
+                                      description="Este nombre se usara cuando el agente se presente y tambien para identificarlo dentro del negocio."
+                                    />
+                                  </span>
+                                  <Input
+                                    name="businessName"
+                                    placeholder="Ej. Studio Fit Mujer"
+                                    defaultValue={businessName ?? ""}
+                                    required
+                                    className="h-16 rounded-[22px] border border-slate-200 bg-white px-6 text-[15px] text-slate-950 shadow-none placeholder:text-slate-400 focus-visible:border-[var(--primary)] focus-visible:ring-[color-mix(in_srgb,var(--primary)_16%,white)]"
+                                  />
+                                </label>
+                              </div>
+                            </div>
+
+                            <label className="block space-y-2.5">
+                              <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-950">
+                                <span>Que vendes</span>
+                                <TrainingHelpPopover
+                                  title="Que vendes"
+                                  description="Describe tus productos o servicios con palabras simples. Mientras mas claro seas, mejor respondera el agente."
+                                />
+                              </span>
+                              <div className="overflow-hidden rounded-[30px] border border-white/90 bg-white shadow-[0_22px_46px_-34px_rgba(15,23,42,0.24)] transition focus-within:border-[var(--primary)] focus-within:ring-4 focus-within:ring-[color-mix(in_srgb,var(--primary)_12%,white)]">
+                                <div className="h-2 bg-[linear-gradient(90deg,color-mix(in_srgb,var(--primary)_68%,white)_0%,color-mix(in_srgb,var(--primary)_18%,white)_100%)]" />
+                                <textarea
+                                  name="businessDescription"
+                                  rows={5}
+                                  required
+                                  className="flex min-h-[196px] w-full resize-none bg-white px-6 py-5 text-[15px] leading-8 text-slate-800 outline-none placeholder:text-slate-400"
+                                  placeholder="Ej. Vendemos ropa deportiva para mujer entre 20 y 40 anos. Tenis, licras y tops de marca propia."
+                                />
+                              </div>
+                            </label>
+                          </div>
+
+                          <fieldset className="mt-5 rounded-[28px] border border-white/85 bg-white/90 p-5 shadow-[0_18px_38px_-30px_rgba(15,23,42,0.18)]">
+                            <legend className="inline-flex items-center gap-2 text-sm font-semibold text-slate-950">
+                              <span>A quien le vendes</span>
+                              <TrainingHelpPopover
+                                title="A quien le vendes"
+                                description="Selecciona los perfiles que mas te compran. Esto ayuda al agente a responder con mas contexto."
+                              />
+                            </legend>
+                            <div className="mt-4 flex flex-wrap gap-3">
                               {targetAudienceOptions.map((option, index) => (
                                 <MultiSelectChip key={option} name="targetAudiences" value={option} label={option} defaultChecked={index === 0} />
                               ))}
                             </div>
                           </fieldset>
-                          <div className="grid gap-4 md:grid-cols-2">
-                            <label className="block space-y-2">
-                              <span className="text-sm font-medium text-slate-700">Precio minimo</span>
-                              <Input name="priceRangeMin" placeholder="Ej. 80.000 COP" className="h-12 rounded-2xl border-[rgba(148,163,184,0.18)] bg-white px-4" />
-                            </label>
-                            <label className="block space-y-2">
-                              <span className="text-sm font-medium text-slate-700">Precio maximo</span>
-                              <Input name="priceRangeMax" placeholder="Ej. 220.000 COP" className="h-12 rounded-2xl border-[rgba(148,163,184,0.18)] bg-white px-4" />
-                            </label>
-                          </div>
                         </div>
                       </StepFrame>
                     </div>
 
                     <div className={step === 1 ? "block" : "hidden"}>
-                      <StepFrame eyebrow="Paso 2" title="Como habla tu vendedor" subtitle="Aqui decides como suena el agente cuando responde por WhatsApp.">
+                      <StepFrame>
                         <div className="space-y-6">
                           <div className="grid gap-4 md:grid-cols-2">
                             {toneOptions.map((option, index) => (
@@ -486,8 +508,13 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
                           <div className="rounded-[28px] border border-[rgba(148,163,184,0.14)] bg-white p-5">
                             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                               <div>
-                                <p className="text-sm font-semibold text-slate-900">Longitud de respuesta</p>
-                                <p className="text-sm text-slate-600">Ajusta que tan corto o detallado debe responder.</p>
+                                <div className="inline-flex items-center gap-2">
+                                  <p className="text-sm font-semibold text-slate-900">Longitud de respuesta</p>
+                                  <TrainingHelpPopover
+                                    title="Longitud de respuesta"
+                                    description="Controla si el agente respondera corto y directo o con mas contexto cuando explique y venda."
+                                  />
+                                </div>
                               </div>
                               <span className="rounded-full bg-[color-mix(in_srgb,var(--primary)_10%,white)] px-3 py-1 text-sm font-semibold text-[var(--primary)]">{responseLengthLabel}</span>
                             </div>
@@ -501,15 +528,18 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
                             </div>
                           </div>
                           <div className="rounded-[28px] border border-[rgba(148,163,184,0.14)] bg-white p-5">
-                            <div className="space-y-1">
+                            <div className="inline-flex items-center gap-2">
                               <p className="text-sm font-semibold text-slate-900">Extra de estilo</p>
-                              <p className="text-sm text-slate-600">Activa solo lo que realmente representa a tu negocio.</p>
+                              <TrainingHelpPopover
+                                title="Extra de estilo"
+                                description="Activa solo lo que realmente representa a tu marca. Si una opcion no encaja contigo, dejala apagada."
+                              />
                             </div>
                             <div className="mt-5 grid gap-3 md:grid-cols-2">
-                              <ToggleRow name="useEmojis" title="Usar emojis" description="Puede usarlos con moderacion." />
-                              <ToggleRow name="useExpressivePunctuation" title="Usar ! y ?" description="Permite signos expresivos de forma natural." defaultChecked />
-                              <ToggleRow name="useTuteo" title="Tutear al cliente" description="Habla de tu en lugar de usted." defaultChecked />
-                              <ToggleRow name="useCustomerName" title="Llamarlo por nombre" description="Usa el nombre cuando ya lo conozca." defaultChecked />
+                              <ToggleRow name="useEmojis" title="Usar emojis" description="Puede usarlos con moderacion." helpText="Activalo si tu marca se comunica de forma cercana y natural." />
+                              <ToggleRow name="useExpressivePunctuation" title="Usar ! y ?" description="Permite signos expresivos de forma natural." defaultChecked helpText="Permite respuestas con mas energia cuando encajen con la conversacion." />
+                              <ToggleRow name="useTuteo" title="Tutear al cliente" description="Habla de tu en lugar de usted." defaultChecked helpText="Enciendelo si tu negocio habla de forma cercana. Apagalo si prefieres una comunicacion mas formal." />
+                              <ToggleRow name="useCustomerName" title="Llamarlo por nombre" description="Usa el nombre cuando ya lo conozca." defaultChecked helpText="Ayuda a que la conversacion se sienta mas personal cuando el cliente ya compartio su nombre." />
                             </div>
                           </div>
                         </div>
@@ -517,23 +547,29 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
                     </div>
 
                     <div className={step === 2 ? "block" : "hidden"}>
-                      <StepFrame eyebrow="Paso 3" title="Como cierra ventas" subtitle="Marca el comportamiento comercial que quieres que el agente use en la conversacion.">
+                      <StepFrame>
                         <div className="grid gap-3">
-                          <ToggleRow name="askNameFirst" title="Preguntar el nombre al inicio" description="Se presenta y pide el nombre para personalizar la conversacion." defaultChecked />
-                          <ToggleRow name="offerBestSeller" title="Ofrecer el producto mas vendido" description="Si el cliente duda, recomienda una opcion fuerte." defaultChecked />
-                          <ToggleRow name="handlePriceObjections" title="Manejar objeciones de precio" description={'Responde frases como "esta muy caro" con argumentos de valor.'} defaultChecked />
-                          <ToggleRow name="askForOrder" title="Pedir el pedido directamente" description={'Despues de resolver dudas, intenta cerrar con una pregunta como "Te lo reservo?".'} defaultChecked />
-                          <ToggleRow name="sendPaymentLink" title="Enviar link de pago automatico" description="Si el cliente confirma, indica el paso de pago." />
-                          <ToggleRow name="handoffToHuman" title="Escalar a humano si no puede ayudar" description="Avisa cuando algo esta fuera de su alcance." defaultChecked />
+                          <ToggleRow name="askNameFirst" title="Preguntar el nombre al inicio" description="Se presenta y pide el nombre para personalizar la conversacion." defaultChecked helpText="Sirve si quieres que el agente personalice desde el primer mensaje." />
+                          <ToggleRow name="offerBestSeller" title="Ofrecer el producto mas vendido" description="Si el cliente duda, recomienda una opcion fuerte." defaultChecked helpText="Hace que el agente sugiera una opcion segura cuando el cliente no sabe cual elegir." />
+                          <ToggleRow name="handlePriceObjections" title="Manejar objeciones de precio" description={'Responde frases como "esta muy caro" con argumentos de valor.'} defaultChecked helpText="Permite que el agente defienda el valor de tu oferta cuando el cliente dude por precio." />
+                          <ToggleRow name="askForOrder" title="Pedir el pedido directamente" description={'Despues de resolver dudas, intenta cerrar con una pregunta como "Te lo reservo?".'} defaultChecked helpText="Hace que el agente intente cerrar la venta con una pregunta directa cuando vea intencion de compra." />
+                          <ToggleRow name="sendPaymentLink" title="Enviar link de pago automatico" description="Si el cliente confirma, indica el paso de pago." helpText="Usalo si tu proceso de venta ya tiene un enlace o paso de pago claro." />
+                          <ToggleRow name="handoffToHuman" title="Escalar a humano si no puede ayudar" description="Avisa cuando algo esta fuera de su alcance." defaultChecked helpText="Recomendado para casos especiales, dudas complejas o cuando el cliente necesite atencion de una persona." />
                         </div>
                       </StepFrame>
                     </div>
 
                     <div className={step === 3 ? "block" : "hidden"}>
-                      <StepFrame eyebrow="Paso 4" title="Reglas importantes" subtitle="Estas reglas ayudan a que el agente venda sin inventar ni comprometer al negocio.">
+                      <StepFrame>
                         <div className="space-y-6">
                           <fieldset className="space-y-3">
-                            <legend className="text-sm font-medium text-slate-700">Cosas que nunca debe hacer</legend>
+                            <legend className="inline-flex items-center gap-2 text-sm font-medium text-slate-700">
+                              <span>Cosas que nunca debe hacer</span>
+                              <TrainingHelpPopover
+                                title="Cosas que nunca debe hacer"
+                                description="Estas reglas protegen al negocio para que el agente no invente informacion ni haga promesas incorrectas."
+                              />
+                            </legend>
                             <div className="grid gap-3">
                               {forbiddenRuleOptions.map((rule, index) => (
                                 <label key={rule} className="flex min-h-12 items-center gap-3 rounded-[22px] border border-[rgba(148,163,184,0.14)] bg-white px-4 py-3">
@@ -544,7 +580,13 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
                             </div>
                           </fieldset>
                           <label className="block space-y-2">
-                            <span className="text-sm font-medium text-slate-700">Otras reglas especificas de tu negocio</span>
+                            <span className="inline-flex items-center gap-2 text-sm font-medium text-slate-700">
+                              <span>Otras reglas especificas de tu negocio</span>
+                              <TrainingHelpPopover
+                                title="Otras reglas especificas"
+                                description="Escribe aqui condiciones especiales que el agente deba respetar, por ejemplo politicas, tiempos o limites de atencion."
+                              />
+                            </span>
                             <textarea name="customRules" rows={4} className="flex w-full rounded-[24px] border border-[rgba(148,163,184,0.18)] bg-white px-4 py-4 text-sm leading-7 text-slate-800 outline-none transition focus:border-[var(--primary)]" placeholder={"Ej. No ofrecer entregas el mismo dia.\nNo confirmar disponibilidad hasta revisar inventario.\nNo prometer cambios sin revisar politicas."} />
                           </label>
                           <div className="rounded-[28px] border border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcff_100%)] p-5">
@@ -553,9 +595,12 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
                                 <QrCode className="h-5 w-5" />
                               </span>
                               <div className="space-y-4">
-                                <div className="space-y-1">
+                                <div className="inline-flex items-center gap-2">
                                   <p className="text-sm font-semibold text-slate-900">Conectar WhatsApp ahora</p>
-                                  <p className="text-sm leading-6 text-slate-600">Creamos el agente y dejamos listo el siguiente paso para conectarlo.</p>
+                                  <TrainingHelpPopover
+                                    title="Conectar WhatsApp ahora"
+                                    description="Si lo activas, al terminar te llevamos directo al siguiente paso para enlazar el canal de WhatsApp."
+                                  />
                                 </div>
                                 <div className="flex flex-wrap gap-3">
                                   <label className="cursor-pointer">

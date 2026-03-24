@@ -316,6 +316,15 @@ export async function updateAgentTrainingAction(formData: FormData): Promise<voi
     },
   });
 
+  if (membership.workspace.name !== parsed.data.businessName) {
+    await prisma.workspace.update({
+      where: { id: membership.workspace.id },
+      data: {
+        name: parsed.data.businessName,
+      },
+    });
+  }
+
   revalidatePath("/cliente");
   revalidatePath("/cliente/agentes");
   revalidatePath(`/cliente/agentes/${agent.id}`);
