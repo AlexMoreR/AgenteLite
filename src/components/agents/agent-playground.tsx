@@ -72,22 +72,22 @@ export function AgentPlayground({ agentId, agentName }: AgentPlaygroundProps) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[28px] border border-[rgba(148,163,184,0.14)] bg-white shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)]">
-        <div className="border-b border-[rgba(148,163,184,0.12)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcff_100%)] px-5 py-4">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[24px] border border-[rgba(148,163,184,0.14)] bg-white shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)] md:rounded-[28px]">
+        <div className="border-b border-[rgba(148,163,184,0.12)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcff_100%)] px-4 py-4 md:px-5">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
                 <Bot className="h-5 w-5" />
               </span>
-              <div>
-                <h2 className="text-sm font-semibold text-slate-950">{agentName}</h2>
+              <div className="min-w-0">
+                <h2 className="truncate text-base font-semibold text-slate-950 md:text-sm">{agentName}</h2>
                 <p className="text-xs text-slate-500">Simulacion</p>
               </div>
             </div>
-            <div className="flex flex-wrap items-center justify-end gap-3">
+            <div className="grid grid-cols-2 gap-2 md:flex md:flex-wrap md:items-center md:justify-end md:gap-3">
               <Link
                 href={`/cliente/agentes/${agentId}/entrenamiento`}
-                className="inline-flex h-10 items-center gap-2 rounded-2xl bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
               >
                 <Settings2 className="h-4 w-4" />
                 Volver
@@ -95,7 +95,7 @@ export function AgentPlayground({ agentId, agentName }: AgentPlaygroundProps) {
               <button
                 type="button"
                 onClick={handleReset}
-                className="inline-flex h-10 items-center gap-2 rounded-2xl border border-[rgba(148,163,184,0.16)] bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-[rgba(148,163,184,0.16)] bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
               >
                 <RotateCcw className="h-4 w-4" />
                 Reiniciar
@@ -105,7 +105,7 @@ export function AgentPlayground({ agentId, agentName }: AgentPlaygroundProps) {
         </div>
 
         <div
-          className="min-h-0 flex-1 overflow-y-auto px-4 py-4"
+          className="min-h-[44vh] flex-1 overflow-y-auto px-3 py-3 md:min-h-0 md:px-4 md:py-4"
           style={{
             backgroundColor: "#f3f4f6",
             backgroundImage:
@@ -121,7 +121,7 @@ export function AgentPlayground({ agentId, agentName }: AgentPlaygroundProps) {
                 return (
                   <div key={message.id} className={`flex ${outbound ? "justify-end" : "justify-start"}`}>
                     <div
-                      className={`max-w-[78%] rounded-[18px] px-4 py-3 text-sm leading-6 shadow-[0_10px_24px_-20px_rgba(15,23,42,0.16)] ${
+                      className={`max-w-[88%] rounded-[18px] px-4 py-3 text-sm leading-6 shadow-[0_10px_24px_-20px_rgba(15,23,42,0.16)] md:max-w-[78%] ${
                         outbound
                           ? "bg-[var(--primary)] text-white"
                           : "border border-[rgba(148,163,184,0.12)] bg-white text-slate-800"
@@ -136,7 +136,7 @@ export function AgentPlayground({ agentId, agentName }: AgentPlaygroundProps) {
                 );
               })
             ) : (
-              <div className="rounded-[22px] border border-dashed border-[rgba(148,163,184,0.18)] bg-white/80 px-5 py-6 text-sm text-slate-600">
+              <div className="rounded-[22px] border border-dashed border-[rgba(148,163,184,0.18)] bg-white/80 px-4 py-5 text-sm leading-6 text-slate-600 md:px-5 md:py-6">
                 Escribe un mensaje para probar como responderia el agente desde cero.
               </div>
             )}
@@ -151,9 +151,9 @@ export function AgentPlayground({ agentId, agentName }: AgentPlaygroundProps) {
           </div>
         </div>
 
-        <div className="border-t border-[rgba(148,163,184,0.12)] bg-white px-3 py-3">
+        <div className="border-t border-[rgba(148,163,184,0.12)] bg-white px-3 py-3 md:px-3 md:py-3">
           {error ? <p className="px-2 pb-2 text-sm text-rose-600">{error}</p> : null}
-          <div className="flex items-center gap-3">
+          <div className="flex items-end gap-2 md:gap-3">
             <textarea
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
@@ -165,13 +165,13 @@ export function AgentPlayground({ agentId, agentName }: AgentPlaygroundProps) {
               }}
               rows={1}
               placeholder="Escribe un mensaje para probar el agente..."
-              className="flex h-11 min-h-0 flex-1 resize-none rounded-2xl border border-[rgba(148,163,184,0.14)] bg-slate-50/80 px-4 py-3 text-sm text-slate-800 placeholder:text-slate-400 outline-none transition focus:border-[var(--primary)] focus:bg-white focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_18%,white)]"
+              className="flex min-h-[52px] flex-1 resize-none rounded-2xl border border-[rgba(148,163,184,0.14)] bg-slate-50/80 px-4 py-3 text-sm text-slate-800 placeholder:text-slate-400 outline-none transition focus:border-[var(--primary)] focus:bg-white focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_18%,white)] md:min-h-[44px]"
             />
             <button
               type="button"
               onClick={handleSend}
               disabled={isPending || !draft.trim()}
-              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[var(--primary)] text-white transition hover:bg-[var(--primary-strong)] disabled:cursor-not-allowed disabled:opacity-55"
+              className="inline-flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-2xl bg-[var(--primary)] text-white transition hover:bg-[var(--primary-strong)] disabled:cursor-not-allowed disabled:opacity-55 md:h-11 md:w-11"
               aria-label="Probar mensaje"
             >
               <SendHorizonal className="h-5 w-5" />

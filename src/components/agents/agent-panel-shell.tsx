@@ -31,6 +31,7 @@ export function AgentPanelShell({ agentId, children, hideMobileNav = false }: Ag
   const pathname = usePathname();
   const trainingHref = `/cliente/agentes/${agentId}/entrenamiento`;
   const playgroundHref = `/cliente/agentes/${agentId}/probar`;
+  const shouldHideMobileNav = hideMobileNav || pathname === playgroundHref;
 
   return (
     <section className="flex min-h-0 w-full flex-1 flex-col overflow-x-hidden">
@@ -75,7 +76,7 @@ export function AgentPanelShell({ agentId, children, hideMobileNav = false }: Ag
 
       <div className="mt-0 flex-1 md:mt-0">{children}</div>
 
-      {!hideMobileNav ? (
+      {!shouldHideMobileNav ? (
         <nav className="sticky bottom-0 z-20 -mx-3 overflow-hidden rounded-t-[18px] border-t border-[rgba(148,163,184,0.14)] bg-white px-0 py-0 md:mx-0 md:hidden">
           <div className="grid grid-cols-4 gap-0">
             {tabs
