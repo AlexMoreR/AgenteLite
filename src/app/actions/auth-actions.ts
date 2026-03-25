@@ -13,6 +13,7 @@ import {
   getStoredRoleModuleAccessMap,
   setStoredRoleModuleAccessMap,
 } from "@/lib/admin-module-access";
+import { getPublicBaseUrl } from "@/lib/app-url";
 import { createEmailVerificationToken } from "@/lib/email-verification";
 import { sendAccountCreatedEmail, sendEmailVerificationEmail } from "@/lib/mailer";
 import { prisma } from "@/lib/prisma";
@@ -128,15 +129,13 @@ export async function registerAction(
   });
 
   try {
-    const baseUrl = (
-      process.env.AUTH_URL ||
-      process.env.NEXTAUTH_URL ||
-      process.env.APP_URL ||
-      ""
-    ).replace(/\/+$/, "");
+    const baseUrl = getPublicBaseUrl();
     if (!baseUrl) {
       await prisma.user.delete({ where: { id: createdUser.id } }).catch(() => null);
-      return { ok: false, message: "Falta configurar AUTH_URL para enviar el enlace de verificacion" };
+      return {
+        ok: false,
+        message: "Falta configurar AUTH_URL, NEXTAUTH_URL o NEXT_PUBLIC_SITE_URL para enviar el enlace de verificacion",
+      };
     }
     const token = createEmailVerificationToken(createdUser.id, email);
     const verificationUrl = `${baseUrl}/verify-email?token=${encodeURIComponent(token)}`;
