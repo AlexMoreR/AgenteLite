@@ -1,17 +1,16 @@
-version: "3.9"
-### Version
-
 services:
-  magilus_app:
-    image: ghcr.io/alexmorer/gestion:latest
+  aizenbot_app:
+    image: ghcr.io/alexmorer/agentelite:latest
     volumes:
-      - magilus_uploads:/app/public/uploads
+      - aizenbot_uploads:/app/public/uploads
     environment:
       NODE_ENV: "production"
-      AUTH_URL: "https://magilus.com"
-      NEXT_PUBLIC_SITE_URL: "https://magilus.com"
+      AUTH_URL: "https://app.aizenbot.com"
+      NEXTAUTH_URL: "https://app.aizenbot.com"
+      NEXT_PUBLIC_SITE_URL: "https://app.aizenbot.com"
       DATABASE_URL: "${DATABASE_URL}"
       AUTH_SECRET: "${AUTH_SECRET}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY}"
       SMTP_HOST: "${SMTP_HOST}"
       SMTP_PORT: "${SMTP_PORT}"
       SMTP_SECURE: "${SMTP_SECURE}"
@@ -26,19 +25,21 @@ services:
       placement:
         constraints:
           - node.role == manager
+      restart_policy:
+        condition: on-failure
       labels:
         - traefik.enable=true
-        - traefik.http.routers.magilus.rule=Host(`magilus.com`) || Host(`www.magilus.com`)
-        - traefik.http.routers.magilus.entrypoints=websecure
-        - traefik.http.routers.magilus.tls=true
-        - traefik.http.routers.magilus.tls.certresolver=letsencryptresolver
-        - traefik.http.routers.magilus.service=magilus
-        - traefik.http.services.magilus.loadbalancer.server.port=3000
-        - traefik.http.services.magilus.loadbalancer.passHostHeader=true
+        - traefik.http.routers.aizenbot.rule=Host(`app.aizenbot.com`)
+        - traefik.http.routers.aizenbot.entrypoints=websecure
+        - traefik.http.routers.aizenbot.tls=true
+        - traefik.http.routers.aizenbot.tls.certresolver=letsencryptresolver
+        - traefik.http.routers.aizenbot.service=aizenbot
+        - traefik.http.services.aizenbot.loadbalancer.server.port=3000
+        - traefik.http.services.aizenbot.loadbalancer.passHostHeader=true
 
 networks:
   minha_rede:
     external: true
 
 volumes:
-  magilus_uploads:
+  aizenbot_uploads:
