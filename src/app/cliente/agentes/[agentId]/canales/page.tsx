@@ -76,9 +76,10 @@ export default async function ClienteAgenteCanalesPage({ params, searchParams }:
     remoteConnectionState === "connected" ||
     remoteConnectionState === "connection_open" ||
     remoteConnectionState === "online";
-  const remoteConnectionQr = channel?.evolutionInstanceName && !remoteIsConnected
-    ? await getEvolutionConnectionQr(channel.evolutionInstanceName)
-    : { qrCode: null, pairingCode: null };
+  const remoteConnectionQr =
+    channel?.evolutionInstanceName && !remoteIsConnected
+      ? await getEvolutionConnectionQr(channel.evolutionInstanceName)
+      : { qrCode: null, pairingCode: null };
 
   if (channel?.id && remoteIsConnected && channel.status !== "CONNECTED") {
     await prisma.whatsAppChannel.update({
@@ -123,33 +124,35 @@ export default async function ClienteAgenteCanalesPage({ params, searchParams }:
         okMessage={okMessage}
         errorMessage={effectiveErrorMessage}
         okTitle="WhatsApp listo"
-        errorTitle="No pudimos completar la conexión"
+        errorTitle="No pudimos completar la conexion"
       />
 
       {!isConnected ? <WhatsappQrAutoRefresh isConnected={isConnected} /> : null}
 
-      <div className="grid gap-5 xl:grid-cols-[320px_minmax(0,1fr)]">
-        <div className="rounded-[28px] border border-[rgba(148,163,184,0.14)] bg-white p-5 shadow-[0_20px_60px_-48px_rgba(15,23,42,0.3)]">
+      <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
+        <div className="rounded-[24px] border border-[rgba(148,163,184,0.14)] bg-white p-4 shadow-[0_20px_60px_-48px_rgba(15,23,42,0.3)] sm:rounded-[28px] sm:p-5">
           {isConnected ? (
             <div className="flex flex-col items-center text-center">
               <div className="inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,#16a34a_12%,white)] text-[#16a34a]">
                 <CheckCircle2 className="h-8 w-8" />
               </div>
               <h2 className="mt-4 text-xl font-semibold tracking-[-0.04em] text-slate-950">WhatsApp conectado</h2>
-              <p className="mt-2 text-sm leading-6 text-slate-600">Tu canal ya está vinculado y listo para seguir con la configuración del agente.</p>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                Tu canal ya esta vinculado y listo para seguir con la configuracion del agente.
+              </p>
               <Link
                 href={`/cliente/agentes/${agent.id}`}
-                className="mt-5 inline-flex h-10 items-center justify-center rounded-full bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
+                className="mt-5 inline-flex h-10 w-full items-center justify-center rounded-full bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)] sm:w-auto"
               >
                 Ir al panel del agente
               </Link>
             </div>
           ) : (
             <div className="flex flex-col items-center">
-              <div className="flex h-[248px] w-[248px] items-center justify-center rounded-[24px] bg-slate-50">
+              <div className="flex aspect-square w-full max-w-[248px] items-center justify-center rounded-[24px] bg-slate-50">
                 {qrDataUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={qrDataUrl} alt="QR de conexión de WhatsApp" className="h-auto w-[220px]" />
+                  <img src={qrDataUrl} alt="QR de conexion de WhatsApp" className="h-auto w-[90%] max-w-[220px]" />
                 ) : (
                   <p className="text-sm text-slate-500">Esperando QR...</p>
                 )}
@@ -157,7 +160,7 @@ export default async function ClienteAgenteCanalesPage({ params, searchParams }:
 
               {pairingCode ? (
                 <div className="mt-4 w-full rounded-2xl bg-slate-50 px-4 py-3">
-                  <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">Código alterno</p>
+                  <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">Codigo alterno</p>
                   <p className="mt-2 font-mono text-sm font-semibold text-slate-900">{pairingCode}</p>
                 </div>
               ) : null}
@@ -169,7 +172,7 @@ export default async function ClienteAgenteCanalesPage({ params, searchParams }:
           )}
         </div>
 
-        <div className="rounded-[28px] border border-[rgba(148,163,184,0.14)] bg-white p-5 shadow-[0_20px_60px_-48px_rgba(15,23,42,0.24)]">
+        <div className="rounded-[24px] border border-[rgba(148,163,184,0.14)] bg-white p-4 shadow-[0_20px_60px_-48px_rgba(15,23,42,0.24)] sm:rounded-[28px] sm:p-5">
           {isConnected ? (
             <div className="rounded-[24px] border border-[rgba(22,163,74,0.12)] bg-[color-mix(in_srgb,#16a34a_4%,white)] px-5 py-5">
               <div className="flex items-center gap-3">
@@ -177,8 +180,8 @@ export default async function ClienteAgenteCanalesPage({ params, searchParams }:
                   <CheckCircle2 className="h-5 w-5" />
                 </div>
                 <div>
-                  <h2 className="text-lg font-semibold tracking-[-0.04em] text-slate-950">Conexión completada</h2>
-                  <p className="text-sm text-slate-600">Tu número ya está vinculado con este agente.</p>
+                  <h2 className="text-lg font-semibold tracking-[-0.04em] text-slate-950">Conexion completada</h2>
+                  <p className="text-sm text-slate-600">Tu numero ya esta vinculado con este agente.</p>
                 </div>
               </div>
             </div>
@@ -198,25 +201,35 @@ export default async function ClienteAgenteCanalesPage({ params, searchParams }:
 
               <div className="grid gap-3 md:grid-cols-3">
                 <div className="rounded-[20px] border border-[rgba(148,163,184,0.12)] bg-slate-50/70 px-4 py-4">
-                  <div className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-white text-xs font-semibold text-[var(--primary)] shadow-sm">1</div>
+                  <div className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-white text-xs font-semibold text-[var(--primary)] shadow-sm">
+                    1
+                  </div>
                   <p className="mt-3 text-sm font-semibold leading-5 text-slate-900">Abre WhatsApp</p>
-                  <p className="mt-2 text-sm leading-5 text-slate-600">En tu teléfono, abre la app principal.</p>
+                  <p className="mt-2 text-sm leading-5 text-slate-600">En tu telefono, abre la app principal.</p>
                 </div>
                 <div className="rounded-[20px] border border-[rgba(148,163,184,0.12)] bg-slate-50/70 px-4 py-4">
-                  <div className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-white text-xs font-semibold text-[var(--primary)] shadow-sm">2</div>
+                  <div className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-white text-xs font-semibold text-[var(--primary)] shadow-sm">
+                    2
+                  </div>
                   <p className="mt-3 text-sm font-semibold leading-5 text-slate-900">Ve a dispositivos vinculados</p>
-                  <p className="mt-2 text-sm leading-5 text-slate-600">Entra al menú y toca la opción para vincular un dispositivo.</p>
+                  <p className="mt-2 text-sm leading-5 text-slate-600">
+                    Entra al menu y toca la opcion para vincular un dispositivo.
+                  </p>
                 </div>
                 <div className="rounded-[20px] border border-[rgba(148,163,184,0.12)] bg-slate-50/70 px-4 py-4">
-                  <div className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-white text-xs font-semibold text-[var(--primary)] shadow-sm">3</div>
-                  <p className="mt-3 text-sm font-semibold leading-5 text-slate-900">Escanea el código QR</p>
-                  <p className="mt-2 text-sm leading-5 text-slate-600">Apunta la cámara y espera la confirmación de conexión.</p>
+                  <div className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-white text-xs font-semibold text-[var(--primary)] shadow-sm">
+                    3
+                  </div>
+                  <p className="mt-3 text-sm font-semibold leading-5 text-slate-900">Escanea el codigo QR</p>
+                  <p className="mt-2 text-sm leading-5 text-slate-600">
+                    Apunta la camara y espera la confirmacion de conexion.
+                  </p>
                 </div>
               </div>
 
               <div className="pt-1">
                 <Link href="/cliente/agentes" className="text-sm font-medium text-[var(--primary)] transition hover:opacity-80">
-                  ¿Necesitas ayuda?
+                  Necesitas ayuda?
                 </Link>
               </div>
             </div>

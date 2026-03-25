@@ -112,18 +112,18 @@ export default async function AgentTrainingPage({ params }: PageProps) {
       <form action={updateAgentTrainingAction} className="space-y-4">
         <input type="hidden" name="agentId" value={agent.id} />
         <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-          <Card className="border border-[rgba(148,163,184,0.14)] bg-white p-6">
+          <Card className="border border-[rgba(148,163,184,0.14)] bg-white p-4 sm:p-5 lg:p-6">
             <div className="space-y-4">
               <div className="flex items-start gap-4">
                 <div className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_10%,white)] text-[var(--primary)]">
                   <Sparkles className="h-6 w-6" />
                 </div>
                 <div className="min-w-0 flex-1 space-y-1.5 pt-0.5">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <h2 className="text-[1.45rem] font-semibold tracking-[-0.04em] text-slate-950">Entrenamiento del agente</h2>
+                  <div className="flex flex-col items-start gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+                    <h2 className="text-[1.25rem] font-semibold tracking-[-0.04em] text-slate-950 sm:text-[1.45rem]">Entrenamiento del agente</h2>
                     <Link
                       href={`/cliente/agentes/${agent.id}/probar`}
-                      className="inline-flex h-10 items-center gap-2 rounded-2xl bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
+                      className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)] sm:w-auto"
                     >
                       <PlayCircle className="h-4 w-4" />
                       Probar agente
@@ -132,7 +132,7 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                 </div>
               </div>
 
-              <div className="grid gap-5 rounded-[28px] border border-[rgba(148,163,184,0.12)] bg-slate-50/70 p-5">
+              <div className="grid gap-5 rounded-[24px] border border-[rgba(148,163,184,0.12)] bg-slate-50/70 p-4 sm:rounded-[28px] sm:p-5">
                 <label className="space-y-2.5">
                   <span className="inline-flex items-center gap-2 text-sm font-medium text-slate-700">
                     <span>Como se llama tu negocio</span>
@@ -277,7 +277,7 @@ export default async function AgentTrainingPage({ params }: PageProps) {
           </Card>
 
           <div className="space-y-4">
-            <Card className="border border-[rgba(148,163,184,0.14)] bg-white p-6">
+            <Card className="border border-[rgba(148,163,184,0.14)] bg-white p-4 sm:p-5 lg:p-6">
               <div className="space-y-4">
                 <div className="flex items-center gap-2">
                   <h3 className="text-lg font-semibold text-slate-950">Estilo y cierre</h3>
@@ -301,7 +301,7 @@ export default async function AgentTrainingPage({ params }: PageProps) {
               </div>
             </Card>
 
-            <Card className="border border-[rgba(148,163,184,0.14)] bg-white p-6">
+            <Card className="border border-[rgba(148,163,184,0.14)] bg-white p-4 sm:p-5 lg:p-6">
               <div className="space-y-4">
                 <div className="flex items-center gap-2">
                   <Shield className="h-5 w-5 text-[var(--primary)]" />
@@ -347,7 +347,7 @@ export default async function AgentTrainingPage({ params }: PageProps) {
             <div className="flex justify-end">
               <button
                 type="submit"
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-5 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
+                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-5 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)] sm:w-auto"
               >
                 <Save className="h-4 w-4" />
                 Guardar entrenamiento

@@ -194,9 +194,9 @@ export default async function ClienteAgenteChatsPage({ params, searchParams }: P
         errorTitle="No se pudo enviar"
       />
 
-      <div className="flex min-h-0 flex-1 flex-col gap-0 md:grid md:grid-cols-[380px_minmax(0,1fr)]">
+      <div className="flex min-h-[calc(100dvh-8rem)] flex-1 flex-col gap-0 md:min-h-0 md:grid md:grid-cols-[380px_minmax(0,1fr)]">
         <Card
-          className={`${hasMobileSelection ? "hidden md:flex" : "flex"} h-[calc(100dvh-7rem)] min-h-0 overflow-hidden border border-[rgba(148,163,184,0.14)] bg-white p-0 shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)] md:h-[76vh] md:flex-none`}
+          className={`${hasMobileSelection ? "hidden md:flex" : "flex"} min-h-0 flex-1 overflow-hidden border border-[rgba(148,163,184,0.14)] bg-white p-0 shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)] md:h-[76vh] md:flex-none`}
         >
           <div className="flex min-h-0 w-full flex-col">
             <div className="shrink-0 border-b border-[rgba(148,163,184,0.12)] bg-white px-3 py-3">
@@ -291,11 +291,11 @@ export default async function ClienteAgenteChatsPage({ params, searchParams }: P
         </Card>
 
         <Card
-          className={`${hasMobileSelection || agent.conversations.length === 0 ? "flex" : "hidden md:flex"} h-[calc(100dvh-3rem)] min-h-0 overflow-hidden border border-[rgba(148,163,184,0.14)] bg-white p-0 shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)] md:h-[76vh] md:flex-none`}
+          className={`${hasMobileSelection || agent.conversations.length === 0 ? "flex" : "hidden md:flex"} min-h-0 flex-1 overflow-hidden border border-[rgba(148,163,184,0.14)] bg-white p-0 shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)] md:h-[76vh] md:flex-none`}
         >
           {selectedConversation ? (
             <div className="flex min-h-0 h-full w-full flex-1 flex-col">
-              <div className="sticky top-0 z-10 shrink-0 border-b border-[rgba(148,163,184,0.12)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcff_100%)] px-[10px] py-[10px] md:static md:px-[10px]">
+              <div className="sticky top-0 z-10 shrink-0 border-b border-[rgba(148,163,184,0.12)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcff_100%)] px-3 py-3 md:static md:px-[10px] md:py-[10px]">
                 <div className="flex min-w-0 items-center justify-between gap-4">
                   <div className="flex min-w-0 items-center gap-3">
                     <a
@@ -346,7 +346,7 @@ export default async function ClienteAgenteChatsPage({ params, searchParams }: P
 
               <div className="flex min-h-0 flex-1 flex-col bg-[#f3f4f6]">
                 <div
-                  className="min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-5 md:py-5"
+                  className="min-h-0 flex-1 overflow-y-auto px-3 py-3 pb-24 md:px-5 md:py-5 md:pb-5"
                   style={{
                     backgroundColor: "#f3f4f6",
                     backgroundImage:
@@ -382,7 +382,7 @@ export default async function ClienteAgenteChatsPage({ params, searchParams }: P
 
                         <div className={`flex ${outbound ? "justify-end" : "justify-start"}`}>
                           <div
-                            className={`max-w-[72%] rounded-[12px] px-[8px] py-[8px] text-[13px] leading-5 shadow-[0_10px_24px_-20px_rgba(15,23,42,0.16)] ${
+                            className={`max-w-[85%] rounded-[16px] px-[10px] py-[9px] text-[13px] leading-5 shadow-[0_10px_24px_-20px_rgba(15,23,42,0.16)] md:max-w-[72%] ${
                               outbound
                                 ? "bg-[var(--primary)] text-white"
                                 : "border border-[rgba(148,163,184,0.12)] bg-white text-slate-800"
@@ -412,21 +412,21 @@ export default async function ClienteAgenteChatsPage({ params, searchParams }: P
                   </div>
                 </div>
 
-                <div className="sticky bottom-0 z-10 shrink-0 border-t border-[rgba(148,163,184,0.12)] bg-white px-2 py-2 md:static md:px-2 md:py-2">
+                <div className="sticky bottom-0 z-10 shrink-0 border-t border-[rgba(148,163,184,0.12)] bg-white px-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 md:static md:px-2 md:py-2">
                   <form action={sendManualAgentReplyAction}>
                     <input type="hidden" name="agentId" value={agent.id} />
                     <input type="hidden" name="conversationId" value={selectedConversation.id} />
 
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-end gap-2 md:gap-3">
                       <textarea
                         name="message"
                         rows={1}
                         placeholder="Escribe un mensaje..."
-                        className="flex h-10 min-h-0 flex-1 resize-none rounded-2xl border border-[rgba(148,163,184,0.14)] bg-slate-50/80 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 outline-none transition focus:border-[var(--primary)] focus:bg-white focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_18%,white)] md:h-10"
+                        className="flex min-h-[46px] flex-1 resize-none rounded-2xl border border-[rgba(148,163,184,0.14)] bg-slate-50/80 px-3 py-3 text-sm text-slate-800 placeholder:text-slate-400 outline-none transition focus:border-[var(--primary)] focus:bg-white focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_18%,white)] md:min-h-[40px] md:py-2"
                       />
                       <button
                         type="submit"
-                        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[var(--primary)] text-white transition hover:bg-[var(--primary-strong)] md:h-10 md:w-10"
+                        className="inline-flex h-[46px] w-[46px] shrink-0 items-center justify-center rounded-2xl bg-[var(--primary)] text-white transition hover:bg-[var(--primary-strong)] md:h-10 md:w-10"
                         aria-label="Enviar mensaje"
                       >
                         <SendHorizonal className="h-5 w-5" />

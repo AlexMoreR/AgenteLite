@@ -71,9 +71,9 @@ export function AgentPlayground({ agentId, agentName }: AgentPlaygroundProps) {
   };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4">
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[24px] border border-[rgba(148,163,184,0.14)] bg-white shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)] md:rounded-[28px]">
-        <div className="border-b border-[rgba(148,163,184,0.12)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcff_100%)] px-4 py-4 md:px-5">
+    <div className="flex min-h-[calc(100dvh-8rem)] flex-1 flex-col md:min-h-0 md:gap-4">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[22px] border border-[rgba(148,163,184,0.14)] bg-white shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)] md:rounded-[28px]">
+        <div className="sticky top-0 z-10 border-b border-[rgba(148,163,184,0.12)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcff_100%)] px-4 py-3 backdrop-blur md:static md:px-5 md:py-4">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div className="flex min-w-0 items-center gap-3">
               <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
@@ -87,7 +87,7 @@ export function AgentPlayground({ agentId, agentName }: AgentPlaygroundProps) {
             <div className="grid grid-cols-2 gap-2 md:flex md:flex-wrap md:items-center md:justify-end md:gap-3">
               <Link
                 href={`/cliente/agentes/${agentId}/entrenamiento`}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-3 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)] md:px-4"
               >
                 <Settings2 className="h-4 w-4" />
                 Volver
@@ -95,7 +95,7 @@ export function AgentPlayground({ agentId, agentName }: AgentPlaygroundProps) {
               <button
                 type="button"
                 onClick={handleReset}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-[rgba(148,163,184,0.16)] bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-[rgba(148,163,184,0.16)] bg-white px-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50 md:px-4"
               >
                 <RotateCcw className="h-4 w-4" />
                 Reiniciar
@@ -105,7 +105,7 @@ export function AgentPlayground({ agentId, agentName }: AgentPlaygroundProps) {
         </div>
 
         <div
-          className="min-h-[44vh] flex-1 overflow-y-auto px-3 py-3 md:min-h-0 md:px-4 md:py-4"
+          className="flex-1 overflow-y-auto px-3 py-3 pb-28 md:min-h-0 md:px-4 md:py-4 md:pb-4"
           style={{
             backgroundColor: "#f3f4f6",
             backgroundImage:
@@ -121,7 +121,7 @@ export function AgentPlayground({ agentId, agentName }: AgentPlaygroundProps) {
                 return (
                   <div key={message.id} className={`flex ${outbound ? "justify-end" : "justify-start"}`}>
                     <div
-                      className={`max-w-[88%] rounded-[18px] px-4 py-3 text-sm leading-6 shadow-[0_10px_24px_-20px_rgba(15,23,42,0.16)] md:max-w-[78%] ${
+                      className={`max-w-[90%] rounded-[18px] px-4 py-3 text-sm leading-6 shadow-[0_10px_24px_-20px_rgba(15,23,42,0.16)] md:max-w-[78%] ${
                         outbound
                           ? "bg-[var(--primary)] text-white"
                           : "border border-[rgba(148,163,184,0.12)] bg-white text-slate-800"
@@ -151,7 +151,7 @@ export function AgentPlayground({ agentId, agentName }: AgentPlaygroundProps) {
           </div>
         </div>
 
-        <div className="border-t border-[rgba(148,163,184,0.12)] bg-white px-3 py-3 md:px-3 md:py-3">
+        <div className="sticky bottom-0 z-10 border-t border-[rgba(148,163,184,0.12)] bg-white/95 px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3 backdrop-blur md:static md:bg-white md:px-3 md:py-3">
           {error ? <p className="px-2 pb-2 text-sm text-rose-600">{error}</p> : null}
           <div className="flex items-end gap-2 md:gap-3">
             <textarea

@@ -32,6 +32,7 @@ export function AgentPanelShell({ agentId, children, hideMobileNav = false }: Ag
   const trainingHref = `/cliente/agentes/${agentId}/entrenamiento`;
   const playgroundHref = `/cliente/agentes/${agentId}/probar`;
   const shouldHideMobileNav = hideMobileNav || pathname === playgroundHref;
+  const mobileTabs = tabs.filter((tab) => !tab.disabled).slice(0, 4);
 
   return (
     <section className="flex min-h-0 w-full flex-1 flex-col overflow-x-hidden">
@@ -74,15 +75,14 @@ export function AgentPanelShell({ agentId, children, hideMobileNav = false }: Ag
         </nav>
       </div>
 
-      <div className="mt-0 flex-1 md:mt-0">{children}</div>
+      <div className={`mt-0 flex-1 md:mt-0 ${!shouldHideMobileNav ? "pb-[calc(env(safe-area-inset-bottom)+5.75rem)] md:pb-0" : ""}`}>
+        {children}
+      </div>
 
       {!shouldHideMobileNav ? (
-        <nav className="sticky bottom-0 z-20 -mx-3 overflow-hidden rounded-t-[18px] border-t border-[rgba(148,163,184,0.14)] bg-white px-0 py-0 md:mx-0 md:hidden">
-          <div className="grid grid-cols-4 gap-0">
-            {tabs
-              .filter((tab) => !tab.disabled)
-              .slice(0, 3)
-              .map((tab) => {
+        <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-[rgba(148,163,184,0.14)] bg-white/96 px-2 pb-[calc(env(safe-area-inset-bottom)+0.35rem)] pt-2 shadow-[0_-12px_30px_-24px_rgba(15,23,42,0.22)] backdrop-blur md:hidden">
+          <div className="grid grid-cols-4 gap-1 rounded-[22px] border border-[rgba(148,163,184,0.08)] bg-slate-50/70 p-1">
+            {mobileTabs.map((tab) => {
                 const href = typeof tab.href === "function" ? tab.href(agentId) : "";
                 const active = pathname === href || (tab.key === "entrenamiento" && pathname === playgroundHref);
                 const Icon = tab.icon;
@@ -91,9 +91,9 @@ export function AgentPanelShell({ agentId, children, hideMobileNav = false }: Ag
                   <Link
                     key={tab.key}
                     href={href}
-                    className={`flex min-h-[52px] flex-col items-center justify-center gap-0.5 rounded-t-[14px] px-0 py-1.5 text-center text-[11px] font-medium transition ${
+                    className={`flex min-h-[60px] flex-col items-center justify-center gap-1 rounded-[18px] px-1 py-2 text-center text-[11px] font-medium transition ${
                       active
-                        ? "bg-[var(--primary)] text-white"
+                        ? "bg-[var(--primary)] text-white shadow-[0_12px_24px_-18px_color-mix(in_srgb,var(--primary)_50%,black)]"
                         : "text-slate-600"
                     }`}
                   >

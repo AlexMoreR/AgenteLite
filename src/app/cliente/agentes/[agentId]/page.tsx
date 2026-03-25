@@ -52,14 +52,14 @@ export default async function ClienteAgentePanelPage({ params }: PageProps) {
   return (
     <AgentPanelShell agentId={agent.id}>
       <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
-        <Card className="border border-[rgba(148,163,184,0.14)] bg-white p-6">
+        <Card className="border border-[rgba(148,163,184,0.14)] bg-white p-4 sm:p-5 lg:p-6">
           <div className="space-y-5">
             <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_10%,white)] text-[var(--primary)]">
               <Sparkles className="h-6 w-6" />
             </div>
 
             <div className="space-y-2">
-              <h2 className="text-2xl font-semibold tracking-[-0.05em] text-slate-950">Resumen del agente</h2>
+              <h2 className="text-[1.4rem] font-semibold tracking-[-0.05em] text-slate-950 sm:text-2xl">Resumen del agente</h2>
               <p className="max-w-2xl text-sm leading-7 text-slate-600">
                 Desde aqui puedes ver como quedo entrenado el agente y entrar a los canales o conversaciones cuando lo necesites.
               </p>
@@ -158,7 +158,7 @@ export default async function ClienteAgentePanelPage({ params }: PageProps) {
           </div>
         </Card>
 
-        <Card className="border border-[rgba(148,163,184,0.14)] bg-white p-6">
+        <Card className="border border-[rgba(148,163,184,0.14)] bg-white p-4 sm:p-5 lg:p-6">
           <div className="space-y-4">
             <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_10%,white)] text-[var(--primary)]">
               <Cable className="h-6 w-6" />
@@ -172,7 +172,7 @@ export default async function ClienteAgentePanelPage({ params }: PageProps) {
 
             <Link
               href={`/cliente/agentes/${agent.id}/canales`}
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
+              className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)] sm:w-auto"
             >
               <MessageSquareText className="h-4 w-4" />
               Abrir canales
