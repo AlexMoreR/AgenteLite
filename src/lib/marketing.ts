@@ -3,6 +3,26 @@ import { z } from "zod";
 export const DEFAULT_FACEBOOK_ADS_VISUAL_DIRECTION =
   "Estilo publicitario profesional, realista, limpio y atractivo, con el producto como protagonista y composicion pensada para Facebook Ads.";
 
+export const facebookAdsAspectRatioOptions = [
+  {
+    value: "1:1",
+    label: "1:1 Instagram post",
+    imageSize: "1024x1024",
+  },
+  {
+    value: "9:16",
+    label: "9:16 Story / WhatsApp",
+    imageSize: "1024x1536",
+  },
+  {
+    value: "16:9",
+    label: "16:9 Facebook post",
+    imageSize: "1536x1024",
+  },
+] as const;
+
+export type FacebookAdsAspectRatio = (typeof facebookAdsAspectRatioOptions)[number]["value"];
+
 export const facebookAdsObjectiveOptions = [
   "Ventas",
   "Mensajes",
@@ -20,6 +40,14 @@ export const facebookAdsToneOptions = [
 ] as const;
 
 export const facebookAdsFormSchema = z.object({
+  aspectRatio: z
+    .string()
+    .trim()
+    .refine(
+      (value) =>
+        facebookAdsAspectRatioOptions.some((option) => option.value === value),
+      "Formato invalido",
+    ),
   campaignObjective: z
     .string()
     .trim()
@@ -79,6 +107,7 @@ export type FacebookAdsOutput = z.infer<typeof facebookAdsOutputSchema>;
 
 export function collectFacebookAdsFormInput(formData: FormData): FacebookAdsFormInput {
   return {
+    aspectRatio: String(formData.get("aspectRatio") || facebookAdsAspectRatioOptions[0].value),
     campaignObjective: String(formData.get("campaignObjective") || ""),
     productName: String(formData.get("productName") || ""),
     productDescription: String(formData.get("productDescription") || ""),
@@ -94,6 +123,7 @@ export function collectFacebookAdsFormInput(formData: FormData): FacebookAdsForm
 export function formatFacebookAdsInputForPrompt(workspaceName: string, input: FacebookAdsFormInput) {
   return [
     `Marca o negocio: ${workspaceName}`,
+    `Formato objetivo: ${input.aspectRatio}`,
     `Objetivo de campana: ${input.campaignObjective}`,
     `Producto o servicio: ${input.productName}`,
     `Descripcion del producto o servicio: ${input.productDescription}`,
@@ -104,6 +134,13 @@ export function formatFacebookAdsInputForPrompt(workspaceName: string, input: Fa
     `Diferenciador principal: ${input.differentiator}`,
     `Direccion visual: ${input.visualDirection}`,
   ].join("\n");
+}
+
+export function getImageSizeForAspectRatio(aspectRatio: FacebookAdsAspectRatio): string {
+  return (
+    facebookAdsAspectRatioOptions.find((option) => option.value === aspectRatio)?.imageSize ??
+    facebookAdsAspectRatioOptions[0].imageSize
+  );
 }
 
 export function parseFacebookAdsOutput(value: unknown): FacebookAdsOutput | null {

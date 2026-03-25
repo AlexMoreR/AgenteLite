@@ -1,17 +1,23 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { ChevronRight, LoaderCircle, Megaphone, Sparkles, WandSparkles, X } from "lucide-react";
+import { ChevronRight, ImagePlus, LoaderCircle, Megaphone, Sparkles, Trash2, WandSparkles, X } from "lucide-react";
 import { generateFacebookAdsCreativeAction } from "@/app/actions/marketing-actions";
 import {
+  facebookAdsAspectRatioOptions,
   facebookAdsObjectiveOptions,
   facebookAdsToneOptions,
   type FacebookAdsFormInput,
 } from "@/lib/marketing";
 
+type FacebookAdsDraft = FacebookAdsFormInput & {
+  referenceImageUrl?: string | null;
+};
+
 type FacebookAdsFormProps = {
-  initialValues: FacebookAdsFormInput | null;
+  initialValues: FacebookAdsDraft | null;
   okMessage?: string;
   selectedHistoryId?: string;
 };
@@ -19,6 +25,10 @@ type FacebookAdsFormProps = {
 const STORAGE_KEY = "marketing-ia-facebook-ads-draft";
 
 const steps = [
+  {
+    title: "Producto y formato",
+    subtitle: "Sube la imagen base del producto y elige el formato del anuncio.",
+  },
   {
     title: "Objetivo y oferta",
     subtitle: "Define que quieres vender y cual es la propuesta principal del anuncio.",
@@ -28,16 +38,13 @@ const steps = [
     subtitle: "Aterriza para quien va el anuncio y como debe sonar el mensaje.",
   },
   {
-    title: "Diferenciador y CTA",
-    subtitle: "Dile a la IA que hace especial tu oferta y como quieres cerrar.",
-  },
-  {
-    title: "Direccion visual",
-    subtitle: "Agrega una referencia visual o dejalo opcional para usar una guia base automatica.",
+    title: "Cierre y direccion visual",
+    subtitle: "Define el diferenciador, CTA y una guia visual opcional para el anuncio.",
   },
 ] as const;
 
-const emptyDraft: FacebookAdsFormInput = {
+const emptyDraft: FacebookAdsDraft = {
+  aspectRatio: facebookAdsAspectRatioOptions[0].value,
   campaignObjective: facebookAdsObjectiveOptions[0],
   productName: "",
   productDescription: "",
@@ -47,16 +54,17 @@ const emptyDraft: FacebookAdsFormInput = {
   callToAction: "",
   differentiator: "",
   visualDirection: "",
+  referenceImageUrl: "",
 };
 
-function loadDraft(): FacebookAdsFormInput | null {
+function loadDraft(): FacebookAdsDraft | null {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) {
       return null;
     }
 
-    const parsed = JSON.parse(raw) as FacebookAdsFormInput;
+    const parsed = JSON.parse(raw) as FacebookAdsDraft;
     if (!parsed || typeof parsed !== "object") {
       return null;
     }
@@ -70,7 +78,7 @@ function loadDraft(): FacebookAdsFormInput | null {
   }
 }
 
-function saveDraft(value: FacebookAdsFormInput) {
+function saveDraft(value: FacebookAdsDraft) {
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
   } catch {
@@ -124,7 +132,7 @@ export function FacebookAdsForm({
   okMessage,
   selectedHistoryId,
 }: FacebookAdsFormProps) {
-  const [values, setValues] = useState<FacebookAdsFormInput>(() => {
+  const [values, setValues] = useState<FacebookAdsDraft>(() => {
     if (selectedHistoryId && initialValues) {
       return initialValues;
     }
@@ -142,6 +150,7 @@ export function FacebookAdsForm({
   const [step, setStep] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (okMessage) {
@@ -157,11 +166,21 @@ export function FacebookAdsForm({
     saveDraft(values);
   }, [okMessage, values]);
 
-  const updateField = <K extends keyof FacebookAdsFormInput>(key: K, value: FacebookAdsFormInput[K]) => {
+  const updateField = <K extends keyof FacebookAdsDraft>(key: K, value: FacebookAdsDraft[K]) => {
     setValues((current) => ({
       ...current,
       [key]: value,
     }));
+  };
+
+  const handleReferenceImageChange = (file: File | null) => {
+    if (!file) {
+      updateField("referenceImageUrl", "");
+      return;
+    }
+
+    const objectUrl = URL.createObjectURL(file);
+    updateField("referenceImageUrl", objectUrl);
   };
 
   const openCreateFlow = () => {
@@ -215,16 +234,22 @@ export function FacebookAdsForm({
             className="flex h-full w-full max-w-[1040px] flex-col overflow-hidden rounded-none border border-[rgba(148,163,184,0.18)] bg-[linear-gradient(180deg,#fdfdfd_0%,#ffffff_100%)] md:max-h-[92vh] md:rounded-[32px] md:shadow-[0_42px_110px_-52px_rgba(15,23,42,0.5)]"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="border-b border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfbfd_100%)] px-5 py-5 md:px-8 md:py-4">
-              <div className="relative flex items-start justify-center gap-4">
-                <div className="space-y-2 text-center">
-                  <div className="flex flex-wrap justify-center gap-2">
-                    {steps.map((item, index) => (
-                      <ProgressDot key={item.title} active={index === step} done={index < step} />
-                    ))}
+            <div className="border-b border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfbfd_100%)] px-5 py-4 md:px-8 md:py-4">
+              <div className="relative flex items-start gap-4 pr-12">
+                <div className="min-w-0 flex-1 space-y-3">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <span className="rounded-full bg-[color-mix(in_srgb,var(--primary)_8%,white)] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--primary)]">
+                      Paso {step + 1} de {steps.length}
+                    </span>
+                    <div className="flex flex-wrap gap-2">
+                      {steps.map((item, index) => (
+                        <ProgressDot key={item.title} active={index === step} done={index < step} />
+                      ))}
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                    <h2 className="text-[1.8rem] font-semibold tracking-[-0.06em] text-slate-950 md:text-[2rem]">
+
+                  <div className="space-y-1">
+                    <h2 className="text-xl font-semibold tracking-[-0.05em] text-slate-950 md:text-2xl">
                       {steps[step].title}
                     </h2>
                     <p className="max-w-2xl text-sm leading-6 text-slate-600">{steps[step].subtitle}</p>
@@ -286,6 +311,106 @@ export function FacebookAdsForm({
                   <div className="mx-auto w-full max-w-4xl">
                     <div className={step === 0 ? "block" : "hidden"}>
                       <StepFrame>
+                        <div className="grid gap-4 md:grid-cols-[1.1fr_0.9fr]">
+                          <div className="space-y-3">
+                            <Field label="Imagen base del producto">
+                              <input
+                                ref={fileInputRef}
+                                type="file"
+                                name="referenceImage"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={(event) =>
+                                  handleReferenceImageChange(event.target.files?.[0] ?? null)
+                                }
+                              />
+
+                              <button
+                                type="button"
+                                onClick={() => fileInputRef.current?.click()}
+                                className="flex min-h-[220px] w-full items-center justify-center rounded-[28px] border border-dashed border-[rgba(148,163,184,0.24)] bg-white px-5 py-6 text-center transition hover:border-[var(--primary)]/40"
+                              >
+                                {values.referenceImageUrl ? (
+                                  <div className="w-full space-y-3">
+                                    <div className="overflow-hidden rounded-[22px] border border-[rgba(148,163,184,0.14)]">
+                                      <Image
+                                        src={values.referenceImageUrl}
+                                        alt="Referencia del producto"
+                                        width={800}
+                                        height={800}
+                                        className="h-56 w-full object-cover"
+                                        unoptimized={values.referenceImageUrl.startsWith("blob:")}
+                                      />
+                                    </div>
+                                    <div className="flex items-center justify-between gap-3">
+                                      <span className="text-sm font-medium text-slate-700">Imagen cargada</span>
+                                      <button
+                                        type="button"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          if (fileInputRef.current) {
+                                            fileInputRef.current.value = "";
+                                          }
+                                          updateField("referenceImageUrl", "");
+                                        }}
+                                        className="inline-flex h-9 items-center justify-center gap-2 rounded-xl border border-[rgba(148,163,184,0.18)] bg-white px-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                                      >
+                                        <Trash2 className="h-4 w-4" />
+                                        Quitar
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="space-y-3">
+                                    <span className="mx-auto inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
+                                      <ImagePlus className="h-6 w-6" />
+                                    </span>
+                                    <div className="space-y-1">
+                                      <p className="text-sm font-semibold text-slate-900">Subir imagen del producto</p>
+                                      <p className="text-sm leading-6 text-slate-600">
+                                        Recomendado para mantener mejor la fidelidad visual del producto.
+                                      </p>
+                                    </div>
+                                  </div>
+                                )}
+                              </button>
+                            </Field>
+                          </div>
+
+                          <div className="space-y-4">
+                            <Field label="Formato del anuncio">
+                              <div className="grid gap-3">
+                                {facebookAdsAspectRatioOptions.map((option) => (
+                                  <label key={option.value} className="cursor-pointer">
+                                    <input
+                                      type="radio"
+                                      name="aspectRatio"
+                                      value={option.value}
+                                      checked={values.aspectRatio === option.value}
+                                      onChange={() => updateField("aspectRatio", option.value)}
+                                      className="peer sr-only"
+                                    />
+                                    <span className="flex items-center justify-between rounded-[22px] border border-[rgba(148,163,184,0.16)] bg-white px-4 py-4 text-sm font-medium text-slate-700 transition peer-checked:border-[var(--primary)] peer-checked:bg-[color-mix(in_srgb,var(--primary)_6%,white)] peer-checked:text-[var(--primary)]">
+                                      <span>{option.label}</span>
+                                      <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                                        {option.value}
+                                      </span>
+                                    </span>
+                                  </label>
+                                ))}
+                              </div>
+                            </Field>
+
+                            <div className="rounded-[24px] border border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcff_100%)] p-5 text-sm leading-7 text-slate-600">
+                              El formato elegido se usara para la composicion final de la pieza publicitaria.
+                            </div>
+                          </div>
+                        </div>
+                      </StepFrame>
+                    </div>
+
+                    <div className={step === 1 ? "block" : "hidden"}>
+                      <StepFrame>
                         <div className="grid gap-4 md:grid-cols-2">
                           <Field label="Objetivo de campana">
                             <select
@@ -340,7 +465,7 @@ export function FacebookAdsForm({
                       </StepFrame>
                     </div>
 
-                    <div className={step === 1 ? "block" : "hidden"}>
+                    <div className={step === 2 ? "block" : "hidden"}>
                       <StepFrame>
                         <Field label="Publico objetivo">
                           <textarea
@@ -372,7 +497,7 @@ export function FacebookAdsForm({
                       </StepFrame>
                     </div>
 
-                    <div className={step === 2 ? "block" : "hidden"}>
+                    <div className={step === 3 ? "block" : "hidden"}>
                       <StepFrame>
                         <Field label="Diferenciador principal">
                           <textarea
@@ -396,11 +521,7 @@ export function FacebookAdsForm({
                             required
                           />
                         </Field>
-                      </StepFrame>
-                    </div>
 
-                    <div className={step === 3 ? "block" : "hidden"}>
-                      <StepFrame>
                         <Field label="Direccion visual">
                           <textarea
                             name="visualDirection"

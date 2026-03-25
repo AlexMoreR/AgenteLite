@@ -4,11 +4,13 @@ import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
+import type { FacebookAdsAspectRatio } from "@/lib/marketing";
 import { collectFacebookAdsFormInput, facebookAdsFormSchema } from "@/lib/marketing";
 import {
   generateFacebookAdsCopy,
   generateMarketingImage,
   getMarketingAiDefaults,
+  saveMarketingReferenceImage,
   saveGeneratedMarketingImage,
 } from "@/lib/marketing-ai";
 import { createMarketingGeneration, updateMarketingGeneration } from "@/lib/marketing-store";
@@ -32,6 +34,24 @@ export async function generateFacebookAdsCreativeAction(formData: FormData): Pro
   }
 
   const defaults = getMarketingAiDefaults();
+  const rawReferenceImage = formData.get("referenceImage");
+  const referenceImage = rawReferenceImage instanceof File && rawReferenceImage.size > 0 ? rawReferenceImage : null;
+  let referenceImageUrl: string | null = null;
+
+  if (referenceImage) {
+    try {
+      referenceImageUrl = await saveMarketingReferenceImage({
+        file: referenceImage,
+        workspaceSlug: membership.workspace.slug,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message.trim()
+          ? error.message.trim()
+          : "No se pudo procesar la imagen del producto";
+      redirect(`/cliente/marketing-ia/facebook-ads?error=${encodeURIComponent(message)}`);
+    }
+  }
 
   const generation = await createMarketingGeneration({
     id: randomUUID(),
@@ -41,7 +61,10 @@ export async function generateFacebookAdsCreativeAction(formData: FormData): Pro
     status: "PENDING",
     model: defaults.model,
     imageModel: defaults.imageModel,
-    input: parsed.data,
+    input: {
+      ...parsed.data,
+      referenceImageUrl,
+    },
   });
 
   let output: Awaited<ReturnType<typeof generateFacebookAdsCopy>> | null = null;
@@ -57,7 +80,12 @@ export async function generateFacebookAdsCreativeAction(formData: FormData): Pro
       output,
     });
 
-    const generatedImage = await generateMarketingImage(output.imagePrompt);
+    const generatedImage = await generateMarketingImage({
+      prompt: output.imagePrompt,
+      aspectRatio: parsed.data.aspectRatio as FacebookAdsAspectRatio,
+      input: parsed.data,
+      referenceImage,
+    });
     const imageUrl = await saveGeneratedMarketingImage({
       base64: generatedImage.base64,
       workspaceSlug: membership.workspace.slug,

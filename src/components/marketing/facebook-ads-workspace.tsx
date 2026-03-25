@@ -33,13 +33,21 @@ const statusToneMap: Record<MarketingGenerationStatus, string> = {
   FAILED: "bg-rose-50 text-rose-700 ring-rose-200",
 };
 
-function isFacebookAdsInput(value: unknown): value is FacebookAdsFormInput {
+type FacebookAdsInputWithReference = FacebookAdsFormInput & {
+  referenceImageUrl?: string | null;
+};
+
+function isFacebookAdsInput(value: unknown): value is FacebookAdsInputWithReference {
   if (!value || typeof value !== "object") {
     return false;
   }
 
   const candidate = value as Record<string, unknown>;
-  return typeof candidate.productName === "string" && typeof candidate.callToAction === "string";
+  return (
+    typeof candidate.productName === "string" &&
+    typeof candidate.callToAction === "string" &&
+    typeof candidate.aspectRatio === "string"
+  );
 }
 
 function formatDate(date: Date) {
@@ -62,6 +70,8 @@ export function FacebookAdsWorkspace({
     null;
   const selectedInput = isFacebookAdsInput(selectedHistory?.input) ? selectedHistory.input : null;
   const selectedOutput = parseFacebookAdsOutput(selectedHistory?.output);
+  const selectedProductName = selectedInput?.productName?.trim() || "Creativo de Facebook Ads";
+  const hasGeneratedImage = Boolean(selectedHistory?.imageUrl);
 
   return (
     <section className="w-full space-y-5">
@@ -104,6 +114,47 @@ export function FacebookAdsWorkspace({
             </p>
           </div>
 
+          <div className="rounded-[28px] border border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#ffffff_0%,#f7faff_100%)] p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="space-y-1">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Anuncio activo</p>
+                <p className="text-base font-semibold text-slate-950">{selectedProductName}</p>
+              </div>
+              {selectedHistory ? (
+                <span
+                  className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ring-1 ${statusToneMap[selectedHistory.status]}`}
+                >
+                  {statusLabelMap[selectedHistory.status]}
+                </span>
+              ) : null}
+            </div>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-[20px] border border-[rgba(148,163,184,0.12)] bg-white px-4 py-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Formato</p>
+                <p className="mt-1 text-sm font-medium text-slate-900">{selectedInput?.aspectRatio ?? "1:1"}</p>
+              </div>
+              <div className="rounded-[20px] border border-[rgba(148,163,184,0.12)] bg-white px-4 py-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Objetivo</p>
+                <p className="mt-1 line-clamp-2 text-sm font-medium text-slate-900">
+                  {selectedInput?.campaignObjective ?? "Aun no configurado"}
+                </p>
+              </div>
+              <div className="rounded-[20px] border border-[rgba(148,163,184,0.12)] bg-white px-4 py-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Imagen base</p>
+                <p className="mt-1 text-sm font-medium text-slate-900">
+                  {selectedInput?.referenceImageUrl ? "Cargada" : "No agregada"}
+                </p>
+              </div>
+              <div className="rounded-[20px] border border-[rgba(148,163,184,0.12)] bg-white px-4 py-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Resultado</p>
+                <p className="mt-1 text-sm font-medium text-slate-900">
+                  {hasGeneratedImage ? "Imagen lista" : "Pendiente por generar"}
+                </p>
+              </div>
+            </div>
+          </div>
+
           <FacebookAdsForm
             key={selectedHistoryId || "facebook-ads-draft"}
             initialValues={selectedInput}
@@ -141,8 +192,91 @@ export function FacebookAdsWorkspace({
                   </div>
                 ) : null}
 
-                <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-                  <div className="space-y-4">
+                <div className="space-y-4">
+                  <div className="rounded-[28px] border border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcff_100%)] p-4 md:p-5">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <ImagePlus className="h-4 w-4 text-[var(--primary)]" />
+                          <p className="text-sm font-semibold text-slate-900">Imagen generada</p>
+                        </div>
+                        <p className="text-sm text-slate-600">
+                          Vista principal del creativo para {selectedProductName.toLowerCase()}.
+                        </p>
+                      </div>
+                      <span className="rounded-full bg-[color-mix(in_srgb,var(--primary)_10%,white)] px-3 py-1 text-xs font-semibold text-[var(--primary)]">
+                        {selectedInput?.aspectRatio ?? "1:1"}
+                      </span>
+                    </div>
+
+                    <div className="mt-4 overflow-hidden rounded-[24px] border border-[rgba(148,163,184,0.12)] bg-slate-100">
+                      {selectedHistory.imageUrl ? (
+                        <Image
+                          src={selectedHistory.imageUrl}
+                          alt="Creativo generado para Facebook Ads"
+                          width={1024}
+                          height={1024}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex min-h-[360px] items-center justify-center px-6 text-center text-sm text-slate-500">
+                          Esta generacion aun no tiene imagen disponible.
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="mt-4 grid gap-3 md:grid-cols-3">
+                      <div className="rounded-[20px] border border-[rgba(148,163,184,0.12)] bg-white px-4 py-3 text-sm text-slate-600">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Proveedor</p>
+                        <p className="mt-1 font-medium text-slate-900">{selectedHistory.provider}</p>
+                      </div>
+                      <div className="rounded-[20px] border border-[rgba(148,163,184,0.12)] bg-white px-4 py-3 text-sm text-slate-600">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">CTA sugerido</p>
+                        <p className="mt-1 font-medium text-slate-900">
+                          {selectedOutput?.suggestedCallToAction ?? "Sin CTA sugerido"}
+                        </p>
+                      </div>
+                      <div className="rounded-[20px] border border-[rgba(148,163,184,0.12)] bg-white px-4 py-3 text-sm text-slate-600">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                          Ultima actualizacion
+                        </p>
+                        <p className="mt-1 font-medium text-slate-900">{formatDate(selectedHistory.updatedAt)}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 xl:grid-cols-[0.72fr_1.28fr]">
+                    <div className="space-y-4">
+                      {selectedInput?.referenceImageUrl ? (
+                        <div className="rounded-[24px] border border-[rgba(148,163,184,0.14)] bg-white p-4">
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                              Imagen base
+                            </p>
+                            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                              Referencia
+                            </span>
+                          </div>
+                          <div className="mt-3 overflow-hidden rounded-[20px] border border-[rgba(148,163,184,0.12)] bg-slate-100">
+                            <Image
+                              src={selectedInput.referenceImageUrl}
+                              alt="Imagen base del producto"
+                              width={800}
+                              height={800}
+                              className="h-48 w-full object-cover"
+                            />
+                          </div>
+                        </div>
+                      ) : null}
+
+                      <div className="rounded-[24px] border border-[rgba(148,163,184,0.14)] bg-white p-4">
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Prompt visual interno</p>
+                        <p className="mt-3 whitespace-pre-line text-sm leading-6 text-slate-700">
+                          {selectedOutput?.imagePrompt ?? "Sin prompt visual disponible."}
+                        </p>
+                      </div>
+                    </div>
+
                     <div className="grid gap-4 md:grid-cols-2">
                       <div className="rounded-[24px] border border-[rgba(148,163,184,0.14)] bg-slate-50 p-4">
                         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Primary text</p>
@@ -178,53 +312,6 @@ export function FacebookAdsWorkspace({
                           </div>
                         </div>
                       </div>
-                    </div>
-
-                    <div className="rounded-[24px] border border-[rgba(148,163,184,0.14)] bg-white p-4">
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">CTA sugerido</p>
-                      <p className="mt-3 text-sm font-medium text-slate-900">
-                        {selectedOutput?.suggestedCallToAction ?? "Sin CTA sugerido."}
-                      </p>
-                    </div>
-
-                    <div className="rounded-[24px] border border-[rgba(148,163,184,0.14)] bg-white p-4">
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Prompt visual interno</p>
-                      <p className="mt-3 whitespace-pre-line text-sm leading-6 text-slate-700">
-                        {selectedOutput?.imagePrompt ?? "Sin prompt visual disponible."}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="space-y-4">
-                    <div className="rounded-[28px] border border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcff_100%)] p-4">
-                      <div className="flex items-center gap-2">
-                        <ImagePlus className="h-4 w-4 text-[var(--primary)]" />
-                        <p className="text-sm font-semibold text-slate-900">Imagen generada</p>
-                      </div>
-                      <div className="mt-4 overflow-hidden rounded-[24px] border border-[rgba(148,163,184,0.12)] bg-slate-100">
-                        {selectedHistory.imageUrl ? (
-                          <Image
-                            src={selectedHistory.imageUrl}
-                            alt="Creativo generado para Facebook Ads"
-                            width={1024}
-                            height={1024}
-                            className="h-full w-full object-cover"
-                          />
-                        ) : (
-                          <div className="flex min-h-[320px] items-center justify-center px-6 text-center text-sm text-slate-500">
-                            Esta generacion aun no tiene imagen disponible.
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="rounded-[24px] border border-[rgba(148,163,184,0.14)] bg-white p-4 text-sm text-slate-600">
-                      <p>
-                        Proveedor: <span className="font-medium text-slate-900">{selectedHistory.provider}</span>
-                      </p>
-                      <p className="mt-2">
-                        Ultima actualizacion: <span className="font-medium text-slate-900">{formatDate(selectedHistory.updatedAt)}</span>
-                      </p>
                     </div>
                   </div>
                 </div>
@@ -281,7 +368,7 @@ export function FacebookAdsWorkspace({
                       </div>
                       <p className="mt-3 line-clamp-2 text-sm text-slate-600">
                         {input
-                          ? `${input.campaignObjective} - ${input.offerDetails}`
+                          ? `${input.aspectRatio} - ${input.campaignObjective} - ${input.offerDetails}`
                           : "Sin entrada registrada."}
                       </p>
                     </Link>
