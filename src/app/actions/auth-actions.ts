@@ -137,7 +137,7 @@ export async function registerAction(
         message: "Falta configurar AUTH_URL, NEXTAUTH_URL o NEXT_PUBLIC_SITE_URL para enviar el enlace de verificacion",
       };
     }
-    const token = createEmailVerificationToken(createdUser.id, email);
+    const token = await createEmailVerificationToken(createdUser.id, email);
     const verificationUrl = `${baseUrl}/verify-email?token=${encodeURIComponent(token)}`;
 
     await sendEmailVerificationEmail({

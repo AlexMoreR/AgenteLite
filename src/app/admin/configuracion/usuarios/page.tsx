@@ -82,7 +82,7 @@ export default async function AdminConfiguracionUsuariosPage({ searchParams }: P
             <span>Usuarios</span>
           </h1>
           <p className="mt-1 text-xs text-slate-600">
-            Crea cuentas y administra roles de todos los usuarios.
+            Administra acceso, suscripcion y estado operativo de cada cuenta.
           </p>
         </div>
         <CreateUserModal />

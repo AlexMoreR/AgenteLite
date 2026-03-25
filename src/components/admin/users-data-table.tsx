@@ -2,7 +2,15 @@
 
 import * as React from "react";
 import { Role } from "@prisma/client";
-import { ChevronDown, Search, X } from "lucide-react";
+import {
+  CalendarClock,
+  MoreHorizontal,
+  Search,
+  Shield,
+  Trash2,
+  UserRound,
+  X,
+} from "lucide-react";
 import {
   adminDeleteUserAction,
   adminUpdateUserRoleAction,
@@ -13,6 +21,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -51,6 +61,7 @@ const PAGE_SIZE = 8;
 export function UsersDataTable({ users }: UsersDataTableProps) {
   const [query, setQuery] = React.useState("");
   const [page, setPage] = React.useState(1);
+  const [activeUserId, setActiveUserId] = React.useState<string | null>(null);
   const [selectedRoles, setSelectedRoles] = React.useState<Record<string, Role>>({});
   const [selectedExpiryDates, setSelectedExpiryDates] = React.useState<Record<string, string>>(
     () =>
@@ -58,7 +69,9 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
         users.map((user) => [
           user.id,
           user.workspaceMemberships[0]?.workspace.planExpiresAt
-            ? new Date(user.workspaceMemberships[0].workspace.planExpiresAt).toISOString().slice(0, 10)
+            ? new Date(user.workspaceMemberships[0].workspace.planExpiresAt)
+                .toISOString()
+                .slice(0, 10)
             : "",
         ]),
       ),
@@ -73,11 +86,7 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
         const haystack = `${user.name ?? ""} ${user.email}`.toLowerCase();
         return haystack.includes(normalizedQuery);
       })
-      .sort((a, b) => {
-        const aTime = new Date(a.createdAt).getTime();
-        const bTime = new Date(b.createdAt).getTime();
-        return bTime - aTime;
-      });
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
   }, [users, query]);
 
   const totalPages = Math.max(1, Math.ceil(filteredUsers.length / PAGE_SIZE));
@@ -92,10 +101,25 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
     }
   }, [page, totalPages]);
 
+  React.useEffect(() => {
+    if (!activeUserId) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setActiveUserId(null);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [activeUserId]);
+
   const pageStart = (page - 1) * PAGE_SIZE;
   const pagedUsers = filteredUsers.slice(pageStart, pageStart + PAGE_SIZE);
   const rangeStart = filteredUsers.length === 0 ? 0 : pageStart + 1;
   const rangeEnd = Math.min(pageStart + PAGE_SIZE, filteredUsers.length);
+  const activeUser = activeUserId ? users.find((user) => user.id === activeUserId) ?? null : null;
+  const activeWorkspace = activeUser?.workspaceMemberships[0]?.workspace;
 
   const roleLabel: Record<Role, string> = {
     ADMIN: "Admin",
@@ -118,7 +142,7 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
   const getRoleValue = (userId: string, fallbackRole: Role) =>
     selectedRoles[userId] ?? fallbackRole;
 
-  const handleRoleSelect = (userId: string, role: Role) => {
+  const handleRoleChange = (userId: string, role: Role) => {
     setSelectedRoles((current) => ({ ...current, [userId]: role }));
   };
 
@@ -128,7 +152,7 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-2 border-b border-[var(--line)] pb-3 md:flex-row md:items-center md:justify-between">
+      <div className="flex flex-col gap-3 border-b border-[var(--line)] pb-4 md:flex-row md:items-center md:justify-between">
         <div>
           <p className="text-sm font-semibold text-slate-900">Directorio de usuarios</p>
           <p className="text-xs text-slate-500">
@@ -141,7 +165,7 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Buscar por nombre o correo"
-            className="h-9 pr-9 pl-9 text-sm"
+            className="h-10 rounded-xl pr-9 pl-9 text-sm"
           />
           {query ? (
             <button
@@ -156,14 +180,12 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
         </div>
       </div>
 
-      <Table className="min-w-[980px]">
+      <Table className="min-w-[720px]">
         <TableHeader>
           <TableRow className="hover:bg-transparent">
             <TableHead className="normal-case tracking-normal">Usuario</TableHead>
             <TableHead className="normal-case tracking-normal">Alta</TableHead>
-            <TableHead className="normal-case tracking-normal">Plan actual</TableHead>
-            <TableHead className="normal-case tracking-normal">Vence</TableHead>
-            <TableHead className="normal-case tracking-normal">Rol actual</TableHead>
+            <TableHead className="normal-case tracking-normal">Suscripcion</TableHead>
             <TableHead className="normal-case tracking-normal">Rol</TableHead>
             <TableHead className="text-right normal-case tracking-normal">Accion</TableHead>
           </TableRow>
@@ -171,7 +193,7 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
         <TableBody>
           {pagedUsers.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={7} className="py-8 text-center text-slate-500">
+              <TableCell colSpan={5} className="py-8 text-center text-slate-500">
                 No hay resultados para el filtro actual.
               </TableCell>
             </TableRow>
@@ -186,8 +208,8 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
               return (
                 <TableRow key={user.id}>
                   <TableCell>
-                    <div className="flex items-center gap-2.5">
-                      <span className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-slate-100 text-xs font-semibold text-slate-700">
+                    <div className="flex items-center gap-3">
+                      <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-xs font-semibold text-slate-700">
                         {(user.name?.charAt(0) || user.email.charAt(0)).toUpperCase()}
                       </span>
                       <div className="min-w-0">
@@ -197,127 +219,61 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
                     </div>
                   </TableCell>
                   <TableCell className="text-sm text-slate-600">
-                    {new Date(user.createdAt).toLocaleDateString("es-MX")}
+                    {new Intl.DateTimeFormat("es-CO", { dateStyle: "medium" }).format(user.createdAt)}
                   </TableCell>
                   <TableCell>
-                    {primaryWorkspace?.planTier ? (
-                      <span
-                        className={`inline-flex rounded-md px-2 py-1 text-xs font-medium ring-1 ${planBadgeClass[primaryWorkspace.planTier]}`}
-                      >
-                        {planLabel}
-                      </span>
-                    ) : (
-                      <span className="text-sm text-slate-500">Sin plan</span>
-                    )}
-                  </TableCell>
-                <TableCell>
-                  <div className="text-sm">
-                      <p className={user.isPlanExpired ? "font-medium text-rose-600" : "text-slate-700"}>
-                        {expiresLabel}
-                      </p>
-                      {primaryWorkspace?.planExpiresAt ? (
-                        <p className={`text-xs ${user.isPlanExpired ? "text-rose-500" : "text-slate-500"}`}>
-                          {user.isPlanExpired ? "Vencido" : "Activo"}
-                        </p>
+                    <div className="space-y-2">
+                      {primaryWorkspace?.planTier ? (
+                        <span
+                          className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${planBadgeClass[primaryWorkspace.planTier]}`}
+                        >
+                          {planLabel}
+                        </span>
                       ) : (
-                        <p className="text-xs text-slate-500">Sin vencimiento</p>
+                        <span className="text-sm text-slate-500">Sin plan</span>
                       )}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <span className={`inline-flex rounded-md px-2 py-1 text-xs font-medium ring-1 ${roleBadgeClass[user.role]}`}>
-                    {roleLabel[user.role]}
+                      <div className="text-sm">
+                        <p className={user.isPlanExpired ? "font-medium text-rose-600" : "text-slate-700"}>
+                          {expiresLabel}
+                        </p>
+                        <p className={`text-xs ${user.isPlanExpired ? "text-rose-500" : "text-slate-500"}`}>
+                          {primaryWorkspace?.planExpiresAt
+                            ? user.isPlanExpired
+                              ? "Vencido"
+                              : "Activo"
+                            : "Sin vencimiento"}
+                        </p>
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${roleBadgeClass[user.role]}`}>
+                      {roleLabel[user.role]}
                     </span>
                   </TableCell>
-                  <TableCell>
-                    <form id={`user-role-${user.id}`} action={adminUpdateUserRoleAction} className="flex items-center gap-2">
-                      <input type="hidden" name="userId" value={user.id} />
-                      <input type="hidden" name="role" value={getRoleValue(user.id, user.role)} />
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="h-7 min-w-28 justify-between px-2 text-[11px] font-semibold"
-                          >
-                            {roleLabel[getRoleValue(user.id, user.role)]}
-                            <ChevronDown className="h-3.5 w-3.5 text-slate-500" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="start" className="min-w-28 rounded-lg">
-                          <DropdownMenuItem onSelect={() => handleRoleSelect(user.id, "ADMIN")}>
-                            ADMIN
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onSelect={() => handleRoleSelect(user.id, "EMPLEADO")}>
-                            EMPLEADO
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onSelect={() => handleRoleSelect(user.id, "CLIENTE")}>
-                            CLIENTE
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </form>
-                </TableCell>
-                <TableCell className="text-right">
-                  <div className="flex justify-end gap-2">
-                    <form
-                      action={adminDeleteUserAction}
-                      onSubmit={(event) => {
-                        if (!window.confirm(`Eliminar a ${user.name || user.email}? Esta accion no se puede deshacer.`)) {
-                          event.preventDefault();
-                        }
-                      }}
-                    >
-                      <input type="hidden" name="userId" value={user.id} />
-                      <Button
-                        type="submit"
-                        variant="outline"
-                        size="sm"
-                        className="h-8 border-rose-200 px-2.5 text-xs text-rose-600 hover:bg-rose-50 hover:text-rose-700"
-                      >
-                        Eliminar
-                      </Button>
-                    </form>
-                    <form
-                      action={adminUpdateWorkspacePlanExpiryAction}
-                      className="flex items-center gap-2"
-                    >
-                      <input
-                        type="hidden"
-                        name="workspaceId"
-                        value={primaryWorkspace?.id ?? ""}
-                      />
-                      <Input
-                        type="date"
-                        name="planExpiresAt"
-                        value={selectedExpiryDates[user.id] ?? ""}
-                        onChange={(event) => handleExpiryDateChange(user.id, event.target.value)}
-                        className="h-8 w-36 text-xs"
-                        disabled={!primaryWorkspace}
-                      />
-                      <Button
-                        type="submit"
-                        variant="outline"
-                        size="sm"
-                        className="h-8 px-2.5 text-xs"
-                        disabled={!primaryWorkspace}
-                      >
-                        Guardar fecha
-                      </Button>
-                    </form>
-                    <Button
-                      type="submit"
-                      form={`user-role-${user.id}`}
-                      variant="outline"
-                      size="sm"
-                      className="h-8 px-2.5 text-xs"
-                    >
-                      Aplicar
-                    </Button>
-                  </div>
-                </TableCell>
-              </TableRow>
+                  <TableCell className="text-right">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 rounded-full px-3"
+                        >
+                          Gestionar
+                          <MoreHorizontal className="ml-1 h-4 w-4 text-slate-500" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-44 rounded-xl">
+                        <DropdownMenuLabel>Acciones</DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onSelect={() => setActiveUserId(user.id)}>
+                          Ver y editar
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TableCell>
+                </TableRow>
               );
             })
           )}
@@ -352,6 +308,187 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
           </Button>
         </div>
       </div>
+
+      {activeUser ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[#11182752] px-4 py-6"
+          onClick={() => setActiveUserId(null)}
+        >
+          <div
+            className="saas-card w-full max-w-2xl rounded-[1.5rem] p-0 shadow-[0_24px_80px_-40px_rgba(15,23,42,0.28)]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4 border-b border-[var(--line)] px-6 py-5">
+              <div className="space-y-1">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                  Gestion de usuario
+                </p>
+                <h2 className="text-xl font-semibold tracking-tight text-slate-900">
+                  {activeUser.name || "Sin nombre"}
+                </h2>
+                <p className="text-sm text-slate-500">{activeUser.email}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveUserId(null)}
+                className="rounded-full border border-[var(--line)] p-2 text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
+                aria-label="Cerrar"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="grid gap-4 p-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+              <div className="space-y-4">
+                <div className="rounded-[1.25rem] border border-[var(--line)] bg-slate-50/70 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Resumen actual
+                  </p>
+                  <div className="mt-4 space-y-4">
+                    <div className="flex items-start gap-3">
+                      <div className="rounded-2xl bg-slate-900 p-2 text-white">
+                        <UserRound className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.14em] text-slate-400">Rol</p>
+                        <span className={`mt-1 inline-flex rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${roleBadgeClass[activeUser.role]}`}>
+                          {roleLabel[activeUser.role]}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-start gap-3">
+                      <div className="rounded-2xl bg-slate-900 p-2 text-white">
+                        <Shield className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.14em] text-slate-400">Plan</p>
+                        {activeWorkspace?.planTier ? (
+                          <span
+                            className={`mt-1 inline-flex rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${planBadgeClass[activeWorkspace.planTier]}`}
+                          >
+                            {getWorkspacePlanLabel(activeWorkspace.planTier)}
+                          </span>
+                        ) : (
+                          <p className="mt-1 text-sm text-slate-500">Sin plan asignado</p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-start gap-3">
+                      <div className="rounded-2xl bg-slate-900 p-2 text-white">
+                        <CalendarClock className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.14em] text-slate-400">Vencimiento</p>
+                        <p className={`mt-1 text-sm ${activeUser.isPlanExpired ? "font-medium text-rose-600" : "text-slate-700"}`}>
+                          {activeWorkspace?.planExpiresAt
+                            ? new Intl.DateTimeFormat("es-CO", { dateStyle: "medium" }).format(activeWorkspace.planExpiresAt)
+                            : "Sin fecha"}
+                        </p>
+                        <p className={`mt-1 text-xs ${activeUser.isPlanExpired ? "text-rose-500" : "text-slate-500"}`}>
+                          {activeWorkspace?.planExpiresAt
+                            ? activeUser.isPlanExpired
+                              ? "Vencido"
+                              : "Activo"
+                            : "Sin vencimiento"}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <div className="rounded-[1.25rem] border border-[var(--line)] p-4">
+                  <p className="text-sm font-semibold text-slate-900">Rol y permisos</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Cambia el rol principal del usuario desde un formulario separado.
+                  </p>
+                  <form action={adminUpdateUserRoleAction} className="mt-4 space-y-3">
+                    <input type="hidden" name="userId" value={activeUser.id} />
+                    <label className="block space-y-1.5">
+                      <span className="text-sm font-medium text-slate-700">Rol</span>
+                      <select
+                        name="role"
+                        className="field-select h-11 rounded-xl"
+                        value={getRoleValue(activeUser.id, activeUser.role)}
+                        onChange={(event) => handleRoleChange(activeUser.id, event.target.value as Role)}
+                      >
+                        <option value="ADMIN">ADMIN</option>
+                        <option value="EMPLEADO">EMPLEADO</option>
+                        <option value="CLIENTE">CLIENTE</option>
+                      </select>
+                    </label>
+                    <Button type="submit" className="h-10 rounded-xl px-4">
+                      Guardar rol
+                    </Button>
+                  </form>
+                </div>
+
+                <div className="rounded-[1.25rem] border border-[var(--line)] p-4">
+                  <p className="text-sm font-semibold text-slate-900">Suscripcion</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Ajusta la fecha de vencimiento del negocio principal del usuario.
+                  </p>
+                  <form action={adminUpdateWorkspacePlanExpiryAction} className="mt-4 space-y-3">
+                    <input type="hidden" name="workspaceId" value={activeWorkspace?.id ?? ""} />
+                    <label className="block space-y-1.5">
+                      <span className="text-sm font-medium text-slate-700">Fecha de vencimiento</span>
+                      <Input
+                        type="date"
+                        name="planExpiresAt"
+                        value={selectedExpiryDates[activeUser.id] ?? ""}
+                        onChange={(event) => handleExpiryDateChange(activeUser.id, event.target.value)}
+                        className="h-11 rounded-xl"
+                        disabled={!activeWorkspace}
+                      />
+                    </label>
+                    <Button
+                      type="submit"
+                      variant="outline"
+                      className="h-10 rounded-xl px-4"
+                      disabled={!activeWorkspace}
+                    >
+                      Guardar fecha
+                    </Button>
+                  </form>
+                </div>
+
+                <div className="rounded-[1.25rem] border border-rose-200 bg-rose-50/60 p-4">
+                  <p className="text-sm font-semibold text-rose-700">Zona delicada</p>
+                  <p className="mt-1 text-xs text-rose-600">
+                    Esta accion elimina la cuenta si no tiene restricciones asociadas.
+                  </p>
+                  <form
+                    action={adminDeleteUserAction}
+                    className="mt-4"
+                    onSubmit={(event) => {
+                      if (
+                        !window.confirm(
+                          `Eliminar a ${activeUser.name || activeUser.email}? Esta accion no se puede deshacer.`,
+                        )
+                      ) {
+                        event.preventDefault();
+                      }
+                    }}
+                  >
+                    <input type="hidden" name="userId" value={activeUser.id} />
+                    <Button
+                      type="submit"
+                      variant="outline"
+                      className="h-10 rounded-xl border-rose-200 px-4 text-rose-600 hover:bg-rose-100 hover:text-rose-700"
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Eliminar usuario
+                    </Button>
+                  </form>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

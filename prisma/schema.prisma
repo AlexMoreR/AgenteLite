@@ -13,6 +13,11 @@ enum Role {
   CLIENTE
 }
 
+enum EmailAuthTokenPurpose {
+  VERIFY_EMAIL
+  AUTO_LOGIN
+}
+
 enum WorkspacePlanTier {
   GRATIS
   BASICO
@@ -39,6 +44,22 @@ model User {
   quotesCreated      Quote[]           @relation("QuoteCreatedBy")
   ownedWorkspaces    Workspace[]       @relation("WorkspaceOwner")
   workspaceMemberships WorkspaceMember[]
+  emailAuthTokens    EmailAuthToken[]
+}
+
+model EmailAuthToken {
+  id        String                @id @default(cuid())
+  userId    String
+  email     String
+  purpose   EmailAuthTokenPurpose
+  tokenHash String                @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime              @default(now())
+  user      User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose, createdAt])
+  @@index([purpose, expiresAt])
 }
 
 enum WorkspaceMemberRole {

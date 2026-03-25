@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { verifyEmailVerificationToken } from "@/lib/email-verification";
+import { consumeEmailVerificationToken, createAutoLoginToken } from "@/lib/email-verification";
 import { getPublicBaseUrl } from "@/lib/app-url";
 import { prisma } from "@/lib/prisma";
 
@@ -12,7 +12,7 @@ export async function GET(request: Request) {
     return NextResponse.redirect(`${baseUrl}/login?error=Token+de+verificacion+invalido`);
   }
 
-  const payload = verifyEmailVerificationToken(token);
+  const payload = await consumeEmailVerificationToken(token);
   if (!payload) {
     return NextResponse.redirect(`${baseUrl}/login?error=El+enlace+de+verificacion+es+invalido+o+expiro`);
   }
@@ -32,7 +32,10 @@ export async function GET(request: Request) {
       return NextResponse.redirect(`${baseUrl}/login?error=No+se+pudo+confirmar+la+cuenta`);
     }
 
-    return NextResponse.redirect(`${baseUrl}/login?ok=Correo+verificado.+Ya+puedes+iniciar+sesion`);
+    const autoLoginToken = await createAutoLoginToken(payload.userId, payload.email);
+    return NextResponse.redirect(
+      `${baseUrl}/login/verified?token=${encodeURIComponent(autoLoginToken)}`,
+    );
   } catch {
     return NextResponse.redirect(`${baseUrl}/login?error=No+se+pudo+confirmar+la+cuenta`);
   }
