@@ -32,4 +32,4 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
-          tags: ghcr.io/alexmorer/gestion:latest
+          tags: ghcr.io/alexmorer/agentelite:latest
