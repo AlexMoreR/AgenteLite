@@ -11,7 +11,15 @@ export const metadata: Metadata = {
 
 export default function RegisterPage() {
   return (
-    <AuthShell eyebrow="Registro" title="Crea tu acceso" description="Empieza en minutos.">
+    <AuthShell
+      eyebrow="Registro"
+      title="Crea tu acceso"
+      description="Empieza en minutos."
+      showIntro={false}
+      showMetrics={false}
+      showShowcase={false}
+      showAccentGlow={false}
+    >
       <RegisterForm />
     </AuthShell>
   );

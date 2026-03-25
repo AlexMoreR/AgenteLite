@@ -20,7 +20,12 @@ export default async function LoginPage({ searchParams }: PageProps) {
   const errorMessage = typeof params.error === "string" ? params.error : "";
 
   return (
-    <AuthShell eyebrow="Acceso" title="Entra a tu panel" description="Mismo inicio. Acceso rapido.">
+    <AuthShell
+      eyebrow="Acceso"
+      title="Entra a tu panel"
+      description="Todo listo para que mandes."
+      showMetrics={false}
+    >
       <QueryFeedbackToast
         okMessage={okMessage}
         errorMessage={errorMessage}
