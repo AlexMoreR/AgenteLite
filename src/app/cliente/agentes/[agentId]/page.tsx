@@ -80,7 +80,7 @@ export default async function ClienteAgentePanelPage({ params }: PageProps) {
               </div>
             </div>
 
-            {trainingSummary ? (
+            {training && trainingSummary ? (
               <div className="space-y-4 rounded-[28px] border border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcff_100%)] p-5">
                 <div className="space-y-1">
                   <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--primary)]">Entrenamiento</p>

@@ -15,6 +15,7 @@ import {
   getResponseLengthFromValue,
   targetAudienceOptions,
   toneOptions,
+  type SalesTone,
 } from "@/lib/agent-training";
 import { generateAgentReply } from "@/lib/agent-ai";
 import {
@@ -177,7 +178,7 @@ export async function createAgentAction(formData: FormData): Promise<void> {
     targetAudiences: parsed.data.targetAudiences,
     priceRangeMin: parsed.data.priceRangeMin,
     priceRangeMax: parsed.data.priceRangeMax,
-    salesTone: parsed.data.salesTone,
+    salesTone: parsed.data.salesTone as SalesTone,
     responseLength: getResponseLengthFromValue(parsed.data.responseLengthValue),
     useEmojis: parsed.data.useEmojis,
     useExpressivePunctuation: parsed.data.useExpressivePunctuation,
@@ -300,7 +301,7 @@ export async function updateAgentTrainingAction(formData: FormData): Promise<voi
     targetAudiences: parsed.data.targetAudiences,
     priceRangeMin: parsed.data.priceRangeMin,
     priceRangeMax: parsed.data.priceRangeMax,
-    salesTone: parsed.data.salesTone,
+    salesTone: parsed.data.salesTone as SalesTone,
     responseLength: getResponseLengthFromValue(parsed.data.responseLengthValue),
     useEmojis: parsed.data.useEmojis,
     useExpressivePunctuation: parsed.data.useExpressivePunctuation,
