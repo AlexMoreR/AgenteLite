@@ -150,6 +150,41 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
     setSelectedExpiryDates((current) => ({ ...current, [userId]: value }));
   };
 
+  const getPlanDisplay = (user: UserRow) => {
+    const primaryWorkspace = user.workspaceMemberships[0]?.workspace;
+
+    if (primaryWorkspace?.planTier) {
+      return {
+        kind: "assigned" as const,
+        label: getWorkspacePlanLabel(primaryWorkspace.planTier),
+        expiresLabel: primaryWorkspace.planExpiresAt
+          ? new Intl.DateTimeFormat("es-CO", { dateStyle: "medium" }).format(primaryWorkspace.planExpiresAt)
+          : "Sin fecha",
+        statusLabel: primaryWorkspace.planExpiresAt
+          ? user.isPlanExpired
+            ? "Vencido"
+            : "Activo"
+          : "Sin vencimiento",
+      };
+    }
+
+    if (user.role === "CLIENTE") {
+      return {
+        kind: "pending" as const,
+        label: "Prueba gratis pendiente",
+        expiresLabel: "Se activa al configurar negocio",
+        statusLabel: "Pendiente",
+      };
+    }
+
+    return {
+      kind: "none" as const,
+      label: "Sin plan",
+      expiresLabel: "Sin fecha",
+      statusLabel: "Sin vencimiento",
+    };
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 border-b border-[var(--line)] pb-4 md:flex-row md:items-center md:justify-between">
@@ -200,10 +235,7 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
           ) : (
             pagedUsers.map((user) => {
               const primaryWorkspace = user.workspaceMemberships[0]?.workspace;
-              const planLabel = getWorkspacePlanLabel(primaryWorkspace?.planTier);
-              const expiresLabel = primaryWorkspace?.planExpiresAt
-                ? new Intl.DateTimeFormat("es-CO", { dateStyle: "medium" }).format(primaryWorkspace.planExpiresAt)
-                : "Sin fecha";
+              const planDisplay = getPlanDisplay(user);
 
               return (
                 <TableRow key={user.id}>
@@ -223,25 +255,37 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
                   </TableCell>
                   <TableCell>
                     <div className="space-y-2">
-                      {primaryWorkspace?.planTier ? (
+                      {planDisplay.kind === "assigned" && primaryWorkspace?.planTier ? (
                         <span
                           className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${planBadgeClass[primaryWorkspace.planTier]}`}
                         >
-                          {planLabel}
+                          {planDisplay.label}
+                        </span>
+                      ) : planDisplay.kind === "pending" ? (
+                        <span className="inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 ring-1 ring-amber-200">
+                          {planDisplay.label}
                         </span>
                       ) : (
-                        <span className="text-sm text-slate-500">Sin plan</span>
+                        <span className="text-sm text-slate-500">{planDisplay.label}</span>
                       )}
                       <div className="text-sm">
-                        <p className={user.isPlanExpired ? "font-medium text-rose-600" : "text-slate-700"}>
-                          {expiresLabel}
+                        <p
+                          className={
+                            planDisplay.kind === "assigned" && user.isPlanExpired
+                              ? "font-medium text-rose-600"
+                              : "text-slate-700"
+                          }
+                        >
+                          {planDisplay.expiresLabel}
                         </p>
-                        <p className={`text-xs ${user.isPlanExpired ? "text-rose-500" : "text-slate-500"}`}>
-                          {primaryWorkspace?.planExpiresAt
-                            ? user.isPlanExpired
-                              ? "Vencido"
-                              : "Activo"
-                            : "Sin vencimiento"}
+                        <p
+                          className={`text-xs ${
+                            planDisplay.kind === "assigned" && user.isPlanExpired
+                              ? "text-rose-500"
+                              : "text-slate-500"
+                          }`}
+                        >
+                          {planDisplay.statusLabel}
                         </p>
                       </div>
                     </div>
@@ -311,101 +355,114 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
 
       {activeUser ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-[#11182752] px-4 py-6"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[#11182752] px-4 py-6 backdrop-blur-[2px]"
           onClick={() => setActiveUserId(null)}
         >
           <div
-            className="saas-card w-full max-w-2xl rounded-[1.5rem] p-0 shadow-[0_24px_80px_-40px_rgba(15,23,42,0.28)]"
+            className="saas-card w-full max-w-3xl overflow-hidden rounded-[1.6rem] p-0 shadow-[0_24px_80px_-40px_rgba(15,23,42,0.28)]"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="flex items-start justify-between gap-4 border-b border-[var(--line)] px-6 py-5">
-              <div className="space-y-1">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                  Gestion de usuario
-                </p>
-                <h2 className="text-xl font-semibold tracking-tight text-slate-900">
-                  {activeUser.name || "Sin nombre"}
-                </h2>
-                <p className="text-sm text-slate-500">{activeUser.email}</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setActiveUserId(null)}
-                className="rounded-full border border-[var(--line)] p-2 text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
-                aria-label="Cerrar"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <div className="grid gap-4 p-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-              <div className="space-y-4">
-                <div className="rounded-[1.25rem] border border-[var(--line)] bg-slate-50/70 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                    Resumen actual
+            <div className="border-b border-[var(--line)] bg-[linear-gradient(180deg,#f8fafc_0%,#ffffff_100%)] px-6 py-5">
+              <div className="flex items-start justify-between gap-4">
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                    Gestion de usuario
                   </p>
-                  <div className="mt-4 space-y-4">
-                    <div className="flex items-start gap-3">
-                      <div className="rounded-2xl bg-slate-900 p-2 text-white">
-                        <UserRound className="h-4 w-4" />
-                      </div>
-                      <div>
-                        <p className="text-xs uppercase tracking-[0.14em] text-slate-400">Rol</p>
-                        <span className={`mt-1 inline-flex rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${roleBadgeClass[activeUser.role]}`}>
-                          {roleLabel[activeUser.role]}
+                  <h2 className="text-xl font-semibold tracking-tight text-slate-900 md:text-2xl">
+                    {activeUser.name || "Sin nombre"}
+                  </h2>
+                  <p className="text-sm text-slate-500">{activeUser.email}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveUserId(null)}
+                  className="rounded-full border border-[var(--line)] p-2 text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
+                  aria-label="Cerrar"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="mt-5 grid gap-3 md:grid-cols-3">
+                <div className="rounded-[1.1rem] border border-[var(--line)] bg-white px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    <div className="rounded-2xl bg-slate-900 p-2 text-white">
+                      <UserRound className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                        Rol actual
+                      </p>
+                      <span className={`mt-1 inline-flex rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${roleBadgeClass[activeUser.role]}`}>
+                        {roleLabel[activeUser.role]}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-[1.1rem] border border-[var(--line)] bg-white px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    <div className="rounded-2xl bg-slate-900 p-2 text-white">
+                      <Shield className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                        Plan
+                      </p>
+                      {activeWorkspace?.planTier ? (
+                        <span
+                          className={`mt-1 inline-flex rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${planBadgeClass[activeWorkspace.planTier]}`}
+                        >
+                          {getWorkspacePlanLabel(activeWorkspace.planTier)}
                         </span>
-                      </div>
+                      ) : activeUser.role === "CLIENTE" ? (
+                        <p className="mt-1 text-sm text-amber-700">Prueba gratis pendiente de activacion</p>
+                      ) : (
+                        <p className="mt-1 text-sm text-slate-500">Sin plan asignado</p>
+                      )}
                     </div>
+                  </div>
+                </div>
 
-                    <div className="flex items-start gap-3">
-                      <div className="rounded-2xl bg-slate-900 p-2 text-white">
-                        <Shield className="h-4 w-4" />
-                      </div>
-                      <div>
-                        <p className="text-xs uppercase tracking-[0.14em] text-slate-400">Plan</p>
-                        {activeWorkspace?.planTier ? (
-                          <span
-                            className={`mt-1 inline-flex rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${planBadgeClass[activeWorkspace.planTier]}`}
-                          >
-                            {getWorkspacePlanLabel(activeWorkspace.planTier)}
-                          </span>
-                        ) : (
-                          <p className="mt-1 text-sm text-slate-500">Sin plan asignado</p>
-                        )}
-                      </div>
+                <div className="rounded-[1.1rem] border border-[var(--line)] bg-white px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    <div className="rounded-2xl bg-slate-900 p-2 text-white">
+                      <CalendarClock className="h-4 w-4" />
                     </div>
-
-                    <div className="flex items-start gap-3">
-                      <div className="rounded-2xl bg-slate-900 p-2 text-white">
-                        <CalendarClock className="h-4 w-4" />
-                      </div>
-                      <div>
-                        <p className="text-xs uppercase tracking-[0.14em] text-slate-400">Vencimiento</p>
-                        <p className={`mt-1 text-sm ${activeUser.isPlanExpired ? "font-medium text-rose-600" : "text-slate-700"}`}>
-                          {activeWorkspace?.planExpiresAt
-                            ? new Intl.DateTimeFormat("es-CO", { dateStyle: "medium" }).format(activeWorkspace.planExpiresAt)
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                        Vencimiento
+                      </p>
+                      <p className={`mt-1 text-sm ${activeUser.isPlanExpired ? "font-medium text-rose-600" : "text-slate-700"}`}>
+                        {activeWorkspace?.planExpiresAt
+                          ? new Intl.DateTimeFormat("es-CO", { dateStyle: "medium" }).format(activeWorkspace.planExpiresAt)
+                          : activeUser.role === "CLIENTE"
+                            ? "Se activa al configurar negocio"
                             : "Sin fecha"}
-                        </p>
-                        <p className={`mt-1 text-xs ${activeUser.isPlanExpired ? "text-rose-500" : "text-slate-500"}`}>
-                          {activeWorkspace?.planExpiresAt
-                            ? activeUser.isPlanExpired
-                              ? "Vencido"
-                              : "Activo"
+                      </p>
+                      <p className={`mt-1 text-xs ${activeUser.isPlanExpired ? "text-rose-500" : "text-slate-500"}`}>
+                        {activeWorkspace?.planExpiresAt
+                          ? activeUser.isPlanExpired
+                            ? "Vencido"
+                            : "Activo"
+                          : activeUser.role === "CLIENTE"
+                            ? "Pendiente"
                             : "Sin vencimiento"}
-                        </p>
-                      </div>
+                      </p>
                     </div>
                   </div>
                 </div>
               </div>
+            </div>
 
-              <div className="space-y-4">
-                <div className="rounded-[1.25rem] border border-[var(--line)] p-4">
+            <div className="max-h-[calc(100vh-10rem)] overflow-y-auto p-6">
+              <div className="grid gap-4 lg:grid-cols-2">
+                <div className="rounded-[1.25rem] border border-[var(--line)] p-5">
                   <p className="text-sm font-semibold text-slate-900">Rol y permisos</p>
                   <p className="mt-1 text-xs text-slate-500">
                     Cambia el rol principal del usuario desde un formulario separado.
                   </p>
-                  <form action={adminUpdateUserRoleAction} className="mt-4 space-y-3">
+                  <form action={adminUpdateUserRoleAction} className="mt-5 space-y-3">
                     <input type="hidden" name="userId" value={activeUser.id} />
                     <label className="block space-y-1.5">
                       <span className="text-sm font-medium text-slate-700">Rol</span>
@@ -426,12 +483,12 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
                   </form>
                 </div>
 
-                <div className="rounded-[1.25rem] border border-[var(--line)] p-4">
+                <div className="rounded-[1.25rem] border border-[var(--line)] p-5">
                   <p className="text-sm font-semibold text-slate-900">Suscripcion</p>
                   <p className="mt-1 text-xs text-slate-500">
                     Ajusta la fecha de vencimiento del negocio principal del usuario.
                   </p>
-                  <form action={adminUpdateWorkspacePlanExpiryAction} className="mt-4 space-y-3">
+                  <form action={adminUpdateWorkspacePlanExpiryAction} className="mt-5 space-y-3">
                     <input type="hidden" name="workspaceId" value={activeWorkspace?.id ?? ""} />
                     <label className="block space-y-1.5">
                       <span className="text-sm font-medium text-slate-700">Fecha de vencimiento</span>
@@ -454,36 +511,36 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
                     </Button>
                   </form>
                 </div>
+              </div>
 
-                <div className="rounded-[1.25rem] border border-rose-200 bg-rose-50/60 p-4">
-                  <p className="text-sm font-semibold text-rose-700">Zona delicada</p>
-                  <p className="mt-1 text-xs text-rose-600">
-                    Esta accion elimina la cuenta si no tiene restricciones asociadas.
-                  </p>
-                  <form
-                    action={adminDeleteUserAction}
-                    className="mt-4"
-                    onSubmit={(event) => {
-                      if (
-                        !window.confirm(
-                          `Eliminar a ${activeUser.name || activeUser.email}? Esta accion no se puede deshacer.`,
-                        )
-                      ) {
-                        event.preventDefault();
-                      }
-                    }}
+              <div className="mt-4 rounded-[1.25rem] border border-rose-200 bg-rose-50/60 p-5">
+                <p className="text-sm font-semibold text-rose-700">Zona delicada</p>
+                <p className="mt-1 text-xs text-rose-600">
+                  Esta accion elimina la cuenta si no tiene restricciones asociadas.
+                </p>
+                <form
+                  action={adminDeleteUserAction}
+                  className="mt-4"
+                  onSubmit={(event) => {
+                    if (
+                      !window.confirm(
+                        `Eliminar a ${activeUser.name || activeUser.email}? Esta accion no se puede deshacer.`,
+                      )
+                    ) {
+                      event.preventDefault();
+                    }
+                  }}
+                >
+                  <input type="hidden" name="userId" value={activeUser.id} />
+                  <Button
+                    type="submit"
+                    variant="outline"
+                    className="h-10 rounded-xl border-rose-200 px-4 text-rose-600 hover:bg-rose-100 hover:text-rose-700"
                   >
-                    <input type="hidden" name="userId" value={activeUser.id} />
-                    <Button
-                      type="submit"
-                      variant="outline"
-                      className="h-10 rounded-xl border-rose-200 px-4 text-rose-600 hover:bg-rose-100 hover:text-rose-700"
-                    >
-                      <Trash2 className="mr-2 h-4 w-4" />
-                      Eliminar usuario
-                    </Button>
-                  </form>
-                </div>
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Eliminar usuario
+                  </Button>
+                </form>
               </div>
             </div>
           </div>

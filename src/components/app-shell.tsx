@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react";
 import { Fragment } from "react";
 import type { Role } from "@prisma/client";
 import { AppSidebar } from "@/components/app-sidebar";
+import { ClientPlanWarningBar } from "@/components/client-plan-warning-bar";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -31,9 +32,14 @@ type AppShellProps = {
   initialUser: InitialUser | null;
   brandName: string;
   adminModuleAccess: Record<AdminModuleKey, boolean>;
+  clientPlanAlert: {
+    daysRemaining: number;
+    expiresAtLabel: string;
+    isExpired: boolean;
+  } | null;
 };
 
-export function AppShell({ children, initialUser, brandName, adminModuleAccess }: AppShellProps) {
+export function AppShell({ children, initialUser, brandName, adminModuleAccess, clientPlanAlert }: AppShellProps) {
   const { data } = useSession();
   const pathname = usePathname();
   const user = data?.user ?? initialUser;
@@ -58,6 +64,7 @@ export function AppShell({ children, initialUser, brandName, adminModuleAccess }
   const isMarketingHome = pathname === "/";
   const isAuthPath = pathname === "/login" || pathname === "/register";
   const isAgentWorkspacePath = pathname.startsWith("/cliente/agentes/");
+  const showClientPlanAlert = Boolean(user?.role === "CLIENTE" && pathname.startsWith("/cliente") && clientPlanAlert);
   const currentPage = pathname === "/"
     ? "Inicio"
     : pathname.startsWith("/admin/cotizaciones")
@@ -210,10 +217,12 @@ export function AppShell({ children, initialUser, brandName, adminModuleAccess }
               className={cn(
                 "admin-print-main flex flex-1 flex-col",
                 isAgentWorkspacePath ? "min-h-0 overflow-hidden p-0 md:p-4" : "p-3 md:p-4",
+                showClientPlanAlert ? "pb-24 md:pb-28" : null,
               )}
             >
               {children}
             </main>
+            {showClientPlanAlert && clientPlanAlert ? <ClientPlanWarningBar {...clientPlanAlert} /> : null}
           </SidebarInset>
         </div>
       </SidebarProvider>

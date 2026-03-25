@@ -5,12 +5,14 @@ import { auth } from "@/auth";
 import { AppShell } from "@/components/app-shell";
 import { Providers } from "@/components/providers";
 import { getAdminModuleAccess } from "@/lib/admin-module-access";
+import { getDaysUntilPlanExpiry, isWorkspacePlanExpired, shouldShowWorkspacePlanWarning } from "@/lib/plans";
 import { getSiteUrl, siteConfig } from "@/lib/site";
 import {
   getSystemBrandName,
   getSystemPrimaryColor,
   getSystemPrimaryStrongColor,
 } from "@/lib/system-settings";
+import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import "./globals.css";
 
 const poppins = Poppins({
@@ -90,12 +92,30 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const session = await auth();
+  const clientWorkspace =
+    session?.user?.role === "CLIENTE" && session.user.id
+      ? await getPrimaryWorkspaceForUser(session.user.id)
+      : null;
   const [primaryColor, primaryStrongColor, brandName, adminModuleAccess] = await Promise.all([
     getSystemPrimaryColor(),
     getSystemPrimaryStrongColor(),
     getSystemBrandName(),
     getAdminModuleAccess(session?.user?.id, session?.user?.role),
   ]);
+  const planExpiresAt = clientWorkspace?.workspace.planExpiresAt ?? null;
+  const daysRemaining = getDaysUntilPlanExpiry(planExpiresAt);
+  const clientPlanAlert =
+    planExpiresAt && shouldShowWorkspacePlanWarning(planExpiresAt) && daysRemaining !== null
+      ? {
+          daysRemaining,
+          isExpired: isWorkspacePlanExpired(planExpiresAt),
+          expiresAtLabel: new Intl.DateTimeFormat("es-CO", {
+            day: "numeric",
+            month: "short",
+            year: "numeric",
+          }).format(planExpiresAt),
+        }
+      : null;
 
   return (
     <html lang="es-CO">
@@ -113,6 +133,7 @@ export default async function RootLayout({
             initialUser={session?.user ?? null}
             brandName={brandName}
             adminModuleAccess={adminModuleAccess}
+            clientPlanAlert={clientPlanAlert}
           >
             {children}
           </AppShell>
