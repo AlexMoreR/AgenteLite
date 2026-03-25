@@ -6,8 +6,10 @@ import type { ReactNode } from "react";
 import { ChevronRight, ImagePlus, LoaderCircle, Megaphone, Sparkles, Trash2, WandSparkles, X } from "lucide-react";
 import { generateFacebookAdsCreativeAction } from "@/app/actions/marketing-actions";
 import {
+  DEFAULT_FACEBOOK_ADS_OBJECTIVE,
   facebookAdsAspectRatioOptions,
-  facebookAdsObjectiveOptions,
+  facebookAdsStyleOptions,
+  facebookAdsTemplateOptions,
   facebookAdsToneOptions,
   type FacebookAdsFormInput,
 } from "@/lib/marketing";
@@ -20,6 +22,9 @@ type FacebookAdsFormProps = {
   initialValues: FacebookAdsDraft | null;
   okMessage?: string;
   selectedHistoryId?: string;
+  triggerLabel?: string;
+  triggerClassName?: string;
+  hideHelperText?: boolean;
 };
 
 const STORAGE_KEY = "marketing-ia-facebook-ads-draft";
@@ -30,8 +35,8 @@ const steps = [
     subtitle: "Sube la imagen base del producto y elige el formato del anuncio.",
   },
   {
-    title: "Objetivo y oferta",
-    subtitle: "Define que quieres vender y cual es la propuesta principal del anuncio.",
+    title: "Oferta y plantilla",
+    subtitle: "Define la propuesta principal del anuncio y la estructura comercial de la imagen.",
   },
   {
     title: "Publico y tono",
@@ -45,14 +50,18 @@ const steps = [
 
 const emptyDraft: FacebookAdsDraft = {
   aspectRatio: facebookAdsAspectRatioOptions[0].value,
-  campaignObjective: facebookAdsObjectiveOptions[0],
+  campaignObjective: DEFAULT_FACEBOOK_ADS_OBJECTIVE,
   productName: "",
   productDescription: "",
   targetAudience: "",
   tone: facebookAdsToneOptions[1],
+  marketingTemplate: facebookAdsTemplateOptions[0].value,
+  visualStyle: facebookAdsStyleOptions[1].value,
   offerDetails: "",
   callToAction: "",
   differentiator: "",
+  globalVisualContext: "",
+  includeText: false,
   visualDirection: "",
   referenceImageUrl: "",
 };
@@ -131,10 +140,16 @@ export function FacebookAdsForm({
   initialValues,
   okMessage,
   selectedHistoryId,
+  triggerLabel = "Configurar el anuncio",
+  triggerClassName,
+  hideHelperText = false,
 }: FacebookAdsFormProps) {
   const [values, setValues] = useState<FacebookAdsDraft>(() => {
     if (selectedHistoryId && initialValues) {
-      return initialValues;
+      return {
+        ...emptyDraft,
+        ...initialValues,
+      };
     }
 
     if (typeof window !== "undefined") {
@@ -144,7 +159,12 @@ export function FacebookAdsForm({
       }
     }
 
-    return initialValues ?? emptyDraft;
+    return initialValues
+      ? {
+          ...emptyDraft,
+          ...initialValues,
+        }
+      : emptyDraft;
   });
   const [modalOpen, setModalOpen] = useState(false);
   const [step, setStep] = useState(0);
@@ -211,15 +231,20 @@ export function FacebookAdsForm({
         <button
           type="button"
           onClick={openCreateFlow}
-          className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-5 text-sm font-medium text-white shadow-[0_16px_30px_-20px_color-mix(in_srgb,var(--primary)_65%,black)] transition hover:bg-[var(--primary-strong)]"
+          className={
+            triggerClassName ??
+            "inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-5 text-sm font-medium text-white shadow-[0_16px_30px_-20px_color-mix(in_srgb,var(--primary)_65%,black)] transition hover:bg-[var(--primary-strong)]"
+          }
         >
           <WandSparkles className="h-4 w-4" />
-          Configurar el anuncio
+          {triggerLabel}
         </button>
 
-        <p className="text-sm leading-7 text-slate-600">
-          Abre un asistente guiado paso a paso para definir el anuncio antes de generar el creativo.
-        </p>
+        {hideHelperText ? null : (
+          <p className="text-sm leading-7 text-slate-600">
+            Abre un asistente guiado paso a paso para definir el anuncio antes de generar el creativo.
+          </p>
+        )}
       </div>
 
       {modalOpen ? (
@@ -411,21 +436,27 @@ export function FacebookAdsForm({
 
                     <div className={step === 1 ? "block" : "hidden"}>
                       <StepFrame>
+                        <input type="hidden" name="campaignObjective" value={DEFAULT_FACEBOOK_ADS_OBJECTIVE} />
                         <div className="grid gap-4 md:grid-cols-2">
-                          <Field label="Objetivo de campana">
-                            <select
-                              name="campaignObjective"
-                              value={values.campaignObjective}
-                              onChange={(event) => updateField("campaignObjective", event.target.value)}
-                              className="field-select"
-                              required
-                            >
-                              {facebookAdsObjectiveOptions.map((option) => (
-                                <option key={option} value={option}>
-                                  {option}
-                                </option>
+                          <Field label="Plantilla de marketing">
+                            <div className="grid gap-3">
+                              {facebookAdsTemplateOptions.map((option) => (
+                                <label key={option.value} className="cursor-pointer">
+                                  <input
+                                    type="radio"
+                                    name="marketingTemplate"
+                                    value={option.value}
+                                    checked={values.marketingTemplate === option.value}
+                                    onChange={() => updateField("marketingTemplate", option.value)}
+                                    className="peer sr-only"
+                                  />
+                                  <span className="block rounded-[22px] border border-[rgba(148,163,184,0.16)] bg-white px-4 py-4 transition peer-checked:border-[var(--primary)] peer-checked:bg-[color-mix(in_srgb,var(--primary)_6%,white)]">
+                                    <span className="block text-sm font-medium text-slate-800">{option.label}</span>
+                                    <span className="mt-1 block text-sm leading-6 text-slate-500">{option.description}</span>
+                                  </span>
+                                </label>
                               ))}
-                            </select>
+                            </div>
                           </Field>
 
                           <Field label="Oferta o promocion">
@@ -494,6 +525,27 @@ export function FacebookAdsForm({
                             ))}
                           </select>
                         </Field>
+
+                        <Field label="Estilo visual">
+                          <div className="grid gap-3 md:grid-cols-2">
+                            {facebookAdsStyleOptions.map((option) => (
+                              <label key={option.value} className="cursor-pointer">
+                                <input
+                                  type="radio"
+                                  name="visualStyle"
+                                  value={option.value}
+                                  checked={values.visualStyle === option.value}
+                                  onChange={() => updateField("visualStyle", option.value)}
+                                  className="peer sr-only"
+                                />
+                                <span className="block rounded-[22px] border border-[rgba(148,163,184,0.16)] bg-white px-4 py-4 transition peer-checked:border-[var(--primary)] peer-checked:bg-[color-mix(in_srgb,var(--primary)_6%,white)]">
+                                  <span className="block text-sm font-medium text-slate-800">{option.value}</span>
+                                  <span className="mt-1 block text-sm leading-6 text-slate-500">{option.description}</span>
+                                </span>
+                              </label>
+                            ))}
+                          </div>
+                        </Field>
                       </StepFrame>
                     </div>
 
@@ -521,6 +573,33 @@ export function FacebookAdsForm({
                             required
                           />
                         </Field>
+
+                        <Field label="ADN visual">
+                          <textarea
+                            name="globalVisualContext"
+                            value={values.globalVisualContext}
+                            onChange={(event) => updateField("globalVisualContext", event.target.value)}
+                            rows={4}
+                            className="field-textarea"
+                            placeholder="Ej. Ambiente premium, tonos oscuros elegantes, luz de estudio, sensacion aspiracional."
+                          />
+                        </Field>
+
+                        <label className="flex items-start gap-3 rounded-[22px] border border-[rgba(148,163,184,0.16)] bg-white px-4 py-4">
+                          <input type="hidden" name="includeText" value={values.includeText ? "true" : "false"} />
+                          <input
+                            type="checkbox"
+                            checked={values.includeText}
+                            onChange={(event) => updateField("includeText", event.target.checked)}
+                            className="mt-1 h-4 w-4 rounded border-slate-300 text-[var(--primary)] focus:ring-[var(--primary)]"
+                          />
+                          <div className="space-y-1">
+                            <p className="text-sm font-medium text-slate-800">Incluir texto dentro de la imagen</p>
+                            <p className="text-sm leading-6 text-slate-500">
+                              Activalo si quieres que el creativo ya salga con titulares o mensajes visuales integrados.
+                            </p>
+                          </div>
+                        </label>
 
                         <Field label="Direccion visual">
                           <textarea

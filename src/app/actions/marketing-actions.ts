@@ -13,7 +13,7 @@ import {
   saveMarketingReferenceImage,
   saveGeneratedMarketingImage,
 } from "@/lib/marketing-ai";
-import { createMarketingGeneration, updateMarketingGeneration } from "@/lib/marketing-store";
+import { createMarketingGeneration, deleteMarketingGeneration, updateMarketingGeneration } from "@/lib/marketing-store";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
 export async function generateFacebookAdsCreativeAction(formData: FormData): Promise<void> {
@@ -84,6 +84,7 @@ export async function generateFacebookAdsCreativeAction(formData: FormData): Pro
       prompt: output.imagePrompt,
       aspectRatio: parsed.data.aspectRatio as FacebookAdsAspectRatio,
       input: parsed.data,
+      output,
       referenceImage,
     });
     const imageUrl = await saveGeneratedMarketingImage({
@@ -124,4 +125,36 @@ export async function generateFacebookAdsCreativeAction(formData: FormData): Pro
   revalidatePath("/cliente/marketing-ia");
   revalidatePath("/cliente/marketing-ia/facebook-ads");
   redirect(`/cliente/marketing-ia/facebook-ads?historyId=${generation.id}&ok=Creativo+generado`);
+}
+
+export async function deleteMarketingHistoryAction(formData: FormData): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+    redirect("/unauthorized");
+  }
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    redirect("/cliente/marketing-ia/facebook-ads?error=Debes+configurar+tu+negocio+primero");
+  }
+
+  const historyId = String(formData.get("historyId") || "").trim();
+  if (!historyId) {
+    redirect("/cliente/marketing-ia/facebook-ads?error=No+encontramos+el+historial+a+eliminar");
+  }
+
+  const deleted = await deleteMarketingGeneration({
+    id: historyId,
+    workspaceId: membership.workspace.id,
+  });
+
+  revalidatePath("/cliente");
+  revalidatePath("/cliente/marketing-ia");
+  revalidatePath("/cliente/marketing-ia/facebook-ads");
+
+  if (!deleted) {
+    redirect("/cliente/marketing-ia/facebook-ads?error=No+se+pudo+eliminar+el+historial");
+  }
+
+  redirect("/cliente/marketing-ia/facebook-ads?ok=Historial+eliminado");
 }

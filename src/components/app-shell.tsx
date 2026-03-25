@@ -136,7 +136,7 @@ export function AppShell({
     if (pathname.startsWith("/cliente/marketing-ia/facebook-ads")) {
       return [
         { label: "Marketing IA", href: "/cliente/marketing-ia", isCurrent: false },
-        { label: "Facebook Ads", href: "", isCurrent: true },
+        { label: "Imagenes Ads", href: "", isCurrent: true },
       ];
     }
 

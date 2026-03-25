@@ -233,3 +233,19 @@ export async function updateMarketingGeneration(args: {
     WHERE "id" = '${escapeSqlString(args.id)}'
   `);
 }
+
+export async function deleteMarketingGeneration(args: {
+  id: string;
+  workspaceId: string;
+}): Promise<boolean> {
+  await ensureMarketingGenerationTable();
+
+  const rows = await prisma.$queryRawUnsafe<Array<{ id: string }>>(`
+    DELETE FROM "MarketingGeneration"
+    WHERE "id" = '${escapeSqlString(args.id)}'
+      AND "workspaceId" = '${escapeSqlString(args.workspaceId)}'
+    RETURNING "id"
+  `);
+
+  return rows.length > 0;
+}

@@ -57,7 +57,7 @@ export default async function ClienteMarketingIaPage({ searchParams }: PageProps
             href="/cliente/marketing-ia/facebook-ads"
             className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
           >
-            Abrir Facebook Ads
+            Abrir Imagenes Ads
             <ArrowRight className="h-4 w-4" />
           </Link>
         </div>
@@ -70,7 +70,7 @@ export default async function ClienteMarketingIaPage({ searchParams }: PageProps
               <Megaphone className="h-6 w-6" />
             </div>
             <div className="space-y-2">
-              <h2 className="text-xl font-semibold text-slate-950">Generador Facebook Ads</h2>
+              <h2 className="text-xl font-semibold text-slate-950">Generador de Imagenes Ads</h2>
               <p className="text-sm leading-7 text-slate-600">
                 Crea 3 variaciones de copy, CTA sugerido, prompt visual e imagen generada con OpenAI para tus anuncios.
               </p>

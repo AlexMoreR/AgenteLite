@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const DEFAULT_FACEBOOK_ADS_VISUAL_DIRECTION =
   "Estilo publicitario profesional, realista, limpio y atractivo, con el producto como protagonista y composicion pensada para Facebook Ads.";
+export const DEFAULT_FACEBOOK_ADS_OBJECTIVE = "Ventas";
 
 export const facebookAdsAspectRatioOptions = [
   {
@@ -24,7 +25,7 @@ export const facebookAdsAspectRatioOptions = [
 export type FacebookAdsAspectRatio = (typeof facebookAdsAspectRatioOptions)[number]["value"];
 
 export const facebookAdsObjectiveOptions = [
-  "Ventas",
+  DEFAULT_FACEBOOK_ADS_OBJECTIVE,
   "Mensajes",
   "Clientes potenciales",
   "Reconocimiento de marca",
@@ -38,6 +39,52 @@ export const facebookAdsToneOptions = [
   "Urgente y promocional",
   "Educativo y confiable",
 ] as const;
+
+export const facebookAdsTemplateOptions = [
+  {
+    value: "hero",
+    label: "Hero",
+    description: "El producto como protagonista absoluto con composicion de alto impacto.",
+  },
+  {
+    value: "benefits",
+    label: "Beneficios",
+    description: "Una escena que deja claro el resultado y el valor que entrega.",
+  },
+  {
+    value: "offer",
+    label: "Oferta",
+    description: "Visual agresivo para promociones, combos o descuentos relevantes.",
+  },
+  {
+    value: "cta",
+    label: "CTA",
+    description: "Imagen con sensacion de urgencia y cierre comercial mas fuerte.",
+  },
+] as const;
+
+export type FacebookAdsTemplate = (typeof facebookAdsTemplateOptions)[number]["value"];
+
+export const facebookAdsStyleOptions = [
+  {
+    value: "Minimalista",
+    description: "Limpio, sobrio y centrado en el producto.",
+  },
+  {
+    value: "Premium",
+    description: "Mas aspiracional, elegante y con sensacion de mayor valor.",
+  },
+  {
+    value: "Estilo de Vida",
+    description: "Integra el producto en un contexto real de uso.",
+  },
+  {
+    value: "Creativo",
+    description: "Busca composiciones mas llamativas y memorables.",
+  },
+] as const;
+
+export type FacebookAdsStyle = (typeof facebookAdsStyleOptions)[number]["value"];
 
 export const facebookAdsFormSchema = z.object({
   aspectRatio: z
@@ -79,6 +126,22 @@ export const facebookAdsFormSchema = z.object({
         ),
       "Tono invalido",
     ),
+  marketingTemplate: z
+    .string()
+    .trim()
+    .refine(
+      (value) =>
+        facebookAdsTemplateOptions.some((option) => option.value === value),
+      "Plantilla invalida",
+    ),
+  visualStyle: z
+    .string()
+    .trim()
+    .refine(
+      (value) =>
+        facebookAdsStyleOptions.some((option) => option.value === value),
+      "Estilo invalido",
+    ),
   offerDetails: z.string().trim().min(4, "La oferta es obligatoria").max(300, "Oferta demasiado larga"),
   callToAction: z.string().trim().min(2, "El CTA es obligatorio").max(120, "CTA demasiado largo"),
   differentiator: z
@@ -86,6 +149,12 @@ export const facebookAdsFormSchema = z.object({
     .trim()
     .min(6, "Cuenta que te hace diferente")
     .max(300, "Diferenciador demasiado largo"),
+  globalVisualContext: z
+    .string()
+    .trim()
+    .max(500, "El ADN visual es demasiado largo")
+    .transform((value) => value || "Ambiente de estudio profesional con direccion de arte comercial."),
+  includeText: z.boolean(),
   visualDirection: z
     .string()
     .trim()
@@ -96,9 +165,17 @@ export const facebookAdsFormSchema = z.object({
 export type FacebookAdsFormInput = z.infer<typeof facebookAdsFormSchema>;
 
 export const facebookAdsOutputSchema = z.object({
-  primaryTexts: z.array(z.string().trim().min(1)).length(3),
-  headlines: z.array(z.string().trim().min(1)).length(3),
-  descriptions: z.array(z.string().trim().min(1)).length(3),
+  primaryText: z.string().trim().min(1),
+  headline: z.string().trim().min(1),
+  description: z.string().trim().min(1),
+  suggestedCallToAction: z.string().trim().min(1),
+  imagePrompt: z.string().trim().min(1),
+});
+
+const legacyFacebookAdsOutputSchema = z.object({
+  primaryTexts: z.array(z.string().trim().min(1)).min(1),
+  headlines: z.array(z.string().trim().min(1)).min(1),
+  descriptions: z.array(z.string().trim().min(1)).min(1),
   suggestedCallToAction: z.string().trim().min(1),
   imagePrompt: z.string().trim().min(1),
 });
@@ -108,14 +185,18 @@ export type FacebookAdsOutput = z.infer<typeof facebookAdsOutputSchema>;
 export function collectFacebookAdsFormInput(formData: FormData): FacebookAdsFormInput {
   return {
     aspectRatio: String(formData.get("aspectRatio") || facebookAdsAspectRatioOptions[0].value),
-    campaignObjective: String(formData.get("campaignObjective") || ""),
+    campaignObjective: DEFAULT_FACEBOOK_ADS_OBJECTIVE,
     productName: String(formData.get("productName") || ""),
     productDescription: String(formData.get("productDescription") || ""),
     targetAudience: String(formData.get("targetAudience") || ""),
     tone: String(formData.get("tone") || ""),
+    marketingTemplate: String(formData.get("marketingTemplate") || facebookAdsTemplateOptions[0].value),
+    visualStyle: String(formData.get("visualStyle") || facebookAdsStyleOptions[1].value),
     offerDetails: String(formData.get("offerDetails") || ""),
     callToAction: String(formData.get("callToAction") || ""),
     differentiator: String(formData.get("differentiator") || ""),
+    globalVisualContext: String(formData.get("globalVisualContext") || ""),
+    includeText: String(formData.get("includeText") || "").toLowerCase() === "true",
     visualDirection: String(formData.get("visualDirection") || ""),
   };
 }
@@ -124,14 +205,18 @@ export function formatFacebookAdsInputForPrompt(workspaceName: string, input: Fa
   return [
     `Marca o negocio: ${workspaceName}`,
     `Formato objetivo: ${input.aspectRatio}`,
-    `Objetivo de campana: ${input.campaignObjective}`,
+    `Objetivo de campana: ${DEFAULT_FACEBOOK_ADS_OBJECTIVE}`,
     `Producto o servicio: ${input.productName}`,
     `Descripcion del producto o servicio: ${input.productDescription}`,
     `Publico objetivo: ${input.targetAudience}`,
     `Tono deseado: ${input.tone}`,
+    `Plantilla de marketing: ${input.marketingTemplate}`,
+    `Estilo visual: ${input.visualStyle}`,
     `Oferta o promocion: ${input.offerDetails}`,
     `CTA solicitado: ${input.callToAction}`,
     `Diferenciador principal: ${input.differentiator}`,
+    `ADN visual o contexto global: ${input.globalVisualContext}`,
+    `Incluir texto dentro de la imagen: ${input.includeText ? "Si" : "No"}`,
     `Direccion visual: ${input.visualDirection}`,
   ].join("\n");
 }
@@ -145,5 +230,20 @@ export function getImageSizeForAspectRatio(aspectRatio: FacebookAdsAspectRatio):
 
 export function parseFacebookAdsOutput(value: unknown): FacebookAdsOutput | null {
   const parsed = facebookAdsOutputSchema.safeParse(value);
-  return parsed.success ? parsed.data : null;
+  if (parsed.success) {
+    return parsed.data;
+  }
+
+  const legacyParsed = legacyFacebookAdsOutputSchema.safeParse(value);
+  if (!legacyParsed.success) {
+    return null;
+  }
+
+  return {
+    primaryText: legacyParsed.data.primaryTexts[0] ?? "",
+    headline: legacyParsed.data.headlines[0] ?? "",
+    description: legacyParsed.data.descriptions[0] ?? "",
+    suggestedCallToAction: legacyParsed.data.suggestedCallToAction,
+    imagePrompt: legacyParsed.data.imagePrompt,
+  };
 }

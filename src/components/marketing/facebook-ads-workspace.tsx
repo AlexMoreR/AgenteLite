@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
-import { ImagePlus, Megaphone, Sparkles } from "lucide-react";
+import { Captions, FileText, ImagePlus, Megaphone, Sparkles, TextQuote, Trash2 } from "lucide-react";
+import { deleteMarketingHistoryAction } from "@/app/actions/marketing-actions";
 import { FacebookAdsForm } from "@/components/marketing/facebook-ads-form";
 import { Card } from "@/components/ui/card";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
@@ -58,7 +59,6 @@ function formatDate(date: Date) {
 }
 
 export function FacebookAdsWorkspace({
-  workspaceName,
   okMessage,
   errorMessage,
   history,
@@ -70,11 +70,10 @@ export function FacebookAdsWorkspace({
     null;
   const selectedInput = isFacebookAdsInput(selectedHistory?.input) ? selectedHistory.input : null;
   const selectedOutput = parseFacebookAdsOutput(selectedHistory?.output);
-  const selectedProductName = selectedInput?.productName?.trim() || "Creativo de Facebook Ads";
-  const hasGeneratedImage = Boolean(selectedHistory?.imageUrl);
+  const selectedProductName = selectedInput?.productName?.trim() || "Creativo de imagenes ads";
 
   return (
-    <section className="w-full space-y-5">
+    <section className="w-full space-y-6">
       <QueryFeedbackToast
         okMessage={okMessage}
         errorMessage={errorMessage}
@@ -82,244 +81,77 @@ export function FacebookAdsWorkspace({
         errorTitle="No pudimos completar la generacion"
       />
 
-      <div className="flex flex-wrap items-start justify-between gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-4 rounded-[28px] border border-[rgba(148,163,184,0.12)] bg-[linear-gradient(180deg,#ffffff_0%,#f8fbff_100%)] px-5 py-4 shadow-[0_24px_60px_-48px_rgba(15,23,42,0.35)]">
         <div className="space-y-3">
           <div className="flex items-center gap-3">
-            <div className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
-              <Megaphone className="h-5 w-5" />
+            <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-[color-mix(in_srgb,var(--primary)_14%,white)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--primary)_10%,white)_0%,#ffffff_100%)] text-[var(--primary)] shadow-[0_16px_34px_-24px_color-mix(in_srgb,var(--primary)_45%,black)]">
+              <Megaphone className="h-[18px] w-[18px]" />
             </div>
-            <h1 className="text-xl font-semibold tracking-[-0.04em] text-slate-950 md:text-2xl">
-              Generador Facebook Ads
+            <h1 className="text-[1.15rem] font-semibold tracking-[-0.05em] text-slate-950 md:text-[1.35rem]">
+              Generador de Imagenes Ads
             </h1>
           </div>
-          <p className="max-w-3xl text-sm leading-7 text-slate-600">
-            Crea 3 variaciones de copy y una imagen publicitaria para {workspaceName} usando OpenAI.
-          </p>
         </div>
 
-        <Link
-          href="/cliente/marketing-ia"
-          className="inline-flex h-11 items-center justify-center rounded-xl border border-[rgba(148,163,184,0.18)] bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-        >
-          Volver al modulo
-        </Link>
+        <FacebookAdsForm
+          key={`facebook-ads-header-${selectedHistoryId || "draft"}`}
+          initialValues={selectedInput}
+          okMessage={okMessage}
+          selectedHistoryId={selectedHistoryId}
+          triggerLabel="Generar anuncio"
+          hideHelperText
+          triggerClassName="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-5 text-sm font-medium text-white shadow-[0_16px_30px_-20px_color-mix(in_srgb,var(--primary)_65%,black)] transition hover:bg-[var(--primary-strong)]"
+        />
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
-        <Card className="space-y-5 border border-[rgba(148,163,184,0.14)] bg-white p-5">
-          <div className="space-y-2">
-            <h2 className="text-lg font-semibold text-slate-950">Configura el anuncio</h2>
-            <p className="text-sm text-slate-600">
-              Mientras mas claro seas con la oferta y la direccion visual, mejor saldra el creativo.
-            </p>
-          </div>
-
-          <div className="rounded-[28px] border border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#ffffff_0%,#f7faff_100%)] p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div className="space-y-1">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Anuncio activo</p>
-                <p className="text-base font-semibold text-slate-950">{selectedProductName}</p>
-              </div>
-              {selectedHistory ? (
-                <span
-                  className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ring-1 ${statusToneMap[selectedHistory.status]}`}
-                >
-                  {statusLabelMap[selectedHistory.status]}
-                </span>
-              ) : null}
-            </div>
-
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <div className="rounded-[20px] border border-[rgba(148,163,184,0.12)] bg-white px-4 py-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Formato</p>
-                <p className="mt-1 text-sm font-medium text-slate-900">{selectedInput?.aspectRatio ?? "1:1"}</p>
-              </div>
-              <div className="rounded-[20px] border border-[rgba(148,163,184,0.12)] bg-white px-4 py-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Objetivo</p>
-                <p className="mt-1 line-clamp-2 text-sm font-medium text-slate-900">
-                  {selectedInput?.campaignObjective ?? "Aun no configurado"}
-                </p>
-              </div>
-              <div className="rounded-[20px] border border-[rgba(148,163,184,0.12)] bg-white px-4 py-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Imagen base</p>
-                <p className="mt-1 text-sm font-medium text-slate-900">
-                  {selectedInput?.referenceImageUrl ? "Cargada" : "No agregada"}
-                </p>
-              </div>
-              <div className="rounded-[20px] border border-[rgba(148,163,184,0.12)] bg-white px-4 py-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Resultado</p>
-                <p className="mt-1 text-sm font-medium text-slate-900">
-                  {hasGeneratedImage ? "Imagen lista" : "Pendiente por generar"}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <FacebookAdsForm
-            key={selectedHistoryId || "facebook-ads-draft"}
-            initialValues={selectedInput}
-            okMessage={okMessage}
-            selectedHistoryId={selectedHistoryId}
-          />
-        </Card>
-
-        <div className="space-y-5">
-          <Card className="space-y-4 border border-[rgba(148,163,184,0.14)] bg-white p-5">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="space-y-1">
-                <h2 className="text-lg font-semibold text-slate-950">Resultado</h2>
-                <p className="text-sm text-slate-600">
-                  {selectedHistory
-                    ? `Seleccion actual: ${formatDate(selectedHistory.createdAt)}`
-                    : "Aun no hay generaciones guardadas."}
-                </p>
-              </div>
-
-              {selectedHistory ? (
-                <span
-                  className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ring-1 ${statusToneMap[selectedHistory.status]}`}
-                >
-                  {statusLabelMap[selectedHistory.status]}
-                </span>
-              ) : null}
-            </div>
-
+      <div className="space-y-5">
+        <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
+          <Card className="space-y-4 rounded-[30px] border border-[rgba(148,163,184,0.12)] bg-[linear-gradient(180deg,#ffffff_0%,#f9fbff_100%)] p-5 shadow-[0_30px_80px_-58px_rgba(15,23,42,0.42)]">
             {selectedHistory ? (
               <>
                 {selectedHistory.errorMessage ? (
-                  <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                  <div className="rounded-[22px] border border-rose-200/90 bg-[linear-gradient(180deg,#fff5f5_0%,#fff8f8_100%)] px-4 py-3 text-sm text-rose-700">
                     {selectedHistory.errorMessage}
                   </div>
                 ) : null}
 
-                <div className="space-y-4">
-                  <div className="rounded-[28px] border border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcff_100%)] p-4 md:p-5">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <ImagePlus className="h-4 w-4 text-[var(--primary)]" />
-                          <p className="text-sm font-semibold text-slate-900">Imagen generada</p>
-                        </div>
-                        <p className="text-sm text-slate-600">
-                          Vista principal del creativo para {selectedProductName.toLowerCase()}.
-                        </p>
+                <div className="p-1 md:p-2">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <ImagePlus className="h-4 w-4 text-[var(--primary)]" />
+                        <p className="text-sm font-semibold text-slate-900">Imagen generada</p>
                       </div>
-                      <span className="rounded-full bg-[color-mix(in_srgb,var(--primary)_10%,white)] px-3 py-1 text-xs font-semibold text-[var(--primary)]">
-                        {selectedInput?.aspectRatio ?? "1:1"}
-                      </span>
+                      <p className="text-sm text-slate-600">
+                        Vista principal del creativo para {selectedProductName.toLowerCase()}.
+                      </p>
                     </div>
-
-                    <div className="mt-4 overflow-hidden rounded-[24px] border border-[rgba(148,163,184,0.12)] bg-slate-100">
-                      {selectedHistory.imageUrl ? (
-                        <Image
-                          src={selectedHistory.imageUrl}
-                          alt="Creativo generado para Facebook Ads"
-                          width={1024}
-                          height={1024}
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        <div className="flex min-h-[360px] items-center justify-center px-6 text-center text-sm text-slate-500">
-                          Esta generacion aun no tiene imagen disponible.
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="mt-4 grid gap-3 md:grid-cols-3">
-                      <div className="rounded-[20px] border border-[rgba(148,163,184,0.12)] bg-white px-4 py-3 text-sm text-slate-600">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Proveedor</p>
-                        <p className="mt-1 font-medium text-slate-900">{selectedHistory.provider}</p>
-                      </div>
-                      <div className="rounded-[20px] border border-[rgba(148,163,184,0.12)] bg-white px-4 py-3 text-sm text-slate-600">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">CTA sugerido</p>
-                        <p className="mt-1 font-medium text-slate-900">
-                          {selectedOutput?.suggestedCallToAction ?? "Sin CTA sugerido"}
-                        </p>
-                      </div>
-                      <div className="rounded-[20px] border border-[rgba(148,163,184,0.12)] bg-white px-4 py-3 text-sm text-slate-600">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                          Ultima actualizacion
-                        </p>
-                        <p className="mt-1 font-medium text-slate-900">{formatDate(selectedHistory.updatedAt)}</p>
-                      </div>
-                    </div>
+                    <span className="rounded-full bg-[color-mix(in_srgb,var(--primary)_10%,white)] px-3 py-1 text-xs font-semibold text-[var(--primary)]">
+                      {selectedInput?.aspectRatio ?? "1:1"}
+                    </span>
                   </div>
 
-                  <div className="grid gap-4 xl:grid-cols-[0.72fr_1.28fr]">
-                    <div className="space-y-4">
-                      {selectedInput?.referenceImageUrl ? (
-                        <div className="rounded-[24px] border border-[rgba(148,163,184,0.14)] bg-white p-4">
-                          <div className="flex items-center justify-between gap-3">
-                            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                              Imagen base
-                            </p>
-                            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
-                              Referencia
-                            </span>
-                          </div>
-                          <div className="mt-3 overflow-hidden rounded-[20px] border border-[rgba(148,163,184,0.12)] bg-slate-100">
-                            <Image
-                              src={selectedInput.referenceImageUrl}
-                              alt="Imagen base del producto"
-                              width={800}
-                              height={800}
-                              className="h-48 w-full object-cover"
-                            />
-                          </div>
-                        </div>
-                      ) : null}
-
-                      <div className="rounded-[24px] border border-[rgba(148,163,184,0.14)] bg-white p-4">
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Prompt visual interno</p>
-                        <p className="mt-3 whitespace-pre-line text-sm leading-6 text-slate-700">
-                          {selectedOutput?.imagePrompt ?? "Sin prompt visual disponible."}
-                        </p>
+                  <div className="mt-4 overflow-hidden rounded-[26px] border border-[rgba(15,23,42,0.08)] bg-[linear-gradient(180deg,#eff3f8_0%,#e5ebf2_100%)] shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]">
+                    {selectedHistory.imageUrl ? (
+                      <Image
+                        src={selectedHistory.imageUrl}
+                        alt="Creativo generado para imagenes ads"
+                        width={1024}
+                        height={1024}
+                        className="h-full w-full object-contain"
+                      />
+                    ) : (
+                      <div className="flex min-h-[320px] items-center justify-center px-6 text-center text-sm text-slate-500">
+                        Esta generacion aun no tiene imagen disponible.
                       </div>
-                    </div>
-
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <div className="rounded-[24px] border border-[rgba(148,163,184,0.14)] bg-slate-50 p-4">
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Primary text</p>
-                        <div className="mt-3 space-y-3">
-                          {selectedOutput?.primaryTexts.map((item, index) => (
-                            <div key={`${item}-${index}`} className="rounded-2xl bg-white px-3 py-3 text-sm leading-6 text-slate-700">
-                              {item}
-                            </div>
-                          )) ?? <p className="text-sm text-slate-500">Sin copy disponible.</p>}
-                        </div>
-                      </div>
-
-                      <div className="space-y-4">
-                        <div className="rounded-[24px] border border-[rgba(148,163,184,0.14)] bg-slate-50 p-4">
-                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Headlines</p>
-                          <div className="mt-3 space-y-3">
-                            {selectedOutput?.headlines.map((item, index) => (
-                              <div key={`${item}-${index}`} className="rounded-2xl bg-white px-3 py-3 text-sm leading-6 text-slate-700">
-                                {item}
-                              </div>
-                            )) ?? <p className="text-sm text-slate-500">Sin headlines disponibles.</p>}
-                          </div>
-                        </div>
-
-                        <div className="rounded-[24px] border border-[rgba(148,163,184,0.14)] bg-slate-50 p-4">
-                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Descriptions</p>
-                          <div className="mt-3 space-y-3">
-                            {selectedOutput?.descriptions.map((item, index) => (
-                              <div key={`${item}-${index}`} className="rounded-2xl bg-white px-3 py-3 text-sm leading-6 text-slate-700">
-                                {item}
-                              </div>
-                            )) ?? <p className="text-sm text-slate-500">Sin descriptions disponibles.</p>}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+                    )}
                   </div>
                 </div>
               </>
             ) : (
-              <div className="rounded-[24px] border border-dashed border-[rgba(148,163,184,0.22)] bg-slate-50 px-4 py-12 text-center">
+              <div className="rounded-[28px] border border-dashed border-[rgba(148,163,184,0.22)] bg-[linear-gradient(180deg,#f8fbff_0%,#f4f8fc_100%)] px-4 py-12 text-center">
                 <div className="mx-auto max-w-md space-y-3">
-                  <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
+                  <span className="inline-flex h-12 w-12 items-center justify-center rounded-[18px] border border-[color-mix(in_srgb,var(--primary)_14%,white)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--primary)_10%,white)_0%,#ffffff_100%)] text-[var(--primary)]">
                     <Sparkles className="h-5 w-5" />
                   </span>
                   <h3 className="text-lg font-semibold text-slate-950">Genera tu primer creativo</h3>
@@ -331,57 +163,136 @@ export function FacebookAdsWorkspace({
             )}
           </Card>
 
-          <Card className="space-y-4 border border-[rgba(148,163,184,0.14)] bg-white p-5">
-            <div className="space-y-1">
-              <h2 className="text-lg font-semibold text-slate-950">Historial reciente</h2>
-              <p className="text-sm text-slate-600">Cada generacion se guarda por workspace para reutilizarla despues.</p>
-            </div>
+          <div className="space-y-4">
+            {selectedHistory ? (
+              <div className="rounded-[28px] border border-[rgba(148,163,184,0.12)] bg-[radial-gradient(circle_at_top,rgba(0,76,255,0.05),transparent_34%),linear-gradient(180deg,#f8fbff_0%,#f3f7fb_100%)] p-4 shadow-[0_18px_44px_-40px_rgba(15,23,42,0.28)]">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_10%,white)] text-[var(--primary)]">
+                    <TextQuote className="h-4 w-4" />
+                  </span>
+                  <p className="text-sm font-semibold text-slate-950">Texto principal</p>
+                </div>
+                <div className="mt-4 rounded-[24px] border border-[rgba(148,163,184,0.08)] bg-white/90 px-5 py-5 text-[15px] leading-8 text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]">
+                  {selectedOutput?.primaryText ?? "Sin copy disponible."}
+                </div>
+                <div className="mt-4 space-y-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex h-7 w-7 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_10%,white)] text-[var(--primary)]">
+                        <Captions className="h-3.5 w-3.5" />
+                      </span>
+                      <p className="text-sm font-semibold text-slate-900">Titulo</p>
+                    </div>
+                    <div className="mt-3 rounded-[22px] border border-[rgba(148,163,184,0.08)] bg-white/90 px-4 py-4 text-sm leading-7 text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]">
+                      {selectedOutput?.headline ?? "Sin titulo disponible."}
+                    </div>
+                  </div>
 
-            <div className="space-y-3">
-              {history.length > 0 ? (
-                history.map((item) => {
-                  const input = isFacebookAdsInput(item.input) ? item.input : null;
-                  const isSelected = selectedHistory?.id === item.id;
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex h-7 w-7 items-center justify-center rounded-2xl bg-slate-100 text-slate-500">
+                        <FileText className="h-3.5 w-3.5" />
+                      </span>
+                      <p className="text-sm font-semibold text-slate-900">Descripcion</p>
+                    </div>
+                    <div className="mt-3 rounded-[22px] border border-[rgba(148,163,184,0.08)] bg-white/90 px-4 py-4 text-sm leading-7 text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]">
+                      {selectedOutput?.description ?? "Sin descripcion disponible."}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : null}
 
-                  return (
-                    <Link
-                      key={item.id}
-                      href={`/cliente/marketing-ia/facebook-ads?historyId=${item.id}`}
-                      className={`block rounded-[24px] border px-4 py-4 transition ${
-                        isSelected
-                          ? "border-[var(--primary)] bg-[color-mix(in_srgb,var(--primary)_6%,white)]"
-                          : "border-[rgba(148,163,184,0.14)] bg-white hover:border-[var(--primary)]/30"
-                      }`}
-                    >
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div className="space-y-1">
-                          <p className="text-sm font-semibold text-slate-950">
-                            {input?.productName || "Generacion de Facebook Ads"}
-                          </p>
-                          <p className="text-xs text-slate-500">{formatDate(item.createdAt)}</p>
-                        </div>
+            {selectedInput?.referenceImageUrl ? (
+              <div className="rounded-[26px] border border-[rgba(148,163,184,0.12)] bg-[linear-gradient(180deg,#ffffff_0%,#fcfdff_100%)] p-4 shadow-[0_20px_50px_-44px_rgba(15,23,42,0.35)]">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                    Imagen base
+                  </p>
+                  <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                    Referencia
+                  </span>
+                </div>
+                <div className="mt-3 overflow-hidden rounded-[22px] border border-[rgba(148,163,184,0.1)] bg-[linear-gradient(180deg,#eff3f8_0%,#e5ebf2_100%)]">
+                  <Image
+                    src={selectedInput.referenceImageUrl}
+                    alt="Imagen base del producto"
+                    width={800}
+                    height={800}
+                    className="h-56 w-full object-contain"
+                  />
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <Card className="space-y-4 rounded-[30px] border border-[rgba(148,163,184,0.12)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfdff_100%)] p-5 shadow-[0_28px_70px_-56px_rgba(15,23,42,0.34)]">
+          <div className="space-y-1">
+            <h2 className="text-lg font-semibold text-slate-950">Historial reciente</h2>
+          </div>
+
+          <div className="space-y-3">
+            {history.length > 0 ? (
+              history.map((item) => {
+                const input = isFacebookAdsInput(item.input) ? item.input : null;
+                const isSelected = selectedHistory?.id === item.id;
+
+                return (
+                  <div
+                    key={item.id}
+                    className={`rounded-[24px] border px-4 py-4 shadow-[0_16px_40px_-38px_rgba(15,23,42,0.28)] transition ${
+                      isSelected
+                        ? "border-[color-mix(in_srgb,var(--primary)_32%,white)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--primary)_7%,white)_0%,#ffffff_100%)]"
+                        : "border-[rgba(148,163,184,0.12)] bg-[linear-gradient(180deg,#ffffff_0%,#fcfdff_100%)] hover:border-[var(--primary)]/26 hover:bg-[linear-gradient(180deg,#ffffff_0%,#f8fbff_100%)]"
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <Link
+                        href={`/cliente/marketing-ia/facebook-ads?historyId=${item.id}`}
+                        className="min-w-0 flex-1 space-y-1"
+                      >
+                        <p className="text-sm font-semibold text-slate-950">
+                          {input?.productName || "Generacion de imagenes ads"}
+                        </p>
+                        <p className="text-xs text-slate-500">{formatDate(item.createdAt)}</p>
+                      </Link>
+                      <div className="flex items-center gap-2">
                         <span
                           className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-medium ring-1 ${statusToneMap[item.status]}`}
                         >
                           {statusLabelMap[item.status]}
                         </span>
+                        <form action={deleteMarketingHistoryAction}>
+                          <input type="hidden" name="historyId" value={item.id} />
+                          <button
+                            type="submit"
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-rose-200/90 bg-white/90 text-rose-600 transition hover:border-rose-300 hover:bg-rose-50"
+                            aria-label="Eliminar historial"
+                            title="Eliminar historial"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </form>
                       </div>
-                      <p className="mt-3 line-clamp-2 text-sm text-slate-600">
+                    </div>
+                    <Link href={`/cliente/marketing-ia/facebook-ads?historyId=${item.id}`} className="mt-3 block">
+                      <p className="line-clamp-2 text-sm text-slate-600">
                         {input
-                          ? `${input.aspectRatio} - ${input.campaignObjective} - ${input.offerDetails}`
+                          ? `${input.aspectRatio} - ${input.marketingTemplate} - ${input.visualStyle}`
                           : "Sin entrada registrada."}
                       </p>
                     </Link>
-                  );
-                })
-              ) : (
-                <div className="rounded-[24px] border border-dashed border-[rgba(148,163,184,0.22)] bg-slate-50 px-4 py-8 text-sm text-slate-600">
-                  Todavia no hay historial de Marketing IA en este workspace.
-                </div>
-              )}
-            </div>
-          </Card>
-        </div>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="rounded-[24px] border border-dashed border-[rgba(148,163,184,0.22)] bg-slate-50 px-4 py-8 text-sm text-slate-600">
+                Todavia no hay historial de Marketing IA en este workspace.
+              </div>
+            )}
+          </div>
+        </Card>
       </div>
     </section>
   );
