@@ -188,8 +188,8 @@ export const getEvolutionSettings = cache(async (): Promise<EvolutionSettings> =
     apiBaseUrl: apiBaseUrl?.trim() ?? "",
     apiToken: apiToken?.trim() ?? "",
     instancePrefix: instancePrefix?.trim() || DEFAULT_EVOLUTION_INSTANCE_PREFIX,
-    webhookBaseUrl: normalizeUrlSetting(webhookBaseUrl) || getEvolutionWebhookBaseUrlFromEnv(),
-    webhookSecret: webhookSecret?.trim() || getEvolutionWebhookSecretFromEnv(),
+    webhookBaseUrl: getEvolutionWebhookBaseUrlFromEnv() || normalizeUrlSetting(webhookBaseUrl),
+    webhookSecret: getEvolutionWebhookSecretFromEnv() || webhookSecret?.trim() || "",
   };
 });
 

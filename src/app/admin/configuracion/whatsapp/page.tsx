@@ -86,33 +86,15 @@ export default async function AdminConfiguracionWhatsAppPage({ searchParams }: P
             </p>
           </label>
 
-          <label className="space-y-1.5">
-            <span className="text-sm font-medium text-slate-700">URL base de webhooks</span>
-            <Input
-              name="webhookBaseUrl"
-              type="url"
-              defaultValue={settings.webhookBaseUrl}
-              placeholder="https://app.tudominio.com/api/webhooks/evolution"
-              className="h-11"
-              required
-            />
-            <p className="text-xs text-slate-500">
-              Debe ser una URL publica que Evolution pueda alcanzar.
+          <div className="rounded-2xl border border-[rgba(148,163,184,0.14)] bg-slate-50 px-4 py-4">
+            <p className="text-sm font-medium text-slate-700">Webhook de Evolution</p>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              La URL del webhook ahora se completa automaticamente desde las variables de entorno del backend.
             </p>
-          </label>
-
-          <label className="space-y-1.5">
-            <span className="text-sm font-medium text-slate-700">Secreto del webhook</span>
-            <Input
-              name="webhookSecret"
-              defaultValue={settings.webhookSecret}
-              placeholder="Opcional"
-              className="h-11"
-            />
-            <p className="text-xs text-slate-500">
-              Opcional por ahora, pero recomendado para validar eventos entrantes.
+            <p className="mt-3 rounded-xl bg-white px-3 py-2 text-xs text-slate-500">
+              URL efectiva: {settings.webhookBaseUrl || "No configurada por entorno"}
             </p>
-          </label>
+          </div>
 
           <div className="flex justify-end">
             <button

@@ -26,13 +26,13 @@ const geistMono = Geist_Mono({
 
 export async function generateMetadata(): Promise<Metadata> {
   const brandName = await getSystemBrandName();
-  const description = `${brandName} ofrece sillas barberas e hidraulicas, camillas, tocadores, salas de espera y mobiliario profesional para peluqueria, barberia y salon de belleza, con envio a toda Colombia.`;
+  const description = "La mejor solucion para su empresa";
   const socialImageUrl = getSiteUrl("/opengraph-image");
 
   return {
     metadataBase: new URL(siteConfig.domain),
     title: {
-      default: `${brandName} | Mobiliario profesional para peluqueria, barberia y salon de belleza`,
+      default: `${brandName} | La mejor solucion para su empresa`,
       template: `%s | ${brandName}`,
     },
     description,
@@ -66,7 +66,7 @@ export async function generateMetadata(): Promise<Metadata> {
       locale: siteConfig.locale,
       url: getSiteUrl("/"),
       siteName: brandName,
-      title: `${brandName} | Mobiliario profesional para peluqueria, barberia y salon de belleza`,
+      title: `${brandName} | La mejor solucion para su empresa`,
       description,
       images: [
         {
@@ -77,7 +77,7 @@ export async function generateMetadata(): Promise<Metadata> {
     },
     twitter: {
       card: "summary_large_image",
-      title: `${brandName} | Mobiliario profesional para peluqueria, barberia y salon de belleza`,
+      title: `${brandName} | La mejor solucion para su empresa`,
       description,
       images: [socialImageUrl],
     },

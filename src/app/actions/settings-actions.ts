@@ -40,8 +40,6 @@ const updateEvolutionSettingsSchema = z.object({
     .min(3, "Prefijo invalido")
     .max(30, "Prefijo demasiado largo")
     .regex(/^[a-z0-9-]+$/, "Solo minusculas, numeros y guiones"),
-  webhookBaseUrl: z.string().trim().url("URL invalida"),
-  webhookSecret: z.string().trim().max(120, "Secreto demasiado largo").optional(),
 });
 
 async function requireAdminSession(): Promise<void> {
@@ -126,8 +124,6 @@ export async function adminUpdateEvolutionSettingsAction(formData: FormData): Pr
     apiBaseUrl: formData.get("apiBaseUrl"),
     apiToken: formData.get("apiToken"),
     instancePrefix: formData.get("instancePrefix"),
-    webhookBaseUrl: formData.get("webhookBaseUrl"),
-    webhookSecret: formData.get("webhookSecret") || "",
   });
 
   if (!parsed.success) {
@@ -138,8 +134,8 @@ export async function adminUpdateEvolutionSettingsAction(formData: FormData): Pr
     apiBaseUrl: parsed.data.apiBaseUrl,
     apiToken: parsed.data.apiToken,
     instancePrefix: parsed.data.instancePrefix,
-    webhookBaseUrl: parsed.data.webhookBaseUrl,
-    webhookSecret: parsed.data.webhookSecret ?? "",
+    webhookBaseUrl: "",
+    webhookSecret: "",
   });
 
   revalidatePath("/admin");
