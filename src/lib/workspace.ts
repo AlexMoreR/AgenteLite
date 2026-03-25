@@ -1,6 +1,26 @@
 import { cache } from "react";
 import { prisma } from "@/lib/prisma";
 
+export type PrimaryWorkspaceMembership = {
+  role: "OWNER" | "ADMIN" | "AGENT" | "VIEWER";
+  workspace: {
+    id: string;
+    name: string;
+    slug: string;
+    isActive: boolean;
+    planTier: "GRATIS" | "BASICO" | "AVANZADO" | null;
+    planStartedAt: Date | null;
+    planExpiresAt: Date | null;
+    createdAt: Date;
+    ownerId: string | null;
+    _count: {
+      agents: number;
+      channels: number;
+      conversations: number;
+    };
+  };
+};
+
 export function slugifyWorkspaceSegment(value: string): string {
   return value
     .normalize("NFD")
@@ -39,7 +59,7 @@ export async function generateUniqueWorkspaceSlug(name: string): Promise<string>
   return candidate;
 }
 
-export const getPrimaryWorkspaceForUser = cache(async (userId: string) => {
+export const getPrimaryWorkspaceForUser = cache(async (userId: string): Promise<PrimaryWorkspaceMembership | null> => {
   return prisma.workspaceMember.findFirst({
     where: { userId },
     orderBy: { createdAt: "asc" },
@@ -51,6 +71,9 @@ export const getPrimaryWorkspaceForUser = cache(async (userId: string) => {
           name: true,
           slug: true,
           isActive: true,
+          planTier: true,
+          planStartedAt: true,
+          planExpiresAt: true,
           createdAt: true,
           ownerId: true,
           _count: {

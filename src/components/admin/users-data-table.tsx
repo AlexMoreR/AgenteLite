@@ -20,6 +20,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { getWorkspacePlanLabel, type WorkspacePlanTier } from "@/lib/plans";
 
 type UserRow = {
   id: string;
@@ -27,6 +28,13 @@ type UserRow = {
   email: string;
   role: Role;
   createdAt: Date;
+  isPlanExpired: boolean;
+  workspaceMemberships: Array<{
+    workspace: {
+      planTier: WorkspacePlanTier | null;
+      planExpiresAt: Date | null;
+    };
+  }>;
 };
 
 type UsersDataTableProps = {
@@ -85,6 +93,12 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
     CLIENTE: "bg-slate-100 text-slate-700 ring-slate-200",
   };
 
+  const planBadgeClass: Record<WorkspacePlanTier, string> = {
+    GRATIS: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+    BASICO: "bg-blue-50 text-blue-700 ring-blue-200",
+    AVANZADO: "bg-violet-50 text-violet-700 ring-violet-200",
+  };
+
   const getRoleValue = (userId: string, fallbackRole: Role) =>
     selectedRoles[userId] ?? fallbackRole;
 
@@ -122,11 +136,13 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
         </div>
       </div>
 
-      <Table className="min-w-[760px]">
+      <Table className="min-w-[980px]">
         <TableHeader>
           <TableRow className="hover:bg-transparent">
             <TableHead className="normal-case tracking-normal">Usuario</TableHead>
             <TableHead className="normal-case tracking-normal">Alta</TableHead>
+            <TableHead className="normal-case tracking-normal">Plan actual</TableHead>
+            <TableHead className="normal-case tracking-normal">Vence</TableHead>
             <TableHead className="normal-case tracking-normal">Rol actual</TableHead>
             <TableHead className="normal-case tracking-normal">Rol</TableHead>
             <TableHead className="text-right normal-case tracking-normal">Accion</TableHead>
@@ -135,75 +151,108 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
         <TableBody>
           {pagedUsers.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={5} className="py-8 text-center text-slate-500">
+              <TableCell colSpan={7} className="py-8 text-center text-slate-500">
                 No hay resultados para el filtro actual.
               </TableCell>
             </TableRow>
           ) : (
-            pagedUsers.map((user) => (
-              <TableRow key={user.id}>
-                <TableCell>
-                  <div className="flex items-center gap-2.5">
-                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-slate-100 text-xs font-semibold text-slate-700">
-                      {(user.name?.charAt(0) || user.email.charAt(0)).toUpperCase()}
-                    </span>
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-slate-900">{user.name || "Sin nombre"}</p>
-                      <p className="truncate text-xs text-slate-500">{user.email}</p>
+            pagedUsers.map((user) => {
+              const primaryWorkspace = user.workspaceMemberships[0]?.workspace;
+              const planLabel = getWorkspacePlanLabel(primaryWorkspace?.planTier);
+              const expiresLabel = primaryWorkspace?.planExpiresAt
+                ? new Intl.DateTimeFormat("es-CO", { dateStyle: "medium" }).format(primaryWorkspace.planExpiresAt)
+                : "Sin fecha";
+
+              return (
+                <TableRow key={user.id}>
+                  <TableCell>
+                    <div className="flex items-center gap-2.5">
+                      <span className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-slate-100 text-xs font-semibold text-slate-700">
+                        {(user.name?.charAt(0) || user.email.charAt(0)).toUpperCase()}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-slate-900">{user.name || "Sin nombre"}</p>
+                        <p className="truncate text-xs text-slate-500">{user.email}</p>
+                      </div>
                     </div>
-                  </div>
-                </TableCell>
-                <TableCell className="text-sm text-slate-600">
-                  {new Date(user.createdAt).toLocaleDateString("es-MX")}
-                </TableCell>
-                <TableCell>
-                  <span className={`inline-flex rounded-md px-2 py-1 text-xs font-medium ring-1 ${roleBadgeClass[user.role]}`}>
-                    {roleLabel[user.role]}
-                  </span>
-                </TableCell>
-                <TableCell>
-                  <form id={`user-role-${user.id}`} action={adminUpdateUserRoleAction} className="flex items-center gap-2">
-                    <input type="hidden" name="userId" value={user.id} />
-                    <input type="hidden" name="role" value={getRoleValue(user.id, user.role)} />
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="h-7 min-w-28 justify-between px-2 text-[11px] font-semibold"
-                        >
-                          {roleLabel[getRoleValue(user.id, user.role)]}
-                          <ChevronDown className="h-3.5 w-3.5 text-slate-500" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="start" className="min-w-28 rounded-lg">
-                        <DropdownMenuItem onSelect={() => handleRoleSelect(user.id, "ADMIN")}>
-                          ADMIN
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onSelect={() => handleRoleSelect(user.id, "EMPLEADO")}>
-                          EMPLEADO
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onSelect={() => handleRoleSelect(user.id, "CLIENTE")}>
-                          CLIENTE
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </form>
-                </TableCell>
-                <TableCell className="text-right">
-                  <Button
-                    type="submit"
-                    form={`user-role-${user.id}`}
-                    variant="outline"
-                    size="sm"
-                    className="h-8 px-2.5 text-xs"
-                  >
-                    Aplicar
-                  </Button>
-                </TableCell>
-              </TableRow>
-            ))
+                  </TableCell>
+                  <TableCell className="text-sm text-slate-600">
+                    {new Date(user.createdAt).toLocaleDateString("es-MX")}
+                  </TableCell>
+                  <TableCell>
+                    {primaryWorkspace?.planTier ? (
+                      <span
+                        className={`inline-flex rounded-md px-2 py-1 text-xs font-medium ring-1 ${planBadgeClass[primaryWorkspace.planTier]}`}
+                      >
+                        {planLabel}
+                      </span>
+                    ) : (
+                      <span className="text-sm text-slate-500">Sin plan</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <div className="text-sm">
+                      <p className={user.isPlanExpired ? "font-medium text-rose-600" : "text-slate-700"}>
+                        {expiresLabel}
+                      </p>
+                      {primaryWorkspace?.planExpiresAt ? (
+                        <p className={`text-xs ${user.isPlanExpired ? "text-rose-500" : "text-slate-500"}`}>
+                          {user.isPlanExpired ? "Vencido" : "Activo"}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-slate-500">Sin vencimiento</p>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <span className={`inline-flex rounded-md px-2 py-1 text-xs font-medium ring-1 ${roleBadgeClass[user.role]}`}>
+                      {roleLabel[user.role]}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <form id={`user-role-${user.id}`} action={adminUpdateUserRoleAction} className="flex items-center gap-2">
+                      <input type="hidden" name="userId" value={user.id} />
+                      <input type="hidden" name="role" value={getRoleValue(user.id, user.role)} />
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-7 min-w-28 justify-between px-2 text-[11px] font-semibold"
+                          >
+                            {roleLabel[getRoleValue(user.id, user.role)]}
+                            <ChevronDown className="h-3.5 w-3.5 text-slate-500" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start" className="min-w-28 rounded-lg">
+                          <DropdownMenuItem onSelect={() => handleRoleSelect(user.id, "ADMIN")}>
+                            ADMIN
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => handleRoleSelect(user.id, "EMPLEADO")}>
+                            EMPLEADO
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => handleRoleSelect(user.id, "CLIENTE")}>
+                            CLIENTE
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </form>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Button
+                      type="submit"
+                      form={`user-role-${user.id}`}
+                      variant="outline"
+                      size="sm"
+                      className="h-8 px-2.5 text-xs"
+                    >
+                      Aplicar
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              );
+            })
           )}
         </TableBody>
       </Table>

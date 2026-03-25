@@ -46,6 +46,7 @@ export function AppSidebar({ pathname, brandName, adminModuleAccess, user, ...pr
   const isAdminProductsRoute = pathname.startsWith("/admin/productos");
   const isAdminQuotesRoute = pathname.startsWith("/admin/cotizaciones");
   const isAdminSuppliersRoute = pathname.startsWith("/admin/proveedores");
+  const isClientAgentsRoute = pathname.startsWith("/cliente/agentes");
 
   const navMain = [
     {
@@ -59,7 +60,8 @@ export function AppSidebar({ pathname, brandName, adminModuleAccess, user, ...pr
           !isAdminCategoriesRoute &&
           !isAdminProductsRoute &&
           !isAdminQuotesRoute &&
-          !isAdminSuppliersRoute),
+          !isAdminSuppliersRoute &&
+          !isClientAgentsRoute),
       items: [
         { title: "Vista general", url: dashboardHref },
       ],

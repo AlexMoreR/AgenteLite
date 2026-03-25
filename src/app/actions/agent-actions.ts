@@ -24,8 +24,13 @@ import {
   sendEvolutionPresence,
   sendEvolutionTextMessage,
 } from "@/lib/evolution";
+import { buildDefaultWorkspacePlan } from "@/lib/plans";
 import { prisma } from "@/lib/prisma";
-import { generateUniqueWorkspaceSlug, getPrimaryWorkspaceForUser } from "@/lib/workspace";
+import {
+  generateUniqueWorkspaceSlug,
+  getPrimaryWorkspaceForUser,
+  type PrimaryWorkspaceMembership,
+} from "@/lib/workspace";
 
 const createAgentSchema = z.object({
   businessName: z.string().trim().min(2, "Nombre del negocio invalido").max(120, "Nombre demasiado largo"),
@@ -134,15 +139,17 @@ export async function createAgentAction(formData: FormData): Promise<void> {
     redirect(`/cliente/agentes?error=${encodeURIComponent(message)}`);
   }
 
-  let membership = await getPrimaryWorkspaceForUser(session.user.id);
+  let membership: PrimaryWorkspaceMembership | null = await getPrimaryWorkspaceForUser(session.user.id);
 
   if (!membership) {
     const slug = await generateUniqueWorkspaceSlug(parsed.data.businessName);
+    const defaultPlan = buildDefaultWorkspacePlan();
     const workspace = await prisma.workspace.create({
       data: {
         name: parsed.data.businessName,
         slug,
         ownerId: session.user.id,
+        ...defaultPlan,
         memberships: {
           create: {
             userId: session.user.id,
@@ -160,6 +167,9 @@ export async function createAgentAction(formData: FormData): Promise<void> {
         name: workspace.name,
         slug,
         isActive: true,
+        planTier: defaultPlan.planTier,
+        planStartedAt: defaultPlan.planStartedAt,
+        planExpiresAt: defaultPlan.planExpiresAt,
         createdAt: new Date(),
         ownerId: session.user.id,
         _count: {

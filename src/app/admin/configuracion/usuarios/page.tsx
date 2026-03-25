@@ -6,6 +6,7 @@ import { UsersDataTable } from "@/components/admin/users-data-table";
 import { Card } from "@/components/ui/card";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { hasAdminModuleAccess } from "@/lib/admin-module-access";
+import { isWorkspacePlanExpired } from "@/lib/plans";
 import { prisma } from "@/lib/prisma";
 
 type PageProps = {
@@ -35,7 +36,33 @@ export default async function AdminConfiguracionUsuariosPage({ searchParams }: P
       email: true,
       role: true,
       createdAt: true,
+      workspaceMemberships: {
+        orderBy: { createdAt: "asc" },
+        take: 1,
+        select: {
+          workspace: {
+            select: {
+              planTier: true,
+              planExpiresAt: true,
+            },
+          },
+        },
+      },
     },
+  });
+
+  const usersForTable = users.map((user) => {
+    const primaryWorkspace = user.workspaceMemberships[0]?.workspace;
+
+    return {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      createdAt: user.createdAt,
+      workspaceMemberships: user.workspaceMemberships,
+      isPlanExpired: isWorkspacePlanExpired(primaryWorkspace?.planExpiresAt),
+    };
   });
 
   return (
@@ -61,7 +88,7 @@ export default async function AdminConfiguracionUsuariosPage({ searchParams }: P
       </div>
 
       <Card className="space-y-4">
-        <UsersDataTable users={users} />
+        <UsersDataTable users={usersForTable} />
       </Card>
     </section>
   );

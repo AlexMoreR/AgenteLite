@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { auth } from "@/auth";
+import { buildDefaultWorkspacePlan } from "@/lib/plans";
 import { prisma } from "@/lib/prisma";
 import { generateUniqueWorkspaceSlug } from "@/lib/workspace";
 
@@ -47,11 +48,13 @@ export async function completeWorkspaceOnboardingAction(formData: FormData): Pro
   }
 
   const slug = await generateUniqueWorkspaceSlug(parsed.data.businessName);
+  const defaultPlan = buildDefaultWorkspacePlan();
   const workspace = await prisma.workspace.create({
     data: {
       name: parsed.data.businessName,
       slug,
       ownerId: session.user.id,
+      ...defaultPlan,
       memberships: {
         create: {
           userId: session.user.id,
