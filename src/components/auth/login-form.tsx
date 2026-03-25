@@ -21,7 +21,7 @@ export function LoginForm() {
   }, [state]);
 
   return (
-    <Card className="w-full max-w-sm rounded-[1.8rem] border-white/10 bg-[#0c1828] p-6 text-white shadow-[0_30px_80px_-45px_rgba(0,0,0,0.9)]">
+    <Card className="w-full max-w-sm rounded-[1.8rem] !border-white/10 !bg-[#0c1828] p-6 text-white shadow-[0_30px_80px_-45px_rgba(0,0,0,0.9)]">
       <div className="mb-6 space-y-1.5">
         <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#8deedc]">Login</p>
         <h1 className="text-2xl font-semibold tracking-[-0.04em] text-white">Iniciar sesion</h1>

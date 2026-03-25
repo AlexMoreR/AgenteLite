@@ -9,8 +9,6 @@ type AuthShellProps = {
   children: React.ReactNode;
 };
 
-const authSignals = ["WhatsApp", "IA", "Panel"];
-
 const authMetrics = [
   { label: "Respuesta", value: "24/7" },
   { label: "Activacion", value: "< 10 min" },
@@ -42,17 +40,6 @@ export function AuthShell({ eyebrow, title, description, children }: AuthShellPr
               {title}
             </h1>
             <p className="max-w-md text-sm leading-7 text-[#b8c6d9] md:text-base">{description}</p>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            {authSignals.map((item) => (
-              <span
-                key={item}
-                className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-medium text-[#cfe0ef]"
-              >
-                {item}
-              </span>
-            ))}
           </div>
 
           <div className="grid max-w-md gap-3 sm:grid-cols-2">
