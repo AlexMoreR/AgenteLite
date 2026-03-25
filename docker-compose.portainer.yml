@@ -1,5 +1,5 @@
 version: "3.9"
-## Version
+### Version
 
 services:
   magilus_app:
