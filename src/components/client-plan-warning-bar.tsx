@@ -21,35 +21,33 @@ export function ClientPlanWarningBar({
       ? "Ultimo dia"
       : `${daysRemaining} dias restantes`;
 
-  const headline = isExpired ? "Tu agente ya quedo en pausa." : "Tu agente entra en cuenta regresiva.";
   const description = isExpired
-    ? "Tu plan ya vencio. Reactivalo hoy para seguir respondiendo sin cortar ventas."
+    ? "Reactiva tu acceso para que tu agente vuelva a responder sin interrupciones."
     : daysRemaining <= 1
-      ? "Te queda 1 dia de acceso. Sube de plan antes de que tu operacion se frene."
-      : `Te quedan ${daysRemaining} dias de acceso. Mejora tu plan antes de que tu agente se detenga.`;
+      ? "Vence manana. Mejora tu plan para evitar que el agente se detenga."
+      : `Vence ${expiresAtLabel}. Mejora tu plan antes de que el agente se detenga.`;
 
   return (
-    <div className="sticky bottom-0 z-30 border-t border-cyan-400/15 bg-[linear-gradient(90deg,rgba(7,17,32,0.98),rgba(11,32,51,0.98))] px-3 py-3 shadow-[0_-18px_40px_rgba(2,8,23,0.28)] backdrop-blur xl:px-4">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-3 rounded-[24px] border border-cyan-300/15 bg-[linear-gradient(135deg,rgba(7,18,34,0.94),rgba(14,41,58,0.94))] px-4 py-4 text-white md:flex-row md:items-center md:justify-between md:px-5">
+    <div className="-mx-3 -mt-3 mb-3 border border-cyan-400/10 bg-[linear-gradient(90deg,rgba(5,13,24,0.94),rgba(8,24,39,0.94))] py-2.5 shadow-[0_10px_28px_rgba(2,8,23,0.12)] backdrop-blur md:-mx-4 md:-mt-4 md:mb-4">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-3 rounded-[22px] border border-cyan-300/12 bg-[linear-gradient(135deg,rgba(8,20,36,0.88),rgba(11,32,50,0.88))] px-4 py-3 text-white md:flex-row md:items-center md:justify-between md:px-4">
         <div className="flex min-w-0 items-start gap-3">
-          <div className="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-cyan-300/15 bg-cyan-400/10 text-cyan-200">
-            <Clock3 className="h-5 w-5" />
+          <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-[18px] border border-cyan-300/12 bg-cyan-400/8 text-cyan-200">
+            <Clock3 className="h-4.5 w-4.5" />
           </div>
           <div className="min-w-0">
             <div className="mb-1 flex flex-wrap items-center gap-2">
-              <span className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-cyan-200">
+              <span className="rounded-full border border-cyan-300/16 bg-cyan-400/8 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-cyan-200">
                 {urgencyLabel}
               </span>
-              <span className="text-xs font-medium text-slate-300">Vence {expiresAtLabel}</span>
+              {!isExpired ? <span className="text-xs text-slate-400">Vence {expiresAtLabel}</span> : null}
             </div>
-            <p className="text-base font-semibold tracking-[-0.02em] text-white md:text-lg">{headline}</p>
-            <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-300">{description}</p>
+            <p className="mt-0.5 max-w-2xl text-sm leading-5 text-slate-300">{description}</p>
           </div>
         </div>
         <Button
           asChild
-          size="lg"
-          className="h-11 shrink-0 rounded-2xl bg-[#2ed3b7] px-5 text-[15px] font-semibold text-slate-950 hover:bg-[#56ddc6]"
+          size="sm"
+          className="h-10 shrink-0 rounded-xl bg-[#2ed3b7] px-4 text-sm font-semibold text-slate-950 hover:bg-[#56ddc6] md:h-9"
         >
           <Link href="/#precios">
             Mejorar plan

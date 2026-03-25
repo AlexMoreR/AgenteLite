@@ -217,12 +217,11 @@ export function AppShell({ children, initialUser, brandName, adminModuleAccess, 
               className={cn(
                 "admin-print-main flex flex-1 flex-col",
                 isAgentWorkspacePath ? "min-h-0 overflow-hidden p-0 md:p-4" : "p-3 md:p-4",
-                showClientPlanAlert ? "pb-24 md:pb-28" : null,
               )}
             >
+              {showClientPlanAlert && clientPlanAlert ? <ClientPlanWarningBar {...clientPlanAlert} /> : null}
               {children}
             </main>
-            {showClientPlanAlert && clientPlanAlert ? <ClientPlanWarningBar {...clientPlanAlert} /> : null}
           </SidebarInset>
         </div>
       </SidebarProvider>
