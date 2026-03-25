@@ -5,6 +5,7 @@ services:
       - aizenbot_uploads:/app/public/uploads
     environment:
       NODE_ENV: "production"
+      BACKEND_ENV: "https://app.aizenbot.com"
       AUTH_URL: "https://app.aizenbot.com"
       NEXTAUTH_URL: "https://app.aizenbot.com"
       NEXT_PUBLIC_SITE_URL: "https://app.aizenbot.com"

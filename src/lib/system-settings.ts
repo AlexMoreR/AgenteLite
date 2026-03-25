@@ -14,6 +14,38 @@ const EVOLUTION_WEBHOOK_SECRET_SETTING_KEY = "evolutionWebhookSecret";
 const DEFAULT_SYSTEM_PRIMARY_COLOR = "#6d28d9";
 const DEFAULT_EVOLUTION_INSTANCE_PREFIX = "agente-lite";
 
+function normalizeUrlSetting(value: string | null | undefined) {
+  return value?.trim().replace(/\/+$/, "") ?? "";
+}
+
+function buildEvolutionWebhookUrl(baseUrl: string) {
+  const normalizedBaseUrl = normalizeUrlSetting(baseUrl);
+  if (!normalizedBaseUrl) {
+    return "";
+  }
+
+  return `${normalizedBaseUrl}/api/webhooks/evolution`;
+}
+
+function getEvolutionWebhookBaseUrlFromEnv() {
+  const directWebhookUrl = normalizeUrlSetting(process.env.EVOLUTION_WEBHOOK_BASE_URL);
+  if (directWebhookUrl) {
+    return directWebhookUrl;
+  }
+
+  const backendBaseUrl =
+    normalizeUrlSetting(process.env.BACKEND_ENV) ||
+    normalizeUrlSetting(process.env.BACKEND_URL) ||
+    normalizeUrlSetting(process.env.AUTH_URL) ||
+    normalizeUrlSetting(process.env.NEXTAUTH_URL);
+
+  return buildEvolutionWebhookUrl(backendBaseUrl);
+}
+
+function getEvolutionWebhookSecretFromEnv() {
+  return process.env.EVOLUTION_WEBHOOK_SECRET?.trim() ?? "";
+}
+
 async function ensureAppSettingTable(): Promise<void> {
   await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS "AppSetting" (
@@ -156,17 +188,17 @@ export const getEvolutionSettings = cache(async (): Promise<EvolutionSettings> =
     apiBaseUrl: apiBaseUrl?.trim() ?? "",
     apiToken: apiToken?.trim() ?? "",
     instancePrefix: instancePrefix?.trim() || DEFAULT_EVOLUTION_INSTANCE_PREFIX,
-    webhookBaseUrl: webhookBaseUrl?.trim() ?? "",
-    webhookSecret: webhookSecret?.trim() ?? "",
+    webhookBaseUrl: normalizeUrlSetting(webhookBaseUrl) || getEvolutionWebhookBaseUrlFromEnv(),
+    webhookSecret: webhookSecret?.trim() || getEvolutionWebhookSecretFromEnv(),
   };
 });
 
 export async function setEvolutionSettings(settings: EvolutionSettings): Promise<void> {
   const normalized = {
-    apiBaseUrl: settings.apiBaseUrl.trim().replace(/\/+$/, ""),
+    apiBaseUrl: normalizeUrlSetting(settings.apiBaseUrl),
     apiToken: settings.apiToken.trim(),
     instancePrefix: settings.instancePrefix.trim().toLowerCase(),
-    webhookBaseUrl: settings.webhookBaseUrl.trim().replace(/\/+$/, ""),
+    webhookBaseUrl: normalizeUrlSetting(settings.webhookBaseUrl),
     webhookSecret: settings.webhookSecret.trim(),
   };
 
