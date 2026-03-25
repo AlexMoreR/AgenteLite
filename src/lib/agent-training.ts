@@ -225,24 +225,27 @@ export function buildWelcomeMessage(input: {
   training: AgentTrainingConfig;
 }) {
   const { agentName, businessName, training } = input;
+  const greetingPrefix = training.useEmojis ? "Hola! " : "Hola, ";
 
   if (training.askNameFirst) {
-    return `Hola, soy ${agentName} de ${businessName}. Para ayudarte mejor, como te llamas?`;
+    return `${greetingPrefix}soy ${agentName} de ${businessName}. Para ayudarte mejor, como te llamas?`;
   }
 
-  return `Hola, soy ${agentName} de ${businessName}. Cuentame que estas buscando y te ayudo.`;
+  return `${greetingPrefix}soy ${agentName} de ${businessName}. Cuentame que estas buscando y te ayudo.`;
 }
 
 export function buildFallbackMessage(training: AgentTrainingConfig) {
+  const suffix = training.useEmojis ? " 🙂" : "";
+
   if (training.responseLength === "muy-corto") {
-    return "Claro. Cuentame que necesitas y te respondo rapido.";
+    return `Claro. Cuentame que necesitas y te respondo rapido.${suffix}`;
   }
 
   if (training.responseLength === "detallado") {
-    return "Con gusto. Cuentame un poco mas de lo que buscas y te orientare paso a paso.";
+    return `Con gusto. Cuentame un poco mas de lo que buscas y te orientare paso a paso.${suffix}`;
   }
 
-  return "Claro. Cuentame que necesitas y te ayudo a encontrar la mejor opcion.";
+  return `Claro. Cuentame que necesitas y te ayudo a encontrar la mejor opcion.${suffix}`;
 }
 
 export function buildHandoffMessage() {

@@ -14,15 +14,10 @@ type PlaygroundMessage = {
 type AgentPlaygroundProps = {
   agentId: string;
   agentName: string;
-  welcomeMessage: string | null;
 };
 
-export function AgentPlayground({ agentId, agentName, welcomeMessage }: AgentPlaygroundProps) {
-  const [messages, setMessages] = useState<PlaygroundMessage[]>(
-    welcomeMessage?.trim()
-      ? [{ id: "welcome", role: "assistant", content: welcomeMessage.trim() }]
-      : [],
-  );
+export function AgentPlayground({ agentId, agentName }: AgentPlaygroundProps) {
+  const [messages, setMessages] = useState<PlaygroundMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState("");
   const [isPending, setIsPending] = useState(false);
@@ -37,11 +32,7 @@ export function AgentPlayground({ agentId, agentName, welcomeMessage }: AgentPla
   );
 
   const handleReset = () => {
-    setMessages(
-      welcomeMessage?.trim()
-        ? [{ id: "welcome", role: "assistant", content: welcomeMessage.trim() }]
-        : [],
-    );
+    setMessages([]);
     setDraft("");
     setError("");
   };
@@ -166,6 +157,12 @@ export function AgentPlayground({ agentId, agentName, welcomeMessage }: AgentPla
             <textarea
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  handleSend();
+                }
+              }}
               rows={1}
               placeholder="Escribe un mensaje para probar el agente..."
               className="flex h-11 min-h-0 flex-1 resize-none rounded-2xl border border-[rgba(148,163,184,0.14)] bg-slate-50/80 px-4 py-3 text-sm text-slate-800 placeholder:text-slate-400 outline-none transition focus:border-[var(--primary)] focus:bg-white focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_18%,white)]"

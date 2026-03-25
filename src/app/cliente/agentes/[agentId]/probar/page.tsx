@@ -29,7 +29,6 @@ export default async function ClienteAgenteProbarPage({ params }: PageProps) {
     select: {
       id: true,
       name: true,
-      welcomeMessage: true,
     },
   });
 
@@ -39,7 +38,7 @@ export default async function ClienteAgenteProbarPage({ params }: PageProps) {
 
   return (
     <AgentPanelShell agentId={agent.id}>
-      <AgentPlayground agentId={agent.id} agentName={agent.name} welcomeMessage={agent.welcomeMessage} />
+      <AgentPlayground agentId={agent.id} agentName={agent.name} />
     </AgentPanelShell>
   );
 }
