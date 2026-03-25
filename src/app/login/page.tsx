@@ -1,9 +1,7 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
 import { LoginForm } from "@/components/auth/login-form";
+import { AuthShell } from "@/components/auth/auth-shell";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
-import { Button } from "@/components/ui/button";
 
 export const metadata: Metadata = {
   robots: {
@@ -22,22 +20,14 @@ export default async function LoginPage({ searchParams }: PageProps) {
   const errorMessage = typeof params.error === "string" ? params.error : "";
 
   return (
-    <section className="app-page min-h-[calc(100vh-9rem)] px-4 py-10">
+    <AuthShell eyebrow="Acceso" title="Entra a tu panel" description="Mismo inicio. Acceso rapido.">
       <QueryFeedbackToast
         okMessage={okMessage}
         errorMessage={errorMessage}
         okTitle="Acceso"
         errorTitle="No se pudo completar"
       />
-      <div className="mx-auto w-full max-w-md space-y-4">
-        <Button asChild variant="outline" size="sm" className="gap-2">
-          <Link href="/">
-            <ArrowLeft className="h-4 w-4" />
-            Volver
-          </Link>
-        </Button>
-        <LoginForm />
-      </div>
-    </section>
+      <LoginForm />
+    </AuthShell>
   );
 }

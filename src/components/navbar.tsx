@@ -87,8 +87,6 @@ export function Navbar({
     { label: "Beneficios", href: "#beneficios" },
     { label: "Precios", href: "#precios" },
     { label: "Como funciona", href: "#como-funciona" },
-    { label: "Panel", href: "/cliente" },
-    { label: "Acceso", href: "/login" },
   ];
 
   if (isMarketingHome) {
@@ -197,7 +195,7 @@ export function Navbar({
                   size="sm"
                   className="h-10 rounded-full bg-[#2ed3b7] px-4 text-[#04131d] hover:bg-[#58e4cc]"
                 >
-                  <Link href="/register">Crear workspace</Link>
+                  <Link href="/register">Comienza gratis</Link>
                 </Button>
               </>
             )}
