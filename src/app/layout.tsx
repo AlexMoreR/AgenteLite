@@ -5,13 +5,14 @@ import { auth } from "@/auth";
 import { AppShell } from "@/components/app-shell";
 import { Providers } from "@/components/providers";
 import { getAdminModuleAccess } from "@/lib/admin-module-access";
-import { getDaysUntilPlanExpiry, isWorkspacePlanExpired, shouldShowWorkspacePlanWarning } from "@/lib/plans";
+import { CLIENT_PLAN_PAYMENT_HREF, getWorkspacePlanState } from "@/lib/plans";
 import { getSiteUrl, siteConfig } from "@/lib/site";
 import {
   getSystemBrandName,
   getSystemPrimaryColor,
   getSystemPrimaryStrongColor,
 } from "@/lib/system-settings";
+import { enforceWorkspacePlanAccess } from "@/lib/workspace-plan-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import "./globals.css";
 
@@ -102,18 +103,32 @@ export default async function RootLayout({
     getSystemBrandName(),
     getAdminModuleAccess(session?.user?.id, session?.user?.role),
   ]);
-  const planExpiresAt = clientWorkspace?.workspace.planExpiresAt ?? null;
-  const daysRemaining = getDaysUntilPlanExpiry(planExpiresAt);
+  const workspaceAccess = clientWorkspace?.workspace.id
+    ? await enforceWorkspacePlanAccess(clientWorkspace.workspace.id)
+    : null;
+  const planExpiresAt = workspaceAccess?.workspace?.planExpiresAt ?? clientWorkspace?.workspace.planExpiresAt ?? null;
+  const planState = getWorkspacePlanState(planExpiresAt);
+  const expiresAtLabel = planExpiresAt
+    ? new Intl.DateTimeFormat("es-CO", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      }).format(planExpiresAt)
+    : "";
   const clientPlanAlert =
-    planExpiresAt && shouldShowWorkspacePlanWarning(planExpiresAt) && daysRemaining !== null
+    planExpiresAt && planState.warning && planState.daysRemaining !== null
       ? {
-          daysRemaining,
-          isExpired: isWorkspacePlanExpired(planExpiresAt),
-          expiresAtLabel: new Intl.DateTimeFormat("es-CO", {
-            day: "numeric",
-            month: "short",
-            year: "numeric",
-          }).format(planExpiresAt),
+          daysRemaining: planState.daysRemaining,
+          isExpired: false,
+          expiresAtLabel,
+        }
+      : null;
+  const clientPlanBlock =
+    planExpiresAt && planState.blockClientArea
+      ? {
+          isExpired: true as const,
+          expiresAtLabel,
+          paymentHref: CLIENT_PLAN_PAYMENT_HREF,
         }
       : null;
 
@@ -134,6 +149,7 @@ export default async function RootLayout({
             brandName={brandName}
             adminModuleAccess={adminModuleAccess}
             clientPlanAlert={clientPlanAlert}
+            clientPlanBlock={clientPlanBlock}
           >
             {children}
           </AppShell>

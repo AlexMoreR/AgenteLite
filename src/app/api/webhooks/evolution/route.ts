@@ -22,6 +22,7 @@ import {
   sendEvolutionPresence,
   sendEvolutionTextMessageWithReconnect,
 } from "@/lib/evolution";
+import { enforceWorkspacePlanAccess } from "@/lib/workspace-plan-access";
 import { getEvolutionSettings } from "@/lib/system-settings";
 
 function mapChannelStatus(eventName: string | null, rawState: string | null) {
@@ -322,6 +323,24 @@ export async function POST(request: Request) {
   });
 
   if (channel.agentId) {
+    const workspaceAccess = await enforceWorkspacePlanAccess(channel.workspaceId);
+
+    if (workspaceAccess.planState.blockClientArea) {
+      console.log("[EVOLUTION] auto_reply_skipped", {
+        reason: "workspace_plan_expired",
+        conversationId: conversation.id,
+        agentId: channel.agentId,
+        pausedAgents: workspaceAccess.pausedAgents,
+      });
+
+      return NextResponse.json({
+        ok: true,
+        message: "Inbound message logged but auto reply blocked by expired plan",
+        instanceName,
+        event: eventName,
+      });
+    }
+
     const agent = await prisma.agent.findUnique({
       where: { id: channel.agentId },
       select: {

@@ -2,6 +2,7 @@ export type WorkspacePlanTier = "GRATIS" | "BASICO" | "AVANZADO";
 
 export const DEFAULT_TRIAL_DAYS = 3;
 export const PLAN_WARNING_THRESHOLD_DAYS = 4;
+export const CLIENT_PLAN_PAYMENT_HREF = "/#precios";
 
 export const workspacePlanLabels: Record<WorkspacePlanTier, string> = {
   GRATIS: "Gratis",
@@ -40,5 +41,18 @@ export function getDaysUntilPlanExpiry(planExpiresAt: Date | null | undefined, n
 export function shouldShowWorkspacePlanWarning(planExpiresAt: Date | null | undefined, now = new Date()) {
   const daysRemaining = getDaysUntilPlanExpiry(planExpiresAt, now);
   if (daysRemaining === null) return false;
-  return daysRemaining <= PLAN_WARNING_THRESHOLD_DAYS;
+  return daysRemaining >= 0 && daysRemaining <= PLAN_WARNING_THRESHOLD_DAYS;
+}
+
+export function getWorkspacePlanState(planExpiresAt: Date | null | undefined, now = new Date()) {
+  const daysRemaining = getDaysUntilPlanExpiry(planExpiresAt, now);
+  const isExpired = isWorkspacePlanExpired(planExpiresAt);
+
+  return {
+    daysRemaining,
+    isExpired,
+    warning: !isExpired && shouldShowWorkspacePlanWarning(planExpiresAt, now),
+    expired: isExpired,
+    blockClientArea: isExpired,
+  };
 }

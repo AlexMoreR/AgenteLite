@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react";
 import { Fragment } from "react";
 import type { Role } from "@prisma/client";
 import { AppSidebar } from "@/components/app-sidebar";
+import { ClientPlanBlockModal } from "@/components/client-plan-block-modal";
 import { ClientPlanWarningBar } from "@/components/client-plan-warning-bar";
 import {
   Breadcrumb,
@@ -37,9 +38,21 @@ type AppShellProps = {
     expiresAtLabel: string;
     isExpired: boolean;
   } | null;
+  clientPlanBlock: {
+    isExpired: true;
+    expiresAtLabel: string;
+    paymentHref: string;
+  } | null;
 };
 
-export function AppShell({ children, initialUser, brandName, adminModuleAccess, clientPlanAlert }: AppShellProps) {
+export function AppShell({
+  children,
+  initialUser,
+  brandName,
+  adminModuleAccess,
+  clientPlanAlert,
+  clientPlanBlock,
+}: AppShellProps) {
   const { data } = useSession();
   const pathname = usePathname();
   const user = data?.user ?? initialUser;
@@ -65,6 +78,7 @@ export function AppShell({ children, initialUser, brandName, adminModuleAccess, 
   const isAuthPath = pathname === "/login" || pathname === "/register";
   const isAgentWorkspacePath = pathname.startsWith("/cliente/agentes/");
   const showClientPlanAlert = Boolean(user?.role === "CLIENTE" && pathname.startsWith("/cliente") && clientPlanAlert);
+  const showClientPlanBlock = Boolean(user?.role === "CLIENTE" && pathname.startsWith("/cliente") && clientPlanBlock?.isExpired);
   const currentPage = pathname === "/"
     ? "Inicio"
     : pathname.startsWith("/admin/cotizaciones")
@@ -222,6 +236,7 @@ export function AppShell({ children, initialUser, brandName, adminModuleAccess, 
               {showClientPlanAlert && clientPlanAlert ? <ClientPlanWarningBar {...clientPlanAlert} /> : null}
               {children}
             </main>
+            {showClientPlanBlock && clientPlanBlock ? <ClientPlanBlockModal {...clientPlanBlock} /> : null}
           </SidebarInset>
         </div>
       </SidebarProvider>
