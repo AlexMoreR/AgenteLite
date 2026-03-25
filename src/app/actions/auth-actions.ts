@@ -324,6 +324,15 @@ const updateRoleSchema = z.object({
   role: z.nativeEnum(Role),
 });
 
+const updateWorkspacePlanExpirySchema = z.object({
+  workspaceId: z.string().min(1),
+  planExpiresAt: z.string().trim().optional(),
+});
+
+const deleteUserSchema = z.object({
+  userId: z.string().min(1),
+});
+
 export async function adminUpdateUserRoleAction(formData: FormData): Promise<void> {
   await requireAdminSession();
 
@@ -359,6 +368,112 @@ export async function adminUpdateUserRoleAction(formData: FormData): Promise<voi
   revalidatePath("/admin/configuracion/usuarios");
   revalidatePath("/admin/configuracion/permisos");
   redirect("/admin/configuracion/usuarios?ok=Rol+actualizado");
+}
+
+export async function adminUpdateWorkspacePlanExpiryAction(formData: FormData): Promise<void> {
+  await requireAdminSession();
+
+  const parsed = updateWorkspacePlanExpirySchema.safeParse({
+    workspaceId: formData.get("workspaceId"),
+    planExpiresAt: formData.get("planExpiresAt"),
+  });
+
+  if (!parsed.success) {
+    redirect("/admin/configuracion/usuarios?error=Fecha+de+vencimiento+invalida");
+  }
+
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: parsed.data.workspaceId },
+    select: {
+      id: true,
+      planTier: true,
+    },
+  });
+
+  if (!workspace) {
+    redirect("/admin/configuracion/usuarios?error=Negocio+no+encontrado");
+  }
+
+  const rawDate = parsed.data.planExpiresAt?.trim() ?? "";
+  const nextDate = rawDate ? new Date(`${rawDate}T23:59:59.999Z`) : null;
+
+  if (rawDate && Number.isNaN(nextDate?.getTime())) {
+    redirect("/admin/configuracion/usuarios?error=Fecha+de+vencimiento+invalida");
+  }
+
+  await prisma.workspace.update({
+    where: { id: workspace.id },
+    data: {
+      planExpiresAt: nextDate,
+    },
+  });
+
+  revalidatePath("/admin/configuracion");
+  revalidatePath("/admin/configuracion/usuarios");
+  redirect("/admin/configuracion/usuarios?ok=Vencimiento+actualizado");
+}
+
+export async function adminDeleteUserAction(formData: FormData): Promise<void> {
+  await requireAdminSession();
+
+  const session = await auth();
+  if (!session?.user?.id) {
+    redirect("/admin/configuracion/usuarios?error=No+autorizado");
+  }
+
+  const parsed = deleteUserSchema.safeParse({
+    userId: formData.get("userId"),
+  });
+
+  if (!parsed.success) {
+    redirect("/admin/configuracion/usuarios?error=Usuario+invalido");
+  }
+
+  const userId = parsed.data.userId;
+
+  if (userId === session.user.id) {
+    redirect("/admin/configuracion/usuarios?error=No+puedes+eliminar+tu+propia+cuenta");
+  }
+
+  const targetUser = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      role: true,
+      _count: {
+        select: {
+          quotesAsClient: true,
+          quotesCreated: true,
+          workspaceMemberships: true,
+          ownedWorkspaces: true,
+        },
+      },
+    },
+  });
+
+  if (!targetUser) {
+    redirect("/admin/configuracion/usuarios?error=Usuario+no+encontrado");
+  }
+
+  if (targetUser.role === "ADMIN") {
+    const adminCount = await prisma.user.count({ where: { role: "ADMIN" } });
+    if (adminCount <= 1) {
+      redirect("/admin/configuracion/usuarios?error=Debe+existir+al+menos+un+admin");
+    }
+  }
+
+  if (targetUser._count.quotesAsClient > 0 || targetUser._count.quotesCreated > 0) {
+    redirect("/admin/configuracion/usuarios?error=No+puedes+eliminar+un+usuario+con+cotizaciones+asociadas");
+  }
+
+  await prisma.user.delete({
+    where: { id: userId },
+  });
+
+  revalidatePath("/admin/configuracion");
+  revalidatePath("/admin/configuracion/usuarios");
+  revalidatePath("/admin/configuracion/permisos");
+  redirect("/admin/configuracion/usuarios?ok=Usuario+eliminado");
 }
 
 export async function adminUpdateUserModuleAccessAction(formData: FormData): Promise<void> {

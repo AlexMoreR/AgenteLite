@@ -3,7 +3,11 @@
 import * as React from "react";
 import { Role } from "@prisma/client";
 import { ChevronDown, Search, X } from "lucide-react";
-import { adminUpdateUserRoleAction } from "@/app/actions/auth-actions";
+import {
+  adminDeleteUserAction,
+  adminUpdateUserRoleAction,
+  adminUpdateWorkspacePlanExpiryAction,
+} from "@/app/actions/auth-actions";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -31,6 +35,7 @@ type UserRow = {
   isPlanExpired: boolean;
   workspaceMemberships: Array<{
     workspace: {
+      id: string;
       planTier: WorkspacePlanTier | null;
       planExpiresAt: Date | null;
     };
@@ -47,6 +52,17 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
   const [query, setQuery] = React.useState("");
   const [page, setPage] = React.useState(1);
   const [selectedRoles, setSelectedRoles] = React.useState<Record<string, Role>>({});
+  const [selectedExpiryDates, setSelectedExpiryDates] = React.useState<Record<string, string>>(
+    () =>
+      Object.fromEntries(
+        users.map((user) => [
+          user.id,
+          user.workspaceMemberships[0]?.workspace.planExpiresAt
+            ? new Date(user.workspaceMemberships[0].workspace.planExpiresAt).toISOString().slice(0, 10)
+            : "",
+        ]),
+      ),
+  );
 
   const filteredUsers = React.useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -104,6 +120,10 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
 
   const handleRoleSelect = (userId: string, role: Role) => {
     setSelectedRoles((current) => ({ ...current, [userId]: role }));
+  };
+
+  const handleExpiryDateChange = (userId: string, value: string) => {
+    setSelectedExpiryDates((current) => ({ ...current, [userId]: value }));
   };
 
   return (
@@ -190,8 +210,8 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
                       <span className="text-sm text-slate-500">Sin plan</span>
                     )}
                   </TableCell>
-                  <TableCell>
-                    <div className="text-sm">
+                <TableCell>
+                  <div className="text-sm">
                       <p className={user.isPlanExpired ? "font-medium text-rose-600" : "text-slate-700"}>
                         {expiresLabel}
                       </p>
@@ -202,11 +222,11 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
                       ) : (
                         <p className="text-xs text-slate-500">Sin vencimiento</p>
                       )}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <span className={`inline-flex rounded-md px-2 py-1 text-xs font-medium ring-1 ${roleBadgeClass[user.role]}`}>
-                      {roleLabel[user.role]}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <span className={`inline-flex rounded-md px-2 py-1 text-xs font-medium ring-1 ${roleBadgeClass[user.role]}`}>
+                    {roleLabel[user.role]}
                     </span>
                   </TableCell>
                   <TableCell>
@@ -238,8 +258,54 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </form>
-                  </TableCell>
-                  <TableCell className="text-right">
+                </TableCell>
+                <TableCell className="text-right">
+                  <div className="flex justify-end gap-2">
+                    <form
+                      action={adminDeleteUserAction}
+                      onSubmit={(event) => {
+                        if (!window.confirm(`Eliminar a ${user.name || user.email}? Esta accion no se puede deshacer.`)) {
+                          event.preventDefault();
+                        }
+                      }}
+                    >
+                      <input type="hidden" name="userId" value={user.id} />
+                      <Button
+                        type="submit"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 border-rose-200 px-2.5 text-xs text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+                      >
+                        Eliminar
+                      </Button>
+                    </form>
+                    <form
+                      action={adminUpdateWorkspacePlanExpiryAction}
+                      className="flex items-center gap-2"
+                    >
+                      <input
+                        type="hidden"
+                        name="workspaceId"
+                        value={primaryWorkspace?.id ?? ""}
+                      />
+                      <Input
+                        type="date"
+                        name="planExpiresAt"
+                        value={selectedExpiryDates[user.id] ?? ""}
+                        onChange={(event) => handleExpiryDateChange(user.id, event.target.value)}
+                        className="h-8 w-36 text-xs"
+                        disabled={!primaryWorkspace}
+                      />
+                      <Button
+                        type="submit"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 px-2.5 text-xs"
+                        disabled={!primaryWorkspace}
+                      >
+                        Guardar fecha
+                      </Button>
+                    </form>
                     <Button
                       type="submit"
                       form={`user-role-${user.id}`}
@@ -249,8 +315,9 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
                     >
                       Aplicar
                     </Button>
-                  </TableCell>
-                </TableRow>
+                  </div>
+                </TableCell>
+              </TableRow>
               );
             })
           )}

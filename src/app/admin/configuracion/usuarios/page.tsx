@@ -42,6 +42,7 @@ export default async function AdminConfiguracionUsuariosPage({ searchParams }: P
         select: {
           workspace: {
             select: {
+              id: true,
               planTier: true,
               planExpiresAt: true,
             },
