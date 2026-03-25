@@ -193,7 +193,14 @@ export function Navbar({
                 <Button
                   asChild
                   size="sm"
-                  className="h-10 rounded-full bg-[#2ed3b7] px-4 text-[#04131d] hover:bg-[#58e4cc]"
+                  className="h-10 rounded-full bg-[#2ed3b7] px-4 text-[#04131d] hover:bg-[#58e4cc] md:hidden"
+                >
+                  <Link href="/login">Iniciar sesion</Link>
+                </Button>
+                <Button
+                  asChild
+                  size="sm"
+                  className="hidden h-10 rounded-full bg-[#2ed3b7] px-4 text-[#04131d] hover:bg-[#58e4cc] md:inline-flex"
                 >
                   <Link href="/register">Comienza gratis</Link>
                 </Button>

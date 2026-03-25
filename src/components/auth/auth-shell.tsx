@@ -158,7 +158,7 @@ export function AuthShell({
               ? "lg:max-w-xl"
               : compactVariant
                 ? "lg:mx-auto lg:max-w-xl lg:w-full lg:justify-self-auto"
-                : "lg:justify-self-end"
+                : "lg:mt-10 lg:justify-self-end"
           }`}
         >
           <Button

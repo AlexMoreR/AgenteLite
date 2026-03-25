@@ -41,7 +41,7 @@ const valueCards = [
 
 const steps = [
   {
-    title: "Crea tu workspace",
+    title: "Configura tu negocio",
     description: "Deja lista la base de tu operacion comercial.",
   },
   {
@@ -70,28 +70,32 @@ const proofStrip = ["Equipos comerciales", "Agencias", "Negocios con alto volume
 const pricingPlans = [
   {
     name: "Starter",
-    price: "$29",
-    cadence: "/mes",
-    description: "Empieza a responder y ordenar chats.",
-    cta: "Empezar",
+    tier: "Gratis",
+    price: "Gratis",
+    cadence: "",
+    description: "Plan gratis para empezar a probar el flujo.",
+    cta: "Empezar gratis",
     highlight: false,
     features: ["1 workspace", "1 canal de WhatsApp", "IA basica", "Bandeja unificada"],
   },
   {
     name: "Pro",
-    price: "$79",
+    tier: "Basico",
+    price: "$10",
     cadence: "/mes",
-    description: "Para equipos que necesitan control comercial.",
-    cta: "Elegir Pro",
+    description: "Plan basico para vender con mas orden y constancia.",
+    cta: "Elegir basico",
     highlight: true,
     features: ["Workspaces y agentes", "Seguimiento comercial", "Roles y permisos", "Prioridad y operacion"],
   },
   {
     name: "SaaS",
+    tier: "Avanzado",
     price: "Custom",
     cadence: "",
-    description: "Para agencias y operaciones multi cliente.",
+    description: "Plan avanzado para agencias y operaciones multi cliente.",
     cta: "Hablar con ventas",
+    href: "https://wa.me/573057127409",
     highlight: false,
     features: ["Operacion multi cliente", "Escalamiento comercial", "Soporte prioritario", "Acompanamiento"],
   },
@@ -161,7 +165,7 @@ export default async function HomePage() {
                 <ArrowRight className="h-4 w-4" />
               </Link>
               <Link
-                href="/login"
+                href="#precios"
                 className="inline-flex h-13 items-center justify-center gap-2 rounded-full border border-white/14 bg-white/6 px-6 text-sm font-semibold text-white transition hover:bg-white/10"
               >
                 Ver planes
@@ -329,6 +333,9 @@ export default async function HomePage() {
               >
                 <div className="flex items-start justify-between gap-4">
                   <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#8deedc]">
+                      {plan.tier}
+                    </p>
                     <h3 className="text-2xl font-semibold tracking-[-0.04em] text-white">{plan.name}</h3>
                     <p className="mt-2 text-sm leading-7 text-[#9fb1c7]">{plan.description}</p>
                   </div>
@@ -346,7 +353,9 @@ export default async function HomePage() {
 
                 <div className="mt-6">
                   <Link
-                    href={plan.name === "SaaS" ? "/login" : "/register"}
+                    href={plan.href ?? "/register"}
+                    target={plan.href ? "_blank" : undefined}
+                    rel={plan.href ? "noopener noreferrer" : undefined}
                     className={
                       plan.highlight
                         ? "inline-flex h-11 w-full items-center justify-center rounded-full bg-[#2ed3b7] px-5 text-sm font-semibold text-[#04131d] transition hover:bg-[#58e4cc]"
