@@ -315,19 +315,21 @@ export async function updateAgentTrainingAction(formData: FormData): Promise<voi
     forbiddenRules: parsed.data.forbiddenRules,
     customRules: parsed.data.customRules,
   });
+  const nextAgentName = `Asistente ${parsed.data.businessName}`;
 
   await prisma.agent.update({
     where: { id: agent.id },
     data: {
+      name: nextAgentName,
       description: parsed.data.businessDescription,
       trainingConfig: training,
       systemPrompt: buildAgentSystemPrompt({
-        agentName: agent.name,
+        agentName: nextAgentName,
         businessName: parsed.data.businessName,
         training,
       }),
       welcomeMessage: buildWelcomeMessage({
-        agentName: agent.name,
+        agentName: nextAgentName,
         businessName: parsed.data.businessName,
         training,
       }),
@@ -641,11 +643,6 @@ export async function simulateAgentReplyAction(input: {
   }
 
   const trimmedHistory = parsed.data.history.filter((item) => item.content.trim());
-  const hasOutboundHistory = trimmedHistory.some((item) => item.direction === "OUTBOUND");
-
-  if (!hasOutboundHistory && agent.welcomeMessage?.trim()) {
-    return { ok: true, reply: agent.welcomeMessage.trim() };
-  }
 
   const reply = await generateAgentReply({
     model: agent.model,
