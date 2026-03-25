@@ -1,0 +1,99 @@
+"use server";
+
+import { randomUUID } from "node:crypto";
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+import { auth } from "@/auth";
+import { collectFacebookAdsFormInput, facebookAdsFormSchema } from "@/lib/marketing";
+import {
+  generateFacebookAdsCopy,
+  generateMarketingImage,
+  getMarketingAiDefaults,
+  saveGeneratedMarketingImage,
+} from "@/lib/marketing-ai";
+import { createMarketingGeneration, updateMarketingGeneration } from "@/lib/marketing-store";
+import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
+
+export async function generateFacebookAdsCreativeAction(formData: FormData): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+    redirect("/unauthorized");
+  }
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    redirect("/cliente/marketing-ia/facebook-ads?error=Debes+configurar+tu+negocio+primero");
+  }
+
+  const parsed = facebookAdsFormSchema.safeParse(collectFacebookAdsFormInput(formData));
+  if (!parsed.success) {
+    const message = parsed.error.issues[0]?.message || "Datos invalidos";
+    redirect(`/cliente/marketing-ia/facebook-ads?error=${encodeURIComponent(message)}`);
+  }
+
+  const defaults = getMarketingAiDefaults();
+
+  const generation = await createMarketingGeneration({
+    id: randomUUID(),
+    workspaceId: membership.workspace.id,
+    tool: "FACEBOOK_ADS",
+    provider: defaults.provider,
+    status: "PENDING",
+    model: defaults.model,
+    imageModel: defaults.imageModel,
+    input: parsed.data,
+  });
+
+  let output: Awaited<ReturnType<typeof generateFacebookAdsCopy>> | null = null;
+
+  try {
+    output = await generateFacebookAdsCopy({
+      workspaceName: membership.workspace.name,
+      input: parsed.data,
+    });
+
+    await updateMarketingGeneration({
+      id: generation.id,
+      output,
+    });
+
+    const generatedImage = await generateMarketingImage(output.imagePrompt);
+    const imageUrl = await saveGeneratedMarketingImage({
+      base64: generatedImage.base64,
+      workspaceSlug: membership.workspace.slug,
+    });
+
+    await updateMarketingGeneration({
+      id: generation.id,
+      status: "SUCCEEDED",
+      output,
+      imageUrl,
+      errorMessage: null,
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error && error.message.trim()
+        ? error.message.trim()
+        : "No se pudo generar el creativo";
+
+    await updateMarketingGeneration({
+      id: generation.id,
+      status: "FAILED",
+      output: output ?? undefined,
+      errorMessage: message,
+    });
+
+    revalidatePath("/cliente/marketing-ia");
+    revalidatePath("/cliente/marketing-ia/facebook-ads");
+    redirect(
+      `/cliente/marketing-ia/facebook-ads?historyId=${generation.id}&error=${encodeURIComponent(
+        "No pudimos completar la generacion con OpenAI",
+      )}`,
+    );
+  }
+
+  revalidatePath("/cliente");
+  revalidatePath("/cliente/marketing-ia");
+  revalidatePath("/cliente/marketing-ia/facebook-ads");
+  redirect(`/cliente/marketing-ia/facebook-ads?historyId=${generation.id}&ok=Creativo+generado`);
+}

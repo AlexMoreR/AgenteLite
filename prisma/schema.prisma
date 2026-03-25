@@ -24,6 +24,21 @@ enum WorkspacePlanTier {
   AVANZADO
 }
 
+enum MarketingGenerationTool {
+  FACEBOOK_ADS
+}
+
+enum MarketingGenerationProvider {
+  OPENAI
+  GEMINI
+}
+
+enum MarketingGenerationStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+}
+
 model User {
   id                 String            @id @default(cuid())
   name               String?
@@ -139,6 +154,7 @@ model Workspace {
   contacts      Contact[]
   conversations Conversation[]
   messages      Message[]
+  marketingGenerations MarketingGeneration[]
 
   @@index([ownerId])
 }
@@ -423,4 +439,24 @@ model Message {
   @@index([workspaceId, createdAt])
   @@index([conversationId, createdAt])
   @@index([contactId, createdAt])
+}
+
+model MarketingGeneration {
+  id           String                    @id @default(cuid())
+  workspaceId  String
+  tool         MarketingGenerationTool
+  provider     MarketingGenerationProvider
+  status       MarketingGenerationStatus @default(PENDING)
+  model        String?
+  imageModel   String?
+  input        Json
+  output       Json?
+  imageUrl     String?
+  errorMessage String?
+  createdAt    DateTime                  @default(now())
+  updatedAt    DateTime                  @updatedAt
+  workspace    Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, tool, createdAt])
+  @@index([workspaceId, status, createdAt])
 }

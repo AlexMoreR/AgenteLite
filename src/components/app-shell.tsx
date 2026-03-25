@@ -77,6 +77,7 @@ export function AppShell({
   const isMarketingHome = pathname === "/";
   const isAuthPath = pathname === "/login" || pathname === "/register";
   const isAgentWorkspacePath = pathname.startsWith("/cliente/agentes/");
+  const isMarketingWorkspacePath = pathname.startsWith("/cliente/marketing-ia/");
   const showClientPlanAlert = Boolean(user?.role === "CLIENTE" && pathname.startsWith("/cliente") && clientPlanAlert);
   const showClientPlanBlock = Boolean(user?.role === "CLIENTE" && pathname.startsWith("/cliente") && clientPlanBlock?.isExpired);
   const currentPage = pathname === "/"
@@ -85,6 +86,8 @@ export function AppShell({
       ? "Cotizaciones"
     : pathname.startsWith("/cliente/agentes")
       ? "Agentes"
+    : pathname.startsWith("/cliente/marketing-ia")
+      ? "Marketing IA"
     : pathname.startsWith("/admin/categorias")
       ? "Categorias"
     : pathname.startsWith("/admin/proveedores")
@@ -128,6 +131,17 @@ export function AppShell({
 
     if (pathname.startsWith("/cliente/agentes")) {
       return [{ label: "Agentes", href: "", isCurrent: true }];
+    }
+
+    if (pathname.startsWith("/cliente/marketing-ia/facebook-ads")) {
+      return [
+        { label: "Marketing IA", href: "/cliente/marketing-ia", isCurrent: false },
+        { label: "Facebook Ads", href: "", isCurrent: true },
+      ];
+    }
+
+    if (pathname.startsWith("/cliente/marketing-ia")) {
+      return [{ label: "Marketing IA", href: "", isCurrent: true }];
     }
 
     if (pathname.startsWith("/admin/productos/new")) {
@@ -230,7 +244,7 @@ export function AppShell({
             <main
               className={cn(
                 "admin-print-main flex flex-1 flex-col",
-                isAgentWorkspacePath ? "min-h-0 overflow-hidden p-0 md:p-4" : "p-3 md:p-4",
+                isAgentWorkspacePath || isMarketingWorkspacePath ? "min-h-0 overflow-hidden p-0 md:p-4" : "p-3 md:p-4",
               )}
             >
               {showClientPlanAlert && clientPlanAlert ? <ClientPlanWarningBar {...clientPlanAlert} /> : null}

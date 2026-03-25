@@ -67,7 +67,11 @@ const steps = [
   },
   {
     title: "🛡️ Reglas importantes",
-    subtitle: "Marca lo que nunca debe hacer y deja listo el siguiente paso con WhatsApp.",
+    subtitle: "Marca lo que nunca debe hacer para proteger la operacion.",
+  },
+  {
+    title: "Activacion",
+    subtitle: "Elige si quieres probar el agente primero o conectar WhatsApp ahora.",
   },
 ] as const;
 
@@ -143,13 +147,11 @@ function ToneCard({
 function ToggleRow({
   name,
   title,
-  description,
   defaultChecked = false,
   helpText,
 }: {
   name: string;
   title: string;
-  description: string;
   defaultChecked?: boolean;
   helpText: string;
 }) {
@@ -172,6 +174,7 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
   const [pendingDelete, setPendingDelete] = useState<AgentCard | null>(null);
   const [resetOpen, setResetOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [postCreateAction, setPostCreateAction] = useState<"probar" | "conectar">("probar");
   const [responseLengthValue, setResponseLengthValue] = useState(50);
   const [audienceMode, setAudienceMode] = useState<"persona" | "empresa">("persona");
   const [selectedAudiences, setSelectedAudiences] = useState<string[]>(["Mujer"]);
@@ -183,6 +186,7 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
   const openCreateFlow = () => {
     setStep(0);
     setIsSubmitting(false);
+    setPostCreateAction("probar");
     setResponseLengthValue(50);
     setAudienceMode("persona");
     setSelectedAudiences(["Mujer"]);
@@ -195,7 +199,8 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
     setIsSubmitting(false);
     setModalOpen(false);
   };
-  const submitCreateFlow = () => {
+  const submitCreateFlow = (action: "probar" | "conectar") => {
+    setPostCreateAction(action);
     setIsSubmitting(true);
     formRef.current?.requestSubmit();
   };
@@ -405,6 +410,7 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
             </div>
 
             <form ref={formRef} action={createAgentAction} noValidate className="flex min-h-0 flex-1 flex-col">
+              <input type="hidden" name="postCreateAction" value={postCreateAction} />
               <div
                 className={
                   isSubmitting
@@ -584,10 +590,10 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
                               />
                             </div>
                             <div className="mt-5 grid gap-3 md:grid-cols-2">
-                              <ToggleRow name="useEmojis" title="Usar emojis" description="Puede usarlos con moderacion." helpText="Activalo si tu marca se comunica de forma cercana y natural." />
-                              <ToggleRow name="useExpressivePunctuation" title="Usar ! y ?" description="Permite signos expresivos de forma natural." defaultChecked helpText="Permite respuestas con mas energia cuando encajen con la conversacion." />
-                              <ToggleRow name="useTuteo" title="Tutear al cliente" description="Habla de tu en lugar de usted." defaultChecked helpText="Enciendelo si tu negocio habla de forma cercana. Apagalo si prefieres una comunicacion mas formal." />
-                              <ToggleRow name="useCustomerName" title="Llamarlo por nombre" description="Usa el nombre cuando ya lo conozca." defaultChecked helpText="Ayuda a que la conversacion se sienta mas personal cuando el cliente ya compartio su nombre." />
+                              <ToggleRow name="useEmojis" title="Usar emojis" helpText="Activalo si tu marca se comunica de forma cercana y natural." />
+                              <ToggleRow name="useExpressivePunctuation" title="Usar ! y ?" defaultChecked helpText="Permite respuestas con mas energia cuando encajen con la conversacion." />
+                              <ToggleRow name="useTuteo" title="Tutear al cliente" defaultChecked helpText="Enciendelo si tu negocio habla de forma cercana. Apagalo si prefieres una comunicacion mas formal." />
+                              <ToggleRow name="useCustomerName" title="Llamarlo por nombre" defaultChecked helpText="Ayuda a que la conversacion se sienta mas personal cuando el cliente ya compartio su nombre." />
                             </div>
                           </div>
                         </div>
@@ -597,12 +603,12 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
                     <div className={step === 2 ? "block" : "hidden"}>
                       <StepFrame>
                         <div className="grid gap-3">
-                          <ToggleRow name="askNameFirst" title="Preguntar el nombre al inicio" description="Se presenta y pide el nombre para personalizar la conversacion." defaultChecked helpText="Sirve si quieres que el agente personalice desde el primer mensaje." />
-                          <ToggleRow name="offerBestSeller" title="Ofrecer el producto mas vendido" description="Si el cliente duda, recomienda una opcion fuerte." defaultChecked helpText="Hace que el agente sugiera una opcion segura cuando el cliente no sabe cual elegir." />
-                          <ToggleRow name="handlePriceObjections" title="Manejar objeciones de precio" description={'Responde frases como "esta muy caro" con argumentos de valor.'} defaultChecked helpText="Permite que el agente defienda el valor de tu oferta cuando el cliente dude por precio." />
-                          <ToggleRow name="askForOrder" title="Pedir el pedido directamente" description={'Despues de resolver dudas, intenta cerrar con una pregunta como "Te lo reservo?".'} defaultChecked helpText="Hace que el agente intente cerrar la venta con una pregunta directa cuando vea intencion de compra." />
-                          <ToggleRow name="sendPaymentLink" title="Enviar link de pago automatico" description="Si el cliente confirma, indica el paso de pago." helpText="Usalo si tu proceso de venta ya tiene un enlace o paso de pago claro." />
-                          <ToggleRow name="handoffToHuman" title="Escalar a humano si no puede ayudar" description="Avisa cuando algo esta fuera de su alcance." defaultChecked helpText="Recomendado para casos especiales, dudas complejas o cuando el cliente necesite atencion de una persona." />
+                          <ToggleRow name="askNameFirst" title="Preguntar el nombre al inicio" defaultChecked helpText="Sirve si quieres que el agente personalice desde el primer mensaje." />
+                          <ToggleRow name="offerBestSeller" title="Ofrecer el producto mas vendido" defaultChecked helpText="Hace que el agente sugiera una opcion segura cuando el cliente no sabe cual elegir." />
+                          <ToggleRow name="handlePriceObjections" title="Manejar objeciones de precio" defaultChecked helpText="Permite que el agente defienda el valor de tu oferta cuando el cliente dude por precio." />
+                          <ToggleRow name="askForOrder" title="Pedir el pedido directamente" defaultChecked helpText="Hace que el agente intente cerrar la venta con una pregunta directa cuando vea intencion de compra." />
+                          <ToggleRow name="sendPaymentLink" title="Enviar link de pago automatico" helpText="Usalo si tu proceso de venta ya tiene un enlace o paso de pago claro." />
+                          <ToggleRow name="handoffToHuman" title="Escalar a humano si no puede ayudar" defaultChecked helpText="Recomendado para casos especiales, dudas complejas o cuando el cliente necesite atencion de una persona." />
                         </div>
                       </StepFrame>
                     </div>
@@ -637,31 +643,67 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
                             </span>
                             <textarea name="customRules" rows={4} className="flex w-full rounded-[24px] border border-[rgba(148,163,184,0.18)] bg-white px-4 py-4 text-sm leading-7 text-slate-800 outline-none transition focus:border-[var(--primary)]" placeholder={"Ej. No ofrecer entregas el mismo dia.\nNo confirmar disponibilidad hasta revisar inventario.\nNo prometer cambios sin revisar politicas."} />
                           </label>
-                          <div className="rounded-[28px] border border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcff_100%)] p-5">
+                        </div>
+                      </StepFrame>
+                    </div>
+
+                    <div className={step === 4 ? "block" : "hidden"}>
+                      <StepFrame>
+                        <div className="space-y-6">
+                          <div className="rounded-[28px] border border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcff_100%)] p-5 md:p-6">
                             <div className="flex items-start gap-3">
                               <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
                                 <QrCode className="h-5 w-5" />
                               </span>
-                              <div className="space-y-4">
+                              <div className="space-y-2">
                                 <div className="inline-flex items-center gap-2">
-                                  <p className="text-sm font-semibold text-slate-900">Conectar WhatsApp ahora</p>
+                                  <p className="text-sm font-semibold text-slate-900">Ultimo paso</p>
                                   <TrainingHelpPopover
-                                    title="Conectar WhatsApp ahora"
-                                    description="Si lo activas, al terminar te llevamos directo al siguiente paso para enlazar el canal de WhatsApp."
+                                    title="Ultimo paso"
+                                    description="Te recomendamos probar primero. Si ya lo tienes claro, tambien puedes conectar el WhatsApp de una vez."
                                   />
                                 </div>
-                                <div className="flex flex-wrap gap-3">
-                                  <label className="cursor-pointer">
-                                    <input type="radio" name="connectWhatsappNow" value="si" defaultChecked className="peer sr-only" />
-                                    <span className="inline-flex min-h-11 items-center justify-center rounded-full border border-[rgba(148,163,184,0.18)] bg-white px-4 py-2 text-sm font-medium text-slate-700 transition peer-checked:border-[var(--primary)] peer-checked:bg-[color-mix(in_srgb,var(--primary)_8%,white)] peer-checked:text-[var(--primary)]">Si, conectarlo ahora</span>
-                                  </label>
-                                  <label className="cursor-pointer">
-                                    <input type="radio" name="connectWhatsappNow" value="despues" className="peer sr-only" />
-                                    <span className="inline-flex min-h-11 items-center justify-center rounded-full border border-[rgba(148,163,184,0.18)] bg-white px-4 py-2 text-sm font-medium text-slate-700 transition peer-checked:border-[var(--primary)] peer-checked:bg-[color-mix(in_srgb,var(--primary)_8%,white)] peer-checked:text-[var(--primary)]">Lo hare despues</span>
-                                  </label>
-                                </div>
+                                <p className="max-w-2xl text-sm leading-6 text-slate-600">
+                                  Para una persona de negocio, lo mejor es probar un par de mensajes y despues conectar el numero real.
+                                </p>
                               </div>
                             </div>
+                          </div>
+
+                          <div className="grid gap-3 md:grid-cols-2">
+                            <button
+                              type="button"
+                              onClick={() => submitCreateFlow("probar")}
+                              className="group rounded-[28px] border border-[rgba(148,163,184,0.14)] bg-white p-5 text-left shadow-[0_18px_40px_-34px_rgba(15,23,42,0.18)] transition hover:-translate-y-0.5 hover:border-[var(--primary)]/30 hover:shadow-[0_24px_48px_-36px_rgba(15,23,42,0.22)]"
+                            >
+                              <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
+                                <Sparkles className="h-5 w-5" />
+                              </span>
+                              <h3 className="mt-4 text-lg font-semibold tracking-[-0.03em] text-slate-950">Probar agente</h3>
+                              <p className="mt-2 text-sm leading-6 text-slate-600">
+                                Crea el agente y abre una simulacion para revisar como responde antes de salir en vivo.
+                              </p>
+                              <span className="mt-5 inline-flex h-11 items-center justify-center rounded-2xl bg-[var(--primary)] px-4 text-sm font-medium text-white transition group-hover:bg-[var(--primary-strong)]">
+                                Probar agente
+                              </span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => submitCreateFlow("conectar")}
+                              className="group rounded-[28px] border border-[rgba(148,163,184,0.14)] bg-white p-5 text-left shadow-[0_18px_40px_-34px_rgba(15,23,42,0.18)] transition hover:-translate-y-0.5 hover:border-[var(--primary)]/30 hover:shadow-[0_24px_48px_-36px_rgba(15,23,42,0.22)]"
+                            >
+                              <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
+                                <MessageSquareMore className="h-5 w-5" />
+                              </span>
+                              <h3 className="mt-4 text-lg font-semibold tracking-[-0.03em] text-slate-950">Conectar ahora</h3>
+                              <p className="mt-2 text-sm leading-6 text-slate-600">
+                                Crea el agente y pasa directo al QR para vincular tu WhatsApp en este momento.
+                              </p>
+                              <span className="mt-5 inline-flex h-11 items-center justify-center rounded-2xl border border-[rgba(148,163,184,0.18)] px-4 text-sm font-medium text-slate-700 transition group-hover:border-[var(--primary)]/30 group-hover:text-[var(--primary)]">
+                                Conectar ahora
+                              </span>
+                            </button>
                           </div>
                         </div>
                       </StepFrame>
@@ -681,10 +723,9 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
                       <ChevronRight className="h-4 w-4" />
                     </button>
                   ) : (
-                    <button type="button" onClick={submitCreateFlow} className="inline-flex h-12 min-w-[186px] items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-6 text-sm font-medium text-white shadow-[0_16px_30px_-20px_color-mix(in_srgb,var(--primary)_65%,black)] transition hover:bg-[var(--primary-strong)]">
-                      Crear agente
-                      <Sparkles className="h-4 w-4" />
-                    </button>
+                    <div className="text-right text-sm text-slate-500">
+                      Elige una de las dos acciones para crear el agente y continuar.
+                    </div>
                   )}
                 </div>
               ) : null}

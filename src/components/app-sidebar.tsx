@@ -3,6 +3,7 @@
 import {
   Bot,
   FileText,
+  ImagePlus,
   LayoutDashboard,
   Package,
   Settings,
@@ -47,6 +48,7 @@ export function AppSidebar({ pathname, brandName, adminModuleAccess, user, ...pr
   const isAdminQuotesRoute = pathname.startsWith("/admin/cotizaciones");
   const isAdminSuppliersRoute = pathname.startsWith("/admin/proveedores");
   const isClientAgentsRoute = pathname.startsWith("/cliente/agentes");
+  const isClientMarketingRoute = pathname.startsWith("/cliente/marketing-ia");
 
   const navMain = [
     {
@@ -61,7 +63,8 @@ export function AppSidebar({ pathname, brandName, adminModuleAccess, user, ...pr
           !isAdminProductsRoute &&
           !isAdminQuotesRoute &&
           !isAdminSuppliersRoute &&
-          !isClientAgentsRoute),
+          !isClientAgentsRoute &&
+          !isClientMarketingRoute),
       items: [
         { title: "Vista general", url: dashboardHref },
       ],
@@ -127,6 +130,14 @@ export function AppSidebar({ pathname, brandName, adminModuleAccess, user, ...pr
   }
 
   if (user.role === "ADMIN" || user.role === "CLIENTE") {
+    navMain.push({
+      title: "Marketing IA",
+      url: "/cliente/marketing-ia",
+      icon: ImagePlus,
+      isActive: pathname.startsWith("/cliente/marketing-ia"),
+      items: [{ title: "Creativos", url: "/cliente/marketing-ia" }],
+    });
+
     navMain.push({
       title: "Agentes",
       url: "/cliente/agentes",

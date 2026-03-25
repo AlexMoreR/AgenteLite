@@ -70,6 +70,34 @@ body {
   border-color: var(--line-strong);
 }
 
+.field-input,
+.field-textarea {
+  width: 100%;
+  border-radius: 1rem;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  padding: 0.85rem 1rem;
+  font-size: 0.875rem;
+  color: #1f2937;
+  outline: none;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.field-input {
+  min-height: 3rem;
+}
+
+.field-textarea {
+  resize: vertical;
+  line-height: 1.6;
+}
+
+.field-input:focus,
+.field-textarea:focus {
+  border-color: var(--line-strong);
+  box-shadow: 0 0 0 3px rgb(37 99 235 / 0.08);
+}
+
 .app-sonner-toast {
   border: 1px solid var(--line) !important;
   border-radius: 0.875rem !important;

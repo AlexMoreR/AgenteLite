@@ -59,7 +59,7 @@ const createAgentSchema = z.object({
   handoffToHuman: z.boolean(),
   forbiddenRules: z.array(z.string()).max(10, "Demasiadas reglas"),
   customRules: z.string().trim().max(600, "Las reglas personalizadas son demasiado largas"),
-  connectWhatsappNow: z.enum(["si", "despues"]),
+  postCreateAction: z.enum(["probar", "conectar"]),
 });
 
 const deleteAgentSchema = z.object({
@@ -122,7 +122,7 @@ function collectTrainingFormInput(formData: FormData) {
     handoffToHuman: formData.get("handoffToHuman") === "on",
     forbiddenRules: rawForbiddenRules,
     customRules: getStringValue("customRules"),
-    connectWhatsappNow: getStringValue("connectWhatsappNow") || "despues",
+    postCreateAction: getStringValue("postCreateAction") || "probar",
   };
 }
 
@@ -232,7 +232,7 @@ export async function createAgentAction(formData: FormData): Promise<void> {
     },
   });
 
-  if (parsed.data.connectWhatsappNow === "si") {
+  if (parsed.data.postCreateAction === "conectar") {
     try {
       await createEvolutionChannelForAgent({
         workspaceId: membership.workspace.id,
@@ -267,7 +267,7 @@ export async function createAgentAction(formData: FormData): Promise<void> {
 
   revalidatePath("/cliente");
   revalidatePath("/cliente/agentes");
-  redirect("/cliente/agentes?ok=Agente+creado");
+  redirect(`/cliente/agentes/${agent.id}/probar?ok=Agente+creado`);
 }
 
 export async function updateAgentTrainingAction(formData: FormData): Promise<void> {

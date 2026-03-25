@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { ArrowRight, Bot, Building2, MessageSquareMore } from "lucide-react";
+import { ArrowRight, Bot, Building2, ImagePlus, MessageSquareMore } from "lucide-react";
 import { auth } from "@/auth";
 import { Card } from "@/components/ui/card";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
@@ -87,11 +87,11 @@ export default async function ClientePage({ searchParams }: PageProps) {
 
         <Card className="space-y-2">
           <div className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-100 text-slate-700">
-            <Building2 className="h-4 w-4" />
+            <ImagePlus className="h-4 w-4" />
           </div>
-          <h2 className="text-base font-semibold text-slate-900">Conversaciones</h2>
+          <h2 className="text-base font-semibold text-slate-900">Marketing IA</h2>
           <p className="text-sm text-slate-600">
-            {membership?.workspace._count.conversations ?? 0} registradas. Aqui veremos despues la actividad real de WhatsApp.
+            Genera copies e imagenes para Facebook Ads desde un modulo separado, con historial por workspace.
           </p>
         </Card>
       </div>

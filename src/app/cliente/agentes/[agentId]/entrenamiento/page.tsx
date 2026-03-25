@@ -343,7 +343,6 @@ export default async function AgentTrainingPage({ params }: PageProps) {
               </div>
             </Card>
 
-            <input type="hidden" name="connectWhatsappNow" value="despues" />
             <div className="flex justify-end">
               <button
                 type="submit"
