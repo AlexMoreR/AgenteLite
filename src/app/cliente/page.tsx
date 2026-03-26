@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { ArrowRight, Bot, Building2, MessageSquareMore } from "lucide-react";
+import { ArrowRight, Bot, Building2, Megaphone, MessageSquareMore } from "lucide-react";
 import { auth } from "@/auth";
 import { Card } from "@/components/ui/card";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
@@ -83,6 +83,23 @@ export default async function ClientePage({ searchParams }: PageProps) {
           <p className="text-sm text-slate-600">
             {membership?.workspace._count.channels ?? 0} conectados. Cada agente podra tener su canal de WhatsApp enlazado desde aqui.
           </p>
+        </Card>
+
+        <Card className="space-y-3">
+          <div className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-100 text-slate-700">
+            <Megaphone className="h-4 w-4" />
+          </div>
+          <h2 className="text-base font-semibold text-slate-900">Marketing IA</h2>
+          <p className="text-sm text-slate-600">
+            Genera imagenes para Facebook Ads desde la foto real de tu producto y descarga 3 versiones con texto comercial.
+          </p>
+          <Link
+            href="/cliente/marketing-ia/facebook-ads"
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-[var(--line)] bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+          >
+            Abrir generador
+            <ArrowRight className="h-4 w-4" />
+          </Link>
         </Card>
       </div>
     </section>

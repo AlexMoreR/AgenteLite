@@ -6,6 +6,7 @@ import {
   X,
 } from "lucide-react";
 import { adminUpdateProductAction } from "@/app/actions/product-actions";
+import { FacebookAdCreativeGenerator } from "@/components/admin/facebook-ad-creative-generator";
 import { ProductFormStepper } from "@/components/admin/product-form-stepper";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -158,40 +159,41 @@ export function EditProductForm({
   };
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[19rem_minmax(0,1fr)] xl:gap-8">
-      <aside className="space-y-4 xl:sticky xl:top-8 xl:h-fit xl:space-y-5">
-        <div className="space-y-4">
-          <div className="overflow-hidden rounded-xl border border-[var(--line)] bg-white">
-              <div className="relative flex h-52 items-center justify-center bg-slate-100">
-                {previewImageUrl ? (
-                  <img src={previewImageUrl} alt="Vista previa" className="h-full w-full object-contain" />
+    <div className="space-y-5">
+      <div className="grid gap-4 xl:grid-cols-[19rem_minmax(0,1fr)] xl:gap-8">
+        <aside className="space-y-4 xl:sticky xl:top-8 xl:h-fit xl:space-y-5">
+          <div className="space-y-4">
+            <div className="overflow-hidden rounded-xl border border-[var(--line)] bg-white">
+                <div className="relative flex h-52 items-center justify-center bg-slate-100">
+                  {previewImageUrl ? (
+                    <img src={previewImageUrl} alt="Vista previa" className="h-full w-full object-contain" />
+                  ) : (
+                    <p className="text-xs text-slate-500">Sin imagen principal</p>
+                  )}
+                <span className="absolute right-2 top-2 rounded-full border border-[var(--line)] bg-white/95 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                  {code.trim() || "SKU"}
+                </span>
+              </div>
+              <div className="space-y-1.5 border-t border-[var(--line)] bg-white p-3">
+                <p className="text-sm font-semibold text-slate-900">{name.trim() || "Producto sin nombre"}</p>
+                {description.trim() ? (
+                  <p className="line-clamp-2 text-xs text-slate-500">{description.trim()}</p>
                 ) : (
-                  <p className="text-xs text-slate-500">Sin imagen principal</p>
+                  <p className="text-xs text-slate-400">Agrega descripcion para completar la ficha.</p>
                 )}
-              <span className="absolute right-2 top-2 rounded-full border border-[var(--line)] bg-white/95 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                {code.trim() || "SKU"}
-              </span>
+                <p className="text-lg font-semibold tracking-tight text-slate-900">{pricing.retail}</p>
+                <p className="text-xs text-slate-600">
+                  Mayorista: {pricing.wholesale} (min {minWholesaleQty || "1"} uds)
+                </p>
+              </div>
             </div>
-            <div className="space-y-1.5 border-t border-[var(--line)] bg-white p-3">
-              <p className="text-sm font-semibold text-slate-900">{name.trim() || "Producto sin nombre"}</p>
-              {description.trim() ? (
-                <p className="line-clamp-2 text-xs text-slate-500">{description.trim()}</p>
-              ) : (
-                <p className="text-xs text-slate-400">Agrega descripcion para completar la ficha.</p>
-              )}
-              <p className="text-lg font-semibold tracking-tight text-slate-900">{pricing.retail}</p>
-              <p className="text-xs text-slate-600">
-                Mayorista: {pricing.wholesale} (min {minWholesaleQty || "1"} uds)
-              </p>
-            </div>
+            <ProductFormStepper steps={steps} activeStep={activeStep} />
           </div>
-          <ProductFormStepper steps={steps} activeStep={activeStep} />
-        </div>
 
-      </aside>
+        </aside>
 
-      <Card className="space-y-6 overflow-hidden px-4 pb-4 pt-0 sm:space-y-7 sm:px-6 sm:pb-6">
-        <form action={adminUpdateProductAction} className="space-y-7">
+        <Card className="space-y-6 overflow-hidden px-4 pb-4 pt-0 sm:space-y-7 sm:px-6 sm:pb-6">
+          <form action={adminUpdateProductAction} className="space-y-7">
           <input type="hidden" name="productId" value={initialData.id} />
           <input type="hidden" name="existingImages" value={existingImageUrls.join("\n")} />
 
@@ -443,25 +445,33 @@ export function EditProductForm({
             </div>
           </section>
 
-          <div className="mt-1 flex flex-wrap items-center gap-3 border-t border-[var(--line)] pt-5">
-            <Link
-              href="/admin/productos/new"
-              className="inline-flex h-10 items-center justify-center rounded-lg border border-[var(--line)] bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-            >
-              Crear nuevo producto
-            </Link>
-            <div className="ml-auto flex flex-wrap items-center justify-end gap-3">
-              <button
-                type="submit"
-                className="inline-flex h-10 items-center justify-center rounded-lg bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
-                disabled={allImageUrls.length === 0}
+            <div className="mt-1 flex flex-wrap items-center gap-3 border-t border-[var(--line)] pt-5">
+              <Link
+                href="/admin/productos/new"
+                className="inline-flex h-10 items-center justify-center rounded-lg border border-[var(--line)] bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
               >
-                Guardar cambios
-              </button>
+                Crear nuevo producto
+              </Link>
+              <div className="ml-auto flex flex-wrap items-center justify-end gap-3">
+                <button
+                  type="submit"
+                  className="inline-flex h-10 items-center justify-center rounded-lg bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
+                  disabled={allImageUrls.length === 0}
+                >
+                  Guardar cambios
+                </button>
+              </div>
             </div>
-          </div>
-        </form>
-      </Card>
+          </form>
+        </Card>
+      </div>
+
+      <FacebookAdCreativeGenerator
+        productId={initialData.id}
+        productName={name.trim() || initialData.name}
+        imageUrls={existingImageUrls}
+        hasPendingUploads={selectedFiles.length > 0}
+      />
     </div>
   );
 }
