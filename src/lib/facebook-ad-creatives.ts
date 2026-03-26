@@ -370,7 +370,13 @@ function buildCreativeImagePrompt(
     "Place the text inside a clean safe area that does not compete with the product.",
     "Use a strong dark or light overlay panel, gradient, ribbon, or blurred backdrop behind the text so it reads clearly at a glance.",
     context.includeBrandLogo
-      ? "Reserve a clean empty logo-safe area in the bottom-right corner. Do not place headlines, support text, CTA buttons, stars, bubbles, products, or decorations in that reserved area."
+      ? "Keep at least one image corner visually quieter and cleaner for later brand placement."
+      : "",
+    context.includeBrandLogo
+      ? "Prefer leaving one corner with fewer text elements, fewer bubbles, and no CTA overlap so a brand logo can be added after generation."
+      : "",
+    context.includeBrandLogo
+      ? "Do not place the CTA touching every corner at once; keep one corner freer than the others."
       : "",
     "The headline must be large, bold, short, and instantly legible on mobile.",
     "The support line must be smaller than the headline but still clear and high contrast.",
@@ -411,9 +417,9 @@ async function overlayBrandLogo(
 
   const width = metadata.width ?? 1024;
   const height = metadata.height ?? 1024;
-  const logoMaxWidth = Math.max(150, Math.round(width * 0.2));
-  const logoMaxHeight = Math.max(70, Math.round(height * 0.1));
-  const logoMargin = Math.max(28, Math.round(width * 0.035));
+  const logoMargin = Math.max(22, Math.round(width * 0.028));
+  const logoMaxWidth = Math.max(116, Math.round(width * 0.14));
+  const logoMaxHeight = Math.max(54, Math.round(height * 0.12));
   const logoPath = path.resolve(process.cwd(), "public", context.brandLogoUrl.replace(/^\/+/, ""));
   const logoBuffer = await readFile(logoPath);
 
@@ -428,13 +434,102 @@ async function overlayBrandLogo(
     .toBuffer();
   const resizedLogoMetadata = await sharp(resizedLogo).metadata();
   const resizedLogoWidth = resizedLogoMetadata.width ?? logoMaxWidth;
+  const resizedLogoHeight = resizedLogoMetadata.height ?? logoMaxHeight;
+  const probeWidth = Math.max(resizedLogoWidth + logoMargin * 2, Math.round(width * 0.22));
+  const probeHeight = Math.max(resizedLogoHeight + logoMargin * 2, Math.round(height * 0.18));
+
+  const corners = [
+    { key: "top-left", left: logoMargin, top: logoMargin },
+    { key: "top-right", left: width - probeWidth - logoMargin, top: logoMargin },
+    { key: "bottom-left", left: logoMargin, top: height - probeHeight - logoMargin },
+    { key: "bottom-right", left: width - probeWidth - logoMargin, top: height - probeHeight - logoMargin },
+  ].map((corner) => ({
+    ...corner,
+    left: Math.max(0, Math.min(corner.left, width - probeWidth)),
+    top: Math.max(0, Math.min(corner.top, height - probeHeight)),
+  }));
+
+  const baseRaw = await baseImage
+    .clone()
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  function getRegionScore(left: number, top: number, regionWidth: number, regionHeight: number) {
+    const channels = baseRaw.info.channels;
+    let pixelCount = 0;
+    let sum = 0;
+    let sumSq = 0;
+    let edgeScore = 0;
+
+    for (let y = 0; y < regionHeight; y += 1) {
+      const absoluteY = top + y;
+      for (let x = 0; x < regionWidth; x += 1) {
+        const absoluteX = left + x;
+        const index = (absoluteY * width + absoluteX) * channels;
+        const r = baseRaw.data[index] ?? 0;
+        const g = baseRaw.data[index + 1] ?? 0;
+        const b = baseRaw.data[index + 2] ?? 0;
+        const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+
+        pixelCount += 1;
+        sum += luminance;
+        sumSq += luminance * luminance;
+
+        if (x > 0) {
+          const leftIndex = (absoluteY * width + (absoluteX - 1)) * channels;
+          const leftLuma =
+            0.2126 * (baseRaw.data[leftIndex] ?? 0) +
+            0.7152 * (baseRaw.data[leftIndex + 1] ?? 0) +
+            0.0722 * (baseRaw.data[leftIndex + 2] ?? 0);
+          edgeScore += Math.abs(luminance - leftLuma);
+        }
+
+        if (y > 0) {
+          const topIndex = ((absoluteY - 1) * width + absoluteX) * channels;
+          const topLuma =
+            0.2126 * (baseRaw.data[topIndex] ?? 0) +
+            0.7152 * (baseRaw.data[topIndex + 1] ?? 0) +
+            0.0722 * (baseRaw.data[topIndex + 2] ?? 0);
+          edgeScore += Math.abs(luminance - topLuma);
+        }
+      }
+    }
+
+    const mean = sum / Math.max(pixelCount, 1);
+    const variance = Math.max(sumSq / Math.max(pixelCount, 1) - mean * mean, 0);
+    const normalizedEdge = edgeScore / Math.max(pixelCount, 1);
+    return {
+      mean,
+      variance,
+      edge: normalizedEdge,
+      score: variance * 0.65 + normalizedEdge * 1.35,
+    };
+  }
+
+  const rankedCorners = corners
+    .map((corner) => ({
+      ...corner,
+      metrics: getRegionScore(corner.left, corner.top, probeWidth, probeHeight),
+    }))
+    .sort((a, b) => a.metrics.score - b.metrics.score);
+
+  const targetCorner = rankedCorners[0];
+  const logoLeft =
+    targetCorner.key.endsWith("right")
+      ? targetCorner.left + probeWidth - resizedLogoWidth - logoMargin
+      : targetCorner.left + logoMargin;
+  const logoTop =
+    targetCorner.key.startsWith("bottom")
+      ? targetCorner.top + probeHeight - resizedLogoHeight - logoMargin
+      : targetCorner.top + logoMargin;
 
   const outputBuffer = await baseImage
     .composite([
       {
         input: resizedLogo,
-        top: height - logoMargin - (resizedLogoMetadata.height ?? logoMaxHeight),
-        left: width - logoMargin - resizedLogoWidth,
+        top: logoTop,
+        left: logoLeft,
       },
     ])
     .png()
