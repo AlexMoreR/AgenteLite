@@ -1,9 +1,10 @@
 "use client";
 
-import { useActionState, useEffect, useMemo, useState } from "react";
+import { useActionState, useEffect, useMemo, useState, useTransition } from "react";
 import { History, ImagePlus, LoaderCircle, Plus, Sparkles, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import {
+  deleteFacebookAdsHistoryImagesAction,
   generateFacebookAdsFromImageAction,
   type FacebookAdsGeneratorState,
 } from "@/app/actions/marketing-actions";
@@ -135,6 +136,8 @@ export function SimpleMarketingForm() {
     generateFacebookAdsFromImageAction,
     initialState,
   );
+  const [isDeletingHistory, startDeletingHistory] = useTransition();
+  const [deletingEntryId, setDeletingEntryId] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [step, setStep] = useState(0);
   const [previewUrl, setPreviewUrl] = useState("");
@@ -234,10 +237,30 @@ export function SimpleMarketingForm() {
   };
 
   const removeHistoryEntry = (id: string) => {
-    setHistory((current) => {
-      const next = current.filter((item) => item.id !== id);
-      window.localStorage.setItem(MARKETING_HISTORY_KEY, JSON.stringify(next));
-      return next;
+    const entry = history.find((item) => item.id === id);
+    if (!entry || isDeletingHistory) {
+      return;
+    }
+
+    setDeletingEntryId(id);
+    startDeletingHistory(async () => {
+      const result = await deleteFacebookAdsHistoryImagesAction({
+        imageUrls: entry.creatives.map((creative) => creative.imageUrl),
+      });
+
+      if (!result.ok) {
+        toast.error(result.message);
+        setDeletingEntryId(null);
+        return;
+      }
+
+      setHistory((current) => {
+        const next = current.filter((item) => item.id !== id);
+        window.localStorage.setItem(MARKETING_HISTORY_KEY, JSON.stringify(next));
+        return next;
+      });
+      toast.success(result.message);
+      setDeletingEntryId(null);
     });
   };
 
@@ -285,10 +308,15 @@ export function SimpleMarketingForm() {
                   <button
                     type="button"
                     onClick={() => removeHistoryEntry(entry.id)}
+                    disabled={isDeletingHistory}
                     className="inline-flex h-9 items-center justify-center gap-2 rounded-xl border border-red-200 bg-white px-3 text-sm font-medium text-red-600 transition hover:bg-red-50"
                   >
-                    <Trash2 className="h-4 w-4" />
-                    Eliminar
+                    {deletingEntryId === entry.id ? (
+                      <LoaderCircle className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-4 w-4" />
+                    )}
+                    {deletingEntryId === entry.id ? "Eliminando..." : "Eliminar"}
                   </button>
                 </div>
 

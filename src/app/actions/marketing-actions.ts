@@ -1,7 +1,7 @@
 "use server";
 
 import { randomUUID } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { auth } from "@/auth";
@@ -28,6 +28,10 @@ const generateFacebookAdsSchema = z.object({
     .trim()
     .max(240, "Las instrucciones extra son demasiado largas")
     .optional(),
+});
+
+const deleteCreativeImagesSchema = z.object({
+  imageUrls: z.array(z.string().trim().min(1)).min(1).max(24),
 });
 
 async function requireMarketingAccess() {
@@ -94,6 +98,28 @@ function resolveMarketingError(error: unknown) {
   return "No se pudieron generar tus anuncios en este momento.";
 }
 
+function resolveCreativeDirectoryFromUrl(imageUrl: string) {
+  const normalized = imageUrl.trim();
+  const match = normalized.match(/^\/uploads\/ad-creatives\/([^/]+)\/[^/]+$/);
+  if (!match) {
+    return null;
+  }
+
+  const productId = match[1];
+  if (!/^[a-zA-Z0-9_-]+$/.test(productId)) {
+    return null;
+  }
+
+  const publicRoot = path.join(process.cwd(), "public");
+  const directory = path.resolve(publicRoot, "uploads", "ad-creatives", productId);
+
+  if (!directory.startsWith(path.join(publicRoot, "uploads", "ad-creatives"))) {
+    return null;
+  }
+
+  return directory;
+}
+
 export async function generateFacebookAdsFromImageAction(
   previousState: FacebookAdsGeneratorState,
   formData: FormData,
@@ -156,6 +182,47 @@ export async function generateFacebookAdsFromImageAction(
       ...previousState,
       ok: false,
       message: resolveMarketingError(error),
+    };
+  }
+}
+
+export async function deleteFacebookAdsHistoryImagesAction(input: {
+  imageUrls: string[];
+}): Promise<{ ok: boolean; message: string }> {
+  try {
+    await requireMarketingAccess();
+
+    const parsed = deleteCreativeImagesSchema.safeParse(input);
+    if (!parsed.success) {
+      return {
+        ok: false,
+        message: "No se pudieron identificar las imagenes a eliminar.",
+      };
+    }
+
+    const directories = Array.from(
+      new Set(
+        parsed.data.imageUrls
+          .map(resolveCreativeDirectoryFromUrl)
+          .filter((value): value is string => Boolean(value)),
+      ),
+    );
+
+    await Promise.all(
+      directories.map((directory) =>
+        rm(directory, { recursive: true, force: true }),
+      ),
+    );
+
+    return {
+      ok: true,
+      message: "Se elimino el registro y sus imagenes.",
+    };
+  } catch (error) {
+    console.error("[MARKETING_FACEBOOK_ADS_DELETE]", error);
+    return {
+      ok: false,
+      message: "No se pudieron eliminar las imagenes del historial.",
     };
   }
 }

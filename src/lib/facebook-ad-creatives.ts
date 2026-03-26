@@ -12,11 +12,17 @@ type ProductCreativeContext = {
   brief?: string;
 };
 
+type SocialProofSnippet = {
+  name: string;
+  message: string;
+};
+
 type CreativeCopyOption = {
   angle: string;
   headline: string;
   supportLine: string;
   cta: string;
+  socialProof: SocialProofSnippet[];
 };
 
 type LoadedImageSource = {
@@ -48,6 +54,16 @@ const creativeCopySchema = z.object({
       headline: z.string().trim().min(2).max(40),
       supportLine: z.string().trim().min(2).max(80),
       cta: z.string().trim().min(2).max(24),
+      socialProof: z
+        .array(
+          z.object({
+            name: z.string().trim().min(2).max(40),
+            message: z.string().trim().min(4).max(120),
+          }),
+        )
+        .min(2)
+        .max(3)
+        .optional(),
     }),
   ).min(3),
 });
@@ -116,6 +132,40 @@ function firstDescriptionSnippet(value?: string | null) {
   return clampWords(firstSentence || value, 8, 48);
 }
 
+function buildFallbackSocialProof(context: ProductCreativeContext): SocialProofSnippet[] {
+  const productName = clampWords(context.name, 3, 22) || "el producto";
+  const categorySnippet = clampWords(context.categoryName || "", 3, 22);
+  const descriptionSnippet = firstDescriptionSnippet(context.description);
+  const briefSnippet = clampWords(context.brief || "", 8, 52);
+
+  const productReference = categorySnippet || productName;
+  const detailReference =
+    descriptionSnippet ||
+    briefSnippet ||
+    clampWords(`${productName} se ve mejor y vende facil`, 8, 52);
+
+  return [
+    {
+      name: "Lucia Toledo",
+      message:
+        clampWords(`Me llego en 2 dias, ${productReference} excelente calidad`, 9, 58) ||
+        "Me llego en 2 dias, excelente calidad",
+    },
+    {
+      name: "Mario Ramirez",
+      message:
+        clampWords(`Perfecto para mi negocio, ${detailReference}`, 9, 58) ||
+        "Perfecto para mi negocio, muy comodo",
+    },
+    {
+      name: "Claudia Herrera",
+      message:
+        clampWords(`Mis clientes notaron la diferencia con ${productName}`, 8, 56) ||
+        "Mis clientes notaron la diferencia",
+    },
+  ];
+}
+
 function buildFallbackCreativeOptions(context: ProductCreativeContext): CreativeCopyOption[] {
   const shortName = clampWords(context.name, 4, 28) || "Producto premium";
   const descriptionSnippet = firstDescriptionSnippet(context.description);
@@ -123,6 +173,7 @@ function buildFallbackCreativeOptions(context: ProductCreativeContext): Creative
   const supportBase =
     descriptionSnippet ||
     clampWords(`${shortName} para elevar tu negocio`, 7, 40);
+  const fallbackSocialProof = buildFallbackSocialProof(context);
 
   return [
     {
@@ -130,6 +181,7 @@ function buildFallbackCreativeOptions(context: ProductCreativeContext): Creative
       headline: shortName,
       supportLine: supportBase,
       cta: "Compra hoy",
+      socialProof: fallbackSocialProof,
     },
     {
       angle: "Impulso comercial",
@@ -138,17 +190,23 @@ function buildFallbackCreativeOptions(context: ProductCreativeContext): Creative
         briefSnippet ||
         clampWords(`${shortName} listo para vender mas`, 7, 40),
       cta: "Pide ahora",
+      socialProof: fallbackSocialProof,
     },
     {
       angle: "Imagen profesional",
       headline: "Impulsa tu negocio",
       supportLine: clampWords(`${shortName} con presencia premium`, 6, 38),
       cta: "Cotiza ya",
+      socialProof: fallbackSocialProof,
     },
   ];
 }
 
 function sanitizeCreativeOption(option: CreativeCopyOption, fallback: CreativeCopyOption) {
+  const socialProofSource = option.socialProof?.length
+    ? option.socialProof
+    : fallback.socialProof;
+
   return {
     angle: clampWords(option.angle || fallback.angle, 4, 40) || fallback.angle,
     headline:
@@ -157,6 +215,19 @@ function sanitizeCreativeOption(option: CreativeCopyOption, fallback: CreativeCo
       clampWords(option.supportLine || fallback.supportLine, 8, 44) ||
       fallback.supportLine,
     cta: clampWords(option.cta || fallback.cta, 3, 18) || fallback.cta,
+    socialProof: socialProofSource
+        .slice(0, 3)
+        .map((item, index) => ({
+          name: clampWords(item.name || fallback.socialProof[index]?.name || "Cliente", 3, 28),
+          message:
+            clampWords(
+              item.message || fallback.socialProof[index]?.message || "Excelente calidad",
+              10,
+              58,
+            ) || fallback.socialProof[index]?.message || "Excelente calidad",
+        }))
+        .filter((item) => item.name && item.message)
+        .slice(0, 3),
   };
 }
 
@@ -172,7 +243,7 @@ async function generateCreativeCopyOptions(
     context.brief ? `Instrucciones extra: ${context.brief}` : "",
     "",
     "Devuelve solo JSON valido con esta estructura exacta:",
-    '{"options":[{"angle":"...","headline":"...","supportLine":"...","cta":"..."}]}',
+    '{"options":[{"angle":"...","headline":"...","supportLine":"...","cta":"...","socialProof":[{"name":"...","message":"..."}]}]}',
     "",
     "Reglas:",
     "- Entrega exactamente 3 opciones.",
@@ -181,6 +252,10 @@ async function generateCreativeCopyOptions(
     "- headline: maximo 5 palabras.",
     "- supportLine: maximo 8 palabras.",
     "- cta: maximo 3 palabras.",
+    "- socialProof: incluye 2 o 3 mini testimonios por opcion.",
+    "- Cada socialProof debe tener un nombre corto y un mensaje creible ligado al producto, su uso, calidad, comodidad, entrega o resultado comercial.",
+    "- Los testimonios deben mencionar beneficios o contexto real del producto, no frases genericas vacias.",
+    "- Cada message de socialProof: maximo 10 palabras.",
     "- Cada opcion debe tener un enfoque distinto: beneficio, decision rapida y confianza.",
     "- El texto debe sentirse listo para ir dentro de una imagen cuadrada de Facebook Ads.",
   ]
@@ -219,7 +294,10 @@ async function generateCreativeCopyOptions(
   const parsed = creativeCopySchema.parse(JSON.parse(cleanJsonText(rawText)));
 
   return fallback.map((fallbackOption, index) =>
-    sanitizeCreativeOption(parsed.options[index] ?? fallbackOption, fallbackOption),
+    sanitizeCreativeOption(
+      (parsed.options[index] as CreativeCopyOption | undefined) ?? fallbackOption,
+      fallbackOption,
+    ),
   );
 }
 
@@ -277,11 +355,15 @@ function buildCreativeImagePrompt(
     context.description ? `Product context: ${context.description}.` : "",
     context.brief ? `Extra campaign note: ${context.brief}.` : "",
     `Creative angle: ${option.angle}.`,
-    "Add clean, premium, highly readable Spanish typography with only these three text elements:",
+    "Add clean, premium, highly readable Spanish typography with these primary text elements:",
     `Headline: ${option.headline}`,
     `Support line: ${option.supportLine}`,
     `CTA badge: ${option.cta}`,
-    "Do not add any other text.",
+    "Also include 2 or 3 small social proof bubbles related to the product using only these approved snippets:",
+    ...option.socialProof.map(
+      (item, index) => `Social proof ${index + 1}: ${item.name} - ${item.message}`,
+    ),
+    "Do not add any text outside the primary text block and these approved social proof snippets.",
     "Text readability is the top priority.",
     "Place the text inside a clean safe area that does not compete with the product.",
     "Use a strong dark or light overlay panel, gradient, ribbon, or blurred backdrop behind the text so it reads clearly at a glance.",
@@ -291,6 +373,15 @@ function buildCreativeImagePrompt(
     "Avoid thin fonts, decorative scripts, low-contrast text, text directly over busy backgrounds, or text touching the edges.",
     "Leave generous padding around all text.",
     "Prefer one clear text block at the top or bottom of the ad.",
+    "Build the social proof as 2 or 3 separate floating speech bubbles, not as one list, one panel, or one stacked review box.",
+    "Each bubble must contain only: one small circular avatar, one customer name, and one short review message.",
+    "Do not place stars, rating rows, counters, badges, icons, or extra labels inside the review bubbles.",
+    "The bubbles should be rounded, premium, softly translucent, glassmorphism-style, with generous padding and a subtle speech-bubble tail or chat-balloon feel.",
+    "Keep each bubble visually independent, with space between them, and avoid aligning them as a rigid table or review feed.",
+    "Create a separate small rating strip outside the bubbles with the 5-star row and a compact customers counter like '+500 clientes satisfechos' or '+500 clientes felices'.",
+    "The stars belong only in that separate rating strip, never inside the bubbles.",
+    "Make the review messages clearly product-specific, not generic praise.",
+    "Do not add large paragraphs, fake chat screenshots, dense interface chrome, duplicate counters, or repeated star rows.",
     "Do not let the product overlap or hide the text.",
     "Design it like a polished, high-conversion paid social ad with excellent hierarchy and readability.",
   ]
@@ -388,6 +479,7 @@ export async function generateFacebookAdCreativesForProduct(
       headline: option.headline,
       supportLine: option.supportLine,
       cta: option.cta,
+      socialProof: option.socialProof,
       imageUrl,
     });
   }

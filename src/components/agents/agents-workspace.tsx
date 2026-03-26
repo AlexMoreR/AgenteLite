@@ -244,7 +244,6 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
                   </span>
                   <h2 className="text-xl font-semibold tracking-[-0.04em] text-slate-950">Agentes creados</h2>
                 </div>
-                <p className="text-sm text-slate-600">Administra tus agentes desde un solo lugar.</p>
               </div>
               <button
                 type="button"
