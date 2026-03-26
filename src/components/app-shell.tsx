@@ -83,6 +83,10 @@ export function AppShell({
     ? "Inicio"
     : pathname.startsWith("/admin/cotizaciones")
       ? "Cotizaciones"
+    : pathname.startsWith("/cliente/marketing-ia/facebook-ads")
+      ? "Facebook Ads"
+    : pathname.startsWith("/cliente/marketing-ia")
+      ? "Marketing IA"
     : pathname.startsWith("/cliente/agentes")
       ? "Agentes"
     : pathname.startsWith("/admin/categorias")
@@ -128,6 +132,17 @@ export function AppShell({
 
     if (pathname.startsWith("/cliente/agentes")) {
       return [{ label: "Agentes", href: "", isCurrent: true }];
+    }
+
+    if (pathname.startsWith("/cliente/marketing-ia/facebook-ads")) {
+      return [
+        { label: "Marketing IA", href: "/cliente/marketing-ia", isCurrent: false },
+        { label: "Facebook Ads", href: "", isCurrent: true },
+      ];
+    }
+
+    if (pathname.startsWith("/cliente/marketing-ia")) {
+      return [{ label: "Marketing IA", href: "", isCurrent: true }];
     }
 
     if (pathname.startsWith("/admin/productos/new")) {

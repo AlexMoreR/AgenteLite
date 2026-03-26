@@ -21,22 +21,6 @@ export default async function MarketingIaPage() {
 
   return (
     <section className="app-page space-y-5">
-      <Card className="space-y-3 p-5">
-        <p className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--primary)]">
-          <Sparkles className="h-3.5 w-3.5" />
-          Marketing IA
-        </p>
-        <div className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-900 md:text-3xl">
-            Herramientas para crear anuncios mas rapido
-          </h1>
-          <p className="max-w-3xl text-sm leading-6 text-slate-600 md:text-base">
-            Usa IA para convertir la foto de un producto en piezas visuales listas
-            para publicar, sin tener que diseñar todo desde cero.
-          </p>
-        </div>
-      </Card>
-
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="space-y-4 p-5">
           <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
