@@ -255,14 +255,6 @@ export function SimpleMarketingForm() {
       </div>
 
       <section className="space-y-3">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h3 className="text-base font-semibold text-slate-900">Ultimas imagenes generadas</h3>
-            <p className="text-sm text-slate-600">
-              Aqui veras la tanda mas reciente de 3 anuncios.
-            </p>
-          </div>
-        </div>
 
         <CreativeGrid
           creatives={latestCreatives}
