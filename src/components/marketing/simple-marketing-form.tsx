@@ -131,7 +131,7 @@ function CreativeGrid({
   );
 }
 
-export function SimpleMarketingForm() {
+export function SimpleMarketingForm({ businessLogoUrl }: { businessLogoUrl: string | null }) {
   const [state, formAction, pending] = useActionState(
     generateFacebookAdsFromImageAction,
     initialState,
@@ -540,6 +540,30 @@ export function SimpleMarketingForm() {
                                 placeholder="Ej. resaltar lujo, oferta por tiempo limitado, tono femenino, envio gratis..."
                               />
                             </label>
+
+                            <div className="rounded-2xl border border-[var(--line)] bg-slate-50 p-4">
+                              <div className="flex items-start gap-3">
+                                <input
+                                  id="includeBusinessLogo"
+                                  name="includeBusinessLogo"
+                                  type="checkbox"
+                                  value="true"
+                                  defaultChecked={Boolean(businessLogoUrl)}
+                                  disabled={!businessLogoUrl}
+                                  className="mt-1 h-4 w-4 rounded border-slate-300 text-[var(--primary)] focus:ring-[var(--primary)] disabled:cursor-not-allowed disabled:opacity-40"
+                                />
+                                <label htmlFor="includeBusinessLogo" className="space-y-1">
+                                  <span className="block text-sm font-medium text-slate-800">
+                                    Agregar logo del negocio
+                                  </span>
+                                  <span className="block text-xs leading-5 text-slate-500">
+                                    {businessLogoUrl
+                                      ? "Reservamos una zona limpia en el anuncio y pegamos el logo real al final para que no lo deforme la IA."
+                                      : "Primero debes subir el logo en Marketing IA para poder activarlo aqui."}
+                                  </span>
+                                </label>
+                              </div>
+                            </div>
                           </div>
                         </div>
                       </section>

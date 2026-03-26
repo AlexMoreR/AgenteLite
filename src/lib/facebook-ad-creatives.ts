@@ -10,6 +10,8 @@ type ProductCreativeContext = {
   categoryName?: string | null;
   sourceImageUrl: string;
   brief?: string;
+  brandLogoUrl?: string | null;
+  includeBrandLogo?: boolean;
 };
 
 type SocialProofSnippet = {
@@ -367,6 +369,9 @@ function buildCreativeImagePrompt(
     "Text readability is the top priority.",
     "Place the text inside a clean safe area that does not compete with the product.",
     "Use a strong dark or light overlay panel, gradient, ribbon, or blurred backdrop behind the text so it reads clearly at a glance.",
+    context.includeBrandLogo
+      ? "Reserve a clean empty logo-safe area in the bottom-right corner. Do not place headlines, support text, CTA buttons, stars, bubbles, products, or decorations in that reserved area."
+      : "",
     "The headline must be large, bold, short, and instantly legible on mobile.",
     "The support line must be smaller than the headline but still clear and high contrast.",
     "The CTA badge must be solid, prominent, and easy to read.",
@@ -387,6 +392,55 @@ function buildCreativeImagePrompt(
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+async function overlayBrandLogo(
+  base64Image: string,
+  context: ProductCreativeContext,
+): Promise<string> {
+  if (!context.includeBrandLogo || !context.brandLogoUrl) {
+    return base64Image;
+  }
+
+  const sharpModule = await import("sharp");
+  const sharp = sharpModule.default;
+
+  const baseBuffer = Buffer.from(base64Image, "base64");
+  const baseImage = sharp(baseBuffer);
+  const metadata = await baseImage.metadata();
+
+  const width = metadata.width ?? 1024;
+  const height = metadata.height ?? 1024;
+  const logoMaxWidth = Math.max(150, Math.round(width * 0.2));
+  const logoMaxHeight = Math.max(70, Math.round(height * 0.1));
+  const logoMargin = Math.max(28, Math.round(width * 0.035));
+  const logoPath = path.resolve(process.cwd(), "public", context.brandLogoUrl.replace(/^\/+/, ""));
+  const logoBuffer = await readFile(logoPath);
+
+  const resizedLogo = await sharp(logoBuffer)
+    .resize({
+      width: logoMaxWidth,
+      height: logoMaxHeight,
+      fit: "inside",
+      withoutEnlargement: true,
+    })
+    .png()
+    .toBuffer();
+  const resizedLogoMetadata = await sharp(resizedLogo).metadata();
+  const resizedLogoWidth = resizedLogoMetadata.width ?? logoMaxWidth;
+
+  const outputBuffer = await baseImage
+    .composite([
+      {
+        input: resizedLogo,
+        top: height - logoMargin - (resizedLogoMetadata.height ?? logoMaxHeight),
+        left: width - logoMargin - resizedLogoWidth,
+      },
+    ])
+    .png()
+    .toBuffer();
+
+  return outputBuffer.toString("base64");
 }
 
 async function requestCreativeImageEdit(
@@ -471,7 +525,8 @@ export async function generateFacebookAdCreativesForProduct(
   for (const [index, option] of creativeOptions.entries()) {
     const prompt = buildCreativeImagePrompt(context, option);
     const base64Image = await requestCreativeImageEdit(imageSource, prompt, apiKey);
-    const imageUrl = await saveCreativeImage(context.productId, base64Image, index);
+    const imageWithLogo = await overlayBrandLogo(base64Image, context);
+    const imageUrl = await saveCreativeImage(context.productId, imageWithLogo, index);
 
     creatives.push({
       id: randomUUID(),

@@ -1,14 +1,22 @@
 "use server";
 
 import { randomUUID } from "node:crypto";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { z } from "zod";
 import { auth } from "@/auth";
 import {
   generateFacebookAdCreativesForProduct,
   type FacebookAdCreative,
 } from "@/lib/facebook-ad-creatives";
+import {
+  clearWorkspaceMarketingLogoUrl,
+  getWorkspaceMarketingLogoUrl,
+  setWorkspaceMarketingLogoUrl,
+} from "@/lib/marketing-branding";
+import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
 export type FacebookAdsGeneratorState = {
   ok: boolean;
@@ -28,18 +36,26 @@ const generateFacebookAdsSchema = z.object({
     .trim()
     .max(240, "Las instrucciones extra son demasiado largas")
     .optional(),
+  includeBusinessLogo: z.union([z.literal("on"), z.literal("true"), z.literal("false"), z.literal("")]).optional(),
 });
 
 const deleteCreativeImagesSchema = z.object({
   imageUrls: z.array(z.string().trim().min(1)).min(1).max(24),
 });
 
-async function requireMarketingAccess() {
+async function requireMarketingWorkspace() {
   const session = await auth();
 
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
     throw new Error("No autorizado");
   }
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    throw new Error("No workspace");
+  }
+
+  return membership;
 }
 
 async function saveMarketingSourceImage(file: File) {
@@ -68,6 +84,55 @@ async function saveMarketingSourceImage(file: File) {
   return `/uploads/marketing-source/${fileName}`;
 }
 
+async function saveMarketingBusinessLogo(file: File) {
+  if (!file.type.startsWith("image/")) {
+    throw new Error("Logo invalido");
+  }
+
+  if (file.size <= 0) {
+    throw new Error("Logo invalido");
+  }
+
+  if (file.size > 2 * 1024 * 1024) {
+    throw new Error("Logo invalido");
+  }
+
+  const uploadDir = path.join(process.cwd(), "public", "uploads", "marketing-logos");
+  await mkdir(uploadDir, { recursive: true });
+
+  const ext = path.extname(file.name)?.toLowerCase() || ".png";
+  const safeExt = ext.length <= 8 ? ext : ".png";
+  const fileName = `${Date.now()}-${randomUUID()}${safeExt}`;
+  const filePath = path.join(uploadDir, fileName);
+  const bytes = Buffer.from(await file.arrayBuffer());
+
+  await writeFile(filePath, bytes);
+  return `/uploads/marketing-logos/${fileName}`;
+}
+
+async function deleteMarketingBusinessLogoFile(logoUrl: string | null | undefined): Promise<void> {
+  if (!logoUrl || !logoUrl.startsWith("/uploads/marketing-logos/")) {
+    return;
+  }
+
+  const normalizedPath = path.normalize(logoUrl).replace(/^(\.\.(\/|\\|$))+/, "");
+  const filePath = path.join(process.cwd(), "public", normalizedPath);
+
+  try {
+    await unlink(filePath);
+  } catch {
+    // Ignore missing files; persistence cleanup is the primary concern.
+  }
+}
+
+function isNextRedirectError(error: unknown) {
+  return (
+    error instanceof Error &&
+    typeof (error as Error & { digest?: unknown }).digest === "string" &&
+    (error as Error & { digest: string }).digest.startsWith("NEXT_REDIRECT")
+  );
+}
+
 function resolveMarketingError(error: unknown) {
   const message = error instanceof Error ? error.message : "";
 
@@ -93,6 +158,14 @@ function resolveMarketingError(error: unknown) {
 
   if (message.includes("OpenAI image 429")) {
     return "OpenAI esta recibiendo demasiadas solicitudes. Intenta de nuevo en un momento.";
+  }
+
+  if (message.includes("Logo invalido")) {
+    return "El logo debe ser una imagen valida de maximo 2MB.";
+  }
+
+  if (message.includes("No workspace")) {
+    return "Debes configurar tu negocio antes de usar Marketing IA.";
   }
 
   return "No se pudieron generar tus anuncios en este momento.";
@@ -125,12 +198,13 @@ export async function generateFacebookAdsFromImageAction(
   formData: FormData,
 ): Promise<FacebookAdsGeneratorState> {
   try {
-    await requireMarketingAccess();
+    const membership = await requireMarketingWorkspace();
 
     const parsed = generateFacebookAdsSchema.safeParse({
       productName: formData.get("productName"),
       productDescription: formData.get("productDescription") || undefined,
       brief: formData.get("brief") || undefined,
+      includeBusinessLogo: formData.get("includeBusinessLogo") || undefined,
     });
 
     if (!parsed.success) {
@@ -159,6 +233,12 @@ export async function generateFacebookAdsFromImageAction(
       };
     }
 
+    const includeBusinessLogo =
+      parsed.data.includeBusinessLogo === "on" || parsed.data.includeBusinessLogo === "true";
+    const businessLogoUrl = includeBusinessLogo
+      ? await getWorkspaceMarketingLogoUrl(membership.workspace.id)
+      : null;
+
     const sourceImageUrl = await saveMarketingSourceImage(image);
     const creatives = await generateFacebookAdCreativesForProduct(
       {
@@ -167,6 +247,8 @@ export async function generateFacebookAdsFromImageAction(
         description: parsed.data.productDescription,
         sourceImageUrl,
         brief: parsed.data.brief,
+        brandLogoUrl: businessLogoUrl,
+        includeBrandLogo: Boolean(includeBusinessLogo && businessLogoUrl),
       },
       apiKey,
     );
@@ -190,7 +272,7 @@ export async function deleteFacebookAdsHistoryImagesAction(input: {
   imageUrls: string[];
 }): Promise<{ ok: boolean; message: string }> {
   try {
-    await requireMarketingAccess();
+    await requireMarketingWorkspace();
 
     const parsed = deleteCreativeImagesSchema.safeParse(input);
     if (!parsed.success) {
@@ -224,5 +306,58 @@ export async function deleteFacebookAdsHistoryImagesAction(input: {
       ok: false,
       message: "No se pudieron eliminar las imagenes del historial.",
     };
+  }
+}
+
+export async function saveMarketingBusinessLogoAction(formData: FormData): Promise<void> {
+  try {
+    const membership = await requireMarketingWorkspace();
+    const rawLogo = formData.get("logo");
+    const logoFile = rawLogo instanceof File ? rawLogo : null;
+
+    if (!logoFile) {
+      redirect("/cliente/marketing-ia?error=Debes+subir+una+imagen+de+logo");
+    }
+
+    const nextLogoUrl = await saveMarketingBusinessLogo(logoFile);
+    const currentLogoUrl = await getWorkspaceMarketingLogoUrl(membership.workspace.id);
+
+    await setWorkspaceMarketingLogoUrl(membership.workspace.id, nextLogoUrl);
+
+    if (currentLogoUrl && currentLogoUrl !== nextLogoUrl) {
+      await deleteMarketingBusinessLogoFile(currentLogoUrl);
+    }
+
+    revalidatePath("/cliente/marketing-ia");
+    revalidatePath("/cliente/marketing-ia/facebook-ads");
+    redirect("/cliente/marketing-ia?ok=Logo+de+marketing+actualizado");
+  } catch (error) {
+    if (isNextRedirectError(error)) {
+      throw error;
+    }
+
+    console.error("[MARKETING_LOGO_SAVE]", error);
+    redirect(`/cliente/marketing-ia?error=${encodeURIComponent(resolveMarketingError(error))}`);
+  }
+}
+
+export async function deleteMarketingBusinessLogoAction(): Promise<void> {
+  try {
+    const membership = await requireMarketingWorkspace();
+    const currentLogoUrl = await getWorkspaceMarketingLogoUrl(membership.workspace.id);
+
+    await clearWorkspaceMarketingLogoUrl(membership.workspace.id);
+    await deleteMarketingBusinessLogoFile(currentLogoUrl);
+
+    revalidatePath("/cliente/marketing-ia");
+    revalidatePath("/cliente/marketing-ia/facebook-ads");
+    redirect("/cliente/marketing-ia?ok=Logo+de+marketing+eliminado");
+  } catch (error) {
+    if (isNextRedirectError(error)) {
+      throw error;
+    }
+
+    console.error("[MARKETING_LOGO_DELETE]", error);
+    redirect(`/cliente/marketing-ia?error=${encodeURIComponent(resolveMarketingError(error))}`);
   }
 }

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { SimpleMarketingForm } from "@/components/marketing/simple-marketing-form";
 
-export function FacebookAdsWorkspace() {
+export function FacebookAdsWorkspace({ businessLogoUrl }: { businessLogoUrl: string | null }) {
   return (
     <section className="app-page space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -15,7 +15,7 @@ export function FacebookAdsWorkspace() {
         </Link>
       </div>
 
-      <SimpleMarketingForm />
+      <SimpleMarketingForm businessLogoUrl={businessLogoUrl} />
     </section>
   );
 }
