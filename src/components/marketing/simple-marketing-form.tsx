@@ -96,9 +96,9 @@ function CreativeGrid({
 }) {
   if (creatives.length === 0) {
     return (
-      <Card className="flex min-h-80 items-center justify-center p-6 text-center">
+      <Card className="flex min-h-80 items-center justify-center rounded-[32px] border-[rgba(87,72,117,0.14)] bg-[linear-gradient(180deg,rgba(255,255,255,0.95),rgba(248,244,255,0.9))] p-6 text-center shadow-[0_24px_64px_-46px_rgba(42,16,81,0.24)]">
         <div className="max-w-md space-y-2">
-          <p className="text-base font-semibold text-slate-900">{emptyTitle}</p>
+          <p className="text-[1.1rem] font-semibold tracking-[-0.04em] text-slate-950">{emptyTitle}</p>
           <p className="text-sm leading-6 text-slate-600">{emptyDescription}</p>
         </div>
       </Card>
@@ -106,40 +106,47 @@ function CreativeGrid({
   }
 
   return (
-    <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
+    <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
       {creatives.map((creative, index) => (
         <article
           key={creative.id}
-          className="overflow-hidden rounded-2xl border border-[var(--line)] bg-white shadow-[0_20px_40px_-34px_rgba(15,23,42,0.45)]"
+          className={`group overflow-hidden rounded-[30px] border border-[rgba(87,72,117,0.14)] bg-[linear-gradient(180deg,rgba(255,255,255,0.97),rgba(247,243,251,0.92))] shadow-[0_26px_70px_-46px_rgba(41,16,78,0.28)] transition hover:-translate-y-0.5 hover:shadow-[0_34px_84px_-50px_rgba(41,16,78,0.32)] ${
+            index === 0 ? "xl:col-span-2 2xl:col-span-1" : ""
+          }`}
         >
-          <div className="relative aspect-square bg-slate-100">
+          <div className="relative aspect-square overflow-hidden bg-[radial-gradient(circle_at_top,rgba(244,238,252,0.95),rgba(232,237,244,0.9))]">
             <img
               src={creative.imageUrl}
               alt={`Anuncio ${index + 1}`}
-              className="h-full w-full object-cover"
+              className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.015]"
             />
-            <span className="absolute left-3 top-3 rounded-full bg-white/95 px-2.5 py-1 text-[11px] font-semibold text-slate-700">
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-[linear-gradient(180deg,rgba(17,24,39,0.16),transparent)]" />
+            <span className="absolute left-4 top-4 rounded-full border border-white/60 bg-white/92 px-3 py-1 text-[11px] font-semibold tracking-[0.16em] text-slate-700 shadow-[0_10px_24px_-18px_rgba(15,23,42,0.32)] backdrop-blur">
               Opcion {index + 1}
             </span>
           </div>
-          <div className="space-y-3 p-4">
-            <div className="space-y-1">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+          <div className="space-y-4 p-5">
+            <div className="space-y-2">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
                 {creative.angle}
               </p>
-              <p className="text-lg font-semibold tracking-tight text-slate-900">
+              <p className="text-[1.35rem] font-semibold tracking-[-0.05em] text-slate-950">
                 {creative.headline}
               </p>
-              <p className="text-sm text-slate-600">{creative.supportLine}</p>
-              <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
+              <p className="max-w-[34ch] text-sm leading-6 text-slate-600">{creative.supportLine}</p>
+            </div>
+
+            <div className="flex items-center justify-between gap-3">
+              <span className="inline-flex rounded-full border border-[rgba(87,72,117,0.12)] bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-[0_10px_24px_-18px_rgba(15,23,42,0.14)]">
                 {creative.cta}
               </span>
+              <div className="h-px flex-1 bg-[linear-gradient(90deg,rgba(99,78,153,0.18),rgba(99,78,153,0))]" />
             </div>
 
             <a
               href={creative.imageUrl}
               download={`facebook-ad-${index + 1}.png`}
-              className="inline-flex h-10 w-full items-center justify-center rounded-xl border border-[var(--line)] bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+              className="inline-flex h-11 w-full items-center justify-center rounded-2xl border border-[rgba(87,72,117,0.12)] bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
             >
               Descargar imagen
             </a>
@@ -150,7 +157,7 @@ function CreativeGrid({
   );
 }
 
-export function SimpleMarketingForm({ businessLogoUrl }: { businessLogoUrl: string | null }) {
+export function SimpleMarketingForm() {
   const [state, formAction, pending] = useActionState(
     generateFacebookAdsFromImageAction,
     initialState,
@@ -299,20 +306,26 @@ export function SimpleMarketingForm({ businessLogoUrl }: { businessLogoUrl: stri
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex justify-end">
+    <div className="space-y-5">
+      <div className="relative overflow-hidden rounded-[34px] border border-[rgba(87,72,117,0.14)] bg-[linear-gradient(155deg,rgba(255,255,255,0.96),rgba(248,243,255,0.95)_52%,rgba(240,235,247,0.98))] p-4 shadow-[0_28px_80px_-52px_rgba(42,16,83,0.3)] sm:p-5">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(126,34,206,0.1),transparent_25%),radial-gradient(circle_at_bottom_left,rgba(249,115,22,0.09),transparent_26%)]" />
+        <div className="relative flex justify-end">
         <button
           type="button"
           onClick={openModal}
-          className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
+          className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-5 text-sm font-medium text-white shadow-[0_18px_34px_-22px_color-mix(in_srgb,var(--primary)_62%,black)] transition hover:bg-[var(--primary-strong)]"
         >
           <Plus className="h-4 w-4" />
           Crear anuncio
         </button>
+        </div>
       </div>
 
       <section className="space-y-3">
-
+        <div className="flex items-center gap-3">
+          <div className="h-px flex-1 bg-[linear-gradient(90deg,rgba(99,78,153,0.18),rgba(99,78,153,0))]" />
+          <div className="h-2 w-2 rounded-full bg-[color-mix(in_srgb,var(--primary)_65%,white)]" />
+        </div>
         <CreativeGrid
           creatives={latestCreatives}
           emptyTitle="Aqui apareceran tus 3 anuncios"
@@ -329,7 +342,7 @@ export function SimpleMarketingForm({ businessLogoUrl }: { businessLogoUrl: stri
         {history.length > 0 ? (
           <div className="space-y-4">
             {history.map((entry, entryIndex) => (
-              <Card key={entry.id} className="space-y-4 p-4 sm:p-5">
+              <Card key={entry.id} className="space-y-4 rounded-[30px] border-[rgba(87,72,117,0.14)] bg-[linear-gradient(180deg,rgba(255,255,255,0.95),rgba(248,244,255,0.9))] p-4 shadow-[0_24px_64px_-48px_rgba(41,16,79,0.28)] sm:p-5">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <p className="text-sm font-semibold text-slate-900">
@@ -343,7 +356,7 @@ export function SimpleMarketingForm({ businessLogoUrl }: { businessLogoUrl: stri
                     type="button"
                     onClick={() => removeHistoryEntry(entry.id)}
                     disabled={isDeletingHistory}
-                    className="inline-flex h-9 items-center justify-center gap-2 rounded-xl border border-red-200 bg-white px-3 text-sm font-medium text-red-600 transition hover:bg-red-50"
+                    className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-red-200 bg-white px-3 text-sm font-medium text-red-600 transition hover:bg-red-50"
                   >
                     {deletingEntryId === entry.id ? (
                       <LoaderCircle className="h-4 w-4 animate-spin" />
@@ -358,7 +371,7 @@ export function SimpleMarketingForm({ businessLogoUrl }: { businessLogoUrl: stri
                   {entry.creatives.map((creative, index) => (
                     <article
                       key={creative.id}
-                      className="overflow-hidden rounded-2xl border border-[var(--line)] bg-white"
+                      className="overflow-hidden rounded-[24px] border border-[rgba(87,72,117,0.12)] bg-white shadow-[0_18px_36px_-30px_rgba(15,23,42,0.22)]"
                     >
                       <div className="relative aspect-square bg-slate-100">
                         <img
@@ -370,7 +383,7 @@ export function SimpleMarketingForm({ businessLogoUrl }: { businessLogoUrl: stri
                           Opcion {index + 1}
                         </span>
                       </div>
-                      <div className="space-y-2 p-3">
+                      <div className="space-y-2 p-3.5">
                         <p className="text-sm font-semibold text-slate-900">
                           {creative.headline}
                         </p>
@@ -378,7 +391,7 @@ export function SimpleMarketingForm({ businessLogoUrl }: { businessLogoUrl: stri
                         <a
                           href={creative.imageUrl}
                           download={`facebook-ad-history-${entryIndex + 1}-${index + 1}.png`}
-                          className="inline-flex h-9 w-full items-center justify-center rounded-xl border border-[var(--line)] bg-white px-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                          className="inline-flex h-10 w-full items-center justify-center rounded-2xl border border-[rgba(87,72,117,0.12)] bg-white px-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
                         >
                           Descargar
                         </a>
@@ -390,7 +403,7 @@ export function SimpleMarketingForm({ businessLogoUrl }: { businessLogoUrl: stri
             ))}
           </div>
         ) : (
-          <Card className="p-6 text-center">
+          <Card className="rounded-[28px] border-[rgba(87,72,117,0.14)] bg-[linear-gradient(180deg,rgba(255,255,255,0.95),rgba(248,244,255,0.9))] p-6 text-center shadow-[0_18px_48px_-40px_rgba(43,17,86,0.24)]">
             <p className="text-sm text-slate-600">
               Aun no hay historial guardado de anuncios generados.
             </p>
@@ -400,17 +413,17 @@ export function SimpleMarketingForm({ businessLogoUrl }: { businessLogoUrl: stri
 
       {modalOpen ? (
         <div
-          className="fixed inset-0 z-50 flex items-stretch justify-center bg-[#0f172a80] p-0 md:p-6"
+          className="fixed inset-0 z-50 flex items-stretch justify-center bg-[radial-gradient(circle_at_top,rgba(35,25,57,0.58),rgba(15,23,42,0.74))] p-0 md:p-6"
           role="dialog"
           aria-modal="true"
           aria-label="Crear anuncio"
           onClick={closeModal}
         >
           <div
-            className="flex h-full w-full max-w-3xl flex-col overflow-hidden rounded-none border border-[rgba(148,163,184,0.18)] bg-[linear-gradient(180deg,#fdfdfd_0%,#ffffff_100%)] md:max-h-[92vh] md:rounded-[32px] md:shadow-[0_42px_110px_-52px_rgba(15,23,42,0.5)]"
+            className="flex h-full w-full max-w-4xl flex-col overflow-hidden rounded-none border border-[rgba(87,72,117,0.14)] bg-[linear-gradient(180deg,#fbf8ff_0%,#ffffff_100%)] md:max-h-[92vh] md:rounded-[36px] md:shadow-[0_50px_120px_-56px_rgba(27,18,56,0.56)]"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="border-b border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfbfd_100%)] px-5 py-5 md:px-8 md:py-4">
+            <div className="border-b border-[rgba(87,72,117,0.12)] bg-[linear-gradient(180deg,rgba(255,255,255,0.96)_0%,rgba(248,244,255,0.9)_100%)] px-5 py-5 md:px-8 md:py-5">
               <div className="relative flex items-start justify-center gap-4">
                 <div className="space-y-2 text-center">
                   <div className="flex flex-wrap justify-center gap-2">
@@ -437,7 +450,7 @@ export function SimpleMarketingForm({ businessLogoUrl }: { businessLogoUrl: stri
                 <button
                   type="button"
                   onClick={closeModal}
-                  className="absolute right-0 top-0 inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[rgba(148,163,184,0.16)] bg-white text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="absolute right-0 top-0 inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-[rgba(87,72,117,0.12)] bg-white/92 text-slate-600 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
                   aria-label="Cerrar"
                   disabled={pending}
                 >
@@ -457,7 +470,7 @@ export function SimpleMarketingForm({ businessLogoUrl }: { businessLogoUrl: stri
                 className={
                   pending
                     ? "flex flex-1 items-center justify-center overflow-hidden px-5 py-8 md:px-8 md:py-10"
-                    : "flex-1 overflow-y-auto bg-[#f1f3f5] px-5 py-6 md:px-8 md:py-5"
+                    : "flex-1 overflow-y-auto bg-[linear-gradient(180deg,#f3edf8_0%,#f7f3fb_18%,#f1f3f5_100%)] px-5 py-6 md:px-8 md:py-6"
                 }
               >
                 {pending ? (
@@ -495,10 +508,10 @@ export function SimpleMarketingForm({ businessLogoUrl }: { businessLogoUrl: stri
                   <div className="mx-auto w-full max-w-[760px]">
                     <div className={step === 0 ? "block" : "hidden"}>
                       <section className="space-y-4 md:space-y-5">
-                        <div className="rounded-[28px] border border-[rgba(148,163,184,0.14)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(15,23,42,0.18)] sm:p-5">
+                        <div className="rounded-[30px] border border-[rgba(87,72,117,0.12)] bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(249,246,255,0.9))] p-4 shadow-[0_24px_54px_-42px_rgba(35,19,71,0.2)] sm:p-5">
                           <label className="block space-y-1.5">
                             <span className="text-sm font-medium text-slate-700">Foto del producto</span>
-                            <div className="overflow-hidden rounded-2xl border border-dashed border-[var(--line-strong)] bg-slate-50">
+                            <div className="overflow-hidden rounded-[24px] border border-dashed border-[rgba(87,72,117,0.2)] bg-[linear-gradient(180deg,rgba(255,255,255,0.92),rgba(246,241,252,0.92))]">
                               <div className="flex min-h-72 items-center justify-center bg-white p-4">
                                 {previewUrl ? (
                                   <img
@@ -548,7 +561,7 @@ export function SimpleMarketingForm({ businessLogoUrl }: { businessLogoUrl: stri
 
                     <div className={step === 1 ? "block" : "hidden"}>
                       <section className="space-y-4 md:space-y-5">
-                        <div className="rounded-[28px] border border-[rgba(148,163,184,0.14)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(15,23,42,0.18)] sm:p-5">
+                        <div className="rounded-[30px] border border-[rgba(87,72,117,0.12)] bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(249,246,255,0.9))] p-4 shadow-[0_24px_54px_-42px_rgba(35,19,71,0.2)] sm:p-5">
                           <div className="grid gap-4">
                             <div className="space-y-2">
                               <input type="hidden" name="creativeMode" value={creativeMode ?? "real"} />
@@ -563,8 +576,8 @@ export function SimpleMarketingForm({ businessLogoUrl }: { businessLogoUrl: stri
                                       onClick={() => setCreativeMode(mode.value)}
                                       className={`rounded-2xl border px-4 py-4 text-left transition ${
                                         selected
-                                          ? "border-[var(--primary)] bg-[color-mix(in_srgb,var(--primary)_8%,white)] shadow-[0_16px_34px_-28px_color-mix(in_srgb,var(--primary)_45%,black)]"
-                                          : "border-[rgba(148,163,184,0.16)] bg-slate-50 hover:border-[rgba(148,163,184,0.3)] hover:bg-white"
+                                          ? "border-[var(--primary)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--primary)_9%,white),rgba(255,255,255,0.92))] shadow-[0_20px_36px_-28px_color-mix(in_srgb,var(--primary)_42%,black)]"
+                                          : "border-[rgba(87,72,117,0.12)] bg-[linear-gradient(180deg,rgba(252,251,255,0.9),rgba(247,243,251,0.88))] hover:border-[rgba(87,72,117,0.22)] hover:bg-white"
                                       }`}
                                       aria-pressed={selected}
                                     >
@@ -601,29 +614,6 @@ export function SimpleMarketingForm({ businessLogoUrl }: { businessLogoUrl: stri
                               />
                             </label>
 
-                            <div className="rounded-2xl border border-[var(--line)] bg-slate-50 p-4">
-                              <div className="flex items-start gap-3">
-                                <input
-                                  id="includeBusinessLogo"
-                                  name="includeBusinessLogo"
-                                  type="checkbox"
-                                  value="true"
-                                  defaultChecked={Boolean(businessLogoUrl)}
-                                  disabled={!businessLogoUrl}
-                                  className="mt-1 h-4 w-4 rounded border-slate-300 text-[var(--primary)] focus:ring-[var(--primary)] disabled:cursor-not-allowed disabled:opacity-40"
-                                />
-                                <label htmlFor="includeBusinessLogo" className="space-y-1">
-                                  <span className="block text-sm font-medium text-slate-800">
-                                    Agregar logo del negocio
-                                  </span>
-                                  <span className="block text-xs leading-5 text-slate-500">
-                                    {businessLogoUrl
-                                      ? "Reservamos una zona limpia en el anuncio y pegamos el logo real al final para que no lo deforme la IA."
-                                      : "Primero debes subir el logo en Marketing IA para poder activarlo aqui."}
-                                  </span>
-                                </label>
-                              </div>
-                            </div>
                           </div>
                         </div>
                       </section>
@@ -633,7 +623,7 @@ export function SimpleMarketingForm({ businessLogoUrl }: { businessLogoUrl: stri
               </div>
 
               {!pending ? (
-                <div className="flex items-center justify-between border-t border-[rgba(148,163,184,0.14)] bg-[rgba(255,255,255,0.92)] px-5 py-4 backdrop-blur md:px-8">
+                <div className="flex items-center justify-between border-t border-[rgba(87,72,117,0.12)] bg-[rgba(255,255,255,0.9)] px-5 py-4 backdrop-blur md:px-8">
                   <button
                     type="button"
                     onClick={() => setStep((current) => Math.max(current - 1, 0))}
