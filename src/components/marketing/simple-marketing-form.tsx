@@ -121,9 +121,6 @@ function CreativeGrid({
               className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.015]"
             />
             <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-[linear-gradient(180deg,rgba(17,24,39,0.16),transparent)]" />
-            <span className="absolute left-4 top-4 rounded-full border border-white/60 bg-white/92 px-3 py-1 text-[11px] font-semibold tracking-[0.16em] text-slate-700 shadow-[0_10px_24px_-18px_rgba(15,23,42,0.32)] backdrop-blur">
-              Opcion {index + 1}
-            </span>
           </div>
           <div className="space-y-4 p-5">
             <div className="space-y-2">
@@ -261,6 +258,7 @@ export function SimpleMarketingForm() {
   const creatives = useMemo(() => state.creatives, [state.creatives]);
   const activeStep = pending ? 2 : step;
   const latestCreatives = creatives.length > 0 ? creatives : history[0]?.creatives ?? [];
+  const hasGeneratedCreatives = latestCreatives.length > 0 || history.length > 0;
 
   const openModal = () => {
     setStep(0);
@@ -307,19 +305,48 @@ export function SimpleMarketingForm() {
 
   return (
     <div className="space-y-5">
-      <div className="relative overflow-hidden rounded-[34px] border border-[rgba(87,72,117,0.14)] bg-[linear-gradient(155deg,rgba(255,255,255,0.96),rgba(248,243,255,0.95)_52%,rgba(240,235,247,0.98))] p-4 shadow-[0_28px_80px_-52px_rgba(42,16,83,0.3)] sm:p-5">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(126,34,206,0.1),transparent_25%),radial-gradient(circle_at_bottom_left,rgba(249,115,22,0.09),transparent_26%)]" />
-        <div className="relative flex justify-end">
-        <button
-          type="button"
-          onClick={openModal}
-          className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-5 text-sm font-medium text-white shadow-[0_18px_34px_-22px_color-mix(in_srgb,var(--primary)_62%,black)] transition hover:bg-[var(--primary-strong)]"
-        >
-          <Plus className="h-4 w-4" />
-          Crear anuncio
-        </button>
+      {hasGeneratedCreatives ? (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={openModal}
+            className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-5 text-sm font-medium text-white shadow-[0_18px_34px_-22px_color-mix(in_srgb,var(--primary)_62%,black)] transition hover:bg-[var(--primary-strong)]"
+          >
+            <Plus className="h-4 w-4" />
+            Crear anuncio
+          </button>
         </div>
-      </div>
+      ) : (
+        <div className="relative overflow-hidden rounded-[34px] border border-[rgba(87,72,117,0.14)] bg-[linear-gradient(155deg,rgba(255,255,255,0.96),rgba(248,243,255,0.95)_52%,rgba(240,235,247,0.98))] p-6 shadow-[0_28px_80px_-52px_rgba(42,16,83,0.3)] sm:p-8">
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(126,34,206,0.1),transparent_25%),radial-gradient(circle_at_bottom_left,rgba(249,115,22,0.09),transparent_26%)]" />
+          <div className="relative flex min-h-[280px] flex-col items-center justify-center text-center">
+            <div className="inline-flex h-16 w-16 items-center justify-center rounded-[24px] bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)] shadow-[0_18px_40px_-28px_color-mix(in_srgb,var(--primary)_38%,black)]">
+              <Sparkles className="h-7 w-7" />
+            </div>
+
+            <div className="mt-6 max-w-2xl space-y-3">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">
+                Facebook Ads
+              </p>
+              <h2 className="text-[2rem] font-semibold tracking-[-0.06em] text-slate-950 sm:text-[2.25rem]">
+                Crea tu anuncio
+              </h2>
+              <p className="text-sm leading-7 text-slate-600 sm:text-base">
+                Sube una foto real del producto y genera piezas listas para vender.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={openModal}
+              className="mt-8 inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-6 text-sm font-medium text-white shadow-[0_18px_34px_-22px_color-mix(in_srgb,var(--primary)_62%,black)] transition hover:bg-[var(--primary-strong)]"
+            >
+              <Plus className="h-4 w-4" />
+              Crear anuncio
+            </button>
+          </div>
+        </div>
+      )}
 
       <section className="space-y-3">
         <div className="flex items-center gap-3">
@@ -379,9 +406,6 @@ export function SimpleMarketingForm() {
                           alt={`Historial ${entryIndex + 1} opcion ${index + 1}`}
                           className="h-full w-full object-cover"
                         />
-                        <span className="absolute left-3 top-3 rounded-full bg-white/95 px-2.5 py-1 text-[11px] font-semibold text-slate-700">
-                          Opcion {index + 1}
-                        </span>
                       </div>
                       <div className="space-y-2 p-3.5">
                         <p className="text-sm font-semibold text-slate-900">
