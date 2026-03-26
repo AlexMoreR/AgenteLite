@@ -139,12 +139,9 @@ function MarketingPageContent({
           <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
             <Megaphone className="h-5 w-5" />
           </div>
+          <h2 className="text-lg font-semibold text-slate-900">Facebook Ads</h2>
           <div className="space-y-1">
-            <h2 className="text-lg font-semibold text-slate-900">Facebook Ads</h2>
-            <p className="text-sm text-slate-600">
-              Sube una foto del producto y genera 3 imagenes cuadradas con texto
-              publicitario integrado para vender mejor.
-            </p>
+            
             <p className="text-xs text-slate-500">
               {businessLogoUrl
                 ? "Tu logo ya esta listo. Dentro del generador podras activar la opcion para agregarlo."

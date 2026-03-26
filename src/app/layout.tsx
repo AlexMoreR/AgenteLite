@@ -43,12 +43,9 @@ export async function generateMetadata(): Promise<Metadata> {
     applicationName: brandName,
     category: "shopping",
     icons: {
-      icon: [
-        { url: "/favicon.ico", sizes: "32x32", type: "image/x-icon" },
-        { url: siteConfig.logoPath, type: "image/svg+xml" },
-      ],
-      shortcut: ["/favicon.ico"],
-      apple: [siteConfig.logoPath],
+      icon: { url: siteConfig.iconPath, sizes: "512x512", type: "image/png" },
+      shortcut: siteConfig.iconPath,
+      apple: siteConfig.iconPath,
     },
     alternates: {
       canonical: getSiteUrl("/"),

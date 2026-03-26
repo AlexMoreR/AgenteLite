@@ -12,6 +12,7 @@ type ProductCreativeContext = {
   brief?: string;
   brandLogoUrl?: string | null;
   includeBrandLogo?: boolean;
+  creativeMode?: "real" | "creative" | "inspired";
 };
 
 type SocialProofSnippet = {
@@ -32,6 +33,8 @@ type LoadedImageSource = {
   mimeType: string;
   fileName: string;
 };
+
+type SharpFn = typeof import("sharp");
 
 export type FacebookAdCreative = CreativeCopyOption & {
   id: string;
@@ -78,6 +81,10 @@ const mimeByExt: Record<string, string> = {
   ".png": "image/png",
   ".webp": "image/webp",
 };
+
+const IMAGE_EDIT_CONCURRENCY = 3;
+let sharpModulePromise: Promise<SharpFn> | null = null;
+const logoBufferCache = new Map<string, Promise<Buffer>>();
 
 function extractOpenAIText(data: OpenAIResponsesApiResponse) {
   if (data.output_text?.trim()) {
@@ -177,12 +184,20 @@ function buildFallbackCreativeOptions(context: ProductCreativeContext): Creative
     clampWords(`${shortName} para elevar tu negocio`, 7, 40);
   const fallbackSocialProof = buildFallbackSocialProof(context);
 
+  const ctaByMode = {
+    real: ["Compra hoy", "Pide ahora", "Cotiza ya"],
+    creative: ["Agenda hoy", "Escribenos", "Reserva ya"],
+    inspired: ["Descubre mas", "Hazlo destacar", "Impulsa tu marca"],
+  } as const;
+  const mode = context.creativeMode ?? "real";
+  const [firstCta, secondCta, thirdCta] = ctaByMode[mode];
+
   return [
     {
       angle: "Beneficio principal",
       headline: shortName,
       supportLine: supportBase,
-      cta: "Compra hoy",
+      cta: firstCta,
       socialProof: fallbackSocialProof,
     },
     {
@@ -191,14 +206,14 @@ function buildFallbackCreativeOptions(context: ProductCreativeContext): Creative
       supportLine:
         briefSnippet ||
         clampWords(`${shortName} listo para vender mas`, 7, 40),
-      cta: "Pide ahora",
+      cta: secondCta,
       socialProof: fallbackSocialProof,
     },
     {
       angle: "Imagen profesional",
       headline: "Impulsa tu negocio",
       supportLine: clampWords(`${shortName} con presencia premium`, 6, 38),
-      cta: "Cotiza ya",
+      cta: thirdCta,
       socialProof: fallbackSocialProof,
     },
   ];
@@ -308,6 +323,48 @@ function getMimeTypeFromFileName(fileName: string) {
   return mimeByExt[ext] ?? "image/png";
 }
 
+async function getSharp() {
+  sharpModulePromise ??= import("sharp") as unknown as Promise<SharpFn>;
+  return sharpModulePromise;
+}
+
+function readLogoBufferCached(logoPath: string) {
+  const cached = logoBufferCache.get(logoPath);
+  if (cached) {
+    return cached;
+  }
+
+  const pending = readFile(logoPath);
+  logoBufferCache.set(logoPath, pending);
+  return pending;
+}
+
+async function mapWithConcurrency<TInput, TOutput>(
+  items: TInput[],
+  concurrency: number,
+  mapper: (item: TInput, index: number) => Promise<TOutput>,
+): Promise<TOutput[]> {
+  const results = new Array<TOutput>(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (true) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+
+      if (currentIndex >= items.length) {
+        return;
+      }
+
+      results[currentIndex] = await mapper(items[currentIndex], currentIndex);
+    }
+  }
+
+  const workerCount = Math.min(Math.max(concurrency, 1), items.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results;
+}
+
 async function loadImageSource(imageUrl: string): Promise<LoadedImageSource> {
   if (imageUrl.startsWith("/")) {
     const publicRoot = path.join(process.cwd(), "public");
@@ -342,17 +399,53 @@ async function loadImageSource(imageUrl: string): Promise<LoadedImageSource> {
   };
 }
 
+// ─── CAMBIO 1: Prompt mejorado ────────────────────────────────────────────────
+// Se reemplazaron las 3 líneas genéricas de includeBrandLogo por instrucciones
+// precisas que fijan la esquina inferior-izquierda como zona reservada para el logo
+// y empujan el CTA y las burbujas hacia las zonas contrarias.
 function buildCreativeImagePrompt(
   context: ProductCreativeContext,
   option: CreativeCopyOption,
 ) {
+  const creativeMode = context.creativeMode ?? "real";
+  const modeInstructions = {
+    real: [
+      "GENERATION MODE: REAL.",
+      "Keep the image grounded in reality and close to the uploaded source photo.",
+      "Preserve the exact product or visual reference as the dominant subject with only subtle commercial enhancement.",
+      "Use realistic lighting, realistic perspective, realistic textures and believable materials.",
+      "Do not turn this into a fantasy scene, illustration, or overly stylized concept piece.",
+    ],
+    creative: [
+      "GENERATION MODE: CREATIVO.",
+      "Create a more imaginative, campaign-like composition suitable for selling services or experiences.",
+      "You may use a more designed advertising layout, stronger atmosphere, cleaner art direction, and more expressive visual storytelling.",
+      "Keep the uploaded image as the core reference, but allow more creative composition, staging and graphic polish than in REAL mode.",
+      "The result should still feel premium and commercially usable, not chaotic or surreal.",
+    ],
+    inspired: [
+      "GENERATION MODE: INSPIRADO.",
+      "Prioritize attention, branding impact, mood and visual memorability.",
+      "You may push the composition toward a bold editorial or campaign aesthetic with stronger drama, contrast and brand presence.",
+      "Use the uploaded image as inspiration and anchor, but allow the ad to feel more aspirational and concept-driven than literal.",
+      "The result should feel striking, premium and scroll-stopping while remaining elegant and readable.",
+    ],
+  } as const;
+
   return [
     "Create a square 1:1 Facebook Ads creative using the uploaded product photo as the main subject.",
-    "This must be an edit of the provided image, not a redesign from scratch.",
-    "Preserve the same product identity, silhouette, materials, color and proportions.",
-    "Only improve the photo slightly with cleaner lighting, subtle contrast improvement, better framing and a polished ad-ready composition.",
-    "Do not replace the product. Do not invent a different item. Do not add extra products, people, hands, logos or watermarks.",
-    "Keep the original product dominant and clearly recognizable.",
+    ...modeInstructions[creativeMode],
+    creativeMode === "real" ? "This must be an edit of the provided image, not a redesign from scratch." : "",
+    creativeMode === "real" ? "Preserve the same product identity, silhouette, materials, color and proportions." : "",
+    creativeMode === "real"
+      ? "Only improve the photo slightly with cleaner lighting, subtle contrast improvement, better framing and a polished ad-ready composition."
+      : "Build a polished ad-ready composition with stronger art direction, hierarchy and campaign intent.",
+    creativeMode === "real"
+      ? "Do not replace the product. Do not invent a different item. Do not add extra products, people, hands, logos or watermarks."
+      : "Do not add random unrelated objects, broken anatomy, distorted hands, unreadable text, extra logos or watermark artifacts.",
+    creativeMode === "real"
+      ? "Keep the original product dominant and clearly recognizable."
+      : "Keep the main reference visually coherent and commercially relevant to the uploaded image.",
     context.categoryName ? `Category context: ${context.categoryName}.` : "",
     context.description ? `Product context: ${context.description}.` : "",
     context.brief ? `Extra campaign note: ${context.brief}.` : "",
@@ -368,15 +461,19 @@ function buildCreativeImagePrompt(
     "Do not add any text outside the primary text block and these approved social proof snippets.",
     "Text readability is the top priority.",
     "Place the text inside a clean safe area that does not compete with the product.",
+    "CRITICAL FRAMING RULE: Every text element, bubble, CTA, avatar, star row and badge must be fully visible inside the canvas. Nothing may be cropped by any image edge.",
+    "Keep all overlays inside an inner safe frame with generous margins from every edge, as if there were a 7% padding around the whole canvas.",
+    "Do not let any speech bubble, CTA, review strip, avatar circle or label touch, cross, bleed out of, or get clipped by the image borders.",
     "Use a strong dark or light overlay panel, gradient, ribbon, or blurred backdrop behind the text so it reads clearly at a glance.",
+    // ── LOGO ZONE: instrucciones precisas por esquina ──
     context.includeBrandLogo
-      ? "Keep at least one image corner visually quieter and cleaner for later brand placement."
+      ? "CRITICAL LAYOUT RULE: The top-right corner of the image must remain completely empty. Do not place any text, CTA button, star rating, bubble, badge, counter, icon or graphic element in the top-right corner. That corner must show only background or product — nothing else."
       : "",
     context.includeBrandLogo
-      ? "Prefer leaving one corner with fewer text elements, fewer bubbles, and no CTA overlap so a brand logo can be added after generation."
+      ? "Place the CTA badge in the bottom-right or bottom-center area only. Never place the CTA in the top-right corner."
       : "",
     context.includeBrandLogo
-      ? "Do not place the CTA touching every corner at once; keep one corner freer than the others."
+      ? "Place social proof bubbles mainly on the left side or lower area, but never reaching or touching the top-right corner."
       : "",
     "The headline must be large, bold, short, and instantly legible on mobile.",
     "The support line must be smaller than the headline but still clear and high contrast.",
@@ -389,8 +486,10 @@ function buildCreativeImagePrompt(
     "Do not place stars, rating rows, counters, badges, icons, or extra labels inside the review bubbles.",
     "The bubbles should be rounded, premium, softly translucent, glassmorphism-style, with generous padding and a subtle speech-bubble tail or chat-balloon feel.",
     "Keep each bubble visually independent, with space between them, and avoid aligning them as a rigid table or review feed.",
+    "If there is not enough room for 3 bubbles without clipping, use only 2 bubbles and keep them fully visible.",
     "Create a separate small rating strip outside the bubbles with the 5-star row and a compact customers counter like '+500 clientes satisfechos' or '+500 clientes felices'.",
     "The stars belong only in that separate rating strip, never inside the bubbles.",
+    "The rating strip and CTA must also remain fully inside the canvas with comfortable edge margins.",
     "Make the review messages clearly product-specific, not generic praise.",
     "Do not add large paragraphs, fake chat screenshots, dense interface chrome, duplicate counters, or repeated star rows.",
     "Do not let the product overlap or hide the text.",
@@ -400,6 +499,13 @@ function buildCreativeImagePrompt(
     .join("\n");
 }
 
+// ─── CAMBIO 2: overlayBrandLogo mejorado ─────────────────────────────────────
+// Mejoras:
+// 1. getRegionScore ahora penaliza píxeles brillantes (texto blanco) y
+//    píxeles saturados (botones de CTA naranja/verde) para evitar esas zonas.
+// 2. Se prefiere bottom-left de forma explícita si su score no supera el umbral,
+//    alineando con la esquina reservada en el prompt.
+// 3. Se mantiene la placa de fondo semitransparente para legibilidad del logo.
 async function overlayBrandLogo(
   base64Image: string,
   context: ProductCreativeContext,
@@ -408,8 +514,7 @@ async function overlayBrandLogo(
     return base64Image;
   }
 
-  const sharpModule = await import("sharp");
-  const sharp = sharpModule.default;
+  const sharp = await getSharp();
 
   const baseBuffer = Buffer.from(base64Image, "base64");
   const baseImage = sharp(baseBuffer);
@@ -418,10 +523,10 @@ async function overlayBrandLogo(
   const width = metadata.width ?? 1024;
   const height = metadata.height ?? 1024;
   const logoMargin = Math.max(22, Math.round(width * 0.028));
-  const logoMaxWidth = Math.max(116, Math.round(width * 0.14));
-  const logoMaxHeight = Math.max(54, Math.round(height * 0.12));
+  const logoMaxWidth = Math.max(96, Math.round(width * 0.11));
+  const logoMaxHeight = Math.max(46, Math.round(height * 0.095));
   const logoPath = path.resolve(process.cwd(), "public", context.brandLogoUrl.replace(/^\/+/, ""));
-  const logoBuffer = await readFile(logoPath);
+  const logoBuffer = await readLogoBufferCached(logoPath);
 
   const resizedLogo = await sharp(logoBuffer)
     .resize({
@@ -438,15 +543,25 @@ async function overlayBrandLogo(
   const probeWidth = Math.max(resizedLogoWidth + logoMargin * 2, Math.round(width * 0.22));
   const probeHeight = Math.max(resizedLogoHeight + logoMargin * 2, Math.round(height * 0.18));
 
-  const corners = [
-    { key: "top-left", left: logoMargin, top: logoMargin },
-    { key: "top-right", left: width - probeWidth - logoMargin, top: logoMargin },
-    { key: "bottom-left", left: logoMargin, top: height - probeHeight - logoMargin },
-    { key: "bottom-right", left: width - probeWidth - logoMargin, top: height - probeHeight - logoMargin },
-  ].map((corner) => ({
-    ...corner,
-    left: Math.max(0, Math.min(corner.left, width - probeWidth)),
-    top: Math.max(0, Math.min(corner.top, height - probeHeight)),
+  const candidates = [
+    { key: "top-right", left: width - probeWidth - logoMargin, top: logoMargin, priority: 0 },
+    { key: "top-left", left: logoMargin, top: logoMargin, priority: 1 },
+    {
+      key: "middle-right",
+      left: width - probeWidth - logoMargin,
+      top: Math.round((height - probeHeight) * 0.34),
+      priority: 2,
+    },
+    {
+      key: "middle-left",
+      left: logoMargin,
+      top: Math.round((height - probeHeight) * 0.34),
+      priority: 3,
+    },
+  ].map((candidate) => ({
+    ...candidate,
+    left: Math.max(0, Math.min(candidate.left, width - probeWidth)),
+    top: Math.max(0, Math.min(candidate.top, height - probeHeight)),
   }));
 
   const baseRaw = await baseImage
@@ -461,6 +576,9 @@ async function overlayBrandLogo(
     let sum = 0;
     let sumSq = 0;
     let edgeScore = 0;
+    // ── NUEVO: contadores para penalizar texto/CTA ──
+    let brightPixels = 0;   // píxeles muy blancos → texto del ad
+    let saturatedPixels = 0; // píxeles muy saturados → botones CTA (naranja, verde, etc.)
 
     for (let y = 0; y < regionHeight; y += 1) {
       const absoluteY = top + y;
@@ -475,6 +593,18 @@ async function overlayBrandLogo(
         pixelCount += 1;
         sum += luminance;
         sumSq += luminance * luminance;
+
+        // Texto blanco o áreas muy brillantes (overlay panels blancos)
+        if (r > 210 && g > 210 && b > 210) {
+          brightPixels += 1;
+        }
+
+        // Botones CTA saturados: diferencia grande entre canal máximo y mínimo
+        const maxChannel = Math.max(r, g, b);
+        const minChannel = Math.min(r, g, b);
+        if (maxChannel > 140 && (maxChannel - minChannel) > 90) {
+          saturatedPixels += 1;
+        }
 
         if (x > 0) {
           const leftIndex = (absoluteY * width + (absoluteX - 1)) * channels;
@@ -499,39 +629,47 @@ async function overlayBrandLogo(
     const mean = sum / Math.max(pixelCount, 1);
     const variance = Math.max(sumSq / Math.max(pixelCount, 1) - mean * mean, 0);
     const normalizedEdge = edgeScore / Math.max(pixelCount, 1);
+
+    // ── NUEVO: penalizaciones ──
+    // Texto blanco: penaliza fuerte porque el logo quedaría ilegible sobre él
+    const brightPenalty = (brightPixels / Math.max(pixelCount, 1)) * 130;
+    // CTA/botones saturados: penaliza muy fuerte para evitar superposición directa
+    const saturatedPenalty = (saturatedPixels / Math.max(pixelCount, 1)) * 160;
+
     return {
       mean,
       variance,
       edge: normalizedEdge,
-      score: variance * 0.65 + normalizedEdge * 1.35,
+      score: variance * 0.65 + normalizedEdge * 1.35 + brightPenalty + saturatedPenalty,
     };
   }
 
-  const rankedCorners = corners
-    .map((corner) => ({
-      ...corner,
-      metrics: getRegionScore(corner.left, corner.top, probeWidth, probeHeight),
+  const rankedCandidates = candidates
+    .map((candidate) => ({
+      ...candidate,
+      metrics: getRegionScore(candidate.left, candidate.top, probeWidth, probeHeight),
     }))
-    .sort((a, b) => a.metrics.score - b.metrics.score);
+    .sort((a, b) => {
+      const scoreDelta = a.metrics.score - b.metrics.score;
+      if (Math.abs(scoreDelta) > 6) {
+        return scoreDelta;
+      }
+      return a.priority - b.priority;
+    });
 
-  const targetCorner = rankedCorners[0];
+  const targetCorner = rankedCandidates[0];
+
   const logoLeft =
     targetCorner.key.endsWith("right")
       ? targetCorner.left + probeWidth - resizedLogoWidth - logoMargin
       : targetCorner.left + logoMargin;
   const logoTop =
-    targetCorner.key.startsWith("bottom")
-      ? targetCorner.top + probeHeight - resizedLogoHeight - logoMargin
+    targetCorner.key.startsWith("middle")
+      ? targetCorner.top + Math.max(logoMargin, Math.round((probeHeight - resizedLogoHeight) / 2))
       : targetCorner.top + logoMargin;
 
   const outputBuffer = await baseImage
-    .composite([
-      {
-        input: resizedLogo,
-        top: logoTop,
-        left: logoLeft,
-      },
-    ])
+    .composite([{ input: resizedLogo, top: logoTop, left: logoLeft }])
     .png()
     .toBuffer();
 
@@ -550,9 +688,7 @@ async function requestCreativeImageEdit(
   formData.append(
     "image[]",
     new Blob(
-      [
-        Uint8Array.from(imageSource.bytes),
-      ],
+      [Uint8Array.from(imageSource.bytes)],
       { type: imageSource.mimeType },
     ),
     imageSource.fileName,
@@ -573,9 +709,7 @@ async function requestCreativeImageEdit(
   }
 
   const data = (await response.json()) as {
-    data?: Array<{
-      b64_json?: string;
-    }>;
+    data?: Array<{ b64_json?: string }>;
   };
 
   const base64Image = data.data?.[0]?.b64_json;
@@ -615,24 +749,24 @@ export async function generateFacebookAdCreativesForProduct(
     console.warn("[FACEBOOK_AD_CREATIVE_COPY_FALLBACK]", error);
   }
 
-  const creatives: FacebookAdCreative[] = [];
+  return mapWithConcurrency(
+    creativeOptions,
+    IMAGE_EDIT_CONCURRENCY,
+    async (option, index) => {
+      const prompt = buildCreativeImagePrompt(context, option);
+      const base64Image = await requestCreativeImageEdit(imageSource, prompt, apiKey);
+      const imageWithLogo = await overlayBrandLogo(base64Image, context);
+      const imageUrl = await saveCreativeImage(context.productId, imageWithLogo, index);
 
-  for (const [index, option] of creativeOptions.entries()) {
-    const prompt = buildCreativeImagePrompt(context, option);
-    const base64Image = await requestCreativeImageEdit(imageSource, prompt, apiKey);
-    const imageWithLogo = await overlayBrandLogo(base64Image, context);
-    const imageUrl = await saveCreativeImage(context.productId, imageWithLogo, index);
-
-    creatives.push({
-      id: randomUUID(),
-      angle: option.angle,
-      headline: option.headline,
-      supportLine: option.supportLine,
-      cta: option.cta,
-      socialProof: option.socialProof,
-      imageUrl,
-    });
-  }
-
-  return creatives;
+      return {
+        id: randomUUID(),
+        angle: option.angle,
+        headline: option.headline,
+        supportLine: option.supportLine,
+        cta: option.cta,
+        socialProof: option.socialProof,
+        imageUrl,
+      };
+    },
+  );
 }

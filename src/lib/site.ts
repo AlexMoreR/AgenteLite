@@ -32,6 +32,7 @@ export const siteConfig = {
   phoneHref: "+573046481994",
   whatsappHref:
     "https://wa.me/573046481994?text=Hola%20Magilus%2C%20quiero%20cotizar%20mobiliario%20profesional",
+  iconPath: "/site-icon.png",
   logoPath: "/magilus-logo.svg",
   ogImagePath: "/magilus-logo.svg",
   country: "CO",

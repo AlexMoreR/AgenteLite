@@ -18,6 +18,23 @@ const initialState: FacebookAdsGeneratorState = {
 };
 
 const MARKETING_HISTORY_KEY = "marketing-ia:facebook-ads-history:v1";
+const creativeModes = [
+  {
+    value: "real",
+    title: "Real",
+    description: "Para productos",
+  },
+  {
+    value: "creative",
+    title: "Creativo",
+    description: "Para servicios",
+  },
+  {
+    value: "inspired",
+    title: "Inspirado",
+    description: "Para impacto / branding / atencion",
+  },
+] as const;
 
 const steps = [
   {
@@ -52,6 +69,8 @@ type HistoryEntry = {
   id: string;
   createdAt: string;
   creatives: FacebookAdsGeneratorState["creatives"];
+  sourceImageUrl?: string;
+  creativeMode?: FacebookAdsGeneratorState["creativeMode"];
 };
 
 function formatHistoryDate(value: string) {
@@ -141,6 +160,7 @@ export function SimpleMarketingForm({ businessLogoUrl }: { businessLogoUrl: stri
   const [modalOpen, setModalOpen] = useState(false);
   const [step, setStep] = useState(0);
   const [previewUrl, setPreviewUrl] = useState("");
+  const [creativeMode, setCreativeMode] = useState<FacebookAdsGeneratorState["creativeMode"]>("real");
   const [history, setHistory] = useState<HistoryEntry[]>(() => {
     if (typeof window === "undefined") {
       return [];
@@ -154,7 +174,17 @@ export function SimpleMarketingForm({ businessLogoUrl }: { businessLogoUrl: stri
 
       const parsed = JSON.parse(raw) as HistoryEntry[];
       return Array.isArray(parsed)
-        ? parsed.filter((item) => Array.isArray(item.creatives))
+        ? parsed.filter(
+            (item) =>
+              item &&
+              typeof item === "object" &&
+              Array.isArray(item.creatives) &&
+              (typeof item.sourceImageUrl === "string" || typeof item.sourceImageUrl === "undefined") &&
+              (item.creativeMode === "real" ||
+                item.creativeMode === "creative" ||
+                item.creativeMode === "inspired" ||
+                typeof item.creativeMode === "undefined"),
+          )
         : [];
     } catch {
       window.localStorage.removeItem(MARKETING_HISTORY_KEY);
@@ -172,6 +202,7 @@ export function SimpleMarketingForm({ businessLogoUrl }: { businessLogoUrl: stri
       queueMicrotask(() => {
         setModalOpen(false);
         setStep(0);
+        setCreativeMode("real");
         setPreviewUrl((current) => {
           if (current) {
             URL.revokeObjectURL(current);
@@ -200,6 +231,8 @@ export function SimpleMarketingForm({ businessLogoUrl }: { businessLogoUrl: stri
             id: crypto.randomUUID(),
             createdAt: new Date().toISOString(),
             creatives: state.creatives,
+            sourceImageUrl: state.sourceImageUrl,
+            creativeMode: state.creativeMode,
           },
           ...current,
         ].slice(0, 12);
@@ -246,6 +279,7 @@ export function SimpleMarketingForm({ businessLogoUrl }: { businessLogoUrl: stri
     startDeletingHistory(async () => {
       const result = await deleteFacebookAdsHistoryImagesAction({
         imageUrls: entry.creatives.map((creative) => creative.imageUrl),
+        sourceImageUrl: entry.sourceImageUrl,
       });
 
       if (!result.ok) {
@@ -516,6 +550,32 @@ export function SimpleMarketingForm({ businessLogoUrl }: { businessLogoUrl: stri
                       <section className="space-y-4 md:space-y-5">
                         <div className="rounded-[28px] border border-[rgba(148,163,184,0.14)] bg-white p-4 shadow-[0_18px_40px_-34px_rgba(15,23,42,0.18)] sm:p-5">
                           <div className="grid gap-4">
+                            <div className="space-y-2">
+                              <input type="hidden" name="creativeMode" value={creativeMode ?? "real"} />
+                              <span className="text-sm font-medium text-slate-700">Tipo de generacion</span>
+                              <div className="grid gap-3 md:grid-cols-3">
+                                {creativeModes.map((mode) => {
+                                  const selected = creativeMode === mode.value;
+                                  return (
+                                    <button
+                                      key={mode.value}
+                                      type="button"
+                                      onClick={() => setCreativeMode(mode.value)}
+                                      className={`rounded-2xl border px-4 py-4 text-left transition ${
+                                        selected
+                                          ? "border-[var(--primary)] bg-[color-mix(in_srgb,var(--primary)_8%,white)] shadow-[0_16px_34px_-28px_color-mix(in_srgb,var(--primary)_45%,black)]"
+                                          : "border-[rgba(148,163,184,0.16)] bg-slate-50 hover:border-[rgba(148,163,184,0.3)] hover:bg-white"
+                                      }`}
+                                      aria-pressed={selected}
+                                    >
+                                      <span className="block text-sm font-semibold text-slate-900">{mode.title}</span>
+                                      <span className="mt-1 block text-xs leading-5 text-slate-500">{mode.description}</span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+
                             <label className="block space-y-1.5">
                               <span className="text-sm font-medium text-slate-700">Nombre del producto</span>
                               <Input name="productName" placeholder="Ej. Perfume arabe premium" required />

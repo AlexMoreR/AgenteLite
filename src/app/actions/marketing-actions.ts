@@ -22,9 +22,12 @@ export type FacebookAdsGeneratorState = {
   ok: boolean;
   message: string;
   creatives: FacebookAdCreative[];
+  sourceImageUrl?: string;
+  creativeMode?: "real" | "creative" | "inspired";
 };
 
 const generateFacebookAdsSchema = z.object({
+  creativeMode: z.enum(["real", "creative", "inspired"]).default("real"),
   productName: z.string().trim().min(2, "Escribe el nombre del producto").max(120),
   productDescription: z
     .string()
@@ -41,6 +44,7 @@ const generateFacebookAdsSchema = z.object({
 
 const deleteCreativeImagesSchema = z.object({
   imageUrls: z.array(z.string().trim().min(1)).min(1).max(24),
+  sourceImageUrl: z.string().trim().min(1).optional(),
 });
 
 async function requireMarketingWorkspace() {
@@ -116,6 +120,21 @@ async function deleteMarketingBusinessLogoFile(logoUrl: string | null | undefine
   }
 
   const normalizedPath = path.normalize(logoUrl).replace(/^(\.\.(\/|\\|$))+/, "");
+  const filePath = path.join(process.cwd(), "public", normalizedPath);
+
+  try {
+    await unlink(filePath);
+  } catch {
+    // Ignore missing files; persistence cleanup is the primary concern.
+  }
+}
+
+async function deleteMarketingSourceImageFile(sourceImageUrl: string | null | undefined): Promise<void> {
+  if (!sourceImageUrl || !sourceImageUrl.startsWith("/uploads/marketing-source/")) {
+    return;
+  }
+
+  const normalizedPath = path.normalize(sourceImageUrl).replace(/^(\.\.(\/|\\|$))+/, "");
   const filePath = path.join(process.cwd(), "public", normalizedPath);
 
   try {
@@ -201,6 +220,7 @@ export async function generateFacebookAdsFromImageAction(
     const membership = await requireMarketingWorkspace();
 
     const parsed = generateFacebookAdsSchema.safeParse({
+      creativeMode: formData.get("creativeMode") || "real",
       productName: formData.get("productName"),
       productDescription: formData.get("productDescription") || undefined,
       brief: formData.get("brief") || undefined,
@@ -249,6 +269,7 @@ export async function generateFacebookAdsFromImageAction(
         brief: parsed.data.brief,
         brandLogoUrl: businessLogoUrl,
         includeBrandLogo: Boolean(includeBusinessLogo && businessLogoUrl),
+        creativeMode: parsed.data.creativeMode,
       },
       apiKey,
     );
@@ -257,6 +278,8 @@ export async function generateFacebookAdsFromImageAction(
       ok: true,
       message: "Se generaron 3 anuncios listos para Facebook Ads.",
       creatives,
+      sourceImageUrl,
+      creativeMode: parsed.data.creativeMode,
     };
   } catch (error) {
     console.error("[MARKETING_FACEBOOK_ADS]", error);
@@ -270,6 +293,7 @@ export async function generateFacebookAdsFromImageAction(
 
 export async function deleteFacebookAdsHistoryImagesAction(input: {
   imageUrls: string[];
+  sourceImageUrl?: string;
 }): Promise<{ ok: boolean; message: string }> {
   try {
     await requireMarketingWorkspace();
@@ -296,9 +320,11 @@ export async function deleteFacebookAdsHistoryImagesAction(input: {
       ),
     );
 
+    await deleteMarketingSourceImageFile(parsed.data.sourceImageUrl);
+
     return {
       ok: true,
-      message: "Se elimino el registro y sus imagenes.",
+      message: "Se elimino el registro, sus imagenes y la foto original.",
     };
   } catch (error) {
     console.error("[MARKETING_FACEBOOK_ADS_DELETE]", error);
