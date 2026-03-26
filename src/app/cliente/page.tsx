@@ -64,7 +64,7 @@ export default async function ClientePage({ searchParams }: PageProps) {
         </div>
       </Card>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-4 lg:grid-cols-3">
         <Card className="space-y-2">
           <div className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-100 text-slate-700">
             <Bot className="h-4 w-4" />
