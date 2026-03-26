@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
+import { CreativosWorkspace } from "@/components/marketing/creativos-workspace";
 
 export const metadata: Metadata = {
   robots: {
@@ -9,12 +10,12 @@ export const metadata: Metadata = {
   },
 };
 
-export default async function FacebookAdsPage() {
+export default async function CreativosPage() {
   const session = await auth();
 
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
     redirect("/unauthorized");
   }
 
-  redirect("/cliente/marketing-ia/creativos");
+  return <CreativosWorkspace />;
 }

@@ -326,7 +326,7 @@ export function SimpleMarketingForm() {
 
             <div className="mt-6 max-w-2xl space-y-3">
               <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">
-                Facebook Ads
+                Creativos
               </p>
               <h2 className="text-[2rem] font-semibold tracking-[-0.06em] text-slate-950 sm:text-[2.25rem]">
                 Crea tu anuncio

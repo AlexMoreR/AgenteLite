@@ -91,10 +91,10 @@ export default async function ClientePage({ searchParams }: PageProps) {
           </div>
           <h2 className="text-base font-semibold text-slate-900">Marketing IA</h2>
           <p className="text-sm text-slate-600">
-            Genera imagenes para Facebook Ads desde la foto real de tu producto y descarga 3 versiones con texto comercial.
+            Genera creativos desde la foto real de tu producto y descarga 3 versiones con texto comercial.
           </p>
           <Link
-            href="/cliente/marketing-ia/facebook-ads"
+            href="/cliente/marketing-ia/creativos"
             className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-[var(--line)] bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
           >
             Abrir generador

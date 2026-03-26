@@ -1,18 +1,11 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import Image from "next/image";
-import { ArrowRight, BadgeCheck, ImagePlus, Megaphone } from "lucide-react";
+import { ArrowRight, Megaphone } from "lucide-react";
 import { auth } from "@/auth";
-import {
-  deleteMarketingBusinessLogoAction,
-  saveMarketingBusinessLogoAction,
-} from "@/app/actions/marketing-actions";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
-import { getWorkspaceMarketingLogoUrl } from "@/lib/marketing-branding";
-import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
 export const metadata: Metadata = {
   robots: {
@@ -32,28 +25,17 @@ export default async function MarketingIaPage({ searchParams }: PageProps) {
     redirect("/unauthorized");
   }
 
-  const membership = await getPrimaryWorkspaceForUser(session.user.id);
-  const businessLogoUrl = membership
-    ? await getWorkspaceMarketingLogoUrl(membership.workspace.id)
-    : null;
   const params = await searchParams;
   const okMessage = typeof params.ok === "string" ? params.ok : "";
   const errorMessage = typeof params.error === "string" ? params.error : "";
 
-  return (
-    <MarketingPageContent
-      businessLogoUrl={businessLogoUrl}
-      okMessage={okMessage}
-      errorMessage={errorMessage}
-    />
-  );
+  return <MarketingPageContent okMessage={okMessage} errorMessage={errorMessage} />;
 }
 
 function MarketingPageContent({
   okMessage,
   errorMessage,
 }: {
-  businessLogoUrl: string | null;
   okMessage: string;
   errorMessage: string;
 }) {
@@ -66,22 +48,63 @@ function MarketingPageContent({
         errorTitle="No pudimos completar la accion"
       />
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card className="space-y-4 p-5">
-          <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
-            <Megaphone className="h-5 w-5" />
+      <div className="grid gap-4">
+        <div className="relative overflow-hidden rounded-[32px] border border-[var(--line)] bg-[linear-gradient(180deg,var(--surface)_0%,#f8fafc_100%)] p-6 text-[var(--foreground)] shadow-[0_24px_54px_-40px_rgba(15,23,42,0.14)] sm:p-7">
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(37,99,235,0.08),transparent_26%),radial-gradient(circle_at_bottom_left,rgba(37,99,235,0.04),transparent_30%)]" />
+          <div className="relative space-y-8">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="max-w-3xl space-y-4">
+                <div className="inline-flex h-12 w-12 items-center justify-center rounded-[20px] bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
+                  <Megaphone className="h-5 w-5" />
+                </div>
+
+                <div className="space-y-3">
+                  <div className="inline-flex items-center rounded-full border border-[var(--line)] bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                    Modulo activo
+                  </div>
+                  <div className="space-y-2">
+                    <h1 className="text-[2rem] font-semibold tracking-[-0.07em] text-slate-950 sm:text-[2.55rem]">
+                      Creativos
+                    </h1>
+                    <p className="max-w-[60ch] text-sm leading-7 text-slate-600 sm:text-base">
+                      Convierte una foto del producto en anuncios cuadrados con
+                      copy integrado y salida lista para pauta.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <span className="rounded-full border border-[var(--line)] bg-white px-3 py-1.5 text-xs font-medium text-slate-600">
+                  Foto real
+                </span>
+                <span className="rounded-full border border-[var(--line)] bg-white px-3 py-1.5 text-xs font-medium text-slate-600">
+                  3 variaciones
+                </span>
+                <span className="rounded-full border border-[var(--line)] bg-white px-3 py-1.5 text-xs font-medium text-slate-600">
+                  Logo opcional
+                </span>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-4 rounded-[26px] border border-[var(--line)] bg-white/88 p-4">
+              <div className="space-y-1">
+                <p className="text-sm font-semibold text-slate-950">Entrar al estudio de anuncios</p>
+                <p className="text-xs leading-5 text-slate-500">
+                  Prepara la foto, define el enfoque y descarga los resultados.
+                </p>
+              </div>
+
+              <Button asChild size="lg" className="rounded-2xl">
+                <Link href="/cliente/marketing-ia/creativos">
+                  Abrir modulo
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              </Button>
+            </div>
           </div>
-          <h2 className="text-lg font-semibold text-slate-900">Facebook Ads</h2>
-          <div className="space-y-1">
-          </div>
-          <Link
-            href="/cliente/marketing-ia/facebook-ads"
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-medium text-white transition hover:bg-slate-800"
-          >
-            Abrir modulo
-            <ArrowRight className="h-4 w-4" />
-          </Link>
-        </Card>
+        </div>
+
       </div>
     </section>
   );

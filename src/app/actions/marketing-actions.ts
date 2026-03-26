@@ -355,6 +355,7 @@ export async function saveMarketingBusinessLogoAction(formData: FormData): Promi
     }
 
     revalidatePath("/cliente/marketing-ia");
+    revalidatePath("/cliente/marketing-ia/creativos");
     revalidatePath("/cliente/marketing-ia/facebook-ads");
     redirect("/cliente/marketing-ia?ok=Logo+de+marketing+actualizado");
   } catch (error) {
@@ -376,6 +377,7 @@ export async function deleteMarketingBusinessLogoAction(): Promise<void> {
     await deleteMarketingBusinessLogoFile(currentLogoUrl);
 
     revalidatePath("/cliente/marketing-ia");
+    revalidatePath("/cliente/marketing-ia/creativos");
     revalidatePath("/cliente/marketing-ia/facebook-ads");
     redirect("/cliente/marketing-ia?ok=Logo+de+marketing+eliminado");
   } catch (error) {
