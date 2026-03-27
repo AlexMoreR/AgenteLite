@@ -38,15 +38,15 @@ const creativeModes = [
 
 const steps = [
   {
-    title: "Imagen del producto",
+    title: "🖼️ Imagen del producto",
     subtitle: "Sube la foto real que quieres convertir en anuncio.",
   },
   {
-    title: "Datos del anuncio",
+    title: "✍️ Datos del anuncio",
     subtitle: "Completa el nombre y las instrucciones para el copy.",
   },
   {
-    title: "Generando imagenes",
+    title: "✨ Generando imagenes",
     subtitle: "La IA esta preparando tus 3 opciones.",
   },
 ] as const;
@@ -318,7 +318,6 @@ export function SimpleMarketingForm() {
         </div>
       ) : (
         <div className="relative overflow-hidden rounded-[34px] border border-[rgba(87,72,117,0.14)] bg-[linear-gradient(155deg,rgba(255,255,255,0.96),rgba(248,243,255,0.95)_52%,rgba(240,235,247,0.98))] p-6 shadow-[0_28px_80px_-52px_rgba(42,16,83,0.3)] sm:p-8">
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(126,34,206,0.1),transparent_25%),radial-gradient(circle_at_bottom_left,rgba(249,115,22,0.09),transparent_26%)]" />
           <div className="relative flex min-h-[280px] flex-col items-center justify-center text-center">
             <div className="inline-flex h-16 w-16 items-center justify-center rounded-[24px] bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)] shadow-[0_18px_40px_-28px_color-mix(in_srgb,var(--primary)_38%,black)]">
               <Sparkles className="h-7 w-7" />
@@ -460,7 +459,7 @@ export function SimpleMarketingForm() {
                     ))}
                   </div>
                   <div className="space-y-2">
-                    <h2 className="text-[2rem] font-semibold tracking-[-0.06em] text-slate-950 md:text-[2.1rem]">
+                    <h2 className="text-[1.45rem] font-semibold tracking-[-0.05em] text-slate-950 md:text-[1.7rem]">
                       {steps[activeStep].title}
                     </h2>
                     {!pending ? (
@@ -509,8 +508,8 @@ export function SimpleMarketingForm() {
                     </div>
 
                     <div className="mt-7 space-y-3">
-                      <h3 className="text-[2.1rem] font-semibold tracking-[-0.06em] text-slate-950">
-                        Generando tus imagenes
+                      <h3 className="text-[1.7rem] font-semibold tracking-[-0.05em] text-slate-950 md:text-[1.9rem]">
+                        ✨ Generando tus imagenes
                       </h3>
                       <p className="text-base leading-7 text-slate-600">
                         Estamos ajustando la foto del producto y creando 3 anuncios

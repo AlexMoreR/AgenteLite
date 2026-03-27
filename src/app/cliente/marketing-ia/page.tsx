@@ -1,10 +1,9 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { ArrowRight, Megaphone } from "lucide-react";
+import { ArrowRight, Megaphone, Sparkles } from "lucide-react";
 import { auth } from "@/auth";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 
 export const metadata: Metadata = {
@@ -21,7 +20,11 @@ type PageProps = {
 export default async function MarketingIaPage({ searchParams }: PageProps) {
   const session = await auth();
 
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+  if (
+    !session?.user?.id ||
+    !session.user.role ||
+    !["ADMIN", "CLIENTE"].includes(session.user.role)
+  ) {
     redirect("/unauthorized");
   }
 
@@ -29,7 +32,12 @@ export default async function MarketingIaPage({ searchParams }: PageProps) {
   const okMessage = typeof params.ok === "string" ? params.ok : "";
   const errorMessage = typeof params.error === "string" ? params.error : "";
 
-  return <MarketingPageContent okMessage={okMessage} errorMessage={errorMessage} />;
+  return (
+    <MarketingPageContent
+      okMessage={okMessage}
+      errorMessage={errorMessage}
+    />
+  );
 }
 
 function MarketingPageContent({
@@ -49,47 +57,38 @@ function MarketingPageContent({
       />
 
       <div className="grid gap-4">
-        <div className="relative overflow-hidden rounded-[32px] border border-[var(--line)] bg-[linear-gradient(180deg,var(--surface)_0%,#f8fafc_100%)] p-6 text-[var(--foreground)] shadow-[0_24px_54px_-40px_rgba(15,23,42,0.14)] sm:p-7">
+        <div className="relative overflow-hidden rounded-[12px] border border-[var(--line)] bg-[linear-gradient(180deg,var(--surface)_0%,#f8fafc_100%)] p-6 text-[var(--foreground)] shadow-[0_24px_54px_-40px_rgba(15,23,42,0.14)] sm:p-7">
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(37,99,235,0.08),transparent_26%),radial-gradient(circle_at_bottom_left,rgba(37,99,235,0.04),transparent_30%)]" />
+          <div className="pointer-events-none absolute right-0 top-0 text-[color-mix(in_srgb,var(--primary)_78%,white)] opacity-10">
+            <Sparkles className="h-28 w-28" strokeWidth={1.5} />
+          </div>
+
           <div className="relative space-y-8">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="max-w-3xl space-y-4">
-                <div className="inline-flex h-12 w-12 items-center justify-center rounded-[20px] bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
-                  <Megaphone className="h-5 w-5" />
-                </div>
-
-                <div className="space-y-3">
-                  <div className="inline-flex items-center rounded-full border border-[var(--line)] bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
-                    Modulo activo
+                <div className="flex items-start gap-4">
+                  <div className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-[20px] bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
+                    <Megaphone className="h-5 w-5" />
                   </div>
-                  <div className="space-y-2">
+
+                  <div className="space-y-3">
                     <h1 className="text-[2rem] font-semibold tracking-[-0.07em] text-slate-950 sm:text-[2.55rem]">
                       Creativos
                     </h1>
+
                     <p className="max-w-[60ch] text-sm leading-7 text-slate-600 sm:text-base">
-                      Convierte una foto del producto en anuncios cuadrados con
-                      copy integrado y salida lista para pauta.
+                      Ahorra tiempo y conviértete en un experto en marketing con estos asistentes de IA diseñados para potenciar tus resultados.
                     </p>
                   </div>
                 </div>
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                <span className="rounded-full border border-[var(--line)] bg-white px-3 py-1.5 text-xs font-medium text-slate-600">
-                  Foto real
-                </span>
-                <span className="rounded-full border border-[var(--line)] bg-white px-3 py-1.5 text-xs font-medium text-slate-600">
-                  3 variaciones
-                </span>
-                <span className="rounded-full border border-[var(--line)] bg-white px-3 py-1.5 text-xs font-medium text-slate-600">
-                  Logo opcional
-                </span>
               </div>
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-4 rounded-[26px] border border-[var(--line)] bg-white/88 p-4">
               <div className="space-y-1">
-                <p className="text-sm font-semibold text-slate-950">Entrar al estudio de anuncios</p>
+                <p className="text-sm font-semibold text-slate-950">
+                  Paso 1: Entrar al estudio de anuncios
+                </p>
                 <p className="text-xs leading-5 text-slate-500">
                   Prepara la foto, define el enfoque y descarga los resultados.
                 </p>
@@ -104,7 +103,6 @@ function MarketingPageContent({
             </div>
           </div>
         </div>
-
       </div>
     </section>
   );
