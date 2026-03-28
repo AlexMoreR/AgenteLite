@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, FileText, Megaphone, Target } from "lucide-react";
+import { Copy, FileText, Megaphone } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -85,109 +85,6 @@ export function AdsGeneratorResult({ pending, result }: AdsGeneratorResultProps)
       <div className="grid gap-4 xl:grid-cols-[1.05fr_1.2fr]">
         <Card className="rounded-[28px] border-[var(--line)] bg-white p-6">
           <div className="mb-4 flex items-center gap-2">
-            <Target className="h-4 w-4 text-[var(--primary)]" />
-            <h3 className="text-lg font-semibold text-slate-950">Estrategia</h3>
-          </div>
-
-          <dl className="space-y-4 text-sm">
-            <div className="space-y-1">
-              <dt className="font-medium text-slate-500">Angulo</dt>
-              <dd className="leading-6 text-slate-800">{result.strategy.angle}</dd>
-            </div>
-            <div className="space-y-1">
-              <dt className="font-medium text-slate-500">Resumen estrategico</dt>
-              <dd className="leading-6 text-slate-800">{result.meta.strategicSummary}</dd>
-            </div>
-            <div className="space-y-1">
-              <dt className="font-medium text-slate-500">Audiencia</dt>
-              <dd className="leading-6 text-slate-800">{result.strategy.audience}</dd>
-            </div>
-            <div className="space-y-1">
-              <dt className="font-medium text-slate-500">CTA</dt>
-              <dd className="leading-6 text-slate-800">{result.strategy.callToAction}</dd>
-            </div>
-            <div className="space-y-2">
-              <dt className="font-medium text-slate-500">Hooks</dt>
-              <dd className="space-y-2">
-                {result.strategy.hooks.map((hook) => (
-                  <div
-                    key={hook}
-                    className="rounded-2xl border border-[var(--line)] bg-slate-50 px-3 py-2 leading-6 text-slate-700"
-                  >
-                    {hook}
-                  </div>
-                ))}
-              </dd>
-            </div>
-          </dl>
-        </Card>
-
-        <Card className="rounded-[28px] border-[var(--line)] bg-white p-6">
-          <div className="mb-4 flex items-center gap-2">
-            <Megaphone className="h-4 w-4 text-[var(--primary)]" />
-            <h3 className="text-lg font-semibold text-slate-950">Salida Meta</h3>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded-2xl border border-[var(--line)] bg-slate-50 px-4 py-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                Objetivo
-              </p>
-              <p className="mt-1 text-sm font-medium text-slate-900">
-                {result.meta.campaignObjective}
-              </p>
-            </div>
-            <div className="rounded-2xl border border-[var(--line)] bg-slate-50 px-4 py-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                Formato
-              </p>
-              <p className="mt-1 text-sm font-medium text-slate-900">
-                {result.meta.recommendedFormat}
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-4 space-y-3">
-            <div className="rounded-2xl border border-[var(--line)] bg-slate-50 px-4 py-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                Estructura de campana
-              </p>
-              <p className="mt-1 text-sm leading-6 text-slate-700">
-                {result.meta.campaignStructure}
-              </p>
-            </div>
-
-            <div className="rounded-2xl border border-[var(--line)] bg-slate-50 px-4 py-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                Segmentacion basica
-              </p>
-              <div className="mt-2 space-y-2">
-                {result.meta.basicSegmentation.map((segment) => (
-                  <p key={segment} className="text-sm leading-6 text-slate-700">
-                    {segment}
-                  </p>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-4 space-y-3">
-            <p className="text-sm font-medium text-slate-700">Notas creativas</p>
-            {result.meta.creativeNotes.map((note) => (
-              <div
-                key={note}
-                className="rounded-2xl border border-[var(--line)] bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-700"
-              >
-                {note}
-              </div>
-            ))}
-          </div>
-        </Card>
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-[1.05fr_1.2fr]">
-        <Card className="rounded-[28px] border-[var(--line)] bg-white p-6">
-          <div className="mb-4 flex items-center gap-2">
             <FileText className="h-4 w-4 text-[var(--primary)]" />
             <h3 className="text-lg font-semibold text-slate-950">Copy principal</h3>
           </div>
@@ -235,30 +132,24 @@ export function AdsGeneratorResult({ pending, result }: AdsGeneratorResultProps)
         <Card className="rounded-[28px] border-[var(--line)] bg-white p-6">
           <div className="mb-4 flex items-center gap-2">
             <Megaphone className="h-4 w-4 text-[var(--primary)]" />
-            <h3 className="text-lg font-semibold text-slate-950">Operacion del anuncio</h3>
+            <h3 className="text-lg font-semibold text-slate-950">Sugerencias del anuncio</h3>
           </div>
 
           <div className="space-y-3">
             <div className="rounded-2xl border border-[var(--line)] bg-slate-50 px-4 py-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                Idea de creativo
-              </p>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Idea de creativo</p>
               <p className="mt-2 text-sm leading-6 text-slate-700">{result.meta.creativeIdea}</p>
             </div>
 
             <div className="rounded-2xl border border-[var(--line)] bg-slate-50 px-4 py-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                Presupuesto recomendado
-              </p>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Presupuesto recomendado</p>
               <p className="mt-2 text-sm leading-6 text-slate-700">
                 {result.meta.budgetRecommendation}
               </p>
             </div>
 
             <div className="rounded-2xl border border-[var(--line)] bg-slate-50 px-4 py-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                Checklist para publicar
-              </p>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Checklist para publicar</p>
               <div className="mt-2 space-y-2">
                 {result.meta.publicationChecklist.map((item) => (
                   <p key={item} className="text-sm leading-6 text-slate-700">

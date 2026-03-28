@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
+import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { ArrowRight, Building2, Globe, MapPin, Megaphone, Users2 } from "lucide-react";
 import { auth } from "@/auth";
 import { MarketingBusinessIntakeModal } from "@/components/marketing/marketing-business-intake-modal";
+import { MarketingContextDetailModal } from "@/components/marketing/marketing-context-detail-modal";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
@@ -72,6 +74,35 @@ export default async function MarketingBusinessContextPage({ searchParams }: Pag
     businessContext.facebookUrl,
     businessContext.tiktokUrl,
   ].filter(Boolean);
+  const marketingDetailItems = [
+    {
+      title: "Que hace especial a tu negocio",
+      value: businessContext.valueProposition || "Aun no lo has contado.",
+    },
+    {
+      title: "A que tipo de cliente le vendes",
+      value: businessContext.idealCustomer || "Aun no lo has definido.",
+    },
+    {
+      title: "Que problema resuelves",
+      value: businessContext.painPoints || "Aun no lo has explicado.",
+    },
+    {
+      title: "Que quieres impulsar primero",
+      value: businessContext.mainOffer || "Aun no hay una oferta principal.",
+    },
+    {
+      title: "Llamado a la accion",
+      value: businessContext.primaryCallToAction || "Aun no hay CTA principal.",
+    },
+    {
+      title: "Redes y canales",
+      value:
+        digitalSignals.length > 0
+          ? digitalSignals.join(" · ")
+          : "Aun no hay redes o paginas agregadas.",
+    },
+  ];
 
   return (
     <section className="app-page space-y-5">
@@ -95,12 +126,11 @@ export default async function MarketingBusinessContextPage({ searchParams }: Pag
               </h1>
             </div>
 
-            <div className="flex flex-wrap items-center gap-3 rounded-[20px] border border-[var(--line)] bg-white/85 p-3 shadow-[0_16px_32px_-28px_rgba(15,23,42,0.22)]">
+            <div className="flex flex-wrap items-center gap-3">
               <MarketingBusinessIntakeModal context={businessContext} />
-
               <Button asChild variant="outline" size="lg" className="rounded-2xl">
                 <Link href="/cliente/marketing-ia/ads-generator">
-                  Ir al Ads Generator
+                  Siguiente paso
                   <ArrowRight className="h-4 w-4" />
                 </Link>
               </Button>
@@ -150,7 +180,7 @@ export default async function MarketingBusinessContextPage({ searchParams }: Pag
           <div className="mb-5 flex items-center gap-3">
             <Users2 className="h-5 w-5 text-[var(--primary)]" />
             <h2 className="text-xl font-semibold tracking-[-0.04em] text-slate-950">
-              Señales utiles para marketing
+              Senales utiles para marketing
             </h2>
           </div>
 
@@ -188,61 +218,14 @@ export default async function MarketingBusinessContextPage({ searchParams }: Pag
       </div>
 
       <Card className="rounded-[28px] p-6">
-        <div className="mb-5 space-y-4">
+        <div className="space-y-4">
           <div className="space-y-2">
             <h2 className="text-xl font-semibold tracking-[-0.04em] text-slate-950">
-              Cuéntale a la IA como funciona tu negocio
+              Resporte del marketing
             </h2>
-            <p className="max-w-[68ch] text-sm leading-6 text-slate-600">
-              Responde preguntas faciles y rapidas. El agente experto en marketing usara esto para
-              entender tu negocio, proponer mensajes y definir mejor la estrategia.
-            </p>
           </div>
 
-        </div>
-
-        <div className="grid gap-4 lg:grid-cols-[1.05fr_0.95fr]">
-          <div className="rounded-[26px] border border-[var(--line)] bg-[linear-gradient(180deg,#ffffff,#f8fbff)] p-5">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <SummaryItem
-                title="Que hace especial a tu negocio"
-                value={businessContext.valueProposition || "Aun no lo has contado."}
-              />
-              <SummaryItem
-                title="A que tipo de cliente le vendes"
-                value={businessContext.idealCustomer || "Aun no lo has definido."}
-              />
-              <SummaryItem
-                title="Que problema resuelves"
-                value={businessContext.painPoints || "Aun no lo has explicado."}
-              />
-              <SummaryItem
-                title="Que quieres impulsar primero"
-                value={businessContext.mainOffer || "Aun no hay una oferta principal."}
-              />
-            </div>
-          </div>
-
-          <div className="rounded-[26px] border border-[var(--line)] bg-[linear-gradient(180deg,#ffffff,#f8fbff)] p-5">
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <p className="text-sm font-semibold text-slate-950">Asistente guiado</p>
-                <p className="text-sm leading-6 text-slate-600">
-                  Usa el modal guiado para contarle a la IA lo basico del negocio y dejar lista la base para marketing.
-                </p>
-              </div>
-
-              <div className="space-y-2 rounded-[20px] border border-[var(--line)] bg-slate-50 p-4">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                  Incluye
-                </p>
-                <p className="text-sm leading-6 text-slate-700">
-                  Diferencial, cliente ideal, problema, oferta principal, CTA y redes.
-                </p>
-              </div>
-
-            </div>
-          </div>
+          <MarketingContextDetailModal items={marketingDetailItems} />
         </div>
       </Card>
     </section>
@@ -271,7 +254,7 @@ function ContextChip({
   title,
   body,
 }: {
-  icon: React.ReactNode;
+  icon: ReactNode;
   title: string;
   body: string;
 }) {
@@ -282,15 +265,6 @@ function ContextChip({
         <span>{title}</span>
       </div>
       <p className="mt-2 text-sm leading-6 text-slate-600">{body}</p>
-    </div>
-  );
-}
-
-function SummaryItem({ title, value }: { title: string; value: string }) {
-  return (
-    <div className="rounded-[20px] border border-[var(--line)] bg-white p-4">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">{title}</p>
-      <p className="mt-2 text-sm leading-6 text-slate-700">{value}</p>
     </div>
   );
 }

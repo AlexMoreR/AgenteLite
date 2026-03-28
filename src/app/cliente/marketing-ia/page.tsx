@@ -61,17 +61,6 @@ function formatDisplayName(value: string) {
   return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
 }
 
-function getMotivationalBusinessLine(
-  context: Awaited<ReturnType<typeof getMarketingBusinessContextForUser>>,
-) {
-  const businessName = context?.businessName?.trim();
-  if (businessName) {
-    return `${formatDisplayName(businessName)} tiene potencial. Completa los datos para crear un marketing mas claro y efectivo.`;
-  }
-
-  return "Tu negocio tiene potencial. Completa los datos para crear un marketing mas claro y efectivo.";
-}
-
 function MarketingPageContent({
   okMessage,
   errorMessage,
@@ -83,7 +72,6 @@ function MarketingPageContent({
 }) {
   const completion = getMarketingContextCompletion(businessContext);
   const isIncomplete = completion < 100;
-  const motivationalLine = getMotivationalBusinessLine(businessContext);
   const robot = getMarketingRobotMood(completion);
 
   return (
@@ -147,15 +135,12 @@ function MarketingPageContent({
                           Paso 1
                         </span>
                       </div>
-                      <p className="max-w-[44ch] text-[12px] leading-5 text-slate-600 sm:max-w-[58ch] sm:text-[13px]">
-                        {motivationalLine}
-                      </p>
                     </div>
                   </div>
                 </div>
 
                 <div className="flex w-full items-center gap-2 rounded-[18px] border border-red-100 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(255,244,244,0.96))] px-3 py-2 shadow-[0_14px_24px_-22px_rgba(127,29,29,0.18)] sm:w-auto">
-                  <div className="rounded-[12px] border border-red-100 bg-[linear-gradient(180deg,#fff8f8,#fff0f0)] px-2 py-1 font-mono text-[8px] leading-[0.9] text-red-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)]">
+                  <div className="text-[1.2rem] leading-none">
                     {robot.lines.map((line) => (
                       <div key={line}>{line}</div>
                     ))}

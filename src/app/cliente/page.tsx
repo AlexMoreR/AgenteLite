@@ -62,10 +62,10 @@ export default async function ClientePage({ searchParams }: PageProps) {
 
             <div className="flex flex-wrap gap-3">
               <Link
-                href={hasWorkspace ? "/cliente/agentes" : "/cliente/onboarding?returnTo=/cliente"}
+                href={hasWorkspace ? "/cliente/marketing-ia" : "/cliente/onboarding?returnTo=/cliente/marketing-ia"}
                 className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-5 text-sm font-medium text-white shadow-[0_16px_30px_-18px_rgba(37,99,235,0.45)] transition hover:translate-y-[-1px] hover:bg-[var(--primary-strong)]"
               >
-                {hasWorkspace ? "Ir a atencion IA" : "Comenzar"}
+                {hasWorkspace ? "Ir a Marketing IA" : "Comenzar"}
                 <ArrowRight className="h-4 w-4" />
               </Link>
             </div>

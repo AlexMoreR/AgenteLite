@@ -3,8 +3,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { AdsGeneratorWorkspace } from "@/features/ads-generator";
 import type { AdProductInput } from "@/features/ads-generator";
-import { getAdsGeneratorHistory } from "@/lib/ads-generator-history";
-import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
+import { getMarketingBusinessContextForUser } from "@/lib/marketing-business-context";
 
 export const metadata: Metadata = {
   robots: {
@@ -36,18 +35,24 @@ export default async function AdsGeneratorPage({ searchParams }: PageProps) {
   }
 
   const params = await searchParams;
-  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  const businessContext = await getMarketingBusinessContextForUser(session.user.id);
   const imageUrl = getSingleValue(params.imageUrl);
   const source = getSingleValue(params.source);
-  const history = membership?.workspace.id
-    ? await getAdsGeneratorHistory(membership.workspace.id)
-    : [];
   const initialInput: Partial<AdProductInput> = {
     productName: getSingleValue(params.productName),
     productDescription: getSingleValue(params.productDescription),
+    brandName: businessContext?.businessName || undefined,
+    categoryName: businessContext?.businessType || undefined,
     keyBenefits: splitLines(getSingleValue(params.keyBenefits)),
     painPoints: splitLines(getSingleValue(params.painPoints)),
-    audienceSummary: getSingleValue(params.audienceSummary) || undefined,
+    audienceSummary:
+      getSingleValue(params.audienceSummary) ||
+      businessContext?.idealCustomer ||
+      (businessContext?.targetAudiences.length
+        ? businessContext.targetAudiences.join(", ")
+        : undefined),
+    landingPageUrl: businessContext?.websiteUrl || undefined,
+    callToAction: businessContext?.primaryCallToAction || undefined,
     image: imageUrl
       ? {
           url: imageUrl,
@@ -60,9 +65,7 @@ export default async function AdsGeneratorPage({ searchParams }: PageProps) {
 
   return (
     <AdsGeneratorWorkspace
-      initialHistory={history}
       initialInput={initialInput}
-      sourceHint={source ? `imagen enviada desde ${source}` : null}
     />
   );
 }

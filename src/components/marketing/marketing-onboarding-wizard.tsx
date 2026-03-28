@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { completeWorkspaceOnboardingAction } from "@/app/actions/workspace-actions";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,50 @@ type MarketingOnboardingWizardProps = {
   defaultBusinessName: string;
   returnTo: string;
 };
+
+const businessTypeOptions = [
+  "Restaurante",
+  "Tienda de ropa",
+  "Tienda de calzado",
+  "Tienda de tecnologia",
+  "Peluqueria",
+  "Barberia",
+  "Salon de belleza",
+  "Spa",
+  "Clinica dental",
+  "Consultorio medico",
+  "Farmacia",
+  "Veterinaria",
+  "Gimnasio",
+  "Estudio fitness",
+  "Inmobiliaria",
+  "Ferreteria",
+  "Supermercado",
+  "Minimercado",
+  "Panaderia",
+  "Pasteleria",
+  "Cafeteria",
+  "Heladeria",
+  "Licorera",
+  "Tienda de mascotas",
+  "Papeleria",
+  "Jugueteria",
+  "Joyeria",
+  "Optica",
+  "Taller automotriz",
+  "Lavadero de autos",
+  "Hotel",
+  "Hostal",
+  "Agencia de viajes",
+  "Academia",
+  "Instituto educativo",
+  "Abogado",
+  "Contador",
+  "Consultoria",
+  "Servicio tecnico",
+  "E-commerce",
+  "Emprendimiento",
+];
 
 const steps = [
   {
@@ -43,6 +87,91 @@ function StepDot({ active, done }: { active: boolean; done: boolean }) {
             : "w-4 bg-slate-200"
       }`}
     />
+  );
+}
+
+function BusinessTypeField() {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+
+  const filteredOptions = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+
+    if (!normalizedQuery) {
+      return businessTypeOptions.slice(0, 8);
+    }
+
+    const matches = businessTypeOptions.filter((option) =>
+      option.toLowerCase().includes(normalizedQuery),
+    );
+
+    return matches.slice(0, 8);
+  }, [query]);
+
+  const hasExactMatch = businessTypeOptions.some(
+    (option) => option.toLowerCase() === query.trim().toLowerCase(),
+  );
+
+  return (
+    <label className="space-y-1.5 md:col-span-2">
+      <span className="text-sm font-semibold text-slate-950">Tipo de negocio</span>
+      <div className="relative">
+        <Input
+          name="businessType"
+          placeholder="Busca o escribe tu tipo de negocio"
+          required
+          value={query}
+          autoComplete="off"
+          onFocus={() => setOpen(true)}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setOpen(true);
+          }}
+          onBlur={() => {
+            window.setTimeout(() => setOpen(false), 120);
+          }}
+          className="h-16 rounded-[28px] border border-white bg-white px-6 text-[15px] text-slate-950 shadow-[0_18px_38px_-30px_rgba(15,23,42,0.14)] placeholder:text-slate-400 focus-visible:border-[var(--primary)] focus-visible:ring-[color-mix(in_srgb,var(--primary)_16%,white)]"
+        />
+
+        {open ? (
+          <div className="absolute left-0 right-0 top-[calc(100%+0.6rem)] z-20 rounded-[24px] border border-[rgba(148,163,184,0.16)] bg-white p-3 shadow-[0_24px_60px_-36px_rgba(15,23,42,0.28)]">
+            <p className="px-2 pb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+              Sugerencias
+            </p>
+
+            <div className="flex flex-wrap gap-2">
+              {filteredOptions.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    setQuery(option);
+                    setOpen(false);
+                  }}
+                  className="inline-flex min-h-11 items-center justify-center rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-[var(--primary)] hover:bg-[color-mix(in_srgb,var(--primary)_7%,white)] hover:text-[var(--primary)]"
+                >
+                  {option}
+                </button>
+              ))}
+
+              {query.trim() && !hasExactMatch ? (
+                <button
+                  type="button"
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    setOpen(false);
+                  }}
+                  className="inline-flex min-h-11 items-center justify-center rounded-full border border-[color:color-mix(in_srgb,var(--primary)_24%,white)] bg-[color-mix(in_srgb,var(--primary)_7%,white)] px-4 py-2 text-sm font-semibold text-[var(--primary)]"
+                >
+                  {`Usar "${query.trim()}"`}
+                </button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </label>
   );
 }
 
@@ -103,15 +232,7 @@ export function MarketingOnboardingWizard({
                     />
                   </label>
 
-                  <label className="space-y-1.5 md:col-span-2">
-                    <span className="text-sm font-semibold text-slate-950">Tipo de negocio</span>
-                    <Input
-                      name="businessType"
-                      placeholder="Ej. Restaurante, clinica, inmobiliaria"
-                      required
-                      className="h-16 rounded-[28px] border border-white bg-white px-6 text-[15px] text-slate-950 shadow-[0_18px_38px_-30px_rgba(15,23,42,0.14)] placeholder:text-slate-400 focus-visible:border-[var(--primary)] focus-visible:ring-[color-mix(in_srgb,var(--primary)_16%,white)]"
-                    />
-                  </label>
+                  <BusinessTypeField />
                 </div>
               </section>
             </div>

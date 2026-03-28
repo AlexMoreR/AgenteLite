@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRef, useState } from "react";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { AdProductInput } from "../types/ad-input";
@@ -43,6 +43,47 @@ function splitMultilineValue(value: string) {
     .filter(Boolean);
 }
 
+function sentenceCase(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+}
+
+function inferBenefits(productName: string, description: string, categoryName: string) {
+  const firstSentence = description
+    .split(/[.!?]/)
+    .map((item) => item.trim())
+    .find(Boolean);
+
+  const inferred = [
+    firstSentence ? sentenceCase(firstSentence) : "",
+    categoryName ? `${sentenceCase(productName)} dentro de ${categoryName.trim().toLowerCase()}.` : "",
+    "Propuesta clara y facil de comunicar en un anuncio.",
+  ].filter(Boolean);
+
+  return Array.from(new Set(inferred)).slice(0, 3);
+}
+
+function inferPainPoints(description: string) {
+  const normalized = description.toLowerCase();
+  const suggestions = [
+    /(ahorra|rapido|facil|practico|simple)/.test(normalized)
+      ? "Personas que buscan una solucion practica y rapida."
+      : "",
+    /(premium|calidad|duradero|resistente|seguro)/.test(normalized)
+      ? "Clientes que quieren una opcion confiable y de calidad."
+      : "",
+    /(hidrata|mejora|reduce|alivia|comodidad|bienestar)/.test(normalized)
+      ? "Personas que quieren resolver una necesidad concreta con mejores resultados."
+      : "",
+  ].filter(Boolean);
+
+  return Array.from(new Set(suggestions)).slice(0, 2);
+}
+
 function StepDot({ active, done }: { active: boolean; done: boolean }) {
   return (
     <span
@@ -66,10 +107,23 @@ type AdsGeneratorFormProps = {
 export function AdsGeneratorForm({ pending, initialValues, onSubmit }: AdsGeneratorFormProps) {
   const formRef = useRef<HTMLFormElement>(null);
   const [step, setStep] = useState(0);
+  const [showProductAdvanced, setShowProductAdvanced] = useState(false);
+  const [showStrategyAdvanced, setShowStrategyAdvanced] = useState(false);
   const defaultObjective = initialValues?.objective ?? "sales";
   const defaultTone = initialValues?.tone ?? "persuasive";
   const defaultImageSource = initialValues?.image?.source ?? "creativos";
   const defaultImageUrl = initialValues?.image?.url ?? "";
+  const defaultProductName = initialValues?.productName ?? "";
+  const defaultProductDescription = initialValues?.productDescription ?? "";
+  const defaultCategoryName = initialValues?.categoryName ?? "";
+  const defaultKeyBenefits =
+    initialValues?.keyBenefits?.length
+      ? initialValues.keyBenefits.join("\n")
+      : inferBenefits(defaultProductName, defaultProductDescription, defaultCategoryName).join("\n");
+  const defaultPainPoints =
+    initialValues?.painPoints?.length
+      ? initialValues.painPoints.join("\n")
+      : inferPainPoints(defaultProductDescription).join("\n");
   const hasExistingCreative = Boolean(defaultImageUrl);
   const activeStep = pending ? steps.length - 1 : step;
 
@@ -97,12 +151,8 @@ export function AdsGeneratorForm({ pending, initialValues, onSubmit }: AdsGenera
     }
 
     if (step === 1) {
-      const keyBenefits = splitMultilineValue(String(formData.get("keyBenefits") ?? ""));
-
-      if (keyBenefits.length === 0) {
-        form.querySelector<HTMLTextAreaElement>("[name='keyBenefits']")?.reportValidity();
-        return;
-      }
+      setStep((current) => Math.min(current + 1, steps.length - 1));
+      return;
     }
 
     setStep((current) => Math.min(current + 1, steps.length - 1));
@@ -118,22 +168,31 @@ export function AdsGeneratorForm({ pending, initialValues, onSubmit }: AdsGenera
           const formData = new FormData(event.currentTarget);
           const productName = String(formData.get("productName") ?? "").trim();
           const productDescription = String(formData.get("productDescription") ?? "").trim();
+          const categoryName = String(formData.get("categoryName") ?? "").trim();
           const imageMode = String(formData.get("imageMode") ?? (hasExistingCreative ? "existing" : "none")).trim();
           const priceRaw = String(formData.get("price") ?? "").trim();
+          const keyBenefits = splitMultilineValue(String(formData.get("keyBenefits") ?? ""));
+          const painPoints = splitMultilineValue(String(formData.get("painPoints") ?? ""));
 
           const input: AdProductInput = {
             productName,
             productDescription,
             brandName: String(formData.get("brandName") ?? "").trim() || undefined,
-            categoryName: String(formData.get("categoryName") ?? "").trim() || undefined,
+            categoryName: categoryName || undefined,
             price: priceRaw ? Number(priceRaw) : undefined,
             currency: String(formData.get("currency") ?? "").trim() || undefined,
             landingPageUrl: String(formData.get("landingPageUrl") ?? "").trim() || undefined,
             objective: String(formData.get("objective") ?? "").trim() as AdProductInput["objective"],
             audienceSummary: String(formData.get("audienceSummary") ?? "").trim() || undefined,
             tone: String(formData.get("tone") ?? "").trim() as AdProductInput["tone"],
-            keyBenefits: splitMultilineValue(String(formData.get("keyBenefits") ?? "")),
-            painPoints: splitMultilineValue(String(formData.get("painPoints") ?? "")),
+            keyBenefits:
+              keyBenefits.length > 0
+                ? keyBenefits
+                : inferBenefits(productName, productDescription, categoryName),
+            painPoints:
+              painPoints.length > 0
+                ? painPoints
+                : inferPainPoints(productDescription),
             callToAction: String(formData.get("callToAction") ?? "").trim() || undefined,
             image:
               imageMode === "existing" && defaultImageUrl
@@ -208,21 +267,6 @@ export function AdsGeneratorForm({ pending, initialValues, onSubmit }: AdsGenera
               </label>
 
               <label className="space-y-1.5">
-                <span className="text-sm font-medium text-slate-700">Categoria</span>
-                <Input name="categoryName" placeholder="Ej. Belleza" defaultValue={initialValues?.categoryName ?? ""} />
-              </label>
-
-              <label className="space-y-1.5">
-                <span className="text-sm font-medium text-slate-700">Landing page</span>
-                <Input
-                  name="landingPageUrl"
-                  type="url"
-                  placeholder="https://tu-sitio.com/producto"
-                  defaultValue={initialValues?.landingPageUrl ?? ""}
-                />
-              </label>
-
-              <label className="space-y-1.5">
                 <span className="text-sm font-medium text-slate-700">Precio</span>
                 <Input
                   name="price"
@@ -238,81 +282,160 @@ export function AdsGeneratorForm({ pending, initialValues, onSubmit }: AdsGenera
                 <span className="text-sm font-medium text-slate-700">Moneda</span>
                 <Input name="currency" defaultValue={initialValues?.currency ?? "COP"} placeholder="COP" />
               </label>
+
+              <div className="md:col-span-2">
+                <button
+                  type="button"
+                  onClick={() => setShowProductAdvanced((current) => !current)}
+                  className="inline-flex items-center gap-2 text-sm font-medium text-[var(--primary)]"
+                >
+                  {showProductAdvanced ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                  {showProductAdvanced ? "Ocultar detalles avanzados" : "Mostrar detalles avanzados"}
+                </button>
+              </div>
+
+              <div className={`${showProductAdvanced ? "grid" : "hidden"} gap-4 md:col-span-2 md:grid-cols-2`}>
+                <label className="space-y-1.5">
+                  <span className="text-sm font-medium text-slate-700">Categoria</span>
+                  <Input
+                    name="categoryName"
+                    placeholder="Ej. Belleza"
+                    defaultValue={initialValues?.categoryName ?? ""}
+                  />
+                  {initialValues?.categoryName ? (
+                    <p className="text-xs leading-5 text-slate-500">
+                      Precargado desde el contexto del negocio.
+                    </p>
+                  ) : null}
+                </label>
+
+                <label className="space-y-1.5">
+                  <span className="text-sm font-medium text-slate-700">Landing page</span>
+                  <Input
+                    name="landingPageUrl"
+                    type="url"
+                    placeholder="https://tu-sitio.com/producto"
+                    defaultValue={initialValues?.landingPageUrl ?? ""}
+                  />
+                  {initialValues?.landingPageUrl ? (
+                    <p className="text-xs leading-5 text-slate-500">
+                      Tomada de la web configurada en tu negocio.
+                    </p>
+                  ) : null}
+                </label>
+              </div>
             </div>
             </div>
           </div>
 
           <div className={step === 1 ? "block" : "hidden"}>
             <div className="rounded-[30px] border border-[rgba(148,163,184,0.14)] bg-white p-5 shadow-[0_18px_38px_-30px_rgba(15,23,42,0.14)] sm:p-6">
-            <div className="grid gap-4 md:grid-cols-2">
-              <label className="space-y-1.5">
-                <span className="text-sm font-medium text-slate-700">Objetivo</span>
-                <select name="objective" className="field-select" defaultValue={defaultObjective}>
-                  {objectiveOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <div className="space-y-4">
+                <div className="rounded-[24px] border border-[var(--line)] bg-slate-50 p-4">
+                  <p className="text-sm font-semibold text-slate-900">La IA armara esta parte por ti</p>
+                  <p className="mt-1 text-sm leading-6 text-slate-600">
+                    Usaremos el contexto del negocio, la descripcion del producto y la imagen para proponer audiencia, beneficios, necesidad y CTA.
+                  </p>
+                </div>
 
-              <label className="space-y-1.5">
-                <span className="text-sm font-medium text-slate-700">Tono</span>
-                <select name="tone" className="field-select" defaultValue={defaultTone}>
-                  {toneOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                <button
+                  type="button"
+                  onClick={() => setShowStrategyAdvanced((current) => !current)}
+                  className="inline-flex items-center gap-2 text-sm font-medium text-[var(--primary)]"
+                >
+                  {showStrategyAdvanced ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                  {showStrategyAdvanced ? "Ocultar ajustes avanzados" : "Mostrar ajustes avanzados"}
+                </button>
 
-              <label className="space-y-1.5 md:col-span-2">
-                <span className="text-sm font-medium text-slate-700">Audiencia</span>
-                <textarea
-                  name="audienceSummary"
-                  rows={3}
-                  className="field-textarea min-h-24"
-                  placeholder="Ej. Mujeres de 25 a 40 interesadas en cuidado facial premium y rutinas practicas."
-                  defaultValue={initialValues?.audienceSummary ?? ""}
-                />
-              </label>
-            </div>
-            </div>
+                <div className={`${showStrategyAdvanced ? "space-y-5" : "hidden"}`}>
+                  <div className="rounded-[30px] border border-[rgba(148,163,184,0.14)] bg-white p-5 shadow-[0_18px_38px_-30px_rgba(15,23,42,0.14)] sm:p-6">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <label className="space-y-1.5">
+                      <span className="text-sm font-medium text-slate-700">Objetivo</span>
+                      <select name="objective" className="field-select" defaultValue={defaultObjective}>
+                        {objectiveOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
 
-            <div className="mt-5 rounded-[30px] border border-[rgba(148,163,184,0.14)] bg-white p-5 shadow-[0_18px_38px_-30px_rgba(15,23,42,0.14)] sm:p-6">
-              <div className="grid gap-4">
-                <label className="space-y-1.5">
-                  <span className="text-sm font-medium text-slate-700">Beneficios clave</span>
-                  <textarea
-                    name="keyBenefits"
-                    rows={4}
-                    className="field-textarea min-h-32"
-                    placeholder={"Escribe un beneficio por linea.\nReduce lineas de expresion.\nTextura ligera.\nIdeal para uso diario."}
-                    defaultValue={initialValues?.keyBenefits?.join("\n") ?? ""}
-                    required
-                  />
-                </label>
+                    <label className="space-y-1.5">
+                      <span className="text-sm font-medium text-slate-700">Tono</span>
+                      <select name="tone" className="field-select" defaultValue={defaultTone}>
+                        {toneOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
 
-                <label className="space-y-1.5">
-                  <span className="text-sm font-medium text-slate-700">Pain points</span>
-                  <textarea
-                    name="painPoints"
-                    rows={3}
-                    className="field-textarea min-h-24"
-                    placeholder={"Opcional, uno por linea.\nPoco tiempo para una rutina larga.\nPiel opaca y sin hidratacion."}
-                    defaultValue={initialValues?.painPoints?.join("\n") ?? ""}
-                  />
-                </label>
+                    <label className="space-y-1.5 md:col-span-2">
+                      <span className="text-sm font-medium text-slate-700">Audiencia</span>
+                      <textarea
+                        name="audienceSummary"
+                        rows={3}
+                        className="field-textarea min-h-24"
+                        placeholder="Ej. Mujeres de 25 a 40 interesadas en cuidado facial premium y rutinas practicas."
+                        defaultValue={initialValues?.audienceSummary ?? ""}
+                      />
+                      {initialValues?.audienceSummary ? (
+                        <p className="text-xs leading-5 text-slate-500">
+                          Base sugerida desde el contexto comercial.
+                        </p>
+                      ) : null}
+                    </label>
+                  </div>
+                  </div>
 
-                <label className="space-y-1.5 md:max-w-sm">
-                  <span className="text-sm font-medium text-slate-700">Call to action</span>
-                  <Input
-                    name="callToAction"
-                    defaultValue={initialValues?.callToAction ?? "Compra ahora"}
-                    placeholder="Compra ahora"
-                  />
-                </label>
+                  <div className="rounded-[30px] border border-[rgba(148,163,184,0.14)] bg-white p-5 shadow-[0_18px_38px_-30px_rgba(15,23,42,0.14)] sm:p-6">
+                    <div className="grid gap-4">
+                      <label className="space-y-1.5">
+                        <span className="text-sm font-medium text-slate-700">Beneficios clave</span>
+                        <textarea
+                          name="keyBenefits"
+                          rows={4}
+                          className="field-textarea min-h-32"
+                          placeholder="Beneficios clave del producto o servicio."
+                          defaultValue={defaultKeyBenefits}
+                        />
+                        <p className="text-xs leading-5 text-slate-500">
+                          Dejamos una base sugerida para que solo la ajustes si hace falta.
+                        </p>
+                      </label>
+
+                      <label className="space-y-1.5">
+                        <span className="text-sm font-medium text-slate-700">Que necesidad ayuda a resolver</span>
+                        <textarea
+                          name="painPoints"
+                          rows={3}
+                          className="field-textarea min-h-24"
+                          placeholder="Ej. Ahorrar tiempo, verse mejor, vender mas, sentirse mas comodo."
+                          defaultValue={defaultPainPoints}
+                        />
+                        <p className="text-xs leading-5 text-slate-500">
+                          Dejamos una sugerencia base para que la ajustes solo si quieres.
+                        </p>
+                      </label>
+
+                      <label className="space-y-1.5 md:max-w-sm">
+                        <span className="text-sm font-medium text-slate-700">Call to action</span>
+                        <Input
+                          name="callToAction"
+                          defaultValue={initialValues?.callToAction ?? "Compra ahora"}
+                          placeholder="Compra ahora"
+                        />
+                        {initialValues?.callToAction ? (
+                          <p className="text-xs leading-5 text-slate-500">
+                            CTA sugerido desde tu contexto del negocio.
+                          </p>
+                        ) : null}
+                      </label>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
