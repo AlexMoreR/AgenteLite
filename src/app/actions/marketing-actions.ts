@@ -16,6 +16,7 @@ import {
   getWorkspaceMarketingLogoUrl,
   setWorkspaceMarketingLogoUrl,
 } from "@/lib/marketing-branding";
+import { getMarketingContextSettingKey } from "@/lib/marketing-business-context";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
 export type FacebookAdsGeneratorState = {
@@ -45,6 +46,18 @@ const generateFacebookAdsSchema = z.object({
 const deleteCreativeImagesSchema = z.object({
   imageUrls: z.array(z.string().trim().min(1)).min(1).max(24),
   sourceImageUrl: z.string().trim().min(1).optional(),
+});
+
+const marketingContextSchema = z.object({
+  valueProposition: z.string().trim().min(12, "Cuentanos que hace especial a tu negocio").max(240),
+  idealCustomer: z.string().trim().min(12, "Describe mejor a que tipo de cliente le vendes").max(240),
+  painPoints: z.string().trim().min(12, "Cuentanos que problema le resuelves a tu cliente").max(320),
+  mainOffer: z.string().trim().min(6, "Cuentanos que vendes o que quieres impulsar primero").max(180),
+  primaryCallToAction: z.string().trim().min(3, "Dinos cual es la accion principal que quieres lograr").max(80),
+  websiteUrl: z.string().trim().url("La pagina web no es valida").or(z.literal("")),
+  instagramUrl: z.string().trim().url("Instagram no es valido").or(z.literal("")),
+  facebookUrl: z.string().trim().url("Facebook no es valido").or(z.literal("")),
+  tiktokUrl: z.string().trim().url("TikTok no es valido").or(z.literal("")),
 });
 
 async function requireMarketingWorkspace() {
@@ -387,5 +400,70 @@ export async function deleteMarketingBusinessLogoAction(): Promise<void> {
 
     console.error("[MARKETING_LOGO_DELETE]", error);
     redirect(`/cliente/marketing-ia?error=${encodeURIComponent(resolveMarketingError(error))}`);
+  }
+}
+
+export async function updateMarketingBusinessContextAction(formData: FormData): Promise<void> {
+  try {
+    const membership = await requireMarketingWorkspace();
+    const parsed = marketingContextSchema.safeParse({
+      valueProposition: formData.get("valueProposition"),
+      idealCustomer: formData.get("idealCustomer"),
+      painPoints: formData.get("painPoints"),
+      mainOffer: formData.get("mainOffer"),
+      primaryCallToAction: formData.get("primaryCallToAction"),
+      websiteUrl: formData.get("websiteUrl") || "",
+      instagramUrl: formData.get("instagramUrl") || "",
+      facebookUrl: formData.get("facebookUrl") || "",
+      tiktokUrl: formData.get("tiktokUrl") || "",
+    });
+
+    if (!parsed.success) {
+      const message = parsed.error.issues[0]?.message || "No pudimos guardar la informacion del negocio.";
+      redirect(`/cliente/marketing-ia/contexto-negocio?error=${encodeURIComponent(message)}`);
+    }
+
+    const workspaceId = membership.workspace.id;
+    const entries = [
+      ["marketingValueProposition", parsed.data.valueProposition],
+      ["marketingIdealCustomer", parsed.data.idealCustomer],
+      ["marketingPainPoints", parsed.data.painPoints],
+      ["marketingMainOffer", parsed.data.mainOffer],
+      ["marketingPrimaryCta", parsed.data.primaryCallToAction],
+      ["marketingWebsiteUrl", parsed.data.websiteUrl],
+      ["marketingInstagramUrl", parsed.data.instagramUrl],
+      ["marketingFacebookUrl", parsed.data.facebookUrl],
+      ["marketingTiktokUrl", parsed.data.tiktokUrl],
+    ] as const;
+
+    await Promise.all(
+      entries.map(([setting, value]) =>
+        prisma.appSetting.upsert({
+          where: {
+            key: getMarketingContextSettingKey(workspaceId, setting),
+          },
+          update: {
+            value,
+          },
+          create: {
+            key: getMarketingContextSettingKey(workspaceId, setting),
+            value,
+          },
+        }),
+      ),
+    );
+
+    revalidatePath("/cliente/marketing-ia");
+    revalidatePath("/cliente/marketing-ia/contexto-negocio");
+    revalidatePath("/cliente/marketing-ia/creativos");
+    revalidatePath("/cliente/marketing-ia/ads-generator");
+    redirect("/cliente/marketing-ia/contexto-negocio?ok=Informacion+de+marketing+actualizada");
+  } catch (error) {
+    if (isNextRedirectError(error)) {
+      throw error;
+    }
+
+    console.error("[MARKETING_CONTEXT_UPDATE]", error);
+    redirect("/cliente/marketing-ia/contexto-negocio?error=No+se+pudo+guardar+la+informacion+del+negocio");
   }
 }
