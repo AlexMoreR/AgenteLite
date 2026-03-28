@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { AlertCircle, ArrowDownToLine, ImagePlus, Plus, SendHorizonal, Trash2, Upload, X } from "lucide-react";
+import { AlertCircle, ArrowDownToLine, Copy, ImagePlus, LoaderCircle, Plus, SendHorizonal, Trash2, Upload, X } from "lucide-react";
 import { createPortal } from "react-dom";
 import type { ChangeEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -18,6 +18,12 @@ type AdsGeneratorWorkspaceProps = {
   sourceHint?: string | null;
 };
 
+type PublishedAdCard = {
+  id: string;
+  imageUrl: string;
+  result: AdsGeneratorResult;
+};
+
 export function AdsGeneratorWorkspace({ initialInput, sourceHint }: AdsGeneratorWorkspaceProps) {
   const [modalOpen, setModalOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -28,7 +34,10 @@ export function AdsGeneratorWorkspace({ initialInput, sourceHint }: AdsGenerator
   const [lastInput, setLastInput] = useState<AdProductInput | null>(null);
   const [uploadedImages, setUploadedImages] = useState<Array<{ id: string; url: string; name: string; file: File }>>([]);
   const [generatedCreatives, setGeneratedCreatives] = useState<FacebookAdCreative[]>([]);
+  const [publishedAds, setPublishedAds] = useState<PublishedAdCard[]>([]);
+  const [sourceImageUrl, setSourceImageUrl] = useState(initialInput?.image?.url ?? "");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const publishedSectionRef = useRef<HTMLElement>(null);
   const canPortal = typeof document !== "undefined";
 
   useEffect(() => {
@@ -49,6 +58,14 @@ export function AdsGeneratorWorkspace({ initialInput, sourceHint }: AdsGenerator
       document.body.style.overflow = previousOverflow;
     };
   }, [canPortal, modalOpen]);
+
+  useEffect(() => {
+    if (publishedAds.length === 0) {
+      return;
+    }
+
+    publishedSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [publishedAds]);
 
   const modalInitialValues = useMemo(
     () => ({
@@ -73,31 +90,54 @@ export function AdsGeneratorWorkspace({ initialInput, sourceHint }: AdsGenerator
       return;
     }
 
-    setUploadedImages((current) => {
-      current.forEach((image) => URL.revokeObjectURL(image.url));
+    setSourceImageUrl("");
 
-      return files.slice(0, 4).map((file, index) => ({
-        id: `${file.name}-${index}-${file.lastModified}`,
+    setUploadedImages((current) => {
+      const availableSlots = Math.max(0, 10 - current.length);
+      const nextFiles = files.slice(0, availableSlots);
+
+      return [
+        ...current,
+        ...nextFiles.map((file, index) => ({
+        id: `${file.name}-${current.length + index}-${file.lastModified}`,
         url: URL.createObjectURL(file),
         name: file.name,
         file,
-      }));
+      }))];
     });
 
     event.target.value = "";
   };
 
+  const inferredProductName =
+    initialInput?.productName?.trim() ||
+    draftPrompt
+      .trim()
+      .split(/[.,:;!?]/)[0]
+      ?.trim()
+      .split(" ")
+      .slice(0, 6)
+      .join(" ") ||
+    "Producto del anuncio";
+
   const handleGenerateCreatives = async () => {
+    const missingCreatives = Math.max(variantCount - generatedCreatives.length, 0);
+
+    if (missingCreatives === 0) {
+      setError("Elimina creativos para generar mas.");
+      return;
+    }
+
     setPending(true);
     setError(null);
 
     try {
       const formData = new FormData();
       const primaryFile = uploadedImages[0]?.file;
-      const primaryImageUrl = uploadedImages[0]?.url || initialInput?.image?.url || "";
+      const primaryImageUrl = sourceImageUrl || initialInput?.image?.url || "";
       const prompt = draftPrompt.trim();
 
-      if (primaryFile) {
+      if (primaryFile && !sourceImageUrl) {
         formData.append("image", primaryFile);
       }
 
@@ -108,7 +148,7 @@ export function AdsGeneratorWorkspace({ initialInput, sourceHint }: AdsGenerator
       formData.append("prompt", prompt);
       formData.append("productName", initialInput?.productName?.trim() || "");
       formData.append("creativeMode", "real");
-      formData.append("creativeCount", String(variantCount));
+      formData.append("creativeCount", String(missingCreatives));
 
       const response = await fetch("/api/marketing-ia/ads-generator/creatives", {
         method: "POST",
@@ -123,7 +163,10 @@ export function AdsGeneratorWorkspace({ initialInput, sourceHint }: AdsGenerator
         throw new Error(payload?.error || "No pudimos generar los creativos en este momento.");
       }
 
-      setGeneratedCreatives(payload.creatives);
+      setGeneratedCreatives((current) => [...current, ...payload.creatives!]);
+      if (payload.sourceImageUrl) {
+        setSourceImageUrl(payload.sourceImageUrl);
+      }
     } catch (nextError: unknown) {
       setError(
         nextError instanceof Error
@@ -135,17 +178,107 @@ export function AdsGeneratorWorkspace({ initialInput, sourceHint }: AdsGenerator
     }
   };
 
-  const handleRemoveCreative = (creativeId: string) => {
-    setGeneratedCreatives((current) => current.filter((creative) => creative.id !== creativeId));
+  const handlePublishAds = async () => {
+    if (generatedCreatives.length === 0) {
+      setError("Primero genera al menos un creativo.");
+      return;
+    }
+
+    setPending(true);
+    setError(null);
+
+    try {
+      const responses = await Promise.all(
+        generatedCreatives.map(async (creative, index) => {
+          const input: AdProductInput = {
+            productName: inferredProductName,
+            productDescription: draftPrompt.trim() || inferredProductName,
+            objective: "sales",
+            tone: "persuasive",
+            keyBenefits: [creative.headline, creative.supportLine].filter(Boolean),
+            painPoints: [creative.angle],
+            callToAction: creative.cta,
+            image: {
+              url: creative.imageUrl,
+              alt: creative.headline || `Creativo ${index + 1}`,
+              source: "creativos",
+              isPrimary: true,
+            },
+          };
+
+          const response = await fetch("/api/marketing-ia/ads-generator", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(input),
+          });
+
+          const payload = (await response.json()) as
+            | { entry?: { id: string; input: AdProductInput; result: AdsGeneratorResult }; error?: string }
+            | undefined;
+
+          if (!response.ok || !payload?.entry) {
+            throw new Error(payload?.error || "No pudimos publicar los anuncios.");
+          }
+
+          return {
+            id: `${creative.id}-published`,
+            imageUrl: creative.imageUrl,
+            result: payload.entry.result,
+          } satisfies PublishedAdCard;
+        }),
+      );
+
+      setPublishedAds(responses);
+    } catch (nextError: unknown) {
+      setError(nextError instanceof Error ? nextError.message : "No pudimos publicar los anuncios.");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const handleRemoveCreative = async (creativeId: string) => {
+    const creativeToRemove = generatedCreatives.find((creative) => creative.id === creativeId);
+    if (!creativeToRemove) {
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/marketing-ia/ads-generator/creatives", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ imageUrl: creativeToRemove.imageUrl }),
+      });
+
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+
+      if (!response.ok) {
+        throw new Error(payload?.error || "No pudimos eliminar el creativo.");
+      }
+
+      setGeneratedCreatives((current) => current.filter((creative) => creative.id !== creativeId));
+    } catch (nextError: unknown) {
+      setError(
+        nextError instanceof Error ? nextError.message : "No pudimos eliminar el creativo.",
+      );
+    }
   };
 
   const handleRemoveUploadedImage = (imageId: string) => {
     setUploadedImages((current) => {
+      const isPrimaryImage = current[0]?.id === imageId;
       const next = current.filter((image) => image.id !== imageId);
       const removed = current.find((image) => image.id === imageId);
 
       if (removed) {
         URL.revokeObjectURL(removed.url);
+      }
+
+      if (isPrimaryImage) {
+        setSourceImageUrl("");
       }
 
       return next;
@@ -197,13 +330,12 @@ export function AdsGeneratorWorkspace({ initialInput, sourceHint }: AdsGenerator
         </div>
       ) : null}
 
-      <div className="overflow-hidden rounded-[32px] border border-[var(--line)] bg-white shadow-[0_24px_54px_-40px_rgba(15,23,42,0.14)]">
-        <div className="px-4 py-5 md:px-6 md:py-6">
-          {result ? (
-            <AdsGeneratorResultView pending={pending} result={result} />
-          ) : (
-            <div className="mx-auto flex min-h-[50vh] w-full max-w-6xl flex-col justify-center">
-              <div className="rounded-[28px] border border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#14213d_0%,#1d2d5a_100%)] p-4 text-white shadow-[0_28px_72px_-48px_rgba(15,23,42,0.26),inset_0_1px_0_rgba(255,255,255,0.05)] md:p-5">
+      <div className="space-y-0">
+        {result ? (
+          <AdsGeneratorResultView pending={pending} result={result} />
+        ) : (
+          <div className="mx-auto flex min-h-[50vh] w-full max-w-6xl flex-col justify-center">
+            <div className="rounded-[28px] border border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#14213d_0%,#1d2d5a_100%)] p-3.5 text-white shadow-[0_28px_72px_-48px_rgba(15,23,42,0.26),inset_0_1px_0_rgba(255,255,255,0.05)] md:p-4">
                   <div className="flex flex-wrap items-start justify-between gap-4">
                     <div className="flex items-start gap-3">
                       <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[rgba(255,255,255,0.08)] text-[#8fb4ff] ring-1 ring-[rgba(143,180,255,0.2)]">
@@ -226,72 +358,84 @@ export function AdsGeneratorWorkspace({ initialInput, sourceHint }: AdsGenerator
 
                     <Button
                       type="button"
-                      variant="outline"
-                      className="h-11 rounded-full border-[rgba(255,255,255,0.14)] bg-[rgba(255,255,255,0.06)] px-4 text-white shadow-none hover:bg-[rgba(255,255,255,0.12)] hover:text-white"
-                      onClick={() => fileInputRef.current?.click()}
+                      disabled={pending}
+                      className="h-10 rounded-full px-4 text-white shadow-[0_18px_36px_-22px_color-mix(in_srgb,var(--primary)_45%,black)]"
+                      onClick={handlePublishAds}
                     >
-                      <Upload className="h-4 w-4" />
-                      Subir imagenes
+                      <SendHorizonal className="h-4 w-4" />
+                      {pending ? "Publicando..." : "Publicar"}
                     </Button>
                   </div>
 
-                  <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                    {Array.from({ length: variantCount }).map((_, index) => {
-                      const creative = generatedCreatives[index];
+                  <div className="mt-4 flex flex-wrap justify-center gap-3">
+                      {Array.from({ length: variantCount }).map((_, index) => {
+                        const creative = generatedCreatives[index];
 
-                      if (creative) {
-                        return (
-                          <div
-                            key={creative.id}
-                            className="group relative aspect-square overflow-hidden rounded-[24px] border border-[rgba(255,255,255,0.12)] bg-[rgba(255,255,255,0.06)] shadow-[0_22px_40px_-28px_rgba(8,15,35,0.55)]"
-                          >
-                            <Image
-                              src={creative.imageUrl}
-                              alt={creative.headline || `Creativo ${index + 1}`}
-                              fill
-                              className="object-contain"
-                              unoptimized
-                            />
-                            <div className="absolute inset-0 flex items-center justify-center bg-[rgba(7,14,30,0.45)] opacity-0 transition duration-200 group-hover:opacity-100">
-                              <div className="flex items-center gap-2">
-                                <a
-                                  href={creative.imageUrl}
-                                  download={`creative-${index + 1}.png`}
-                                  className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[rgba(255,255,255,0.14)] bg-[rgba(255,255,255,0.12)] text-white backdrop-blur-sm transition hover:bg-[rgba(255,255,255,0.18)]"
-                                  aria-label="Descargar imagen"
-                                >
-                                  <ArrowDownToLine className="h-4 w-4" />
-                                </a>
-                                <button
-                                  type="button"
-                                  className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[rgba(255,255,255,0.14)] bg-[rgba(255,255,255,0.12)] text-white backdrop-blur-sm transition hover:bg-[rgba(255,255,255,0.18)]"
-                                  onClick={() => handleRemoveCreative(creative.id)}
-                                  aria-label="Eliminar imagen"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </button>
+                        if (creative) {
+                          return (
+                            <div
+                              key={creative.id}
+                              className="group relative aspect-[0.92] w-[280px] max-w-full overflow-hidden rounded-[22px] border border-[rgba(255,255,255,0.12)] bg-[rgba(255,255,255,0.06)] shadow-[0_22px_40px_-28px_rgba(8,15,35,0.55)]"
+                            >
+                              <Image
+                                src={creative.imageUrl}
+                                alt={creative.headline || `Creativo ${index + 1}`}
+                                fill
+                                className="object-contain"
+                                unoptimized
+                              />
+                              <div className="absolute inset-0 flex items-center justify-center bg-[rgba(7,14,30,0.45)] opacity-0 transition duration-200 group-hover:opacity-100">
+                                <div className="flex items-center gap-2">
+                                  <a
+                                    href={creative.imageUrl}
+                                    download={`creative-${index + 1}.png`}
+                                    className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[rgba(255,255,255,0.14)] bg-[rgba(255,255,255,0.12)] text-white backdrop-blur-sm transition hover:bg-[rgba(255,255,255,0.18)]"
+                                    aria-label="Descargar imagen"
+                                  >
+                                    <ArrowDownToLine className="h-4 w-4" />
+                                  </a>
+                                  <button
+                                    type="button"
+                                    className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[rgba(255,255,255,0.14)] bg-[rgba(255,255,255,0.12)] text-white backdrop-blur-sm transition hover:bg-[rgba(255,255,255,0.18)]"
+                                    onClick={() => void handleRemoveCreative(creative.id)}
+                                    aria-label="Eliminar imagen"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </button>
+                                </div>
                               </div>
                             </div>
+                          );
+                        }
+
+                        return (
+                          <div
+                            key={`creative-slot-${index}`}
+                            className="group relative aspect-[0.92] w-[280px] max-w-full rounded-[22px] border border-dashed border-[rgba(143,180,255,0.22)] bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.03))]"
+                          >
+                            {pending ? (
+                              <div className="relative flex h-full animate-pulse flex-col items-center justify-center gap-3 overflow-hidden text-center">
+                                <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.08),transparent_65%)]" />
+                                <span className="relative inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-[rgba(255,255,255,0.08)] text-[#8fb4ff]">
+                                  <LoaderCircle className="h-5 w-5 animate-spin" />
+                                </span>
+                                <span className="relative px-4 text-xs font-medium text-[rgba(226,232,240,0.8)]">
+                                  Creativo {index + 1}
+                                </span>
+                              </div>
+                            ) : (
+                              <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
+                                <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-[rgba(255,255,255,0.08)] text-[#8fb4ff]">
+                                  <Plus className="h-5 w-5" />
+                                </span>
+                                <span className="px-4 text-xs font-medium text-[rgba(226,232,240,0.8)]">
+                                  Creativo {index + 1}
+                                </span>
+                              </div>
+                            )}
                           </div>
                         );
-                      }
-
-                      return (
-                        <div
-                          key={`creative-slot-${index}`}
-                          className="group relative aspect-[4/5] rounded-[24px] border border-dashed border-[rgba(143,180,255,0.22)] bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.03))]"
-                        >
-                          <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
-                            <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[rgba(255,255,255,0.08)] text-[#8fb4ff]">
-                              <Plus className="h-5 w-5" />
-                            </span>
-                            <span className="px-4 text-xs font-medium text-[rgba(226,232,240,0.8)]">
-                              Creativo {index + 1}
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })}
+                      })}
                   </div>
 
                   <p className="mt-3 text-xs text-[rgba(226,232,240,0.72)]">
@@ -299,13 +443,12 @@ export function AdsGeneratorWorkspace({ initialInput, sourceHint }: AdsGenerator
                       ? `${generatedCreatives.length} creativo${generatedCreatives.length === 1 ? "" : "s"} generado${generatedCreatives.length === 1 ? "" : "s"} para este producto.`
                       : "Aqui veras los creativos disenados cuando se generen."}
                   </p>
-              </div>
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
-        <div className="border-t border-[rgba(255,255,255,0.08)] bg-[linear-gradient(180deg,#14213d_0%,#1d2d5a_100%)] px-4 py-4 md:px-6 md:py-5">
-          <div className="rounded-[30px] border border-[rgba(255,255,255,0.1)] bg-[rgba(255,255,255,0.04)] p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] md:p-2.5">
+        <div className="border-t border-[rgba(148,163,184,0.14)] bg-transparent px-4 py-4 md:px-6 md:py-5">
+          <div className="rounded-[30px] border border-[rgba(255,255,255,0.08)] bg-[linear-gradient(180deg,#14213d_0%,#1d2d5a_100%)] p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] md:p-2.5">
             <label className="block">
               <span className="sr-only">Describe el producto o servicio</span>
               <div className="rounded-[26px] bg-transparent px-3 py-2 md:px-4">
@@ -337,7 +480,7 @@ export function AdsGeneratorWorkspace({ initialInput, sourceHint }: AdsGenerator
                             <Image src={image.url} alt={image.name} fill className="object-cover" unoptimized />
                             <button
                               type="button"
-                              className="absolute -right-1 -top-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[rgba(15,23,42,0.88)] text-white opacity-0 shadow-sm transition group-hover:opacity-100"
+                              className="absolute right-0.5 top-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[rgba(15,23,42,0.88)] text-white opacity-0 shadow-sm transition group-hover:opacity-100"
                               onClick={() => handleRemoveUploadedImage(image.id)}
                               aria-label="Eliminar miniatura"
                             >
@@ -423,6 +566,52 @@ export function AdsGeneratorWorkspace({ initialInput, sourceHint }: AdsGenerator
         </div>
       ) : null}
 
+      {publishedAds.length > 0 ? (
+        <section ref={publishedSectionRef} className="space-y-4">
+          <div className="grid gap-4 xl:grid-cols-2">
+            {publishedAds.map((ad, index) => (
+              <article
+                key={ad.id}
+                className="overflow-hidden rounded-[28px] border border-[var(--line)] bg-white shadow-[0_22px_46px_-34px_rgba(15,23,42,0.18)]"
+              >
+                <div className="relative aspect-square bg-slate-100">
+                  <Image
+                    src={ad.imageUrl}
+                    alt={`Anuncio ${index + 1}`}
+                    fill
+                    className="object-contain"
+                    unoptimized
+                  />
+                </div>
+
+                <div className="space-y-4 p-5">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-semibold text-slate-950">Anuncio {index + 1}</p>
+                    <button
+                      type="button"
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[var(--line)] bg-slate-50 text-slate-600 transition hover:bg-slate-100"
+                      onClick={() => void navigator.clipboard.writeText(ad.result.meta.readyToCopyText)}
+                      aria-label="Copiar anuncio"
+                    >
+                      <Copy className="h-4 w-4" />
+                    </button>
+                  </div>
+
+                  <div className="space-y-3">
+                    <InfoBlock title="Copy" value={ad.result.meta.primaryText} />
+                    <InfoBlock title="Headline" value={ad.result.meta.headline} />
+                    <InfoBlock title="Descripcion" value={ad.result.meta.description} />
+                    <InfoBlock title="CTA recomendado" value={ad.result.meta.callToAction} />
+                    <InfoBlock title="Segmentacion sugerida" value={ad.result.meta.basicSegmentation.join(" ")} />
+                    <InfoBlock title="Valor recomendado" value={ad.result.meta.budgetRecommendation} />
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       {modalOpen && canPortal
         ? createPortal(
             <AdsGeneratorModal
@@ -439,6 +628,15 @@ export function AdsGeneratorWorkspace({ initialInput, sourceHint }: AdsGenerator
           )
         : null}
     </section>
+  );
+}
+
+function InfoBlock({ title, value }: { title: string; value: string }) {
+  return (
+    <div className="rounded-[20px] border border-[var(--line)] bg-slate-50 px-4 py-3">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">{title}</p>
+      <p className="mt-2 text-sm leading-6 text-slate-800">{value}</p>
+    </div>
   );
 }
 

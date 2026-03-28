@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
@@ -55,6 +55,32 @@ function inferProductName(value: string) {
   }
 
   return cleaned.split(" ").slice(0, 6).join(" ");
+}
+
+function resolveCreativeFilePath(imageUrl: string) {
+  const normalized = imageUrl.trim();
+  const match = normalized.match(/^\/uploads\/ad-creatives\/([^/]+)\/([^/]+)$/);
+  if (!match) {
+    return null;
+  }
+
+  const [, productId, fileName] = match;
+  if (!/^[a-zA-Z0-9_-]+$/.test(productId) || !/^[a-zA-Z0-9._-]+$/.test(fileName)) {
+    return null;
+  }
+
+  const publicRoot = path.join(process.cwd(), "public");
+  const filePath = path.resolve(publicRoot, "uploads", "ad-creatives", productId, fileName);
+  const allowedRoot = path.join(publicRoot, "uploads", "ad-creatives");
+
+  if (!filePath.startsWith(allowedRoot)) {
+    return null;
+  }
+
+  return {
+    filePath,
+    directory: path.dirname(filePath),
+  };
 }
 
 export async function POST(request: Request) {
@@ -130,6 +156,41 @@ export async function POST(request: Request) {
           error instanceof Error
             ? error.message
             : "No pudimos generar los creativos en este momento.",
+      },
+      { status: 500 },
+    );
+  }
+}
+
+export async function DELETE(request: Request) {
+  const membership = await requireMarketingWorkspace();
+  if (!membership) {
+    return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  }
+
+  const json = await request.json().catch(() => null);
+  const imageUrl = String(json?.imageUrl ?? "").trim();
+  const resolved = resolveCreativeFilePath(imageUrl);
+
+  if (!resolved) {
+    return NextResponse.json({ error: "Imagen invalida" }, { status: 400 });
+  }
+
+  try {
+    await rm(resolved.filePath, { force: true });
+
+    const remainingFiles = await readdir(resolved.directory).catch(() => []);
+    if (remainingFiles.length === 0) {
+      await rm(resolved.directory, { recursive: true, force: true });
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    console.error("[ADS_GENERATOR_CREATIVES_DELETE]", error);
+
+    return NextResponse.json(
+      {
+        error: "No pudimos eliminar el creativo en este momento.",
       },
       { status: 500 },
     );
