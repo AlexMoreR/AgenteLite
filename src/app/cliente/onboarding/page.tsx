@@ -1,9 +1,6 @@
 import { redirect } from "next/navigation";
-import { Building2, ChevronRight } from "lucide-react";
 import { auth } from "@/auth";
-import { completeWorkspaceOnboardingAction } from "@/app/actions/workspace-actions";
-import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { MarketingOnboardingWizard } from "@/components/marketing/marketing-onboarding-wizard";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
@@ -36,72 +33,10 @@ export default async function ClienteOnboardingPage({ searchParams }: PageProps)
         errorTitle="No pudimos guardar tu negocio"
       />
 
-      <Card className="w-full max-w-2xl space-y-6">
-        <div className="space-y-2">
-          <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
-            <Building2 className="h-5 w-5" />
-          </div>
-          <div className="space-y-1">
-            <h1 className="text-2xl font-semibold tracking-tight text-slate-900 md:text-3xl">
-              Configura tu negocio
-            </h1>
-            <p className="text-sm text-slate-600 md:text-base">
-              Antes de crear tu primer agente, necesitamos unos datos basicos de tu empresa para preparar tu espacio de trabajo.
-            </p>
-          </div>
-        </div>
-
-        <form action={completeWorkspaceOnboardingAction} className="grid gap-4 md:grid-cols-2">
-          <input type="hidden" name="returnTo" value={returnTo} />
-          <label className="space-y-1.5 md:col-span-2">
-            <span className="text-sm font-medium text-slate-700">Nombre del negocio</span>
-            <Input
-              name="businessName"
-              placeholder="Ej. Clinica Dental Sonrisa"
-              defaultValue={session.user.name ?? ""}
-              required
-            />
-          </label>
-
-          <label className="space-y-1.5">
-            <span className="text-sm font-medium text-slate-700">Tipo de negocio</span>
-            <Input
-              name="businessType"
-              placeholder="Ej. Restaurante, clinica, inmobiliaria"
-              required
-            />
-          </label>
-
-          <label className="space-y-1.5">
-            <span className="text-sm font-medium text-slate-700">Pais</span>
-            <Input
-              name="country"
-              placeholder="Ej. Colombia"
-              required
-            />
-          </label>
-
-          <label className="space-y-1.5">
-            <span className="text-sm font-medium text-slate-700">Ciudad</span>
-            <Input
-              name="city"
-              placeholder="Ej. Bogota"
-              required
-            />
-          </label>
-
-          <div className="md:col-span-2 flex items-center justify-between rounded-xl border border-[var(--line)] bg-slate-50 px-4 py-3 text-sm text-slate-600">
-            <p>Despues de esto te llevaremos al panel para crear tu primer agente.</p>
-            <button
-              type="submit"
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
-            >
-              Continuar
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          </div>
-        </form>
-      </Card>
+      <MarketingOnboardingWizard
+        defaultBusinessName={session.user.name ?? ""}
+        returnTo={returnTo}
+      />
     </section>
   );
 }

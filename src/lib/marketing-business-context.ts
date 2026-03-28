@@ -59,6 +59,10 @@ export function getMarketingContextSettingKey(
   return getWorkspaceSettingKey(workspaceId, setting);
 }
 
+export function getMarketingResetSettingKey(workspaceId: string) {
+  return getWorkspaceSettingKey(workspaceId, "marketingResetState");
+}
+
 export function getMarketingContextCompletion(context: MarketingBusinessContext | null) {
   const checks = [
     Boolean(context?.businessName?.trim()),
@@ -163,9 +167,12 @@ export const getMarketingBusinessContextForUser = cache(
       prisma.appSetting.findMany({
         where: {
           key: {
-            in: MARKETING_CONTEXT_SETTING_NAMES.map((setting) =>
-              getMarketingContextSettingKey(workspaceId, setting),
-            ),
+            in: [
+              ...MARKETING_CONTEXT_SETTING_NAMES.map((setting) =>
+                getMarketingContextSettingKey(workspaceId, setting),
+              ),
+              getMarketingResetSettingKey(workspaceId),
+            ],
           },
         },
         select: {
@@ -190,6 +197,7 @@ export const getMarketingBusinessContextForUser = cache(
 
     const settingsMap = new Map(settings.map((item) => [item.key, item.value]));
     const training = asTrainingConfig(firstAgent?.trainingConfig);
+    const isResetState = settingsMap.get(getMarketingResetSettingKey(workspaceId)) === "true";
 
     const mainOffer =
       settingsMap.get(getMarketingContextSettingKey(workspaceId, "marketingMainOffer")) ?? null;
@@ -197,7 +205,9 @@ export const getMarketingBusinessContextForUser = cache(
       settingsMap.get(getMarketingContextSettingKey(workspaceId, "marketingBusinessNameOverride")) ?? null;
     const idealCustomer =
       settingsMap.get(getMarketingContextSettingKey(workspaceId, "marketingIdealCustomer")) ?? null;
-    const targetAudiences = buildAudienceSignals(training.targetAudiences ?? [], idealCustomer);
+    const targetAudiences = isResetState
+      ? []
+      : buildAudienceSignals(training.targetAudiences ?? [], idealCustomer);
 
     return {
       workspaceId,
@@ -205,9 +215,9 @@ export const getMarketingBusinessContextForUser = cache(
       businessType: settingsMap.get(getMarketingContextSettingKey(workspaceId, "businessType")) ?? null,
       country: settingsMap.get(getMarketingContextSettingKey(workspaceId, "country")) ?? null,
       city: settingsMap.get(getMarketingContextSettingKey(workspaceId, "city")) ?? null,
-      businessDescription: firstAgent?.description?.trim() || mainOffer,
+      businessDescription: isResetState ? mainOffer : firstAgent?.description?.trim() || mainOffer,
       targetAudiences,
-      salesTone: resolveSalesToneLabel(training.salesTone),
+      salesTone: isResetState ? null : resolveSalesToneLabel(training.salesTone),
       logoUrl,
       valueProposition:
         settingsMap.get(getMarketingContextSettingKey(workspaceId, "marketingValueProposition")) ?? null,

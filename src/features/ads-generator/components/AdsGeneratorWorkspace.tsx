@@ -320,45 +320,27 @@ function AdsGeneratorModal({
 }) {
   return (
     <div
-      className="fixed inset-0 z-50 flex items-stretch justify-center bg-[radial-gradient(circle_at_top,rgba(35,25,57,0.22),rgba(15,23,42,0.55))] p-0 md:p-6"
+      className="fixed inset-0 z-50 flex items-stretch justify-center bg-[#0f172a80] p-0 md:p-6"
       role="dialog"
       aria-modal="true"
       aria-label="Formulario del Ads Generator"
       onClick={onClose}
     >
       <div
-        className="flex h-full w-full max-w-[1040px] flex-col overflow-hidden rounded-none border border-[rgba(148,163,184,0.18)] bg-[linear-gradient(180deg,#fdfdfd_0%,#ffffff_100%)] md:max-h-[92vh] md:rounded-[32px] md:shadow-[0_42px_110px_-52px_rgba(15,23,42,0.5)]"
+        className="relative flex h-full w-full max-w-[1040px] flex-col overflow-hidden rounded-none border border-[rgba(148,163,184,0.18)] bg-[linear-gradient(180deg,#fdfdfd_0%,#ffffff_100%)] md:max-h-[92vh] md:rounded-[32px] md:shadow-[0_42px_110px_-52px_rgba(15,23,42,0.5)]"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="border-b border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfbfd_100%)] px-5 py-5 md:px-8 md:py-4">
-          <div className="flex items-start justify-between gap-4">
-            <div className="space-y-1.5">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                Ads Generator
-              </p>
-              <h2 className="text-[1.35rem] font-semibold tracking-[-0.05em] text-slate-950">
-                Completa la base del anuncio
-              </h2>
-              <p className="text-sm leading-6 text-slate-600">
-                Usa el mismo formato guiado del contexto del negocio para preparar esta propuesta.
-              </p>
-            </div>
+        <button
+          type="button"
+          onClick={onClose}
+          disabled={pending}
+          className="absolute right-5 top-5 z-10 inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[rgba(148,163,184,0.16)] bg-white text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 md:right-8 md:top-4"
+          aria-label="Cerrar"
+        >
+          <X className="h-4 w-4" />
+        </button>
 
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={pending}
-              className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-[rgba(148,163,184,0.16)] bg-white text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-              aria-label="Cerrar"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
-
-        <div className="min-h-0 flex-1 overflow-y-auto bg-[linear-gradient(180deg,#f7f9fc_0%,#f3f6fb_100%)] p-4 md:p-6">
-          <AdsGeneratorForm pending={pending} initialValues={initialValues} onSubmit={onSubmit} />
-        </div>
+        <AdsGeneratorForm pending={pending} initialValues={initialValues} onSubmit={onSubmit} />
       </div>
     </div>
   );

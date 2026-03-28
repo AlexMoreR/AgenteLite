@@ -11,6 +11,7 @@ import {
   Users2,
 } from "lucide-react";
 import { auth } from "@/auth";
+import { MarketingIaResetButton } from "@/components/marketing/marketing-ia-reset-button";
 import { Button } from "@/components/ui/button";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import {
@@ -102,19 +103,21 @@ function MarketingPageContent({
           </div>
 
           <div className="relative space-y-3 sm:space-y-4">
-            <div className="flex items-start gap-3 sm:gap-4">
-              <div className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[16px] bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)] sm:h-12 sm:w-12 sm:rounded-[20px]">
-                <Megaphone className="h-4.5 w-4.5 sm:h-5 sm:w-5" />
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex items-start gap-3 sm:gap-4">
+                <div className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[16px] bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)] sm:h-12 sm:w-12 sm:rounded-[20px]">
+                  <Megaphone className="h-4.5 w-4.5 sm:h-5 sm:w-5" />
+                </div>
+
+                <div className="space-y-1">
+                  <h1 className="text-[1.15rem] font-semibold tracking-[-0.05em] text-slate-950 sm:text-[1.85rem]">
+                    Marketing IA
+                  </h1>
+                </div>
               </div>
 
-              <div className="space-y-2 sm:space-y-3">
-                <h1 className="text-[1.4rem] font-semibold tracking-[-0.06em] text-slate-950 sm:text-[2.55rem]">
-                  Marketing IA
-                </h1>
-
-                <p className="max-w-[60ch] text-[13px] leading-6 text-slate-600 sm:text-base sm:leading-7">
-                  Organiza primero el contexto comercial de tu negocio y luego crea piezas, anuncios y mensajes con mejor criterio.
-                </p>
+              <div className="sm:pt-1">
+                <MarketingIaResetButton />
               </div>
             </div>
           </div>

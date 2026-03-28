@@ -4,6 +4,8 @@ function getMarketingLogoSettingKey(workspaceId: string) {
   return `workspace:${workspaceId}:marketingLogoUrl`;
 }
 
+export { getMarketingLogoSettingKey };
+
 export async function getWorkspaceMarketingLogoUrl(workspaceId: string): Promise<string | null> {
   const setting = await prisma.appSetting.findUnique({
     where: {

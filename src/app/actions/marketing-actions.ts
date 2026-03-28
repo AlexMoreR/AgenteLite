@@ -19,9 +19,14 @@ import { prisma } from "@/lib/prisma";
 import {
   clearWorkspaceMarketingLogoUrl,
   getWorkspaceMarketingLogoUrl,
+  getMarketingLogoSettingKey,
   setWorkspaceMarketingLogoUrl,
 } from "@/lib/marketing-branding";
-import { getMarketingContextSettingKey } from "@/lib/marketing-business-context";
+import {
+  getMarketingContextSettingKey,
+  getMarketingResetSettingKey,
+} from "@/lib/marketing-business-context";
+import { getAdsGeneratorHistorySettingKey } from "@/lib/ads-generator-history";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
 export type FacebookAdsGeneratorState = {
@@ -773,6 +778,64 @@ export async function deleteMarketingBusinessLogoAction(): Promise<void> {
   }
 }
 
+export async function resetMarketingIaConfigurationAction(): Promise<void> {
+  try {
+    const membership = await requireMarketingWorkspace();
+    const workspaceId = membership.workspace.id;
+    const currentLogoUrl = await getWorkspaceMarketingLogoUrl(workspaceId);
+
+    await prisma.appSetting.deleteMany({
+      where: {
+        key: {
+          in: [
+            getMarketingContextSettingKey(workspaceId, "marketingBusinessNameOverride"),
+            getMarketingContextSettingKey(workspaceId, "marketingValueProposition"),
+            getMarketingContextSettingKey(workspaceId, "marketingIdealCustomer"),
+            getMarketingContextSettingKey(workspaceId, "marketingPainPoints"),
+            getMarketingContextSettingKey(workspaceId, "marketingMainOffer"),
+            getMarketingContextSettingKey(workspaceId, "marketingPrimaryCta"),
+            getMarketingContextSettingKey(workspaceId, "marketingWebsiteUrl"),
+            getMarketingContextSettingKey(workspaceId, "marketingInstagramUrl"),
+            getMarketingContextSettingKey(workspaceId, "marketingFacebookUrl"),
+            getMarketingContextSettingKey(workspaceId, "marketingTiktokUrl"),
+            getAdsGeneratorHistorySettingKey(workspaceId),
+            getMarketingLogoSettingKey(workspaceId),
+            getMarketingResetSettingKey(workspaceId),
+          ],
+        },
+      },
+    });
+
+    await prisma.appSetting.upsert({
+      where: {
+        key: getMarketingResetSettingKey(workspaceId),
+      },
+      update: {
+        value: "true",
+      },
+      create: {
+        key: getMarketingResetSettingKey(workspaceId),
+        value: "true",
+      },
+    });
+
+    await deleteMarketingBusinessLogoFile(currentLogoUrl);
+
+    revalidatePath("/cliente/marketing-ia");
+    revalidatePath("/cliente/marketing-ia/contexto-negocio");
+    revalidatePath("/cliente/marketing-ia/creativos");
+    revalidatePath("/cliente/marketing-ia/ads-generator");
+    redirect("/cliente/marketing-ia?ok=Configuracion+de+Marketing+IA+reiniciada");
+  } catch (error) {
+    if (isNextRedirectError(error)) {
+      throw error;
+    }
+
+    console.error("[MARKETING_IA_RESET]", error);
+    redirect("/cliente/marketing-ia?error=No+se+pudo+reiniciar+Marketing+IA");
+  }
+}
+
 export async function analyzeMarketingBusinessLinksAction(input: {
   businessName: string;
   whatSells: string;
@@ -1096,6 +1159,12 @@ export async function updateMarketingBusinessContextAction(formData: FormData): 
         }),
       ),
     );
+
+    await prisma.appSetting.deleteMany({
+      where: {
+        key: getMarketingResetSettingKey(workspaceId),
+      },
+    });
 
     const firstAgent = await prisma.agent.findFirst({
       where: {
