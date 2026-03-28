@@ -99,8 +99,8 @@ export default async function MarketingBusinessContextPage({ searchParams }: Pag
               <MarketingBusinessIntakeModal context={businessContext} />
 
               <Button asChild variant="outline" size="lg" className="rounded-2xl">
-                <Link href="/cliente/marketing-ia/creativos">
-                  Ir a Creativos
+                <Link href="/cliente/marketing-ia/ads-generator">
+                  Ir al Ads Generator
                   <ArrowRight className="h-4 w-4" />
                 </Link>
               </Button>

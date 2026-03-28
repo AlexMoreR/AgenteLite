@@ -95,6 +95,10 @@ export function AdsGeneratorResult({ pending, result }: AdsGeneratorResultProps)
               <dd className="leading-6 text-slate-800">{result.strategy.angle}</dd>
             </div>
             <div className="space-y-1">
+              <dt className="font-medium text-slate-500">Resumen estrategico</dt>
+              <dd className="leading-6 text-slate-800">{result.meta.strategicSummary}</dd>
+            </div>
+            <div className="space-y-1">
               <dt className="font-medium text-slate-500">Audiencia</dt>
               <dd className="leading-6 text-slate-800">{result.strategy.audience}</dd>
             </div>
@@ -144,6 +148,30 @@ export function AdsGeneratorResult({ pending, result }: AdsGeneratorResultProps)
           </div>
 
           <div className="mt-4 space-y-3">
+            <div className="rounded-2xl border border-[var(--line)] bg-slate-50 px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                Estructura de campana
+              </p>
+              <p className="mt-1 text-sm leading-6 text-slate-700">
+                {result.meta.campaignStructure}
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-[var(--line)] bg-slate-50 px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                Segmentacion basica
+              </p>
+              <div className="mt-2 space-y-2">
+                {result.meta.basicSegmentation.map((segment) => (
+                  <p key={segment} className="text-sm leading-6 text-slate-700">
+                    {segment}
+                  </p>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-4 space-y-3">
             <p className="text-sm font-medium text-slate-700">Notas creativas</p>
             {result.meta.creativeNotes.map((note) => (
               <div
@@ -153,6 +181,92 @@ export function AdsGeneratorResult({ pending, result }: AdsGeneratorResultProps)
                 {note}
               </div>
             ))}
+          </div>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[1.05fr_1.2fr]">
+        <Card className="rounded-[28px] border-[var(--line)] bg-white p-6">
+          <div className="mb-4 flex items-center gap-2">
+            <FileText className="h-4 w-4 text-[var(--primary)]" />
+            <h3 className="text-lg font-semibold text-slate-950">Copy principal</h3>
+          </div>
+
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-[var(--line)] bg-slate-50 px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                Texto principal
+              </p>
+              <p className="mt-2 text-sm leading-6 text-slate-800">{result.meta.primaryText}</p>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-2xl border border-[var(--line)] bg-slate-50 px-4 py-3">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  Titulo
+                </p>
+                <p className="mt-2 text-sm font-medium text-slate-900">{result.meta.headline}</p>
+              </div>
+              <div className="rounded-2xl border border-[var(--line)] bg-slate-50 px-4 py-3">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  Descripcion
+                </p>
+                <p className="mt-2 text-sm text-slate-700">{result.meta.description}</p>
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-2xl border border-[var(--line)] bg-slate-50 px-4 py-3">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  CTA recomendado
+                </p>
+                <p className="mt-2 text-sm font-medium text-slate-900">{result.meta.callToAction}</p>
+              </div>
+              <div className="rounded-2xl border border-[var(--line)] bg-slate-50 px-4 py-3">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  Metrica principal
+                </p>
+                <p className="mt-2 text-sm text-slate-700">{result.meta.primaryMetric}</p>
+              </div>
+            </div>
+          </div>
+        </Card>
+
+        <Card className="rounded-[28px] border-[var(--line)] bg-white p-6">
+          <div className="mb-4 flex items-center gap-2">
+            <Megaphone className="h-4 w-4 text-[var(--primary)]" />
+            <h3 className="text-lg font-semibold text-slate-950">Operacion del anuncio</h3>
+          </div>
+
+          <div className="space-y-3">
+            <div className="rounded-2xl border border-[var(--line)] bg-slate-50 px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                Idea de creativo
+              </p>
+              <p className="mt-2 text-sm leading-6 text-slate-700">{result.meta.creativeIdea}</p>
+            </div>
+
+            <div className="rounded-2xl border border-[var(--line)] bg-slate-50 px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                Presupuesto recomendado
+              </p>
+              <p className="mt-2 text-sm leading-6 text-slate-700">
+                {result.meta.budgetRecommendation}
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-[var(--line)] bg-slate-50 px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                Checklist para publicar
+              </p>
+              <div className="mt-2 space-y-2">
+                {result.meta.publicationChecklist.map((item) => (
+                  <p key={item} className="text-sm leading-6 text-slate-700">
+                    {item}
+                  </p>
+                ))}
+              </div>
+            </div>
           </div>
         </Card>
       </div>

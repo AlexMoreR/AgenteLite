@@ -237,16 +237,16 @@ function MarketingPageContent({
                       Paso 2
                     </p>
                     <h2 className="text-[1.15rem] font-semibold tracking-[-0.04em] text-slate-950 sm:text-[1.7rem] sm:tracking-[-0.05em]">
-                      Creativos y anuncios
+                      Generador de anuncios
                     </h2>
                     <p className="max-w-[70ch] text-[13px] leading-5 text-slate-600 sm:text-sm sm:leading-6">
-                      Usa el contexto del negocio y luego entra al estudio visual para preparar piezas, anuncios y mensajes listos para trabajar.
+                      Pasa del contexto comercial a una propuesta lista para Meta Ads Manager y reutiliza Creativos cuando quieras apoyarte en una imagen generada.
                     </p>
                   </div>
                 </div>
 
                 <Button asChild size="lg" className="h-11 w-full rounded-2xl sm:w-auto">
-                  <Link href="/cliente/marketing-ia/creativos">
+                  <Link href="/cliente/marketing-ia/ads-generator">
                     Abrir modulo
                     <ArrowRight className="h-4 w-4" />
                   </Link>
@@ -256,10 +256,10 @@ function MarketingPageContent({
               <div className="grid gap-3 lg:grid-cols-[1.1fr_0.9fr]">
                 <div className="rounded-[24px] border border-[var(--line)] bg-white/88 p-4">
                   <p className="text-[13px] font-semibold text-slate-950 sm:text-sm">
-                    Siguiente paso: entrar al estudio de anuncios
+                    Siguiente paso: construir la propuesta del anuncio
                   </p>
                   <p className="mt-1 text-[12px] leading-5 text-slate-500">
-                    Prepara la foto, define el enfoque y descarga los resultados.
+                    Define el angulo, la estructura y el copy. Si ya tienes imagen, puedes traerla desde Creativos.
                   </p>
                 </div>
 
@@ -268,7 +268,7 @@ function MarketingPageContent({
                     Flujo
                   </p>
                   <p className="mt-2 text-[13px] leading-5 text-slate-700 sm:text-sm sm:leading-6">
-                    Contexto del negocio primero, creativos despues y anuncios con una base comercial mas solida.
+                    Contexto del negocio primero, anuncio despues y creativos como apoyo visual dentro del flujo.
                   </p>
                 </div>
               </div>

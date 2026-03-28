@@ -14,8 +14,20 @@ export type AdCopyVariant = {
 
 export type MetaAdOutput = {
   campaignObjective: string;
+  strategicSummary: string;
+  recommendedSalesAngle: string;
+  campaignStructure: string;
+  basicSegmentation: string[];
   recommendedFormat: string;
+  primaryText: string;
+  headline: string;
+  description: string;
+  callToAction: string;
+  creativeIdea: string;
+  budgetRecommendation: string;
+  primaryMetric: string;
   creativeNotes: string[];
+  publicationChecklist: string[];
   copyVariants: AdCopyVariant[];
   readyToCopyText: string;
 };

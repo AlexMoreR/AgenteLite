@@ -30,6 +30,9 @@ export type FacebookAdsGeneratorState = {
   creatives: FacebookAdCreative[];
   sourceImageUrl?: string;
   creativeMode?: "real" | "creative" | "inspired";
+  productName?: string;
+  productDescription?: string;
+  brief?: string;
 };
 
 export type MarketingLinkAnalysisResult = {
@@ -657,6 +660,9 @@ export async function generateFacebookAdsFromImageAction(
       creatives,
       sourceImageUrl,
       creativeMode: parsed.data.creativeMode,
+      productName: parsed.data.productName,
+      productDescription: parsed.data.productDescription,
+      brief: parsed.data.brief,
     };
   } catch (error) {
     console.error("[MARKETING_FACEBOOK_ADS]", error);

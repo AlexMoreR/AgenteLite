@@ -35,10 +35,16 @@ function splitMultilineValue(value: string) {
 
 type AdsGeneratorFormProps = {
   pending: boolean;
+  initialValues?: Partial<AdProductInput>;
   onSubmit: (input: AdProductInput) => void;
 };
 
-export function AdsGeneratorForm({ pending, onSubmit }: AdsGeneratorFormProps) {
+export function AdsGeneratorForm({ pending, initialValues, onSubmit }: AdsGeneratorFormProps) {
+  const defaultObjective = initialValues?.objective ?? "sales";
+  const defaultTone = initialValues?.tone ?? "persuasive";
+  const defaultImageSource = initialValues?.image?.source ?? "creativos";
+  const defaultImageUrl = initialValues?.image?.url ?? "";
+
   return (
     <Card className="rounded-[28px] border-[var(--line)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(243,247,255,0.94))] p-5 sm:p-6">
       <div className="mb-6 flex items-start gap-4">
@@ -53,6 +59,11 @@ export function AdsGeneratorForm({ pending, onSubmit }: AdsGeneratorFormProps) {
             Completa la base del anuncio. Por ahora esta pantalla usa el flujo mock del modulo
             `ads-generator`.
           </p>
+          {defaultImageUrl ? (
+            <p className="text-xs leading-5 text-[var(--primary)]">
+              Detectamos una imagen precargada desde el flujo anterior. Puedes usarla tal como esta o reemplazarla.
+            </p>
+          ) : null}
         </div>
       </div>
 
@@ -98,12 +109,17 @@ export function AdsGeneratorForm({ pending, onSubmit }: AdsGeneratorFormProps) {
         <div className="grid gap-4 md:grid-cols-2">
           <label className="space-y-1.5">
             <span className="text-sm font-medium text-slate-700">Nombre del producto</span>
-            <Input name="productName" placeholder="Ej. Serum facial antioxidante" required />
+            <Input
+              name="productName"
+              placeholder="Ej. Serum facial antioxidante"
+              defaultValue={initialValues?.productName ?? ""}
+              required
+            />
           </label>
 
           <label className="space-y-1.5">
             <span className="text-sm font-medium text-slate-700">Marca</span>
-            <Input name="brandName" placeholder="Ej. Aura Skin" />
+            <Input name="brandName" placeholder="Ej. Aura Skin" defaultValue={initialValues?.brandName ?? ""} />
           </label>
 
           <label className="space-y-1.5 md:col-span-2">
@@ -113,33 +129,46 @@ export function AdsGeneratorForm({ pending, onSubmit }: AdsGeneratorFormProps) {
               rows={4}
               className="field-textarea min-h-28"
               placeholder="Resume que vende el producto, que lo hace atractivo y por que alguien deberia hacer clic."
+              defaultValue={initialValues?.productDescription ?? ""}
               required
             />
           </label>
 
           <label className="space-y-1.5">
             <span className="text-sm font-medium text-slate-700">Categoria</span>
-            <Input name="categoryName" placeholder="Ej. Belleza" />
+            <Input name="categoryName" placeholder="Ej. Belleza" defaultValue={initialValues?.categoryName ?? ""} />
           </label>
 
           <label className="space-y-1.5">
             <span className="text-sm font-medium text-slate-700">Landing page</span>
-            <Input name="landingPageUrl" type="url" placeholder="https://tu-sitio.com/producto" />
+            <Input
+              name="landingPageUrl"
+              type="url"
+              placeholder="https://tu-sitio.com/producto"
+              defaultValue={initialValues?.landingPageUrl ?? ""}
+            />
           </label>
 
           <label className="space-y-1.5">
             <span className="text-sm font-medium text-slate-700">Precio</span>
-            <Input name="price" type="number" min="0" step="0.01" placeholder="199900" />
+            <Input
+              name="price"
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder="199900"
+              defaultValue={initialValues?.price?.toString() ?? ""}
+            />
           </label>
 
           <label className="space-y-1.5">
             <span className="text-sm font-medium text-slate-700">Moneda</span>
-            <Input name="currency" defaultValue="COP" placeholder="COP" />
+            <Input name="currency" defaultValue={initialValues?.currency ?? "COP"} placeholder="COP" />
           </label>
 
           <label className="space-y-1.5">
             <span className="text-sm font-medium text-slate-700">Objetivo</span>
-            <select name="objective" className="field-select" defaultValue="sales">
+            <select name="objective" className="field-select" defaultValue={defaultObjective}>
               {objectiveOptions.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
@@ -150,7 +179,7 @@ export function AdsGeneratorForm({ pending, onSubmit }: AdsGeneratorFormProps) {
 
           <label className="space-y-1.5">
             <span className="text-sm font-medium text-slate-700">Tono</span>
-            <select name="tone" className="field-select" defaultValue="persuasive">
+            <select name="tone" className="field-select" defaultValue={defaultTone}>
               {toneOptions.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
@@ -166,6 +195,7 @@ export function AdsGeneratorForm({ pending, onSubmit }: AdsGeneratorFormProps) {
               rows={3}
               className="field-textarea min-h-24"
               placeholder="Ej. Mujeres de 25 a 40 interesadas en cuidado facial premium y rutinas practicas."
+              defaultValue={initialValues?.audienceSummary ?? ""}
             />
           </label>
 
@@ -176,6 +206,7 @@ export function AdsGeneratorForm({ pending, onSubmit }: AdsGeneratorFormProps) {
               rows={4}
               className="field-textarea min-h-28"
               placeholder={"Escribe un beneficio por linea.\nReduce lineas de expresion.\nTextura ligera.\nIdeal para uso diario."}
+              defaultValue={initialValues?.keyBenefits?.join("\n") ?? ""}
               required
             />
           </label>
@@ -187,17 +218,22 @@ export function AdsGeneratorForm({ pending, onSubmit }: AdsGeneratorFormProps) {
               rows={3}
               className="field-textarea min-h-24"
               placeholder={"Opcional, uno por linea.\nPoco tiempo para una rutina larga.\nPiel opaca y sin hidratacion."}
+              defaultValue={initialValues?.painPoints?.join("\n") ?? ""}
             />
           </label>
 
           <label className="space-y-1.5">
             <span className="text-sm font-medium text-slate-700">Call to action</span>
-            <Input name="callToAction" defaultValue="Compra ahora" placeholder="Compra ahora" />
+            <Input
+              name="callToAction"
+              defaultValue={initialValues?.callToAction ?? "Compra ahora"}
+              placeholder="Compra ahora"
+            />
           </label>
 
           <label className="space-y-1.5">
             <span className="text-sm font-medium text-slate-700">Origen de la imagen</span>
-            <select name="imageSource" className="field-select" defaultValue="creativos">
+            <select name="imageSource" className="field-select" defaultValue={defaultImageSource}>
               {imageSourceOptions.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
@@ -212,6 +248,7 @@ export function AdsGeneratorForm({ pending, onSubmit }: AdsGeneratorFormProps) {
               name="imageUrl"
               type="url"
               placeholder="https://..."
+              defaultValue={defaultImageUrl}
             />
             <p className="text-xs leading-5 text-slate-500">
               En la siguiente fase esto podra venir directamente del modulo Creativos.

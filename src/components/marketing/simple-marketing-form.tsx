@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState, useEffect, useMemo, useState, useTransition } from "react";
-import { History, ImagePlus, LoaderCircle, Plus, Sparkles, Trash2, X } from "lucide-react";
+import { ArrowRight, History, ImagePlus, LoaderCircle, Plus, Sparkles, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import {
   deleteFacebookAdsHistoryImagesAction,
@@ -71,7 +72,42 @@ type HistoryEntry = {
   creatives: FacebookAdsGeneratorState["creatives"];
   sourceImageUrl?: string;
   creativeMode?: FacebookAdsGeneratorState["creativeMode"];
+  productName?: string;
+  productDescription?: string;
+  brief?: string;
 };
+
+function buildAdsGeneratorHref(input: {
+  sourceImageUrl?: string;
+  creatives: FacebookAdsGeneratorState["creatives"];
+  creativeMode?: FacebookAdsGeneratorState["creativeMode"];
+  productName?: string;
+  productDescription?: string;
+  brief?: string;
+}) {
+  const imageUrl = input.sourceImageUrl || input.creatives[0]?.imageUrl || "";
+  const params = new URLSearchParams();
+
+  if (imageUrl) {
+    params.set("imageUrl", imageUrl);
+  }
+
+  params.set("source", "creativos");
+
+  if (input.productName?.trim()) {
+    params.set("productName", input.productName.trim());
+  }
+
+  if (input.productDescription?.trim()) {
+    params.set("productDescription", input.productDescription.trim());
+  }
+
+  if (input.brief?.trim()) {
+    params.set("keyBenefits", input.brief.trim());
+  }
+
+  return `/cliente/marketing-ia/ads-generator?${params.toString()}`;
+}
 
 function formatHistoryDate(value: string) {
   const date = new Date(value);
@@ -184,6 +220,9 @@ export function SimpleMarketingForm() {
               typeof item === "object" &&
               Array.isArray(item.creatives) &&
               (typeof item.sourceImageUrl === "string" || typeof item.sourceImageUrl === "undefined") &&
+              (typeof item.productName === "string" || typeof item.productName === "undefined") &&
+              (typeof item.productDescription === "string" || typeof item.productDescription === "undefined") &&
+              (typeof item.brief === "string" || typeof item.brief === "undefined") &&
               (item.creativeMode === "real" ||
                 item.creativeMode === "creative" ||
                 item.creativeMode === "inspired" ||
@@ -237,6 +276,9 @@ export function SimpleMarketingForm() {
             creatives: state.creatives,
             sourceImageUrl: state.sourceImageUrl,
             creativeMode: state.creativeMode,
+            productName: state.productName,
+            productDescription: state.productDescription,
+            brief: state.brief,
           },
           ...current,
         ].slice(0, 12);
@@ -245,7 +287,15 @@ export function SimpleMarketingForm() {
         return next;
       });
     });
-  }, [state.ok, state.creatives]);
+  }, [
+    state.ok,
+    state.creatives,
+    state.sourceImageUrl,
+    state.creativeMode,
+    state.productName,
+    state.productDescription,
+    state.brief,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -259,6 +309,16 @@ export function SimpleMarketingForm() {
   const activeStep = pending ? 2 : step;
   const latestCreatives = creatives.length > 0 ? creatives : history[0]?.creatives ?? [];
   const hasGeneratedCreatives = latestCreatives.length > 0 || history.length > 0;
+  const latestAdsGeneratorHref = latestCreatives.length > 0
+    ? buildAdsGeneratorHref({
+        sourceImageUrl: state.sourceImageUrl ?? history[0]?.sourceImageUrl,
+        creatives: latestCreatives,
+        creativeMode: state.creativeMode ?? history[0]?.creativeMode,
+        productName: state.productName ?? history[0]?.productName,
+        productDescription: state.productDescription ?? history[0]?.productDescription,
+        brief: state.brief ?? history[0]?.brief,
+      })
+    : null;
 
   const openModal = () => {
     setStep(0);
@@ -348,9 +408,20 @@ export function SimpleMarketingForm() {
       )}
 
       <section className="space-y-3">
-        <div className="flex items-center gap-3">
-          <div className="h-px flex-1 bg-[linear-gradient(90deg,rgba(99,78,153,0.18),rgba(99,78,153,0))]" />
-          <div className="h-2 w-2 rounded-full bg-[color-mix(in_srgb,var(--primary)_65%,white)]" />
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="h-px flex-1 bg-[linear-gradient(90deg,rgba(99,78,153,0.18),rgba(99,78,153,0))]" />
+            <div className="h-2 w-2 rounded-full bg-[color-mix(in_srgb,var(--primary)_65%,white)]" />
+          </div>
+          {latestAdsGeneratorHref ? (
+            <Link
+              href={latestAdsGeneratorHref}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-[var(--line)] bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+            >
+              Llevar al Ads Generator
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          ) : null}
         </div>
         <CreativeGrid
           creatives={latestCreatives}
@@ -378,19 +449,28 @@ export function SimpleMarketingForm() {
                       {formatHistoryDate(entry.createdAt)}
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => removeHistoryEntry(entry.id)}
-                    disabled={isDeletingHistory}
-                    className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-red-200 bg-white px-3 text-sm font-medium text-red-600 transition hover:bg-red-50"
-                  >
-                    {deletingEntryId === entry.id ? (
-                      <LoaderCircle className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Trash2 className="h-4 w-4" />
-                    )}
-                    {deletingEntryId === entry.id ? "Eliminando..." : "Eliminar"}
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Link
+                      href={buildAdsGeneratorHref(entry)}
+                      className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-[var(--line)] bg-white px-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                    >
+                      Usar en Ads Generator
+                      <ArrowRight className="h-4 w-4" />
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => removeHistoryEntry(entry.id)}
+                      disabled={isDeletingHistory}
+                      className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-red-200 bg-white px-3 text-sm font-medium text-red-600 transition hover:bg-red-50"
+                    >
+                      {deletingEntryId === entry.id ? (
+                        <LoaderCircle className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-4 w-4" />
+                      )}
+                      {deletingEntryId === entry.id ? "Eliminando..." : "Eliminar"}
+                    </button>
+                  </div>
                 </div>
 
                 <div className="grid gap-3 md:grid-cols-3">
