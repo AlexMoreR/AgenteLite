@@ -13,6 +13,7 @@ type ProductCreativeContext = {
   brandLogoUrl?: string | null;
   includeBrandLogo?: boolean;
   creativeMode?: "real" | "creative" | "inspired";
+  creativeCount?: number;
 };
 
 type SocialProofSnippet = {
@@ -70,7 +71,7 @@ const creativeCopySchema = z.object({
         .max(3)
         .optional(),
     }),
-  ).min(3),
+  ).min(1).max(10),
 });
 
 const mimeByExt: Record<string, string> = {
@@ -192,7 +193,7 @@ function buildFallbackCreativeOptions(context: ProductCreativeContext): Creative
   const mode = context.creativeMode ?? "real";
   const [firstCta, secondCta, thirdCta] = ctaByMode[mode];
 
-  return [
+  const baseOptions = [
     {
       angle: "Beneficio principal",
       headline: shortName,
@@ -217,6 +218,24 @@ function buildFallbackCreativeOptions(context: ProductCreativeContext): Creative
       socialProof: fallbackSocialProof,
     },
   ];
+
+  const requestedCount = Math.max(1, Math.min(context.creativeCount ?? 3, 10));
+
+  return Array.from({ length: requestedCount }).map((_, index) => {
+    const template = baseOptions[index % baseOptions.length];
+
+    return {
+      ...template,
+      angle:
+        index < baseOptions.length
+          ? template.angle
+          : `${template.angle} ${index + 1}`,
+      headline: template.headline,
+      supportLine: template.supportLine,
+      cta: template.cta,
+      socialProof: template.socialProof,
+    };
+  });
 }
 
 function sanitizeCreativeOption(option: CreativeCopyOption, fallback: CreativeCopyOption) {
@@ -253,6 +272,7 @@ async function generateCreativeCopyOptions(
   apiKey: string,
 ): Promise<CreativeCopyOption[]> {
   const fallback = buildFallbackCreativeOptions(context);
+  const requestedCount = Math.max(1, Math.min(context.creativeCount ?? 3, 10));
   const prompt = [
     `Producto: ${context.name}`,
     context.categoryName ? `Categoria: ${context.categoryName}` : "",
@@ -263,7 +283,7 @@ async function generateCreativeCopyOptions(
     '{"options":[{"angle":"...","headline":"...","supportLine":"...","cta":"...","socialProof":[{"name":"...","message":"..."}]}]}',
     "",
     "Reglas:",
-    "- Entrega exactamente 3 opciones.",
+    `- Entrega exactamente ${requestedCount} opciones.`,
     "- Todo en espanol neutro.",
     "- Sin markdown, sin comentarios, sin emojis y sin hashtags.",
     "- headline: maximo 5 palabras.",
@@ -273,7 +293,7 @@ async function generateCreativeCopyOptions(
     "- Cada socialProof debe tener un nombre corto y un mensaje creible ligado al producto, su uso, calidad, comodidad, entrega o resultado comercial.",
     "- Los testimonios deben mencionar beneficios o contexto real del producto, no frases genericas vacias.",
     "- Cada message de socialProof: maximo 10 palabras.",
-    "- Cada opcion debe tener un enfoque distinto: beneficio, decision rapida y confianza.",
+    "- Cada opcion debe tener un enfoque comercial claro y distinto cuando sea posible.",
     "- El texto debe sentirse listo para ir dentro de una imagen cuadrada de Facebook Ads.",
   ]
     .filter(Boolean)
@@ -310,12 +330,15 @@ async function generateCreativeCopyOptions(
   const rawText = extractOpenAIText(data);
   const parsed = creativeCopySchema.parse(JSON.parse(cleanJsonText(rawText)));
 
-  return fallback.map((fallbackOption, index) =>
+  return Array.from({ length: requestedCount }).map((_, index) => {
+    const fallbackOption = fallback[index % fallback.length];
+
+    return (
     sanitizeCreativeOption(
       (parsed.options[index] as CreativeCopyOption | undefined) ?? fallbackOption,
       fallbackOption,
-    ),
-  );
+    ));
+  });
 }
 
 function getMimeTypeFromFileName(fileName: string) {
