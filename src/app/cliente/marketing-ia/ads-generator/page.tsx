@@ -66,6 +66,7 @@ export default async function AdsGeneratorPage({ searchParams }: PageProps) {
   return (
     <AdsGeneratorWorkspace
       initialInput={initialInput}
+      businessContext={businessContext}
     />
   );
 }

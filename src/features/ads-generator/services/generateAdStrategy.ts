@@ -23,33 +23,33 @@ function selectCallToAction(
 
 function selectAngle(analysis: ProductAnalysis) {
   if (analysis.primaryPainPoint) {
-    return `Enfocar ${analysis.productName} como una solucion concreta para ${analysis.primaryPainPoint.toLowerCase()}.`;
+    return `Abrir con el problema real del cliente, mostrar por que eso le quita ventas o confianza, y despues presentar el producto como la salida.`;
   }
 
   if (analysis.recommendedObjective === "sales") {
-    return `Vender ${analysis.productName} destacando ${analysis.primaryBenefit.toLowerCase()} y una accion clara de compra.`;
+    return `Ir directo al beneficio que mas vende, bajar el mensaje a algo facil de entender y cerrar con una accion clara.`;
   }
 
   if (analysis.recommendedObjective === "leads") {
-    return `Presentar ${analysis.productName} como una opcion confiable para abrir conversacion y captar interesados calificados.`;
+    return `Hablar como si le estuvieras vendiendo a alguien por chat: claro, directo y dejando una razon real para escribir.`;
   }
 
   if (analysis.recommendedObjective === "engagement") {
-    return `Construir interes alrededor de ${analysis.productName} con un mensaje facil de compartir y recordar.`;
+    return `Llamar la atencion con una idea facil de entender y una frase que invite a reaccionar o preguntar.`;
   }
 
-  return `Posicionar ${analysis.productName} con un mensaje simple que invite a conocer mas.`;
+  return `Abrir con una frase corta, clara y facil de entender desde la primera lectura.`;
 }
 
 function buildHooks(analysis: ProductAnalysis, cta: string) {
   const hooks = [
-    `${analysis.primaryBenefit} desde el primer impacto.`,
+    `Haz que te miren dos veces.`,
     analysis.primaryPainPoint
-      ? `Si tu cliente busca dejar atras ${analysis.primaryPainPoint.toLowerCase()}, aqui hay una respuesta clara.`
-      : `${analysis.productName} convierte un beneficio clave en una decision facil.`,
+      ? `Si eso te esta frenando ventas o confianza, aqui hay una forma mas clara de resolverlo.`
+      : `Cuando algo se ve bien y se entiende rapido, vender cuesta menos.`,
     analysis.priceLabel
-      ? `${analysis.primaryBenefit} con una propuesta lista para vender desde ${analysis.priceLabel}.`
-      : `${analysis.primaryBenefit} con un cierre natural: ${cta}.`,
+      ? `${analysis.primaryBenefit} desde ${analysis.priceLabel}.`
+      : `${analysis.primaryBenefit}. ${cta}.`,
   ];
 
   return hooks;

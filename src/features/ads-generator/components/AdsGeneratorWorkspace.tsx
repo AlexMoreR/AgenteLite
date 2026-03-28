@@ -7,6 +7,7 @@ import type { ChangeEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import type { MarketingBusinessContext } from "@/lib/marketing-business-context";
 import type { AdProductInput } from "../types/ad-input";
 import type { AdsGeneratorResult } from "../types/ad-output";
 import { AdsGeneratorForm } from "./AdsGeneratorForm";
@@ -16,6 +17,7 @@ import type { FacebookAdCreative } from "@/lib/facebook-ad-creatives";
 type AdsGeneratorWorkspaceProps = {
   initialInput?: Partial<AdProductInput>;
   sourceHint?: string | null;
+  businessContext?: MarketingBusinessContext | null;
 };
 
 type PublishedAdCard = {
@@ -24,27 +26,99 @@ type PublishedAdCard = {
   result: AdsGeneratorResult;
 };
 
-export function AdsGeneratorWorkspace({ initialInput, sourceHint }: AdsGeneratorWorkspaceProps) {
+type UploadedImageDraft = {
+  id: string;
+  url: string;
+  name: string;
+  file?: File;
+};
+
+const ADS_GENERATOR_DRAFT_KEY = "marketing-ia:ads-generator-workspace:v1";
+
+export function AdsGeneratorWorkspace({ initialInput, sourceHint, businessContext }: AdsGeneratorWorkspaceProps) {
   const [modalOpen, setModalOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
-  const [draftPrompt, setDraftPrompt] = useState(initialInput?.productDescription ?? "");
+  const [draftPrompt, setDraftPrompt] = useState("");
   const [variantCount, setVariantCount] = useState<3 | 5 | 10>(3);
   const [result, setResult] = useState<AdsGeneratorResult | null>(null);
   const [lastInput, setLastInput] = useState<AdProductInput | null>(null);
-  const [uploadedImages, setUploadedImages] = useState<Array<{ id: string; url: string; name: string; file: File }>>([]);
+  const [uploadedImages, setUploadedImages] = useState<UploadedImageDraft[]>([]);
   const [generatedCreatives, setGeneratedCreatives] = useState<FacebookAdCreative[]>([]);
   const [publishedAds, setPublishedAds] = useState<PublishedAdCard[]>([]);
-  const [sourceImageUrl, setSourceImageUrl] = useState(initialInput?.image?.url ?? "");
+  const [sourceImageUrl, setSourceImageUrl] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const publishedSectionRef = useRef<HTMLElement>(null);
   const canPortal = typeof document !== "undefined";
 
   useEffect(() => {
     return () => {
-      uploadedImages.forEach((image) => URL.revokeObjectURL(image.url));
+      uploadedImages.forEach((image) => {
+        if (image.url.startsWith("blob:")) {
+          URL.revokeObjectURL(image.url);
+        }
+      });
     };
   }, [uploadedImages]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    try {
+      const raw = window.localStorage.getItem(ADS_GENERATOR_DRAFT_KEY);
+      if (!raw) {
+        setDraftPrompt(initialInput?.productDescription ?? "");
+        setSourceImageUrl(initialInput?.image?.url ?? "");
+        return;
+      }
+
+      const parsed = JSON.parse(raw) as {
+        draftPrompt?: string;
+        variantCount?: 3 | 5 | 10;
+        uploadedImages?: Array<{ id: string; url: string; name: string }>;
+        generatedCreatives?: FacebookAdCreative[];
+        publishedAds?: PublishedAdCard[];
+        sourceImageUrl?: string;
+      };
+
+      setDraftPrompt(parsed.draftPrompt ?? initialInput?.productDescription ?? "");
+      setVariantCount(parsed.variantCount && [3, 5, 10].includes(parsed.variantCount) ? parsed.variantCount : 3);
+      setUploadedImages(
+        Array.isArray(parsed.uploadedImages)
+          ? parsed.uploadedImages.map((image) => ({
+              id: image.id,
+              url: image.url,
+              name: image.name,
+            }))
+          : [],
+      );
+      setGeneratedCreatives(Array.isArray(parsed.generatedCreatives) ? parsed.generatedCreatives : []);
+      setPublishedAds(Array.isArray(parsed.publishedAds) ? parsed.publishedAds : []);
+      setSourceImageUrl(parsed.sourceImageUrl ?? initialInput?.image?.url ?? "");
+    } catch {
+      setDraftPrompt(initialInput?.productDescription ?? "");
+      setSourceImageUrl(initialInput?.image?.url ?? "");
+    }
+  }, [initialInput]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.localStorage.setItem(
+      ADS_GENERATOR_DRAFT_KEY,
+      JSON.stringify({
+        draftPrompt,
+        variantCount,
+        uploadedImages: uploadedImages.map(({ id, url, name }) => ({ id, url, name })),
+        generatedCreatives,
+        publishedAds,
+        sourceImageUrl,
+      }),
+    );
+  }, [draftPrompt, generatedCreatives, publishedAds, sourceImageUrl, uploadedImages, variantCount]);
 
   useEffect(() => {
     if (!modalOpen || !canPortal) {
@@ -58,14 +132,6 @@ export function AdsGeneratorWorkspace({ initialInput, sourceHint }: AdsGenerator
       document.body.style.overflow = previousOverflow;
     };
   }, [canPortal, modalOpen]);
-
-  useEffect(() => {
-    if (publishedAds.length === 0) {
-      return;
-    }
-
-    publishedSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [publishedAds]);
 
   const modalInitialValues = useMemo(
     () => ({
@@ -91,20 +157,32 @@ export function AdsGeneratorWorkspace({ initialInput, sourceHint }: AdsGenerator
     }
 
     setSourceImageUrl("");
-
-    setUploadedImages((current) => {
-      const availableSlots = Math.max(0, 10 - current.length);
-      const nextFiles = files.slice(0, availableSlots);
-
-      return [
-        ...current,
-        ...nextFiles.map((file, index) => ({
-        id: `${file.name}-${current.length + index}-${file.lastModified}`,
-        url: URL.createObjectURL(file),
-        name: file.name,
-        file,
-      }))];
-    });
+    void Promise.all(
+      files.map(
+        (file) =>
+          new Promise<UploadedImageDraft>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () =>
+              resolve({
+                id: `${file.name}-${file.lastModified}`,
+                url: String(reader.result ?? ""),
+                name: file.name,
+                file,
+              });
+            reader.onerror = () => reject(new Error("No pudimos leer una de las imagenes."));
+            reader.readAsDataURL(file);
+          }),
+      ),
+    )
+      .then((nextImages) => {
+        setUploadedImages((current) => {
+          const availableSlots = Math.max(0, 10 - current.length);
+          return [...current, ...nextImages.slice(0, availableSlots)];
+        });
+      })
+      .catch(() => {
+        setError("No pudimos cargar una de las imagenes.");
+      });
 
     event.target.value = "";
   };
@@ -192,12 +270,39 @@ export function AdsGeneratorWorkspace({ initialInput, sourceHint }: AdsGenerator
         generatedCreatives.map(async (creative, index) => {
           const input: AdProductInput = {
             productName: inferredProductName,
-            productDescription: draftPrompt.trim() || inferredProductName,
+            productDescription:
+              [
+                draftPrompt.trim(),
+                businessContext?.valueProposition?.trim(),
+                businessContext?.mainOffer?.trim(),
+              ]
+                .filter(Boolean)
+                .join(". ") || inferredProductName,
+            brandName: businessContext?.businessName || initialInput?.brandName,
+            categoryName: businessContext?.businessType || initialInput?.categoryName,
+            landingPageUrl: businessContext?.websiteUrl || initialInput?.landingPageUrl,
             objective: "sales",
-            tone: "persuasive",
-            keyBenefits: [creative.headline, creative.supportLine].filter(Boolean),
-            painPoints: [creative.angle],
-            callToAction: creative.cta,
+            audienceSummary:
+              businessContext?.idealCustomer ||
+              (businessContext?.targetAudiences.length
+                ? businessContext.targetAudiences.join(", ")
+                : initialInput?.audienceSummary),
+            tone:
+              businessContext?.salesTone?.toLowerCase().includes("premium")
+                ? "premium"
+                : businessContext?.salesTone?.toLowerCase().includes("direct")
+                  ? "direct"
+                  : businessContext?.salesTone?.toLowerCase().includes("cerc")
+                    ? "friendly"
+                    : "persuasive",
+            keyBenefits: [
+              creative.headline,
+              creative.supportLine,
+              businessContext?.valueProposition ?? "",
+              businessContext?.mainOffer ?? "",
+            ].filter(Boolean),
+            painPoints: [creative.angle, businessContext?.painPoints ?? ""].filter(Boolean),
+            callToAction: businessContext?.primaryCallToAction || creative.cta,
             image: {
               url: creative.imageUrl,
               alt: creative.headline || `Creativo ${index + 1}`,
@@ -330,6 +435,71 @@ export function AdsGeneratorWorkspace({ initialInput, sourceHint }: AdsGenerator
         </div>
       ) : null}
 
+      {publishedAds.length > 0 ? (
+        <section className="space-y-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-[1.4rem] font-semibold tracking-[-0.04em] text-slate-950">
+                Anuncios Listos
+              </h2>
+              <p className="text-sm text-slate-600">
+                {publishedAds.length} anuncio{publishedAds.length === 1 ? "" : "s"} generado{publishedAds.length === 1 ? "" : "s"} para Facebook Ads.
+              </p>
+            </div>
+
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-2xl"
+              onClick={() => setPublishedAds([])}
+            >
+              Volver
+            </Button>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
+            {publishedAds.map((ad, index) => (
+              <article
+                key={ad.id}
+                className="overflow-hidden rounded-[24px] border border-[var(--line)] bg-white shadow-[0_18px_38px_-30px_rgba(15,23,42,0.16)]"
+              >
+                <div className="relative aspect-square bg-slate-100">
+                  <Image
+                    src={ad.imageUrl}
+                    alt={`Anuncio ${index + 1}`}
+                    fill
+                    className="object-contain"
+                    unoptimized
+                  />
+                </div>
+
+                <div className="space-y-3 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-semibold text-slate-950">Anuncio {index + 1}</p>
+                    <button
+                      type="button"
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[var(--line)] bg-slate-50 text-slate-600 transition hover:bg-slate-100"
+                      onClick={() => void navigator.clipboard.writeText(ad.result.meta.readyToCopyText)}
+                      aria-label="Copiar anuncio"
+                    >
+                      <Copy className="h-4 w-4" />
+                    </button>
+                  </div>
+
+                  <div className="space-y-2.5">
+                    <InfoBlock title="Copy" value={ad.result.meta.primaryText} compact />
+                    <InfoBlock title="Headline" value={ad.result.meta.headline} compact />
+                    <InfoBlock title="Descripcion" value={ad.result.meta.description} compact />
+                    <InfoBlock title="CTA recomendado" value={ad.result.meta.callToAction} compact />
+                    <InfoBlock title="Segmentacion sugerida" value={ad.result.meta.basicSegmentation.join(" ")} compact />
+                    <InfoBlock title="Valor recomendado" value={ad.result.meta.budgetRecommendation} compact />
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : (
       <div className="space-y-0">
         {result ? (
           <AdsGeneratorResultView pending={pending} result={result} />
@@ -559,57 +729,12 @@ export function AdsGeneratorWorkspace({ initialInput, sourceHint }: AdsGenerator
           </div>
         </div>
       </div>
+      )}
 
       {lastInput ? (
         <div className="rounded-[24px] border border-[var(--info-line)] bg-[var(--info-bg)] px-4 py-3 text-sm text-[var(--info-fg)]">
           Ultimo producto procesado: <span className="font-semibold">{lastInput.productName}</span>
         </div>
-      ) : null}
-
-      {publishedAds.length > 0 ? (
-        <section ref={publishedSectionRef} className="space-y-4">
-          <div className="grid gap-4 xl:grid-cols-2">
-            {publishedAds.map((ad, index) => (
-              <article
-                key={ad.id}
-                className="overflow-hidden rounded-[28px] border border-[var(--line)] bg-white shadow-[0_22px_46px_-34px_rgba(15,23,42,0.18)]"
-              >
-                <div className="relative aspect-square bg-slate-100">
-                  <Image
-                    src={ad.imageUrl}
-                    alt={`Anuncio ${index + 1}`}
-                    fill
-                    className="object-contain"
-                    unoptimized
-                  />
-                </div>
-
-                <div className="space-y-4 p-5">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-sm font-semibold text-slate-950">Anuncio {index + 1}</p>
-                    <button
-                      type="button"
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[var(--line)] bg-slate-50 text-slate-600 transition hover:bg-slate-100"
-                      onClick={() => void navigator.clipboard.writeText(ad.result.meta.readyToCopyText)}
-                      aria-label="Copiar anuncio"
-                    >
-                      <Copy className="h-4 w-4" />
-                    </button>
-                  </div>
-
-                  <div className="space-y-3">
-                    <InfoBlock title="Copy" value={ad.result.meta.primaryText} />
-                    <InfoBlock title="Headline" value={ad.result.meta.headline} />
-                    <InfoBlock title="Descripcion" value={ad.result.meta.description} />
-                    <InfoBlock title="CTA recomendado" value={ad.result.meta.callToAction} />
-                    <InfoBlock title="Segmentacion sugerida" value={ad.result.meta.basicSegmentation.join(" ")} />
-                    <InfoBlock title="Valor recomendado" value={ad.result.meta.budgetRecommendation} />
-                  </div>
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
       ) : null}
 
       {modalOpen && canPortal
@@ -631,11 +756,11 @@ export function AdsGeneratorWorkspace({ initialInput, sourceHint }: AdsGenerator
   );
 }
 
-function InfoBlock({ title, value }: { title: string; value: string }) {
+function InfoBlock({ title, value, compact = false }: { title: string; value: string; compact?: boolean }) {
   return (
-    <div className="rounded-[20px] border border-[var(--line)] bg-slate-50 px-4 py-3">
+    <div className={`rounded-[18px] border border-[var(--line)] bg-slate-50 ${compact ? "px-3 py-2.5" : "px-4 py-3"}`}>
       <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">{title}</p>
-      <p className="mt-2 text-sm leading-6 text-slate-800">{value}</p>
+      <p className={`mt-2 whitespace-pre-line text-slate-800 ${compact ? "text-[13px] leading-5" : "text-sm leading-6"}`}>{value}</p>
     </div>
   );
 }

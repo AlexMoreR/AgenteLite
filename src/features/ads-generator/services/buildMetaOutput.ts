@@ -72,7 +72,7 @@ function buildRecommendedFormat(analysis: ProductAnalysis) {
 
 function buildCreativeIdea(analysis: ProductAnalysis, strategy: AdStrategy) {
   const proof = analysis.confidenceSignals[0] ?? "Senal visual clara del producto";
-  return `Visual centrado en ${analysis.productName}, resaltando ${analysis.primaryBenefit.toLowerCase()}, con apoyo de ${proof.toLowerCase()} y un cierre de ${strategy.callToAction.toLowerCase()}.`;
+  return `Muestra el producto de frente, deja claro el beneficio principal, apoya el mensaje con ${proof.toLowerCase()} y cierra con ${strategy.callToAction.toLowerCase()}.`;
 }
 
 function buildBudgetRecommendation(objective: ProductAnalysis["recommendedObjective"]) {
@@ -127,7 +127,7 @@ export async function buildMetaOutput(
 
   const meta: MetaAdOutput = {
     campaignObjective: mapCampaignObjective(analysis.recommendedObjective),
-    strategicSummary: `${analysis.productName} se puede comunicar como una propuesta centrada en ${analysis.primaryBenefit.toLowerCase()} para una audiencia que busca una solucion clara y accionable.`,
+    strategicSummary: `La mejor forma de vender esto es abrir con una frase que detenga el scroll, tocar un problema o deseo real del cliente y cerrar con un beneficio claro mas un CTA directo.`,
     recommendedSalesAngle: strategy.angle,
     campaignStructure: buildCampaignStructure(analysis.recommendedObjective),
     basicSegmentation: buildBasicSegmentation(analysis, strategy),
@@ -181,7 +181,7 @@ export async function buildMetaOutput(
   ].join("\n");
 
   return {
-    summary: `Base mock generada para ${analysis.productName} con estrategia, copy y estructura inicial lista para adaptar en Meta Ads Manager.`,
+    summary: `Salida inicial generada para ${analysis.productName} con enfoque de venta, copy y estructura lista para revisar antes de publicar en Meta Ads Manager.`,
     strategy,
     meta,
   };
