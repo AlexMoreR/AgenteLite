@@ -12,6 +12,11 @@ import {
   type FacebookAdCreative,
 } from "@/lib/facebook-ad-creatives";
 import {
+  improveMarketingFieldWithAI,
+  type MarketingImprovementField,
+} from "@/lib/marketing-copy-ai";
+import { prisma } from "@/lib/prisma";
+import {
   clearWorkspaceMarketingLogoUrl,
   getWorkspaceMarketingLogoUrl,
   setWorkspaceMarketingLogoUrl,
@@ -25,6 +30,31 @@ export type FacebookAdsGeneratorState = {
   creatives: FacebookAdCreative[];
   sourceImageUrl?: string;
   creativeMode?: "real" | "creative" | "inspired";
+};
+
+export type MarketingLinkAnalysisResult = {
+  ok: boolean;
+  summary: string;
+  found: string[];
+  missing: Array<{
+    id: "idealCustomer" | "valueProposition" | "painPoints" | "primaryCallToAction";
+    title: string;
+    prompt: string;
+  }>;
+  generated: {
+    idealCustomer: string;
+    valueProposition: string;
+    painPoints: string;
+    primaryCallToAction: string;
+  };
+  sources: string[];
+  error?: string;
+};
+
+export type ImproveMarketingBusinessDescriptionResult = {
+  ok: boolean;
+  value: string;
+  error?: string;
 };
 
 const generateFacebookAdsSchema = z.object({
@@ -49,6 +79,7 @@ const deleteCreativeImagesSchema = z.object({
 });
 
 const marketingContextSchema = z.object({
+  businessName: z.string().trim().min(2, "Escribe el nombre del negocio").max(80).optional().or(z.literal("")),
   valueProposition: z.string().trim().min(12, "Cuentanos que hace especial a tu negocio").max(240),
   idealCustomer: z.string().trim().min(12, "Describe mejor a que tipo de cliente le vendes").max(240),
   painPoints: z.string().trim().min(12, "Cuentanos que problema le resuelves a tu cliente").max(320),
@@ -58,6 +89,18 @@ const marketingContextSchema = z.object({
   instagramUrl: z.string().trim().url("Instagram no es valido").or(z.literal("")),
   facebookUrl: z.string().trim().url("Facebook no es valido").or(z.literal("")),
   tiktokUrl: z.string().trim().url("TikTok no es valido").or(z.literal("")),
+});
+
+const improveMarketingBusinessDescriptionSchema = z.object({
+  field: z.enum(["whatSells", "idealCustomer", "painPoints"]),
+  businessName: z.string().trim().max(80).optional(),
+  value: z
+    .string()
+    .trim()
+    .min(4, "Escribe un poco mas para que la IA pueda ayudarte.")
+    .max(500, "El texto es demasiado largo para mejorarlo en este paso."),
+  whatSells: z.string().trim().max(500).optional(),
+  idealCustomer: z.string().trim().max(500).optional(),
 });
 
 async function requireMarketingWorkspace() {
@@ -203,6 +246,28 @@ function resolveMarketingError(error: unknown) {
   return "No se pudieron generar tus anuncios en este momento.";
 }
 
+function resolveImproveBusinessDescriptionError(error: unknown) {
+  const message = error instanceof Error ? error.message : "";
+
+  if (message === "NO_AI_PROVIDER") {
+    return "La mejora con IA no esta disponible todavia. Configura OPENAI_API_KEY o GEMINI_API_KEY.";
+  }
+
+  if (message === "EMPTY_AI_RESPONSE") {
+    return "La IA no devolvio una mejora valida. Intenta escribir un poco mas de contexto.";
+  }
+
+  if (message.includes("OpenAI 401") || message.includes("Gemini 401")) {
+    return "La integracion de IA no esta autorizada.";
+  }
+
+  if (message.includes("OpenAI 429") || message.includes("Gemini 429")) {
+    return "La IA esta recibiendo demasiadas solicitudes. Intenta de nuevo en un momento.";
+  }
+
+  return "No pudimos mejorar el texto en este momento.";
+}
+
 function resolveCreativeDirectoryFromUrl(imageUrl: string) {
   const normalized = imageUrl.trim();
   const match = normalized.match(/^\/uploads\/ad-creatives\/([^/]+)\/[^/]+$/);
@@ -223,6 +288,169 @@ function resolveCreativeDirectoryFromUrl(imageUrl: string) {
   }
 
   return directory;
+}
+
+function normalizePublicUrl(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+}
+
+function isBlockedHostname(hostname: string) {
+  const lower = hostname.toLowerCase();
+
+  if (
+    lower === "localhost" ||
+    lower.endsWith(".localhost") ||
+    lower === "0.0.0.0" ||
+    lower === "127.0.0.1" ||
+    lower === "::1"
+  ) {
+    return true;
+  }
+
+  if (/^10\./.test(lower) || /^192\.168\./.test(lower) || /^127\./.test(lower)) {
+    return true;
+  }
+
+  const private172 = lower.match(/^172\.(\d+)\./);
+  if (private172) {
+    const secondOctet = Number(private172[1]);
+    if (secondOctet >= 16 && secondOctet <= 31) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function extractMetaContent(html: string, name: string) {
+  const pattern = new RegExp(
+    `<meta[^>]+(?:name|property)=["']${name}["'][^>]+content=["']([^"']+)["'][^>]*>`,
+    "i",
+  );
+  return html.match(pattern)?.[1]?.trim() || "";
+}
+
+function collapseWhitespace(value: string) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function stripHtml(html: string) {
+  return collapseWhitespace(
+    html
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
+      .replace(/<svg[\s\S]*?<\/svg>/gi, " ")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&nbsp;/gi, " ")
+      .replace(/&amp;/gi, "&"),
+  );
+}
+
+async function fetchPublicPageSummary(rawUrl: string) {
+  if (!rawUrl.trim()) {
+    return null;
+  }
+
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(normalizePublicUrl(rawUrl));
+  } catch {
+    throw new Error("URL invalida");
+  }
+
+  if (!["http:", "https:"].includes(parsedUrl.protocol) || isBlockedHostname(parsedUrl.hostname)) {
+    throw new Error("URL no permitida");
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+
+  try {
+    const response = await fetch(parsedUrl.toString(), {
+      method: "GET",
+      signal: controller.signal,
+      headers: {
+        "user-agent": "AizenliteMarketingBot/1.0",
+        accept: "text/html,application/xhtml+xml",
+      },
+      redirect: "follow",
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      throw new Error(`No se pudo leer ${parsedUrl.hostname}`);
+    }
+
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.includes("text/html")) {
+      throw new Error(`Contenido no compatible en ${parsedUrl.hostname}`);
+    }
+
+    const html = await response.text();
+    const title = collapseWhitespace(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || "");
+    const description =
+      extractMetaContent(html, "description") || extractMetaContent(html, "og:description");
+    const h1 = collapseWhitespace(html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1] || "");
+    const text = stripHtml(html).slice(0, 2400);
+
+    return {
+      url: parsedUrl.toString(),
+      hostname: parsedUrl.hostname.replace(/^www\./i, ""),
+      title,
+      description,
+      h1,
+      text,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export async function improveMarketingBusinessDescriptionAction(input: {
+  field: MarketingImprovementField;
+  businessName?: string;
+  value: string;
+  whatSells?: string;
+  idealCustomer?: string;
+}): Promise<ImproveMarketingBusinessDescriptionResult> {
+  try {
+    await requireMarketingWorkspace();
+
+    const parsed = improveMarketingBusinessDescriptionSchema.safeParse(input);
+    if (!parsed.success) {
+      return {
+        ok: false,
+        value: "",
+        error: parsed.error.issues[0]?.message || "No pudimos mejorar el texto.",
+      };
+    }
+
+    const value = await improveMarketingFieldWithAI({
+      field: parsed.data.field,
+      businessName: parsed.data.businessName,
+      value: parsed.data.value,
+      whatSells: parsed.data.whatSells,
+      idealCustomer: parsed.data.idealCustomer,
+    });
+
+    return {
+      ok: true,
+      value,
+    };
+  } catch (error) {
+    console.error("[MARKETING_IMPROVE_BUSINESS_DESCRIPTION]", error);
+    return {
+      ok: false,
+      value: "",
+      error: resolveImproveBusinessDescriptionError(error),
+    };
+  }
 }
 
 export async function generateFacebookAdsFromImageAction(
@@ -403,10 +631,181 @@ export async function deleteMarketingBusinessLogoAction(): Promise<void> {
   }
 }
 
+export async function analyzeMarketingBusinessLinksAction(input: {
+  businessName: string;
+  whatSells: string;
+  websiteUrl?: string;
+  instagramUrl?: string;
+  facebookUrl?: string;
+  existingIdealCustomer?: string;
+  existingValueProposition?: string;
+  existingPainPoints?: string;
+  existingPrimaryCallToAction?: string;
+  existingAudiences?: string[];
+}): Promise<MarketingLinkAnalysisResult> {
+  try {
+    await requireMarketingWorkspace();
+
+    const businessName = input.businessName.trim();
+    const whatSells = input.whatSells.trim();
+    const websiteUrl = input.websiteUrl?.trim() || "";
+    const instagramUrl = input.instagramUrl?.trim() || "";
+    const facebookUrl = input.facebookUrl?.trim() || "";
+
+    if (businessName.length < 2) {
+      return {
+        ok: false,
+        summary: "",
+        found: [],
+        missing: [],
+        generated: {
+          idealCustomer: "",
+          valueProposition: "",
+          painPoints: "",
+          primaryCallToAction: "",
+        },
+        sources: [],
+        error: "Escribe el nombre del negocio.",
+      };
+    }
+
+    if (whatSells.length < 6) {
+      return {
+        ok: false,
+        summary: "",
+        found: [],
+        missing: [],
+        generated: {
+          idealCustomer: "",
+          valueProposition: "",
+          painPoints: "",
+          primaryCallToAction: "",
+        },
+        sources: [],
+        error: "Cuentanos un poco mejor que vendes.",
+      };
+    }
+
+    const fetchedPages = (
+      await Promise.allSettled([
+        fetchPublicPageSummary(websiteUrl),
+        fetchPublicPageSummary(instagramUrl),
+        fetchPublicPageSummary(facebookUrl),
+      ])
+    )
+      .filter(
+        (item): item is PromiseFulfilledResult<Awaited<ReturnType<typeof fetchPublicPageSummary>>> =>
+          item.status === "fulfilled",
+      )
+      .map((item) => item.value)
+      .filter((item): item is NonNullable<typeof item> => Boolean(item));
+
+    const extractedTexts = fetchedPages.flatMap((page) =>
+      [page.title, page.description, page.h1, page.text]
+        .map((value) => collapseWhitespace(value))
+        .filter(Boolean),
+    );
+    const combinedText = collapseWhitespace(extractedTexts.join(" ")).slice(0, 2800);
+
+    const found = [`Detectamos que ${businessName} vende ${whatSells.toLowerCase()}.`];
+    if (fetchedPages.length > 0) {
+      fetchedPages.forEach((page) => {
+        if (page.title) {
+          found.push(`Leimos ${page.hostname} y encontramos: ${page.title}.`);
+        } else {
+          found.push(`Leimos informacion publica de ${page.hostname}.`);
+        }
+      });
+    } else {
+      found.push("No pudimos leer una pagina publica, asi que partimos de lo que escribiste.");
+    }
+
+    const audienceSeed =
+      input.existingIdealCustomer?.trim() ||
+      (input.existingAudiences?.filter(Boolean).join(", ") ?? "") ||
+      "";
+    const valueSeed = input.existingValueProposition?.trim() || "";
+    const painSeed = input.existingPainPoints?.trim() || "";
+    const ctaSeed = input.existingPrimaryCallToAction?.trim() || "";
+
+    const generated = {
+      idealCustomer:
+        audienceSeed ||
+        `Personas o negocios que necesitan ${whatSells.toLowerCase()} y buscan una opcion confiable y facil de comprar.`,
+      valueProposition:
+        valueSeed ||
+        (combinedText
+          ? `${businessName} proyecta una propuesta centrada en ${whatSells.toLowerCase()} con enfoque en confianza, claridad y presencia profesional.`
+          : `${businessName} destaca por ofrecer ${whatSells.toLowerCase()} con una propuesta clara y facil de recomendar.`),
+      painPoints:
+        painSeed ||
+        `El cliente necesita resolver una necesidad relacionada con ${whatSells.toLowerCase()} sin perder tiempo ni tomar una mala decision.`,
+      primaryCallToAction:
+        ctaSeed ||
+        (websiteUrl
+          ? "Visita nuestra pagina o escribenos para recibir asesoria y conocer la mejor opcion."
+          : "Escribenos para recibir asesoria y conocer la mejor opcion para ti."),
+    };
+
+    const missing: MarketingLinkAnalysisResult["missing"] = [];
+    if (!audienceSeed) {
+      missing.push({
+        id: "idealCustomer",
+        title: "A quien le vendes",
+        prompt: "No encontramos suficiente claridad sobre el cliente ideal. Cuentanos quien compra esto.",
+      });
+    }
+    if (!painSeed) {
+      missing.push({
+        id: "painPoints",
+        title: "Que problema resuelves",
+        prompt: "Esto ayuda a construir anuncios conectados con una necesidad real del cliente.",
+      });
+    }
+    if (!ctaSeed) {
+      missing.push({
+        id: "primaryCallToAction",
+        title: "Que quieres que haga el cliente",
+        prompt: "Define la accion principal para orientar mejor los mensajes y anuncios.",
+      });
+    }
+
+    const summary = fetchedPages.length
+      ? `${businessName} ya tiene una base inicial para marketing. Entendimos que vende ${whatSells.toLowerCase()} y encontramos informacion publica que ayuda a construir una estrategia mas clara.`
+      : `${businessName} ya tiene una base inicial para marketing. Entendimos que vende ${whatSells.toLowerCase()}, pero aun necesitamos mas contexto para que el agente arme una estrategia precisa.`;
+
+    return {
+      ok: true,
+      summary,
+      found,
+      missing,
+      generated,
+      sources: fetchedPages.map((page) => page.url),
+    };
+  } catch (error) {
+    console.error("[MARKETING_LINK_ANALYSIS]", error);
+    return {
+      ok: false,
+      summary: "",
+      found: [],
+      missing: [],
+      generated: {
+        idealCustomer: "",
+        valueProposition: "",
+        painPoints: "",
+        primaryCallToAction: "",
+      },
+      sources: [],
+      error: "No pudimos revisar los links del negocio en este momento.",
+    };
+  }
+}
+
 export async function updateMarketingBusinessContextAction(formData: FormData): Promise<void> {
   try {
     const membership = await requireMarketingWorkspace();
     const parsed = marketingContextSchema.safeParse({
+      businessName: formData.get("businessName") || "",
       valueProposition: formData.get("valueProposition"),
       idealCustomer: formData.get("idealCustomer"),
       painPoints: formData.get("painPoints"),
@@ -425,6 +824,7 @@ export async function updateMarketingBusinessContextAction(formData: FormData): 
 
     const workspaceId = membership.workspace.id;
     const entries = [
+      ["marketingBusinessNameOverride", parsed.data.businessName || ""],
       ["marketingValueProposition", parsed.data.valueProposition],
       ["marketingIdealCustomer", parsed.data.idealCustomer],
       ["marketingPainPoints", parsed.data.painPoints],

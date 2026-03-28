@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { ArrowRight, Building2, Globe, MapPin, Megaphone, Users2 } from "lucide-react";
 import { auth } from "@/auth";
+import { MarketingBusinessIntakeModal } from "@/components/marketing/marketing-business-intake-modal";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
@@ -65,6 +66,8 @@ export default async function MarketingBusinessContextPage({ searchParams }: Pag
             </div>
 
             <div className="flex flex-wrap items-center gap-3 rounded-[20px] border border-[var(--line)] bg-white/85 p-3 shadow-[0_16px_32px_-28px_rgba(15,23,42,0.22)]">
+              <MarketingBusinessIntakeModal context={businessContext} />
+
               <Button asChild variant="outline" size="lg" className="rounded-2xl">
                 <Link href="/cliente/marketing-ia/creativos">
                   Ir a Creativos
@@ -191,7 +194,7 @@ export default async function MarketingBusinessContextPage({ searchParams }: Pag
               <div className="space-y-2">
                 <p className="text-sm font-semibold text-slate-950">Asistente guiado</p>
                 <p className="text-sm leading-6 text-slate-600">
-                  Esta base resume lo que la IA ya entiende de tu negocio para preparar mejor creativos y anuncios.
+                  Usa el modal guiado para contarle a la IA lo basico del negocio y dejar lista la base para marketing.
                 </p>
               </div>
 

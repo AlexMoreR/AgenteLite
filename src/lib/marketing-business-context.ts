@@ -39,6 +39,7 @@ const MARKETING_CONTEXT_SETTING_NAMES = [
   "businessType",
   "country",
   "city",
+  "marketingBusinessNameOverride",
   "marketingValueProposition",
   "marketingIdealCustomer",
   "marketingPainPoints",
@@ -153,13 +154,18 @@ export const getMarketingBusinessContextForUser = cache(
     const settingsMap = new Map(settings.map((item) => [item.key, item.value]));
     const training = asTrainingConfig(firstAgent?.trainingConfig);
 
+    const mainOffer =
+      settingsMap.get(getMarketingContextSettingKey(workspaceId, "marketingMainOffer")) ?? null;
+    const businessNameOverride =
+      settingsMap.get(getMarketingContextSettingKey(workspaceId, "marketingBusinessNameOverride")) ?? null;
+
     return {
       workspaceId,
-      businessName: membership.workspace.name,
+      businessName: businessNameOverride?.trim() || membership.workspace.name,
       businessType: settingsMap.get(getMarketingContextSettingKey(workspaceId, "businessType")) ?? null,
       country: settingsMap.get(getMarketingContextSettingKey(workspaceId, "country")) ?? null,
       city: settingsMap.get(getMarketingContextSettingKey(workspaceId, "city")) ?? null,
-      businessDescription: firstAgent?.description?.trim() || null,
+      businessDescription: firstAgent?.description?.trim() || mainOffer,
       targetAudiences: training.targetAudiences ?? [],
       salesTone: training.salesTone ?? null,
       logoUrl,
@@ -169,8 +175,7 @@ export const getMarketingBusinessContextForUser = cache(
         settingsMap.get(getMarketingContextSettingKey(workspaceId, "marketingIdealCustomer")) ?? null,
       painPoints:
         settingsMap.get(getMarketingContextSettingKey(workspaceId, "marketingPainPoints")) ?? null,
-      mainOffer:
-        settingsMap.get(getMarketingContextSettingKey(workspaceId, "marketingMainOffer")) ?? null,
+      mainOffer,
       primaryCallToAction:
         settingsMap.get(getMarketingContextSettingKey(workspaceId, "marketingPrimaryCta")) ?? null,
       websiteUrl:
