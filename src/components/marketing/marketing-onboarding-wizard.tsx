@@ -54,7 +54,7 @@ export function MarketingOnboardingWizard({
   const activeStep = steps[step];
 
   return (
-    <div className="w-full max-w-[1120px] overflow-hidden rounded-none border border-[rgba(148,163,184,0.18)] bg-[linear-gradient(180deg,#fdfdfd_0%,#ffffff_100%)] md:rounded-[32px] md:shadow-[0_42px_110px_-52px_rgba(15,23,42,0.5)]">
+    <div className="w-full max-w-[1120px] overflow-hidden rounded-none border-y border-[rgba(148,163,184,0.18)] bg-[linear-gradient(180deg,#fdfdfd_0%,#ffffff_100%)] md:rounded-[32px] md:border md:shadow-[0_42px_110px_-52px_rgba(15,23,42,0.5)]">
       <div className="border-b border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfbfd_100%)] px-5 py-5 md:px-8 md:py-4">
         <div className="space-y-3 text-center">
           <div className="flex justify-center gap-2">
@@ -87,8 +87,8 @@ export function MarketingOnboardingWizard({
       >
         <input type="hidden" name="returnTo" value={returnTo} />
 
-        <div className="bg-[#f1f3f5] px-5 py-6 md:px-8 md:py-4">
-          <div className="mx-auto w-full max-w-[760px]">
+        <div className="bg-[#f1f3f5] px-4 py-6 md:px-8 md:py-4">
+          <div className="mx-auto w-full md:max-w-[760px]">
             <div className={step === 0 ? "block" : "hidden"}>
               <section className="space-y-4 md:space-y-5">
                 <div className="grid gap-4 md:grid-cols-2">
@@ -191,7 +191,7 @@ export function MarketingOnboardingWizard({
           </div>
         </div>
 
-        <div className="flex items-center justify-between gap-3 border-t border-[rgba(148,163,184,0.14)] bg-[rgba(255,255,255,0.92)] px-5 py-4 backdrop-blur md:px-8">
+        <div className="flex items-center justify-between gap-3 border-t border-[rgba(148,163,184,0.14)] bg-[rgba(255,255,255,0.92)] px-4 py-4 backdrop-blur md:px-8">
           <Button
             type="button"
             variant="outline"

@@ -26,7 +26,7 @@ export default async function ClienteOnboardingPage({ searchParams }: PageProps)
     : "/cliente";
 
   return (
-    <section className="app-page grid min-h-[calc(100vh-9rem)] place-items-center px-4 py-10">
+    <section className="app-page grid min-h-[calc(100vh-9rem)] place-items-stretch px-0 py-6 md:place-items-center md:px-4 md:py-10">
       <QueryFeedbackToast
         errorMessage={errorMessage}
         okMessage=""
