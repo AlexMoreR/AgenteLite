@@ -35,18 +35,37 @@ export type FacebookAdsGeneratorState = {
 export type MarketingLinkAnalysisResult = {
   ok: boolean;
   summary: string;
-  found: string[];
+  clientInputs: {
+    businessName: string;
+    offer: string;
+    idealCustomer: string;
+    painPoints: string;
+    primaryCallToAction: string;
+    sharedLinks: string[];
+  };
+  publicFindings: {
+    websiteFound: string | null;
+    socialLinksFound: string[];
+    publicDescription: string;
+    visibleProductsOrServices: string[];
+    detectedMessages: string[];
+  };
+  strategicBase: {
+    idealCustomer: string;
+    mainProblem: string;
+    mainDesire: string;
+    preliminaryValueProposition: string;
+    primaryCallToAction: string;
+    suggestedTone: string;
+    probableObjections: string[];
+    visibleAdvantages: string[];
+    recommendedChannels: string[];
+  };
   missing: Array<{
     id: "idealCustomer" | "valueProposition" | "painPoints" | "primaryCallToAction";
     title: string;
     prompt: string;
   }>;
-  generated: {
-    idealCustomer: string;
-    valueProposition: string;
-    painPoints: string;
-    primaryCallToAction: string;
-  };
   sources: string[];
   error?: string;
 };
@@ -80,10 +99,10 @@ const deleteCreativeImagesSchema = z.object({
 
 const marketingContextSchema = z.object({
   businessName: z.string().trim().min(2, "Escribe el nombre del negocio").max(80).optional().or(z.literal("")),
-  valueProposition: z.string().trim().min(12, "Cuentanos que hace especial a tu negocio").max(240),
-  idealCustomer: z.string().trim().min(12, "Describe mejor a que tipo de cliente le vendes").max(240),
-  painPoints: z.string().trim().min(12, "Cuentanos que problema le resuelves a tu cliente").max(320),
-  mainOffer: z.string().trim().min(6, "Cuentanos que vendes o que quieres impulsar primero").max(180),
+  valueProposition: z.string().trim().min(12, "Cuentanos que hace especial a tu negocio").max(500),
+  idealCustomer: z.string().trim().min(12, "Describe mejor a que tipo de cliente le vendes").max(500),
+  painPoints: z.string().trim().min(12, "Cuentanos que problema le resuelves a tu cliente").max(500),
+  mainOffer: z.string().trim().min(6, "Cuentanos que vendes o que quieres impulsar primero").max(500),
   primaryCallToAction: z.string().trim().min(3, "Dinos cual es la accion principal que quieres lograr").max(80),
   websiteUrl: z.string().trim().url("La pagina web no es valida").or(z.literal("")),
   instagramUrl: z.string().trim().url("Instagram no es valido").or(z.literal("")),
@@ -412,6 +431,123 @@ async function fetchPublicPageSummary(rawUrl: string) {
   }
 }
 
+function uniqueStrings(values: Array<string | null | undefined>) {
+  return Array.from(
+    new Set(
+      values
+        .map((value) => collapseWhitespace(value ?? ""))
+        .filter(Boolean),
+    ),
+  );
+}
+
+function buildVisibleProductsOrServices(input: {
+  whatSells: string;
+  fetchedPages: Array<NonNullable<Awaited<ReturnType<typeof fetchPublicPageSummary>>>>;
+}) {
+  const fromClient = input.whatSells.trim();
+  const fromPublic = input.fetchedPages.flatMap((page) => [page.title, page.h1, page.description]);
+  return uniqueStrings([fromClient, ...fromPublic]).slice(0, 4);
+}
+
+function buildDetectedMessages(input: {
+  fetchedPages: Array<NonNullable<Awaited<ReturnType<typeof fetchPublicPageSummary>>>>;
+  whatSells: string;
+}) {
+  const messages = input.fetchedPages.flatMap((page) => [page.description, page.h1, page.title]);
+
+  if (messages.length === 0) {
+    return uniqueStrings([
+      `La marca comunica una oferta centrada en ${input.whatSells.toLowerCase()}.`,
+    ]);
+  }
+
+  return uniqueStrings(messages).slice(0, 4);
+}
+
+function inferMainDesire(whatSells: string, idealCustomer: string) {
+  const base = `${whatSells} ${idealCustomer}`.toLowerCase();
+
+  if (/mobiliario|mueble|equipamiento|equipo/.test(base)) {
+    return "Montar o mejorar un espacio funcional, atractivo y listo para atender mejor.";
+  }
+
+  if (/barber|peluquer|salon|spa|belleza/.test(base)) {
+    return "Proyectar una imagen más profesional y dar una mejor experiencia al cliente final.";
+  }
+
+  if (/ropa|moda|calzado|accesorio/.test(base)) {
+    return "Encontrar una opción confiable que combine imagen, confianza y facilidad de compra.";
+  }
+
+  return "Tomar una buena decisión de compra con más confianza, claridad y menos fricción.";
+}
+
+function inferSuggestedTone(whatSells: string, fetchedPages: Array<NonNullable<Awaited<ReturnType<typeof fetchPublicPageSummary>>>>) {
+  const publicText = collapseWhitespace(
+    fetchedPages.flatMap((page) => [page.title, page.description, page.h1]).join(" "),
+  ).toLowerCase();
+  const combined = `${whatSells} ${publicText}`;
+
+  if (/premium|exclusiv|elegan|lujo/.test(combined)) {
+    return "Profesional, aspiracional y claro.";
+  }
+
+  if (/precio|oferta|promoc|econom/.test(combined)) {
+    return "Directo, útil y orientado a decisión.";
+  }
+
+  return "Profesional, cercano y enfocado en beneficios concretos.";
+}
+
+function inferProbableObjections(whatSells: string) {
+  const base = whatSells.toLowerCase();
+
+  if (/mobiliario|mueble|equipamiento|equipo/.test(base)) {
+    return [
+      "Duda sobre si vale la inversion.",
+      "Temor a comprar algo que no se adapte bien al espacio.",
+      "Incertidumbre sobre calidad, comodidad o duracion.",
+    ];
+  }
+
+  if (/servicio|asesoria|consultor|agencia/.test(base)) {
+    return [
+      "No tener claro si realmente obtendra resultados.",
+      "Percibir que el servicio puede ser costoso.",
+      "Temor a perder tiempo en un proceso poco claro.",
+    ];
+  }
+
+  return [
+    "Duda sobre si es la opcion correcta.",
+    "Incertidumbre frente al precio o al valor recibido.",
+    "Necesidad de mas confianza antes de avanzar.",
+  ];
+}
+
+function inferRecommendedChannels(input: {
+  websiteUrl: string;
+  instagramUrl: string;
+  facebookUrl: string;
+}) {
+  const channels = ["WhatsApp"];
+
+  if (input.instagramUrl) {
+    channels.push("Instagram");
+  }
+
+  if (input.facebookUrl) {
+    channels.push("Facebook");
+  }
+
+  if (input.websiteUrl) {
+    channels.push("Sitio web");
+  }
+
+  return channels;
+}
+
 export async function improveMarketingBusinessDescriptionAction(input: {
   field: MarketingImprovementField;
   businessName?: string;
@@ -656,14 +792,33 @@ export async function analyzeMarketingBusinessLinksAction(input: {
       return {
         ok: false,
         summary: "",
-        found: [],
-        missing: [],
-        generated: {
+        clientInputs: {
+          businessName: "",
+          offer: "",
           idealCustomer: "",
-          valueProposition: "",
           painPoints: "",
           primaryCallToAction: "",
+          sharedLinks: [],
         },
+        publicFindings: {
+          websiteFound: null,
+          socialLinksFound: [],
+          publicDescription: "",
+          visibleProductsOrServices: [],
+          detectedMessages: [],
+        },
+        strategicBase: {
+          idealCustomer: "",
+          mainProblem: "",
+          mainDesire: "",
+          preliminaryValueProposition: "",
+          primaryCallToAction: "",
+          suggestedTone: "",
+          probableObjections: [],
+          visibleAdvantages: [],
+          recommendedChannels: [],
+        },
+        missing: [],
         sources: [],
         error: "Escribe el nombre del negocio.",
       };
@@ -673,14 +828,33 @@ export async function analyzeMarketingBusinessLinksAction(input: {
       return {
         ok: false,
         summary: "",
-        found: [],
-        missing: [],
-        generated: {
+        clientInputs: {
+          businessName: businessName || "",
+          offer: "",
           idealCustomer: "",
-          valueProposition: "",
           painPoints: "",
           primaryCallToAction: "",
+          sharedLinks: [],
         },
+        publicFindings: {
+          websiteFound: null,
+          socialLinksFound: [],
+          publicDescription: "",
+          visibleProductsOrServices: [],
+          detectedMessages: [],
+        },
+        strategicBase: {
+          idealCustomer: "",
+          mainProblem: "",
+          mainDesire: "",
+          preliminaryValueProposition: "",
+          primaryCallToAction: "",
+          suggestedTone: "",
+          probableObjections: [],
+          visibleAdvantages: [],
+          recommendedChannels: [],
+        },
+        missing: [],
         sources: [],
         error: "Cuentanos un poco mejor que vendes.",
       };
@@ -706,19 +880,6 @@ export async function analyzeMarketingBusinessLinksAction(input: {
         .filter(Boolean),
     );
     const combinedText = collapseWhitespace(extractedTexts.join(" ")).slice(0, 2800);
-
-    const found = [`Detectamos que ${businessName} vende ${whatSells.toLowerCase()}.`];
-    if (fetchedPages.length > 0) {
-      fetchedPages.forEach((page) => {
-        if (page.title) {
-          found.push(`Leimos ${page.hostname} y encontramos: ${page.title}.`);
-        } else {
-          found.push(`Leimos informacion publica de ${page.hostname}.`);
-        }
-      });
-    } else {
-      found.push("No pudimos leer una pagina publica, asi que partimos de lo que escribiste.");
-    }
 
     const audienceSeed =
       input.existingIdealCustomer?.trim() ||
@@ -747,6 +908,63 @@ export async function analyzeMarketingBusinessLinksAction(input: {
           : "Escribenos para recibir asesoria y conocer la mejor opcion para ti."),
     };
 
+    const sharedLinks = [websiteUrl, instagramUrl, facebookUrl].filter(Boolean);
+    const fetchedUrls = fetchedPages.map((page) => page.url);
+    const verifiedWebsite = websiteUrl && fetchedUrls.includes(websiteUrl) ? websiteUrl : null;
+    const verifiedSocialLinks = [instagramUrl, facebookUrl].filter((url) => fetchedUrls.includes(url));
+    const publicDescription =
+      uniqueStrings(fetchedPages.flatMap((page) => [page.description, page.h1, page.title])).join(" ") ||
+      "No encontramos una descripcion publica suficiente para resumir mejor el negocio.";
+    const visibleProductsOrServices = buildVisibleProductsOrServices({
+      whatSells,
+      fetchedPages,
+    });
+    const detectedMessages = buildDetectedMessages({
+      fetchedPages,
+      whatSells,
+    });
+    const visibleAdvantages = uniqueStrings(
+      fetchedPages.flatMap((page) => {
+        const snippets = [page.description, page.h1]
+          .map((value) => collapseWhitespace(value))
+          .filter(Boolean);
+        return snippets;
+      }),
+    ).slice(0, 3);
+    const strategicBase = {
+      idealCustomer: generated.idealCustomer,
+      mainProblem: generated.painPoints,
+      mainDesire: inferMainDesire(whatSells, generated.idealCustomer),
+      preliminaryValueProposition: generated.valueProposition,
+      primaryCallToAction: generated.primaryCallToAction,
+      suggestedTone: inferSuggestedTone(whatSells, fetchedPages),
+      probableObjections: inferProbableObjections(whatSells),
+      visibleAdvantages:
+        visibleAdvantages.length > 0
+          ? visibleAdvantages
+          : ["Todavia no hay suficientes ventajas visibles para afirmarlas con mas fuerza."],
+      recommendedChannels: inferRecommendedChannels({
+        websiteUrl,
+        instagramUrl,
+        facebookUrl,
+      }),
+    };
+    const clientInputs = {
+      businessName,
+      offer: whatSells,
+      idealCustomer: audienceSeed || "Aun no confirmado por el cliente.",
+      painPoints: painSeed || "Aun no confirmado por el cliente.",
+      primaryCallToAction: ctaSeed || "Aun no confirmado por el cliente.",
+      sharedLinks,
+    };
+    const publicFindings = {
+      websiteFound: verifiedWebsite,
+      socialLinksFound: verifiedSocialLinks,
+      publicDescription,
+      visibleProductsOrServices,
+      detectedMessages,
+    };
+
     const missing: MarketingLinkAnalysisResult["missing"] = [];
     if (!audienceSeed) {
       missing.push({
@@ -771,15 +989,16 @@ export async function analyzeMarketingBusinessLinksAction(input: {
     }
 
     const summary = fetchedPages.length
-      ? `${businessName} ya tiene una base inicial para marketing. Entendimos que vende ${whatSells.toLowerCase()} y encontramos informacion publica que ayuda a construir una estrategia mas clara.`
-      : `${businessName} ya tiene una base inicial para marketing. Entendimos que vende ${whatSells.toLowerCase()}, pero aun necesitamos mas contexto para que el agente arme una estrategia precisa.`;
+      ? `${businessName} ofrece ${whatSells.toLowerCase()}, orientado a ${generated.idealCustomer.toLowerCase()}. Con la informacion del cliente y las fuentes publicas revisadas ya es posible construir una base inicial para anuncios, copies y propuesta de valor.`
+      : `${businessName} ofrece ${whatSells.toLowerCase()} y apunta a ${generated.idealCustomer.toLowerCase()}. Aun falta contexto publico verificable, pero ya hay una base inicial util para orientar el trabajo de marketing.`;
 
     return {
       ok: true,
       summary,
-      found,
+      clientInputs,
+      publicFindings,
+      strategicBase,
       missing,
-      generated,
       sources: fetchedPages.map((page) => page.url),
     };
   } catch (error) {
@@ -787,14 +1006,33 @@ export async function analyzeMarketingBusinessLinksAction(input: {
     return {
       ok: false,
       summary: "",
-      found: [],
-      missing: [],
-      generated: {
+      clientInputs: {
+        businessName: "",
+        offer: "",
         idealCustomer: "",
-        valueProposition: "",
         painPoints: "",
         primaryCallToAction: "",
+        sharedLinks: [],
       },
+      publicFindings: {
+        websiteFound: null,
+        socialLinksFound: [],
+        publicDescription: "",
+        visibleProductsOrServices: [],
+        detectedMessages: [],
+      },
+      strategicBase: {
+        idealCustomer: "",
+        mainProblem: "",
+        mainDesire: "",
+        preliminaryValueProposition: "",
+        primaryCallToAction: "",
+        suggestedTone: "",
+        probableObjections: [],
+        visibleAdvantages: [],
+        recommendedChannels: [],
+      },
+      missing: [],
       sources: [],
       error: "No pudimos revisar los links del negocio en este momento.",
     };
@@ -853,10 +1091,56 @@ export async function updateMarketingBusinessContextAction(formData: FormData): 
       ),
     );
 
+    const firstAgent = await prisma.agent.findFirst({
+      where: {
+        workspaceId,
+      },
+      orderBy: {
+        createdAt: "asc",
+      },
+      select: {
+        id: true,
+        trainingConfig: true,
+        description: true,
+      },
+    });
+
+    if (firstAgent) {
+      const currentTraining =
+        firstAgent.trainingConfig && typeof firstAgent.trainingConfig === "object"
+          ? (firstAgent.trainingConfig as Record<string, unknown>)
+          : {};
+
+      const nextTargetAudiences = parsed.data.idealCustomer
+        .split(/,| y /i)
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .slice(0, 4);
+
+      await prisma.agent.update({
+        where: {
+          id: firstAgent.id,
+        },
+        data: {
+          description: parsed.data.mainOffer,
+          trainingConfig: {
+            ...currentTraining,
+            businessDescription: parsed.data.mainOffer,
+            targetAudiences: nextTargetAudiences,
+            salesTone:
+              typeof currentTraining.salesTone === "string" && currentTraining.salesTone.trim()
+                ? currentTraining.salesTone
+                : "amigable-profesional",
+          },
+        },
+      });
+    }
+
     revalidatePath("/cliente/marketing-ia");
     revalidatePath("/cliente/marketing-ia/contexto-negocio");
     revalidatePath("/cliente/marketing-ia/creativos");
     revalidatePath("/cliente/marketing-ia/ads-generator");
+    revalidatePath("/cliente/agentes");
     redirect("/cliente/marketing-ia/contexto-negocio?ok=Informacion+de+marketing+actualizada");
   } catch (error) {
     if (isNextRedirectError(error)) {

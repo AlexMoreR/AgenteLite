@@ -1,5 +1,6 @@
 ﻿"use client";
 
+import type { ReactNode } from "react";
 import { startTransition, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -388,7 +389,10 @@ export function MarketingBusinessIntakeModal({ context }: MarketingBusinessIntak
                   <input
                     type="hidden"
                     name="valueProposition"
-                    value={scanResult?.generated.valueProposition || `${businessName} ofrece ${whatSells}`.trim()}
+                    value={
+                      scanResult?.strategicBase.preliminaryValueProposition ||
+                      `${businessName} ofrece ${whatSells}`.trim()
+                    }
                   />
                   <input type="hidden" name="websiteUrl" value={normalizeUrl(websiteUrl)} />
                   <input type="hidden" name="instagramUrl" value={normalizeUrl(instagramUrl)} />
@@ -625,54 +629,75 @@ export function MarketingBusinessIntakeModal({ context }: MarketingBusinessIntak
                         </div>
 
                         <div className="grid gap-4 lg:grid-cols-2">
-                          <div className="rounded-[28px] border border-[rgba(148,163,184,0.14)] bg-white p-5 shadow-[0_18px_38px_-30px_rgba(15,23,42,0.14)]">
-                            <div className="mb-4 flex items-center gap-2">
-                              <Store className="h-4.5 w-4.5 text-[var(--primary)]" />
-                              <p className="text-sm font-semibold text-slate-950">Lo que entendió la IA</p>
-                            </div>
+                          <SummarySectionCard title="Información confirmada por el cliente" icon={<Store className="h-4.5 w-4.5 text-[var(--primary)]" />}>
+                            <SummaryBlock title="Nombre del negocio" value={scanResult.clientInputs.businessName} />
+                            <SummaryBlock title="Oferta" value={scanResult.clientInputs.offer} />
+                            <SummaryBlock title="Cliente objetivo" value={scanResult.clientInputs.idealCustomer} />
+                            <SummaryBlock title="Problema que resuelve" value={scanResult.clientInputs.painPoints} />
+                            <SummaryBlock title="CTA deseado" value={scanResult.clientInputs.primaryCallToAction} />
+                            <SummaryListBlock title="Enlaces compartidos" values={scanResult.clientInputs.sharedLinks} />
+                          </SummarySectionCard>
+
+                          <SummarySectionCard title="Hallazgos públicos" icon={<Globe className="h-4.5 w-4.5 text-[var(--primary)]" />}>
+                            <SummaryBlock
+                              title="Sitio web encontrado"
+                              value={scanResult.publicFindings.websiteFound || "No se confirmó un sitio web público."}
+                            />
+                            <SummaryListBlock title="Redes encontradas" values={scanResult.publicFindings.socialLinksFound} />
+                            <SummaryBlock
+                              title="Descripción pública observada"
+                              value={scanResult.publicFindings.publicDescription}
+                            />
+                            <SummaryListBlock
+                              title="Productos o servicios visibles"
+                              values={scanResult.publicFindings.visibleProductsOrServices}
+                            />
+                            <SummaryListBlock
+                              title="Mensajes o posicionamiento detectado"
+                              values={scanResult.publicFindings.detectedMessages}
+                            />
+                          </SummarySectionCard>
+                        </div>
+
+                        <SummarySectionCard title="Base estratégica para marketing" icon={<Target className="h-4.5 w-4.5 text-[var(--primary)]" />}>
+                          <div className="grid gap-3 lg:grid-cols-2">
+                            <SummaryBlock title="Cliente ideal" value={scanResult.strategicBase.idealCustomer} />
+                            <SummaryBlock title="Problema principal" value={scanResult.strategicBase.mainProblem} />
+                            <SummaryBlock title="Deseo principal" value={scanResult.strategicBase.mainDesire} />
+                            <SummaryBlock
+                              title="Propuesta de valor preliminar"
+                              value={scanResult.strategicBase.preliminaryValueProposition}
+                            />
+                            <SummaryBlock title="CTA principal" value={scanResult.strategicBase.primaryCallToAction} />
+                            <SummaryBlock title="Tono sugerido" value={scanResult.strategicBase.suggestedTone} />
+                            <SummaryListBlock
+                              title="Objeciones probables"
+                              values={scanResult.strategicBase.probableObjections}
+                            />
+                            <SummaryListBlock
+                              title="Ventajas visibles"
+                              values={scanResult.strategicBase.visibleAdvantages}
+                            />
+                            <SummaryListBlock
+                              title="Canales recomendados"
+                              values={scanResult.strategicBase.recommendedChannels}
+                            />
+                          </div>
+                        </SummarySectionCard>
+
+                        <SummarySectionCard title="Fuentes revisadas" icon={<Bot className="h-4.5 w-4.5 text-[var(--primary)]" />}>
+                          <SummaryListBlock title="URLs revisadas" values={scanResult.sources} />
+                        </SummarySectionCard>
+
+                        {scanResult.missing.length > 0 ? (
+                          <SummarySectionCard title="Información que todavía conviene afinar" icon={<Search className="h-4.5 w-4.5 text-[var(--primary)]" />}>
                             <div className="space-y-3">
-                              {scanResult.found.map((item) => (
-                                <div
-                                  key={item}
-                                  className="rounded-[18px] border border-[var(--line)] bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-700"
-                                >
-                                  {item}
-                                </div>
+                              {scanResult.missing.map((item) => (
+                                <SummaryBlock key={item.id} title={item.title} value={item.prompt} />
                               ))}
                             </div>
-                          </div>
-
-                          <div className="rounded-[28px] border border-[rgba(148,163,184,0.14)] bg-white p-5 shadow-[0_18px_38px_-30px_rgba(15,23,42,0.14)]">
-                            <div className="mb-4 flex items-center gap-2">
-                              <Target className="h-4.5 w-4.5 text-[var(--primary)]" />
-                              <p className="text-sm font-semibold text-slate-950">Base interna para marketing</p>
-                            </div>
-                            <div className="space-y-3">
-                              <SummaryBlock title="Cliente" value={idealCustomer} />
-                              <SummaryBlock title="Problema que resuelve" value={painPoints} />
-                              <SummaryBlock title="CTA principal" value={primaryCallToAction} />
-                              <SummaryBlock
-                                title="Propuesta que generará la IA"
-                                value={scanResult.generated.valueProposition}
-                              />
-                            </div>
-
-                            {scanResult.sources.length > 0 ? (
-                              <div className="mt-4 rounded-[18px] border border-[var(--line)] bg-slate-50 px-4 py-3">
-                                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                                  Fuentes revisadas
-                                </p>
-                                <div className="mt-2 space-y-1.5 text-sm text-slate-600">
-                                  {scanResult.sources.map((source) => (
-                                    <p key={source} className="break-all">
-                                      {source}
-                                    </p>
-                                  ))}
-                                </div>
-                              </div>
-                            ) : null}
-                          </div>
-                        </div>
+                          </SummarySectionCard>
+                        ) : null}
                       </div>
                     ) : null}
                   </div>
@@ -743,6 +768,45 @@ function SummaryBlock({ title, value }: { title: string; value: string }) {
     <div className="rounded-[18px] border border-[var(--line)] bg-slate-50 px-4 py-3">
       <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">{title}</p>
       <p className="mt-1 text-sm leading-6 text-slate-700">{value}</p>
+    </div>
+  );
+}
+
+function SummaryListBlock({ title, values }: { title: string; values: string[] }) {
+  return (
+    <div className="rounded-[18px] border border-[var(--line)] bg-slate-50 px-4 py-3">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">{title}</p>
+      {values.length > 0 ? (
+        <div className="mt-2 space-y-1.5 text-sm leading-6 text-slate-700">
+          {values.map((value) => (
+            <p key={value} className="break-words">
+              {value}
+            </p>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-1 text-sm leading-6 text-slate-500">No hay suficiente información confirmada todavía.</p>
+      )}
+    </div>
+  );
+}
+
+function SummarySectionCard({
+  title,
+  icon,
+  children,
+}: {
+  title: string;
+  icon: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <div className="rounded-[28px] border border-[rgba(148,163,184,0.14)] bg-white p-5 shadow-[0_18px_38px_-30px_rgba(15,23,42,0.14)]">
+      <div className="mb-4 flex items-center gap-2">
+        {icon}
+        <p className="text-sm font-semibold text-slate-950">{title}</p>
+      </div>
+      <div className="space-y-3">{children}</div>
     </div>
   );
 }

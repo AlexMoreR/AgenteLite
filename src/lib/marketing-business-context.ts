@@ -1,4 +1,5 @@
-import { cache } from "react";
+﻿import { cache } from "react";
+import { getToneLabel, toneOptions } from "@/lib/agent-training";
 import { getWorkspaceMarketingLogoUrl } from "@/lib/marketing-branding";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
@@ -76,9 +77,17 @@ export function getMarketingContextCompletion(context: MarketingBusinessContext 
 }
 
 export function getMarketingRobotMood(completion: number) {
+  if (completion >= 100) {
+    return {
+      lines: ["🤩"],
+      tone: "ready" as const,
+      label: "Listo",
+    };
+  }
+
   if (completion >= 80) {
     return {
-      lines: ["╭────╮", "│•  •│", "│ ▀▁ │", "╰─┬──╯"],
+      lines: ["😊"],
       tone: "ready" as const,
       label: "Casi listo",
     };
@@ -86,14 +95,14 @@ export function getMarketingRobotMood(completion: number) {
 
   if (completion >= 45) {
     return {
-      lines: ["╭────╮", "│•  •│", "│ ── │", "╰─┬──╯"],
+      lines: ["🙂"],
       tone: "mid" as const,
       label: "En progreso",
     };
   }
 
   return {
-    lines: ["╭────╮", "│x  x│", "│ ▔▁ │", "╰─┬──╯"],
+    lines: ["😕"],
     tone: "pending" as const,
     label: "Incompleto",
   };
@@ -111,6 +120,34 @@ function asTrainingConfig(value: unknown): AgentTrainingConfigShape {
       : [],
     salesTone: typeof candidate.salesTone === "string" ? candidate.salesTone : undefined,
   };
+}
+
+function buildAudienceSignals(trainingAudiences: string[] | undefined, idealCustomer: string | null) {
+  if (trainingAudiences && trainingAudiences.length > 0) {
+    return trainingAudiences;
+  }
+
+  if (!idealCustomer?.trim()) {
+    return [];
+  }
+
+  return idealCustomer
+    .split(/,| y /i)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 4);
+}
+
+function resolveSalesToneLabel(value: string | null | undefined) {
+  if (!value?.trim()) {
+    return "Amigable y profesional";
+  }
+
+  if (toneOptions.some((item) => item.value === value)) {
+    return getToneLabel(value as (typeof toneOptions)[number]["value"]);
+  }
+
+  return value;
 }
 
 export const getMarketingBusinessContextForUser = cache(
@@ -158,6 +195,9 @@ export const getMarketingBusinessContextForUser = cache(
       settingsMap.get(getMarketingContextSettingKey(workspaceId, "marketingMainOffer")) ?? null;
     const businessNameOverride =
       settingsMap.get(getMarketingContextSettingKey(workspaceId, "marketingBusinessNameOverride")) ?? null;
+    const idealCustomer =
+      settingsMap.get(getMarketingContextSettingKey(workspaceId, "marketingIdealCustomer")) ?? null;
+    const targetAudiences = buildAudienceSignals(training.targetAudiences ?? [], idealCustomer);
 
     return {
       workspaceId,
@@ -166,13 +206,12 @@ export const getMarketingBusinessContextForUser = cache(
       country: settingsMap.get(getMarketingContextSettingKey(workspaceId, "country")) ?? null,
       city: settingsMap.get(getMarketingContextSettingKey(workspaceId, "city")) ?? null,
       businessDescription: firstAgent?.description?.trim() || mainOffer,
-      targetAudiences: training.targetAudiences ?? [],
-      salesTone: training.salesTone ?? null,
+      targetAudiences,
+      salesTone: resolveSalesToneLabel(training.salesTone),
       logoUrl,
       valueProposition:
         settingsMap.get(getMarketingContextSettingKey(workspaceId, "marketingValueProposition")) ?? null,
-      idealCustomer:
-        settingsMap.get(getMarketingContextSettingKey(workspaceId, "marketingIdealCustomer")) ?? null,
+      idealCustomer,
       painPoints:
         settingsMap.get(getMarketingContextSettingKey(workspaceId, "marketingPainPoints")) ?? null,
       mainOffer,
@@ -198,3 +237,4 @@ export const getMarketingBusinessContextForUser = cache(
     };
   },
 );
+

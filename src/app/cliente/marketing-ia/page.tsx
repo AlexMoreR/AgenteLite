@@ -207,8 +207,16 @@ function MarketingPageContent({
                     />
                     <StatusChip
                       icon={<Globe className="h-3.5 w-3.5" />}
-                      label="Redes y paginas pendientes"
-                      tone="pending"
+                      label={
+                        businessContext?.socialStatus === "ready" || businessContext?.websiteStatus === "ready"
+                          ? "Redes o paginas listas"
+                          : "Redes y paginas pendientes"
+                      }
+                      tone={
+                        businessContext?.socialStatus === "ready" || businessContext?.websiteStatus === "ready"
+                          ? "ready"
+                          : "pending"
+                      }
                     />
                   </div>
                 </div>

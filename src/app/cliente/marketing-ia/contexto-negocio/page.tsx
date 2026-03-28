@@ -42,6 +42,36 @@ export default async function MarketingBusinessContextPage({ searchParams }: Pag
 
   const completion = getMarketingContextCompletion(businessContext);
   const robot = getMarketingRobotMood(completion);
+  const progressToneClasses =
+    robot.tone === "ready"
+      ? {
+          card: "border-emerald-100 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(240,253,244,0.96))] shadow-[0_16px_30px_-24px_rgba(5,150,105,0.2)]",
+          robot: "border-emerald-100 bg-[linear-gradient(180deg,#f7fffb,#ecfdf5)] text-emerald-500",
+          eyebrow: "text-emerald-500",
+          value: "text-emerald-700",
+          label: "text-emerald-600",
+        }
+      : robot.tone === "mid"
+        ? {
+            card: "border-amber-100 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(255,251,235,0.96))] shadow-[0_16px_30px_-24px_rgba(217,119,6,0.18)]",
+            robot: "border-amber-100 bg-[linear-gradient(180deg,#fffdf7,#fffbeb)] text-amber-500",
+            eyebrow: "text-amber-500",
+            value: "text-amber-700",
+            label: "text-amber-600",
+          }
+        : {
+            card: "border-red-100 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(255,244,244,0.96))] shadow-[0_16px_30px_-24px_rgba(127,29,29,0.18)]",
+            robot: "border-red-100 bg-[linear-gradient(180deg,#fff8f8,#fff0f0)] text-red-500",
+            eyebrow: "text-red-400",
+            value: "text-red-700",
+            label: "text-red-500",
+          };
+  const digitalSignals = [
+    businessContext.websiteUrl,
+    businessContext.instagramUrl,
+    businessContext.facebookUrl,
+    businessContext.tiktokUrl,
+  ].filter(Boolean);
 
   return (
     <section className="app-page space-y-5">
@@ -77,17 +107,17 @@ export default async function MarketingBusinessContextPage({ searchParams }: Pag
             </div>
           </div>
 
-          <div className="rounded-[24px] border border-red-100 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(255,244,244,0.96))] p-4 shadow-[0_16px_30px_-24px_rgba(127,29,29,0.18)]">
+          <div className={`rounded-[24px] p-4 ${progressToneClasses.card}`}>
             <div className="flex items-center gap-3">
-              <div className="rounded-[14px] border border-red-100 bg-[linear-gradient(180deg,#fff8f8,#fff0f0)] px-2.5 py-1.5 font-mono text-[9px] leading-[0.95] text-red-500">
+              <div className={`flex h-20 w-20 items-center justify-center rounded-[18px] border text-[2.4rem] leading-none ${progressToneClasses.robot}`}>
                 {robot.lines.map((line) => (
                   <div key={line}>{line}</div>
                 ))}
               </div>
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-red-400">Progreso</p>
-                <p className="text-2xl font-semibold tracking-[-0.04em] text-red-700">{completion}%</p>
-                <p className="text-sm text-red-500">{robot.label}</p>
+                <p className={`text-[11px] font-semibold uppercase tracking-[0.16em] ${progressToneClasses.eyebrow}`}>Progreso</p>
+                <p className={`text-2xl font-semibold tracking-[-0.04em] ${progressToneClasses.value}`}>{completion}%</p>
+                <p className={`text-sm ${progressToneClasses.label}`}>{robot.label}</p>
               </div>
             </div>
           </div>
@@ -147,7 +177,11 @@ export default async function MarketingBusinessContextPage({ searchParams }: Pag
             <ContextChip
               icon={<Globe className="h-4 w-4" />}
               title="Redes y paginas"
-              body="Aun faltan datos digitales para que la IA entienda mejor como promocionar tu negocio."
+              body={
+                digitalSignals.length > 0
+                  ? digitalSignals.join(" · ")
+                  : "Aun faltan datos digitales para que la IA entienda mejor como promocionar tu negocio."
+              }
             />
           </div>
         </Card>
