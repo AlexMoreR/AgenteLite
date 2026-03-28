@@ -154,12 +154,7 @@ export async function buildMetaOutput(
       .join("\n\n"),
   };
 
-  meta.publicationChecklist = buildPublicationChecklist({
-    ...meta,
-    publicationChecklist: [],
-    copyVariants: [],
-    readyToCopyText: "",
-  });
+  meta.publicationChecklist = buildPublicationChecklist(meta);
   meta.readyToCopyText = [
     `Resumen estrategico: ${meta.strategicSummary}`,
     `Objetivo recomendado: ${meta.campaignObjective}`,

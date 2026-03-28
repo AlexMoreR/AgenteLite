@@ -1,8 +1,9 @@
 "use client";
 
-import { AlertCircle, ArrowRight, CheckCircle2, History, LoaderCircle, Trash2 } from "lucide-react";
+import { AlertCircle, ArrowRight, CheckCircle2, History, LoaderCircle, Plus, Trash2, X } from "lucide-react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { AdProductInput } from "../types/ad-input";
 import type { AdsGeneratorHistoryEntry } from "../types/ad-history";
@@ -22,6 +23,7 @@ export function AdsGeneratorWorkspace({
   initialInput,
   sourceHint,
 }: AdsGeneratorWorkspaceProps) {
+  const [modalOpen, setModalOpen] = useState(false);
   const [activeEntryId, setActiveEntryId] = useState<string | null>(initialHistory[0]?.id ?? null);
   const [result, setResult] = useState<AdsGeneratorResult | null>(initialHistory[0]?.result ?? null);
   const [error, setError] = useState<string | null>(null);
@@ -29,6 +31,20 @@ export function AdsGeneratorWorkspace({
   const [pending, setPending] = useState(false);
   const [history, setHistory] = useState<AdsGeneratorHistoryEntry[]>(initialHistory);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const canPortal = typeof document !== "undefined";
+
+  useEffect(() => {
+    if (!modalOpen || !canPortal) {
+      return;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [canPortal, modalOpen]);
 
   function buildInitialState(input: AdProductInput) {
     setLastInput(input);
@@ -60,6 +76,7 @@ export function AdsGeneratorWorkspace({
       setLastInput(payload.entry.input);
       setActiveEntryId(payload.entry.id);
       setHistory(payload.history ?? [payload.entry, ...history]);
+      setModalOpen(false);
     } catch (nextError: unknown) {
       setResult(null);
       setError(
@@ -123,10 +140,6 @@ export function AdsGeneratorWorkspace({
             <h1 className="text-[2rem] font-semibold tracking-[-0.06em] text-slate-950 sm:text-[2.5rem]">
               Ads Generator
             </h1>
-            <p className="max-w-[62ch] text-sm leading-7 text-slate-600 sm:text-base">
-              Convierte la informacion del producto en una propuesta comercial base con
-              estrategia, copy, estructura de campana y salida lista para adaptar en Meta Ads Manager.
-            </p>
             {sourceHint ? (
               <p className="text-xs leading-6 text-[var(--primary)]">
                 Fuente detectada: {sourceHint}.
@@ -167,8 +180,35 @@ export function AdsGeneratorWorkspace({
         </div>
       ) : null}
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.15fr)]">
-        <AdsGeneratorForm pending={pending} initialValues={initialInput} onSubmit={handleSubmit} />
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,0.62fr)_minmax(0,1.38fr)]">
+        <Card className="rounded-[28px] border-[var(--line)] bg-white p-6">
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+                Flujo
+              </p>
+              <h2 className="text-2xl font-semibold tracking-[-0.04em] text-slate-950">
+                Abre el formulario guiado
+              </h2>
+              <p className="text-sm leading-6 text-slate-600">
+                Completa los datos del producto en un modal, igual que en el contexto del negocio, y genera la propuesta sin salir de esta pantalla.
+              </p>
+            </div>
+
+            <div className="rounded-[24px] border border-[var(--line)] bg-slate-50 p-4">
+              <p className="text-sm font-semibold text-slate-900">Incluye</p>
+              <p className="mt-1 text-sm leading-6 text-slate-600">
+                Producto, audiencia, beneficios, pain points, CTA y apoyo visual opcional.
+              </p>
+            </div>
+
+            <Button type="button" size="lg" className="h-12 w-full rounded-2xl" onClick={() => setModalOpen(true)}>
+              <Plus className="h-4 w-4" />
+              Abrir formulario
+            </Button>
+          </div>
+        </Card>
+
         <AdsGeneratorResultView pending={pending} result={result} />
       </div>
 
@@ -247,6 +287,79 @@ export function AdsGeneratorWorkspace({
           </div>
         )}
       </Card>
+
+      {modalOpen && canPortal
+        ? createPortal(
+            <AdsGeneratorModal
+              pending={pending}
+              initialValues={initialInput}
+              onClose={() => {
+                if (!pending) {
+                  setModalOpen(false);
+                }
+              }}
+              onSubmit={handleSubmit}
+            />,
+            document.body,
+          )
+        : null}
     </section>
+  );
+}
+
+function AdsGeneratorModal({
+  pending,
+  initialValues,
+  onClose,
+  onSubmit,
+}: {
+  pending: boolean;
+  initialValues?: Partial<AdProductInput>;
+  onClose: () => void;
+  onSubmit: (input: AdProductInput) => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-stretch justify-center bg-[radial-gradient(circle_at_top,rgba(35,25,57,0.22),rgba(15,23,42,0.55))] p-0 md:p-6"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Formulario del Ads Generator"
+      onClick={onClose}
+    >
+      <div
+        className="flex h-full w-full max-w-[1040px] flex-col overflow-hidden rounded-none border border-[rgba(148,163,184,0.18)] bg-[linear-gradient(180deg,#fdfdfd_0%,#ffffff_100%)] md:max-h-[92vh] md:rounded-[32px] md:shadow-[0_42px_110px_-52px_rgba(15,23,42,0.5)]"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="border-b border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfbfd_100%)] px-5 py-5 md:px-8 md:py-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className="space-y-1.5">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                Ads Generator
+              </p>
+              <h2 className="text-[1.35rem] font-semibold tracking-[-0.05em] text-slate-950">
+                Completa la base del anuncio
+              </h2>
+              <p className="text-sm leading-6 text-slate-600">
+                Usa el mismo formato guiado del contexto del negocio para preparar esta propuesta.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={pending}
+              className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-[rgba(148,163,184,0.16)] bg-white text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              aria-label="Cerrar"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto bg-[linear-gradient(180deg,#f7f9fc_0%,#f3f6fb_100%)] p-4 md:p-6">
+          <AdsGeneratorForm pending={pending} initialValues={initialValues} onSubmit={onSubmit} />
+        </div>
+      </div>
+    </div>
   );
 }
