@@ -1,11 +1,17 @@
 "use client";
 
 import Image from "next/image";
-import { AlertCircle, ArrowDownToLine, Copy, ImagePlus, LoaderCircle, Plus, SendHorizonal, Trash2, Upload, X } from "lucide-react";
+import { AlertCircle, ArrowDownToLine, Copy, ImagePlus, LoaderCircle, MoreHorizontal, Plus, SendHorizonal, Trash2, Upload, X } from "lucide-react";
 import { createPortal } from "react-dom";
 import type { ChangeEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { MarketingBusinessContext } from "@/lib/marketing-business-context";
 import type { AdProductInput } from "../types/ad-input";
@@ -46,6 +52,7 @@ export function AdsGeneratorWorkspace({ initialInput, sourceHint, businessContex
   const [uploadedImages, setUploadedImages] = useState<UploadedImageDraft[]>([]);
   const [generatedCreatives, setGeneratedCreatives] = useState<FacebookAdCreative[]>([]);
   const [publishedAds, setPublishedAds] = useState<PublishedAdCard[]>([]);
+  const [detailAd, setDetailAd] = useState<PublishedAdCard | null>(null);
   const [sourceImageUrl, setSourceImageUrl] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const canPortal = typeof document !== "undefined";
@@ -132,6 +139,19 @@ export function AdsGeneratorWorkspace({ initialInput, sourceHint, businessContex
       document.body.style.overflow = previousOverflow;
     };
   }, [canPortal, modalOpen]);
+
+  useEffect(() => {
+    if (!detailAd || !canPortal) {
+      return;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [canPortal, detailAd]);
 
   const modalInitialValues = useMemo(
     () => ({
@@ -476,14 +496,32 @@ export function AdsGeneratorWorkspace({ initialInput, sourceHint, businessContex
                 <div className="space-y-3 p-4">
                   <div className="flex items-center justify-between gap-3">
                     <p className="text-sm font-semibold text-slate-950">Anuncio {index + 1}</p>
-                    <button
-                      type="button"
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[var(--line)] bg-slate-50 text-slate-600 transition hover:bg-slate-100"
-                      onClick={() => void navigator.clipboard.writeText(ad.result.meta.readyToCopyText)}
-                      aria-label="Copiar anuncio"
-                    >
-                      <Copy className="h-4 w-4" />
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[var(--line)] bg-slate-50 text-slate-600 transition hover:bg-slate-100"
+                        onClick={() => void navigator.clipboard.writeText(ad.result.meta.readyToCopyText)}
+                        aria-label="Copiar anuncio"
+                      >
+                        <Copy className="h-4 w-4" />
+                      </button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            type="button"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[var(--line)] bg-slate-50 text-slate-600 transition hover:bg-slate-100"
+                            aria-label="Mas opciones"
+                          >
+                            <MoreHorizontal className="h-4 w-4" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="min-w-40 rounded-2xl">
+                          <DropdownMenuItem onSelect={() => setDetailAd(ad)}>
+                            Ver completo
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
                   </div>
 
                   <div className="space-y-2.5">
@@ -758,6 +796,16 @@ export function AdsGeneratorWorkspace({ initialInput, sourceHint, businessContex
             document.body,
           )
         : null}
+
+      {detailAd && canPortal
+        ? createPortal(
+            <AdsGeneratorDetailModal
+              ad={detailAd}
+              onClose={() => setDetailAd(null)}
+            />,
+            document.body,
+          )
+        : null}
     </section>
   );
 }
@@ -807,5 +855,120 @@ function AdsGeneratorModal({
         <AdsGeneratorForm pending={pending} initialValues={initialValues} onSubmit={onSubmit} />
       </div>
     </div>
+  );
+}
+
+function AdsGeneratorDetailModal({
+  ad,
+  onClose,
+}: {
+  ad: PublishedAdCard;
+  onClose: () => void;
+}) {
+  const meta = ad.result.meta;
+  const strategy = ad.result.strategy;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-stretch justify-center bg-[#0f172a99] p-0 md:p-6"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Detalle completo del anuncio"
+      onClick={onClose}
+    >
+      <div
+        className="relative flex h-full w-full max-w-[920px] flex-col overflow-hidden rounded-none border border-[rgba(148,163,184,0.18)] bg-white md:max-h-[92vh] md:rounded-[32px] md:shadow-[0_42px_110px_-52px_rgba(15,23,42,0.5)]"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-[var(--line)] px-5 py-4 md:px-7">
+          <div>
+            <h3 className="text-lg font-semibold tracking-[-0.03em] text-slate-950">Ver completo</h3>
+            <p className="text-sm text-slate-600">Paso a paso de como el sistema llego a este anuncio.</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[rgba(148,163,184,0.16)] bg-white text-slate-600 transition hover:bg-slate-50"
+            aria-label="Cerrar"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="grid flex-1 gap-0 overflow-y-auto md:grid-cols-[280px_minmax(0,1fr)]">
+          <div className="border-b border-[var(--line)] bg-slate-50 p-5 md:border-b-0 md:border-r md:p-6">
+            <div className="relative aspect-square overflow-hidden rounded-[24px] bg-white shadow-[0_16px_32px_-28px_rgba(15,23,42,0.25)]">
+              <Image
+                src={ad.imageUrl}
+                alt="Preview del anuncio"
+                fill
+                className="object-contain"
+                unoptimized
+              />
+            </div>
+          </div>
+
+          <div className="space-y-5 p-5 md:p-6">
+            <DetailSection
+              title="1. Contexto recibido"
+              lines={[
+                `Producto: ${meta.headline}`,
+                `Objetivo detectado: ${meta.campaignObjective}`,
+                `Audiencia usada: ${strategy.audience}`,
+              ]}
+            />
+
+            <DetailSection
+              title="2. Analisis del sistema"
+              lines={[
+                meta.strategicSummary,
+                `Angulo elegido: ${meta.recommendedSalesAngle}`,
+                `Formato pensado: ${meta.recommendedFormat}`,
+              ]}
+            />
+
+            <DetailSection
+              title="3. Construccion del mensaje"
+              lines={[
+                `Hook principal: ${strategy.hooks[0] ?? meta.copyVariants[0]?.primaryText ?? meta.primaryText}`,
+                `CTA sugerido: ${meta.callToAction}`,
+                `Copy principal armado para lectura rapida y cierre directo.`,
+              ]}
+            />
+
+            <DetailSection
+              title="4. Resultado final"
+              lines={[
+                `Texto principal:\n${meta.primaryText}`,
+                `Titulo: ${meta.headline}`,
+                `Descripcion: ${meta.description}`,
+              ]}
+            />
+
+            <DetailSection
+              title="5. Variantes generadas"
+              lines={meta.copyVariants.slice(0, 3).map(
+                (variant, index) => `Variante ${index + 1}:\n${variant.primaryText}`,
+              )}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DetailSection({ title, lines }: { title: string; lines: string[] }) {
+  return (
+    <section className="space-y-2 rounded-[22px] border border-[var(--line)] bg-slate-50 px-4 py-4">
+      <h4 className="text-sm font-semibold text-slate-950">{title}</h4>
+      <div className="space-y-2">
+        {lines.filter(Boolean).map((line, index) => (
+          <p key={`${title}-${index}`} className="whitespace-pre-line text-sm leading-6 text-slate-700">
+            {line}
+          </p>
+        ))}
+      </div>
+    </section>
   );
 }

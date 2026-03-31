@@ -34,7 +34,7 @@ function cleanPainPoint(value: string | null) {
     return "";
   }
 
-  return lowerFirst(value.replace(/\.$/, ""));
+  return humanizeAudienceOrPain(lowerFirst(value.replace(/\.$/, "")));
 }
 
 function cleanBenefit(value: string) {
@@ -91,6 +91,47 @@ function normalizeForCompare(value: string) {
 
 function shortenLine(value: string, maxWords = 10) {
   return limitWords(stripTrailingPunctuation(value), maxWords);
+}
+
+function humanizeAudienceOrPain(value: string) {
+  const normalized = stripTrailingPunctuation(value).trim();
+  if (!normalized) {
+    return "";
+  }
+
+  if (/emprendedor(?:a|as|es)?\s+que\s+inicia\s+sal[oó]n/i.test(normalized)) {
+    return "estas empezando tu salon";
+  }
+
+  if (/emprendedor(?:a|as|es)?\s+que\s+inicia/i.test(normalized)) {
+    return "estas empezando tu negocio";
+  }
+
+  if (/sal[oó]n/i.test(normalized) && /inicia|empezando|montando/i.test(normalized)) {
+    return "estas empezando tu salon";
+  }
+
+  if (/negocio\s+de\s+belleza/i.test(normalized) && /montando|empezando|inicia/i.test(normalized)) {
+    return "estas montando tu negocio de belleza";
+  }
+
+  if (/emprendedor(?:a|as|es)?/i.test(normalized) && /belleza|spa|sal[oó]n/i.test(normalized)) {
+    return "estas montando tu negocio de belleza";
+  }
+
+  if (/cliente(?:s)?\s+que/i.test(normalized)) {
+    return normalized.replace(/cliente(?:s)?\s+que\s+/i, "quieres llegar a personas que ");
+  }
+
+  if (/personas\s+que/i.test(normalized)) {
+    return normalized.replace(/personas\s+que\s+/i, "quieres llegar a personas que ");
+  }
+
+  if (/^[a-záéíóúñ\s]+$/.test(normalized) && normalized.split(/\s+/).length <= 5) {
+    return `tu negocio todavia se siente ${normalized}`;
+  }
+
+  return normalized;
 }
 
 function lineHasCompleteSense(value: string) {
@@ -185,6 +226,29 @@ function buildOrderedCopy(
   return [...ordered.filter(Boolean).slice(0, 4), cta].join("\n");
 }
 
+function categoryLabel(categoryName: string) {
+  const normalized = stripTrailingPunctuation(categoryName).trim().toLowerCase();
+  return normalized || "negocio";
+}
+
+function titleContextLabel(categoryName: string) {
+  const normalized = categoryLabel(categoryName);
+
+  if (/spa/.test(normalized)) {
+    return "spa";
+  }
+
+  if (/salon|sal[oó]n|belleza/.test(normalized)) {
+    return "salon";
+  }
+
+  if (/tienda/.test(normalized)) {
+    return "tienda";
+  }
+
+  return "negocio";
+}
+
 function hookFromPain(painPoint: string) {
   if (!painPoint) {
     return "👀 Si quieres que tu negocio se vea mejor, mira esto.";
@@ -250,20 +314,175 @@ function ctaLine(cta: string) {
   return `👉 ${stripTrailingPunctuation(cta)}.`;
 }
 
-function buildHeadline(base: string, fallback: string) {
-  const normalized = sentenceCase(limitWords(stripTrailingPunctuation(base), 10));
-  const wordCount = normalized.split(/\s+/).filter(Boolean).length;
+function isWeakTitle(value: string, sourceContext: string) {
+  const normalized = normalizeCopyLine(value);
+  const words = normalized.split(/\s+/).filter(Boolean);
 
-  if (normalized && wordCount >= 4) {
-    return normalized;
+  if (words.length < 4 || words.length > 10) {
+    return true;
   }
 
-  return sentenceCase(limitWords(stripTrailingPunctuation(fallback), 10));
+  if (soundsInstitutional(normalized)) {
+    return true;
+  }
+
+  if (overlapsWithContext(normalized, sourceContext)) {
+    return true;
+  }
+
+  return false;
 }
 
-function buildDescription(value: string, fallback: string) {
-  const normalized = sentenceCase(limitWords(value, 7));
-  return normalized || fallback;
+function isWeakDescription(value: string, sourceContext: string) {
+  const normalized = normalizeCopyLine(value);
+  const words = normalized.split(/\s+/).filter(Boolean);
+
+  if (words.length < 3 || words.length > 8) {
+    return true;
+  }
+
+  if (soundsInstitutional(normalized)) {
+    return true;
+  }
+
+  if (overlapsWithContext(normalized, sourceContext)) {
+    return true;
+  }
+
+  return false;
+}
+
+function buildHeadline(
+  candidates: string[],
+  fallbacks: string[],
+  sourceContext: string,
+) {
+  const next = [...candidates, ...fallbacks]
+    .map((value) => sentenceCase(limitWords(stripTrailingPunctuation(value), 10)))
+    .find((value) => value && !isWeakTitle(value, sourceContext));
+
+  return next ?? "Haz que tu negocio se vea profesional";
+}
+
+function buildDescription(
+  candidates: string[],
+  fallbacks: string[],
+  sourceContext: string,
+) {
+  const next = [...candidates, ...fallbacks]
+    .map((value) => sentenceCase(limitWords(stripTrailingPunctuation(value), 8)))
+    .find((value) => value && !isWeakDescription(value, sourceContext));
+
+  return next ?? "Mejor imagen y mas confianza";
+}
+
+function createHeadlineForVariant(
+  variant: "pain" | "aspiration" | "practical",
+  businessLabel: string,
+  sourceContext: string,
+) {
+  const context = titleContextLabel(businessLabel);
+
+  if (variant === "pain") {
+    return buildHeadline(
+      [
+        `Haz que tu ${context} se vea profesional`,
+        `Mejora la imagen de tu ${context}`,
+        `Dale mejor imagen a tu ${context}`,
+      ],
+      [
+        "Haz que tu negocio se vea profesional",
+        "Mejora la imagen de tu negocio",
+        "Equipa tu negocio desde el inicio",
+      ],
+      sourceContext,
+    );
+  }
+
+  if (variant === "aspiration") {
+    return buildHeadline(
+      [
+        `Haz que tu ${context} se vea mejor`,
+        `Mejora la imagen de tu ${context}`,
+        `Tu ${context} puede verse profesional`,
+        "Haz que tu negocio se vea profesional",
+      ],
+      [
+        "Haz que tu negocio se vea profesional",
+        "Mejora la imagen de tu spa",
+        "Equipa tu negocio desde el inicio",
+      ],
+      sourceContext,
+    );
+  }
+
+  return buildHeadline(
+    [
+      `Equipa tu ${context} desde el inicio`,
+      "Tu negocio se ve claro y profesional",
+      `Mejora la imagen de tu ${context}`,
+    ],
+    [
+      "Equipa tu negocio desde el inicio",
+      "Haz que tu negocio se vea profesional",
+      "Mejora la imagen de tu negocio",
+    ],
+    sourceContext,
+  );
+}
+
+function createDescriptionForVariant(
+  variant: "pain" | "aspiration" | "practical",
+  businessLabel: string,
+  sourceContext: string,
+) {
+  const context = titleContextLabel(businessLabel);
+
+  if (variant === "pain") {
+    return buildDescription(
+      [
+        "Mejor imagen y mas confianza",
+        `Mas confianza para tu ${context}`,
+        "Presentacion profesional y mas confianza",
+      ],
+      [
+        "Mejor imagen y mas confianza",
+        "Atrae mas clientes con mejor imagen",
+        "Comodidad y presentacion profesional",
+      ],
+      sourceContext,
+    );
+  }
+
+  if (variant === "aspiration") {
+    return buildDescription(
+      [
+        "Mas confianza y mejor presentacion",
+        `Tu ${context} se ve profesional`,
+        "Atrae mas clientes con mejor imagen",
+      ],
+      [
+        "Mejor imagen y mas confianza",
+        "Equipa tu spa como un experto",
+        "Comodidad y presentacion profesional",
+      ],
+      sourceContext,
+    );
+  }
+
+  return buildDescription(
+    [
+      "Comodidad y experiencia profesional",
+      "Claro, profesional y facil de vender",
+      `Tu ${context} se ve mejor`,
+    ],
+    [
+      "Mejor imagen y mas confianza",
+      "Comodidad y presentacion profesional",
+      "Claro y facil de vender",
+    ],
+    sourceContext,
+  );
 }
 
 export async function createAdCopies(
@@ -273,11 +492,9 @@ export async function createAdCopies(
   const supportBenefit = analysis.supportingBenefits[0] ?? analysis.primaryBenefit;
   const secondSupportBenefit = analysis.supportingBenefits[1] ?? supportBenefit;
   const painPoint = cleanPainPoint(analysis.primaryPainPoint);
-  const primaryBenefit = cleanBenefit(analysis.primaryBenefit);
-  const supportLine = cleanBenefit(supportBenefit);
-  const practicalBenefit = cleanBenefit(secondSupportBenefit);
   const cta = strategy.callToAction;
   const productLabel = humanizeProductName(analysis.productName);
+  const businessLabel = categoryLabel(analysis.categoryName);
   const sourceContext = [analysis.mainOffer, ...analysis.benefits].join(" ");
 
   return [
@@ -300,11 +517,16 @@ export async function createAdCopies(
         },
         sourceContext,
       ),
-      headline: buildHeadline(
-        painPoint ? `Deja atras ${painPoint} y vende mejor` : "Haz que tu negocio se vea mejor",
-        "Haz que tu negocio se vea mejor",
+      headline: createHeadlineForVariant(
+        "pain",
+        businessLabel,
+        sourceContext,
       ),
-      description: buildDescription(`${primaryBenefit} y ${supportLine}`, "Mas confianza al vender"),
+      description: createDescriptionForVariant(
+        "pain",
+        businessLabel,
+        sourceContext,
+      ),
     },
     {
       id: "resultado-aspiracion",
@@ -325,11 +547,16 @@ export async function createAdCopies(
         },
         sourceContext,
       ),
-      headline: buildHeadline(
-        "Haz que tu servicio se vea mejor",
-        "Haz que tu servicio se vea mejor",
+      headline: createHeadlineForVariant(
+        "aspiration",
+        businessLabel,
+        sourceContext,
       ),
-      description: buildDescription(`${primaryBenefit} para vender mejor`, "Se ve mejor y vende mejor"),
+      description: createDescriptionForVariant(
+        "aspiration",
+        businessLabel,
+        sourceContext,
+      ),
     },
     {
       id: "directo-practico",
@@ -350,11 +577,16 @@ export async function createAdCopies(
         },
         sourceContext,
       ),
-      headline: buildHeadline(
-        "Tu oferta se ve clara y lista",
-        "Tu oferta se ve clara y lista",
+      headline: createHeadlineForVariant(
+        "practical",
+        businessLabel,
+        sourceContext,
       ),
-      description: buildDescription(`${practicalBenefit} sin enredos`, "Claro y facil de vender"),
+      description: createDescriptionForVariant(
+        "practical",
+        businessLabel,
+        sourceContext,
+      ),
     },
   ];
 }

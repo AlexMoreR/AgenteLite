@@ -114,6 +114,7 @@ export async function buildMetaOutput(
   strategy: AdStrategy,
   copies: AdCopyVariant[],
 ): Promise<AdsGeneratorResult> {
+  const callToAction = strategy.callToAction;
   const primaryVariant = copies[0] ?? {
     id: "base",
     primaryText: strategy.hooks[0] ?? analysis.mainOffer,
@@ -131,7 +132,7 @@ export async function buildMetaOutput(
     primaryText: primaryVariant.primaryText,
     headline: primaryVariant.headline,
     description: primaryVariant.description,
-    callToAction: strategy.callToAction,
+    callToAction,
     creativeIdea: buildCreativeIdea(analysis, strategy),
     budgetRecommendation: buildBudgetRecommendation(analysis.recommendedObjective),
     primaryMetric: buildPrimaryMetric(analysis.recommendedObjective),
@@ -150,7 +151,7 @@ export async function buildMetaOutput(
             `Texto principal:\n${copy.primaryText}`,
             `Titulo: ${copy.headline}`,
             `Descripcion: ${copy.description}`,
-            `CTA: ${meta.callToAction}`,
+            `CTA: ${callToAction}`,
           ].join("\n"),
       )
       .join("\n\n"),
@@ -162,7 +163,7 @@ export async function buildMetaOutput(
     `Texto principal:\n${meta.primaryText}`,
     `Titulo: ${meta.headline}`,
     `Descripcion: ${meta.description}`,
-    `CTA: ${meta.callToAction}`,
+    `CTA: ${callToAction}`,
     "",
     "Variantes de copy",
     ...copies.slice(0, 3).map(
@@ -172,7 +173,7 @@ export async function buildMetaOutput(
           `Texto principal:\n${copy.primaryText}`,
           `Titulo: ${copy.headline}`,
           `Descripcion: ${copy.description}`,
-          `CTA: ${meta.callToAction}`,
+          `CTA: ${callToAction}`,
         ].join("\n"),
     ),
   ].join("\n\n");
