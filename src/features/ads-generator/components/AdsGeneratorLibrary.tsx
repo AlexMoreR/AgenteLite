@@ -171,7 +171,7 @@ export function AdsGeneratorLibrary({ history }: AdsGeneratorLibraryProps) {
                   </div>
 
                   <div className="flex items-center gap-2 md:justify-end">
-                    <Button asChild variant="outline" className="h-9 w-9 rounded-full p-0">
+                    <Button asChild variant="outline" className="h-11 w-11 rounded-full p-0">
                       <Link href={`/cliente/marketing-ia/ads-generator/editor?entryId=${entry.id}`}>
                         <Edit3 className="h-4 w-4" />
                         <span className="sr-only">Editar</span>
@@ -181,7 +181,7 @@ export function AdsGeneratorLibrary({ history }: AdsGeneratorLibraryProps) {
                     <Button
                       type="button"
                       variant="outline"
-                      className="h-9 w-9 rounded-full p-0 text-[var(--danger-fg)] hover:text-[var(--danger-fg)]"
+                      className="h-11 w-11 rounded-full p-0 text-[var(--danger-fg)] hover:text-[var(--danger-fg)]"
                       disabled={pendingDeleteId === entry.id}
                       onClick={() => void handleDelete(entry.id)}
                     >
@@ -198,7 +198,7 @@ export function AdsGeneratorLibrary({ history }: AdsGeneratorLibraryProps) {
 
       {modalOpen ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-[#0f172a80] p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-[#0f172a80] p-4"
           role="dialog"
           aria-modal="true"
           aria-label="Crear anuncio IA"
@@ -210,7 +210,7 @@ export function AdsGeneratorLibrary({ history }: AdsGeneratorLibraryProps) {
           }}
         >
           <div
-            className="w-full max-w-md rounded-[28px] border border-[var(--line)] bg-white p-6 shadow-[0_32px_90px_-48px_rgba(15,23,42,0.45)]"
+            className="my-auto w-full max-w-md rounded-[28px] border border-[var(--line)] bg-white p-5 shadow-[0_32px_90px_-48px_rgba(15,23,42,0.45)] sm:p-6"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-start justify-between gap-3">
@@ -252,11 +252,11 @@ export function AdsGeneratorLibrary({ history }: AdsGeneratorLibraryProps) {
               />
             </div>
 
-            <div className="mt-6 flex items-center justify-end gap-3">
+            <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-end">
               <Button
                 type="button"
                 variant="outline"
-                className="rounded-full"
+                className="w-full rounded-full sm:w-auto"
                 onClick={() => setModalOpen(false)}
                 disabled={pendingCreate}
               >
@@ -264,7 +264,7 @@ export function AdsGeneratorLibrary({ history }: AdsGeneratorLibraryProps) {
               </Button>
               <Button
                 type="button"
-                className="rounded-full"
+                className="w-full rounded-full sm:w-auto"
                 disabled={productName.trim().length < 2 || pendingCreate}
                 onClick={() => void handleCreate()}
               >

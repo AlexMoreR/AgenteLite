@@ -527,11 +527,11 @@ export function AdsGeneratorForm({ pending, initialValues, onSubmit }: AdsGenera
       </div>
 
       <div className="border-t border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfbfd_100%)] px-5 py-4 md:px-8">
-        <div className="mx-auto flex w-full max-w-[760px] items-center justify-between gap-3">
+        <div className="mx-auto flex w-full max-w-[760px] flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
           <Button
             type="button"
             variant="outline"
-            className="h-12 rounded-2xl px-5"
+            className="h-12 w-full rounded-2xl px-5 sm:w-auto"
             disabled={pending || step === 0}
             onClick={() => setStep((current) => Math.max(current - 1, 0))}
           >
@@ -539,11 +539,11 @@ export function AdsGeneratorForm({ pending, initialValues, onSubmit }: AdsGenera
           </Button>
 
           {step < steps.length - 1 ? (
-            <Button type="button" size="lg" className="h-12 rounded-2xl px-6" onClick={handleNext}>
+            <Button type="button" size="lg" className="h-12 w-full rounded-2xl px-6 sm:w-auto" onClick={handleNext}>
               Continuar
             </Button>
           ) : (
-            <Button type="submit" size="lg" disabled={pending} className="h-12 rounded-2xl px-6">
+            <Button type="submit" size="lg" disabled={pending} className="h-12 w-full rounded-2xl px-6 sm:w-auto">
               {pending ? "Generando..." : "Generar anuncio"}
             </Button>
           )}

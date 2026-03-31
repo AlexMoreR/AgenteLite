@@ -573,7 +573,7 @@ export function AdsGeneratorWorkspace({
 
       {publishedAds.length > 0 ? (
         <section className="space-y-4">
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-[1.4rem] font-semibold tracking-[-0.04em] text-slate-950">
                 Anuncios Listos
@@ -615,7 +615,7 @@ export function AdsGeneratorWorkspace({
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[var(--line)] bg-slate-50 text-slate-600 transition hover:bg-slate-100"
+                        className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-[var(--line)] bg-slate-50 text-slate-600 transition hover:bg-slate-100"
                         onClick={() => void navigator.clipboard.writeText(ad.result.meta.readyToCopyText)}
                         aria-label="Copiar anuncio"
                       >
@@ -625,7 +625,7 @@ export function AdsGeneratorWorkspace({
                         <DropdownMenuTrigger asChild>
                           <button
                             type="button"
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[var(--line)] bg-slate-50 text-slate-600 transition hover:bg-slate-100"
+                            className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-[var(--line)] bg-slate-50 text-slate-600 transition hover:bg-slate-100"
                             aria-label="Mas opciones"
                           >
                             <MoreHorizontal className="h-4 w-4" />
@@ -672,12 +672,7 @@ export function AdsGeneratorWorkspace({
                       <ImagePlus className="h-5 w-5" />
                       </div>
                       <div className="space-y-1">
-                        <p className="text-base font-semibold tracking-[-0.03em] text-white">
-                          Imagenes seleccionadas: {uploadedImages.length || (initialInput?.image?.url ? 1 : 0)}/10
-                        </p>
-                        <p className="text-sm text-[rgba(226,232,240,0.76)]">
-                          Arrastra, elige o genera con IA las imagenes que quieres usar en el anuncio.
-                        </p>
+                        <p className="text-base font-semibold tracking-[-0.03em] text-white">Imagenes</p>
                         {sourceHint ? (
                           <p className="text-xs text-[#9dc0ff]">
                             Fuente detectada: {sourceHint}.
@@ -714,19 +709,19 @@ export function AdsGeneratorWorkspace({
                                 className="object-contain"
                                 unoptimized
                               />
-                              <div className="absolute inset-0 flex items-center justify-center bg-[rgba(7,14,30,0.45)] opacity-0 transition duration-200 group-hover:opacity-100">
+                              <div className="absolute inset-0 flex items-center justify-center bg-[rgba(7,14,30,0.45)] opacity-100 transition duration-200 md:opacity-0 md:group-hover:opacity-100">
                                 <div className="flex items-center gap-2">
                                   <a
                                     href={creative.imageUrl}
                                     download={`creative-${index + 1}.png`}
-                                    className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[rgba(255,255,255,0.14)] bg-[rgba(255,255,255,0.12)] text-white backdrop-blur-sm transition hover:bg-[rgba(255,255,255,0.18)]"
+                                    className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-[rgba(255,255,255,0.14)] bg-[rgba(255,255,255,0.12)] text-white backdrop-blur-sm transition hover:bg-[rgba(255,255,255,0.18)]"
                                     aria-label="Descargar imagen"
                                   >
                                     <ArrowDownToLine className="h-4 w-4" />
                                   </a>
                                   <button
                                     type="button"
-                                    className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[rgba(255,255,255,0.14)] bg-[rgba(255,255,255,0.12)] text-white backdrop-blur-sm transition hover:bg-[rgba(255,255,255,0.18)]"
+                                    className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-[rgba(255,255,255,0.14)] bg-[rgba(255,255,255,0.12)] text-white backdrop-blur-sm transition hover:bg-[rgba(255,255,255,0.18)]"
                                     onClick={() => void handleRemoveCreative(creative.id)}
                                     aria-label="Eliminar imagen"
                                   >
@@ -768,11 +763,11 @@ export function AdsGeneratorWorkspace({
                       })}
                   </div>
 
-                  <p className="mt-3 text-xs text-[rgba(226,232,240,0.72)]">
-                    {generatedCreatives.length > 0
-                      ? `${generatedCreatives.length} creativo${generatedCreatives.length === 1 ? "" : "s"} generado${generatedCreatives.length === 1 ? "" : "s"} para este producto.`
-                      : "Aqui veras los creativos disenados cuando se generen."}
-                  </p>
+                  {generatedCreatives.length > 0 ? (
+                    <p className="mt-3 text-xs text-[rgba(226,232,240,0.72)]">
+                      {generatedCreatives.length} creativo{generatedCreatives.length === 1 ? "" : "s"} generado{generatedCreatives.length === 1 ? "" : "s"} para este producto.
+                    </p>
+                  ) : null}
             </div>
           </div>
         )}
@@ -800,7 +795,7 @@ export function AdsGeneratorWorkspace({
                     Subir imagenes
                   </button>
                   {uploadedImages.length > 0 ? (
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <div className="flex items-center -space-x-3">
                         {uploadedImages.slice(0, 4).map((image) => (
                           <div
@@ -810,7 +805,7 @@ export function AdsGeneratorWorkspace({
                             <Image src={image.url} alt={image.name} fill className="object-cover" unoptimized />
                             <button
                               type="button"
-                              className="absolute right-0.5 top-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[rgba(15,23,42,0.88)] text-white opacity-0 shadow-sm transition group-hover:opacity-100"
+                              className="absolute right-0.5 top-0.5 inline-flex h-6 w-6 items-center justify-center rounded-full bg-[rgba(15,23,42,0.88)] text-white opacity-100 shadow-sm transition md:opacity-0 md:group-hover:opacity-100"
                               onClick={() => handleRemoveUploadedImage(image.id)}
                               aria-label="Eliminar miniatura"
                             >
@@ -852,7 +847,7 @@ export function AdsGeneratorWorkspace({
             </label>
 
             <div className="mt-1 flex flex-col gap-2.5 border-t border-[rgba(255,255,255,0.08)] px-3 pt-2.5 pb-0.5 md:flex-row md:items-center md:justify-between md:px-4">
-              <div className="min-w-[210px]">
+              <div className="w-full min-w-0 md:min-w-[210px] md:max-w-[240px]">
                 <Select
                   value={String(variantCount)}
                   onValueChange={(value) => setVariantCount(Number(value) as 3 | 5 | 10)}
@@ -871,14 +866,14 @@ export function AdsGeneratorWorkspace({
                 </Select>
               </div>
 
-              <div className="flex items-center justify-end gap-3">
+              <div className="flex w-full items-center justify-end gap-3 md:w-auto">
                 <p className="hidden text-[11px] text-[rgba(226,232,240,0.72)] md:block">
                   Luego completas el detalle fino en el formulario.
                 </p>
                 <Button
                   type="button"
                   disabled={pending}
-                  className="h-11 rounded-full px-6 shadow-[0_18px_36px_-22px_color-mix(in_srgb,var(--primary)_45%,black)]"
+                  className="h-11 w-full rounded-full px-6 shadow-[0_18px_36px_-22px_color-mix(in_srgb,var(--primary)_45%,black)] md:w-auto"
                   onClick={handleGenerateCreatives}
                 >
                   {pending ? "Generando..." : "Continuar"}
