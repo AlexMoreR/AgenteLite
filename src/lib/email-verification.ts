@@ -1,7 +1,7 @@
 import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 
-type AuthTokenPurpose = "VERIFY_EMAIL" | "AUTO_LOGIN";
+type AuthTokenPurpose = "VERIFY_EMAIL" | "AUTO_LOGIN" | "PASSWORD_RESET";
 
 type VerificationPayload = {
   userId: string;
@@ -12,6 +12,7 @@ type VerificationPayload = {
 
 const EMAIL_VERIFICATION_TTL_SECONDS = 60 * 60 * 24;
 const AUTO_LOGIN_TTL_SECONDS = 60 * 15;
+const PASSWORD_RESET_TTL_SECONDS = 60 * 30;
 
 function getSecret(): string {
   const secret = process.env.AUTH_SECRET?.trim();
@@ -66,7 +67,7 @@ function parseSignedToken(token: string): VerificationPayload | null {
       !payload.email ||
       !payload.exp ||
       !payload.purpose ||
-      !["VERIFY_EMAIL", "AUTO_LOGIN"].includes(payload.purpose)
+      !["VERIFY_EMAIL", "AUTO_LOGIN", "PASSWORD_RESET"].includes(payload.purpose)
     ) {
       return null;
     }
@@ -147,4 +148,14 @@ export async function consumeAutoLoginToken(
   token: string,
 ): Promise<{ userId: string; email: string } | null> {
   return consumeStoredToken(token, "AUTO_LOGIN");
+}
+
+export async function createPasswordResetToken(userId: string, email: string): Promise<string> {
+  return createStoredToken(userId, email, "PASSWORD_RESET", PASSWORD_RESET_TTL_SECONDS);
+}
+
+export async function consumePasswordResetToken(
+  token: string,
+): Promise<{ userId: string; email: string } | null> {
+  return consumeStoredToken(token, "PASSWORD_RESET");
 }

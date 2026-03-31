@@ -29,6 +29,17 @@ export const changePasswordSchema = z
     path: ["confirmPassword"],
   });
 
+export const resetPasswordSchema = z
+  .object({
+    token: z.string().min(1, "Token invalido"),
+    newPassword: z.string().min(8, "Minimo 8 caracteres"),
+    confirmPassword: z.string().min(8, "Minimo 8 caracteres"),
+  })
+  .refine((data) => data.newPassword === data.confirmPassword, {
+    message: "Las contrasenas no coinciden",
+    path: ["confirmPassword"],
+  });
+
 export type ActionState = {
   ok: boolean;
   message: string;

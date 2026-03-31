@@ -14,8 +14,16 @@ import {
   setStoredRoleModuleAccessMap,
 } from "@/lib/admin-module-access";
 import { getPublicBaseUrl } from "@/lib/app-url";
-import { createEmailVerificationToken } from "@/lib/email-verification";
-import { sendAccountCreatedEmail, sendEmailVerificationEmail } from "@/lib/mailer";
+import {
+  consumePasswordResetToken,
+  createEmailVerificationToken,
+  createPasswordResetToken,
+} from "@/lib/email-verification";
+import {
+  sendAccountCreatedEmail,
+  sendEmailVerificationEmail,
+  sendPasswordResetEmail,
+} from "@/lib/mailer";
 import { prisma } from "@/lib/prisma";
 import {
   ActionState,
@@ -23,6 +31,7 @@ import {
   loginSchema,
   profileSchema,
   registerSchema,
+  resetPasswordSchema,
 } from "@/lib/validations/auth";
 
 const roleRedirect: Record<Role, string> = {
@@ -271,6 +280,100 @@ export async function changePasswordAction(
   return { ok: true, message: "Contrasena actualizada" };
 }
 
+export async function requestPasswordResetAction(
+  prevState: ActionState = defaultState,
+): Promise<ActionState> {
+  void prevState;
+
+  const session = await auth();
+  if (!session?.user?.id || !session.user.email) {
+    return { ok: false, message: "No autorizado" };
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { id: true, email: true, name: true },
+  });
+
+  if (!user) {
+    return { ok: false, message: "Usuario no encontrado" };
+  }
+
+  const baseUrl = getPublicBaseUrl();
+  if (!baseUrl) {
+    return {
+      ok: false,
+      message: "Falta configurar AUTH_URL, NEXTAUTH_URL o NEXT_PUBLIC_SITE_URL para enviar el enlace",
+    };
+  }
+
+  try {
+    const token = await createPasswordResetToken(user.id, user.email);
+    const resetUrl = `${baseUrl}/reset-password?token=${encodeURIComponent(token)}`;
+
+    await sendPasswordResetEmail({
+      to: user.email,
+      name: user.name ?? "",
+      resetUrl,
+    });
+
+    return { ok: true, message: "Te enviamos un enlace de recuperacion a tu correo" };
+  } catch (error) {
+    console.error("No se pudo enviar el correo de recuperacion:", error);
+    return { ok: false, message: "No se pudo enviar el correo de recuperacion" };
+  }
+}
+
+export async function resetPasswordWithTokenAction(
+  prevState: ActionState = defaultState,
+  formData: FormData,
+): Promise<ActionState> {
+  void prevState;
+
+  const parsed = resetPasswordSchema.safeParse({
+    token: formData.get("token"),
+    newPassword: formData.get("newPassword"),
+    confirmPassword: formData.get("confirmPassword"),
+  });
+
+  if (!parsed.success) {
+    return {
+      ok: false,
+      message: "Datos invalidos",
+      errors: parsed.error.flatten().fieldErrors,
+    };
+  }
+
+  const { token, newPassword } = parsed.data;
+  const payload = await consumePasswordResetToken(token);
+  if (!payload) {
+    return { ok: false, message: "El enlace de recuperacion es invalido o expiro" };
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: payload.userId },
+    select: { password: true, email: true },
+  });
+
+  if (!user || user.email !== payload.email) {
+    return { ok: false, message: "No se pudo validar la cuenta" };
+  }
+
+  const isSamePassword = await bcrypt.compare(newPassword, user.password);
+  if (isSamePassword) {
+    return { ok: false, message: "La nueva contrasena debe ser diferente" };
+  }
+
+  const hashedPassword = await bcrypt.hash(newPassword, 12);
+
+  await prisma.user.update({
+    where: { id: payload.userId },
+    data: { password: hashedPassword },
+  });
+
+  return { ok: true, message: "Contrasena actualizada. Ya puedes iniciar sesion" };
+}
+
 export async function logoutAction(): Promise<void> {
   await signOut({ redirectTo: "/login" });
 }
@@ -333,6 +436,10 @@ const deleteUserSchema = z.object({
   userId: z.string().min(1),
 });
 
+const adminSendPasswordResetSchema = z.object({
+  userId: z.string().min(1),
+});
+
 export async function adminUpdateUserRoleAction(formData: FormData): Promise<void> {
   await requireAdminSession();
 
@@ -368,6 +475,55 @@ export async function adminUpdateUserRoleAction(formData: FormData): Promise<voi
   revalidatePath("/admin/configuracion/usuarios");
   revalidatePath("/admin/configuracion/permisos");
   redirect("/admin/configuracion/usuarios?ok=Rol+actualizado");
+}
+
+export async function adminSendPasswordResetAction(formData: FormData): Promise<void> {
+  await requireAdminSession();
+
+  const parsed = adminSendPasswordResetSchema.safeParse({
+    userId: formData.get("userId"),
+  });
+
+  if (!parsed.success) {
+    redirect("/admin/configuracion/usuarios?error=Usuario+invalido");
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: parsed.data.userId },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      role: true,
+    },
+  });
+
+  if (!user) {
+    redirect("/admin/configuracion/usuarios?error=Usuario+no+encontrado");
+  }
+
+  const baseUrl = getPublicBaseUrl();
+  if (!baseUrl) {
+    redirect(
+      "/admin/configuracion/usuarios?error=Falta+configurar+AUTH_URL,+NEXTAUTH_URL+o+NEXT_PUBLIC_SITE_URL",
+    );
+  }
+
+  try {
+    const token = await createPasswordResetToken(user.id, user.email);
+    const resetUrl = `${baseUrl}/reset-password?token=${encodeURIComponent(token)}`;
+
+    await sendPasswordResetEmail({
+      to: user.email,
+      name: user.name ?? "",
+      resetUrl,
+    });
+  } catch (error) {
+    console.error("No se pudo enviar el correo de recuperacion desde admin:", error);
+    redirect("/admin/configuracion/usuarios?error=No+se+pudo+enviar+el+correo+de+recuperacion");
+  }
+
+  redirect("/admin/configuracion/usuarios?ok=Correo+de+recuperacion+enviado");
 }
 
 export async function adminUpdateWorkspacePlanExpiryAction(formData: FormData): Promise<void> {

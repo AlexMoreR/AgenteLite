@@ -876,7 +876,7 @@ export function AdsGeneratorWorkspace({
                   className="h-11 w-full rounded-full px-6 shadow-[0_18px_36px_-22px_color-mix(in_srgb,var(--primary)_45%,black)] md:w-auto"
                   onClick={handleGenerateCreatives}
                 >
-                  {pending ? "Generando..." : "Continuar"}
+                  {pending ? "Generando..." : "Generar"}
                   <SendHorizonal className="h-4 w-4" />
                 </Button>
               </div>

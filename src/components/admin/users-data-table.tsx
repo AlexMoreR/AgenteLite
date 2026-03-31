@@ -4,6 +4,7 @@ import * as React from "react";
 import { Role } from "@prisma/client";
 import {
   CalendarClock,
+  Mail,
   MoreHorizontal,
   Search,
   Shield,
@@ -12,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import {
+  adminSendPasswordResetAction,
   adminDeleteUserAction,
   adminUpdateUserRoleAction,
   adminUpdateWorkspacePlanExpiryAction,
@@ -511,6 +513,20 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
                     </Button>
                   </form>
                 </div>
+              </div>
+
+              <div className="mt-4 rounded-[1.25rem] border border-[var(--line)] p-5">
+                <p className="text-sm font-semibold text-slate-900">Recuperacion de acceso</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Envia al correo del usuario un enlace para crear una nueva contrasena.
+                </p>
+                <form action={adminSendPasswordResetAction} className="mt-4">
+                  <input type="hidden" name="userId" value={activeUser.id} />
+                  <Button type="submit" variant="outline" className="h-10 rounded-xl px-4">
+                    <Mail className="mr-2 h-4 w-4" />
+                    Enviar recuperacion por correo
+                  </Button>
+                </form>
               </div>
 
               <div className="mt-4 rounded-[1.25rem] border border-rose-200 bg-rose-50/60 p-5">

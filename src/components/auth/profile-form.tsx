@@ -4,7 +4,11 @@ import { useActionState, useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { KeyRound, Mail, ShieldCheck, UserPen, X } from "lucide-react";
 import { toast } from "sonner";
-import { changePasswordAction, updateProfileAction } from "@/app/actions/auth-actions";
+import {
+  changePasswordAction,
+  requestPasswordResetAction,
+  updateProfileAction,
+} from "@/app/actions/auth-actions";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -36,6 +40,10 @@ export function ProfileForm({
     changePasswordAction,
     initialState,
   );
+  const [passwordResetState, passwordResetAction, passwordResetPending] = useActionState(
+    requestPasswordResetAction,
+    initialState,
+  );
 
   useEffect(() => {
     if (!profileState.message) return;
@@ -58,6 +66,12 @@ export function ProfileForm({
     if (passwordState.ok) toast.success(passwordState.message);
     else toast.error(passwordState.message);
   }, [passwordState]);
+
+  useEffect(() => {
+    if (!passwordResetState.message) return;
+    if (passwordResetState.ok) toast.success(passwordResetState.message);
+    else toast.error(passwordResetState.message);
+  }, [passwordResetState]);
 
   useEffect(() => {
     if (!passwordState.ok) return;
@@ -212,6 +226,26 @@ export function ProfileForm({
                 </Button>
               </div>
             </form>
+
+            <div className="space-y-3 rounded-xl border border-dashed border-[var(--line)] bg-slate-50/80 p-4">
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-slate-900">Perdi la contrasena</p>
+                <p className="text-sm text-slate-600">
+                  Te enviamos un enlace a <span className="font-medium text-slate-900">{email}</span>{" "}
+                  para que crees una nueva.
+                </p>
+              </div>
+              <form action={passwordResetAction}>
+                <Button
+                  type="submit"
+                  variant="outline"
+                  className="w-full sm:w-auto"
+                  disabled={passwordResetPending}
+                >
+                  {passwordResetPending ? "Enviando..." : "Enviar recuperacion por correo"}
+                </Button>
+              </form>
+            </div>
           </Card>
         </div>
       ) : null}

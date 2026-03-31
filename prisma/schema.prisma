@@ -16,6 +16,7 @@ enum Role {
 enum EmailAuthTokenPurpose {
   VERIFY_EMAIL
   AUTO_LOGIN
+  PASSWORD_RESET
 }
 
 enum WorkspacePlanTier {
