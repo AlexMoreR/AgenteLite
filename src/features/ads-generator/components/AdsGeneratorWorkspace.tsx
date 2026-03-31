@@ -488,11 +488,17 @@ export function AdsGeneratorWorkspace({ initialInput, sourceHint, businessContex
 
                   <div className="space-y-2.5">
                     <InfoBlock title="Copy" value={ad.result.meta.primaryText} compact />
-                    <InfoBlock title="Headline" value={ad.result.meta.headline} compact />
+                    <InfoBlock title="Titulo" value={ad.result.meta.headline} compact />
                     <InfoBlock title="Descripcion" value={ad.result.meta.description} compact />
-                    <InfoBlock title="CTA recomendado" value={ad.result.meta.callToAction} compact />
-                    <InfoBlock title="Segmentacion sugerida" value={ad.result.meta.basicSegmentation.join(" ")} compact />
-                    <InfoBlock title="Valor recomendado" value={ad.result.meta.budgetRecommendation} compact />
+                    <InfoBlock title="CTA" value={ad.result.meta.callToAction} compact />
+                    {ad.result.meta.copyVariants.slice(0, 3).map((variant, variantIndex) => (
+                      <InfoBlock
+                        key={`${ad.id}-variant-${variant.id}`}
+                        title={`Variante ${variantIndex + 1}`}
+                        value={variant.primaryText}
+                        compact
+                      />
+                    ))}
                   </div>
                 </div>
               </article>

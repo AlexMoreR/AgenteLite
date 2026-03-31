@@ -266,7 +266,7 @@ function buildDescription(value: string, fallback: string) {
   return normalized || fallback;
 }
 
-export async function generateCopies(
+export async function createAdCopies(
   analysis: ProductAnalysis,
   strategy: AdStrategy,
 ): Promise<AdCopyVariant[]> {
@@ -358,3 +358,5 @@ export async function generateCopies(
     },
   ];
 }
+
+export const generateCopies = createAdCopies;

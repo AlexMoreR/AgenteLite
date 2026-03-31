@@ -3,10 +3,6 @@ import type { ProductAnalysis } from "./analyzeProduct";
 import type { AdStrategy } from "../types/ad-output";
 import type { AdCopyVariant } from "../types/ad-output";
 
-function toSentenceList(items: string[]) {
-  return items.filter(Boolean).join(", ");
-}
-
 function mapCampaignObjective(objective: ProductAnalysis["recommendedObjective"]) {
   const objectiveMap = {
     sales: "Ventas",
@@ -149,36 +145,37 @@ export async function buildMetaOutput(
     readyToCopyText: copies
       .map(
         (copy, index) =>
-          `Variante ${index + 1}\nTexto: ${copy.primaryText}\nTitular: ${copy.headline}\nDescripcion: ${copy.description}`,
+          [
+            index === 0 ? "Anuncio principal" : `Variante ${index}`,
+            `Texto principal:\n${copy.primaryText}`,
+            `Titulo: ${copy.headline}`,
+            `Descripcion: ${copy.description}`,
+            `CTA: ${meta.callToAction}`,
+          ].join("\n"),
       )
       .join("\n\n"),
   };
 
   meta.publicationChecklist = buildPublicationChecklist(meta);
   meta.readyToCopyText = [
-    `Resumen estrategico: ${meta.strategicSummary}`,
-    `Objetivo recomendado: ${meta.campaignObjective}`,
-    `Angulo de venta recomendado: ${meta.recommendedSalesAngle}`,
-    `Estructura de campana: ${meta.campaignStructure}`,
-    `Segmentacion basica: ${toSentenceList(meta.basicSegmentation)}`,
-    `Formato recomendado: ${meta.recommendedFormat}`,
-    `Copy principal: ${meta.primaryText}`,
+    "Anuncio principal",
+    `Texto principal:\n${meta.primaryText}`,
     `Titulo: ${meta.headline}`,
     `Descripcion: ${meta.description}`,
-    `CTA recomendado: ${meta.callToAction}`,
-    `Idea de creativo: ${meta.creativeIdea}`,
-    `Presupuesto recomendado: ${meta.budgetRecommendation}`,
-    `Metrica principal a vigilar: ${meta.primaryMetric}`,
+    `CTA: ${meta.callToAction}`,
     "",
-    "Checklist para publicar:",
-    ...meta.publicationChecklist.map((item, index) => `${index + 1}. ${item}`),
-    "",
-    "Variantes de copy:",
-    ...copies.map(
+    "Variantes de copy",
+    ...copies.slice(0, 3).map(
       (copy, index) =>
-        `Variante ${index + 1}\nTexto: ${copy.primaryText}\nTitular: ${copy.headline}\nDescripcion: ${copy.description}`,
+        [
+          `Variante ${index + 1}`,
+          `Texto principal:\n${copy.primaryText}`,
+          `Titulo: ${copy.headline}`,
+          `Descripcion: ${copy.description}`,
+          `CTA: ${meta.callToAction}`,
+        ].join("\n"),
     ),
-  ].join("\n");
+  ].join("\n\n");
 
   return {
     summary: `Salida inicial generada para ${analysis.productName} con enfoque de venta, copy y estructura lista para revisar antes de publicar en Meta Ads Manager.`,
