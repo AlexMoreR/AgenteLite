@@ -41,6 +41,52 @@ type UploadedImageDraft = {
 
 const ADS_GENERATOR_DRAFT_KEY = "marketing-ia:ads-generator-workspace:v1";
 
+function applyPrimaryVariant(result: AdsGeneratorResult, variantIndex: number): AdsGeneratorResult {
+  const variants = result.meta.copyVariants;
+  if (!variants.length) {
+    return result;
+  }
+
+  const normalizedIndex = variantIndex % variants.length;
+  const primaryVariant = variants[normalizedIndex] ?? variants[0];
+  const reorderedVariants = [
+    primaryVariant,
+    ...variants.filter((_, index) => index !== normalizedIndex),
+  ];
+
+  const readyToCopyText = [
+    "Anuncio principal",
+    `Texto principal:\n${primaryVariant.primaryText}`,
+    `Titulo: ${primaryVariant.headline}`,
+    `Descripcion: ${primaryVariant.description}`,
+    `CTA: ${result.meta.callToAction}`,
+    "",
+    "Variantes de copy",
+    ...reorderedVariants.slice(0, 3).map(
+      (variant, index) =>
+        [
+          `Variante ${index + 1}`,
+          `Texto principal:\n${variant.primaryText}`,
+          `Titulo: ${variant.headline}`,
+          `Descripcion: ${variant.description}`,
+          `CTA: ${result.meta.callToAction}`,
+        ].join("\n"),
+    ),
+  ].join("\n\n");
+
+  return {
+    ...result,
+    meta: {
+      ...result.meta,
+      primaryText: primaryVariant.primaryText,
+      headline: primaryVariant.headline,
+      description: primaryVariant.description,
+      copyVariants: reorderedVariants,
+      readyToCopyText,
+    },
+  };
+}
+
 export function AdsGeneratorWorkspace({ initialInput, sourceHint, businessContext }: AdsGeneratorWorkspaceProps) {
   const [modalOpen, setModalOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -347,10 +393,12 @@ export function AdsGeneratorWorkspace({ initialInput, sourceHint, businessContex
             throw new Error(payload?.error || "No pudimos publicar los anuncios.");
           }
 
+          const resultWithVariant = applyPrimaryVariant(payload.entry.result, index);
+
           return {
             id: `${creative.id}-published`,
             imageUrl: creative.imageUrl,
-            result: payload.entry.result,
+            result: resultWithVariant,
           } satisfies PublishedAdCard;
         }),
       );
@@ -517,7 +565,7 @@ export function AdsGeneratorWorkspace({ initialInput, sourceHint, businessContex
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="min-w-40 rounded-2xl">
                           <DropdownMenuItem onSelect={() => setDetailAd(ad)}>
-                            Ver completo
+                            Por que este anuncio
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -867,6 +915,19 @@ function AdsGeneratorDetailModal({
 }) {
   const meta = ad.result.meta;
   const strategy = ad.result.strategy;
+  const primaryHook = meta.primaryText.split("\n").find(Boolean) ?? strategy.hooks[0] ?? "";
+  const primaryBenefit =
+    meta.description || meta.headline || "Mejor imagen y mas confianza";
+  const variantDifferences = meta.copyVariants.slice(0, 3).map((variant, index) => {
+    const angleLabel =
+      variant.id === "dolor-problema"
+        ? "Entra por el problema real del cliente"
+        : variant.id === "resultado-aspiracion"
+          ? "Entra por el resultado que la persona quiere ver"
+          : "Entra directo, claro y sin rodeos";
+
+    return `Variante ${index + 1}: ${angleLabel}.`;
+  });
 
   return (
     <div
@@ -882,8 +943,8 @@ function AdsGeneratorDetailModal({
       >
         <div className="flex items-center justify-between border-b border-[var(--line)] px-5 py-4 md:px-7">
           <div>
-            <h3 className="text-lg font-semibold tracking-[-0.03em] text-slate-950">Ver completo</h3>
-            <p className="text-sm text-slate-600">Paso a paso de como el sistema llego a este anuncio.</p>
+            <h3 className="text-lg font-semibold tracking-[-0.03em] text-slate-950">Por que este anuncio</h3>
+            <p className="text-sm text-slate-600">Esto es lo que el sistema entendio y por que llego a este mensaje.</p>
           </div>
           <button
             type="button"
@@ -910,46 +971,45 @@ function AdsGeneratorDetailModal({
 
           <div className="space-y-5 p-5 md:p-6">
             <DetailSection
-              title="1. Contexto recibido"
+              title="1. Que entendimos"
               lines={[
-                `Producto: ${meta.headline}`,
-                `Objetivo detectado: ${meta.campaignObjective}`,
-                `Audiencia usada: ${strategy.audience}`,
+                `Lo que estamos vendiendo: ${meta.headline}`,
+                `Audiencia interpretada: ${strategy.audience}`,
+                `Objetivo principal: ${meta.campaignObjective}`,
               ]}
             />
 
             <DetailSection
-              title="2. Analisis del sistema"
+              title="2. Enfoque del anuncio"
               lines={[
-                meta.strategicSummary,
-                `Angulo elegido: ${meta.recommendedSalesAngle}`,
-                `Formato pensado: ${meta.recommendedFormat}`,
+                meta.recommendedSalesAngle,
               ]}
             />
 
             <DetailSection
-              title="3. Construccion del mensaje"
+              title="3. Hook elegido"
               lines={[
-                `Hook principal: ${strategy.hooks[0] ?? meta.copyVariants[0]?.primaryText ?? meta.primaryText}`,
-                `CTA sugerido: ${meta.callToAction}`,
-                `Copy principal armado para lectura rapida y cierre directo.`,
+                primaryHook,
               ]}
             />
 
             <DetailSection
-              title="4. Resultado final"
+              title="4. Beneficio principal"
               lines={[
-                `Texto principal:\n${meta.primaryText}`,
-                `Titulo: ${meta.headline}`,
-                `Descripcion: ${meta.description}`,
+                primaryBenefit,
               ]}
             />
 
             <DetailSection
-              title="5. Variantes generadas"
-              lines={meta.copyVariants.slice(0, 3).map(
-                (variant, index) => `Variante ${index + 1}:\n${variant.primaryText}`,
-              )}
+              title="5. CTA elegido"
+              lines={[
+                meta.callToAction,
+              ]}
+            />
+
+            <DetailSection
+              title="6. Diferencia entre variantes"
+              lines={variantDifferences}
             />
           </div>
         </div>

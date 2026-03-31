@@ -29,24 +29,61 @@ function limitWords(value: string, maxWords: number) {
     .join(" ");
 }
 
-function cleanPainPoint(value: string | null) {
-  if (!value?.trim()) {
-    return "";
-  }
-
-  return humanizeAudienceOrPain(lowerFirst(value.replace(/\.$/, "")));
+function stripTrailingPunctuation(value: string) {
+  return value.trim().replace(/[.!?]+$/g, "");
 }
 
 function cleanBenefit(value: string) {
   return lowerFirst(value.replace(/\.$/, ""));
 }
 
-function stripTrailingPunctuation(value: string) {
-  return value.trim().replace(/[.!?]+$/g, "");
+function humanizeAudienceOrPain(value: string) {
+  const normalized = stripTrailingPunctuation(value).trim();
+  if (!normalized) {
+    return "";
+  }
+
+  if (/emprendedor(?:a|as|es)?\s+que\s+inicia\s+sal[oó]n/i.test(normalized)) {
+    return "estas empezando tu salon";
+  }
+
+  if (/emprendedor(?:a|as|es)?\s+que\s+inicia/i.test(normalized)) {
+    return "estas empezando tu negocio";
+  }
+
+  if (/sal[oó]n/i.test(normalized) && /inicia|empezando|montando/i.test(normalized)) {
+    return "estas empezando tu salon";
+  }
+
+  if (/negocio\s+de\s+belleza/i.test(normalized) && /montando|empezando|inicia/i.test(normalized)) {
+    return "estas montando tu negocio de belleza";
+  }
+
+  if (/emprendedor(?:a|as|es)?/i.test(normalized) && /belleza|spa|sal[oó]n/i.test(normalized)) {
+    return "estas montando tu negocio de belleza";
+  }
+
+  if (/cliente(?:s)?\s+que/i.test(normalized)) {
+    return normalized.replace(/cliente(?:s)?\s+que\s+/i, "quieres llegar a personas que ");
+  }
+
+  if (/personas\s+que/i.test(normalized)) {
+    return normalized.replace(/personas\s+que\s+/i, "quieres llegar a personas que ");
+  }
+
+  if (/^[a-záéíóúñ\s]+$/i.test(normalized) && normalized.split(/\s+/).length <= 5) {
+    return `tu negocio todavia se siente ${normalized}`;
+  }
+
+  return normalized;
 }
 
-function humanizeProductName(productName: string) {
-  return productName.trim() || "este producto";
+function cleanPainPoint(value: string | null) {
+  if (!value?.trim()) {
+    return "";
+  }
+
+  return humanizeAudienceOrPain(lowerFirst(value.replace(/\.$/, "")));
 }
 
 function bannedCopyPatterns() {
@@ -91,47 +128,6 @@ function normalizeForCompare(value: string) {
 
 function shortenLine(value: string, maxWords = 10) {
   return limitWords(stripTrailingPunctuation(value), maxWords);
-}
-
-function humanizeAudienceOrPain(value: string) {
-  const normalized = stripTrailingPunctuation(value).trim();
-  if (!normalized) {
-    return "";
-  }
-
-  if (/emprendedor(?:a|as|es)?\s+que\s+inicia\s+sal[oó]n/i.test(normalized)) {
-    return "estas empezando tu salon";
-  }
-
-  if (/emprendedor(?:a|as|es)?\s+que\s+inicia/i.test(normalized)) {
-    return "estas empezando tu negocio";
-  }
-
-  if (/sal[oó]n/i.test(normalized) && /inicia|empezando|montando/i.test(normalized)) {
-    return "estas empezando tu salon";
-  }
-
-  if (/negocio\s+de\s+belleza/i.test(normalized) && /montando|empezando|inicia/i.test(normalized)) {
-    return "estas montando tu negocio de belleza";
-  }
-
-  if (/emprendedor(?:a|as|es)?/i.test(normalized) && /belleza|spa|sal[oó]n/i.test(normalized)) {
-    return "estas montando tu negocio de belleza";
-  }
-
-  if (/cliente(?:s)?\s+que/i.test(normalized)) {
-    return normalized.replace(/cliente(?:s)?\s+que\s+/i, "quieres llegar a personas que ");
-  }
-
-  if (/personas\s+que/i.test(normalized)) {
-    return normalized.replace(/personas\s+que\s+/i, "quieres llegar a personas que ");
-  }
-
-  if (/^[a-záéíóúñ\s]+$/.test(normalized) && normalized.split(/\s+/).length <= 5) {
-    return `tu negocio todavia se siente ${normalized}`;
-  }
-
-  return normalized;
 }
 
 function lineHasCompleteSense(value: string) {
@@ -249,43 +245,73 @@ function titleContextLabel(categoryName: string) {
   return "negocio";
 }
 
-function hookFromPain(painPoint: string) {
-  if (!painPoint) {
-    return "👀 Si quieres que tu negocio se vea mejor, mira esto.";
+function sceneContextLabel(categoryName: string) {
+  const normalized = titleContextLabel(categoryName);
+
+  if (normalized === "spa") {
+    return "tu spa";
   }
 
-  return `👀 Si ${shortenLine(painPoint, 7)}, la gente lo nota.`;
-}
-
-function emotionFromPain(painPoint: string) {
-  if (!painPoint) {
-    return "Cuando no convence de entrada, vender cuesta mas.";
+  if (normalized === "salon") {
+    return "tu salon";
   }
 
-  return "Eso baja la confianza y hace que sigan de largo.";
+  if (normalized === "tienda") {
+    return "tu tienda";
+  }
+
+  return "tu negocio";
 }
 
-function aspirationHook(productName: string) {
-  return `✨ Si quieres que ${shortenLine(productName.toLowerCase(), 5)} se vea mejor, mira esto.`;
+function hookFromPain(painPoint: string, categoryName: string) {
+  const sceneLabel = sceneContextLabel(categoryName);
+
+  if (!painPoint) {
+    return `👀 Cuando ven ${sceneLabel}, la primera impresion cuenta.`;
+  }
+
+  return `👀 Si ${sceneLabel} todavia se ve improvisado, la gente lo nota.`;
 }
 
-function aspirationLine() {
-  return "Una buena imagen ayuda a que te tomen mas en serio.";
+function emotionFromPain(painPoint: string, categoryName: string) {
+  const sceneLabel = sceneContextLabel(categoryName);
+
+  if (!painPoint) {
+    return "Desde que el cliente entra, eso puede quitar confianza.";
+  }
+
+  if (/comod|incomod|molest|dura/i.test(painPoint)) {
+    return "Si no se ve comodo desde la primera impresion, cuesta mas cerrar.";
+  }
+
+  return `Cuando ven ${sceneLabel}, esa sensacion puede hacer que sigan de largo.`;
 }
 
-function practicalHook() {
-  return "✅ Si quieres algo claro y listo para vender, mira esto.";
+function aspirationHook(categoryName: string) {
+  const sceneLabel = sceneContextLabel(categoryName);
+  return `✨ Cuando ven ${sceneLabel}, quieres que se note el nivel de tu marca.`;
 }
 
-function practicalProblemLine() {
-  return "Cuando todo se ve enredado, vender cuesta mas.";
+function aspirationLine(categoryName: string) {
+  const sceneLabel = sceneContextLabel(categoryName);
+  return `En la primera impresion, ${sceneLabel} puede verse mucho mas pro.`;
 }
 
-function solutionLine(productName: string, brandLabel: string | null) {
-  const productLabel = humanizeProductName(productName);
+function practicalHook(categoryName: string) {
+  const sceneLabel = sceneContextLabel(categoryName);
+  return `✅ Si hoy ${sceneLabel} no comunica confianza, aqui tienes una forma clara de mejorarlo.`;
+}
+
+function practicalProblemLine(categoryName: string) {
+  const sceneLabel = sceneContextLabel(categoryName);
+  return `Cuando ven ${sceneLabel} y todo se siente improvisado, vender cuesta mas.`;
+}
+
+function solutionLine(categoryName: string, brandLabel: string | null) {
+  const sceneLabel = sceneContextLabel(categoryName);
   return brandLabel
-    ? `${productLabel} de ${brandLabel} hace que tu oferta se vea mas profesional.`
-    : `${productLabel} hace que tu oferta se vea mas profesional.`;
+    ? `Con una mejor presentacion, ${brandLabel} hace que ${sceneLabel} se vea mas profesional.`
+    : `Con una mejor presentacion, ${sceneLabel} se ve mas profesional.`;
 }
 
 function benefitLine(primaryBenefit: string, supportingBenefit?: string) {
@@ -405,7 +431,6 @@ function createHeadlineForVariant(
         `Haz que tu ${context} se vea mejor`,
         `Mejora la imagen de tu ${context}`,
         `Tu ${context} puede verse profesional`,
-        "Haz que tu negocio se vea profesional",
       ],
       [
         "Haz que tu negocio se vea profesional",
@@ -493,7 +518,6 @@ export async function createAdCopies(
   const secondSupportBenefit = analysis.supportingBenefits[1] ?? supportBenefit;
   const painPoint = cleanPainPoint(analysis.primaryPainPoint);
   const cta = strategy.callToAction;
-  const productLabel = humanizeProductName(analysis.productName);
   const businessLabel = categoryLabel(analysis.categoryName);
   const sourceContext = [analysis.mainOffer, ...analysis.benefits].join(" ");
 
@@ -502,91 +526,67 @@ export async function createAdCopies(
       id: "dolor-problema",
       primaryText: buildOrderedCopy(
         {
-          hook: hookFromPain(painPoint),
-          problem: emotionFromPain(painPoint),
-          solution: solutionLine(productLabel, analysis.brandLabel),
+          hook: hookFromPain(painPoint, analysis.categoryName),
+          problem: emotionFromPain(painPoint, analysis.categoryName),
+          solution: solutionLine(analysis.categoryName, analysis.brandLabel),
           benefit: benefitLine(analysis.primaryBenefit, supportBenefit),
           cta: ctaLine(cta),
         },
         {
-          hook: "👀 Si algo no se ve bien, la gente lo nota.",
-          problem: "Eso baja la confianza y puede frenar la compra.",
-          solution: "Con esto tu negocio se ve mas serio desde el inicio.",
+          hook: "👀 Cuando ven tu espacio, la primera impresion cuenta.",
+          problem: "Si se ve improvisado, la confianza baja muy rapido.",
+          solution: "Con una mejor presentacion, tu negocio se ve mucho mas profesional.",
           benefit: "💡 Te ayuda a vender con mejor imagen.",
           cta: ctaLine(cta),
         },
         sourceContext,
       ),
-      headline: createHeadlineForVariant(
-        "pain",
-        businessLabel,
-        sourceContext,
-      ),
-      description: createDescriptionForVariant(
-        "pain",
-        businessLabel,
-        sourceContext,
-      ),
+      headline: createHeadlineForVariant("pain", businessLabel, sourceContext),
+      description: createDescriptionForVariant("pain", businessLabel, sourceContext),
     },
     {
       id: "resultado-aspiracion",
       primaryText: buildOrderedCopy(
         {
-          hook: aspirationHook(productLabel),
-          problem: aspirationLine(),
-          solution: solutionLine(productLabel, analysis.brandLabel),
+          hook: aspirationHook(analysis.categoryName),
+          problem: aspirationLine(analysis.categoryName),
+          solution: solutionLine(analysis.categoryName, analysis.brandLabel),
           benefit: benefitLine(analysis.primaryBenefit, supportBenefit),
           cta: ctaLine(cta),
         },
         {
-          hook: "✨ Si quieres verte mas pro, mira esto.",
-          problem: "Una buena imagen ayuda a que te tomen mas en serio.",
-          solution: "Con esto tu oferta se ve mas profesional.",
+          hook: "✨ Cuando ven tu espacio, quieres que se note tu nivel.",
+          problem: "En la primera impresion, eso cambia como te perciben.",
+          solution: "Con una mejor presentacion, tu negocio se ve mucho mas profesional.",
           benefit: "💡 Te ayuda a mostrar mejor tu servicio.",
           cta: ctaLine(cta),
         },
         sourceContext,
       ),
-      headline: createHeadlineForVariant(
-        "aspiration",
-        businessLabel,
-        sourceContext,
-      ),
-      description: createDescriptionForVariant(
-        "aspiration",
-        businessLabel,
-        sourceContext,
-      ),
+      headline: createHeadlineForVariant("aspiration", businessLabel, sourceContext),
+      description: createDescriptionForVariant("aspiration", businessLabel, sourceContext),
     },
     {
       id: "directo-practico",
       primaryText: buildOrderedCopy(
         {
-          hook: practicalHook(),
-          problem: practicalProblemLine(),
-          solution: solutionLine(productLabel, analysis.brandLabel),
+          hook: practicalHook(analysis.categoryName),
+          problem: practicalProblemLine(analysis.categoryName),
+          solution: solutionLine(analysis.categoryName, analysis.brandLabel),
           benefit: practicalBenefitLine(analysis.primaryBenefit, secondSupportBenefit),
           cta: ctaLine(cta),
         },
         {
-          hook: "✅ Si quieres algo claro, mira esto.",
-          problem: "Cuando todo se ve enredado, vender cuesta mas.",
-          solution: "Con esto muestras mejor tu oferta desde el primer vistazo.",
+          hook: "✅ Cuando ven tu espacio, todo debe hablar bien de tu negocio.",
+          problem: "Si hoy se siente improvisado, vender cuesta mas.",
+          solution: "Con una mejor presentacion, tu negocio se ve mucho mas profesional.",
           benefit: "💡 Te ayuda a vender sin enredos.",
           cta: ctaLine(cta),
         },
         sourceContext,
       ),
-      headline: createHeadlineForVariant(
-        "practical",
-        businessLabel,
-        sourceContext,
-      ),
-      description: createDescriptionForVariant(
-        "practical",
-        businessLabel,
-        sourceContext,
-      ),
+      headline: createHeadlineForVariant("practical", businessLabel, sourceContext),
+      description: createDescriptionForVariant("practical", businessLabel, sourceContext),
     },
   ];
 }
