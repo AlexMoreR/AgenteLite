@@ -94,7 +94,6 @@ const generateFacebookAdsSchema = z.object({
     .trim()
     .max(240, "Las instrucciones extra son demasiado largas")
     .optional(),
-  includeBusinessLogo: z.union([z.literal("on"), z.literal("true"), z.literal("false"), z.literal("")]).optional(),
 });
 
 const deleteCreativeImagesSchema = z.object({
@@ -599,14 +598,13 @@ export async function generateFacebookAdsFromImageAction(
   formData: FormData,
 ): Promise<FacebookAdsGeneratorState> {
   try {
-    const membership = await requireMarketingWorkspace();
+    await requireMarketingWorkspace();
 
     const parsed = generateFacebookAdsSchema.safeParse({
       creativeMode: formData.get("creativeMode") || "real",
       productName: formData.get("productName"),
       productDescription: formData.get("productDescription") || undefined,
       brief: formData.get("brief") || undefined,
-      includeBusinessLogo: formData.get("includeBusinessLogo") || undefined,
     });
 
     if (!parsed.success) {
@@ -635,12 +633,6 @@ export async function generateFacebookAdsFromImageAction(
       };
     }
 
-    const includeBusinessLogo =
-      parsed.data.includeBusinessLogo === "on" || parsed.data.includeBusinessLogo === "true";
-    const businessLogoUrl = includeBusinessLogo
-      ? await getWorkspaceMarketingLogoUrl(membership.workspace.id)
-      : null;
-
     const sourceImageUrl = await saveMarketingSourceImage(image);
     const creatives = await generateAdCreativesForProduct(
       {
@@ -649,8 +641,6 @@ export async function generateFacebookAdsFromImageAction(
         description: parsed.data.productDescription,
         sourceImageUrl,
         brief: parsed.data.brief,
-        brandLogoUrl: businessLogoUrl,
-        includeBrandLogo: Boolean(includeBusinessLogo && businessLogoUrl),
         creativeMode: parsed.data.creativeMode,
       },
       apiKey,
