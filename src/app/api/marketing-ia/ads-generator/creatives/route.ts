@@ -3,7 +3,7 @@ import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { generateFacebookAdCreativesForProduct } from "@/lib/facebook-ad-creatives";
+import { generateAdCreativesForProduct } from "@/lib/ad-creatives";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
 async function requireMarketingWorkspace() {
@@ -130,7 +130,7 @@ export async function POST(request: Request) {
     const productName = productNameRaw || inferProductName(prompt);
     const productDescription = prompt || "Anuncio generado desde el Ads Generator.";
 
-    const creatives = await generateFacebookAdCreativesForProduct(
+    const creatives = await generateAdCreativesForProduct(
       {
         productId: `ads-generator-${randomUUID()}`,
         name: productName,

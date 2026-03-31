@@ -37,7 +37,7 @@ type LoadedImageSource = {
 
 type SharpFn = typeof import("sharp");
 
-export type FacebookAdCreative = CreativeCopyOption & {
+export type AdCreative = CreativeCopyOption & {
   id: string;
   imageUrl: string;
 };
@@ -294,7 +294,7 @@ async function generateCreativeCopyOptions(
     "- Los testimonios deben mencionar beneficios o contexto real del producto, no frases genericas vacias.",
     "- Cada message de socialProof: maximo 10 palabras.",
     "- Cada opcion debe tener un enfoque comercial claro y distinto cuando sea posible.",
-    "- El texto debe sentirse listo para ir dentro de una imagen cuadrada de Facebook Ads.",
+    "- El texto debe sentirse listo para ir dentro de una imagen cuadrada para Meta Ads.",
   ]
     .filter(Boolean)
     .join("\n");
@@ -308,7 +308,7 @@ async function generateCreativeCopyOptions(
     body: JSON.stringify({
       model: "gpt-4.1-mini",
       instructions:
-        "Eres un director creativo experto en anuncios de Facebook Ads. Devuelve solo JSON valido.",
+        "Eres un director creativo experto en anuncios para Meta Ads. Devuelve solo JSON valido.",
       input: [
         {
           role: "user",
@@ -456,7 +456,7 @@ function buildCreativeImagePrompt(
   } as const;
 
   return [
-    "Create a square 1:1 Facebook Ads creative using the uploaded product photo as the main subject.",
+    "Create a square 1:1 Meta Ads creative using the uploaded product photo as the main subject.",
     ...modeInstructions[creativeMode],
     creativeMode === "real" ? "This must be an edit of the provided image, not a redesign from scratch." : "",
     creativeMode === "real" ? "Preserve the same product identity, silhouette, materials, color and proportions." : "",
@@ -759,17 +759,17 @@ async function saveCreativeImage(
   return `/uploads/ad-creatives/${productId}/${fileName}`;
 }
 
-export async function generateFacebookAdCreativesForProduct(
+export async function generateAdCreativesForProduct(
   context: ProductCreativeContext,
   apiKey: string,
-): Promise<FacebookAdCreative[]> {
+): Promise<AdCreative[]> {
   const imageSource = await loadImageSource(context.sourceImageUrl);
   let creativeOptions = buildFallbackCreativeOptions(context);
 
   try {
     creativeOptions = await generateCreativeCopyOptions(context, apiKey);
   } catch (error) {
-    console.warn("[FACEBOOK_AD_CREATIVE_COPY_FALLBACK]", error);
+    console.warn("[AD_CREATIVE_COPY_FALLBACK]", error);
   }
 
   return mapWithConcurrency(

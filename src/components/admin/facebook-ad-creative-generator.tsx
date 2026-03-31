@@ -61,7 +61,7 @@ export function FacebookAdCreativeGenerator({
           <div className="space-y-1.5">
             <p className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--primary)]">
               <Megaphone className="h-3.5 w-3.5" />
-              Facebook Ads
+              Meta Ads
             </p>
             <div>
               <h2 className="text-base font-semibold text-slate-900 sm:text-lg">

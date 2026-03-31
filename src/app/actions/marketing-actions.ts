@@ -7,10 +7,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { auth } from "@/auth";
-import {
-  generateFacebookAdCreativesForProduct,
-  type FacebookAdCreative,
-} from "@/lib/facebook-ad-creatives";
+import { generateAdCreativesForProduct, type AdCreative } from "@/lib/ad-creatives";
 import {
   improveMarketingFieldWithAI,
   type MarketingImprovementField,
@@ -32,7 +29,7 @@ import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 export type FacebookAdsGeneratorState = {
   ok: boolean;
   message: string;
-  creatives: FacebookAdCreative[];
+  creatives: AdCreative[];
   sourceImageUrl?: string;
   creativeMode?: "real" | "creative" | "inspired";
   productName?: string;
@@ -645,7 +642,7 @@ export async function generateFacebookAdsFromImageAction(
       : null;
 
     const sourceImageUrl = await saveMarketingSourceImage(image);
-    const creatives = await generateFacebookAdCreativesForProduct(
+    const creatives = await generateAdCreativesForProduct(
       {
         productId: `marketing-${randomUUID()}`,
         name: parsed.data.productName,
@@ -661,7 +658,7 @@ export async function generateFacebookAdsFromImageAction(
 
     return {
       ok: true,
-      message: "Se generaron 3 anuncios listos para Facebook Ads.",
+      message: "Se generaron 3 anuncios listos para Meta Ads.",
       creatives,
       sourceImageUrl,
       creativeMode: parsed.data.creativeMode,

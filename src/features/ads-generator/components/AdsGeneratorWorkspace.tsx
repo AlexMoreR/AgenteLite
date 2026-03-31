@@ -18,7 +18,7 @@ import type { AdProductInput } from "../types/ad-input";
 import type { AdsGeneratorResult } from "../types/ad-output";
 import { AdsGeneratorForm } from "./AdsGeneratorForm";
 import { AdsGeneratorResult as AdsGeneratorResultView } from "./AdsGeneratorResult";
-import type { FacebookAdCreative } from "@/lib/facebook-ad-creatives";
+import type { AdCreative } from "@/lib/ad-creatives";
 
 type AdsGeneratorWorkspaceProps = {
   initialInput?: Partial<AdProductInput>;
@@ -44,7 +44,7 @@ type UploadedImageDraft = {
 const ADS_GENERATOR_DRAFT_KEY = "marketing-ia:ads-generator-workspace:v1";
 
 function buildHistoryAssets(input: {
-  generatedCreatives: FacebookAdCreative[];
+  generatedCreatives: AdCreative[];
   sourceImageUrl: string;
   fallbackImageUrl?: string | null;
 }) {
@@ -125,7 +125,7 @@ export function AdsGeneratorWorkspace({
   const [result, setResult] = useState<AdsGeneratorResult | null>(null);
   const [lastInput, setLastInput] = useState<AdProductInput | null>(null);
   const [uploadedImages, setUploadedImages] = useState<UploadedImageDraft[]>([]);
-  const [generatedCreatives, setGeneratedCreatives] = useState<FacebookAdCreative[]>([]);
+  const [generatedCreatives, setGeneratedCreatives] = useState<AdCreative[]>([]);
   const [publishedAds, setPublishedAds] = useState<PublishedAdCard[]>([]);
   const [detailAd, setDetailAd] = useState<PublishedAdCard | null>(null);
   const [sourceImageUrl, setSourceImageUrl] = useState("");
@@ -160,7 +160,7 @@ export function AdsGeneratorWorkspace({
         draftPrompt?: string;
         variantCount?: 3 | 5 | 10;
         uploadedImages?: Array<{ id: string; url: string; name: string }>;
-        generatedCreatives?: FacebookAdCreative[];
+        generatedCreatives?: AdCreative[];
         publishedAds?: PublishedAdCard[];
         sourceImageUrl?: string;
       };
@@ -330,7 +330,7 @@ export function AdsGeneratorWorkspace({
       });
 
       const payload = (await response.json()) as
-        | { creatives?: FacebookAdCreative[]; sourceImageUrl?: string; error?: string }
+        | { creatives?: AdCreative[]; sourceImageUrl?: string; error?: string }
         | undefined;
 
       if (!response.ok || !payload?.creatives?.length) {
@@ -579,7 +579,7 @@ export function AdsGeneratorWorkspace({
                 Anuncios Listos
               </h2>
               <p className="text-sm text-slate-600">
-                {publishedAds.length} anuncio{publishedAds.length === 1 ? "" : "s"} generado{publishedAds.length === 1 ? "" : "s"} para Facebook Ads.
+                {publishedAds.length} anuncio{publishedAds.length === 1 ? "" : "s"} generado{publishedAds.length === 1 ? "" : "s"} para Meta Ads.
               </p>
             </div>
 

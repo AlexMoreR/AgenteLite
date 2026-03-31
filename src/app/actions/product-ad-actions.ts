@@ -2,14 +2,14 @@
 
 import { z } from "zod";
 import { auth } from "@/auth";
-import { generateFacebookAdCreativesForProduct, type FacebookAdCreative } from "@/lib/facebook-ad-creatives";
+import { generateAdCreativesForProduct, type AdCreative } from "@/lib/ad-creatives";
 import { hasAdminModuleAccess } from "@/lib/admin-module-access";
 import { prisma } from "@/lib/prisma";
 
 export type ProductAdCreativeActionState = {
   ok: boolean;
   message: string;
-  creatives: FacebookAdCreative[];
+  creatives: AdCreative[];
 };
 
 const generateProductCreativeSchema = z.object({
@@ -120,7 +120,7 @@ export async function generateProductFacebookAdsAction(
       };
     }
 
-    const creatives = await generateFacebookAdCreativesForProduct(
+    const creatives = await generateAdCreativesForProduct(
       {
         productId: product.id,
         name: product.name,
@@ -134,11 +134,11 @@ export async function generateProductFacebookAdsAction(
 
     return {
       ok: true,
-      message: "Se generaron 3 creativos listos para Facebook Ads.",
+      message: "Se generaron 3 creativos listos para Meta Ads.",
       creatives,
     };
   } catch (error) {
-    console.error("[PRODUCT_FACEBOOK_ADS]", error);
+    console.error("[PRODUCT_META_ADS]", error);
     return {
       ...previousState,
       ok: false,
