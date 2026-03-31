@@ -106,7 +106,7 @@ function buildAdsGeneratorHref(input: {
     params.set("keyBenefits", input.brief.trim());
   }
 
-  return `/cliente/marketing-ia/ads-generator?${params.toString()}`;
+  return `/cliente/marketing-ia/ads-generator/editor?${params.toString()}`;
 }
 
 function formatHistoryDate(value: string) {

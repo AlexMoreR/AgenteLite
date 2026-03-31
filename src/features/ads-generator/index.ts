@@ -4,6 +4,7 @@ export { generateAdStrategy } from "./services/generateAdStrategy";
 export { createAdCopies, generateCopies } from "./services/createAdCopies";
 export { buildMetaOutput } from "./services/buildMetaOutput";
 export { AdsGeneratorForm } from "./components/AdsGeneratorForm";
+export { AdsGeneratorLibrary } from "./components/AdsGeneratorLibrary";
 export { AdsGeneratorResult as AdsGeneratorResultView } from "./components/AdsGeneratorResult";
 export { AdsGeneratorWorkspace } from "./components/AdsGeneratorWorkspace";
 export type { AdImageSource, AdProductImage, AdProductInput } from "./types/ad-input";

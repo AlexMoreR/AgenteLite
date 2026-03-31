@@ -13,6 +13,22 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
+function isAssetsShape(value: unknown) {
+  if (typeof value === "undefined") {
+    return true;
+  }
+
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return (
+    isStringArray(candidate.creativeImageUrls) &&
+    (typeof candidate.sourceImageUrl === "string" || typeof candidate.sourceImageUrl === "undefined")
+  );
+}
+
 function isImageShape(value: unknown) {
   if (value === null) {
     return true;
@@ -91,7 +107,8 @@ function isHistoryEntry(value: unknown): value is AdsGeneratorHistoryEntry {
     isStringArray(meta?.creativeNotes) &&
     isStringArray(meta?.publicationChecklist) &&
     Array.isArray(meta?.copyVariants) &&
-    typeof meta?.readyToCopyText === "string"
+    typeof meta?.readyToCopyText === "string" &&
+    isAssetsShape(candidate.assets)
   );
 }
 

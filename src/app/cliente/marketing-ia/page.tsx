@@ -221,15 +221,9 @@ function MarketingPageContent({
                     <Sparkles className="h-5 w-5 sm:h-6 sm:w-6" />
                   </div>
                   <div className="space-y-1.5 sm:space-y-2">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500 sm:text-xs sm:tracking-[0.22em]">
-                      Paso 2
-                    </p>
                     <h2 className="text-[1.15rem] font-semibold tracking-[-0.04em] text-slate-950 sm:text-[1.7rem] sm:tracking-[-0.05em]">
                       Generador de anuncios
                     </h2>
-                    <p className="max-w-[70ch] text-[13px] leading-5 text-slate-600 sm:text-sm sm:leading-6">
-                      Pasa del contexto comercial a una propuesta lista para Meta Ads Manager y reutiliza Creativos cuando quieras apoyarte en una imagen generada.
-                    </p>
                   </div>
                 </div>
 
@@ -239,26 +233,6 @@ function MarketingPageContent({
                     <ArrowRight className="h-4 w-4" />
                   </Link>
                 </Button>
-              </div>
-
-              <div className="grid gap-3 lg:grid-cols-[1.1fr_0.9fr]">
-                <div className="rounded-[24px] border border-[var(--line)] bg-white/88 p-4">
-                  <p className="text-[13px] font-semibold text-slate-950 sm:text-sm">
-                    Siguiente paso: construir la propuesta del anuncio
-                  </p>
-                  <p className="mt-1 text-[12px] leading-5 text-slate-500">
-                    Define el angulo, la estructura y el copy. Si ya tienes imagen, puedes traerla desde Creativos.
-                  </p>
-                </div>
-
-                <div className="rounded-[24px] border border-[var(--line)] bg-white/88 p-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500 sm:text-[11px]">
-                    Flujo
-                  </p>
-                  <p className="mt-2 text-[13px] leading-5 text-slate-700 sm:text-sm sm:leading-6">
-                    Contexto del negocio primero, anuncio despues y creativos como apoyo visual dentro del flujo.
-                  </p>
-                </div>
               </div>
             </div>
           </div>

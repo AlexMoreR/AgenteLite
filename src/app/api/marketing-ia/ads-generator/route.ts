@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { rm, unlink } from "node:fs/promises";
+import path from "node:path";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/auth";
@@ -36,6 +38,24 @@ const deleteSchema = z.object({
   id: z.string().trim().min(1),
 });
 
+const assetsSchema = z.object({
+  sourceImageUrl: z.string().trim().min(1).optional(),
+  creativeImageUrls: z.array(z.string().trim().min(1)).default([]),
+});
+
+const postSchema = z.union([
+  adInputSchema,
+  z.object({
+    entryId: z.string().trim().min(1).optional(),
+    input: adInputSchema,
+    assets: assetsSchema.optional(),
+  }),
+  z.object({
+    draft: z.literal(true),
+    productName: z.string().trim().min(2),
+  }),
+]);
+
 async function requireMarketingWorkspace() {
   const session = await auth();
 
@@ -45,6 +65,43 @@ async function requireMarketingWorkspace() {
 
   const membership = await getPrimaryWorkspaceForUser(session.user.id);
   return membership?.workspace.id ? membership : null;
+}
+
+function resolveCreativeDirectoryFromUrl(imageUrl: string) {
+  const normalized = imageUrl.trim();
+  const match = normalized.match(/^\/uploads\/ad-creatives\/([^/]+)\/[^/]+$/);
+  if (!match) {
+    return null;
+  }
+
+  const productId = match[1];
+  if (!/^[a-zA-Z0-9_-]+$/.test(productId)) {
+    return null;
+  }
+
+  const publicRoot = path.join(process.cwd(), "public");
+  const directory = path.resolve(publicRoot, "uploads", "ad-creatives", productId);
+
+  if (!directory.startsWith(path.join(publicRoot, "uploads", "ad-creatives"))) {
+    return null;
+  }
+
+  return directory;
+}
+
+async function deleteMarketingSourceImageFile(sourceImageUrl: string | null | undefined) {
+  if (!sourceImageUrl || !sourceImageUrl.startsWith("/uploads/marketing-source/")) {
+    return;
+  }
+
+  const normalizedPath = path.normalize(sourceImageUrl).replace(/^(\.\.(\/|\\|$))+/, "");
+  const filePath = path.join(process.cwd(), "public", normalizedPath);
+
+  try {
+    await unlink(filePath);
+  } catch {
+    // Ignore missing files; clearing the history entry remains the priority.
+  }
 }
 
 export async function GET() {
@@ -64,7 +121,7 @@ export async function POST(request: Request) {
   }
 
   const json = await request.json().catch(() => null);
-  const parsed = adInputSchema.safeParse(json);
+  const parsed = postSchema.safeParse(json);
 
   if (!parsed.success) {
     return NextResponse.json(
@@ -73,12 +130,66 @@ export async function POST(request: Request) {
     );
   }
 
-  const result = await runAdsGenerator(parsed.data);
+  if ("draft" in parsed.data) {
+    const entry = {
+      id: randomUUID(),
+      createdAt: new Date().toISOString(),
+      input: {
+        productName: parsed.data.productName,
+        productDescription: `${parsed.data.productName}.`,
+        keyBenefits: ["Pendiente por definir"],
+        image: null,
+      },
+      result: {
+        summary: "Anuncio IA creado como borrador.",
+        strategy: {
+          angle: "Pendiente por definir",
+          audience: "Pendiente por definir",
+          hooks: ["Pendiente por definir"],
+          callToAction: "Pendiente por definir",
+        },
+        meta: {
+          campaignObjective: "Pendiente por definir",
+          strategicSummary: "Pendiente por definir",
+          recommendedSalesAngle: "Pendiente por definir",
+          campaignStructure: "Pendiente por definir",
+          basicSegmentation: [],
+          recommendedFormat: "Pendiente por definir",
+          primaryText: "Pendiente de publicar",
+          headline: "Pendiente de publicar",
+          description: "Completa el anuncio",
+          callToAction: "Pendiente por definir",
+          creativeIdea: "Pendiente por definir",
+          budgetRecommendation: "Pendiente por definir",
+          primaryMetric: "Pendiente por definir",
+          creativeNotes: [],
+          publicationChecklist: [],
+          copyVariants: [],
+          readyToCopyText: "",
+        },
+      },
+    };
+
+    const history = await saveAdsGeneratorHistoryEntry(membership.workspace.id, entry);
+
+    return NextResponse.json({
+      entry,
+      history,
+    });
+  }
+
+  const entryId = "input" in parsed.data ? parsed.data.entryId : undefined;
+  const input = "input" in parsed.data ? parsed.data.input : parsed.data;
+  const assets = "input" in parsed.data ? parsed.data.assets : undefined;
+  const result = await runAdsGenerator(input);
+  const currentHistory = await getAdsGeneratorHistory(membership.workspace.id);
+  const currentEntry = entryId ? currentHistory.find((item) => item.id === entryId) : null;
   const entry = {
-    id: randomUUID(),
-    createdAt: new Date().toISOString(),
-    input: parsed.data,
+    id: currentEntry?.id ?? randomUUID(),
+    createdAt: currentEntry?.createdAt ?? new Date().toISOString(),
+    input,
     result,
+    assets: assets ?? currentEntry?.assets,
   };
 
   const history = await saveAdsGeneratorHistoryEntry(membership.workspace.id, entry);
@@ -102,6 +213,25 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Id invalido" }, { status: 400 });
   }
 
+  const currentHistory = await getAdsGeneratorHistory(membership.workspace.id);
+  const entry = currentHistory.find((item) => item.id === parsed.data.id);
   const history = await deleteAdsGeneratorHistoryEntry(membership.workspace.id, parsed.data.id);
+
+  if (entry) {
+    const directories = Array.from(
+      new Set(
+        (entry.assets?.creativeImageUrls ?? [])
+          .map(resolveCreativeDirectoryFromUrl)
+          .filter((value): value is string => Boolean(value)),
+      ),
+    );
+
+    await Promise.all(directories.map((directory) => rm(directory, { recursive: true, force: true })));
+    await deleteMarketingSourceImageFile(
+      entry.assets?.sourceImageUrl ??
+        (entry.input.image?.source === "upload" ? entry.input.image.url : undefined),
+    );
+  }
+
   return NextResponse.json({ history });
 }

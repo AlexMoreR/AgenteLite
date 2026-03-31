@@ -24,6 +24,8 @@ type AdsGeneratorWorkspaceProps = {
   initialInput?: Partial<AdProductInput>;
   sourceHint?: string | null;
   businessContext?: MarketingBusinessContext | null;
+  historyEntryId?: string | null;
+  draftStorageKeySuffix?: string | null;
 };
 
 type PublishedAdCard = {
@@ -40,6 +42,27 @@ type UploadedImageDraft = {
 };
 
 const ADS_GENERATOR_DRAFT_KEY = "marketing-ia:ads-generator-workspace:v1";
+
+function buildHistoryAssets(input: {
+  generatedCreatives: FacebookAdCreative[];
+  sourceImageUrl: string;
+  fallbackImageUrl?: string | null;
+}) {
+  const creativeImageUrls = Array.from(
+    new Set(
+      input.generatedCreatives
+        .map((creative) => creative.imageUrl.trim())
+        .filter(Boolean),
+    ),
+  );
+
+  const sourceImageUrl = input.sourceImageUrl.trim() || input.fallbackImageUrl?.trim() || "";
+
+  return {
+    creativeImageUrls,
+    ...(sourceImageUrl ? { sourceImageUrl } : {}),
+  };
+}
 
 function applyPrimaryVariant(result: AdsGeneratorResult, variantIndex: number): AdsGeneratorResult {
   const variants = result.meta.copyVariants;
@@ -87,7 +110,13 @@ function applyPrimaryVariant(result: AdsGeneratorResult, variantIndex: number): 
   };
 }
 
-export function AdsGeneratorWorkspace({ initialInput, sourceHint, businessContext }: AdsGeneratorWorkspaceProps) {
+export function AdsGeneratorWorkspace({
+  initialInput,
+  sourceHint,
+  businessContext,
+  historyEntryId,
+  draftStorageKeySuffix,
+}: AdsGeneratorWorkspaceProps) {
   const [modalOpen, setModalOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -102,6 +131,7 @@ export function AdsGeneratorWorkspace({ initialInput, sourceHint, businessContex
   const [sourceImageUrl, setSourceImageUrl] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const canPortal = typeof document !== "undefined";
+  const draftStorageKey = `${ADS_GENERATOR_DRAFT_KEY}:${(draftStorageKeySuffix ?? historyEntryId ?? initialInput?.productName ?? "default").trim() || "default"}`;
 
   useEffect(() => {
     return () => {
@@ -119,7 +149,7 @@ export function AdsGeneratorWorkspace({ initialInput, sourceHint, businessContex
     }
 
     try {
-      const raw = window.localStorage.getItem(ADS_GENERATOR_DRAFT_KEY);
+      const raw = window.localStorage.getItem(draftStorageKey);
       if (!raw) {
         setDraftPrompt(initialInput?.productDescription ?? "");
         setSourceImageUrl(initialInput?.image?.url ?? "");
@@ -153,7 +183,7 @@ export function AdsGeneratorWorkspace({ initialInput, sourceHint, businessContex
       setDraftPrompt(initialInput?.productDescription ?? "");
       setSourceImageUrl(initialInput?.image?.url ?? "");
     }
-  }, [initialInput]);
+  }, [draftStorageKey, initialInput]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -161,7 +191,7 @@ export function AdsGeneratorWorkspace({ initialInput, sourceHint, businessContex
     }
 
     window.localStorage.setItem(
-      ADS_GENERATOR_DRAFT_KEY,
+      draftStorageKey,
       JSON.stringify({
         draftPrompt,
         variantCount,
@@ -171,7 +201,7 @@ export function AdsGeneratorWorkspace({ initialInput, sourceHint, businessContex
         sourceImageUrl,
       }),
     );
-  }, [draftPrompt, generatedCreatives, publishedAds, sourceImageUrl, uploadedImages, variantCount]);
+  }, [draftPrompt, draftStorageKey, generatedCreatives, publishedAds, sourceImageUrl, uploadedImages, variantCount]);
 
   useEffect(() => {
     if (!modalOpen || !canPortal) {
@@ -382,7 +412,26 @@ export function AdsGeneratorWorkspace({ initialInput, sourceHint, businessContex
             headers: {
               "Content-Type": "application/json",
             },
-            body: JSON.stringify(input),
+            body: JSON.stringify(
+              historyEntryId && index === 0
+                ? {
+                    entryId: historyEntryId,
+                    input,
+                    assets: buildHistoryAssets({
+                      generatedCreatives,
+                      sourceImageUrl,
+                      fallbackImageUrl: initialInput?.image?.url,
+                    }),
+                  }
+                : {
+                    input,
+                    assets: buildHistoryAssets({
+                      generatedCreatives,
+                      sourceImageUrl,
+                      fallbackImageUrl: initialInput?.image?.url,
+                    }),
+                  },
+            ),
           });
 
           const payload = (await response.json()) as
@@ -468,7 +517,26 @@ export function AdsGeneratorWorkspace({ initialInput, sourceHint, businessContex
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(input),
+        body: JSON.stringify(
+          historyEntryId
+            ? {
+                entryId: historyEntryId,
+                input,
+                assets: buildHistoryAssets({
+                  generatedCreatives,
+                  sourceImageUrl,
+                  fallbackImageUrl: initialInput?.image?.url,
+                }),
+              }
+            : {
+                input,
+                assets: buildHistoryAssets({
+                  generatedCreatives,
+                  sourceImageUrl,
+                  fallbackImageUrl: initialInput?.image?.url,
+                }),
+              },
+        ),
       });
 
       const payload = (await response.json()) as
