@@ -108,10 +108,16 @@ export async function POST(request: Request) {
   const productNameRaw = String(formData.get("productName") ?? "").trim();
   const creativeModeRaw = String(formData.get("creativeMode") ?? "real").trim();
   const creativeCountRaw = Number(formData.get("creativeCount") ?? 3);
+  const showSocialProofRaw = String(formData.get("showSocialProof") ?? "true").trim();
+  const showRatingStripRaw = String(formData.get("showRatingStrip") ?? "true").trim();
+  const showProductCalloutsRaw = String(formData.get("showProductCallouts") ?? "false").trim();
   const creativeMode =
     creativeModeRaw === "creative" || creativeModeRaw === "inspired" ? creativeModeRaw : "real";
   const creativeCount =
     Number.isFinite(creativeCountRaw) && [3, 5, 10].includes(creativeCountRaw) ? creativeCountRaw : 3;
+  const showSocialProof = showSocialProofRaw !== "false";
+  const showRatingStrip = showRatingStripRaw !== "false";
+  const showProductCallouts = showProductCalloutsRaw === "true";
 
   let sourceImageUrl = sourceImageUrlRaw;
 
@@ -139,6 +145,9 @@ export async function POST(request: Request) {
         brief: prompt || productName,
         creativeMode,
         creativeCount,
+        showSocialProof,
+        showRatingStrip,
+        showProductCallouts,
       },
       apiKey,
     );

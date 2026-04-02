@@ -10,9 +10,11 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import type { MarketingBusinessContext } from "@/lib/marketing-business-context";
 import type { AdProductInput } from "../types/ad-input";
 import type { AdsGeneratorResult } from "../types/ad-output";
@@ -41,7 +43,57 @@ type UploadedImageDraft = {
   file?: File;
 };
 
+type MetaDownloadFormat = {
+  fileLabel: string;
+  menuLabel: string;
+  ratioLabel: string;
+  width: number;
+  height: number;
+};
+
 const ADS_GENERATOR_DRAFT_KEY = "marketing-ia:ads-generator-workspace:v1";
+
+const metaDownloadFormats: Record<"square" | "vertical" | "horizontal", MetaDownloadFormat> = {
+  square: {
+    fileLabel: "cuadrado",
+    menuLabel: "Imagen cuadrada",
+    ratioLabel: "1:1",
+    width: 1080,
+    height: 1080,
+  },
+  vertical: {
+    fileLabel: "vertical",
+    menuLabel: "Imagen vertical",
+    ratioLabel: "9:16",
+    width: 1080,
+    height: 1920,
+  },
+  horizontal: {
+    fileLabel: "horizontal",
+    menuLabel: "Imagen horizontal",
+    ratioLabel: "1.91:1",
+    width: 1200,
+    height: 628,
+  },
+};
+
+const creativeModeOptions = [
+  {
+    value: "real" as const,
+    title: "Real",
+    description: "Mantiene el producto muy fiel a la foto original, con mejora comercial sutil.",
+  },
+  {
+    value: "creative" as const,
+    title: "Creativo",
+    description: "Da mas direccion publicitaria, composicion y energia visual para vender.",
+  },
+  {
+    value: "inspired" as const,
+    title: "Inspirado",
+    description: "Empuja una estetica mas aspiracional, premium y scroll-stopping.",
+  },
+];
 
 function buildHistoryAssets(input: {
   generatedCreatives: AdCreative[];
@@ -110,6 +162,98 @@ function applyPrimaryVariant(result: AdsGeneratorResult, variantIndex: number): 
   };
 }
 
+function slugifyFilePart(value: string) {
+  return value
+    .normalize("NFKD")
+    .replace(/[^\w\s-]/g, "")
+    .trim()
+    .replace(/\s+/g, "-")
+    .toLowerCase()
+    .slice(0, 60);
+}
+
+async function loadImageElement(src: string) {
+  const response = await fetch(src, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error("No pudimos descargar la imagen del anuncio.");
+  }
+
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const nextImage = new window.Image();
+      nextImage.onload = () => resolve(nextImage);
+      nextImage.onerror = () => reject(new Error("No pudimos procesar la imagen del anuncio."));
+      nextImage.src = objectUrl;
+    });
+
+    return image;
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+async function downloadMetaFormattedImage(
+  imageUrl: string,
+  title: string,
+  format: MetaDownloadFormat,
+) {
+  const image = await loadImageElement(imageUrl);
+  const canvas = document.createElement("canvas");
+  canvas.width = format.width;
+  canvas.height = format.height;
+
+  const context = canvas.getContext("2d");
+  if (!context) {
+    throw new Error("No pudimos preparar la descarga de la imagen.");
+  }
+
+  context.fillStyle = "#e5e7eb";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+
+  const backgroundScale = Math.max(canvas.width / image.width, canvas.height / image.height);
+  const backgroundWidth = image.width * backgroundScale;
+  const backgroundHeight = image.height * backgroundScale;
+  const backgroundX = (canvas.width - backgroundWidth) / 2;
+  const backgroundY = (canvas.height - backgroundHeight) / 2;
+
+  context.save();
+  context.filter = "blur(28px) brightness(0.82)";
+  context.drawImage(image, backgroundX, backgroundY, backgroundWidth, backgroundHeight);
+  context.restore();
+
+  context.fillStyle = "rgba(15, 23, 42, 0.18)";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+
+  const foregroundScale = Math.min(canvas.width / image.width, canvas.height / image.height);
+  const foregroundWidth = image.width * foregroundScale;
+  const foregroundHeight = image.height * foregroundScale;
+  const foregroundX = (canvas.width - foregroundWidth) / 2;
+  const foregroundY = (canvas.height - foregroundHeight) / 2;
+
+  context.drawImage(image, foregroundX, foregroundY, foregroundWidth, foregroundHeight);
+
+  const blob = await new Promise<Blob | null>((resolve) => {
+    canvas.toBlob((value) => resolve(value), "image/png");
+  });
+
+  if (!blob) {
+    throw new Error("No pudimos exportar la imagen para descarga.");
+  }
+
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  const safeTitle = slugifyFilePart(title) || "anuncio-meta";
+  anchor.href = objectUrl;
+  anchor.download = `${safeTitle}-${format.fileLabel}-${format.ratioLabel.replace(/[:.]/g, "-")}.png`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(objectUrl);
+}
+
 export function AdsGeneratorWorkspace({
   initialInput,
   sourceHint,
@@ -129,6 +273,12 @@ export function AdsGeneratorWorkspace({
   const [publishedAds, setPublishedAds] = useState<PublishedAdCard[]>([]);
   const [detailAd, setDetailAd] = useState<PublishedAdCard | null>(null);
   const [sourceImageUrl, setSourceImageUrl] = useState("");
+  const [downloadingAdId, setDownloadingAdId] = useState<string | null>(null);
+  const [generationSettingsOpen, setGenerationSettingsOpen] = useState(false);
+  const [creativeMode, setCreativeMode] = useState<"real" | "creative" | "inspired">("real");
+  const [showSocialProof, setShowSocialProof] = useState(true);
+  const [showRatingStrip, setShowRatingStrip] = useState(true);
+  const [showProductCallouts, setShowProductCallouts] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const canPortal = typeof document !== "undefined";
   const draftStorageKey = `${ADS_GENERATOR_DRAFT_KEY}:${(draftStorageKeySuffix ?? historyEntryId ?? initialInput?.productName ?? "default").trim() || "default"}`;
@@ -163,6 +313,10 @@ export function AdsGeneratorWorkspace({
         generatedCreatives?: AdCreative[];
         publishedAds?: PublishedAdCard[];
         sourceImageUrl?: string;
+        creativeMode?: "real" | "creative" | "inspired";
+        showSocialProof?: boolean;
+        showRatingStrip?: boolean;
+        showProductCallouts?: boolean;
       };
 
       setDraftPrompt(parsed.draftPrompt ?? initialInput?.productDescription ?? "");
@@ -179,9 +333,19 @@ export function AdsGeneratorWorkspace({
       setGeneratedCreatives(Array.isArray(parsed.generatedCreatives) ? parsed.generatedCreatives : []);
       setPublishedAds(Array.isArray(parsed.publishedAds) ? parsed.publishedAds : []);
       setSourceImageUrl(parsed.sourceImageUrl ?? initialInput?.image?.url ?? "");
+      setCreativeMode(
+        parsed.creativeMode === "creative" || parsed.creativeMode === "inspired" ? parsed.creativeMode : "real",
+      );
+      setShowSocialProof(parsed.showSocialProof ?? true);
+      setShowRatingStrip(parsed.showRatingStrip ?? true);
+      setShowProductCallouts(parsed.showProductCallouts ?? false);
     } catch {
       setDraftPrompt(initialInput?.productDescription ?? "");
       setSourceImageUrl(initialInput?.image?.url ?? "");
+      setCreativeMode("real");
+      setShowSocialProof(true);
+      setShowRatingStrip(true);
+      setShowProductCallouts(false);
     }
   }, [draftStorageKey, initialInput]);
 
@@ -199,9 +363,25 @@ export function AdsGeneratorWorkspace({
         generatedCreatives,
         publishedAds,
         sourceImageUrl,
+        creativeMode,
+        showSocialProof,
+        showRatingStrip,
+        showProductCallouts,
       }),
     );
-  }, [draftPrompt, draftStorageKey, generatedCreatives, publishedAds, sourceImageUrl, uploadedImages, variantCount]);
+  }, [
+    creativeMode,
+    draftPrompt,
+    draftStorageKey,
+    generatedCreatives,
+    publishedAds,
+    showRatingStrip,
+    showSocialProof,
+    showProductCallouts,
+    sourceImageUrl,
+    uploadedImages,
+    variantCount,
+  ]);
 
   useEffect(() => {
     if (!modalOpen || !canPortal) {
@@ -228,6 +408,19 @@ export function AdsGeneratorWorkspace({
       document.body.style.overflow = previousOverflow;
     };
   }, [canPortal, detailAd]);
+
+  useEffect(() => {
+    if (!generationSettingsOpen || !canPortal) {
+      return;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [canPortal, generationSettingsOpen]);
 
   const modalInitialValues = useMemo(
     () => ({
@@ -308,10 +501,15 @@ export function AdsGeneratorWorkspace({
     try {
       const formData = new FormData();
       const primaryFile = uploadedImages[0]?.file;
-      const primaryImageUrl = sourceImageUrl || initialInput?.image?.url || "";
+      const uploadedImageUrl = uploadedImages[0]?.url || "";
+      const primaryImageUrl =
+        (primaryFile ? "" : uploadedImageUrl) ||
+        sourceImageUrl ||
+        initialInput?.image?.url ||
+        "";
       const prompt = draftPrompt.trim();
 
-      if (primaryFile && !sourceImageUrl) {
+      if (primaryFile) {
         formData.append("image", primaryFile);
       }
 
@@ -321,7 +519,10 @@ export function AdsGeneratorWorkspace({
 
       formData.append("prompt", prompt);
       formData.append("productName", initialInput?.productName?.trim() || "");
-      formData.append("creativeMode", "real");
+      formData.append("creativeMode", creativeMode);
+      formData.append("showSocialProof", String(showSocialProof));
+      formData.append("showRatingStrip", String(showRatingStrip));
+      formData.append("showProductCallouts", String(showProductCallouts));
       formData.append("creativeCount", String(missingCreatives));
 
       const response = await fetch("/api/marketing-ia/ads-generator/creatives", {
@@ -341,6 +542,7 @@ export function AdsGeneratorWorkspace({
       if (payload.sourceImageUrl) {
         setSourceImageUrl(payload.sourceImageUrl);
       }
+      setGenerationSettingsOpen(false);
     } catch (nextError: unknown) {
       setError(
         nextError instanceof Error
@@ -350,6 +552,14 @@ export function AdsGeneratorWorkspace({
     } finally {
       setPending(false);
     }
+  };
+
+  const openGenerationSettings = () => {
+    if (pending) {
+      return;
+    }
+
+    setGenerationSettingsOpen(true);
   };
 
   const handlePublishAds = async () => {
@@ -562,6 +772,32 @@ export function AdsGeneratorWorkspace({
     }
   };
 
+  const handleDownloadMetaImage = async (
+    ad: PublishedAdCard,
+    formatKey: keyof typeof metaDownloadFormats,
+    index: number,
+  ) => {
+    setDownloadingAdId(`${ad.id}-${formatKey}`);
+    setError(null);
+
+    try {
+      const title =
+        ad.result.meta.headline?.trim() ||
+        ad.result.meta.callToAction?.trim() ||
+        `anuncio-${index + 1}`;
+
+      await downloadMetaFormattedImage(ad.imageUrl, title, metaDownloadFormats[formatKey]);
+    } catch (nextError: unknown) {
+      setError(
+        nextError instanceof Error
+          ? nextError.message
+          : "No pudimos descargar la imagen en el formato seleccionado.",
+      );
+    } finally {
+      setDownloadingAdId(null);
+    }
+  };
+
   return (
     <section className="app-page space-y-5">
       {error ? (
@@ -631,7 +867,32 @@ export function AdsGeneratorWorkspace({
                             <MoreHorizontal className="h-4 w-4" />
                           </button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="min-w-40 rounded-2xl">
+                        <DropdownMenuContent align="end" className="min-w-48 rounded-2xl">
+                          <DropdownMenuItem
+                            onSelect={() => {
+                              void handleDownloadMetaImage(ad, "square", index);
+                            }}
+                            disabled={Boolean(downloadingAdId)}
+                          >
+                            {metaDownloadFormats.square.menuLabel}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onSelect={() => {
+                              void handleDownloadMetaImage(ad, "vertical", index);
+                            }}
+                            disabled={Boolean(downloadingAdId)}
+                          >
+                            {metaDownloadFormats.vertical.menuLabel}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onSelect={() => {
+                              void handleDownloadMetaImage(ad, "horizontal", index);
+                            }}
+                            disabled={Boolean(downloadingAdId)}
+                          >
+                            {metaDownloadFormats.horizontal.menuLabel}
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
                           <DropdownMenuItem onSelect={() => setDetailAd(ad)}>
                             Por que este anuncio
                           </DropdownMenuItem>
@@ -874,7 +1135,7 @@ export function AdsGeneratorWorkspace({
                   type="button"
                   disabled={pending}
                   className="h-11 w-full rounded-full px-6 shadow-[0_18px_36px_-22px_color-mix(in_srgb,var(--primary)_45%,black)] md:w-auto"
-                  onClick={handleGenerateCreatives}
+                  onClick={openGenerationSettings}
                 >
                   {pending ? "Generando..." : "Generar"}
                   <SendHorizonal className="h-4 w-4" />
@@ -908,6 +1169,32 @@ export function AdsGeneratorWorkspace({
           )
         : null}
 
+      {generationSettingsOpen && canPortal
+        ? createPortal(
+            <AdsGeneratorCreativeSettingsModal
+              pending={pending}
+              creativeMode={creativeMode}
+              showSocialProof={showSocialProof}
+              showRatingStrip={showRatingStrip}
+              showProductCallouts={showProductCallouts}
+              onCreativeModeChange={setCreativeMode}
+              onShowSocialProofChange={setShowSocialProof}
+              onShowRatingStripChange={setShowRatingStrip}
+              onShowProductCalloutsChange={setShowProductCallouts}
+              onClose={() => {
+                if (!pending) {
+                  setGenerationSettingsOpen(false);
+                }
+              }}
+              onConfirm={() => {
+                setGenerationSettingsOpen(false);
+                void handleGenerateCreatives();
+              }}
+            />,
+            document.body,
+          )
+        : null}
+
       {detailAd && canPortal
         ? createPortal(
             <AdsGeneratorDetailModal
@@ -918,6 +1205,162 @@ export function AdsGeneratorWorkspace({
           )
         : null}
     </section>
+  );
+}
+
+function AdsGeneratorCreativeSettingsModal({
+  pending,
+  creativeMode,
+  showSocialProof,
+  showRatingStrip,
+  showProductCallouts,
+  onCreativeModeChange,
+  onShowSocialProofChange,
+  onShowRatingStripChange,
+  onShowProductCalloutsChange,
+  onClose,
+  onConfirm,
+}: {
+  pending: boolean;
+  creativeMode: "real" | "creative" | "inspired";
+  showSocialProof: boolean;
+  showRatingStrip: boolean;
+  showProductCallouts: boolean;
+  onCreativeModeChange: (value: "real" | "creative" | "inspired") => void;
+  onShowSocialProofChange: (value: boolean) => void;
+  onShowRatingStripChange: (value: boolean) => void;
+  onShowProductCalloutsChange: (value: boolean) => void;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[#0f172a80] p-4 md:p-6"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Configuracion de creativos"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-2xl rounded-[32px] border border-[rgba(148,163,184,0.18)] bg-[linear-gradient(180deg,#fefefe_0%,#f8fafc_100%)] p-5 shadow-[0_42px_110px_-52px_rgba(15,23,42,0.5)] md:p-6"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-1">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--primary)]">
+              Configuracion previa
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={pending}
+            className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-[rgba(148,163,184,0.16)] bg-white text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            aria-label="Cerrar"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="mt-6 space-y-6">
+          <div className="space-y-3">
+            <div>
+              <p className="text-sm font-semibold text-slate-900">Estilo de generacion</p>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-3">
+              {creativeModeOptions.map((mode) => {
+                const selected = creativeMode === mode.value;
+
+                return (
+                  <button
+                    key={mode.value}
+                    type="button"
+                    onClick={() => onCreativeModeChange(mode.value)}
+                    className={`rounded-[24px] border px-4 py-4 text-left transition ${
+                      selected
+                        ? "border-[var(--primary)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--primary)_10%,white),rgba(255,255,255,0.96))] shadow-[0_20px_36px_-28px_color-mix(in_srgb,var(--primary)_42%,black)]"
+                        : "border-[rgba(148,163,184,0.18)] bg-white hover:border-[rgba(148,163,184,0.3)] hover:bg-slate-50"
+                    }`}
+                    aria-pressed={selected}
+                  >
+                    <span className="block text-sm font-semibold text-slate-950">{mode.title}</span>
+                    <span className="mt-1.5 block text-xs leading-5 text-slate-500">
+                      {mode.description}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <div>
+              <p className="text-sm font-semibold text-slate-900">Elementos de conversion</p>
+            </div>
+
+            <label className="flex items-center justify-between gap-4 rounded-[24px] border border-[rgba(148,163,184,0.16)] bg-white px-4 py-3.5">
+              <div>
+                <p className="text-sm font-semibold text-slate-900">Burbujas de referencia social</p>
+                <p className="mt-1 text-xs leading-5 text-slate-500">
+                  Muestra testimonios cortos flotantes para reforzar confianza y persuasion.
+                </p>
+              </div>
+              <Switch
+                checked={showSocialProof}
+                onCheckedChange={onShowSocialProofChange}
+                aria-label="Mostrar burbujas de referencia social"
+              />
+            </label>
+
+            <label className="flex items-center justify-between gap-4 rounded-[24px] border border-[rgba(148,163,184,0.16)] bg-white px-4 py-3.5">
+              <div>
+                <p className="text-sm font-semibold text-slate-900">Estrellas y contador</p>
+                <p className="mt-1 text-xs leading-5 text-slate-500">
+                  Agrega la tira de rating con estrellas y volumen de clientes satisfechos.
+                </p>
+              </div>
+              <Switch
+                checked={showRatingStrip}
+                onCheckedChange={onShowRatingStripChange}
+                aria-label="Mostrar estrellas y contador"
+              />
+            </label>
+
+            <label className="flex items-center justify-between gap-4 rounded-[24px] border border-[rgba(148,163,184,0.16)] bg-white px-4 py-3.5">
+              <div>
+                <p className="text-sm font-semibold text-slate-900">Callouts del producto</p>
+                <p className="mt-1 text-xs leading-5 text-slate-500">
+                  Agrega circulos alrededor con acercamientos, detalles o vistas del producto desde otros angulos.
+                </p>
+              </div>
+              <Switch
+                checked={showProductCallouts}
+                onCheckedChange={onShowProductCalloutsChange}
+                aria-label="Mostrar callouts del producto"
+              />
+            </label>
+          </div>
+        </div>
+
+        <div className="mt-6 flex flex-col-reverse gap-3 border-t border-[rgba(148,163,184,0.12)] pt-5 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs text-slate-500">
+            Puedes regenerar cambiando esta combinacion para comparar conversion visual.
+          </p>
+
+          <div className="flex items-center gap-3">
+            <Button type="button" variant="outline" className="rounded-full" onClick={onClose} disabled={pending}>
+              Cancelar
+            </Button>
+            <Button type="button" className="rounded-full px-5" onClick={onConfirm} disabled={pending}>
+              {pending ? "Generando..." : "Generar"}
+              <SendHorizonal className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
