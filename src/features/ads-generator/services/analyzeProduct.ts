@@ -1,4 +1,5 @@
 import type { AdProductInput } from "../types/ad-input";
+import type { AdsGeneratorAiBundle } from "./adsGeneratorAi";
 
 export type ProductAnalysis = {
   productName: string;
@@ -15,6 +16,14 @@ export type ProductAnalysis = {
   audience: string;
   confidenceSignals: string[];
   imageAvailable: boolean;
+  strategicSummary?: string;
+  recommendedFormat?: string;
+  campaignStructure?: string;
+  basicSegmentation?: string[];
+  creativeIdea?: string;
+  budgetRecommendation?: string;
+  primaryMetric?: string;
+  publicationChecklist?: string[];
 };
 
 const objectivePriority = {
@@ -131,45 +140,66 @@ function formatPrice(price: number | undefined, currency: string | undefined) {
   }
 }
 
-export async function analyzeProduct(input: AdProductInput): Promise<ProductAnalysis> {
+export async function analyzeProduct(
+  input: AdProductInput,
+  aiBundle?: AdsGeneratorAiBundle | null,
+): Promise<ProductAnalysis> {
   const benefits = dedupe(input.keyBenefits.map((item) => sentenceCase(item)));
   const painPoints = dedupe((input.painPoints ?? []).map((item) => sentenceCase(item)));
   const description = input.productDescription.trim();
-  const recommendedObjective = inferObjective(input, description, painPoints);
-  const sortedBenefits = [...benefits].sort(
+  const aiBenefits = dedupe((aiBundle?.analysis?.benefits ?? []).map((item) => sentenceCase(item)));
+  const resolvedBenefits = aiBenefits.length > 0 ? aiBenefits : benefits;
+  const recommendedObjective =
+    aiBundle?.analysis?.recommendedObjective ?? inferObjective(input, description, painPoints);
+  const sortedBenefits = [...resolvedBenefits].sort(
     (left, right) =>
       scoreBenefit(right, recommendedObjective) - scoreBenefit(left, recommendedObjective),
   );
   const primaryBenefit =
+    aiBundle?.analysis?.primaryBenefit ??
     sortedBenefits[0] ??
-    sentenceCase(description.split(/[.!?]/).map((part) => part.trim()).find(Boolean) ?? "Beneficio principal por definir");
-  const supportingBenefits = sortedBenefits.slice(1, 3);
-  const primaryPainPoint = painPoints[0] ?? null;
+    sentenceCase(
+      description.split(/[.!?]/).map((part) => part.trim()).find(Boolean) ?? "Beneficio principal por definir",
+    );
+  const supportingBenefits = aiBundle?.analysis?.supportingBenefits?.length
+    ? dedupe(aiBundle.analysis.supportingBenefits.map((item) => sentenceCase(item))).slice(0, 3)
+    : sortedBenefits.slice(1, 3);
+  const primaryPainPoint = aiBundle?.analysis?.primaryPainPoint ?? painPoints[0] ?? null;
   const confidenceSignals = dedupe([
     typeof input.price === "number" ? `Precio visible ${formatPrice(input.price, input.currency)}` : "",
     input.brandName ? `Marca ${input.brandName}` : "",
     input.image?.url ? "Tiene recurso visual para el anuncio" : "",
+    ...(aiBundle?.analysis?.confidenceSignals ?? []),
     /(garantia|resenas|testado|original|envio)/i.test(description)
-      ? "Incluye señales de confianza en la descripcion"
+      ? "Incluye senales de confianza en la descripcion"
       : "",
   ]);
 
   return {
     productName: input.productName,
-    categoryName: input.categoryName ?? "General",
-    mainOffer: extractMainOffer(description, input.productName),
-    benefits,
+    categoryName: aiBundle?.analysis?.categoryName ?? input.categoryName ?? "General",
+    mainOffer: aiBundle?.analysis?.mainOffer ?? extractMainOffer(description, input.productName),
+    benefits: resolvedBenefits,
     primaryBenefit,
     supportingBenefits,
     primaryPainPoint,
     recommendedObjective,
     priceLabel: formatPrice(input.price, input.currency),
     brandLabel: input.brandName?.trim() || null,
-    tone: input.tone ?? "persuasive",
+    tone: aiBundle?.analysis?.tone ?? input.tone ?? "persuasive",
     audience:
+      aiBundle?.analysis?.audience ||
       input.audienceSummary?.trim() ||
       "Personas interesadas en una solucion concreta, facil de entender y de accionar.",
     confidenceSignals,
     imageAvailable: Boolean(input.image?.url),
+    strategicSummary: aiBundle?.analysis?.strategicSummary,
+    recommendedFormat: aiBundle?.analysis?.recommendedFormat,
+    campaignStructure: aiBundle?.analysis?.campaignStructure,
+    basicSegmentation: aiBundle?.analysis?.basicSegmentation,
+    creativeIdea: aiBundle?.analysis?.creativeIdea,
+    budgetRecommendation: aiBundle?.analysis?.budgetRecommendation,
+    primaryMetric: aiBundle?.analysis?.primaryMetric,
+    publicationChecklist: aiBundle?.analysis?.publicationChecklist,
   };
 }

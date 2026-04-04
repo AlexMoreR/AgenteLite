@@ -5,6 +5,7 @@ import {
   FileText,
   LayoutDashboard,
   Megaphone,
+  MessageSquare,
   Package,
   Settings,
   Tag,
@@ -49,6 +50,7 @@ export function AppSidebar({ pathname, brandName, adminModuleAccess, user, ...pr
   const isAdminSuppliersRoute = pathname.startsWith("/admin/proveedores");
   const isClientAgentsRoute = pathname.startsWith("/cliente/agentes");
   const isClientMarketingRoute = pathname.startsWith("/cliente/marketing-ia");
+  const isClientOfficialApiRoute = pathname.startsWith("/cliente/api-oficial");
 
   const navMain = [
     {
@@ -64,7 +66,8 @@ export function AppSidebar({ pathname, brandName, adminModuleAccess, user, ...pr
           !isAdminQuotesRoute &&
           !isAdminSuppliersRoute &&
           !isClientAgentsRoute &&
-          !isClientMarketingRoute),
+          !isClientMarketingRoute &&
+          !isClientOfficialApiRoute),
       items: [
         { title: "Vista general", url: dashboardHref },
       ],
@@ -136,6 +139,14 @@ export function AppSidebar({ pathname, brandName, adminModuleAccess, user, ...pr
       icon: Megaphone,
       isActive: pathname.startsWith("/cliente/marketing-ia"),
       items: [{ title: "Anuncios", url: "/cliente/marketing-ia" }],
+    });
+
+    navMain.push({
+      title: "Api oficial",
+      url: "/cliente/api-oficial",
+      icon: MessageSquare,
+      isActive: pathname.startsWith("/cliente/api-oficial"),
+      items: [{ title: "Conversaciones", url: "/cliente/api-oficial" }],
     });
 
     navMain.push({

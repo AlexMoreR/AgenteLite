@@ -1,5 +1,6 @@
 import type { AdProductInput } from "../types/ad-input";
 import type { AdStrategy } from "../types/ad-output";
+import type { AdsGeneratorAiBundle } from "./adsGeneratorAi";
 import type { ProductAnalysis } from "./analyzeProduct";
 
 function selectCallToAction(
@@ -58,17 +59,16 @@ function buildHooks(analysis: ProductAnalysis, cta: string) {
 export async function generateAdStrategy(
   input: AdProductInput,
   analysis: ProductAnalysis,
+  aiBundle?: AdsGeneratorAiBundle | null,
 ): Promise<AdStrategy> {
-  const callToAction = selectCallToAction(
-    analysis.recommendedObjective,
-    input.callToAction,
-    analysis.tone,
-  );
+  const callToAction =
+    aiBundle?.strategy?.callToAction?.trim() ||
+    selectCallToAction(analysis.recommendedObjective, input.callToAction, analysis.tone);
 
   return {
-    angle: selectAngle(analysis),
-    audience: analysis.audience,
-    hooks: buildHooks(analysis, callToAction),
+    angle: aiBundle?.strategy?.angle?.trim() || selectAngle(analysis),
+    audience: aiBundle?.strategy?.audience?.trim() || analysis.audience,
+    hooks: aiBundle?.strategy?.hooks?.length ? aiBundle.strategy.hooks : buildHooks(analysis, callToAction),
     callToAction,
   };
 }

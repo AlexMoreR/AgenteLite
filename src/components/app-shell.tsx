@@ -83,6 +83,8 @@ export function AppShell({
     ? "Inicio"
     : pathname.startsWith("/admin/cotizaciones")
       ? "Cotizaciones"
+    : pathname.startsWith("/cliente/api-oficial")
+      ? "Api oficial"
     : pathname.startsWith("/cliente/marketing-ia/ads-generator")
       ? "Ads Generator"
     : pathname.startsWith("/cliente/marketing-ia/creativos") || pathname.startsWith("/cliente/marketing-ia/facebook-ads")
@@ -134,6 +136,10 @@ export function AppShell({
 
     if (pathname.startsWith("/cliente/agentes")) {
       return [{ label: "Agentes", href: "", isCurrent: true }];
+    }
+
+    if (pathname.startsWith("/cliente/api-oficial")) {
+      return [{ label: "Api oficial", href: "", isCurrent: true }];
     }
 
     if (pathname.startsWith("/cliente/marketing-ia/creativos") || pathname.startsWith("/cliente/marketing-ia/facebook-ads")) {

@@ -24,6 +24,7 @@ import {
   sendEmailVerificationEmail,
   sendPasswordResetEmail,
 } from "@/lib/mailer";
+import { upsertOfficialApiConfigByWorkspaceId } from "@/lib/official-api-config";
 import { prisma } from "@/lib/prisma";
 import {
   ActionState,
@@ -440,6 +441,17 @@ const adminSendPasswordResetSchema = z.object({
   userId: z.string().min(1),
 });
 
+const adminUpdateOfficialApiConfigSchema = z.object({
+  userId: z.string().min(1),
+  workspaceId: z.string().min(1),
+  accessToken: z.string().trim().min(1, "Access token requerido"),
+  phoneNumberId: z.string().trim().min(1, "Phone number id requerido"),
+  wabaId: z.string().trim().min(1, "WABA id requerido"),
+  webhookVerifyToken: z.string().trim().optional(),
+  appSecret: z.string().trim().optional(),
+  returnTo: z.string().trim().optional(),
+});
+
 export async function adminUpdateUserRoleAction(formData: FormData): Promise<void> {
   await requireAdminSession();
 
@@ -567,6 +579,65 @@ export async function adminUpdateWorkspacePlanExpiryAction(formData: FormData): 
   revalidatePath("/admin/configuracion");
   revalidatePath("/admin/configuracion/usuarios");
   redirect("/admin/configuracion/usuarios?ok=Vencimiento+actualizado");
+}
+
+export async function adminUpdateOfficialApiConfigAction(formData: FormData): Promise<void> {
+  await requireAdminSession();
+
+  const parsed = adminUpdateOfficialApiConfigSchema.safeParse({
+    userId: formData.get("userId"),
+    workspaceId: formData.get("workspaceId"),
+    accessToken: formData.get("accessToken"),
+    phoneNumberId: formData.get("phoneNumberId"),
+    wabaId: formData.get("wabaId"),
+    webhookVerifyToken: formData.get("webhookVerifyToken"),
+    appSecret: formData.get("appSecret"),
+    returnTo: formData.get("returnTo"),
+  });
+
+  if (!parsed.success) {
+    redirect("/admin/configuracion/usuarios?error=Datos+de+API+oficial+invalidos");
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: parsed.data.userId },
+    select: {
+      id: true,
+      role: true,
+      workspaceMemberships: {
+        orderBy: { createdAt: "asc" },
+        take: 1,
+        select: {
+          workspaceId: true,
+        },
+      },
+    },
+  });
+
+  if (!user || user.role !== "CLIENTE") {
+    redirect("/admin/configuracion/usuarios?error=Cliente+no+encontrado");
+  }
+
+  const primaryWorkspaceId = user.workspaceMemberships[0]?.workspaceId;
+  if (!primaryWorkspaceId || primaryWorkspaceId !== parsed.data.workspaceId) {
+    redirect("/admin/configuracion/usuarios?error=El+cliente+no+tiene+workspace+valido");
+  }
+
+  await upsertOfficialApiConfigByWorkspaceId({
+    workspaceId: parsed.data.workspaceId,
+    accessToken: parsed.data.accessToken,
+    phoneNumberId: parsed.data.phoneNumberId,
+    wabaId: parsed.data.wabaId,
+    webhookVerifyToken: parsed.data.webhookVerifyToken,
+    appSecret: parsed.data.appSecret,
+  });
+
+  revalidatePath("/admin/configuracion");
+  revalidatePath("/admin/configuracion/usuarios");
+  revalidatePath("/cliente/api-oficial");
+  const successRedirect =
+    parsed.data.returnTo?.trim() || "/admin/configuracion/usuarios?ok=API+oficial+de+WhatsApp+actualizada";
+  redirect(successRedirect);
 }
 
 export async function adminDeleteUserAction(formData: FormData): Promise<void> {

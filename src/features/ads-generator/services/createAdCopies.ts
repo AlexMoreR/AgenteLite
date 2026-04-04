@@ -1,4 +1,5 @@
 import type { AdCopyVariant } from "../types/ad-output";
+import type { AdsGeneratorAiBundle } from "./adsGeneratorAi";
 import type { ProductAnalysis } from "./analyzeProduct";
 import type { AdStrategy } from "../types/ad-output";
 
@@ -513,7 +514,17 @@ function createDescriptionForVariant(
 export async function createAdCopies(
   analysis: ProductAnalysis,
   strategy: AdStrategy,
+  aiBundle?: AdsGeneratorAiBundle | null,
 ): Promise<AdCopyVariant[]> {
+  if (aiBundle?.copies?.length) {
+    return aiBundle.copies.map((copy, index) => ({
+      id: copy.id?.trim() || `variante-${index + 1}`,
+      primaryText: copy.primaryText.trim(),
+      headline: copy.headline.trim(),
+      description: copy.description.trim(),
+    }));
+  }
+
   const supportBenefit = analysis.supportingBenefits[0] ?? analysis.primaryBenefit;
   const secondSupportBenefit = analysis.supportingBenefits[1] ?? supportBenefit;
   const painPoint = cleanPainPoint(analysis.primaryPainPoint);

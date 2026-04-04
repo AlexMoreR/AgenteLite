@@ -6,6 +6,7 @@ import { UsersDataTable } from "@/components/admin/users-data-table";
 import { Card } from "@/components/ui/card";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { hasAdminModuleAccess } from "@/lib/admin-module-access";
+import { getOfficialApiConfigByWorkspaceIds } from "@/lib/official-api-config";
 import { isWorkspacePlanExpired } from "@/lib/plans";
 import { prisma } from "@/lib/prisma";
 
@@ -43,6 +44,7 @@ export default async function AdminConfiguracionUsuariosPage({ searchParams }: P
           workspace: {
             select: {
               id: true,
+              name: true,
               planTier: true,
               planExpiresAt: true,
             },
@@ -52,8 +54,16 @@ export default async function AdminConfiguracionUsuariosPage({ searchParams }: P
     },
   });
 
+  const workspaceIds = users
+    .map((user) => user.workspaceMemberships[0]?.workspace.id)
+    .filter((value): value is string => Boolean(value));
+  const officialApiConfigMap = await getOfficialApiConfigByWorkspaceIds(workspaceIds);
+
   const usersForTable = users.map((user) => {
     const primaryWorkspace = user.workspaceMemberships[0]?.workspace;
+    const officialApiConfig = primaryWorkspace
+      ? officialApiConfigMap.get(primaryWorkspace.id) ?? null
+      : null;
 
     return {
       id: user.id,
@@ -61,7 +71,13 @@ export default async function AdminConfiguracionUsuariosPage({ searchParams }: P
       email: user.email,
       role: user.role,
       createdAt: user.createdAt,
-      workspaceMemberships: user.workspaceMemberships,
+      workspaceMemberships: user.workspaceMemberships.map((membership) => ({
+        ...membership,
+        workspace: {
+          ...membership.workspace,
+          officialApiConfig,
+        },
+      })),
       isPlanExpired: isWorkspacePlanExpired(primaryWorkspace?.planExpiresAt),
     };
   });

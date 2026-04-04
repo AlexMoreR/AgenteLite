@@ -1,0 +1,76 @@
+import type {
+  OfficialApiDataModelDefinition,
+  OfficialApiRouteDefinition,
+} from "@/features/official-api/types/official-api";
+
+export const officialApiPlannedRoutes: OfficialApiRouteDefinition[] = [
+  {
+    id: "configuracion",
+    title: "Configuracion",
+    href: "/cliente/api-oficial",
+    description: "Conexion por cliente con access_token, phone_number_id y waba_id.",
+    status: "phase-1",
+  },
+  {
+    id: "chats",
+    title: "Chats",
+    href: "/cliente/api-oficial/chats",
+    description: "Bandeja de contactos, conversaciones y envio de mensajes.",
+    status: "next-phase",
+  },
+  {
+    id: "contactos",
+    title: "Contactos",
+    href: "/cliente/api-oficial/contactos",
+    description: "Directorio multi-tenant sincronizado por cliente.",
+    status: "next-phase",
+  },
+  {
+    id: "webhook",
+    title: "Webhook",
+    href: "/api/webhooks/meta/official-api",
+    description: "Recepcion de mensajes y estados enviados por Meta.",
+    status: "next-phase",
+  },
+  {
+    id: "chatbot",
+    title: "Chatbot basico",
+    href: "/cliente/api-oficial/chatbot",
+    description: "Reglas de respuesta automatica y acciones simples por cliente.",
+    status: "next-phase",
+  },
+];
+
+export const officialApiInitialDataModel: OfficialApiDataModelDefinition[] = [
+  {
+    model: "OfficialApiClientConfig",
+    description: "Credenciales por workspace para Cloud API oficial y estado de conexion.",
+  },
+  {
+    model: "OfficialApiContact",
+    description: "Contactos sincronizados por cliente con identificadores de Meta.",
+  },
+  {
+    model: "OfficialApiConversation",
+    description: "Contenedor de conversaciones por contacto y workspace.",
+  },
+  {
+    model: "OfficialApiMessage",
+    description: "Mensajes entrantes y salientes con estado y payload crudo.",
+  },
+  {
+    model: "OfficialApiWebhookEvent",
+    description: "Traza tecnica de eventos recibidos desde Meta para auditoria.",
+  },
+  {
+    model: "OfficialApiAutomationRule",
+    description: "Base futura para reglas de chatbot por cliente.",
+  },
+];
+
+export const officialApiNextBuildSteps = [
+  "Fase 2: formulario de credenciales desde administracion de usuarios y validacion basica de conexion.",
+  "Fase 3: webhook oficial para recibir mensajes y estados desde Meta.",
+  "Fase 4: bandeja de chats multi-tenant con contactos y mensajes reales.",
+  "Fase 5: reglas de chatbot basico para respuestas automaticas.",
+];

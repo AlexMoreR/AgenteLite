@@ -25,6 +25,55 @@ enum WorkspacePlanTier {
   AVANZADO
 }
 
+enum OfficialApiConnectionStatus {
+  NOT_CONNECTED
+  CONNECTED
+  ERROR
+}
+
+enum OfficialApiConversationStatus {
+  OPEN
+  PENDING
+  CLOSED
+  ARCHIVED
+}
+
+enum OfficialApiMessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum OfficialApiMessageType {
+  TEXT
+  IMAGE
+  AUDIO
+  VIDEO
+  DOCUMENT
+  TEMPLATE
+  INTERACTIVE
+  SYSTEM
+}
+
+enum OfficialApiMessageStatus {
+  RECEIVED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+enum OfficialApiWebhookStatus {
+  RECEIVED
+  PROCESSED
+  FAILED
+}
+
+enum OfficialApiAutomationRuleStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+}
+
 model User {
   id                 String            @id @default(cuid())
   name               String?
@@ -140,6 +189,7 @@ model Workspace {
   contacts      Contact[]
   conversations Conversation[]
   messages      Message[]
+  officialApiConfig OfficialApiClientConfig?
 
   @@index([ownerId])
 }
@@ -424,4 +474,125 @@ model Message {
   @@index([workspaceId, createdAt])
   @@index([conversationId, createdAt])
   @@index([contactId, createdAt])
+}
+
+model OfficialApiClientConfig {
+  id                 String                      @id @default(cuid())
+  workspaceId        String                      @unique
+  accessToken        String?
+  phoneNumberId      String?
+  wabaId             String?
+  webhookVerifyToken String?
+  appSecret          String?
+  status             OfficialApiConnectionStatus @default(NOT_CONNECTED)
+  lastValidatedAt    DateTime?
+  createdAt          DateTime                    @default(now())
+  updatedAt          DateTime                    @updatedAt
+  workspace          Workspace                   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contacts           OfficialApiContact[]
+  conversations      OfficialApiConversation[]
+  messages           OfficialApiMessage[]
+  webhookEvents      OfficialApiWebhookEvent[]
+  automationRules    OfficialApiAutomationRule[]
+
+  @@index([status, updatedAt])
+}
+
+model OfficialApiContact {
+  id             String                    @id @default(cuid())
+  configId       String
+  externalUserId String?
+  waId           String
+  name           String?
+  phoneNumber    String?
+  metadata       Json?
+  lastMessageAt  DateTime?
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+  config         OfficialApiClientConfig   @relation(fields: [configId], references: [id], onDelete: Cascade)
+  conversations  OfficialApiConversation[]
+  messages       OfficialApiMessage[]
+
+  @@unique([configId, waId])
+  @@index([configId, lastMessageAt])
+}
+
+model OfficialApiConversation {
+  id               String                        @id @default(cuid())
+  configId         String
+  contactId        String
+  externalThreadId String?
+  status           OfficialApiConversationStatus @default(OPEN)
+  lastMessageAt    DateTime?
+  createdAt        DateTime                      @default(now())
+  updatedAt        DateTime                      @updatedAt
+  config           OfficialApiClientConfig       @relation(fields: [configId], references: [id], onDelete: Cascade)
+  contact          OfficialApiContact            @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  messages         OfficialApiMessage[]
+
+  @@unique([configId, externalThreadId])
+  @@index([configId, status, lastMessageAt])
+  @@index([contactId, lastMessageAt])
+}
+
+model OfficialApiMessage {
+  id                String                      @id @default(cuid())
+  configId          String
+  conversationId    String
+  contactId         String?
+  externalMessageId String?
+  direction         OfficialApiMessageDirection
+  type              OfficialApiMessageType      @default(TEXT)
+  status            OfficialApiMessageStatus    @default(RECEIVED)
+  content           String?
+  mediaUrl          String?
+  rawPayload        Json?
+  sentAt            DateTime?
+  deliveredAt       DateTime?
+  readAt            DateTime?
+  failedAt          DateTime?
+  createdAt         DateTime                    @default(now())
+  updatedAt         DateTime                    @updatedAt
+  config            OfficialApiClientConfig     @relation(fields: [configId], references: [id], onDelete: Cascade)
+  conversation      OfficialApiConversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  contact           OfficialApiContact?         @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  @@unique([configId, externalMessageId])
+  @@index([configId, createdAt])
+  @@index([conversationId, createdAt])
+  @@index([contactId, createdAt])
+}
+
+model OfficialApiWebhookEvent {
+  id           String                   @id @default(cuid())
+  configId     String
+  eventType    String
+  deliveryId   String?
+  payload      Json?
+  status       OfficialApiWebhookStatus @default(RECEIVED)
+  processedAt  DateTime?
+  errorMessage String?
+  createdAt    DateTime                 @default(now())
+  updatedAt    DateTime                 @updatedAt
+  config       OfficialApiClientConfig  @relation(fields: [configId], references: [id], onDelete: Cascade)
+
+  @@index([configId, createdAt])
+  @@index([deliveryId])
+}
+
+model OfficialApiAutomationRule {
+  id           String                          @id @default(cuid())
+  configId     String
+  name         String
+  description  String?
+  triggerText  String?
+  responseText String?
+  isFallback   Boolean                         @default(false)
+  priority     Int                             @default(100)
+  status       OfficialApiAutomationRuleStatus @default(DRAFT)
+  createdAt    DateTime                        @default(now())
+  updatedAt    DateTime                        @updatedAt
+  config       OfficialApiClientConfig         @relation(fields: [configId], references: [id], onDelete: Cascade)
+
+  @@index([configId, status, priority])
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { Role } from "@prisma/client";
 import {
   CalendarClock,
@@ -18,6 +19,7 @@ import {
   adminUpdateUserRoleAction,
   adminUpdateWorkspacePlanExpiryAction,
 } from "@/app/actions/auth-actions";
+import { OfficialApiClientSummary } from "@/components/admin/official-api-client-summary";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -48,8 +50,17 @@ type UserRow = {
   workspaceMemberships: Array<{
     workspace: {
       id: string;
+      name: string;
       planTier: WorkspacePlanTier | null;
       planExpiresAt: Date | null;
+      officialApiConfig: {
+        accessToken: string | null;
+        phoneNumberId: string | null;
+        wabaId: string | null;
+        webhookVerifyToken: string | null;
+        appSecret: string | null;
+        status: "NOT_CONNECTED" | "CONNECTED" | "ERROR";
+      } | null;
     };
   }>;
 };
@@ -122,6 +133,23 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
   const rangeEnd = Math.min(pageStart + PAGE_SIZE, filteredUsers.length);
   const activeUser = activeUserId ? users.find((user) => user.id === activeUserId) ?? null : null;
   const activeWorkspace = activeUser?.workspaceMemberships[0]?.workspace;
+  const activeOfficialApiSummary = activeWorkspace
+    ? {
+        workspaceId: activeWorkspace.id,
+        workspaceName: activeWorkspace.name,
+        setupStatus: "pending",
+        hasWorkspace: true,
+        hasCredentials: false,
+        configuredFields: [],
+      }
+    : {
+        workspaceId: null,
+        workspaceName: null,
+        setupStatus: "pending",
+        hasWorkspace: false,
+        hasCredentials: false,
+        configuredFields: [],
+      };
 
   const roleLabel: Record<Role, string> = {
     ADMIN: "Admin",
@@ -316,6 +344,13 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
                         <DropdownMenuItem onSelect={() => setActiveUserId(user.id)}>
                           Ver y editar
                         </DropdownMenuItem>
+                        {user.role === "CLIENTE" ? (
+                          <DropdownMenuItem asChild>
+                            <Link href={`/admin/configuracion/usuarios/${user.id}/api-oficial`}>
+                              Configurar api oficial WhatsApp
+                            </Link>
+                          </DropdownMenuItem>
+                        ) : null}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>
@@ -513,6 +548,10 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
                     </Button>
                   </form>
                 </div>
+
+                {activeUser.role === "CLIENTE" ? (
+                  <OfficialApiClientSummary summary={activeOfficialApiSummary} />
+                ) : null}
               </div>
 
               <div className="mt-4 rounded-[1.25rem] border border-[var(--line)] p-5">

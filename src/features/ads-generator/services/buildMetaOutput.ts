@@ -1,4 +1,5 @@
 import type { AdsGeneratorResult, MetaAdOutput } from "../types/ad-output";
+import type { AdsGeneratorAiBundle } from "./adsGeneratorAi";
 import type { ProductAnalysis } from "./analyzeProduct";
 import type { AdStrategy } from "../types/ad-output";
 import type { AdCopyVariant } from "../types/ad-output";
@@ -30,14 +31,8 @@ function buildCampaignStructure(objective: ProductAnalysis["recommendedObjective
   return "Campana de trafico con 1 conjunto principal y 3 anuncios para validar angulo, titular y claridad de la propuesta.";
 }
 
-function buildBasicSegmentation(
-  analysis: ProductAnalysis,
-  strategy: AdStrategy,
-) {
-  const segments = [
-    strategy.audience,
-    `Categoria relacionada: ${analysis.categoryName}.`,
-  ];
+function buildBasicSegmentation(analysis: ProductAnalysis, strategy: AdStrategy) {
+  const segments = [strategy.audience, `Categoria relacionada: ${analysis.categoryName}.`];
 
   if (analysis.primaryPainPoint) {
     segments.push(`Personas que quieren resolver ${analysis.primaryPainPoint.toLowerCase()}.`);
@@ -113,6 +108,7 @@ export async function buildMetaOutput(
   analysis: ProductAnalysis,
   strategy: AdStrategy,
   copies: AdCopyVariant[],
+  aiBundle?: AdsGeneratorAiBundle | null,
 ): Promise<AdsGeneratorResult> {
   const callToAction = strategy.callToAction;
   const primaryVariant = copies[0] ?? {
@@ -124,18 +120,21 @@ export async function buildMetaOutput(
 
   const meta: MetaAdOutput = {
     campaignObjective: mapCampaignObjective(analysis.recommendedObjective),
-    strategicSummary: `La mejor forma de vender esto es abrir con una frase que detenga el scroll, tocar un problema o deseo real del cliente y cerrar con un beneficio claro mas un CTA directo.`,
+    strategicSummary:
+      analysis.strategicSummary ||
+      "La mejor forma de vender esto es abrir con una frase que detenga el scroll, tocar un problema o deseo real del cliente y cerrar con un beneficio claro mas un CTA directo.",
     recommendedSalesAngle: strategy.angle,
-    campaignStructure: buildCampaignStructure(analysis.recommendedObjective),
-    basicSegmentation: buildBasicSegmentation(analysis, strategy),
-    recommendedFormat: buildRecommendedFormat(analysis),
+    campaignStructure: analysis.campaignStructure || buildCampaignStructure(analysis.recommendedObjective),
+    basicSegmentation: analysis.basicSegmentation || buildBasicSegmentation(analysis, strategy),
+    recommendedFormat: analysis.recommendedFormat || buildRecommendedFormat(analysis),
     primaryText: primaryVariant.primaryText,
     headline: primaryVariant.headline,
     description: primaryVariant.description,
     callToAction,
-    creativeIdea: buildCreativeIdea(analysis, strategy),
-    budgetRecommendation: buildBudgetRecommendation(analysis.recommendedObjective),
-    primaryMetric: buildPrimaryMetric(analysis.recommendedObjective),
+    creativeIdea: analysis.creativeIdea || buildCreativeIdea(analysis, strategy),
+    budgetRecommendation:
+      analysis.budgetRecommendation || buildBudgetRecommendation(analysis.recommendedObjective),
+    primaryMetric: analysis.primaryMetric || buildPrimaryMetric(analysis.recommendedObjective),
     creativeNotes: [
       "Usar una imagen principal consistente con el producto o el creativo seleccionado.",
       "Mantener el mensaje alineado con el angulo principal y evitar meter varios beneficios fuertes a la vez.",
@@ -144,20 +143,20 @@ export async function buildMetaOutput(
     publicationChecklist: [],
     copyVariants: copies,
     readyToCopyText: copies
-      .map(
-        (copy, index) =>
-          [
-            index === 0 ? "Anuncio principal" : `Variante ${index}`,
-            `Texto principal:\n${copy.primaryText}`,
-            `Titulo: ${copy.headline}`,
-            `Descripcion: ${copy.description}`,
-            `CTA: ${callToAction}`,
-          ].join("\n"),
+      .map((copy, index) =>
+        [
+          index === 0 ? "Anuncio principal" : `Variante ${index}`,
+          `Texto principal:\n${copy.primaryText}`,
+          `Titulo: ${copy.headline}`,
+          `Descripcion: ${copy.description}`,
+          `CTA: ${callToAction}`,
+        ].join("\n"),
       )
       .join("\n\n"),
   };
 
-  meta.publicationChecklist = buildPublicationChecklist(meta);
+  meta.publicationChecklist =
+    analysis.publicationChecklist?.length ? analysis.publicationChecklist : buildPublicationChecklist(meta);
   meta.readyToCopyText = [
     "Anuncio principal",
     `Texto principal:\n${meta.primaryText}`,
@@ -166,20 +165,21 @@ export async function buildMetaOutput(
     `CTA: ${callToAction}`,
     "",
     "Variantes de copy",
-    ...copies.slice(0, 3).map(
-      (copy, index) =>
-        [
-          `Variante ${index + 1}`,
-          `Texto principal:\n${copy.primaryText}`,
-          `Titulo: ${copy.headline}`,
-          `Descripcion: ${copy.description}`,
-          `CTA: ${callToAction}`,
-        ].join("\n"),
+    ...copies.slice(0, 3).map((copy, index) =>
+      [
+        `Variante ${index + 1}`,
+        `Texto principal:\n${copy.primaryText}`,
+        `Titulo: ${copy.headline}`,
+        `Descripcion: ${copy.description}`,
+        `CTA: ${callToAction}`,
+      ].join("\n"),
     ),
   ].join("\n\n");
 
   return {
-    summary: `Salida inicial generada para ${analysis.productName} con enfoque de venta, copy y estructura lista para revisar antes de publicar en Meta Ads Manager.`,
+    summary:
+      aiBundle?.summary?.trim() ||
+      `Salida inicial generada para ${analysis.productName} con enfoque de venta, copy y estructura lista para revisar antes de publicar en Meta Ads Manager.`,
     strategy,
     meta,
   };

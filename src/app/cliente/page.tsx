@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { ArrowRight, Bot, Megaphone, MessageSquareMore, Sparkles } from "lucide-react";
+import { ArrowRight, Bot, Megaphone, MessageSquare, MessageSquareMore, Sparkles } from "lucide-react";
 import { auth } from "@/auth";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
@@ -73,7 +73,7 @@ export default async function ClientePage({ searchParams }: PageProps) {
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-4 lg:grid-cols-4">
         <DashboardModuleCard
           icon={<Bot className="h-4.5 w-4.5" />}
           title="Atencion IA"
@@ -96,6 +96,14 @@ export default async function ClientePage({ searchParams }: PageProps) {
           description="Construye contexto, genera creativos y pasa a anuncios listos para Meta Ads Manager."
           metric={hasWorkspace ? "Creativos + Ads Generator" : "Requiere negocio configurado"}
           href={hasWorkspace ? "/cliente/marketing-ia" : "/cliente/onboarding?returnTo=/cliente/marketing-ia"}
+          cta="Abrir modulo"
+        />
+        <DashboardModuleCard
+          icon={<MessageSquare className="h-4.5 w-4.5" />}
+          title="Api oficial"
+          description="Prepara la base multi-tenant para conectar clientes con WhatsApp Cloud API oficial de Meta."
+          metric={hasWorkspace ? "Fase 1 estructural" : "Requiere negocio configurado"}
+          href={hasWorkspace ? "/cliente/api-oficial" : "/cliente/onboarding?returnTo=/cliente/api-oficial"}
           cta="Abrir modulo"
         />
       </div>
