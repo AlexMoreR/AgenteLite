@@ -151,6 +151,7 @@ export type OfficialApiChatbotData = {
     handoffEnabled: boolean;
     fallbackEnabled: boolean;
     selectedScenarioId: string;
+    scenarios: OfficialApiChatbotScenario[];
     nodes: OfficialApiChatbotBuilderNode[];
   };
 };

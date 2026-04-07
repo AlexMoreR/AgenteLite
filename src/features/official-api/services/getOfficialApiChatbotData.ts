@@ -62,6 +62,7 @@ export async function getOfficialApiChatbotData(workspaceId: string): Promise<Of
         handoffEnabled: false,
         fallbackEnabled: false,
         selectedScenarioId: "new-lead",
+        scenarios: [],
         nodes: [],
       },
     };
@@ -256,41 +257,7 @@ export async function getOfficialApiChatbotData(workspaceId: string): Promise<Of
         message: "Tenemos una novedad sobre tu solicitud. Escribe 1 para recibir el estado o 2 para hablar con un asesor.",
       },
     ],
-    scenarios: [
-      {
-        id: "new-lead",
-        title: "Nuevo lead desde anuncio",
-        summary: "Entrada comercial con intencion alta y derivacion rapida a ventas.",
-        messages: [
-          { id: "m1", direction: "inbound", content: "Hola, vengo del anuncio y quiero saber el precio." },
-          { id: "m2", direction: "bot", content: "Hola, soy el asistente de WhatsApp. Te ayudo enseguida. Que producto te interesa y en que ciudad te encuentras?" },
-          { id: "m3", direction: "inbound", content: "Me interesa el plan premium y estoy en Bogota." },
-          { id: "m4", direction: "bot", content: "Perfecto. Ya tengo producto y ciudad. Te conecto con ventas y mientras tanto te comparto el rango inicial y tiempos de entrega." },
-        ],
-      },
-      {
-        id: "support",
-        title: "Soporte y seguimiento",
-        summary: "Resuelve preguntas comunes y escapa a humano si detecta friccion.",
-        messages: [
-          { id: "m1", direction: "inbound", content: "Necesito saber el estado de mi pedido." },
-          { id: "m2", direction: "bot", content: "Puedo ayudarte con eso. Enviame tu numero de pedido o tu nombre completo para ubicar la solicitud." },
-          { id: "m3", direction: "inbound", content: "No lo tengo a la mano." },
-          { id: "m4", direction: "bot", content: "No pasa nada. Te paso con soporte humano para revisar tu caso sin perder esta conversacion." },
-        ],
-      },
-      {
-        id: "after-hours",
-        title: "Atencion fuera de horario",
-        summary: "Mantiene captura de oportunidad y define expectativa de respuesta.",
-        messages: [
-          { id: "m1", direction: "inbound", content: "Siguen atendiendo? necesito una cotizacion." },
-          { id: "m2", direction: "bot", content: "Nuestro horario es de lunes a viernes de 8:00 a. m. a 6:00 p. m. Si quieres, deja nombre, producto y ciudad y manana te contactamos primero." },
-          { id: "m3", direction: "inbound", content: "Listo, soy Laura y quiero cotizar 50 unidades." },
-          { id: "m4", direction: "bot", content: "Gracias, Laura. Tu solicitud quedo registrada como prioritaria para el siguiente turno." },
-        ],
-      },
-    ],
+    scenarios: builderState.scenarios,
     checklist: [
       {
         id: "opt-in",
@@ -326,6 +293,7 @@ export async function getOfficialApiChatbotData(workspaceId: string): Promise<Of
       handoffEnabled: builderState.handoffEnabled,
       fallbackEnabled: builderState.fallbackEnabled,
       selectedScenarioId: builderState.selectedScenarioId,
+      scenarios: builderState.scenarios,
       nodes: builderState.nodes,
     },
   };

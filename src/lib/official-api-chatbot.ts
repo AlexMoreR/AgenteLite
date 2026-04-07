@@ -1,4 +1,4 @@
-import type { OfficialApiChatbotBuilderNode } from "@/features/official-api/types/official-api";
+import type { OfficialApiChatbotBuilderNode, OfficialApiChatbotScenario } from "@/features/official-api/types/official-api";
 import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 
@@ -11,6 +11,7 @@ export type OfficialApiChatbotBuilderState = {
   handoffEnabled: boolean;
   fallbackEnabled: boolean;
   selectedScenarioId: string;
+  scenarios: OfficialApiChatbotScenario[];
   nodes: OfficialApiChatbotBuilderNode[];
 };
 
@@ -98,14 +99,9 @@ const defaultBuilderState: OfficialApiChatbotBuilderState = {
   captureLeadEnabled: true,
   handoffEnabled: true,
   fallbackEnabled: true,
-  selectedScenarioId: "new-lead",
-  nodes: getDefaultBuilderNodes({
-    welcomeMessage:
-      "Hola. Soy el asistente automatico de WhatsApp. Cuentame si necesitas ventas, soporte, catalogo o hablar con un asesor.",
-    fallbackMessage:
-      "Todavia no tengo una respuesta segura para eso. Si quieres, te conecto con un asesor y dejo tu caso priorizado.",
-    businessHours: "Lunes a viernes | 8:00 a. m. a 6:00 p. m.",
-  }),
+  selectedScenarioId: "",
+  scenarios: [],
+  nodes: [],
 };
 
 const scenarioConfig = {
@@ -203,6 +199,15 @@ export async function getOfficialApiChatbotBuilderState(
     return {
       ...defaultBuilderState,
       ...parsed,
+      scenarios:
+        Array.isArray(parsed.scenarios) && parsed.scenarios.length > 0
+          ? parsed.scenarios.map((scenario, index) => ({
+              id: scenario.id?.trim() || `workflow-${index + 1}`,
+              title: scenario.title?.trim() || `Workflow ${index + 1}`,
+              summary: scenario.summary?.trim() || "Workflow personalizado del builder.",
+              messages: Array.isArray(scenario.messages) ? scenario.messages : [],
+            }))
+          : defaultBuilderState.scenarios,
       nodes: Array.isArray(parsed.nodes) && parsed.nodes.length > 0
         ? parsed.nodes
         : getDefaultBuilderNodes({
@@ -227,6 +232,15 @@ export async function saveOfficialApiChatbotBuilderState(
     fallbackMessage: state.fallbackMessage.trim() || defaultBuilderState.fallbackMessage,
     businessHours: state.businessHours.trim() || defaultBuilderState.businessHours,
     selectedScenarioId: state.selectedScenarioId.trim() || defaultBuilderState.selectedScenarioId,
+    scenarios:
+      Array.isArray(state.scenarios) && state.scenarios.length > 0
+        ? state.scenarios.map((scenario, index) => ({
+            id: scenario.id.trim() || `workflow-${index + 1}`,
+            title: scenario.title.trim() || `Workflow ${index + 1}`,
+            summary: scenario.summary.trim() || "Workflow personalizado del builder.",
+            messages: Array.isArray(scenario.messages) ? scenario.messages : [],
+          }))
+        : defaultBuilderState.scenarios,
     nodes:
       Array.isArray(state.nodes) && state.nodes.length > 0
         ? state.nodes.map((node) => ({

@@ -14,6 +14,20 @@ const builderSchema = z.object({
   handoffEnabled: z.boolean(),
   fallbackEnabled: z.boolean(),
   selectedScenarioId: z.string().trim().min(1).max(120),
+  scenarios: z.array(
+    z.object({
+      id: z.string().trim().min(1).max(120),
+      title: z.string().trim().min(1).max(120),
+      summary: z.string().trim().min(1).max(4096),
+      messages: z.array(
+        z.object({
+          id: z.string().trim().min(1).max(120),
+          direction: z.enum(["inbound", "bot"]),
+          content: z.string().trim().min(1).max(4096),
+        }),
+      ),
+    }),
+  ).min(1),
   nodes: z.array(
     z.object({
       id: z.string().trim().min(1).max(120),
