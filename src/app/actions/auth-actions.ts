@@ -635,6 +635,7 @@ export async function adminUpdateOfficialApiConfigAction(formData: FormData): Pr
   revalidatePath("/admin/configuracion");
   revalidatePath("/admin/configuracion/usuarios");
   revalidatePath("/cliente/api-oficial");
+  revalidatePath("/cliente/api-oficial/chats");
   const successRedirect =
     parsed.data.returnTo?.trim() || "/admin/configuracion/usuarios?ok=API+oficial+de+WhatsApp+actualizada";
   redirect(successRedirect);

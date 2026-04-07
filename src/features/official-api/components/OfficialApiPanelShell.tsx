@@ -7,25 +7,28 @@ import { FileText, MessageSquareText } from "lucide-react";
 
 type OfficialApiPanelShellProps = {
   children: ReactNode;
+  basePath?: string;
 };
 
-const tabs = [
-  {
-    key: "resumen",
-    label: "Resumen",
-    href: "/cliente/api-oficial",
-    icon: FileText,
-  },
-  {
-    key: "chats",
-    label: "Chats",
-    href: "/cliente/api-oficial/chats",
-    icon: MessageSquareText,
-  },
-];
-
-export function OfficialApiPanelShell({ children }: OfficialApiPanelShellProps) {
+export function OfficialApiPanelShell({
+  children,
+  basePath = "/cliente/api-oficial",
+}: OfficialApiPanelShellProps) {
   const pathname = usePathname();
+  const tabs = [
+    {
+      key: "resumen",
+      label: "Resumen",
+      href: basePath,
+      icon: FileText,
+    },
+    {
+      key: "chats",
+      label: "Chats",
+      href: `${basePath}/chats`,
+      icon: MessageSquareText,
+    },
+  ];
 
   return (
     <section className="flex min-h-0 w-full flex-1 flex-col gap-4">

@@ -1,7 +1,12 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
-import { OfficialApiPanelShell, OfficialApiWorkspace, getOfficialApiOverview } from "@/features/official-api";
+import {
+  OfficialApiLockedState,
+  OfficialApiPanelShell,
+  OfficialApiWorkspace,
+  getOfficialApiOverview,
+} from "@/features/official-api";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
 export const metadata: Metadata = {
@@ -24,6 +29,10 @@ export default async function OfficialApiPage() {
   }
 
   const overview = await getOfficialApiOverview(membership.workspace.id);
+
+  if (overview.setupStatus !== "connected") {
+    return <OfficialApiLockedState workspaceName={overview.workspaceName} />;
+  }
 
   return (
     <OfficialApiPanelShell>

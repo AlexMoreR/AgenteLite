@@ -1,6 +1,8 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { OfficialApiConfigWizard } from "@/components/admin/official-api-config-wizard";
+import { Button } from "@/components/ui/button";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { hasAdminModuleAccess } from "@/lib/admin-module-access";
 import { getPublicBaseUrl } from "@/lib/app-url";
@@ -68,6 +70,20 @@ export default async function AdminUserOfficialApiPage({ params, searchParams }:
         okTitle="API oficial actualizada"
         errorTitle="Error de configuracion"
       />
+      {workspace ? (
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          <Button asChild variant="outline" className="rounded-xl">
+            <Link href={`/admin/configuracion/usuarios/${user.id}/api-oficial/vista-previa`}>
+              Vista previa
+            </Link>
+          </Button>
+          <Button asChild variant="outline" className="rounded-xl">
+            <Link href={`/admin/configuracion/usuarios/${user.id}/api-oficial/vista-previa/chats`}>
+              Vista previa chats
+            </Link>
+          </Button>
+        </div>
+      ) : null}
       <OfficialApiConfigWizard
         user={{
           id: user.id,

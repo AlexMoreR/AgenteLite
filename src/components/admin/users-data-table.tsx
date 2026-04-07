@@ -38,6 +38,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import type { OfficialApiAdminSummary } from "@/features/official-api";
 import { getWorkspacePlanLabel, type WorkspacePlanTier } from "@/lib/plans";
 
 type UserRow = {
@@ -133,14 +134,25 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
   const rangeEnd = Math.min(pageStart + PAGE_SIZE, filteredUsers.length);
   const activeUser = activeUserId ? users.find((user) => user.id === activeUserId) ?? null : null;
   const activeWorkspace = activeUser?.workspaceMemberships[0]?.workspace;
-  const activeOfficialApiSummary = activeWorkspace
+  const activeOfficialApiSummary: OfficialApiAdminSummary = activeWorkspace
     ? {
         workspaceId: activeWorkspace.id,
         workspaceName: activeWorkspace.name,
-        setupStatus: "pending",
+        setupStatus:
+          activeWorkspace.officialApiConfig?.status === "CONNECTED" ? "connected" : "pending",
         hasWorkspace: true,
-        hasCredentials: false,
-        configuredFields: [],
+        hasCredentials: Boolean(
+          activeWorkspace.officialApiConfig?.accessToken &&
+            activeWorkspace.officialApiConfig?.phoneNumberId &&
+            activeWorkspace.officialApiConfig?.wabaId,
+        ),
+        configuredFields: [
+          activeWorkspace.officialApiConfig?.accessToken ? "access_token" : null,
+          activeWorkspace.officialApiConfig?.phoneNumberId ? "phone_number_id" : null,
+          activeWorkspace.officialApiConfig?.wabaId ? "waba_id" : null,
+          activeWorkspace.officialApiConfig?.webhookVerifyToken ? "webhook_verify_token" : null,
+          activeWorkspace.officialApiConfig?.appSecret ? "app_secret" : null,
+        ].filter((field): field is string => Boolean(field)),
       }
     : {
         workspaceId: null,

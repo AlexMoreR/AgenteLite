@@ -28,6 +28,19 @@ type OfficialApiWorkspaceConfig = {
   webhookVerifyToken: string | null;
   appSecret: string | null;
   status: "NOT_CONNECTED" | "CONNECTED" | "ERROR";
+  lastValidatedAt: Date | null;
+} | null;
+
+type WebhookStatusSnapshot = {
+  status: "NOT_CONNECTED" | "CONNECTED" | "ERROR";
+  lastValidatedAt: string | Date | null;
+} | null;
+
+type SubscriptionStatusSnapshot = {
+  ok: boolean;
+  subscribed: boolean;
+  appId: string | null;
+  error: string | null;
 } | null;
 
 type OfficialApiConfigWizardProps = {
@@ -158,15 +171,13 @@ const metaChecklistSections = [
       "Si funciona, el cliente queda listo del lado API.",
     ],
   },
-  {
-    title: "Fase 6",
-    heading: "Configurar webhook",
-    items: [
-      "Crear endpoint en tu backend, por ejemplo /api/webhook.",
-      "Ir a Meta Developers > Webhooks > WhatsApp.",
-      "Agregar Callback URL y Verify Token.",
-    ],
-  },
+] as const;
+
+const finalSaveChecklist = [
+  "Confirma que la URL del webhook este accesible desde internet.",
+  "Verifica que el Verify Token coincida exactamente con el valor configurado en Meta.",
+  "Guarda primero esta configuracion en el sistema antes de verificar el webhook en Meta.",
+  "Si ya validaste el challenge en Meta, ya puedes cerrar este flujo y dejar la integracion activa.",
 ] as const;
 
 const OFFICIAL_API_WIZARD_DRAFT_KEY = "official-api-config-wizard:v1";
@@ -193,7 +204,11 @@ function renderChecklistItem(item: string | { text: string; href: string }) {
   );
 }
 
-function renderChecklistSection(section: (typeof metaChecklistSections)[number]) {
+function renderChecklistSection(section?: (typeof metaChecklistSections)[number]) {
+  if (!section) {
+    return null;
+  }
+
   return (
     <div className="rounded-[1rem] border border-slate-200 bg-slate-50 p-5">
       <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{section.title}</p>
@@ -334,6 +349,17 @@ export function OfficialApiConfigWizard({
   const [isTestingMessage, setIsTestingMessage] = React.useState(false);
   const [isRegisteringPhone, setIsRegisteringPhone] = React.useState(false);
   const [hasHydratedDraft, setHasHydratedDraft] = React.useState(false);
+  const [webhookStatus, setWebhookStatus] = React.useState<WebhookStatusSnapshot>(
+    workspace?.officialApiConfig
+      ? {
+          status: workspace.officialApiConfig.status,
+          lastValidatedAt: workspace.officialApiConfig.lastValidatedAt,
+        }
+      : null,
+  );
+  const [subscriptionStatus, setSubscriptionStatus] = React.useState<SubscriptionStatusSnapshot>(null);
+  const [isLoadingSubscriptionStatus, setIsLoadingSubscriptionStatus] = React.useState(false);
+  const [isSubscribingApp, setIsSubscribingApp] = React.useState(false);
   const [testMessageResult, setTestMessageResult] = React.useState<{
     ok: boolean;
     message: string;
@@ -345,10 +371,47 @@ export function OfficialApiConfigWizard({
   const draftStorageKey = workspace
     ? `${OFFICIAL_API_WIZARD_DRAFT_KEY}:${user.id}:${workspace.id}`
     : `${OFFICIAL_API_WIZARD_DRAFT_KEY}:${user.id}:no-workspace`;
-  const completedSteps = React.useMemo(
-    () => getCompletedSteps(currentStep, form, workspace?.officialApiConfig ?? null),
-    [currentStep, form, workspace?.officialApiConfig],
+  const effectiveOfficialApiConfig = React.useMemo(
+    () =>
+      workspace?.officialApiConfig || webhookStatus
+        ? {
+            ...(workspace?.officialApiConfig ?? {}),
+            ...(webhookStatus ?? {}),
+          }
+        : null,
+    [webhookStatus, workspace?.officialApiConfig],
   );
+  const completedSteps = React.useMemo(
+    () => getCompletedSteps(currentStep, form, effectiveOfficialApiConfig),
+    [currentStep, effectiveOfficialApiConfig, form],
+  );
+  const webhookVerifiedLabel = React.useMemo(() => {
+    const validatedAt = effectiveOfficialApiConfig?.lastValidatedAt;
+    if (!validatedAt) {
+      return "";
+    }
+
+    const parsedDate = validatedAt instanceof Date ? validatedAt : new Date(validatedAt);
+    if (Number.isNaN(parsedDate.getTime())) {
+      return "";
+    }
+
+    return new Intl.DateTimeFormat("es-CO", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(parsedDate);
+  }, [effectiveOfficialApiConfig?.lastValidatedAt]);
+
+  React.useEffect(() => {
+    setWebhookStatus(
+      workspace?.officialApiConfig
+        ? {
+            status: workspace.officialApiConfig.status,
+            lastValidatedAt: workspace.officialApiConfig.lastValidatedAt,
+          }
+        : null,
+    );
+  }, [workspace?.officialApiConfig]);
 
   React.useEffect(() => {
     const normalizedBaseUrl = publicBaseUrl.trim().replace(/\/+$/, "");
@@ -439,6 +502,113 @@ export function OfficialApiConfigWizard({
       }),
     );
   }, [currentStep, draftStorageKey, form, hasHydratedDraft, testMessage, testRecipient, workspace]);
+
+  React.useEffect(() => {
+    if (
+      currentStep !== 5 ||
+      effectiveOfficialApiConfig?.lastValidatedAt ||
+      !workspace?.id ||
+      !form.webhookVerifyToken.trim()
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const syncWebhookStatus = async () => {
+      try {
+        const response = await fetch(
+          `/api/admin/official-api/webhook-status?workspaceId=${encodeURIComponent(workspace.id)}`,
+          {
+            method: "GET",
+            cache: "no-store",
+          },
+        );
+
+        const payload = (await response.json().catch(() => null)) as
+          | {
+              ok?: boolean;
+              config?: WebhookStatusSnapshot;
+            }
+          | null;
+
+        if (!response.ok || !payload?.ok || cancelled) {
+          return;
+        }
+
+        if (payload.config) {
+          setWebhookStatus(payload.config);
+        }
+      } catch {
+        // Ignore transient polling errors while waiting for Meta verification.
+      }
+    };
+
+    void syncWebhookStatus();
+
+    const intervalId = window.setInterval(() => {
+      void syncWebhookStatus();
+    }, 5000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [currentStep, effectiveOfficialApiConfig?.lastValidatedAt, form.webhookVerifyToken, workspace?.id]);
+
+  React.useEffect(() => {
+    if (
+      currentStep !== 5 ||
+      !workspace?.id ||
+      !form.wabaId.trim() ||
+      !form.accessToken.trim()
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const syncSubscriptionStatus = async () => {
+      setIsLoadingSubscriptionStatus(true);
+
+      try {
+        const response = await fetch(
+          `/api/admin/official-api/subscribed-app?workspaceId=${encodeURIComponent(workspace.id)}`,
+          {
+            method: "GET",
+            cache: "no-store",
+          },
+        );
+
+        const payload = (await response.json().catch(() => null)) as SubscriptionStatusSnapshot;
+
+        if (cancelled || !payload) {
+          return;
+        }
+
+        setSubscriptionStatus(payload);
+      } catch {
+        if (!cancelled) {
+          setSubscriptionStatus({
+            ok: false,
+            subscribed: false,
+            appId: null,
+            error: "No se pudo consultar la suscripcion actual de la app al WABA.",
+          });
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingSubscriptionStatus(false);
+        }
+      }
+    };
+
+    void syncSubscriptionStatus();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentStep, form.accessToken, form.wabaId, workspace?.id]);
 
   const updateField =
     (field: keyof FormState) =>
@@ -562,6 +732,45 @@ export function OfficialApiConfigWizard({
       });
     } finally {
       setIsRegisteringPhone(false);
+    }
+  };
+
+  const handleSubscribeApp = async () => {
+    if (!workspace) {
+      return;
+    }
+
+    setIsSubscribingApp(true);
+
+    try {
+      const response = await fetch("/api/admin/official-api/subscribed-app", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          workspaceId: workspace.id,
+          accessToken: form.accessToken,
+          wabaId: form.wabaId,
+        }),
+      });
+
+      const payload = (await response.json().catch(() => null)) as SubscriptionStatusSnapshot;
+
+      if (!response.ok || !payload) {
+        throw new Error(payload?.error || "No se pudo suscribir la app al WABA.");
+      }
+
+      setSubscriptionStatus(payload);
+    } catch (error) {
+      setSubscriptionStatus({
+        ok: false,
+        subscribed: false,
+        appId: null,
+        error: error instanceof Error ? error.message : "No se pudo suscribir la app al WABA.",
+      });
+    } finally {
+      setIsSubscribingApp(false);
     }
   };
 
@@ -1020,7 +1229,17 @@ export function OfficialApiConfigWizard({
 
             {currentStep === 5 ? (
               <div className="space-y-4">
-                {renderChecklistSection(metaChecklistSections[5])}
+                {effectiveOfficialApiConfig?.lastValidatedAt ? (
+                  <div className="rounded-[1.25rem] border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+                    <div className="flex items-start gap-3">
+                      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                      <span>
+                        Webhook verificado por Meta.
+                        {webhookVerifiedLabel ? ` Ultima verificacion registrada: ${webhookVerifiedLabel}.` : ""}
+                      </span>
+                    </div>
+                  </div>
+                ) : null}
 
                 <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
                   <div className="grid gap-4 rounded-[1.25rem] border border-[var(--line)] bg-white p-5">
@@ -1077,6 +1296,69 @@ export function OfficialApiConfigWizard({
                   </label>
                 </div>
 
+                <div className="rounded-[1.25rem] border border-[var(--line)] bg-white p-5">
+                  <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                    <div className="space-y-1">
+                      <p className="text-sm font-semibold text-slate-900">Suscripcion de app al WABA</p>
+                      <p className="text-sm text-slate-600">
+                        Este paso conecta de verdad la app de Meta con la cuenta de WhatsApp Business para que los mensajes reales disparen el webhook.
+                      </p>
+                    </div>
+
+                    <Button
+                      type="button"
+                      variant={subscriptionStatus?.subscribed ? "outline" : "default"}
+                      className="h-10 rounded-xl px-4"
+                      onClick={handleSubscribeApp}
+                      disabled={
+                        isSubscribingApp ||
+                        !form.accessToken.trim() ||
+                        !form.wabaId.trim()
+                      }
+                    >
+                      {isSubscribingApp
+                        ? "Suscribiendo..."
+                        : subscriptionStatus?.subscribed
+                          ? "Reintentar suscripcion"
+                          : "Suscribir app al WABA"}
+                    </Button>
+                  </div>
+
+                  <div className="mt-4 grid gap-3 text-sm">
+                    <div className="rounded-[1rem] border border-slate-200 bg-slate-50 p-4 text-slate-700">
+                      <div className="flex items-start gap-3">
+                        {subscriptionStatus?.subscribed ? (
+                          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                        ) : subscriptionStatus?.error ? (
+                          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
+                        ) : (
+                          <Webhook className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" />
+                        )}
+                        <div className="space-y-1">
+                          <p className="font-medium text-slate-900">
+                            {isLoadingSubscriptionStatus
+                              ? "Consultando suscripcion actual..."
+                              : subscriptionStatus?.subscribed
+                                ? "La app ya aparece suscrita al WABA."
+                                : "La suscripcion de la app al WABA aun no esta confirmada."}
+                          </p>
+                          {subscriptionStatus?.appId ? (
+                            <p className="text-slate-600">App ID detectado en Meta: {subscriptionStatus.appId}</p>
+                          ) : null}
+                          {subscriptionStatus?.error ? (
+                            <p className="text-rose-700">{subscriptionStatus.error}</p>
+                          ) : null}
+                          {!subscriptionStatus?.subscribed && !subscriptionStatus?.error ? (
+                            <p className="text-slate-600">
+                              Si el webhook valida pero los mensajes reales no llegan, normalmente falta esta suscripcion.
+                            </p>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="rounded-[1.25rem] border border-[var(--line)] bg-slate-50 p-5">
                   <p className="text-sm font-semibold text-slate-900">Datos a guardar</p>
                   <div className="mt-4 grid gap-3 md:grid-cols-2">
@@ -1108,20 +1390,10 @@ export function OfficialApiConfigWizard({
                 <div className="rounded-[1.25rem] border border-emerald-200 bg-emerald-50 p-5">
                   <p className="text-sm font-semibold text-emerald-900">Checklist final antes de guardar</p>
                   <div className="mt-4 grid gap-4">
-                    {metaChecklistSections.map((section) => (
-                      <div key={`final-${section.title}`} className="grid gap-2">
-                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700">
-                          {section.title} - {section.heading}
-                        </p>
-                        {section.items.map((item) => (
-                          <div
-                            key={`${section.title}-${typeof item === "string" ? item : item.text}`}
-                            className="flex items-start gap-3 text-sm text-emerald-900"
-                          >
-                            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-                            <span>{renderChecklistItem(item)}</span>
-                          </div>
-                        ))}
+                    {finalSaveChecklist.map((item) => (
+                      <div key={item} className="flex items-start gap-3 text-sm text-emerald-900">
+                        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                        <span>{item}</span>
                       </div>
                     ))}
                   </div>

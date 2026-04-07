@@ -15,14 +15,22 @@ type MetaWebhookPayload = {
           phone_number_id?: string;
           display_phone_number?: string;
         };
+        contacts?: Array<{
+          wa_id?: string;
+          profile?: {
+            name?: string;
+          };
+        }>;
         statuses?: Array<{
           id?: string;
           status?: string;
+          timestamp?: string;
         }>;
         messages?: Array<{
           id?: string;
           type?: string;
           from?: string;
+          timestamp?: string;
           text?: {
             body?: string;
           };
@@ -37,57 +45,98 @@ type OfficialApiWebhookConfigRow = {
   appSecret: string | null;
 };
 
+type ExtractedInboundMessage = {
+  id: string;
+  waId: string;
+  contactName: string | null;
+  content: string | null;
+  type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT" | "TEMPLATE" | "INTERACTIVE" | "SYSTEM";
+  createdAt: Date;
+  rawPayload: MetaWebhookPayload;
+};
+
 async function findConfigByVerifyToken(verifyToken: string) {
-  await ensureOfficialApiConfigTable();
+  const query = async () =>
+    prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT "id"
+      FROM "OfficialApiClientConfig"
+      WHERE "webhookVerifyToken" = ${verifyToken}
+      LIMIT 1
+    `;
 
-  const rows = await prisma.$queryRaw<Array<{ id: string }>>`
-    SELECT "id"
-    FROM "OfficialApiClientConfig"
-    WHERE "webhookVerifyToken" = ${verifyToken}
-    LIMIT 1
-  `;
+  try {
+    const rows = await query();
+    return rows[0] ?? null;
+  } catch {
+    await ensureOfficialApiConfigTable();
+    const rows = await query();
+    return rows[0] ?? null;
+  }
+}
 
-  return rows[0] ?? null;
+async function markWebhookVerified(configId: string) {
+  const execute = async () =>
+    prisma.$executeRaw`
+      UPDATE "OfficialApiClientConfig"
+      SET
+        "status" = 'CONNECTED'::"OfficialApiConnectionStatus",
+        "lastValidatedAt" = CURRENT_TIMESTAMP,
+        "updatedAt" = CURRENT_TIMESTAMP
+      WHERE "id" = ${configId}
+    `;
+
+  try {
+    await execute();
+  } catch {
+    await ensureOfficialApiConfigTable();
+    await execute();
+  }
 }
 
 async function findConfigByWebhookTarget(input: {
   phoneNumberId: string | null;
   wabaId: string | null;
 }) {
-  await ensureOfficialApiConfigTable();
-
   if (!input.phoneNumberId && !input.wabaId) {
     return null;
   }
 
-  if (input.phoneNumberId && input.wabaId) {
-    const rows = await prisma.$queryRaw<OfficialApiWebhookConfigRow[]>`
+  const query = async () => {
+    if (input.phoneNumberId && input.wabaId) {
+      return prisma.$queryRaw<OfficialApiWebhookConfigRow[]>`
+        SELECT "id", "appSecret"
+        FROM "OfficialApiClientConfig"
+        WHERE "phoneNumberId" = ${input.phoneNumberId}
+           OR "wabaId" = ${input.wabaId}
+        LIMIT 1
+      `;
+    }
+
+    if (input.phoneNumberId) {
+      return prisma.$queryRaw<OfficialApiWebhookConfigRow[]>`
+        SELECT "id", "appSecret"
+        FROM "OfficialApiClientConfig"
+        WHERE "phoneNumberId" = ${input.phoneNumberId}
+        LIMIT 1
+      `;
+    }
+
+    return prisma.$queryRaw<OfficialApiWebhookConfigRow[]>`
       SELECT "id", "appSecret"
       FROM "OfficialApiClientConfig"
-      WHERE "phoneNumberId" = ${input.phoneNumberId}
-         OR "wabaId" = ${input.wabaId}
+      WHERE "wabaId" = ${input.wabaId}
       LIMIT 1
     `;
+  };
+
+  try {
+    const rows = await query();
+    return rows[0] ?? null;
+  } catch {
+    await ensureOfficialApiConfigTable();
+    const rows = await query();
     return rows[0] ?? null;
   }
-
-  if (input.phoneNumberId) {
-    const rows = await prisma.$queryRaw<OfficialApiWebhookConfigRow[]>`
-      SELECT "id", "appSecret"
-      FROM "OfficialApiClientConfig"
-      WHERE "phoneNumberId" = ${input.phoneNumberId}
-      LIMIT 1
-    `;
-    return rows[0] ?? null;
-  }
-
-  const rows = await prisma.$queryRaw<OfficialApiWebhookConfigRow[]>`
-    SELECT "id", "appSecret"
-    FROM "OfficialApiClientConfig"
-    WHERE "wabaId" = ${input.wabaId}
-    LIMIT 1
-  `;
-  return rows[0] ?? null;
 }
 
 async function storeWebhookEvent(input: {
@@ -170,6 +219,245 @@ function extractEventType(payload: MetaWebhookPayload) {
   return payload.object || "unknown";
 }
 
+function mapMessageType(value: string | undefined): ExtractedInboundMessage["type"] {
+  switch (value) {
+    case "image":
+      return "IMAGE";
+    case "audio":
+      return "AUDIO";
+    case "video":
+      return "VIDEO";
+    case "document":
+      return "DOCUMENT";
+    case "template":
+      return "TEMPLATE";
+    case "interactive":
+      return "INTERACTIVE";
+    case "system":
+      return "SYSTEM";
+    default:
+      return "TEXT";
+  }
+}
+
+function parseMetaTimestamp(value: string | undefined) {
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    return new Date();
+  }
+
+  return new Date(seconds * 1000);
+}
+
+function extractInboundMessages(payload: MetaWebhookPayload): ExtractedInboundMessage[] {
+  const changes = payload.entry?.flatMap((entry) => entry.changes ?? []) ?? [];
+
+  return changes.flatMap((change) => {
+    const contacts = change.value?.contacts ?? [];
+    const contactNames = new Map(
+      contacts.map((contact) => [contact.wa_id ?? "", contact.profile?.name?.trim() || null]),
+    );
+
+    return (change.value?.messages ?? [])
+      .map((message) => {
+        const waId = message.from?.trim() || "";
+        const messageId = message.id?.trim() || "";
+
+        if (!waId || !messageId) {
+          return null;
+        }
+
+        return {
+          id: messageId,
+          waId,
+          contactName: contactNames.get(waId) ?? null,
+          content: message.text?.body?.trim() || null,
+          type: mapMessageType(message.type),
+          createdAt: parseMetaTimestamp(message.timestamp),
+          rawPayload: payload,
+        } satisfies ExtractedInboundMessage;
+      })
+      .filter((message): message is ExtractedInboundMessage => Boolean(message));
+  });
+}
+
+function mapMessageStatus(status: string | undefined) {
+  switch (status?.trim().toLowerCase()) {
+    case "sent":
+      return "SENT" as const;
+    case "delivered":
+      return "DELIVERED" as const;
+    case "read":
+      return "READ" as const;
+    case "failed":
+      return "FAILED" as const;
+    default:
+      return "RECEIVED" as const;
+  }
+}
+
+async function syncInboundMessages(configId: string, payload: MetaWebhookPayload) {
+  const inboundMessages = extractInboundMessages(payload);
+
+  for (const message of inboundMessages) {
+    const contactId = randomUUID();
+    await prisma.$executeRaw`
+      INSERT INTO "OfficialApiContact" (
+        "id",
+        "configId",
+        "externalUserId",
+        "waId",
+        "name",
+        "phoneNumber",
+        "metadata",
+        "lastMessageAt",
+        "createdAt",
+        "updatedAt"
+      )
+      VALUES (
+        ${contactId},
+        ${configId},
+        ${message.waId},
+        ${message.waId},
+        ${message.contactName},
+        ${message.waId},
+        ${JSON.stringify(payload)},
+        ${message.createdAt},
+        CURRENT_TIMESTAMP,
+        CURRENT_TIMESTAMP
+      )
+      ON CONFLICT ("configId", "waId")
+      DO UPDATE SET
+        "name" = COALESCE(EXCLUDED."name", "OfficialApiContact"."name"),
+        "phoneNumber" = EXCLUDED."phoneNumber",
+        "externalUserId" = EXCLUDED."externalUserId",
+        "metadata" = EXCLUDED."metadata",
+        "lastMessageAt" = EXCLUDED."lastMessageAt",
+        "updatedAt" = CURRENT_TIMESTAMP
+    `;
+
+    const contactRows = await prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT "id"
+      FROM "OfficialApiContact"
+      WHERE "configId" = ${configId}
+        AND "waId" = ${message.waId}
+      LIMIT 1
+    `;
+    const contact = contactRows[0];
+    if (!contact) {
+      continue;
+    }
+
+    const conversationId = randomUUID();
+    await prisma.$executeRaw`
+      INSERT INTO "OfficialApiConversation" (
+        "id",
+        "configId",
+        "contactId",
+        "externalThreadId",
+        "status",
+        "lastMessageAt",
+        "createdAt",
+        "updatedAt"
+      )
+      VALUES (
+        ${conversationId},
+        ${configId},
+        ${contact.id},
+        ${message.waId},
+        'OPEN'::"OfficialApiConversationStatus",
+        ${message.createdAt},
+        CURRENT_TIMESTAMP,
+        CURRENT_TIMESTAMP
+      )
+      ON CONFLICT ("configId", "externalThreadId")
+      DO UPDATE SET
+        "contactId" = EXCLUDED."contactId",
+        "status" = 'OPEN'::"OfficialApiConversationStatus",
+        "lastMessageAt" = EXCLUDED."lastMessageAt",
+        "updatedAt" = CURRENT_TIMESTAMP
+    `;
+
+    const conversationRows = await prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT "id"
+      FROM "OfficialApiConversation"
+      WHERE "configId" = ${configId}
+        AND "externalThreadId" = ${message.waId}
+      LIMIT 1
+    `;
+    const conversation = conversationRows[0];
+    if (!conversation) {
+      continue;
+    }
+
+    await prisma.$executeRaw`
+      INSERT INTO "OfficialApiMessage" (
+        "id",
+        "configId",
+        "conversationId",
+        "contactId",
+        "externalMessageId",
+        "direction",
+        "type",
+        "status",
+        "content",
+        "rawPayload",
+        "createdAt",
+        "updatedAt"
+      )
+      VALUES (
+        ${randomUUID()},
+        ${configId},
+        ${conversation.id},
+        ${contact.id},
+        ${message.id},
+        'INBOUND'::"OfficialApiMessageDirection",
+        ${message.type}::"OfficialApiMessageType",
+        'RECEIVED'::"OfficialApiMessageStatus",
+        ${message.content},
+        ${JSON.stringify(message.rawPayload)},
+        ${message.createdAt},
+        CURRENT_TIMESTAMP
+      )
+      ON CONFLICT ("configId", "externalMessageId")
+      DO UPDATE SET
+        "content" = EXCLUDED."content",
+        "type" = EXCLUDED."type",
+        "status" = 'RECEIVED'::"OfficialApiMessageStatus",
+        "rawPayload" = EXCLUDED."rawPayload",
+        "updatedAt" = CURRENT_TIMESTAMP
+    `;
+  }
+}
+
+async function syncMessageStatuses(configId: string, payload: MetaWebhookPayload) {
+  const statuses =
+    payload.entry?.flatMap((entry) => entry.changes ?? []).flatMap((change) => change.value?.statuses ?? []) ?? [];
+
+  for (const statusItem of statuses) {
+    const externalMessageId = statusItem.id?.trim();
+    if (!externalMessageId) {
+      continue;
+    }
+
+    const nextStatus = mapMessageStatus(statusItem.status);
+    const statusDate = parseMetaTimestamp(statusItem.timestamp);
+
+    await prisma.$executeRaw`
+      UPDATE "OfficialApiMessage"
+      SET
+        "status" = ${nextStatus}::"OfficialApiMessageStatus",
+        "sentAt" = CASE WHEN ${nextStatus} = 'SENT' THEN ${statusDate} ELSE "sentAt" END,
+        "deliveredAt" = CASE WHEN ${nextStatus} = 'DELIVERED' THEN ${statusDate} ELSE "deliveredAt" END,
+        "readAt" = CASE WHEN ${nextStatus} = 'READ' THEN ${statusDate} ELSE "readAt" END,
+        "failedAt" = CASE WHEN ${nextStatus} = 'FAILED' THEN ${statusDate} ELSE "failedAt" END,
+        "updatedAt" = CURRENT_TIMESTAMP
+      WHERE "configId" = ${configId}
+        AND "externalMessageId" = ${externalMessageId}
+    `;
+  }
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const mode = searchParams.get("hub.mode");
@@ -185,6 +473,8 @@ export async function GET(request: Request) {
   if (!matchingConfig) {
     return NextResponse.json({ ok: false, error: "Verify token invalido." }, { status: 403 });
   }
+
+  await markWebhookVerified(matchingConfig.id);
 
   return new NextResponse(challenge, {
     status: 200,
@@ -236,6 +526,9 @@ export async function POST(request: Request) {
   const eventType = extractEventType(payload);
 
   try {
+    await syncInboundMessages(config.id, payload);
+    await syncMessageStatuses(config.id, payload);
+
     await storeWebhookEvent({
       configId: config.id,
       eventType,

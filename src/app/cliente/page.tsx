@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ArrowRight, Bot, Megaphone, MessageSquare, MessageSquareMore, Sparkles } from "lucide-react";
 import { auth } from "@/auth";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
+import { getOfficialApiConfigByWorkspaceId } from "@/lib/official-api-config";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
 export const metadata: Metadata = {
@@ -30,6 +31,10 @@ export default async function ClientePage({ searchParams }: PageProps) {
   const agentCount = membership?.workspace._count.agents ?? 0;
   const channelCount = membership?.workspace._count.channels ?? 0;
   const hasWorkspace = Boolean(membership);
+  const officialApiConfig = membership?.workspace.id
+    ? await getOfficialApiConfigByWorkspaceId(membership.workspace.id)
+    : null;
+  const officialApiEnabled = officialApiConfig?.status === "CONNECTED";
   const firstName = session.user.name?.trim().split(/\s+/)[0] ?? "";
   const welcomeHeading = firstName ? `Bienvenido ${firstName}` : "Bienvenido";
 
@@ -101,8 +106,18 @@ export default async function ClientePage({ searchParams }: PageProps) {
         <DashboardModuleCard
           icon={<MessageSquare className="h-4.5 w-4.5" />}
           title="Api oficial"
-          description="Prepara la base multi-tenant para conectar clientes con WhatsApp Cloud API oficial de Meta."
-          metric={hasWorkspace ? "Fase 1 estructural" : "Requiere negocio configurado"}
+          description={
+            officialApiEnabled
+              ? "Tu canal oficial ya esta activo y listo para operar con resumen y bandeja de chats."
+              : "Prepara la base multi-tenant para conectar clientes con WhatsApp Cloud API oficial de Meta."
+          }
+          metric={
+            !hasWorkspace
+              ? "Requiere negocio configurado"
+              : officialApiEnabled
+                ? "Activo"
+                : "Habla con admin"
+          }
           href={hasWorkspace ? "/cliente/api-oficial" : "/cliente/onboarding?returnTo=/cliente/api-oficial"}
           cta="Abrir modulo"
         />
