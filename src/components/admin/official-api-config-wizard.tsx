@@ -64,37 +64,31 @@ const steps = [
   {
     key: "fase-1",
     title: "Paso 1",
-    description: "Pedir datos al cliente.",
+    description: "Datos del cliente.",
     icon: ShieldCheck,
   },
   {
     key: "fase-2",
     title: "Paso 2",
-    description: "Crear o conectar WhatsApp en Meta.",
+    description: "Conectar WhatsApp.",
     icon: Smartphone,
   },
   {
     key: "fase-3",
     title: "Paso 3",
-    description: "Crear app en Meta Developers.",
+    description: "Crear app.",
     icon: KeyRound,
   },
   {
     key: "fase-4",
     title: "Paso 4",
-    description: "Validar credenciales capturadas.",
-    icon: Smartphone,
+    description: "Probar envio.",
+    icon: CreditCard,
   },
   {
     key: "fase-5",
     title: "Paso 5",
-    description: "Guardar credenciales y validar envio.",
-    icon: CreditCard,
-  },
-  {
-    key: "fase-6",
-    title: "Paso 6",
-    description: "Configurar webhook y guardar.",
+    description: "Webhook y guardar.",
     icon: Webhook,
   },
 ] as const;
@@ -122,15 +116,11 @@ const metaChecklistSections = [
       },
       "Ir a Configuracion del negocio > Cuentas > Cuentas de WhatsApp.",
       "Crear nueva cuenta de WhatsApp Business.",
-      "Completar nombre de empresa, zona horaria y categoria.",
-      "Entrar a la WABA creada.",
       "Guardar el WABA ID. En Meta tambien puede aparecer como Identificador.",
       "Ir a la pestana Numeros de telefono.",
       "Seleccionar si el numero sera nuevo o existente.",
       "Ingresar el numero de WhatsApp.",
-      "Seleccionar la categoria del numero.",
       "Verificar con SMS o llamada.",
-      "Guardar el Phone Number ID.",
     ],
   },
   {
@@ -147,23 +137,11 @@ const metaChecklistSections = [
       "Hacer clic en Generar token de acceso.",
       "Seleccionar la cuenta de WhatsApp Business y el numero conectado.",
       "Copiar y guardar el Access Token.",
-      "Copiar y guardar el Identificador de numero de telefono como Phone Number ID.",
-      "Copiar y guardar el Identificador de la cuenta de WhatsApp Business como WABA ID.",
       "Usar la seccion Enviar y recibir mensajes para hacer una prueba si hace falta.",
     ],
   },
   {
     title: "Fase 4",
-    heading: "Validar credenciales capturadas",
-    items: [
-      "Confirmar que el Access Token corresponde a la app y cuenta correctas.",
-      "Verificar que el Phone Number ID corresponde al numero conectado.",
-      "Verificar que el WABA ID corresponde a la cuenta de WhatsApp Business correcta.",
-      "Ajustar o corregir cualquier dato antes de continuar.",
-    ],
-  },
-  {
-    title: "Fase 5",
     heading: "Probar envio",
     items: [
       "Probar POST /messages con el Phone Number ID.",
@@ -174,10 +152,10 @@ const metaChecklistSections = [
 ] as const;
 
 const finalSaveChecklist = [
-  "Confirma que la URL del webhook este accesible desde internet.",
-  "Verifica que el Verify Token coincida exactamente con el valor configurado en Meta.",
-  "Guarda primero esta configuracion en el sistema antes de verificar el webhook en Meta.",
-  "Si ya validaste el challenge en Meta, ya puedes cerrar este flujo y dejar la integracion activa.",
+  "La URL del webhook debe ser publica.",
+  "El Verify Token debe coincidir en Meta y aqui.",
+  "Guarda primero en el sistema.",
+  "Si Meta ya valido el challenge, el canal queda activo.",
 ] as const;
 
 const OFFICIAL_API_WIZARD_DRAFT_KEY = "official-api-config-wizard:v1";
@@ -271,11 +249,11 @@ function getSavedProgressStep(
     officialApiConfig?.status === "CONNECTED";
 
   if (hasWebhookData) {
-    return 5;
+    return 4;
   }
 
   if (hasAllCredentials) {
-    return 4;
+    return 3;
   }
 
   if (hasAccessToken || hasStep2Ready) {
@@ -327,7 +305,7 @@ function getCompletedSteps(
     form.appSecret.trim().length > 0 ||
     officialApiConfig?.status === "CONNECTED"
   ) {
-    completed.add(5);
+    completed.add(4);
   }
 
   return completed;
@@ -372,13 +350,32 @@ export function OfficialApiConfigWizard({
     ? `${OFFICIAL_API_WIZARD_DRAFT_KEY}:${user.id}:${workspace.id}`
     : `${OFFICIAL_API_WIZARD_DRAFT_KEY}:${user.id}:no-workspace`;
   const effectiveOfficialApiConfig = React.useMemo(
-    () =>
-      workspace?.officialApiConfig || webhookStatus
-        ? {
-            ...(workspace?.officialApiConfig ?? {}),
-            ...(webhookStatus ?? {}),
-          }
-        : null,
+    () => {
+      if (!workspace?.officialApiConfig && !webhookStatus) {
+        return null;
+      }
+
+      const rawValidatedAt = webhookStatus?.lastValidatedAt ?? workspace?.officialApiConfig?.lastValidatedAt ?? null;
+      const normalizedValidatedAt =
+        rawValidatedAt instanceof Date
+          ? rawValidatedAt
+          : rawValidatedAt
+            ? new Date(rawValidatedAt)
+            : null;
+
+      return {
+        accessToken: workspace?.officialApiConfig?.accessToken ?? null,
+        phoneNumberId: workspace?.officialApiConfig?.phoneNumberId ?? null,
+        wabaId: workspace?.officialApiConfig?.wabaId ?? null,
+        webhookVerifyToken: workspace?.officialApiConfig?.webhookVerifyToken ?? null,
+        appSecret: workspace?.officialApiConfig?.appSecret ?? null,
+        status: webhookStatus?.status ?? workspace?.officialApiConfig?.status ?? "NOT_CONNECTED",
+        lastValidatedAt:
+          normalizedValidatedAt && !Number.isNaN(normalizedValidatedAt.getTime())
+            ? normalizedValidatedAt
+            : null,
+      };
+    },
     [webhookStatus, workspace?.officialApiConfig],
   );
   const completedSteps = React.useMemo(
@@ -505,7 +502,7 @@ export function OfficialApiConfigWizard({
 
   React.useEffect(() => {
     if (
-      currentStep !== 5 ||
+      currentStep !== 4 ||
       effectiveOfficialApiConfig?.lastValidatedAt ||
       !workspace?.id ||
       !form.webhookVerifyToken.trim()
@@ -558,7 +555,7 @@ export function OfficialApiConfigWizard({
 
   React.useEffect(() => {
     if (
-      currentStep !== 5 ||
+      currentStep !== 4 ||
       !workspace?.id ||
       !form.wabaId.trim() ||
       !form.accessToken.trim()
@@ -620,10 +617,20 @@ export function OfficialApiConfigWizard({
     form.accessToken.trim().length > 0 &&
     form.phoneNumberId.trim().length > 0 &&
     form.wabaId.trim().length > 0;
+  const isPhoneSetupStepValid =
+    form.phoneNumberId.trim().length > 0 &&
+    form.wabaId.trim().length > 0;
+  const isAccessTokenStepValid = form.accessToken.trim().length > 0;
 
   const canGoNext = (() => {
     const key = steps[currentStep]?.key satisfies StepKey;
-    if (key === "fase-5") {
+    if (key === "fase-2") {
+      return isPhoneSetupStepValid;
+    }
+    if (key === "fase-3") {
+      return isAccessTokenStepValid;
+    }
+    if (key === "fase-4") {
       return isCredentialStepValid;
     }
     return currentStep < steps.length - 1;
@@ -951,8 +958,7 @@ export function OfficialApiConfigWizard({
                       />
                     </label>
                     <p className="mt-2 text-xs leading-5 text-slate-500">
-                      En Meta este dato puede mostrarse como <span className="font-semibold">Identificador</span>.
-                      Si ya lo ves en la cuenta de WhatsApp Business, puedes guardarlo aqui desde este paso.
+                      En Meta puede aparecer como <span className="font-semibold">Identificador</span>.
                     </p>
 
                     <label className="block space-y-1.5">
@@ -965,23 +971,10 @@ export function OfficialApiConfigWizard({
                       />
                     </label>
                     <p className="text-xs leading-5 text-slate-500">
-                      Guarda aqui el identificador del numero cuando termines de conectar el numero en Meta.
+                      Pega aqui el identificador del numero.
                     </p>
                   </div>
 
-                  <div className="rounded-[1.25rem] border border-[var(--line)] bg-slate-50 p-5">
-                    <p className="text-sm font-semibold text-slate-900">Dato detectado en esta fase</p>
-                    <div className="mt-4 grid gap-3">
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">WABA id</p>
-                        <p className="mt-1 text-sm text-slate-700">{form.wabaId.trim() || "Aun no cargado"}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Phone number id</p>
-                        <p className="mt-1 text-sm text-slate-700">{form.phoneNumberId.trim() || "Aun no cargado"}</p>
-                      </div>
-                    </div>
-                  </div>
                 </div>
               </div>
             ) : null}
@@ -1029,15 +1022,9 @@ export function OfficialApiConfigWizard({
             ) : null}
 
             {currentStep === 3 ? (
-              <div className="space-y-4">
-                {renderChecklistSection(metaChecklistSections[3])}
-              </div>
-            ) : null}
-
-            {currentStep === 4 ? (
               <div className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
                 <div className="space-y-4">
-                  {renderChecklistSection(metaChecklistSections[4])}
+                  {renderChecklistSection(metaChecklistSections[3])}
 
                   <div className="grid gap-4">
                     <label className="block space-y-1.5">
@@ -1091,8 +1078,7 @@ export function OfficialApiConfigWizard({
                     ) : null}
 
                     <div className="rounded-[1.25rem] border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900">
-                      Antes de probar el envio, manda primero un mensaje desde tu WhatsApp al numero de la API oficial.
-                      Eso ayuda a abrir la conversacion y facilita validar la respuesta desde este paso.
+                      Antes de probar, manda primero un mensaje al numero oficial.
                     </div>
 
                     <label className="block space-y-1.5">
@@ -1104,7 +1090,7 @@ export function OfficialApiConfigWizard({
                         placeholder="573001112233"
                       />
                       <p className="text-xs leading-5 text-slate-500">
-                        Usa formato internacional. Ejemplo: 573001112233
+                        Usa formato internacional. Ejemplo: 573001112233.
                       </p>
                     </label>
 
@@ -1227,7 +1213,7 @@ export function OfficialApiConfigWizard({
               </div>
             ) : null}
 
-            {currentStep === 5 ? (
+            {currentStep === 4 ? (
               <div className="space-y-4">
                 {effectiveOfficialApiConfig?.lastValidatedAt ? (
                   <div className="rounded-[1.25rem] border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
@@ -1253,8 +1239,7 @@ export function OfficialApiConfigWizard({
                       />
                     </label>
                     <p className="text-xs leading-5 text-slate-500">
-                      Esta es la URL que debes pegar en Meta Developers en el campo <span className="font-semibold">Callback URL</span>.
-                      Debe ser publica y accesible desde internet. Si estas usando Cloudflare Tunnel, puedes usar esa URL publica temporal.
+                      Pega esta URL en Meta como <span className="font-semibold">Callback URL</span>.
                     </p>
 
                     <label className="block space-y-1.5">
@@ -1267,21 +1252,10 @@ export function OfficialApiConfigWizard({
                       />
                     </label>
                     <p className="text-xs leading-5 text-slate-500">
-                      Este token lo defines tu. Debe ser exactamente el mismo en Meta y en este formulario para que la verificacion funcione.
+                      Debe ser el mismo en Meta y en este formulario.
                     </p>
                   </div>
 
-                  <div className="rounded-[1.25rem] border border-sky-200 bg-sky-50 p-5 text-sm text-sky-900">
-                    <p className="font-semibold">Que poner en Meta</p>
-                    <div className="mt-3 grid gap-2 leading-6">
-                      <p><span className="font-semibold">Callback URL:</span> la URL de arriba.</p>
-                      <p><span className="font-semibold">Verify Token:</span> el mismo texto que escribas en este paso.</p>
-                      <p>Si usas Cloudflare Tunnel, esa URL tambien sirve mientras el tunel siga activo.</p>
-                      <p>Antes de dar clic en <span className="font-semibold">Verificar y guardar</span> en Meta, guarda primero este paso en el sistema.</p>
-                      <p>No actives la opcion de certificado de cliente para este flujo.</p>
-                      <p>Cuando Meta lo verifique, este endpoint respondera automaticamente el challenge.</p>
-                    </div>
-                  </div>
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-2">
@@ -1301,7 +1275,7 @@ export function OfficialApiConfigWizard({
                     <div className="space-y-1">
                       <p className="text-sm font-semibold text-slate-900">Suscripcion de app al WABA</p>
                       <p className="text-sm text-slate-600">
-                        Este paso conecta de verdad la app de Meta con la cuenta de WhatsApp Business para que los mensajes reales disparen el webhook.
+                        Conecta la app con la cuenta para recibir mensajes reales.
                       </p>
                     </div>
 
@@ -1350,7 +1324,7 @@ export function OfficialApiConfigWizard({
                           ) : null}
                           {!subscriptionStatus?.subscribed && !subscriptionStatus?.error ? (
                             <p className="text-slate-600">
-                              Si el webhook valida pero los mensajes reales no llegan, normalmente falta esta suscripcion.
+                              Si los mensajes reales no llegan, revisa esta suscripcion.
                             </p>
                           ) : null}
                         </div>

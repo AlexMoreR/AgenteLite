@@ -1,6 +1,8 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
+import { resolveOfficialApiAutomationReply } from "@/lib/official-api-chatbot";
+import { sendOfficialApiTextMessage } from "@/lib/official-api-messaging";
 import { prisma } from "@/lib/prisma";
 import { ensureOfficialApiConfigTable } from "@/lib/official-api-config";
 
@@ -43,6 +45,8 @@ type MetaWebhookPayload = {
 type OfficialApiWebhookConfigRow = {
   id: string;
   appSecret: string | null;
+  accessToken: string | null;
+  phoneNumberId: string | null;
 };
 
 type ExtractedInboundMessage = {
@@ -104,7 +108,7 @@ async function findConfigByWebhookTarget(input: {
   const query = async () => {
     if (input.phoneNumberId && input.wabaId) {
       return prisma.$queryRaw<OfficialApiWebhookConfigRow[]>`
-        SELECT "id", "appSecret"
+        SELECT "id", "appSecret", "accessToken", "phoneNumberId"
         FROM "OfficialApiClientConfig"
         WHERE "phoneNumberId" = ${input.phoneNumberId}
            OR "wabaId" = ${input.wabaId}
@@ -114,7 +118,7 @@ async function findConfigByWebhookTarget(input: {
 
     if (input.phoneNumberId) {
       return prisma.$queryRaw<OfficialApiWebhookConfigRow[]>`
-        SELECT "id", "appSecret"
+        SELECT "id", "appSecret", "accessToken", "phoneNumberId"
         FROM "OfficialApiClientConfig"
         WHERE "phoneNumberId" = ${input.phoneNumberId}
         LIMIT 1
@@ -122,7 +126,7 @@ async function findConfigByWebhookTarget(input: {
     }
 
     return prisma.$queryRaw<OfficialApiWebhookConfigRow[]>`
-      SELECT "id", "appSecret"
+      SELECT "id", "appSecret", "accessToken", "phoneNumberId"
       FROM "OfficialApiClientConfig"
       WHERE "wabaId" = ${input.wabaId}
       LIMIT 1
@@ -298,8 +302,25 @@ function mapMessageStatus(status: string | undefined) {
 
 async function syncInboundMessages(configId: string, payload: MetaWebhookPayload) {
   const inboundMessages = extractInboundMessages(payload);
+  const insertedMessages: Array<{
+    conversationId: string;
+    contactId: string;
+    waId: string;
+    content: string | null;
+  }> = [];
 
   for (const message of inboundMessages) {
+    const existingMessageRows = await prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT "id"
+      FROM "OfficialApiMessage"
+      WHERE "configId" = ${configId}
+        AND "externalMessageId" = ${message.id}
+      LIMIT 1
+    `;
+    if (existingMessageRows[0]) {
+      continue;
+    }
+
     const contactId = randomUUID();
     await prisma.$executeRaw`
       INSERT INTO "OfficialApiContact" (
@@ -419,15 +440,17 @@ async function syncInboundMessages(configId: string, payload: MetaWebhookPayload
         ${message.createdAt},
         CURRENT_TIMESTAMP
       )
-      ON CONFLICT ("configId", "externalMessageId")
-      DO UPDATE SET
-        "content" = EXCLUDED."content",
-        "type" = EXCLUDED."type",
-        "status" = 'RECEIVED'::"OfficialApiMessageStatus",
-        "rawPayload" = EXCLUDED."rawPayload",
-        "updatedAt" = CURRENT_TIMESTAMP
     `;
+
+    insertedMessages.push({
+      conversationId: conversation.id,
+      contactId: contact.id,
+      waId: message.waId,
+      content: message.content,
+    });
   }
+
+  return insertedMessages;
 }
 
 async function syncMessageStatuses(configId: string, payload: MetaWebhookPayload) {
@@ -526,8 +549,29 @@ export async function POST(request: Request) {
   const eventType = extractEventType(payload);
 
   try {
-    await syncInboundMessages(config.id, payload);
+    const insertedMessages = await syncInboundMessages(config.id, payload);
     await syncMessageStatuses(config.id, payload);
+
+    for (const message of insertedMessages) {
+      const reply = await resolveOfficialApiAutomationReply({
+        configId: config.id,
+        conversationId: message.conversationId,
+        inboundText: message.content,
+      });
+
+      if (!reply?.trim()) {
+        continue;
+      }
+
+      await sendOfficialApiTextMessage({
+        config,
+        conversationId: message.conversationId,
+        contactId: message.contactId,
+        to: message.waId,
+        message: reply,
+        source: "automation",
+      });
+    }
 
     await storeWebhookEvent({
       configId: config.id,

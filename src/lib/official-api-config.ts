@@ -16,6 +16,16 @@ export type OfficialApiConfigRecord = {
   updatedAt: Date;
 };
 
+export function hasOfficialApiBaseCredentials(
+  config: Pick<OfficialApiConfigRecord, "accessToken" | "phoneNumberId" | "wabaId"> | null | undefined,
+): boolean {
+  return Boolean(
+    config?.accessToken?.trim() &&
+      config.phoneNumberId?.trim() &&
+      config.wabaId?.trim(),
+  );
+}
+
 export async function ensureOfficialApiConfigTable(): Promise<void> {
   await prisma.$executeRawUnsafe(`
     DO $$

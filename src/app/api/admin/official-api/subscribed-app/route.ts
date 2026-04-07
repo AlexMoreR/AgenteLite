@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
+import { updateOfficialApiConnectionStatus } from "@/lib/official-api-connection-status";
 import { getOfficialApiConfigByWorkspaceId } from "@/lib/official-api-config";
 import {
   getOfficialApiSubscribedAppStatus,
@@ -42,6 +43,13 @@ export async function GET(request: Request) {
     accessToken: config.accessToken.trim(),
   });
 
+  if (result.authError) {
+    await updateOfficialApiConnectionStatus({
+      configId: config.id,
+      status: "ERROR",
+    });
+  }
+
   return NextResponse.json(result, { status: result.ok ? 200 : 400 });
 }
 
@@ -83,6 +91,13 @@ export async function POST(request: Request) {
     wabaId,
     accessToken,
   });
+
+  if (result.authError && config?.id) {
+    await updateOfficialApiConnectionStatus({
+      configId: config.id,
+      status: "ERROR",
+    });
+  }
 
   return NextResponse.json(result, { status: result.ok ? 200 : 400 });
 }

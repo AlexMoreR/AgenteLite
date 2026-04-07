@@ -37,7 +37,7 @@ export const officialApiPlannedRoutes: OfficialApiRouteDefinition[] = [
     title: "Chatbot basico",
     href: "/cliente/api-oficial/chatbot",
     description: "Reglas de respuesta automatica y acciones simples por cliente.",
-    status: "next-phase",
+    status: "phase-1",
   },
 ];
 
@@ -72,5 +72,5 @@ export const officialApiNextBuildSteps = [
   "Fase 2: formulario de credenciales desde administracion de usuarios y validacion basica de conexion.",
   "Fase 3: webhook oficial para recibir mensajes y estados desde Meta.",
   "Fase 4: bandeja de chats multi-tenant con contactos y mensajes reales.",
-  "Fase 5: reglas de chatbot basico para respuestas automaticas.",
+  "Fase 5: ampliar chatbot con persistencia de reglas, builder visual y activacion por plantillas.",
 ];

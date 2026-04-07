@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { getOfficialApiConfigByWorkspaceId } from "@/lib/official-api-config";
+import { getOfficialApiConfigByWorkspaceId, hasOfficialApiBaseCredentials } from "@/lib/official-api-config";
 import { officialApiInitialDataModel, officialApiNextBuildSteps, officialApiPlannedRoutes } from "@/features/official-api/domain/official-api-structure";
 import type { OfficialApiOverview } from "@/features/official-api/types/official-api";
 
@@ -22,14 +22,17 @@ export async function getOfficialApiOverview(workspaceId: string): Promise<Offic
     config?.webhookVerifyToken ? "webhook_verify_token" : null,
     config?.appSecret ? "app_secret" : null,
   ].filter((value): value is string => Boolean(value));
+  const hasBaseCredentials = hasOfficialApiBaseCredentials(config);
 
   return {
     workspaceId,
     workspaceName: workspace?.name ?? "Workspace",
-    setupStatus: config?.status === "CONNECTED" ? "connected" : "pending",
+    setupStatus: hasBaseCredentials ? "connected" : "pending",
     connectedLabel:
-      config?.status === "CONNECTED"
-        ? "Cliente listo para trabajar con la configuracion oficial guardada"
+      hasBaseCredentials
+        ? config?.status === "ERROR"
+          ? "La API oficial tiene credenciales cargadas, pero el ultimo chequeo tecnico reporto incidencia. Puedes seguir gestionando el modulo mientras revisas la conexion."
+          : "Cliente listo para trabajar con la configuracion oficial guardada"
         : "Base estructural lista. Falta completar o validar credenciales de WhatsApp Cloud API",
     configuredFields,
     plannedRoutes: officialApiPlannedRoutes,

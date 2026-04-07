@@ -72,6 +72,89 @@ export type OfficialApiChatsData = {
   searchQuery: string;
 };
 
+export type OfficialApiChatbotMetric = {
+  id: string;
+  label: string;
+  value: string;
+  helper: string;
+};
+
+export type OfficialApiChatbotCapability = {
+  id: string;
+  title: string;
+  description: string;
+  status: "ready" | "recommended";
+};
+
+export type OfficialApiChatbotRule = {
+  id: string;
+  title: string;
+  description: string;
+  triggerLabel: string;
+  outcomeLabel: string;
+  isEnabled: boolean;
+};
+
+export type OfficialApiChatbotTemplate = {
+  id: string;
+  title: string;
+  category: string;
+  message: string;
+};
+
+export type OfficialApiChatbotScenarioMessage = {
+  id: string;
+  direction: "inbound" | "bot";
+  content: string;
+};
+
+export type OfficialApiChatbotScenario = {
+  id: string;
+  title: string;
+  summary: string;
+  messages: OfficialApiChatbotScenarioMessage[];
+};
+
+export type OfficialApiChatbotChecklistItem = {
+  id: string;
+  title: string;
+  description: string;
+  done: boolean;
+};
+
+export type OfficialApiChatbotBuilderNode = {
+  id: string;
+  kind: "trigger" | "message" | "input" | "condition" | "action";
+  title: string;
+  body: string;
+  meta: string;
+};
+
+export type OfficialApiChatbotData = {
+  configId: string | null;
+  isConnected: boolean;
+  workspaceName: string;
+  phoneNumberIdLabel: string;
+  wabaIdLabel: string;
+  metrics: OfficialApiChatbotMetric[];
+  capabilities: OfficialApiChatbotCapability[];
+  rules: OfficialApiChatbotRule[];
+  templates: OfficialApiChatbotTemplate[];
+  scenarios: OfficialApiChatbotScenario[];
+  checklist: OfficialApiChatbotChecklistItem[];
+  defaults: {
+    isBotEnabled: boolean;
+    welcomeMessage: string;
+    fallbackMessage: string;
+    businessHours: string;
+    captureLeadEnabled: boolean;
+    handoffEnabled: boolean;
+    fallbackEnabled: boolean;
+    selectedScenarioId: string;
+    nodes: OfficialApiChatbotBuilderNode[];
+  };
+};
+
 export type OfficialApiAdminSummary = {
   workspaceId: string | null;
   workspaceName: string | null;

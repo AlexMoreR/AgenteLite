@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
-import { FileText, MessageSquareText } from "lucide-react";
+import { Bot, FileText, MessageSquareText } from "lucide-react";
 
 type OfficialApiPanelShellProps = {
   children: ReactNode;
@@ -27,6 +27,12 @@ export function OfficialApiPanelShell({
       label: "Chats",
       href: `${basePath}/chats`,
       icon: MessageSquareText,
+    },
+    {
+      key: "chatbot",
+      label: "Chatbot",
+      href: `${basePath}/chatbot`,
+      icon: Bot,
     },
   ];
 

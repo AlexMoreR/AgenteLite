@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { getOfficialApiConfigByWorkspaceId } from "@/lib/official-api-config";
+import { getOfficialApiConfigByWorkspaceId, hasOfficialApiBaseCredentials } from "@/lib/official-api-config";
 import type { OfficialApiAdminSummary } from "@/features/official-api/types/official-api";
 
 export async function getOfficialApiAdminSummary(userId: string): Promise<OfficialApiAdminSummary> {
@@ -27,13 +27,14 @@ export async function getOfficialApiAdminSummary(userId: string): Promise<Offici
     config?.webhookVerifyToken ? "webhook_verify_token" : null,
     config?.appSecret ? "app_secret" : null,
   ].filter((value): value is string => Boolean(value));
+  const hasBaseCredentials = hasOfficialApiBaseCredentials(config);
 
   return {
     workspaceId: membership?.workspace.id ?? null,
     workspaceName: membership?.workspace.name ?? null,
-    setupStatus: config?.status === "CONNECTED" ? "connected" : "pending",
+    setupStatus: hasBaseCredentials ? "connected" : "pending",
     hasWorkspace: Boolean(membership?.workspace.id),
-    hasCredentials: Boolean(config?.accessToken && config.phoneNumberId && config.wabaId),
+    hasCredentials: hasBaseCredentials,
     configuredFields,
   };
 }

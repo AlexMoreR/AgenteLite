@@ -1,11 +1,11 @@
 "use server";
 
-import { randomUUID } from "node:crypto";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { auth } from "@/auth";
-import { getOfficialApiConfigByWorkspaceId } from "@/lib/official-api-config";
+import { getOfficialApiConfigByWorkspaceId, hasOfficialApiBaseCredentials } from "@/lib/official-api-config";
+import { sendOfficialApiTextMessage } from "@/lib/official-api-messaging";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
@@ -37,7 +37,7 @@ export async function sendOfficialApiReplyAction(formData: FormData): Promise<vo
   }
 
   const config = await getOfficialApiConfigByWorkspaceId(membership.workspace.id);
-  if (!config?.accessToken || !config.phoneNumberId || config.status !== "CONNECTED") {
+  if (!hasOfficialApiBaseCredentials(config)) {
     redirect("/cliente/api-oficial?error=La+API+oficial+no+esta+activa");
   }
 
@@ -66,96 +66,20 @@ export async function sendOfficialApiReplyAction(formData: FormData): Promise<vo
     redirect(`/cliente/api-oficial/chats?conversationId=${fallbackConversationId}&error=No+se+encontro+el+contacto`);
   }
 
-  const response = await fetch(
-    `https://graph.facebook.com/v23.0/${encodeURIComponent(config.phoneNumberId)}/messages`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${config.accessToken}`,
-      },
-      body: JSON.stringify({
-        messaging_product: "whatsapp",
-        to: conversation.contactWaId,
-        type: "text",
-        text: {
-          body: parsed.data.message,
-        },
-      }),
-      cache: "no-store",
-    },
-  );
+  const result = await sendOfficialApiTextMessage({
+    config,
+    conversationId: conversation.id,
+    contactId: conversation.contactId,
+    to: conversation.contactWaId,
+    message: parsed.data.message,
+    source: "manual",
+  });
 
-  const payload = (await response.json().catch(() => null)) as
-    | {
-        messages?: Array<{
-          id?: string;
-        }>;
-        error?: {
-          message?: string;
-        };
-      }
-    | null;
-
-  if (!response.ok) {
-    const errorMessage =
-      payload?.error?.message || "No se pudo enviar el mensaje con la API oficial.";
-    redirect(`/cliente/api-oficial/chats?conversationId=${conversation.id}&error=${encodeURIComponent(errorMessage)}`);
+  if (!result.ok) {
+    revalidatePath("/cliente/api-oficial");
+    revalidatePath("/cliente/api-oficial/chats");
+    redirect(`/cliente/api-oficial/chats?conversationId=${conversation.id}&error=${encodeURIComponent(result.error)}`);
   }
-
-  const now = new Date();
-  await prisma.$executeRaw`
-    INSERT INTO "OfficialApiMessage" (
-      "id",
-      "configId",
-      "conversationId",
-      "contactId",
-      "externalMessageId",
-      "direction",
-      "type",
-      "status",
-      "content",
-      "rawPayload",
-      "sentAt",
-      "createdAt",
-      "updatedAt"
-    )
-    VALUES (
-      ${randomUUID()},
-      ${config.id},
-      ${conversation.id},
-      ${conversation.contactId},
-      ${payload?.messages?.[0]?.id ?? null},
-      'OUTBOUND'::"OfficialApiMessageDirection",
-      'TEXT'::"OfficialApiMessageType",
-      'SENT'::"OfficialApiMessageStatus",
-      ${parsed.data.message},
-      ${JSON.stringify({
-        source: "manual",
-        meta: payload,
-      })},
-      ${now},
-      ${now},
-      ${now}
-    )
-  `;
-
-  await prisma.$executeRaw`
-    UPDATE "OfficialApiConversation"
-    SET
-      "lastMessageAt" = ${now},
-      "status" = 'OPEN'::"OfficialApiConversationStatus",
-      "updatedAt" = CURRENT_TIMESTAMP
-    WHERE "id" = ${conversation.id}
-  `;
-
-  await prisma.$executeRaw`
-    UPDATE "OfficialApiContact"
-    SET
-      "lastMessageAt" = ${now},
-      "updatedAt" = CURRENT_TIMESTAMP
-    WHERE "id" = ${conversation.contactId}
-  `;
 
   revalidatePath("/cliente/api-oficial");
   revalidatePath("/cliente/api-oficial/chats");

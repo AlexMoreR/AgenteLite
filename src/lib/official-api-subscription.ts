@@ -1,15 +1,12 @@
+import {
+  getMetaGraphErrorMessage,
+  isMetaGraphAuthError,
+  type MetaGraphErrorPayload,
+} from "@/lib/official-api-graph";
+
 type MetaGraphSuccess<T> = {
   data?: T;
   success?: boolean;
-};
-
-type MetaGraphError = {
-  error?: {
-    message?: string;
-    type?: string;
-    code?: number;
-    error_subcode?: number;
-  };
 };
 
 export type OfficialApiSubscriptionStatus = {
@@ -17,16 +14,13 @@ export type OfficialApiSubscriptionStatus = {
   subscribed: boolean;
   appId: string | null;
   error: string | null;
+  authError: boolean;
 };
 
 function buildGraphUrl(pathname: string, accessToken: string) {
   const url = new URL(`https://graph.facebook.com/v25.0/${pathname}`);
   url.searchParams.set("access_token", accessToken);
   return url.toString();
-}
-
-function getGraphErrorMessage(payload: MetaGraphError | null, fallback: string) {
-  return payload?.error?.message?.trim() || fallback;
 }
 
 export async function getOfficialApiSubscribedAppStatus(input: {
@@ -39,7 +33,7 @@ export async function getOfficialApiSubscribedAppStatus(input: {
   });
 
   const payload = (await response.json().catch(() => null)) as
-    | (MetaGraphSuccess<Array<{ whatsapp_business_api_data?: { id?: string } }>> & MetaGraphError)
+    | (MetaGraphSuccess<Array<{ whatsapp_business_api_data?: { id?: string } }>> & MetaGraphErrorPayload)
     | null;
 
   if (!response.ok) {
@@ -47,7 +41,8 @@ export async function getOfficialApiSubscribedAppStatus(input: {
       ok: false,
       subscribed: false,
       appId: null,
-      error: getGraphErrorMessage(payload, "No se pudo consultar la suscripcion de la app al WABA."),
+      error: getMetaGraphErrorMessage(payload, "No se pudo consultar la suscripcion de la app al WABA."),
+      authError: isMetaGraphAuthError(payload),
     };
   }
 
@@ -58,6 +53,7 @@ export async function getOfficialApiSubscribedAppStatus(input: {
     subscribed: Boolean(appId),
     appId,
     error: null,
+    authError: false,
   };
 }
 
@@ -71,7 +67,7 @@ export async function subscribeOfficialApiAppToWaba(input: {
   });
 
   const payload = (await response.json().catch(() => null)) as
-    | (MetaGraphSuccess<Array<{ whatsapp_business_api_data?: { id?: string } }>> & MetaGraphError)
+    | (MetaGraphSuccess<Array<{ whatsapp_business_api_data?: { id?: string } }>> & MetaGraphErrorPayload)
     | null;
 
   if (!response.ok) {
@@ -79,7 +75,8 @@ export async function subscribeOfficialApiAppToWaba(input: {
       ok: false,
       subscribed: false,
       appId: null,
-      error: getGraphErrorMessage(payload, "No se pudo suscribir la app al WABA."),
+      error: getMetaGraphErrorMessage(payload, "No se pudo suscribir la app al WABA."),
+      authError: isMetaGraphAuthError(payload),
     };
   }
 
@@ -90,5 +87,6 @@ export async function subscribeOfficialApiAppToWaba(input: {
     subscribed: true,
     appId,
     error: null,
+    authError: false,
   };
 }

@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { getOfficialApiConfigByWorkspaceId } from "@/lib/official-api-config";
+import { getOfficialApiConfigByWorkspaceId, hasOfficialApiBaseCredentials } from "@/lib/official-api-config";
 import type { OfficialApiChatsData } from "@/features/official-api/types/official-api";
 
 function normalizeSearch(value: string | undefined) {
@@ -14,7 +14,7 @@ export async function getOfficialApiChatsData(input: {
   const config = await getOfficialApiConfigByWorkspaceId(input.workspaceId);
   const searchQuery = normalizeSearch(input.q);
 
-  if (!config || config.status !== "CONNECTED") {
+  if (!hasOfficialApiBaseCredentials(config)) {
     return {
       configId: config?.id ?? null,
       isConnected: false,
