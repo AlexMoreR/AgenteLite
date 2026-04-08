@@ -1477,13 +1477,15 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
                     />
                   </label>
 
-                  <label className="block space-y-2">
-                    <span className="text-sm font-medium text-slate-900">Meta / keywords</span>
-                    <Input
-                      value={selectedNode.meta}
-                      onChange={(event) => updateNode(selectedNode.id, { meta: event.target.value })}
-                    />
-                  </label>
+                  {selectedNode.kind === "condition" ? (
+                    <label className="block space-y-2">
+                      <span className="text-sm font-medium text-slate-900">Meta / keywords</span>
+                      <Input
+                        value={selectedNode.meta}
+                        onChange={(event) => updateNode(selectedNode.id, { meta: event.target.value })}
+                      />
+                    </label>
+                  ) : null}
                 </>
               ) : selectedScenario ? (
                 <div className="rounded-[26px] border border-dashed border-slate-300 bg-slate-50/70 p-4 text-sm leading-6 text-slate-600">
@@ -1580,7 +1582,7 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
                   <Input
                     value={newWorkflowTitle}
                     onChange={(event) => setNewWorkflowTitle(event.target.value)}
-                    placeholder="Ej. Bienvenida con video"
+                    placeholder="Ej. Bienvenida principal"
                   />
                   <p className="text-xs leading-5 text-slate-500">Usa un nombre claro y facil de identificar.</p>
                 </label>
@@ -1649,13 +1651,15 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
                     placeholder="Contenido del nodo"
                   />
                 </label>
-                <label className="block space-y-2">
-                  <span className="text-sm font-medium text-slate-900">Meta / keywords</span>
-                  <Input
-                    value={selectedNode.meta}
-                    onChange={(event) => updateNode(selectedNode.id, { meta: event.target.value })}
-                  />
-                </label>
+                {selectedNode.kind === "condition" ? (
+                  <label className="block space-y-2">
+                    <span className="text-sm font-medium text-slate-900">Meta / keywords</span>
+                    <Input
+                      value={selectedNode.meta}
+                      onChange={(event) => updateNode(selectedNode.id, { meta: event.target.value })}
+                    />
+                  </label>
+                ) : null}
               </div>
               <div className="flex items-center justify-between border-t border-slate-200 px-6 py-4">
                 <div className="flex items-center gap-2">

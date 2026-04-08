@@ -634,7 +634,17 @@ export async function resolveOfficialApiAutomationReply(input: {
   const welcomeRule = activeRules.find((rule) => rule.name === WELCOME_RULE_NAME);
   const afterHoursRule = activeRules.find((rule) => rule.name === AFTER_HOURS_RULE_NAME);
   const fallbackRule = activeRules.find((rule) => rule.isFallback);
-  const { welcomeNode, fallbackNode, replyNode } = selectRuntimeNodes(state);
+  const { welcomeNode, fallbackNode, replyNode, routerNode } = selectRuntimeNodes(state);
+  const directReply = replyNode?.body?.trim() || "";
+  const hasRouterKeywords = Boolean(routerNode?.meta?.trim());
+  const shouldReplyDirectly = Boolean(directReply) && !hasRouterKeywords;
+
+  if (shouldReplyDirectly) {
+    const welcomeText = welcomeNode?.body?.trim() || "";
+    return inboundCount <= 1 && welcomeText
+      ? `${welcomeText}\n\n${directReply}`
+      : directReply;
+  }
 
   const matchedRule = activeRules.find((rule) => {
     if (rule.isFallback || rule.name.startsWith("__")) {
