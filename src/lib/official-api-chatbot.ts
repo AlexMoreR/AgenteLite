@@ -317,24 +317,6 @@ function normalizeText(value: string) {
     .trim();
 }
 
-function appendFlowNotes(base: string, state: OfficialApiChatbotBuilderState) {
-  const notes: string[] = [];
-
-  if (state.captureLeadEnabled) {
-    notes.push("Antes de cerrar, pide nombre, ciudad y producto.");
-  }
-
-  if (state.handoffEnabled) {
-    notes.push("Si el usuario quiere avanzar, deriva a un asesor humano.");
-  }
-
-  if (notes.length === 0) {
-    return base;
-  }
-
-  return `${base}\n\n${notes.join(" ")}`;
-}
-
 function getAfterHoursMessage() {
   return "En este momento no hay asesor disponible. Si deseas continuar, comparte nombre, producto y ciudad para retomar la conversacion.";
 }
@@ -462,7 +444,7 @@ export async function saveOfficialApiChatbotBuilderState(
   const scenarioRule = {
     ...baseScenarioRule,
     triggerText: scenarioTrigger,
-    responseText: scenarioResponseBase ? appendFlowNotes(scenarioResponseBase, normalizedState) : "",
+    responseText: scenarioResponseBase,
   };
   const status = normalizedState.isBotEnabled ? "ACTIVE" : "PAUSED";
 
@@ -509,7 +491,7 @@ export async function saveOfficialApiChatbotBuilderState(
       triggerText: "__fallback__",
       responseText:
         normalizedState.fallbackEnabled
-          ? appendFlowNotes(fallbackNode?.body?.trim() || normalizedState.fallbackMessage, normalizedState)
+          ? fallbackNode?.body?.trim() || normalizedState.fallbackMessage
           : null,
       isFallback: true,
       priority: 999,
@@ -556,15 +538,30 @@ export async function saveOfficialApiChatbotBuilderState(
   });
 }
 
-function parseHour(value: string) {
+function parseHour(value: string, meridiem?: string | null) {
   const match = value.match(/(\d{1,2}):(\d{2})/);
   if (!match) {
     return null;
   }
 
-  const hours = Number(match[1]);
+  let hours = Number(match[1]);
   const minutes = Number(match[2]);
-  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) {
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes) || minutes < 0 || minutes > 59) {
+    return null;
+  }
+
+  const normalizedMeridiem = (meridiem ?? "").toLowerCase().replace(/[^apm]/g, "");
+  if (normalizedMeridiem === "am" || normalizedMeridiem === "pm") {
+    if (hours < 1 || hours > 12) {
+      return null;
+    }
+
+    if (normalizedMeridiem === "am" && hours === 12) {
+      hours = 0;
+    } else if (normalizedMeridiem === "pm" && hours < 12) {
+      hours += 12;
+    }
+  } else if (hours < 0 || hours > 23) {
     return null;
   }
 
@@ -572,19 +569,37 @@ function parseHour(value: string) {
 }
 
 export function isOutsideBusinessHours(businessHours: string, at = new Date()) {
-  const matches = businessHours.match(/(\d{1,2}:\d{2}).*?(\d{1,2}:\d{2})/);
+  const normalizedHours = normalizeText(businessHours);
+  if (normalizedHours.includes("lunes a viernes")) {
+    const day = at.getDay();
+    if (day === 0 || day === 6) {
+      return true;
+    }
+  }
+
+  const matches = businessHours.match(
+    /(\d{1,2}:\d{2})\s*([ap]\.?\s*m\.?)?.*?(\d{1,2}:\d{2})\s*([ap]\.?\s*m\.?)?/i,
+  );
   if (!matches) {
     return false;
   }
 
-  const start = parseHour(matches[1]);
-  const end = parseHour(matches[2]);
+  const start = parseHour(matches[1], matches[2]);
+  const end = parseHour(matches[3], matches[4]);
   if (start === null || end === null) {
     return false;
   }
 
   const current = at.getHours() * 60 + at.getMinutes();
-  return current < start || current > end;
+  if (start === end) {
+    return false;
+  }
+
+  if (start < end) {
+    return current < start || current > end;
+  }
+
+  return !(current >= start || current <= end);
 }
 
 function extractKeywords(triggerText: string | null) {
@@ -619,26 +634,7 @@ export async function resolveOfficialApiAutomationReply(input: {
   const welcomeRule = activeRules.find((rule) => rule.name === WELCOME_RULE_NAME);
   const afterHoursRule = activeRules.find((rule) => rule.name === AFTER_HOURS_RULE_NAME);
   const fallbackRule = activeRules.find((rule) => rule.isFallback);
-  const { welcomeNode, fallbackNode, replyNode, captureNode, handoffNode } = selectRuntimeNodes(state);
-
-  const appendNodeNotes = (base: string | null) => {
-    const parts = [base?.trim() || ""].filter(Boolean);
-    if (state.captureLeadEnabled && captureNode?.body?.trim()) {
-      parts.push(captureNode.body.trim());
-    }
-    if (state.handoffEnabled && handoffNode?.body?.trim()) {
-      parts.push(handoffNode.body.trim());
-    }
-    return parts.join("\n\n");
-  };
-
-  if (isOutsideBusinessHours(state.businessHours) && afterHoursRule?.responseText) {
-    const afterHoursReply = appendNodeNotes(normalizeAfterHoursReply(afterHoursRule.responseText));
-    const welcomeText = welcomeNode?.body?.trim() || welcomeRule?.responseText;
-    return inboundCount <= 1 && welcomeText
-      ? `${welcomeText}\n\n${afterHoursReply}`
-      : afterHoursReply;
-  }
+  const { welcomeNode, fallbackNode, replyNode } = selectRuntimeNodes(state);
 
   const matchedRule = activeRules.find((rule) => {
     if (rule.isFallback || rule.name.startsWith("__")) {
@@ -649,15 +645,23 @@ export async function resolveOfficialApiAutomationReply(input: {
   });
 
   if (matchedRule?.responseText) {
-    const matchedReply = appendNodeNotes(replyNode?.body?.trim() || matchedRule.responseText);
+    const matchedReply = replyNode?.body?.trim() || matchedRule.responseText;
     const welcomeText = welcomeNode?.body?.trim() || welcomeRule?.responseText;
     return inboundCount <= 1 && welcomeText
       ? `${welcomeText}\n\n${matchedReply}`
       : matchedReply;
   }
 
+  if (isOutsideBusinessHours(state.businessHours) && afterHoursRule?.responseText) {
+    const afterHoursReply = normalizeAfterHoursReply(afterHoursRule.responseText);
+    const welcomeText = welcomeNode?.body?.trim() || welcomeRule?.responseText;
+    return inboundCount <= 1 && welcomeText
+      ? `${welcomeText}\n\n${afterHoursReply}`
+      : afterHoursReply;
+  }
+
   if (fallbackRule?.responseText || fallbackNode?.body?.trim()) {
-    const fallbackReply = appendNodeNotes(fallbackNode?.body?.trim() || fallbackRule?.responseText || null);
+    const fallbackReply = fallbackNode?.body?.trim() || fallbackRule?.responseText || "";
     const welcomeText = welcomeNode?.body?.trim() || welcomeRule?.responseText;
     return inboundCount <= 1 && welcomeText
       ? `${welcomeText}\n\n${fallbackReply}`
