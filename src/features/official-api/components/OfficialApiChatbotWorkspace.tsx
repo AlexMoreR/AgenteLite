@@ -1,18 +1,15 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import {
-  ArrowRight,
   Bot,
   X,
   Clock3,
   Copy,
   FileText,
-  MessageCircleReply,
   MessageSquarePlus,
   MoreVertical,
   Inbox,
-  Play,
   Plus,
   Route,
   Save,
@@ -23,6 +20,18 @@ import {
   Workflow,
   Zap,
 } from "lucide-react";
+import {
+  Background,
+  Controls,
+  MarkerType,
+  MiniMap,
+  Position,
+  type Connection,
+  type Edge,
+  type Node,
+  type NodeChange,
+  ReactFlow,
+} from "@xyflow/react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -42,6 +51,46 @@ type OfficialApiChatbotWorkspaceProps = {
 };
 
 type BuilderNode = OfficialApiChatbotBuilderNode;
+type NodePosition = { x: number; y: number };
+type NodePositionsByScenarioId = Record<string, Record<string, NodePosition>>;
+type BuilderEdge = { id: string; source: string; target: string };
+type EdgesByScenarioId = Record<string, BuilderEdge[]>;
+
+function getSafePosition(input: NodePosition | undefined, index: number): NodePosition {
+  const fallback = {
+    x: 80 + (index % 2) * 380,
+    y: 60 + Math.floor(index / 2) * 180,
+  };
+  if (!input) {
+    return fallback;
+  }
+
+  if (!Number.isFinite(input.x) || !Number.isFinite(input.y)) {
+    return fallback;
+  }
+
+  // If stored coords are far away from the initial viewport, reset them to visible defaults.
+  if (input.x < -100 || input.x > 1200 || input.y < -100 || input.y > 1200) {
+    return fallback;
+  }
+
+  return {
+    x: Math.min(Math.max(input.x, 20), 1200),
+    y: Math.min(Math.max(input.y, 20), 1200),
+  };
+}
+
+function buildSequentialEdges(nodes: BuilderNode[]): BuilderEdge[] {
+  if (nodes.length < 2) {
+    return [];
+  }
+
+  return nodes.slice(0, -1).map((node, index) => ({
+    id: `${node.id}->${nodes[index + 1].id}`,
+    source: node.id,
+    target: nodes[index + 1].id,
+  }));
+}
 
 const blockLibrary = [
   {
@@ -74,21 +123,6 @@ const blockLibrary = [
   },
 ] as const;
 
-function getNodeStyle(kind: BuilderNode["kind"]) {
-  switch (kind) {
-    case "trigger":
-      return { wrap: "border-sky-300 bg-sky-50", icon: <Play className="h-4 w-4 text-sky-700" /> };
-    case "message":
-      return { wrap: "border-violet-300 bg-violet-50", icon: <MessageCircleReply className="h-4 w-4 text-violet-700" /> };
-    case "input":
-      return { wrap: "border-emerald-300 bg-emerald-50", icon: <UserRound className="h-4 w-4 text-emerald-700" /> };
-    case "condition":
-      return { wrap: "border-amber-300 bg-amber-50", icon: <Split className="h-4 w-4 text-amber-700" /> };
-    default:
-      return { wrap: "border-slate-300 bg-slate-100", icon: <Zap className="h-4 w-4 text-slate-700" /> };
-  }
-}
-
 function createNodeId(kind: BuilderNode["kind"]) {
   return `${kind}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
@@ -107,6 +141,23 @@ function createStarterNodes(): BuilderNode[] {
       meta: "Evento de entrada",
     },
   ];
+}
+
+function getOrderedNodeTitle(node: BuilderNode, index: number) {
+  const trimmedTitle = node.title.trim();
+  return trimmedTitle || `Paso ${index + 1}`;
+}
+
+function normalizeNodesByScenarioForSave(nodesByScenarioId: OfficialApiChatbotNodesByScenarioId) {
+  return Object.fromEntries(
+    Object.entries(nodesByScenarioId).map(([scenarioId, scenarioNodes]) => [
+      scenarioId,
+      scenarioNodes.map((node, index) => ({
+        ...node,
+        title: getOrderedNodeTitle(node, index),
+      })),
+    ]),
+  ) satisfies OfficialApiChatbotNodesByScenarioId;
 }
 
 export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: OfficialApiChatbotWorkspaceProps) {
@@ -137,6 +188,19 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
   const [newWorkflowTitle, setNewWorkflowTitle] = useState("");
   const [openMenuScenarioId, setOpenMenuScenarioId] = useState("");
   const [scenarioPendingDelete, setScenarioPendingDelete] = useState<OfficialApiChatbotScenario | null>(null);
+  const [isNodeEditorOpen, setIsNodeEditorOpen] = useState(false);
+  const [nodePositionsByScenarioId, setNodePositionsByScenarioId] = useState<NodePositionsByScenarioId>({});
+  const [edgesByScenarioId, setEdgesByScenarioId] = useState<EdgesByScenarioId>(() =>
+    Object.fromEntries(
+      Object.entries(data.defaults.nodesByScenarioId).map(([scenarioId, scenarioNodes]) => [
+        scenarioId,
+        buildSequentialEdges(scenarioNodes),
+      ]),
+    ),
+  );
+  const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastAutoSavedSnapshotRef = useRef("");
+  const autoSaveScenarioIdRef = useRef("");
 
   const hasWorkflows = scenarios.length > 0;
   const selectedScenario = scenarios.find((scenario) => scenario.id === selectedScenarioId);
@@ -148,6 +212,48 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
   const selectedNode = useMemo(
     () => nodes.find((node) => node.id === selectedNodeId) ?? nodes[0] ?? null,
     [nodes, selectedNodeId],
+  );
+  const scenarioNodePositions = useMemo(
+    () => (selectedScenario ? (nodePositionsByScenarioId[selectedScenario.id] ?? {}) : {}),
+    [nodePositionsByScenarioId, selectedScenario],
+  );
+  const scenarioEdges = useMemo(
+    () => (selectedScenario ? (edgesByScenarioId[selectedScenario.id] ?? buildSequentialEdges(nodes)) : []),
+    [edgesByScenarioId, nodes, selectedScenario],
+  );
+  const flowNodes = useMemo<Node[]>(
+    () =>
+      nodes.map((node, index) => ({
+        id: node.id,
+        position: getSafePosition(scenarioNodePositions[node.id], index),
+        sourcePosition: Position.Right,
+        targetPosition: Position.Left,
+        style: {
+          width: 320,
+          borderRadius: 14,
+          border: "1px solid #cbd5e1",
+          background: "white",
+          fontSize: 12,
+          color: "#0f172a",
+        },
+        data: {
+          label: `${getOrderedNodeTitle(node, index)}\n${node.meta || ""}`.trim(),
+        },
+      })),
+    [nodes, scenarioNodePositions],
+  );
+  const flowEdges = useMemo<Edge[]>(
+    () =>
+      scenarioEdges.map((edge) => ({
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        type: "smoothstep",
+        animated: true,
+        markerEnd: { type: MarkerType.ArrowClosed, color: "rgba(59,130,246,0.9)" },
+        style: { stroke: "rgba(59,130,246,0.62)", strokeWidth: 2 },
+      })),
+    [scenarioEdges],
   );
 
   function updateNodesForScenario(scenarioId: string, updater: (nodes: BuilderNode[]) => BuilderNode[]) {
@@ -210,7 +316,29 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
       return;
     }
 
+    const previousLastNodeId = nodes[nodes.length - 1]?.id;
     updateNodesForScenario(selectedScenario.id, (current) => [...current, nextNode]);
+    setEdgesByScenarioId((current) => {
+      const currentEdges = current[selectedScenario.id] ?? buildSequentialEdges(nodes);
+      if (!previousLastNodeId) {
+        return {
+          ...current,
+          [selectedScenario.id]: currentEdges,
+        };
+      }
+
+      return {
+        ...current,
+        [selectedScenario.id]: [
+          ...currentEdges.filter((edge) => edge.source !== previousLastNodeId),
+          {
+            id: `${previousLastNodeId}->${nextNode.id}`,
+            source: previousLastNodeId,
+            target: nextNode.id,
+          },
+        ],
+      };
+    });
     setSelectedNodeId(nextNode.id);
     setIsBlockLibraryOpen(false);
   }
@@ -241,10 +369,15 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
       ...nodesByScenarioId,
       [nextScenario.id]: nextNodes,
     };
+    const nextEdgesByScenarioId = {
+      ...edgesByScenarioId,
+      [nextScenario.id]: buildSequentialEdges(nextNodes),
+    };
     setNodesByScenarioId((current) => ({
       ...current,
       [nextScenario.id]: nextNodes,
     }));
+    setEdgesByScenarioId(nextEdgesByScenarioId);
     setSelectedNodeId(nextNodes[0]?.id ?? "");
     setIsBlockLibraryOpen(true);
 
@@ -285,13 +418,14 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
     }
   }
 
-  async function persistBuilderState(input: {
+  const persistBuilderState = useCallback(async (input: {
     selectedScenarioId: string;
     scenarios: OfficialApiChatbotScenario[];
     nodesByScenarioId: OfficialApiChatbotNodesByScenarioId;
     successMessage?: string;
-  }) {
-    const activeNodes = input.nodesByScenarioId[input.selectedScenarioId] ?? [];
+  }) => {
+    const normalizedNodesByScenarioId = normalizeNodesByScenarioForSave(input.nodesByScenarioId);
+    const activeNodes = normalizedNodesByScenarioId[input.selectedScenarioId] ?? [];
     const response = await fetch("/api/cliente/api-oficial/chatbot", {
       method: "POST",
       headers: {
@@ -307,7 +441,7 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
         fallbackEnabled,
         selectedScenarioId: input.selectedScenarioId,
         scenarios: input.scenarios,
-        nodesByScenarioId: input.nodesByScenarioId,
+        nodesByScenarioId: normalizedNodesByScenarioId,
       }),
     });
 
@@ -321,7 +455,15 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
         description: "La configuracion del flujo quedo lista en la API oficial.",
       });
     }
-  }
+  }, [
+    botEnabled,
+    businessHours,
+    captureLeadEnabled,
+    data.defaults.fallbackMessage,
+    data.defaults.welcomeMessage,
+    fallbackEnabled,
+    handoffEnabled,
+  ]);
 
   function handleSaveBuilder() {
     if (!selectedScenario || scenarios.length === 0 || nodes.length === 0) {
@@ -357,22 +499,18 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
       return;
     }
 
-    if (scenarios.length <= 1) {
-      toast.error("No puedes eliminar el ultimo flujo", {
-        description: "Debes mantener al menos un flujo activo en el builder.",
-      });
-      setScenarioPendingDelete(null);
-      return;
-    }
-
     const nextScenarios = scenarios.filter((scenario) => scenario.id !== scenarioPendingDelete.id);
     const nextSelectedScenario = nextScenarios[0];
     const nextNodesByScenarioId = Object.fromEntries(
       Object.entries(nodesByScenarioId).filter(([scenarioId]) => scenarioId !== scenarioPendingDelete.id),
     );
+    const nextEdgesByScenarioId = Object.fromEntries(
+      Object.entries(edgesByScenarioId).filter(([scenarioId]) => scenarioId !== scenarioPendingDelete.id),
+    );
 
     setScenarios(nextScenarios);
     setNodesByScenarioId(nextNodesByScenarioId);
+    setEdgesByScenarioId(nextEdgesByScenarioId);
     setSelectedScenarioId(nextSelectedScenario?.id ?? "");
     setSelectedNodeId(nextNodesByScenarioId[nextSelectedScenario?.id ?? ""]?.[0]?.id ?? "");
     setScenarioPendingDelete(null);
@@ -393,6 +531,149 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
     });
   }
 
+  function openNodeEditor(nodeId: string) {
+    setSelectedNodeId(nodeId);
+    setIsNodeEditorOpen(true);
+  }
+
+  const handleFlowNodesChange = useCallback((changes: NodeChange<Node<FlowNodeData>>[]) => {
+    if (!selectedScenario) {
+      return;
+    }
+
+    setNodePositionsByScenarioId((current) => {
+      const nextScenarioPositions = { ...(current[selectedScenario.id] ?? {}) };
+
+      for (const change of changes) {
+        if (
+          change.type === "position" &&
+          change.position &&
+          typeof change.position.x === "number" &&
+          typeof change.position.y === "number"
+        ) {
+          nextScenarioPositions[change.id] = change.position;
+        }
+      }
+
+      return {
+        ...current,
+        [selectedScenario.id]: nextScenarioPositions,
+      };
+    });
+  }, [selectedScenario]);
+
+  const handleConnectNodes = useCallback((connection: Connection) => {
+    if (!selectedScenario || !connection.source || !connection.target || connection.source === connection.target) {
+      return;
+    }
+
+    setEdgesByScenarioId((current) => {
+      const currentEdges = current[selectedScenario.id] ?? buildSequentialEdges(nodes);
+      const nextEdges = [
+        ...currentEdges.filter((edge) => edge.source !== connection.source),
+        {
+          id: `${connection.source}->${connection.target}`,
+          source: connection.source,
+          target: connection.target,
+        },
+      ];
+      return {
+        ...current,
+        [selectedScenario.id]: nextEdges,
+      };
+    });
+  }, [nodes, selectedScenario]);
+
+  function handleDeleteNode(nodeId: string) {
+    if (!selectedScenario) {
+      return;
+    }
+
+    const currentNodes = nodesByScenarioId[selectedScenario.id] ?? [];
+    const nextNodes = currentNodes.filter((node) => node.id !== nodeId);
+
+    setNodesByScenarioId((current) => ({
+      ...current,
+      [selectedScenario.id]: nextNodes,
+    }));
+    setEdgesByScenarioId((current) => {
+      const currentEdges = current[selectedScenario.id] ?? buildSequentialEdges(currentNodes);
+      return {
+        ...current,
+        [selectedScenario.id]: currentEdges.filter((edge) => edge.source !== nodeId && edge.target !== nodeId),
+      };
+    });
+
+    setSelectedNodeId(nextNodes[0]?.id ?? "");
+    setIsNodeEditorOpen(false);
+  }
+
+  useEffect(() => {
+    return () => {
+      if (autoSaveTimeoutRef.current) {
+        clearTimeout(autoSaveTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!hasSelectedFlow || !selectedScenarioId) {
+      return;
+    }
+
+    const snapshot = JSON.stringify({
+      selectedScenarioId,
+      scenarios,
+      nodesByScenarioId,
+      businessHours,
+      captureLeadEnabled,
+      handoffEnabled,
+      fallbackEnabled,
+    });
+
+    if (autoSaveScenarioIdRef.current !== selectedScenarioId) {
+      autoSaveScenarioIdRef.current = selectedScenarioId;
+      lastAutoSavedSnapshotRef.current = snapshot;
+      return;
+    }
+
+    if (snapshot === lastAutoSavedSnapshotRef.current) {
+      return;
+    }
+
+    if (autoSaveTimeoutRef.current) {
+      clearTimeout(autoSaveTimeoutRef.current);
+    }
+
+    autoSaveTimeoutRef.current = setTimeout(() => {
+      startSaving(async () => {
+        try {
+          await persistBuilderState({
+            selectedScenarioId,
+            scenarios,
+            nodesByScenarioId,
+          });
+          lastAutoSavedSnapshotRef.current = snapshot;
+        } catch {
+          toast.error("No se pudo autoguardar", {
+            description: "Revisa tu conexion e intenta nuevamente.",
+          });
+        }
+      });
+    }, 1200);
+  }, [
+    businessHours,
+    captureLeadEnabled,
+    fallbackEnabled,
+    handoffEnabled,
+    hasSelectedFlow,
+    nodesByScenarioId,
+    persistBuilderState,
+    scenarios,
+    selectedScenarioId,
+    startSaving,
+  ]);
+
   return (
     <section className={hasSelectedFlow ? "space-y-4" : "overflow-hidden"}>
       <Card
@@ -400,7 +681,7 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
           hasSelectedFlow ? "" : "h-[calc(100dvh-12rem)] max-h-[760px]"
         }`}
       >
-        <div className={hasWorkflows ? "px-5 py-5" : "hidden"}>
+        <div className={hasWorkflows && !hasSelectedFlow ? "px-5 py-5" : "hidden"}>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <div className="flex items-center gap-2">
@@ -490,14 +771,8 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
           </div>
         </div>
 
-        <div
-          className={
-            hasSelectedFlow || !hasWorkflows
-              ? "grid min-h-[76vh] xl:grid-cols-[280px_minmax(0,1fr)_330px]"
-              : "hidden"
-          }
-        >
-          <aside className={hasSelectedFlow ? "border-b border-slate-200 bg-slate-50/80 xl:border-r xl:border-b-0" : "hidden"}>
+        <div className={hasSelectedFlow || !hasWorkflows ? "grid min-h-[76vh]" : "hidden"}>
+          <aside className="hidden">
             <div className="space-y-5 p-4">
               <div className="flex items-center justify-between">
                 <p className="text-sm font-semibold text-slate-900">Bloques</p>
@@ -568,9 +843,49 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
                   {nodes.length} bloques
                 </span>
               </div>
-              <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs text-emerald-700 ring-1 ring-emerald-200">
-                {data.metrics[0]?.value ?? "0%"} automatizado
-              </span>
+              <div className="flex items-center gap-2">
+                <div className="relative">
+                  <Button
+                    type="button"
+                    variant="default"
+                    aria-label={isBlockLibraryOpen ? "Cerrar lista de nodos" : "Agregar nodo"}
+                    aria-expanded={isBlockLibraryOpen}
+                    onClick={() => setIsBlockLibraryOpen((current) => !current)}
+                    className="h-8 rounded-full border border-blue-600 bg-blue-600 px-3 text-white hover:bg-blue-700"
+                  >
+                    <Plus className="h-4 w-4 font-bold" strokeWidth={2.8} />
+                    <span className="text-xs font-semibold">Agregar</span>
+                  </Button>
+                  {isBlockLibraryOpen ? (
+                    <div className="absolute right-0 top-10 z-20 w-64 overflow-hidden rounded-xl border border-slate-200 bg-white py-2 shadow-[0_22px_48px_-30px_rgba(15,23,42,0.35)]">
+                      <p className="px-3 pb-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                        Agregar nodo
+                      </p>
+                      <div className="grid gap-1 px-2">
+                        {blockLibrary.map((block) => {
+                          const Icon = block.icon;
+                          return (
+                            <button
+                              key={block.id}
+                              type="button"
+                              onClick={() => addBlock(block.id as BuilderNode["kind"])}
+                              className="flex w-full items-start gap-3 rounded-lg px-2 py-2 text-left transition hover:bg-slate-50"
+                            >
+                              <span className={`mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-lg ring-1 ${block.style}`}>
+                                <Icon className="h-3.5 w-3.5" />
+                              </span>
+                              <span>
+                                <span className="block text-sm font-semibold text-slate-900">{block.title}</span>
+                                <span className="block text-xs leading-5 text-slate-500">{block.description}</span>
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
             </div>
 
             <div
@@ -584,67 +899,48 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
                 <div className="absolute inset-0 opacity-50 [background-image:linear-gradient(to_right,rgba(148,163,184,0.16)_1px,transparent_1px),linear-gradient(to_bottom,rgba(148,163,184,0.16)_1px,transparent_1px)] [background-size:36px_36px]" />
               ) : null}
               {selectedScenario ? (
-                <div className="relative mx-auto flex max-w-3xl flex-col items-center gap-4 pb-10 pt-2">
-                  {nodes.map((node, index) => {
-                    const style = getNodeStyle(node.kind);
-
-                    return (
-                      <div key={node.id} className="flex w-full max-w-xl flex-col items-center gap-3">
-                        <div
-                          role="button"
-                          tabIndex={0}
-                          onClick={() => setSelectedNodeId(node.id)}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter" || event.key === " ") {
-                              event.preventDefault();
-                              setSelectedNodeId(node.id);
-                            }
-                          }}
-                          className={`w-full rounded-[28px] border bg-white p-5 text-left shadow-[0_24px_60px_-42px_rgba(15,23,42,0.28)] transition ${
-                            selectedNodeId === node.id
-                              ? "border-[var(--primary)] ring-2 ring-[color-mix(in_srgb,var(--primary)_16%,white)]"
-                              : "border-slate-200"
-                          }`}
+                <div className="relative mx-auto h-[calc(76vh-100px)] w-full max-w-6xl overflow-hidden rounded-[18px] border border-slate-200 bg-white/40">
+                  <ReactFlow
+                    key={`${selectedScenario.id}-${flowNodes.length}`}
+                    nodes={flowNodes}
+                    edges={flowEdges}
+                    onNodesChange={handleFlowNodesChange}
+                    onConnect={handleConnectNodes}
+                    onNodeClick={(_event, node: Node) => openNodeEditor(node.id)}
+                    fitView
+                    fitViewOptions={{ padding: 0.25, minZoom: 0.5, maxZoom: 1.1 }}
+                    defaultEdgeOptions={{
+                      type: "smoothstep",
+                      animated: true,
+                      markerEnd: { type: MarkerType.ArrowClosed, color: "rgba(59,130,246,0.9)" },
+                      style: { stroke: "rgba(59,130,246,0.62)", strokeWidth: 2 },
+                    }}
+                    proOptions={{ hideAttribution: true }}
+                  >
+                    <Background color="rgba(148,163,184,0.34)" gap={22} />
+                    <MiniMap position="bottom-left" pannable zoomable />
+                    <Controls position="bottom-right" />
+                  </ReactFlow>
+                  <div className="pointer-events-none absolute inset-0 z-10">
+                    {nodes.map((node, index) => {
+                      const position = getSafePosition(scenarioNodePositions[node.id], index);
+                      return (
+                        <button
+                          key={`overlay-${node.id}`}
+                          type="button"
+                          onClick={() => openNodeEditor(node.id)}
+                          className="pointer-events-auto absolute w-[320px] rounded-xl border border-slate-200 bg-white/95 p-3 text-left shadow-[0_12px_28px_-22px_rgba(15,23,42,0.35)] transition hover:border-[var(--primary)]"
+                          style={{ left: position.x, top: position.y }}
                         >
-                          <div className="flex items-start justify-between gap-4">
-                            <div className="flex items-start gap-3">
-                              <span className={`inline-flex h-10 w-10 items-center justify-center rounded-2xl border ${style.wrap}`}>
-                                {style.icon}
-                              </span>
-                              <div>
-                                <p className="text-sm font-semibold text-slate-950">{node.title}</p>
-                                <p className="mt-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                                  {node.meta}
-                                </p>
-                              </div>
-                            </div>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                setSelectedNodeId(node.id);
-                              }}
-                            >
-                              <Settings2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                          <div className="mt-4 rounded-[22px] border border-slate-200 bg-slate-50/80 p-4">
-                            <p className="text-sm leading-6 text-slate-700">{node.body}</p>
-                          </div>
-                        </div>
-
-                        {index < nodes.length - 1 ? (
-                          <div className="flex h-10 items-center justify-center">
-                            <div className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white">
-                              <ArrowRight className="h-4 w-4 text-slate-400" />
-                            </div>
-                          </div>
-                        ) : null}
-                      </div>
-                    );
-                  })}
+                          <p className="text-sm font-semibold text-slate-900">{getOrderedNodeTitle(node, index)}</p>
+                          <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                            {node.meta || "BLOQUE"}
+                          </p>
+                          <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-700">{node.body || "Sin contenido"}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               ) : hasWorkflows ? (
                 <div className="flex w-full items-center justify-center bg-white px-6 py-8 sm:px-10">
@@ -685,7 +981,7 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
             </div>
           </main>
 
-          <aside className={hasSelectedFlow ? "border-t border-slate-200 bg-white xl:border-l xl:border-t-0" : "hidden"}>
+          <aside className="hidden">
             <div className="space-y-5 p-4">
               <div className="rounded-[26px] border border-slate-200 bg-slate-50/70 p-4">
                 <p className="text-sm font-semibold text-slate-900">Inspector del flujo</p>
@@ -873,6 +1169,59 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
                 </Button>
                 <Button type="button" className="bg-rose-600 text-white hover:bg-rose-700" onClick={confirmDeleteWorkflow}>
                   Eliminar
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+        {isNodeEditorOpen && selectedNode ? (
+          <div className="absolute inset-0 z-40 flex items-center justify-center bg-slate-950/25 p-6 backdrop-blur-[2px]">
+            <div className="w-full max-w-2xl overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_30px_80px_-48px_rgba(15,23,42,0.32)]">
+              <div className="relative border-b border-slate-200 px-6 py-5">
+                <button
+                  type="button"
+                  onClick={() => setIsNodeEditorOpen(false)}
+                  className="absolute right-4 top-4 inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                  aria-label="Cerrar editor del nodo"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
+                    <Settings2 className="h-4 w-4" />
+                  </span>
+                  <p className="text-lg font-semibold text-slate-950">Editar nodo</p>
+                </div>
+              </div>
+              <div className="space-y-4 px-6 py-5">
+                <label className="block space-y-2">
+                  <span className="text-sm font-medium text-slate-900">Contenido</span>
+                  <textarea
+                    value={selectedNode.body}
+                    onChange={(event) => updateNode(selectedNode.id, { body: event.target.value })}
+                    className="field-textarea min-h-32"
+                    placeholder="Contenido del nodo"
+                  />
+                </label>
+                <label className="block space-y-2">
+                  <span className="text-sm font-medium text-slate-900">Meta / keywords</span>
+                  <Input
+                    value={selectedNode.meta}
+                    onChange={(event) => updateNode(selectedNode.id, { meta: event.target.value })}
+                  />
+                </label>
+              </div>
+              <div className="flex items-center justify-between border-t border-slate-200 px-6 py-4">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                  onClick={() => handleDeleteNode(selectedNode.id)}
+                >
+                  Eliminar nodo
+                </Button>
+                <Button type="button" onClick={() => setIsNodeEditorOpen(false)}>
+                  Cerrar
                 </Button>
               </div>
             </div>

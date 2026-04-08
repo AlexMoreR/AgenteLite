@@ -13,7 +13,7 @@ const builderSchema = z.object({
   captureLeadEnabled: z.boolean(),
   handoffEnabled: z.boolean(),
   fallbackEnabled: z.boolean(),
-  selectedScenarioId: z.string().trim().min(1).max(120),
+  selectedScenarioId: z.string().trim().max(120),
   scenarios: z.array(
     z.object({
       id: z.string().trim().min(1).max(120),
@@ -27,7 +27,7 @@ const builderSchema = z.object({
         }),
       ),
     }),
-  ).min(1),
+  ),
   nodesByScenarioId: z.record(
     z.string().trim().min(1).max(120),
     z.array(

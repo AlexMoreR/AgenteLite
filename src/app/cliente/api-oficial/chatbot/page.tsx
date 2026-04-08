@@ -28,7 +28,7 @@ export default async function OfficialApiChatbotPage() {
 
   return (
     <OfficialApiPanelShell>
-      <OfficialApiChatbotWorkspace data={data} />
+      <OfficialApiChatbotWorkspace key="chatbot-list" data={data} />
     </OfficialApiPanelShell>
   );
 }

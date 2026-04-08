@@ -38,7 +38,7 @@ export default async function OfficialApiChatbotWorkflowPage({ params }: PagePro
 
   return (
     <OfficialApiPanelShell>
-      <OfficialApiChatbotWorkspace data={data} initialScenarioId={workflowId} />
+      <OfficialApiChatbotWorkspace key={`chatbot-${workflowId}`} data={data} initialScenarioId={workflowId} />
     </OfficialApiPanelShell>
   );
 }

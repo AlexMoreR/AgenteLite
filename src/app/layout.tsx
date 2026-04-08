@@ -15,6 +15,7 @@ import {
 import { enforceWorkspacePlanAccess } from "@/lib/workspace-plan-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import "./globals.css";
+import "@xyflow/react/dist/style.css";
 
 const poppins = Poppins({
   variable: "--font-poppins",
