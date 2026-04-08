@@ -1048,7 +1048,7 @@ export function OfficialApiConfigWizard({
 
                   <div className="mt-4 grid gap-2.5">
                     {metaChecklistSections[3]?.items.map((item, index) => (
-                      <div key={typeof item === "string" ? item : item.text} className="space-y-3">
+                      <div key={`${index}-${item}`} className="space-y-3">
                         <div className="flex items-start gap-3 text-sm leading-6 text-slate-700">
                           <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-900 text-[10px] font-semibold text-white">
                             {index + 1}
