@@ -103,6 +103,7 @@ function ChatbotFlowNode({ data, selected }: NodeProps<Node<FlowNodeData>>) {
   return (
     <>
       <Handle
+        id="target"
         type="target"
         position={Position.Left}
         className="!h-3 !w-3 !border-2 !border-white !bg-sky-600"
@@ -129,6 +130,7 @@ function ChatbotFlowNode({ data, selected }: NodeProps<Node<FlowNodeData>>) {
         </BaseNodeFooter>
       </BaseNode>
       <Handle
+        id="source"
         type="source"
         position={Position.Right}
         className="!h-3 !w-3 !border-2 !border-white !bg-blue-600"
@@ -146,9 +148,57 @@ type ChatbotFlowCanvasProps = {
   edgeAppearance: EdgeAppearance;
   onNodesChange: (changes: NodeChange<Node>[]) => void;
   onConnect: (connection: Connection) => void;
+  onProximityConnect: (sourceId: string, targetId: string) => void;
   onEdgeClick: (event: MouseEvent, edge: Edge) => void;
   onNodeOpen: (nodeId: string) => void;
 };
+
+const PROXIMITY_DISTANCE_PX = 220;
+
+function getDistance(a: { x: number; y: number }, b: { x: number; y: number }) {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function getClosestNodeByProximity(input: {
+  draggingNode: Node;
+  nodes: Node[];
+  edges: Edge[];
+}) {
+  const { draggingNode, nodes, edges } = input;
+  const draggingNodeId = draggingNode.id;
+  const draggingPosition = draggingNode.position;
+  const hasEdge = (sourceId: string, targetId: string) =>
+    edges.some((edge) => edge.source === sourceId && edge.target === targetId);
+
+  let bestConnection: { sourceId: string; targetId: string } | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  for (const node of nodes) {
+    if (node.id === draggingNodeId) {
+      continue;
+    }
+
+    const shouldFlowFromLeftToRight = draggingPosition.x > node.position.x;
+    const sourceId = shouldFlowFromLeftToRight ? node.id : draggingNodeId;
+    const targetId = shouldFlowFromLeftToRight ? draggingNodeId : node.id;
+
+    if (hasEdge(sourceId, targetId)) {
+      continue;
+    }
+
+    const distance = getDistance(draggingPosition, node.position);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestConnection = { sourceId, targetId };
+    }
+  }
+
+  if (!bestConnection || bestDistance > PROXIMITY_DISTANCE_PX) {
+    return null;
+  }
+
+  return bestConnection;
+}
 
 function ChatbotFlowCanvas({
   scenarioKey,
@@ -157,11 +207,13 @@ function ChatbotFlowCanvas({
   edgeAppearance,
   onNodesChange,
   onConnect,
+  onProximityConnect,
   onEdgeClick,
   onNodeOpen,
 }: ChatbotFlowCanvasProps) {
   const [canvasNodes, setCanvasNodes, onCanvasNodesChange] = useNodesState(nodes);
   const [canvasEdges, setCanvasEdges, onCanvasEdgesChange] = useEdgesState(edges);
+  const [previewEdge, setPreviewEdge] = useState<Edge | null>(null);
   const nodesSignature = useMemo(
     () =>
       nodes
@@ -208,7 +260,7 @@ function ChatbotFlowCanvas({
       key={scenarioKey}
       className="chatbot-flow-canvas"
       nodes={canvasNodes}
-      edges={canvasEdges}
+      edges={previewEdge ? [...canvasEdges, previewEdge] : canvasEdges}
       nodeTypes={nodeTypes}
       onNodesChange={(changes) => {
         onCanvasNodesChange(changes);
@@ -220,6 +272,59 @@ function ChatbotFlowCanvas({
         onConnect(connection);
       }}
       onEdgeClick={onEdgeClick}
+      onNodeDrag={(_event, draggingNode) => {
+        const candidate = getClosestNodeByProximity({
+          draggingNode,
+          nodes: canvasNodes,
+          edges: canvasEdges,
+        });
+
+        if (!candidate) {
+          setPreviewEdge(null);
+          return;
+        }
+
+        setPreviewEdge({
+          id: `preview-${candidate.sourceId}-${candidate.targetId}`,
+          source: candidate.sourceId,
+          sourceHandle: "source",
+          target: candidate.targetId,
+          targetHandle: "target",
+          type: "default",
+          animated: false,
+          markerEnd: { type: MarkerType.ArrowClosed, color: "rgba(37,99,235,0.45)" },
+          style: {
+            stroke: "rgba(37,99,235,0.55)",
+            strokeWidth: 1.8,
+            strokeDasharray: "6 4",
+            strokeLinecap: "round",
+          },
+        });
+      }}
+      onNodeDragStop={(_event, draggingNode) => {
+        const candidate = getClosestNodeByProximity({
+          draggingNode,
+          nodes: canvasNodes,
+          edges: canvasEdges,
+        });
+
+        setPreviewEdge(null);
+        if (!candidate) {
+          return;
+        }
+
+        setCanvasEdges((current) => [
+          ...current.filter((edge) => edge.source !== candidate.sourceId),
+          {
+            id: createEdgeId(candidate.sourceId, candidate.targetId),
+            source: candidate.sourceId,
+            sourceHandle: "source",
+            target: candidate.targetId,
+            targetHandle: "target",
+          },
+        ]);
+        onProximityConnect(candidate.sourceId, candidate.targetId);
+      }}
       onNodeClick={(event, node: Node) => {
         const target = event.target as HTMLElement | null;
         if (target?.closest(".react-flow__handle")) {
@@ -485,7 +590,9 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
       scenarioEdges.map((edge, index) => ({
         id: edge.id || createEdgeId(edge.source, edge.target) + `_${index}`,
         source: edge.source,
+        sourceHandle: "source",
         target: edge.target,
+        targetHandle: "target",
         type: "default",
         animated: false,
         pathOptions: { curvature: 0.35 },
@@ -521,7 +628,9 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
     return flowNodes.slice(0, -1).map((node, index) => ({
       id: createEdgeId(node.id, flowNodes[index + 1].id),
       source: node.id,
+      sourceHandle: "source",
       target: flowNodes[index + 1].id,
+      targetHandle: "target",
       type: "default",
       animated: false,
       pathOptions: { curvature: edgeAppearance.curvature },
@@ -859,19 +968,21 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
     });
   }, [selectedScenario]);
 
-  const handleConnectNodes = useCallback((connection: Connection) => {
-    if (!selectedScenario || !connection.source || !connection.target || connection.source === connection.target) {
+  const connectNodesByIds = useCallback((sourceId: string, targetId: string) => {
+    if (!selectedScenario || sourceId === targetId) {
       return;
     }
 
     setEdgesByScenarioId((current) => {
       const currentEdges = current[selectedScenario.id] ?? buildSequentialEdges(nodes);
       const nextEdges = [
-        ...currentEdges.filter((edge) => edge.source !== connection.source),
+        ...currentEdges.filter((edge) => edge.source !== sourceId),
         {
-          id: createEdgeId(connection.source, connection.target),
-          source: connection.source,
-          target: connection.target,
+          id: createEdgeId(sourceId, targetId),
+          source: sourceId,
+          sourceHandle: "source",
+          target: targetId,
+          targetHandle: "target",
         },
       ];
       return {
@@ -880,6 +991,18 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
       };
     });
   }, [nodes, selectedScenario]);
+
+  const handleConnectNodes = useCallback((connection: Connection) => {
+    if (!connection.source || !connection.target) {
+      return;
+    }
+
+    connectNodesByIds(connection.source, connection.target);
+  }, [connectNodesByIds]);
+
+  const handleProximityConnect = useCallback((sourceId: string, targetId: string) => {
+    connectNodesByIds(sourceId, targetId);
+  }, [connectNodesByIds]);
 
   const handleEdgeClick = useCallback((_event: MouseEvent, edge: Edge) => {
     if (!selectedScenario) {
@@ -1236,6 +1359,7 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
                       edgeAppearance={edgeAppearance}
                       onNodesChange={handleFlowNodesChange}
                       onConnect={handleConnectNodes}
+                      onProximityConnect={handleProximityConnect}
                       onEdgeClick={handleEdgeClick}
                       onNodeOpen={openNodeEditor}
                     />
