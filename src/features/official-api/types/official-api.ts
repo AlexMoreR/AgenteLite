@@ -130,6 +130,8 @@ export type OfficialApiChatbotBuilderNode = {
   meta: string;
 };
 
+export type OfficialApiChatbotNodesByScenarioId = Record<string, OfficialApiChatbotBuilderNode[]>;
+
 export type OfficialApiChatbotData = {
   configId: string | null;
   isConnected: boolean;
@@ -152,7 +154,7 @@ export type OfficialApiChatbotData = {
     fallbackEnabled: boolean;
     selectedScenarioId: string;
     scenarios: OfficialApiChatbotScenario[];
-    nodes: OfficialApiChatbotBuilderNode[];
+    nodesByScenarioId: OfficialApiChatbotNodesByScenarioId;
   };
 };
 

@@ -4,21 +4,21 @@ import { useMemo, useState, useTransition } from "react";
 import {
   ArrowRight,
   Bot,
-  CheckCircle2,
-  ChevronRight,
+  X,
   Clock3,
   Copy,
   FileText,
   MessageCircleReply,
   MessageSquarePlus,
+  MoreVertical,
   Inbox,
   Play,
   Plus,
   Route,
   Save,
   Settings2,
-  Sparkles,
   Split,
+  Trash2,
   UserRound,
   Workflow,
   Zap,
@@ -27,15 +27,18 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { useRouter } from "next/navigation";
 import type {
   OfficialApiChatbotBuilderNode,
   OfficialApiChatbotData,
+  OfficialApiChatbotNodesByScenarioId,
   OfficialApiChatbotScenario,
 } from "@/features/official-api/types/official-api";
 import { toast } from "sonner";
 
 type OfficialApiChatbotWorkspaceProps = {
   data: OfficialApiChatbotData;
+  initialScenarioId?: string;
 };
 
 type BuilderNode = OfficialApiChatbotBuilderNode;
@@ -106,65 +109,60 @@ function createStarterNodes(): BuilderNode[] {
   ];
 }
 
-function applyScenarioPreset(nodes: BuilderNode[], scenario: OfficialApiChatbotData["scenarios"][number] | undefined) {
-  if (!scenario) {
-    return nodes;
-  }
-
-  return nodes.map((node) => {
-    if (node.id === "router") {
-      return {
-        ...node,
-        body: scenario.summary,
-      };
-    }
-
-    if (node.id === "reply") {
-      const botMessage = scenario.messages.find((message) => message.direction === "bot");
-      return {
-        ...node,
-        body: botMessage?.content || node.body,
-      };
-    }
-
-    return node;
-  });
-}
-
-export function OfficialApiChatbotWorkspace({ data }: OfficialApiChatbotWorkspaceProps) {
+export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: OfficialApiChatbotWorkspaceProps) {
+  const router = useRouter();
+  const initialSelectedScenarioId =
+    initialScenarioId && data.defaults.scenarios.some((scenario) => scenario.id === initialScenarioId)
+      ? initialScenarioId
+      : "";
   const [scenarios, setScenarios] = useState<OfficialApiChatbotScenario[]>(
     data.defaults.scenarios,
   );
-  const [selectedScenarioId, setSelectedScenarioId] = useState(
-    data.defaults.selectedScenarioId || "",
-  );
-  const [botEnabled, setBotEnabled] = useState(data.defaults.isBotEnabled);
+  const [selectedScenarioId, setSelectedScenarioId] = useState(initialSelectedScenarioId);
+  const [botEnabled] = useState(data.defaults.isBotEnabled);
   const [captureLeadEnabled, setCaptureLeadEnabled] = useState(data.defaults.captureLeadEnabled);
   const [handoffEnabled, setHandoffEnabled] = useState(data.defaults.handoffEnabled);
   const [fallbackEnabled, setFallbackEnabled] = useState(data.defaults.fallbackEnabled);
   const [businessHours, setBusinessHours] = useState(data.defaults.businessHours);
-  const [nodes, setNodes] = useState<BuilderNode[]>(
-    data.defaults.nodes,
+  const [nodesByScenarioId, setNodesByScenarioId] = useState<OfficialApiChatbotNodesByScenarioId>(
+    data.defaults.nodesByScenarioId,
   );
   const [selectedNodeId, setSelectedNodeId] = useState<string>(
-    data.defaults.nodes[0]?.id || "",
+    data.defaults.nodesByScenarioId[initialSelectedScenarioId]?.[0]?.id || "",
   );
   const [copiedTemplateId, setCopiedTemplateId] = useState("");
   const [isSaving, startSaving] = useTransition();
   const [isBlockLibraryOpen, setIsBlockLibraryOpen] = useState(false);
   const [isCreatingWorkflow, setIsCreatingWorkflow] = useState(false);
   const [newWorkflowTitle, setNewWorkflowTitle] = useState("");
-  const [newWorkflowSummary, setNewWorkflowSummary] = useState("");
+  const [openMenuScenarioId, setOpenMenuScenarioId] = useState("");
+  const [scenarioPendingDelete, setScenarioPendingDelete] = useState<OfficialApiChatbotScenario | null>(null);
 
-  const selectedScenario = scenarios.find((scenario) => scenario.id === selectedScenarioId) ?? scenarios[0];
+  const hasWorkflows = scenarios.length > 0;
+  const selectedScenario = scenarios.find((scenario) => scenario.id === selectedScenarioId);
   const hasSelectedFlow = Boolean(selectedScenario);
+  const nodes = useMemo(
+    () => (selectedScenario ? (nodesByScenarioId[selectedScenario.id] ?? []) : []),
+    [nodesByScenarioId, selectedScenario],
+  );
   const selectedNode = useMemo(
     () => nodes.find((node) => node.id === selectedNodeId) ?? nodes[0] ?? null,
     [nodes, selectedNodeId],
   );
 
+  function updateNodesForScenario(scenarioId: string, updater: (nodes: BuilderNode[]) => BuilderNode[]) {
+    setNodesByScenarioId((current) => ({
+      ...current,
+      [scenarioId]: updater(current[scenarioId] ?? []),
+    }));
+  }
+
   function updateNode(nodeId: string, patch: Partial<BuilderNode>) {
-    setNodes((current) =>
+    if (!selectedScenario) {
+      return;
+    }
+
+    updateNodesForScenario(selectedScenario.id, (current) =>
       current.map((node) => (node.id === nodeId ? { ...node, ...patch } : node)),
     );
   }
@@ -208,17 +206,20 @@ export function OfficialApiChatbotWorkspace({ data }: OfficialApiChatbotWorkspac
       ...templates[kind],
     };
 
-    setNodes((current) => [...current, nextNode]);
+    if (!selectedScenario) {
+      return;
+    }
+
+    updateNodesForScenario(selectedScenario.id, (current) => [...current, nextNode]);
     setSelectedNodeId(nextNode.id);
     setIsBlockLibraryOpen(false);
   }
 
   function createWorkflow() {
     const title = newWorkflowTitle.trim();
-    const summary = newWorkflowSummary.trim();
-    if (!title || !summary) {
-      toast.error("Completa el workflow", {
-        description: "Agrega nombre y resumen antes de crear el flujo.",
+    if (!title) {
+      toast.error("Completa el flujo", {
+        description: "Agrega el nombre antes de crear el flujo.",
       });
       return;
     }
@@ -226,7 +227,7 @@ export function OfficialApiChatbotWorkspace({ data }: OfficialApiChatbotWorkspac
     const nextScenario: OfficialApiChatbotScenario = {
       id: createWorkflowId(),
       title,
-      summary,
+      summary: "Flujo personalizado creado desde el builder.",
       messages: [],
     };
 
@@ -234,11 +235,32 @@ export function OfficialApiChatbotWorkspace({ data }: OfficialApiChatbotWorkspac
     setSelectedScenarioId(nextScenario.id);
     setIsCreatingWorkflow(false);
     setNewWorkflowTitle("");
-    setNewWorkflowSummary("");
     const nextNodes = createStarterNodes();
-    setNodes(nextNodes);
+    const nextScenarios = [...scenarios, nextScenario];
+    const nextNodesByScenarioId = {
+      ...nodesByScenarioId,
+      [nextScenario.id]: nextNodes,
+    };
+    setNodesByScenarioId((current) => ({
+      ...current,
+      [nextScenario.id]: nextNodes,
+    }));
     setSelectedNodeId(nextNodes[0]?.id ?? "");
     setIsBlockLibraryOpen(true);
+
+    startSaving(async () => {
+      try {
+        await persistBuilderState({
+          selectedScenarioId: nextScenario.id,
+          scenarios: nextScenarios,
+          nodesByScenarioId: nextNodesByScenarioId,
+        });
+      } catch (error) {
+        toast.error("No se pudo crear el flujo", {
+          description: error instanceof Error ? error.message : "Ocurrio un error al crear el flujo.",
+        });
+      }
+    });
   }
 
   function updateSelectedWorkflow(patch: Partial<Pick<OfficialApiChatbotScenario, "title" | "summary">>) {
@@ -263,6 +285,44 @@ export function OfficialApiChatbotWorkspace({ data }: OfficialApiChatbotWorkspac
     }
   }
 
+  async function persistBuilderState(input: {
+    selectedScenarioId: string;
+    scenarios: OfficialApiChatbotScenario[];
+    nodesByScenarioId: OfficialApiChatbotNodesByScenarioId;
+    successMessage?: string;
+  }) {
+    const activeNodes = input.nodesByScenarioId[input.selectedScenarioId] ?? [];
+    const response = await fetch("/api/cliente/api-oficial/chatbot", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        isBotEnabled: botEnabled,
+        welcomeMessage: activeNodes.find((node) => node.id === "welcome")?.body || data.defaults.welcomeMessage,
+        fallbackMessage: activeNodes.find((node) => node.id === "fallback")?.body || data.defaults.fallbackMessage,
+        businessHours,
+        captureLeadEnabled,
+        handoffEnabled,
+        fallbackEnabled,
+        selectedScenarioId: input.selectedScenarioId,
+        scenarios: input.scenarios,
+        nodesByScenarioId: input.nodesByScenarioId,
+      }),
+    });
+
+    const payload = (await response.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
+    if (!response.ok || !payload?.ok) {
+      throw new Error(payload?.error || "No pudimos guardar la configuracion del flujo.");
+    }
+
+    if (input.successMessage) {
+      toast.success(input.successMessage, {
+        description: "La configuracion del flujo quedo lista en la API oficial.",
+      });
+    }
+  }
+
   function handleSaveBuilder() {
     if (!selectedScenario || scenarios.length === 0 || nodes.length === 0) {
       toast.error("Primero crea un flujo", {
@@ -273,40 +333,61 @@ export function OfficialApiChatbotWorkspace({ data }: OfficialApiChatbotWorkspac
 
     startSaving(async () => {
       try {
-        const response = await fetch("/api/cliente/api-oficial/chatbot", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            isBotEnabled: botEnabled,
-            welcomeMessage: nodes.find((node) => node.id === "welcome")?.body || data.defaults.welcomeMessage,
-            fallbackMessage: nodes.find((node) => node.id === "fallback")?.body || data.defaults.fallbackMessage,
-            businessHours,
-            captureLeadEnabled,
-            handoffEnabled,
-            fallbackEnabled,
-            selectedScenarioId,
-            scenarios,
-            nodes,
-          }),
-        });
-
-        const payload = (await response.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
-
-        if (!response.ok || !payload?.ok) {
-          toast.error("No se pudo guardar", {
-            description: payload?.error || "No pudimos guardar la configuracion del flujo.",
-          });
-          return;
-        }
-
-        toast.success("Flujo guardado", {
-          description: "La configuracion del flujo quedo lista en la API oficial.",
+        await persistBuilderState({
+          selectedScenarioId,
+          scenarios,
+          nodesByScenarioId,
+          successMessage: "Flujo guardado",
         });
       } catch {
         toast.error("No se pudo guardar", {
           description: "Ocurrio un error al guardar el flujo.",
+        });
+      }
+    });
+  }
+
+  function handleDeleteRequest(scenario: OfficialApiChatbotScenario) {
+    setOpenMenuScenarioId("");
+    setScenarioPendingDelete(scenario);
+  }
+
+  function confirmDeleteWorkflow() {
+    if (!scenarioPendingDelete) {
+      return;
+    }
+
+    if (scenarios.length <= 1) {
+      toast.error("No puedes eliminar el ultimo flujo", {
+        description: "Debes mantener al menos un flujo activo en el builder.",
+      });
+      setScenarioPendingDelete(null);
+      return;
+    }
+
+    const nextScenarios = scenarios.filter((scenario) => scenario.id !== scenarioPendingDelete.id);
+    const nextSelectedScenario = nextScenarios[0];
+    const nextNodesByScenarioId = Object.fromEntries(
+      Object.entries(nodesByScenarioId).filter(([scenarioId]) => scenarioId !== scenarioPendingDelete.id),
+    );
+
+    setScenarios(nextScenarios);
+    setNodesByScenarioId(nextNodesByScenarioId);
+    setSelectedScenarioId(nextSelectedScenario?.id ?? "");
+    setSelectedNodeId(nextNodesByScenarioId[nextSelectedScenario?.id ?? ""]?.[0]?.id ?? "");
+    setScenarioPendingDelete(null);
+
+    startSaving(async () => {
+      try {
+        await persistBuilderState({
+          selectedScenarioId: nextSelectedScenario?.id ?? "",
+          scenarios: nextScenarios,
+          nodesByScenarioId: nextNodesByScenarioId,
+          successMessage: "Flujo eliminado",
+        });
+      } catch {
+        toast.error("No se pudo eliminar", {
+          description: "Ocurrio un error al eliminar el flujo.",
         });
       }
     });
@@ -319,53 +400,101 @@ export function OfficialApiChatbotWorkspace({ data }: OfficialApiChatbotWorkspac
           hasSelectedFlow ? "" : "h-[calc(100dvh-12rem)] max-h-[760px]"
         }`}
       >
-        <div className={hasSelectedFlow ? "flex flex-col gap-4 border-b border-slate-200/80 px-5 py-4 lg:flex-row lg:items-center lg:justify-between" : "hidden"}>
-          <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,#111827_0%,#1d4ed8_100%)] text-white">
-              <Workflow className="h-5 w-5" />
-            </div>
+        <div className={hasWorkflows ? "px-5 py-5" : "hidden"}>
+          <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="text-base font-semibold text-slate-950">Constructor de flujos</p>
-                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-600">
-                  Inspirado en Typebot
+              <div className="flex items-center gap-2">
+                <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
+                  <Workflow className="h-4.5 w-4.5" />
                 </span>
+                <p className="text-2xl font-semibold tracking-[-0.03em] text-slate-950">Flujos
+                </p>
               </div>
-              <p className="text-sm leading-6 text-slate-600">
-                Construye flujos visuales para {data.workspaceName} dentro de WhatsApp oficial.
-              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                className="h-9 rounded-lg px-4"
+                onClick={() => setIsCreatingWorkflow(true)}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Crear
+              </Button>
+              {hasSelectedFlow ? (
+                <Button type="button" size="sm" className="rounded-md" onClick={handleSaveBuilder} disabled={isSaving}>
+                  <Save className="h-3.5 w-3.5" />
+                  {isSaving ? "Guardando..." : "Guardar"}
+                </Button>
+              ) : null}
             </div>
           </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
-              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-              Phone: {data.phoneNumberIdLabel}
-            </span>
-            <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
-              <Sparkles className="h-3.5 w-3.5 text-amber-500" />
-              WABA: {data.wabaIdLabel}
-            </span>
-            <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2">
-              <span className="text-xs font-medium text-slate-600">Bot activo</span>
-              <Switch checked={botEnabled} onCheckedChange={setBotEnabled} aria-label="Activar flujo" />
-            </div>
-            <Button type="button" variant="outline" size="sm">
-              <Play className="h-3.5 w-3.5" />
-              Probar
-            </Button>
-            <Button type="button" size="sm" onClick={handleSaveBuilder} disabled={isSaving}>
-              <Save className="h-3.5 w-3.5" />
-              {isSaving ? "Guardando..." : "Guardar"}
-            </Button>
+          <div className="mt-5 space-y-3">
+            {scenarios.map((scenario) => (
+              <div
+                key={scenario.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => router.push(`/cliente/api-oficial/chatbot/${scenario.id}`)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    router.push(`/cliente/api-oficial/chatbot/${scenario.id}`);
+                  }
+                }}
+                className={`flex items-center justify-between rounded-2xl border p-3.5 shadow-[0_10px_22px_-18px_rgba(15,23,42,0.2)] transition ${
+                  selectedScenarioId === scenario.id
+                    ? "border-[color-mix(in_srgb,var(--primary)_26%,white)] bg-[color-mix(in_srgb,var(--primary)_4%,white)]"
+                    : "border-slate-200 bg-white hover:border-slate-300"
+                } cursor-pointer`}
+              >
+                <div className="flex min-w-0 items-center gap-3 text-left">
+                  <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--primary)_14%,white)] text-[var(--primary)] ring-1 ring-[color-mix(in_srgb,var(--primary)_28%,white)]">
+                    <FileText className="h-4 w-4" />
+                  </span>
+                  <span className="truncate text-base font-semibold text-slate-800">{scenario.title}</span>
+                  <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">Borrador</span>
+                </div>
+                <div className="relative ml-3 flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="h-9 w-9 rounded-md"
+                    aria-label="Opciones del workflow"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setOpenMenuScenarioId((current) => (current === scenario.id ? "" : scenario.id));
+                    }}
+                  >
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                  {openMenuScenarioId === scenario.id ? (
+                    <div className="absolute right-0 top-11 z-20 w-40 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-[0_22px_48px_-30px_rgba(15,23,42,0.35)]">
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleDeleteRequest(scenario);
+                        }}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-rose-600 transition hover:bg-rose-50"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        Eliminar
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
 
         <div
           className={
-            hasSelectedFlow
+            hasSelectedFlow || !hasWorkflows
               ? "grid min-h-[76vh] xl:grid-cols-[280px_minmax(0,1fr)_330px]"
-              : "h-full min-h-0"
+              : "hidden"
           }
         >
           <aside className={hasSelectedFlow ? "border-b border-slate-200 bg-slate-50/80 xl:border-r xl:border-b-0" : "hidden"}>
@@ -409,78 +538,6 @@ export function OfficialApiChatbotWorkspace({ data }: OfficialApiChatbotWorkspac
                 </div>
               )}
 
-              <div className="space-y-3">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-semibold text-slate-900">Flujos</p>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="rounded-xl"
-                    onClick={() => setIsCreatingWorkflow((current) => !current)}
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                    Crear flujo
-                  </Button>
-                </div>
-                {isCreatingWorkflow ? (
-                  <div className="space-y-3 rounded-[22px] border border-slate-200 bg-white p-4">
-                    <label className="block space-y-2">
-                      <span className="text-sm font-medium text-slate-900">Nombre</span>
-                      <Input
-                        value={newWorkflowTitle}
-                        onChange={(event) => setNewWorkflowTitle(event.target.value)}
-                        placeholder="Ej. Bienvenida con video"
-                      />
-                    </label>
-                    <label className="block space-y-2">
-                      <span className="text-sm font-medium text-slate-900">Resumen del flujo</span>
-                      <textarea
-                        value={newWorkflowSummary}
-                        onChange={(event) => setNewWorkflowSummary(event.target.value)}
-                        className="field-textarea min-h-24"
-                        placeholder="Describe en una linea que hace este flujo."
-                      />
-                    </label>
-                    <div className="flex justify-end gap-2">
-                      <Button type="button" variant="ghost" size="sm" onClick={() => setIsCreatingWorkflow(false)}>
-                        Cancelar
-                      </Button>
-                      <Button type="button" size="sm" onClick={createWorkflow}>
-                        Crear flujo
-                      </Button>
-                    </div>
-                  </div>
-                ) : null}
-                <div className="grid gap-2">
-                  {scenarios.map((scenario) => (
-                    <button
-                      key={scenario.id}
-                      type="button"
-                      onClick={() => {
-                        setSelectedScenarioId(scenario.id);
-                        setNodes((current) => applyScenarioPreset(current, scenario));
-                      }}
-                      className={`rounded-[22px] border px-4 py-3 text-left transition ${
-                        selectedScenarioId === scenario.id
-                          ? "border-slate-900 bg-slate-900 text-white"
-                          : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-semibold">{scenario.title}</p>
-                          <p className={`mt-1 text-sm leading-6 ${selectedScenarioId === scenario.id ? "text-slate-300" : "text-slate-600"}`}>
-                            {scenario.summary}
-                          </p>
-                        </div>
-                        <ChevronRight className={`mt-1 h-4 w-4 ${selectedScenarioId === scenario.id ? "text-slate-300" : "text-slate-400"}`} />
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
               <div className="rounded-[24px] border border-amber-200 bg-amber-50 p-4">
                 <div className="flex items-center gap-2 text-sm font-semibold text-amber-900">
                   <Clock3 className="h-4 w-4" />
@@ -518,7 +575,9 @@ export function OfficialApiChatbotWorkspace({ data }: OfficialApiChatbotWorkspac
 
             <div
               className={`relative p-5 ${
-                hasSelectedFlow ? "min-h-[calc(76vh-57px)] overflow-auto" : "flex h-full min-h-0 overflow-hidden"
+                hasSelectedFlow
+                  ? "min-h-[calc(76vh-57px)] overflow-auto"
+                  : "grid min-h-[calc(100dvh-18rem)] place-items-center overflow-hidden"
               }`}
             >
               {hasSelectedFlow ? (
@@ -587,24 +646,39 @@ export function OfficialApiChatbotWorkspace({ data }: OfficialApiChatbotWorkspac
                     );
                   })}
                 </div>
+              ) : hasWorkflows ? (
+                <div className="flex w-full items-center justify-center bg-white px-6 py-8 sm:px-10">
+                  <div className="flex w-full max-w-lg flex-col items-center text-center">
+                    <div className="flex items-center justify-center">
+                      <Inbox className="h-10 w-10 text-[var(--primary)]" />
+                    </div>
+
+                    <h4 className="mt-6 font-semibold text-slate-950">
+                      Selecciona un flujo para empezar
+                    </h4>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">
+                      El constructor y el inspector se muestran solo cuando entras a un workflow.
+                    </p>
+                  </div>
+                </div>
               ) : (
-                <div className="absolute inset-0 flex items-center justify-center bg-white px-6 sm:px-10">
-                  <div className="w-full max-w-lg text-center">
-                      <div className="mx-auto flex items-center justify-center">
-                        <Inbox className="h-10 w-10 text-[var(--primary)]" />
-                      </div>
+                <div className="flex w-full items-center justify-center bg-white px-6 py-8 sm:px-10">
+                  <div className="flex w-full max-w-lg flex-col items-center text-center">
+                    <div className="flex items-center justify-center">
+                      <Inbox className="h-10 w-10 text-[var(--primary)]" />
+                    </div>
 
-                      <h4 className="mt-6 text-2xl font-semibold  text-slate-950 ">
-                        Aun no has creado ningun flujo
-                      </h4>
+                    <h4 className="mt-6 font-semibold text-slate-950">
+                      Aun no has creado ningun flujo
+                    </h4>
 
-                      <Button
-                        type="button"
-                        className="mt-6 h-10 rounded-xl  px-5 text-sm font-semibold text-white hover:bg-[color-mix(in_srgb,var(--primary)_88%,black)]"
-                        onClick={() => setIsCreatingWorkflow(true)}
-                      >
-                        Crear Flujo
-                      </Button>
+                    <Button
+                      type="button"
+                      className="mt-6 h-10 rounded-xl  px-5 text-sm  text-white hover:bg-[color-mix(in_srgb,var(--primary)_88%,black)]"
+                      onClick={() => setIsCreatingWorkflow(true)}
+                    >
+                      Crear
+                    </Button>
                   </div>
                 </div>
               )}
@@ -739,32 +813,66 @@ export function OfficialApiChatbotWorkspace({ data }: OfficialApiChatbotWorkspac
             </div>
           </aside>
         </div>
-        {!hasSelectedFlow && isCreatingWorkflow ? (
+        {isCreatingWorkflow ? (
           <div className="absolute inset-0 z-20 flex items-center justify-center bg-slate-950/20 p-6 backdrop-blur-[2px]">
-            <div className="w-full max-w-md space-y-3 rounded-[22px] border border-slate-200 bg-white p-4 shadow-[0_30px_80px_-48px_rgba(15,23,42,0.32)]">
-              <label className="block space-y-2">
-                <span className="text-sm font-medium text-slate-900">Nombre</span>
-                <Input
-                  value={newWorkflowTitle}
-                  onChange={(event) => setNewWorkflowTitle(event.target.value)}
-                  placeholder="Ej. Bienvenida con video"
-                />
-              </label>
-              <label className="block space-y-2">
-                <span className="text-sm font-medium text-slate-900">Resumen del flujo</span>
-                <textarea
-                  value={newWorkflowSummary}
-                  onChange={(event) => setNewWorkflowSummary(event.target.value)}
-                  className="field-textarea min-h-24"
-                  placeholder="Describe en una linea que hace este flujo."
-                />
-              </label>
-              <div className="flex justify-end gap-2">
-                <Button type="button" variant="ghost" size="sm" onClick={() => setIsCreatingWorkflow(false)}>
+            <div className="w-full max-w-md overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_30px_80px_-48px_rgba(15,23,42,0.32)]">
+              <div className="relative border-b border-slate-200 px-6 py-7 text-center">
+                <button
+                  type="button"
+                  onClick={() => setIsCreatingWorkflow(false)}
+                  className="absolute right-4 top-4 inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                  aria-label="Cerrar modal"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--primary)_10%,white)]">
+                  <Inbox className="h-6 w-6 text-[var(--primary)]" />
+                </div>
+                <p className="mt-4 text-xl font-semibold text-slate-950">Crear flujo</p>
+                <p className="mt-1 text-sm leading-6 text-slate-500">Empieza creando el nombre de tu flujo.</p>
+              </div>
+
+              <div className="space-y-5 px-6 py-6">
+                <label className="block space-y-2">
+                  <span className="text-sm font-medium text-slate-900">Nombre del flujo</span>
+                  <Input
+                    value={newWorkflowTitle}
+                    onChange={(event) => setNewWorkflowTitle(event.target.value)}
+                    placeholder="Ej. Bienvenida con video"
+                  />
+                  <p className="text-xs leading-5 text-slate-500">Usa un nombre claro y facil de identificar.</p>
+                </label>
+
+                <Button type="button" className="h-11 w-full rounded-xl" onClick={createWorkflow}>
+                  Continuar
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+        {scenarioPendingDelete ? (
+          <div className="absolute inset-0 z-30 flex items-center justify-center bg-slate-950/25 p-6 backdrop-blur-[2px]">
+            <div className="w-full max-w-md overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_30px_80px_-48px_rgba(15,23,42,0.32)]">
+              <div className="relative border-b border-slate-200 px-6 py-6 text-center">
+                <button
+                  type="button"
+                  onClick={() => setScenarioPendingDelete(null)}
+                  className="absolute right-4 top-4 inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                  aria-label="Cerrar modal"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+                <p className="text-lg font-semibold text-slate-950">Eliminar flujo</p>
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  Esta accion eliminara <span className="font-semibold text-slate-900">{scenarioPendingDelete.title}</span>.
+                </p>
+              </div>
+              <div className="flex items-center justify-end gap-2 px-6 py-5">
+                <Button type="button" variant="outline" onClick={() => setScenarioPendingDelete(null)}>
                   Cancelar
                 </Button>
-                <Button type="button" size="sm" onClick={createWorkflow}>
-                  Crear flujo
+                <Button type="button" className="bg-rose-600 text-white hover:bg-rose-700" onClick={confirmDeleteWorkflow}>
+                  Eliminar
                 </Button>
               </div>
             </div>

@@ -28,15 +28,18 @@ const builderSchema = z.object({
       ),
     }),
   ).min(1),
-  nodes: z.array(
-    z.object({
-      id: z.string().trim().min(1).max(120),
-      kind: z.enum(["trigger", "message", "input", "condition", "action"]),
-      title: z.string().trim().min(1).max(120),
-      body: z.string().trim().max(4096),
-      meta: z.string().trim().max(255),
-    }),
-  ).min(1),
+  nodesByScenarioId: z.record(
+    z.string().trim().min(1).max(120),
+    z.array(
+      z.object({
+        id: z.string().trim().min(1).max(120),
+        kind: z.enum(["trigger", "message", "input", "condition", "action"]),
+        title: z.string().trim().min(1).max(120),
+        body: z.string().trim().max(4096),
+        meta: z.string().trim().max(255),
+      }),
+    ).min(1),
+  ),
 });
 
 export async function POST(request: Request) {

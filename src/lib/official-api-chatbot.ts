@@ -1,4 +1,8 @@
-import type { OfficialApiChatbotBuilderNode, OfficialApiChatbotScenario } from "@/features/official-api/types/official-api";
+import type {
+  OfficialApiChatbotBuilderNode,
+  OfficialApiChatbotNodesByScenarioId,
+  OfficialApiChatbotScenario,
+} from "@/features/official-api/types/official-api";
 import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 
@@ -12,7 +16,7 @@ export type OfficialApiChatbotBuilderState = {
   fallbackEnabled: boolean;
   selectedScenarioId: string;
   scenarios: OfficialApiChatbotScenario[];
-  nodes: OfficialApiChatbotBuilderNode[];
+  nodesByScenarioId: OfficialApiChatbotNodesByScenarioId;
 };
 
 export type StoredOfficialApiAutomationRule = {
@@ -101,8 +105,36 @@ const defaultBuilderState: OfficialApiChatbotBuilderState = {
   fallbackEnabled: true,
   selectedScenarioId: "",
   scenarios: [],
-  nodes: [],
+  nodesByScenarioId: {},
 };
+
+function normalizeNode(node: OfficialApiChatbotBuilderNode) {
+  return {
+    id: node.id.trim() || randomUUID(),
+    kind: node.kind,
+    title: node.title.trim() || "Bloque",
+    body: node.body.trim(),
+    meta: node.meta.trim(),
+  } satisfies OfficialApiChatbotBuilderNode;
+}
+
+function normalizeNodesByScenarioId(
+  input: unknown,
+  fallback: { welcomeMessage: string; fallbackMessage: string; businessHours: string },
+): OfficialApiChatbotNodesByScenarioId {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(input).map(([scenarioId, nodes]) => [
+      scenarioId,
+      Array.isArray(nodes) && nodes.length > 0
+        ? nodes.map((node) => normalizeNode(node as OfficialApiChatbotBuilderNode))
+        : getDefaultBuilderNodes(fallback),
+    ]),
+  );
+}
 
 const scenarioConfig = {
   "new-lead": {
@@ -208,13 +240,11 @@ export async function getOfficialApiChatbotBuilderState(
               messages: Array.isArray(scenario.messages) ? scenario.messages : [],
             }))
           : defaultBuilderState.scenarios,
-      nodes: Array.isArray(parsed.nodes) && parsed.nodes.length > 0
-        ? parsed.nodes
-        : getDefaultBuilderNodes({
-            welcomeMessage: parsed.welcomeMessage || defaultBuilderState.welcomeMessage,
-            fallbackMessage: parsed.fallbackMessage || defaultBuilderState.fallbackMessage,
-            businessHours: parsed.businessHours || defaultBuilderState.businessHours,
-          }),
+      nodesByScenarioId: normalizeNodesByScenarioId(parsed.nodesByScenarioId, {
+        welcomeMessage: parsed.welcomeMessage || defaultBuilderState.welcomeMessage,
+        fallbackMessage: parsed.fallbackMessage || defaultBuilderState.fallbackMessage,
+        businessHours: parsed.businessHours || defaultBuilderState.businessHours,
+      }),
     };
   } catch {
     return defaultBuilderState;
@@ -241,28 +271,27 @@ export async function saveOfficialApiChatbotBuilderState(
             messages: Array.isArray(scenario.messages) ? scenario.messages : [],
           }))
         : defaultBuilderState.scenarios,
-    nodes:
-      Array.isArray(state.nodes) && state.nodes.length > 0
-        ? state.nodes.map((node) => ({
-            id: node.id.trim() || randomUUID(),
-            kind: node.kind,
-            title: node.title.trim() || "Bloque",
-            body: node.body.trim(),
-            meta: node.meta.trim(),
-          }))
-        : getDefaultBuilderNodes({
-            welcomeMessage: state.welcomeMessage,
-            fallbackMessage: state.fallbackMessage,
-            businessHours: state.businessHours,
-          }),
+    nodesByScenarioId: normalizeNodesByScenarioId(state.nodesByScenarioId, {
+      welcomeMessage: state.welcomeMessage,
+      fallbackMessage: state.fallbackMessage,
+      businessHours: state.businessHours,
+    }),
   };
 
-  const welcomeNode = normalizedState.nodes.find((node) => node.id === "welcome" || node.title.toLowerCase().includes("bienvenida"));
-  const fallbackNode = normalizedState.nodes.find((node) => node.id === "fallback" || node.title.toLowerCase().includes("fallback"));
-  const routerNode = normalizedState.nodes.find((node) => node.kind === "condition");
+  const activeNodes =
+    normalizedState.nodesByScenarioId[normalizedState.selectedScenarioId] ??
+    getDefaultBuilderNodes({
+      welcomeMessage: normalizedState.welcomeMessage,
+      fallbackMessage: normalizedState.fallbackMessage,
+      businessHours: normalizedState.businessHours,
+    });
+
+  const welcomeNode = activeNodes.find((node) => node.id === "welcome" || node.title.toLowerCase().includes("bienvenida"));
+  const fallbackNode = activeNodes.find((node) => node.id === "fallback" || node.title.toLowerCase().includes("fallback"));
+  const routerNode = activeNodes.find((node) => node.kind === "condition");
   const replyNode =
-    normalizedState.nodes.find((node) => node.id === "reply") ??
-    normalizedState.nodes.find((node) => node.kind === "message" && node.id !== "welcome" && node.id !== "fallback");
+    activeNodes.find((node) => node.id === "reply") ??
+    activeNodes.find((node) => node.kind === "message" && node.id !== "welcome" && node.id !== "fallback");
 
   const scenarioRule = {
     ...getScenarioRule(normalizedState),
