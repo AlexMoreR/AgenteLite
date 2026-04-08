@@ -2,6 +2,7 @@ import type {
   OfficialApiChatbotBuilderEdge,
   OfficialApiChatbotBuilderNode,
   OfficialApiChatbotEdgesByScenarioId,
+  OfficialApiChatbotNodePositionsByScenarioId,
   OfficialApiChatbotNodesByScenarioId,
   OfficialApiChatbotScenario,
 } from "@/features/official-api/types/official-api";
@@ -19,6 +20,7 @@ export type OfficialApiChatbotBuilderState = {
   selectedScenarioId: string;
   scenarios: OfficialApiChatbotScenario[];
   nodesByScenarioId: OfficialApiChatbotNodesByScenarioId;
+  nodePositionsByScenarioId: OfficialApiChatbotNodePositionsByScenarioId;
   edgesByScenarioId: OfficialApiChatbotEdgesByScenarioId;
 };
 
@@ -109,6 +111,7 @@ const defaultBuilderState: OfficialApiChatbotBuilderState = {
   selectedScenarioId: "",
   scenarios: [],
   nodesByScenarioId: {},
+  nodePositionsByScenarioId: {},
   edgesByScenarioId: {},
 };
 
@@ -164,6 +167,36 @@ function normalizeEdgesByScenarioId(input: unknown): OfficialApiChatbotEdgesBySc
             .filter((edge) => edge.source && edge.target)
         : [],
     ]),
+  );
+}
+
+function normalizeNodePositionsByScenarioId(input: unknown): OfficialApiChatbotNodePositionsByScenarioId {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(input).map(([scenarioId, positions]) => {
+      if (!positions || typeof positions !== "object" || Array.isArray(positions)) {
+        return [scenarioId, {}];
+      }
+
+      const normalizedPositions = Object.fromEntries(
+        Object.entries(positions).filter(([, value]) => {
+          if (!value || typeof value !== "object" || Array.isArray(value)) {
+            return false;
+          }
+
+          const position = value as { x?: unknown; y?: unknown };
+          return Number.isFinite(position.x) && Number.isFinite(position.y);
+        }).map(([nodeId, value]) => {
+          const position = value as { x: number; y: number };
+          return [nodeId, { x: position.x, y: position.y }];
+        }),
+      );
+
+      return [scenarioId, normalizedPositions];
+    }),
   );
 }
 
@@ -381,6 +414,7 @@ export async function getOfficialApiChatbotBuilderState(
         fallbackMessage: parsed.fallbackMessage || defaultBuilderState.fallbackMessage,
         businessHours: parsed.businessHours || defaultBuilderState.businessHours,
       }),
+      nodePositionsByScenarioId: normalizeNodePositionsByScenarioId(parsed.nodePositionsByScenarioId),
       edgesByScenarioId: normalizeEdgesByScenarioId(parsed.edgesByScenarioId),
     };
   } catch {
@@ -413,6 +447,7 @@ export async function saveOfficialApiChatbotBuilderState(
       fallbackMessage: state.fallbackMessage,
       businessHours: state.businessHours,
     }),
+    nodePositionsByScenarioId: normalizeNodePositionsByScenarioId(state.nodePositionsByScenarioId),
     edgesByScenarioId: normalizeEdgesByScenarioId(state.edgesByScenarioId),
   };
 

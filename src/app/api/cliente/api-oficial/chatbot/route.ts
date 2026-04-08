@@ -40,6 +40,16 @@ const builderSchema = z.object({
       }),
     ).min(1),
   ),
+  nodePositionsByScenarioId: z.record(
+    z.string().trim().min(1).max(120),
+    z.record(
+      z.string().trim().min(1).max(120),
+      z.object({
+        x: z.number().finite(),
+        y: z.number().finite(),
+      }),
+    ),
+  ),
   edgesByScenarioId: z.record(
     z.string().trim().min(1).max(120),
     z.array(

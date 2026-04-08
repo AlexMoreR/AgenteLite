@@ -131,6 +131,8 @@ export type OfficialApiChatbotBuilderNode = {
 };
 
 export type OfficialApiChatbotNodesByScenarioId = Record<string, OfficialApiChatbotBuilderNode[]>;
+export type OfficialApiChatbotNodePosition = { x: number; y: number };
+export type OfficialApiChatbotNodePositionsByScenarioId = Record<string, Record<string, OfficialApiChatbotNodePosition>>;
 export type OfficialApiChatbotBuilderEdge = {
   id: string;
   source: string;
@@ -161,6 +163,7 @@ export type OfficialApiChatbotData = {
     selectedScenarioId: string;
     scenarios: OfficialApiChatbotScenario[];
     nodesByScenarioId: OfficialApiChatbotNodesByScenarioId;
+    nodePositionsByScenarioId: OfficialApiChatbotNodePositionsByScenarioId;
     edgesByScenarioId: OfficialApiChatbotEdgesByScenarioId;
   };
 };

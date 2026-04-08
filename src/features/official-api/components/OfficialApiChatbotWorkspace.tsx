@@ -18,6 +18,7 @@ import {
   Trash2,
   UserRound,
   Workflow,
+  Rocket,
   Zap,
 } from "lucide-react";
 import {
@@ -26,6 +27,7 @@ import {
   BackgroundVariant,
   ConnectionMode,
   Controls,
+  Handle,
   MarkerType,
   Position,
   ReactFlowProvider,
@@ -35,12 +37,21 @@ import {
   type Edge,
   type Node,
   type NodeChange,
+  type NodeProps,
   ReactFlow,
 } from "@xyflow/react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import {
+  BaseNode,
+  BaseNodeContent,
+  BaseNodeFooter,
+  BaseNodeHeader,
+  BaseNodeHeaderTitle,
+} from "@/components/reactflow/base-node";
+import { cn } from "@/lib/utils";
 import { useRouter } from "next/navigation";
 import type {
   OfficialApiChatbotBuilderNode,
@@ -61,7 +72,11 @@ type NodePositionsByScenarioId = Record<string, Record<string, NodePosition>>;
 type BuilderEdge = { id: string; source: string; target: string };
 type EdgesByScenarioId = Record<string, BuilderEdge[]>;
 type FlowNodeData = {
-  label: string;
+  kind: BuilderNode["kind"];
+  title: string;
+  body: string;
+  meta: string;
+  orderLabel: string;
 };
 type EdgeAppearance = {
   stroke: string;
@@ -69,6 +84,60 @@ type EdgeAppearance = {
   markerColor: string;
   curvature: number;
 };
+
+function ChatbotFlowNode({ data, selected }: NodeProps<Node<FlowNodeData>>) {
+  const preview = data.body.trim() || "Sin contenido aun.";
+  const headerIcon =
+    data.kind === "trigger" ? (
+      <Rocket className="h-4 w-4 text-blue-600" />
+    ) : data.kind === "message" ? (
+      <MessageSquarePlus className="h-4 w-4 text-sky-600" />
+    ) : data.kind === "input" ? (
+      <UserRound className="h-4 w-4 text-emerald-600" />
+    ) : data.kind === "condition" ? (
+      <Split className="h-4 w-4 text-amber-600" />
+    ) : (
+      <Zap className="h-4 w-4 text-slate-600" />
+    );
+
+  return (
+    <>
+      <Handle
+        type="target"
+        position={Position.Left}
+        className="!h-3 !w-3 !border-2 !border-white !bg-sky-600"
+      />
+      <BaseNode
+        className={cn(
+          "w-[300px] transition-shadow",
+          selected ? "border-blue-400 shadow-[0_24px_50px_-28px_rgba(37,99,235,0.52)]" : "",
+        )}
+      >
+        <BaseNodeHeader className="items-center justify-start gap-2.5">
+          <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-slate-50">
+            {headerIcon}
+          </span>
+          <BaseNodeHeaderTitle className="truncate">{data.title}</BaseNodeHeaderTitle>
+        </BaseNodeHeader>
+        <BaseNodeContent>
+          <p className="line-clamp-4 whitespace-pre-line text-sm leading-5 text-slate-700">{preview}</p>
+        </BaseNodeContent>
+        <BaseNodeFooter>
+          <p className="truncate text-xs text-slate-500">
+            {data.meta.trim() ? `Meta: ${data.meta}` : data.orderLabel}
+          </p>
+        </BaseNodeFooter>
+      </BaseNode>
+      <Handle
+        type="source"
+        position={Position.Right}
+        className="!h-3 !w-3 !border-2 !border-white !bg-blue-600"
+      />
+    </>
+  );
+}
+
+const nodeTypes = { chatbotNode: ChatbotFlowNode };
 
 type ChatbotFlowCanvasProps = {
   scenarioKey: string;
@@ -96,14 +165,20 @@ function ChatbotFlowCanvas({
   const nodesSignature = useMemo(
     () =>
       nodes
-        .map((node) => `${node.id}:${node.position.x}:${node.position.y}:${String(node.data?.label ?? "")}`)
+        .map(
+          (node) =>
+            `${node.id}:${node.position.x}:${node.position.y}:${String(node.data?.title ?? "")}:${String(node.data?.body ?? "")}:${String(node.data?.meta ?? "")}`,
+        )
         .join("|"),
     [nodes],
   );
   const canvasNodesSignature = useMemo(
     () =>
       canvasNodes
-        .map((node) => `${node.id}:${node.position.x}:${node.position.y}:${String(node.data?.label ?? "")}`)
+        .map(
+          (node) =>
+            `${node.id}:${node.position.x}:${node.position.y}:${String(node.data?.title ?? "")}:${String(node.data?.body ?? "")}:${String(node.data?.meta ?? "")}`,
+        )
         .join("|"),
     [canvasNodes],
   );
@@ -134,6 +209,7 @@ function ChatbotFlowCanvas({
       className="chatbot-flow-canvas"
       nodes={canvasNodes}
       edges={canvasEdges}
+      nodeTypes={nodeTypes}
       onNodesChange={(changes) => {
         onCanvasNodesChange(changes);
         onNodesChange(changes);
@@ -196,14 +272,9 @@ function getSafePosition(input: NodePosition | undefined, index: number): NodePo
     return fallback;
   }
 
-  // Keep nodes inside a visible working area to avoid blank canvas.
-  if (input.x < -100 || input.x > 1400 || input.y < -100 || input.y > 900) {
-    return fallback;
-  }
-
   return {
-    x: Math.min(Math.max(input.x, 20), 1200),
-    y: Math.min(Math.max(input.y, 20), 760),
+    x: input.x,
+    y: input.y,
   };
 }
 
@@ -289,7 +360,7 @@ function createStarterNodes(): BuilderNode[] {
     {
       id: "trigger",
       kind: "trigger",
-      title: "Inicio del flujo",
+      title: "Comenzar",
       body: "El flujo inicia cuando entra un mensaje nuevo al numero oficial de WhatsApp.",
       meta: "",
     },
@@ -298,6 +369,12 @@ function createStarterNodes(): BuilderNode[] {
 
 function getOrderedNodeTitle(node: BuilderNode, index: number) {
   const trimmedTitle = node.title.trim();
+  if (trimmedTitle.toLowerCase() === "inicio del flujo") {
+    return "Comenzar";
+  }
+  if (trimmedTitle.toLowerCase() === "nuevo mensaje") {
+    return "Enviar mensaje";
+  }
   return trimmedTitle || `Paso ${index + 1}`;
 }
 
@@ -342,7 +419,9 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
   const [openMenuScenarioId, setOpenMenuScenarioId] = useState("");
   const [scenarioPendingDelete, setScenarioPendingDelete] = useState<OfficialApiChatbotScenario | null>(null);
   const [isNodeEditorOpen, setIsNodeEditorOpen] = useState(false);
-  const [nodePositionsByScenarioId, setNodePositionsByScenarioId] = useState<NodePositionsByScenarioId>({});
+  const [nodePositionsByScenarioId, setNodePositionsByScenarioId] = useState<NodePositionsByScenarioId>(
+    data.defaults.nodePositionsByScenarioId,
+  );
   const [edgesByScenarioId, setEdgesByScenarioId] = useState<EdgesByScenarioId>(() =>
     Object.fromEntries(
       Object.entries(data.defaults.nodesByScenarioId).map(([scenarioId, scenarioNodes]) => [
@@ -368,6 +447,10 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
     () => nodes.find((node) => node.id === selectedNodeId) ?? nodes[0] ?? null,
     [nodes, selectedNodeId],
   );
+  const openNodeEditor = useCallback((nodeId: string) => {
+    setSelectedNodeId(nodeId);
+    setIsNodeEditorOpen(true);
+  }, []);
   const scenarioNodePositions = useMemo(
     () => (selectedScenario ? (nodePositionsByScenarioId[selectedScenario.id] ?? {}) : {}),
     [nodePositionsByScenarioId, selectedScenario],
@@ -383,12 +466,16 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
     () =>
       nodes.map((node, index) => ({
         id: node.id,
-        type: "default",
+        type: "chatbotNode",
         position: getSafePosition(scenarioNodePositions[node.id], index),
         sourcePosition: Position.Right,
         targetPosition: Position.Left,
         data: {
-          label: `${getOrderedNodeTitle(node, index)}\n${node.body || ""}`,
+          kind: node.kind,
+          title: getOrderedNodeTitle(node, index),
+          body: node.body,
+          meta: node.meta,
+          orderLabel: `Paso ${index + 1}`,
         },
       })),
     [nodes, scenarioNodePositions],
@@ -470,7 +557,7 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
       },
       message: {
         kind: "message",
-        title: "Nuevo mensaje",
+        title: "Enviar mensaje",
         body: "Escribe aqui la respuesta del bot.",
         meta: "",
       },
@@ -569,10 +656,15 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
       ...edgesByScenarioId,
       [nextScenario.id]: buildSequentialEdges(nextNodes),
     };
+    const nextNodePositionsByScenarioId = {
+      ...nodePositionsByScenarioId,
+      [nextScenario.id]: {},
+    };
     setNodesByScenarioId((current) => ({
       ...current,
       [nextScenario.id]: nextNodes,
     }));
+    setNodePositionsByScenarioId(nextNodePositionsByScenarioId);
     setEdgesByScenarioId(nextEdgesByScenarioId);
     setSelectedNodeId(nextNodes[0]?.id ?? "");
     setIsBlockLibraryOpen(true);
@@ -583,6 +675,7 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
           selectedScenarioId: nextScenario.id,
           scenarios: nextScenarios,
           nodesByScenarioId: nextNodesByScenarioId,
+          nodePositionsByScenarioId: nextNodePositionsByScenarioId,
           edgesByScenarioId: nextEdgesByScenarioId,
         });
       } catch (error) {
@@ -619,6 +712,7 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
     selectedScenarioId: string;
     scenarios: OfficialApiChatbotScenario[];
     nodesByScenarioId: OfficialApiChatbotNodesByScenarioId;
+    nodePositionsByScenarioId: NodePositionsByScenarioId;
     edgesByScenarioId: EdgesByScenarioId;
     successMessage?: string;
   }) => {
@@ -640,6 +734,7 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
         selectedScenarioId: input.selectedScenarioId,
         scenarios: input.scenarios,
         nodesByScenarioId: normalizedNodesByScenarioId,
+        nodePositionsByScenarioId: input.nodePositionsByScenarioId,
         edgesByScenarioId: input.edgesByScenarioId,
       }),
     });
@@ -678,6 +773,7 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
           selectedScenarioId,
           scenarios,
           nodesByScenarioId,
+          nodePositionsByScenarioId,
           edgesByScenarioId,
           successMessage: "Flujo guardado",
         });
@@ -704,12 +800,16 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
     const nextNodesByScenarioId = Object.fromEntries(
       Object.entries(nodesByScenarioId).filter(([scenarioId]) => scenarioId !== scenarioPendingDelete.id),
     );
+    const nextNodePositionsByScenarioId = Object.fromEntries(
+      Object.entries(nodePositionsByScenarioId).filter(([scenarioId]) => scenarioId !== scenarioPendingDelete.id),
+    );
     const nextEdgesByScenarioId = Object.fromEntries(
       Object.entries(edgesByScenarioId).filter(([scenarioId]) => scenarioId !== scenarioPendingDelete.id),
     );
 
     setScenarios(nextScenarios);
     setNodesByScenarioId(nextNodesByScenarioId);
+    setNodePositionsByScenarioId(nextNodePositionsByScenarioId);
     setEdgesByScenarioId(nextEdgesByScenarioId);
     setSelectedScenarioId(nextSelectedScenario?.id ?? "");
     setSelectedNodeId(nextNodesByScenarioId[nextSelectedScenario?.id ?? ""]?.[0]?.id ?? "");
@@ -721,6 +821,7 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
           selectedScenarioId: nextSelectedScenario?.id ?? "",
           scenarios: nextScenarios,
           nodesByScenarioId: nextNodesByScenarioId,
+          nodePositionsByScenarioId: nextNodePositionsByScenarioId,
           edgesByScenarioId: nextEdgesByScenarioId,
           successMessage: "Flujo eliminado",
         });
@@ -730,11 +831,6 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
         });
       }
     });
-  }
-
-  function openNodeEditor(nodeId: string) {
-    setSelectedNodeId(nodeId);
-    setIsNodeEditorOpen(true);
   }
 
   const handleFlowNodesChange = useCallback((changes: NodeChange<Node>[]) => {
@@ -854,6 +950,7 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
       selectedScenarioId,
       scenarios,
       nodesByScenarioId,
+      nodePositionsByScenarioId,
       edgesByScenarioId,
       businessHours,
       captureLeadEnabled,
@@ -882,6 +979,7 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
             selectedScenarioId,
             scenarios,
             nodesByScenarioId,
+            nodePositionsByScenarioId,
             edgesByScenarioId,
           });
           lastAutoSavedSnapshotRef.current = snapshot;
@@ -899,6 +997,7 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
     handoffEnabled,
     hasSelectedFlow,
     edgesByScenarioId,
+    nodePositionsByScenarioId,
     nodesByScenarioId,
     persistBuilderState,
     scenarios,
