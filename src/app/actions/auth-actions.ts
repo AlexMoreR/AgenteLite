@@ -743,5 +743,9 @@ export async function adminUpdateUserModuleAccessAction(formData: FormData): Pro
   revalidatePath("/admin/categorias");
   revalidatePath("/admin/proveedores");
   revalidatePath("/admin/cotizaciones");
+  revalidatePath("/cliente");
+  revalidatePath("/cliente/api-oficial");
+  revalidatePath("/cliente/api-oficial/chats");
+  revalidatePath("/cliente/api-oficial/chatbot");
   redirect("/admin/configuracion/permisos?ok=Permisos+actualizados");
 }

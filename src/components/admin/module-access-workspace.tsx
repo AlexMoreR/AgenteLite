@@ -5,6 +5,7 @@ import { Role } from "@prisma/client";
 import {
   Blocks,
   BriefcaseBusiness,
+  MessageSquare,
   MessageSquareMore,
   LockKeyhole,
   Package,
@@ -59,6 +60,7 @@ const moduleIconMap = {
   categories: Tags,
   suppliers: Truck,
   quotes: Blocks,
+  client_official_api: MessageSquare,
 } satisfies Record<AdminModuleKey, React.ComponentType<{ className?: string }>>;
 
 export function ModuleAccessWorkspace({ roles, modules }: ModuleAccessWorkspaceProps) {

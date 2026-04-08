@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/auth";
+import { canAccessOfficialApiModule } from "@/lib/admin-module-access";
 import { saveOfficialApiChatbotBuilderState } from "@/lib/official-api-chatbot";
 import { getOfficialApiConfigByWorkspaceId, hasOfficialApiBaseCredentials } from "@/lib/official-api-config";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
@@ -66,6 +67,9 @@ export async function POST(request: Request) {
   const session = await auth();
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
     return NextResponse.json({ ok: false, error: "No autorizado" }, { status: 401 });
+  }
+  if (!(await canAccessOfficialApiModule(session.user.id, session.user.role))) {
+    return NextResponse.json({ ok: false, error: "Modulo desactivado para este rol." }, { status: 403 });
   }
 
   const membership = await getPrimaryWorkspaceForUser(session.user.id);

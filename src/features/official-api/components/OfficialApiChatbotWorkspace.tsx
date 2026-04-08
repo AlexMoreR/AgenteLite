@@ -102,12 +102,14 @@ function ChatbotFlowNode({ data, selected }: NodeProps<Node<FlowNodeData>>) {
 
   return (
     <>
-      <Handle
-        id="target"
-        type="target"
-        position={Position.Left}
-        className="!h-3 !w-3 !border-2 !border-white !bg-sky-600"
-      />
+      {data.kind === "trigger" ? null : (
+        <Handle
+          id="target"
+          type="target"
+          position={Position.Left}
+          className="!h-3 !w-3 !border-2 !border-white !bg-sky-600"
+        />
+      )}
       <BaseNode
         className={cn(
           "w-[300px] transition-shadow",
@@ -330,6 +332,9 @@ function ChatbotFlowCanvas({
         if (target?.closest(".react-flow__handle")) {
           return;
         }
+        if (node.data?.kind === "trigger") {
+          return;
+        }
         onNodeOpen(node.id);
       }}
       defaultViewport={{ x: 0, y: 0, zoom: 1 }}
@@ -466,10 +471,21 @@ function createStarterNodes(): BuilderNode[] {
       id: "trigger",
       kind: "trigger",
       title: "Comenzar",
-      body: "El flujo inicia cuando entra un mensaje nuevo al numero oficial de WhatsApp.",
+      body: "Inicia al recibir un mensaje.",
       meta: "",
     },
   ];
+}
+
+function getNodeBodyForDisplay(node: BuilderNode) {
+  const trimmedBody = node.body.trim();
+  if (
+    node.kind === "trigger" &&
+    trimmedBody === "El flujo inicia cuando entra un mensaje nuevo al numero oficial de WhatsApp."
+  ) {
+    return "Inicia al recibir un mensaje.";
+  }
+  return trimmedBody;
 }
 
 function getOrderedNodeTitle(node: BuilderNode, index: number) {
@@ -553,9 +569,13 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
     [nodes, selectedNodeId],
   );
   const openNodeEditor = useCallback((nodeId: string) => {
+    const node = nodes.find((item) => item.id === nodeId);
+    if (node?.kind === "trigger") {
+      return;
+    }
     setSelectedNodeId(nodeId);
     setIsNodeEditorOpen(true);
-  }, []);
+  }, [nodes]);
   const scenarioNodePositions = useMemo(
     () => (selectedScenario ? (nodePositionsByScenarioId[selectedScenario.id] ?? {}) : {}),
     [nodePositionsByScenarioId, selectedScenario],
@@ -578,7 +598,7 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
         data: {
           kind: node.kind,
           title: getOrderedNodeTitle(node, index),
-          body: node.body,
+          body: getNodeBodyForDisplay(node),
           meta: node.meta,
           orderLabel: `Paso ${index + 1}`,
         },
@@ -1024,6 +1044,9 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
     }
 
     const currentNodes = nodesByScenarioId[selectedScenario.id] ?? [];
+    if (currentNodes.find((node) => node.id === nodeId)?.kind === "trigger") {
+      return;
+    }
     const nextNodes = currentNodes.filter((node) => node.id !== nodeId);
 
     setNodesByScenarioId((current) => ({
@@ -1597,7 +1620,7 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
             </div>
           </div>
         ) : null}
-        {isNodeEditorOpen && selectedNode ? (
+        {isNodeEditorOpen && selectedNode && selectedNode.kind !== "trigger" ? (
           <div className="absolute inset-0 z-40 flex items-center justify-center bg-slate-950/25 p-6 backdrop-blur-[2px]">
             <div className="w-full max-w-2xl overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_30px_80px_-48px_rgba(15,23,42,0.32)]">
               <div className="relative border-b border-slate-200 px-6 py-5">

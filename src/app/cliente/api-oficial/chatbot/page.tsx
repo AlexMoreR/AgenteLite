@@ -6,12 +6,16 @@ import {
   OfficialApiPanelShell,
   getOfficialApiChatbotData,
 } from "@/features/official-api";
+import { canAccessOfficialApiModule } from "@/lib/admin-module-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
 export default async function OfficialApiChatbotPage() {
   const session = await auth();
 
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+    redirect("/unauthorized");
+  }
+  if (!(await canAccessOfficialApiModule(session.user.id, session.user.role))) {
     redirect("/unauthorized");
   }
 

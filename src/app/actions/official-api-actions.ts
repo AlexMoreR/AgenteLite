@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { auth } from "@/auth";
+import { canAccessOfficialApiModule } from "@/lib/admin-module-access";
 import { getOfficialApiConfigByWorkspaceId, hasOfficialApiBaseCredentials } from "@/lib/official-api-config";
 import { sendOfficialApiTextMessage } from "@/lib/official-api-messaging";
 import { prisma } from "@/lib/prisma";
@@ -17,6 +18,9 @@ const sendOfficialApiReplySchema = z.object({
 export async function sendOfficialApiReplyAction(formData: FormData): Promise<void> {
   const session = await auth();
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+    redirect("/unauthorized");
+  }
+  if (!(await canAccessOfficialApiModule(session.user.id, session.user.role))) {
     redirect("/unauthorized");
   }
 

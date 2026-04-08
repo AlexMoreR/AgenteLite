@@ -141,13 +141,15 @@ export function AppSidebar({ pathname, brandName, adminModuleAccess, user, ...pr
       items: [{ title: "Anuncios", url: "/cliente/marketing-ia" }],
     });
 
-    navMain.push({
-      title: "Api oficial",
-      url: "/cliente/api-oficial",
-      icon: MessageSquare,
-      isActive: pathname.startsWith("/cliente/api-oficial"),
-      items: [{ title: "Conversaciones", url: "/cliente/api-oficial" }],
-    });
+    if (user.role === "ADMIN" || adminModuleAccess.client_official_api) {
+      navMain.push({
+        title: "Api oficial",
+        url: "/cliente/api-oficial",
+        icon: MessageSquare,
+        isActive: pathname.startsWith("/cliente/api-oficial"),
+        items: [{ title: "Conversaciones", url: "/cliente/api-oficial" }],
+      });
+    }
 
     navMain.push({
       title: "Agentes",

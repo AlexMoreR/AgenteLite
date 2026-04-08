@@ -60,6 +60,13 @@ export const adminModuleDefinitions = [
     path: "/admin/cotizaciones",
     group: "Comercial",
   },
+  {
+    key: "client_official_api",
+    label: "Api oficial (Cliente)",
+    description: "Permite ver y operar el modulo Api oficial en el area cliente.",
+    path: "/cliente/api-oficial",
+    group: "Cliente",
+  },
 ] as const;
 
 export type AdminModuleKey = (typeof adminModuleDefinitions)[number]["key"];
@@ -160,6 +167,12 @@ export function getDefaultAdminModuleAccess(role?: Role): Record<AdminModuleKey,
     ) as Record<AdminModuleKey, boolean>;
   }
 
+  if (role === "CLIENTE") {
+    return Object.fromEntries(
+      adminModuleDefinitions.map((item) => [item.key, item.key === "client_official_api"]),
+    ) as Record<AdminModuleKey, boolean>;
+  }
+
   return Object.fromEntries(
     adminModuleDefinitions.map((item) => [item.key, false]),
   ) as Record<AdminModuleKey, boolean>;
@@ -198,4 +211,24 @@ export async function hasAdminModuleAccess(
 
 export function getVisibleAdminModuleDefinitions(access: Record<AdminModuleKey, boolean>) {
   return adminModuleDefinitions.filter((item) => access[item.key]);
+}
+
+export async function canAccessOfficialApiModule(
+  userId: string | undefined,
+  role: Role | undefined,
+): Promise<boolean> {
+  if (!userId || !role) {
+    return false;
+  }
+
+  if (role === "ADMIN") {
+    return true;
+  }
+
+  if (role !== "CLIENTE") {
+    return false;
+  }
+
+  const access = await getAdminModuleAccess(userId, role);
+  return access.client_official_api;
 }
