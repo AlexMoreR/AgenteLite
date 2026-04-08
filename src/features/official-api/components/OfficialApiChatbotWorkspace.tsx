@@ -619,6 +619,7 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
     if (node?.kind === "trigger") {
       return;
     }
+    setIsBlockLibraryOpen(false);
     setSelectedNodeId(nodeId);
     setIsNodeEditorOpen(true);
   }, [nodes]);
@@ -771,6 +772,18 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
       return;
     }
 
+    const previousLastNode = nodes[nodes.length - 1];
+    const previousLastNodePosition = previousLastNode
+      ? getSafePosition(
+          scenarioNodePositions[previousLastNode.id],
+          Math.max(0, nodes.length - 1),
+        )
+      : getSafePosition(undefined, 0);
+    const nextNodePosition: NodePosition = {
+      x: previousLastNodePosition.x + 380,
+      y: previousLastNodePosition.y,
+    };
+
     setNodesByScenarioId((currentNodesByScenarioId) => {
       const scenarioNodes = currentNodesByScenarioId[selectedScenario.id] ?? [];
       const previousLastNodeId = scenarioNodes[scenarioNodes.length - 1]?.id;
@@ -803,6 +816,13 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
         [selectedScenario.id]: nextScenarioNodes,
       };
     });
+    setNodePositionsByScenarioId((current) => ({
+      ...current,
+      [selectedScenario.id]: {
+        ...(current[selectedScenario.id] ?? {}),
+        [nextNode.id]: nextNodePosition,
+      },
+    }));
     setSelectedNodeId(nextNode.id);
     setIsBlockLibraryOpen(false);
   }
@@ -1182,7 +1202,7 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
       return;
     }
 
-    function handlePointerDown(event: globalThis.MouseEvent) {
+    function handlePointerDown(event: globalThis.PointerEvent) {
       const target = event.target as globalThis.Node | null;
       if (!target) {
         return;
@@ -1205,10 +1225,10 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
       }
     }
 
-    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("pointerdown", handlePointerDown, true);
     document.addEventListener("keydown", handleKeyDown);
     return () => {
-      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("pointerdown", handlePointerDown, true);
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [isBlockLibraryOpen]);
