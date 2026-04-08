@@ -45,6 +45,10 @@ function getDefaultBuilderNodes(input: {
   fallbackMessage: string;
   businessHours: string;
 }) {
+  const routerMeta = input.businessHours
+    ? `precio, cotizar, soporte | ${input.businessHours}`
+    : "precio, cotizar, soporte";
+
   return [
     {
       id: "trigger",
@@ -65,7 +69,7 @@ function getDefaultBuilderNodes(input: {
       kind: "condition",
       title: "Router de intencion",
       body: "Clasifica ventas, soporte y consultas generales.",
-      meta: `precio, cotizar, soporte | ${input.businessHours}`,
+      meta: routerMeta,
     },
     {
       id: "reply",
@@ -104,7 +108,7 @@ const defaultBuilderState: OfficialApiChatbotBuilderState = {
     "Hola. Soy el asistente automatico de WhatsApp. Cuentame si necesitas ventas, soporte, catalogo o hablar con un asesor.",
   fallbackMessage:
     "Todavia no tengo una respuesta segura para eso. Si quieres, te conecto con un asesor y dejo tu caso priorizado.",
-  businessHours: "Lunes a viernes | 8:00 a. m. a 6:00 p. m.",
+  businessHours: "",
   captureLeadEnabled: true,
   handoffEnabled: true,
   fallbackEnabled: true,
@@ -305,27 +309,6 @@ function selectRuntimeNodes(state: OfficialApiChatbotBuilderState) {
   };
 }
 
-const scenarioConfig = {
-  "new-lead": {
-    ruleName: "intent_new_lead",
-    keywords: ["precio", "valor", "costo", "cotizar", "cotizacion", "comprar", "informacion", "info"],
-    response:
-      "Te ayudo con ventas. Dime que producto te interesa y en que ciudad estas para compartirte la mejor opcion.",
-  },
-  support: {
-    ruleName: "intent_support",
-    keywords: ["soporte", "pedido", "estado", "ayuda", "garantia", "entrega", "envio"],
-    response:
-      "Te ayudo con soporte. Comparte tu numero de pedido o tu nombre completo para ubicar la solicitud.",
-  },
-  "after-hours": {
-    ruleName: "intent_after_hours",
-    keywords: ["horario", "atienden", "disponible", "cotizar", "asesor"],
-    response:
-      "En este momento estamos fuera de horario. Si quieres, deja nombre, producto y ciudad y te contactamos primero en el siguiente turno.",
-  },
-} as const;
-
 function normalizeText(value: string) {
   return value
     .normalize("NFD")
@@ -352,19 +335,40 @@ function appendFlowNotes(base: string, state: OfficialApiChatbotBuilderState) {
   return `${base}\n\n${notes.join(" ")}`;
 }
 
-function getAfterHoursMessage(state: OfficialApiChatbotBuilderState) {
-  return `Nuestro horario es ${state.businessHours}. Si quieres, deja nombre, producto y ciudad y te contactamos en el siguiente turno.`;
+function getAfterHoursMessage() {
+  return "En este momento no hay asesor disponible. Si deseas continuar, comparte nombre, producto y ciudad para retomar la conversacion.";
+}
+
+function normalizeAfterHoursReply(input: string | null) {
+  const text = input?.trim() || "";
+  if (!text) {
+    return getAfterHoursMessage();
+  }
+
+  const normalized = normalizeText(text);
+  const hasLegacyContent =
+    normalized.includes("nuestro horario es") ||
+    normalized.includes("lunes a viernes") ||
+    normalized.includes("siguiente turno");
+
+  return hasLegacyContent ? getAfterHoursMessage() : text;
 }
 
 function getScenarioRule(state: OfficialApiChatbotBuilderState) {
   const selectedScenario =
-    scenarioConfig[state.selectedScenarioId as keyof typeof scenarioConfig] ?? scenarioConfig["new-lead"];
+    state.scenarios.find((scenario) => scenario.id === state.selectedScenarioId) ?? state.scenarios[0] ?? null;
+  const rawScenarioKey = (selectedScenario?.id || state.selectedScenarioId || "custom").trim();
+  const scenarioSlug = normalizeText(rawScenarioKey).replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  const scenarioName = scenarioSlug ? `intent_${scenarioSlug}` : "intent_custom";
+  const description = selectedScenario
+    ? `Escenario visual seleccionado: ${selectedScenario.title} (${selectedScenario.id})`
+    : `Escenario visual seleccionado: ${state.selectedScenarioId || "custom"}`;
 
   return {
-    name: selectedScenario.ruleName,
-    triggerText: selectedScenario.keywords.join(", "),
-    responseText: appendFlowNotes(selectedScenario.response, state),
-    description: `Escenario visual seleccionado: ${state.selectedScenarioId}`,
+    name: scenarioName,
+    triggerText: "",
+    responseText: "",
+    description,
   };
 }
 
@@ -453,10 +457,12 @@ export async function saveOfficialApiChatbotBuilderState(
 
   const { welcomeNode, fallbackNode, routerNode, replyNode } = selectRuntimeNodes(normalizedState);
   const baseScenarioRule = getScenarioRule(normalizedState);
+  const scenarioTrigger = routerNode?.meta?.trim() || "";
+  const scenarioResponseBase = replyNode?.body?.trim() || "";
   const scenarioRule = {
     ...baseScenarioRule,
-    triggerText: routerNode?.meta?.trim() || baseScenarioRule.triggerText,
-    responseText: appendFlowNotes(replyNode?.body?.trim() || baseScenarioRule.responseText, normalizedState),
+    triggerText: scenarioTrigger,
+    responseText: scenarioResponseBase ? appendFlowNotes(scenarioResponseBase, normalizedState) : "",
   };
   const status = normalizedState.isBotEnabled ? "ACTIVE" : "PAUSED";
 
@@ -483,7 +489,7 @@ export async function saveOfficialApiChatbotBuilderState(
       name: AFTER_HOURS_RULE_NAME,
       description: normalizedState.businessHours,
       triggerText: "__after_hours__",
-      responseText: getAfterHoursMessage(normalizedState),
+      responseText: getAfterHoursMessage(),
       isFallback: false,
       priority: 20,
       status,
@@ -627,7 +633,7 @@ export async function resolveOfficialApiAutomationReply(input: {
   };
 
   if (isOutsideBusinessHours(state.businessHours) && afterHoursRule?.responseText) {
-    const afterHoursReply = appendNodeNotes(afterHoursRule.responseText);
+    const afterHoursReply = appendNodeNotes(normalizeAfterHoursReply(afterHoursRule.responseText));
     const welcomeText = welcomeNode?.body?.trim() || welcomeRule?.responseText;
     return inboundCount <= 1 && welcomeText
       ? `${welcomeText}\n\n${afterHoursReply}`

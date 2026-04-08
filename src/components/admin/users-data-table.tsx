@@ -356,7 +356,7 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
                         <DropdownMenuItem onSelect={() => setActiveUserId(user.id)}>
                           Ver y editar
                         </DropdownMenuItem>
-                        {user.role === "CLIENTE" ? (
+                        {user.role === "CLIENTE" || user.role === "ADMIN" ? (
                           <DropdownMenuItem asChild>
                             <Link href={`/admin/configuracion/usuarios/${user.id}/api-oficial`}>
                               Configurar api oficial WhatsApp

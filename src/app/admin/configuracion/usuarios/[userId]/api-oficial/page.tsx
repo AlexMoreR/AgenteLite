@@ -54,8 +54,8 @@ export default async function AdminUserOfficialApiPage({ params, searchParams }:
     },
   });
 
-  if (!user || user.role !== "CLIENTE") {
-    redirect("/admin/configuracion/usuarios?error=Cliente+no+encontrado");
+  if (!user || (user.role !== "CLIENTE" && user.role !== "ADMIN")) {
+    redirect("/admin/configuracion/usuarios?error=Usuario+no+valido+para+API+oficial");
   }
 
   const workspace = user.workspaceMemberships[0]?.workspace;
