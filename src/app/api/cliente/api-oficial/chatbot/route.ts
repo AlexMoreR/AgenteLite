@@ -40,6 +40,16 @@ const builderSchema = z.object({
       }),
     ).min(1),
   ),
+  edgesByScenarioId: z.record(
+    z.string().trim().min(1).max(120),
+    z.array(
+      z.object({
+        id: z.string().trim().min(1).max(220),
+        source: z.string().trim().min(1).max(120),
+        target: z.string().trim().min(1).max(120),
+      }),
+    ),
+  ),
 });
 
 export async function POST(request: Request) {

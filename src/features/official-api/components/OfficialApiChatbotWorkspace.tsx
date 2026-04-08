@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type MouseEvent } from "react";
 import {
   Bot,
+  Route,
   X,
   Clock3,
   Copy,
@@ -11,7 +12,6 @@ import {
   MoreVertical,
   Inbox,
   Plus,
-  Route,
   Save,
   Settings2,
   Split,
@@ -21,11 +21,16 @@ import {
   Zap,
 } from "lucide-react";
 import {
+  addEdge,
   Background,
+  BackgroundVariant,
+  ConnectionMode,
   Controls,
   MarkerType,
-  MiniMap,
   Position,
+  ReactFlowProvider,
+  useEdgesState,
+  useNodesState,
   type Connection,
   type Edge,
   type Node,
@@ -55,11 +60,100 @@ type NodePosition = { x: number; y: number };
 type NodePositionsByScenarioId = Record<string, Record<string, NodePosition>>;
 type BuilderEdge = { id: string; source: string; target: string };
 type EdgesByScenarioId = Record<string, BuilderEdge[]>;
+type FlowNodeData = {
+  label: string;
+};
+type EdgeAppearance = {
+  stroke: string;
+  strokeWidth: number;
+  markerColor: string;
+  curvature: number;
+};
+
+type ChatbotFlowCanvasProps = {
+  scenarioKey: string;
+  nodes: Node<FlowNodeData>[];
+  edges: Edge[];
+  edgeAppearance: EdgeAppearance;
+  onNodesChange: (changes: NodeChange<Node>[]) => void;
+  onConnect: (connection: Connection) => void;
+  onEdgeClick: (event: MouseEvent, edge: Edge) => void;
+  onNodeOpen: (nodeId: string) => void;
+};
+
+function ChatbotFlowCanvas({
+  scenarioKey,
+  nodes,
+  edges,
+  edgeAppearance,
+  onNodesChange,
+  onConnect,
+  onEdgeClick,
+  onNodeOpen,
+}: ChatbotFlowCanvasProps) {
+  const [canvasNodes, , onCanvasNodesChange] = useNodesState(nodes);
+  const [canvasEdges, setCanvasEdges, onCanvasEdgesChange] = useEdgesState(edges);
+
+  return (
+    <ReactFlow
+      key={scenarioKey}
+      className="chatbot-flow-canvas"
+      nodes={canvasNodes}
+      edges={canvasEdges}
+      onNodesChange={(changes) => {
+        onCanvasNodesChange(changes);
+        onNodesChange(changes);
+      }}
+      onEdgesChange={onCanvasEdgesChange}
+      onConnect={(connection) => {
+        setCanvasEdges((current) => addEdge(connection, current));
+        onConnect(connection);
+      }}
+      onEdgeClick={onEdgeClick}
+      onNodeClick={(event, node: Node) => {
+        const target = event.target as HTMLElement | null;
+        if (target?.closest(".react-flow__handle")) {
+          return;
+        }
+        onNodeOpen(node.id);
+      }}
+      defaultViewport={{ x: 0, y: 0, zoom: 1 }}
+      fitView
+      onlyRenderVisibleElements={false}
+      nodesConnectable
+      nodesDraggable
+      elementsSelectable
+      panOnDrag
+      connectOnClick
+      connectionMode={ConnectionMode.Loose}
+      connectionRadius={42}
+      connectionLineStyle={{ stroke: edgeAppearance.stroke, strokeWidth: edgeAppearance.strokeWidth }}
+      defaultEdgeOptions={{
+        type: "default",
+        animated: false,
+        pathOptions: { curvature: edgeAppearance.curvature },
+        markerEnd: { type: MarkerType.ArrowClosed, color: edgeAppearance.markerColor },
+        style: { stroke: edgeAppearance.stroke, strokeWidth: edgeAppearance.strokeWidth, strokeLinecap: "round" },
+      }}
+      proOptions={{ hideAttribution: true }}
+    >
+      <Background
+        variant={BackgroundVariant.Dots}
+        color="rgba(148,163,184,0.9)"
+        gap={24}
+        size={1.6}
+      />
+      <Controls position="bottom-right" />
+    </ReactFlow>
+  );
+}
 
 function getSafePosition(input: NodePosition | undefined, index: number): NodePosition {
+  const col = index % 3;
+  const row = Math.floor(index / 3);
   const fallback = {
-    x: 80 + (index % 2) * 380,
-    y: 60 + Math.floor(index / 2) * 180,
+    x: 80 + col * 380,
+    y: 120 + row * 220,
   };
   if (!input) {
     return fallback;
@@ -69,14 +163,14 @@ function getSafePosition(input: NodePosition | undefined, index: number): NodePo
     return fallback;
   }
 
-  // If stored coords are far away from the initial viewport, reset them to visible defaults.
-  if (input.x < -100 || input.x > 1200 || input.y < -100 || input.y > 1200) {
+  // Keep nodes inside a visible working area to avoid blank canvas.
+  if (input.x < -100 || input.x > 1400 || input.y < -100 || input.y > 900) {
     return fallback;
   }
 
   return {
     x: Math.min(Math.max(input.x, 20), 1200),
-    y: Math.min(Math.max(input.y, 20), 1200),
+    y: Math.min(Math.max(input.y, 20), 760),
   };
 }
 
@@ -86,10 +180,36 @@ function buildSequentialEdges(nodes: BuilderNode[]): BuilderEdge[] {
   }
 
   return nodes.slice(0, -1).map((node, index) => ({
-    id: `${node.id}->${nodes[index + 1].id}`,
+    id: createEdgeId(node.id, nodes[index + 1].id),
     source: node.id,
     target: nodes[index + 1].id,
   }));
+}
+
+function createEdgeId(source: string, target: string) {
+  const safe = (value: string) => value.replace(/[^a-zA-Z0-9_-]/g, "_");
+  return `edge_${safe(source)}__${safe(target)}`;
+}
+
+function normalizeScenarioEdges(nodes: BuilderNode[], inputEdges: BuilderEdge[] | undefined): BuilderEdge[] {
+  if (nodes.length < 2) {
+    return [];
+  }
+
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  const cleaned = (inputEdges ?? []).filter(
+    (edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target) && edge.source !== edge.target,
+  );
+
+  if (cleaned.length > 0) {
+    return cleaned.map((edge, index) => ({
+      id: edge.id || `${createEdgeId(edge.source, edge.target)}_${index}`,
+      source: edge.source,
+      target: edge.target,
+    }));
+  }
+
+  return buildSequentialEdges(nodes);
 }
 
 const blockLibrary = [
@@ -138,7 +258,7 @@ function createStarterNodes(): BuilderNode[] {
       kind: "trigger",
       title: "Inicio del flujo",
       body: "El flujo inicia cuando entra un mensaje nuevo al numero oficial de WhatsApp.",
-      meta: "Evento de entrada",
+      meta: "",
     },
   ];
 }
@@ -194,7 +314,9 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
     Object.fromEntries(
       Object.entries(data.defaults.nodesByScenarioId).map(([scenarioId, scenarioNodes]) => [
         scenarioId,
-        buildSequentialEdges(scenarioNodes),
+        (data.defaults.edgesByScenarioId?.[scenarioId] ?? []).length > 0
+          ? data.defaults.edgesByScenarioId[scenarioId]
+          : buildSequentialEdges(scenarioNodes),
       ]),
     ),
   );
@@ -217,44 +339,76 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
     () => (selectedScenario ? (nodePositionsByScenarioId[selectedScenario.id] ?? {}) : {}),
     [nodePositionsByScenarioId, selectedScenario],
   );
-  const scenarioEdges = useMemo(
-    () => (selectedScenario ? (edgesByScenarioId[selectedScenario.id] ?? buildSequentialEdges(nodes)) : []),
-    [edgesByScenarioId, nodes, selectedScenario],
-  );
-  const flowNodes = useMemo<Node[]>(
+  const scenarioEdges = useMemo(() => {
+    if (!selectedScenario) {
+      return [];
+    }
+
+    return normalizeScenarioEdges(nodes, edgesByScenarioId[selectedScenario.id]);
+  }, [edgesByScenarioId, nodes, selectedScenario]);
+  const flowNodes = useMemo<Node<FlowNodeData>[]>(
     () =>
       nodes.map((node, index) => ({
         id: node.id,
+        type: "default",
         position: getSafePosition(scenarioNodePositions[node.id], index),
         sourcePosition: Position.Right,
         targetPosition: Position.Left,
-        style: {
-          width: 320,
-          borderRadius: 14,
-          border: "1px solid #cbd5e1",
-          background: "white",
-          fontSize: 12,
-          color: "#0f172a",
-        },
         data: {
-          label: `${getOrderedNodeTitle(node, index)}\n${node.meta || ""}`.trim(),
+          label: `${getOrderedNodeTitle(node, index)}\n${node.body || ""}`,
         },
       })),
     [nodes, scenarioNodePositions],
   );
   const flowEdges = useMemo<Edge[]>(
     () =>
-      scenarioEdges.map((edge) => ({
-        id: edge.id,
+      scenarioEdges.map((edge, index) => ({
+        id: edge.id || createEdgeId(edge.source, edge.target) + `_${index}`,
         source: edge.source,
         target: edge.target,
-        type: "smoothstep",
-        animated: true,
-        markerEnd: { type: MarkerType.ArrowClosed, color: "rgba(59,130,246,0.9)" },
-        style: { stroke: "rgba(59,130,246,0.62)", strokeWidth: 2 },
+        type: "default",
+        animated: false,
+        pathOptions: { curvature: 0.35 },
+        markerEnd: { type: MarkerType.ArrowClosed, color: "rgba(37,99,235,0.95)" },
+        style: { stroke: "rgba(37,99,235,0.82)", strokeWidth: 2.1, strokeLinecap: "round" },
       })),
     [scenarioEdges],
   );
+  const edgeAppearance = useMemo<EdgeAppearance>(
+    () => ({
+      stroke: "rgba(37,99,235,0.82)",
+      strokeWidth: 2.1,
+      markerColor: "rgba(37,99,235,0.95)",
+      curvature: 0.35,
+    }),
+    [],
+  );
+  const renderEdges = useMemo<Edge[]>(() => {
+    if (flowEdges.length > 0) {
+      return flowEdges.map((edge) => ({
+        ...edge,
+        pathOptions: { curvature: edgeAppearance.curvature },
+        markerEnd: { type: MarkerType.ArrowClosed, color: edgeAppearance.markerColor },
+        style: { stroke: edgeAppearance.stroke, strokeWidth: edgeAppearance.strokeWidth, strokeLinecap: "round" },
+      }));
+    }
+
+    if (flowNodes.length < 2) {
+      return [];
+    }
+
+    // Fallback visible path: if scenario edges fail to hydrate, draw linear native edges.
+    return flowNodes.slice(0, -1).map((node, index) => ({
+      id: createEdgeId(node.id, flowNodes[index + 1].id),
+      source: node.id,
+      target: flowNodes[index + 1].id,
+      type: "default",
+      animated: false,
+      pathOptions: { curvature: edgeAppearance.curvature },
+      markerEnd: { type: MarkerType.ArrowClosed, color: edgeAppearance.markerColor },
+      style: { stroke: edgeAppearance.stroke, strokeWidth: edgeAppearance.strokeWidth, strokeLinecap: "round" },
+    }));
+  }, [edgeAppearance, flowEdges, flowNodes]);
 
   function updateNodesForScenario(scenarioId: string, updater: (nodes: BuilderNode[]) => BuilderNode[]) {
     setNodesByScenarioId((current) => ({
@@ -285,7 +439,7 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
         kind: "message",
         title: "Nuevo mensaje",
         body: "Escribe aqui la respuesta del bot.",
-        meta: "Salida del bot",
+        meta: "",
       },
       input: {
         kind: "input",
@@ -316,27 +470,36 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
       return;
     }
 
-    const previousLastNodeId = nodes[nodes.length - 1]?.id;
-    updateNodesForScenario(selectedScenario.id, (current) => [...current, nextNode]);
-    setEdgesByScenarioId((current) => {
-      const currentEdges = current[selectedScenario.id] ?? buildSequentialEdges(nodes);
-      if (!previousLastNodeId) {
+    setNodesByScenarioId((currentNodesByScenarioId) => {
+      const scenarioNodes = currentNodesByScenarioId[selectedScenario.id] ?? [];
+      const previousLastNodeId = scenarioNodes[scenarioNodes.length - 1]?.id;
+      const nextScenarioNodes = [...scenarioNodes, nextNode];
+
+      setEdgesByScenarioId((currentEdgesByScenarioId) => {
+        const scenarioEdges = currentEdgesByScenarioId[selectedScenario.id] ?? buildSequentialEdges(scenarioNodes);
+        if (!previousLastNodeId) {
+          return {
+            ...currentEdgesByScenarioId,
+            [selectedScenario.id]: scenarioEdges,
+          };
+        }
+
         return {
-          ...current,
-          [selectedScenario.id]: currentEdges,
+          ...currentEdgesByScenarioId,
+          [selectedScenario.id]: [
+            ...scenarioEdges.filter((edge) => edge.source !== previousLastNodeId),
+            {
+              id: createEdgeId(previousLastNodeId, nextNode.id),
+              source: previousLastNodeId,
+              target: nextNode.id,
+            },
+          ],
         };
-      }
+      });
 
       return {
-        ...current,
-        [selectedScenario.id]: [
-          ...currentEdges.filter((edge) => edge.source !== previousLastNodeId),
-          {
-            id: `${previousLastNodeId}->${nextNode.id}`,
-            source: previousLastNodeId,
-            target: nextNode.id,
-          },
-        ],
+        ...currentNodesByScenarioId,
+        [selectedScenario.id]: nextScenarioNodes,
       };
     });
     setSelectedNodeId(nextNode.id);
@@ -387,6 +550,7 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
           selectedScenarioId: nextScenario.id,
           scenarios: nextScenarios,
           nodesByScenarioId: nextNodesByScenarioId,
+          edgesByScenarioId: nextEdgesByScenarioId,
         });
       } catch (error) {
         toast.error("No se pudo crear el flujo", {
@@ -422,6 +586,7 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
     selectedScenarioId: string;
     scenarios: OfficialApiChatbotScenario[];
     nodesByScenarioId: OfficialApiChatbotNodesByScenarioId;
+    edgesByScenarioId: EdgesByScenarioId;
     successMessage?: string;
   }) => {
     const normalizedNodesByScenarioId = normalizeNodesByScenarioForSave(input.nodesByScenarioId);
@@ -442,6 +607,7 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
         selectedScenarioId: input.selectedScenarioId,
         scenarios: input.scenarios,
         nodesByScenarioId: normalizedNodesByScenarioId,
+        edgesByScenarioId: input.edgesByScenarioId,
       }),
     });
 
@@ -479,6 +645,7 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
           selectedScenarioId,
           scenarios,
           nodesByScenarioId,
+          edgesByScenarioId,
           successMessage: "Flujo guardado",
         });
       } catch {
@@ -521,6 +688,7 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
           selectedScenarioId: nextSelectedScenario?.id ?? "",
           scenarios: nextScenarios,
           nodesByScenarioId: nextNodesByScenarioId,
+          edgesByScenarioId: nextEdgesByScenarioId,
           successMessage: "Flujo eliminado",
         });
       } catch {
@@ -536,7 +704,7 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
     setIsNodeEditorOpen(true);
   }
 
-  const handleFlowNodesChange = useCallback((changes: NodeChange<Node<FlowNodeData>>[]) => {
+  const handleFlowNodesChange = useCallback((changes: NodeChange<Node>[]) => {
     if (!selectedScenario) {
       return;
     }
@@ -572,7 +740,7 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
       const nextEdges = [
         ...currentEdges.filter((edge) => edge.source !== connection.source),
         {
-          id: `${connection.source}->${connection.target}`,
+          id: createEdgeId(connection.source, connection.target),
           source: connection.source,
           target: connection.target,
         },
@@ -580,6 +748,20 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
       return {
         ...current,
         [selectedScenario.id]: nextEdges,
+      };
+    });
+  }, [nodes, selectedScenario]);
+
+  const handleEdgeClick = useCallback((_event: MouseEvent, edge: Edge) => {
+    if (!selectedScenario) {
+      return;
+    }
+
+    setEdgesByScenarioId((current) => {
+      const currentEdges = current[selectedScenario.id] ?? buildSequentialEdges(nodes);
+      return {
+        ...current,
+        [selectedScenario.id]: currentEdges.filter((currentEdge) => currentEdge.id !== edge.id),
       };
     });
   }, [nodes, selectedScenario]);
@@ -608,6 +790,20 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
     setIsNodeEditorOpen(false);
   }
 
+  function handleDeleteOutgoingConnection(nodeId: string) {
+    if (!selectedScenario) {
+      return;
+    }
+
+    setEdgesByScenarioId((current) => {
+      const currentEdges = current[selectedScenario.id] ?? buildSequentialEdges(nodes);
+      return {
+        ...current,
+        [selectedScenario.id]: currentEdges.filter((edge) => edge.source !== nodeId),
+      };
+    });
+  }
+
   useEffect(() => {
     return () => {
       if (autoSaveTimeoutRef.current) {
@@ -625,6 +821,7 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
       selectedScenarioId,
       scenarios,
       nodesByScenarioId,
+      edgesByScenarioId,
       businessHours,
       captureLeadEnabled,
       handoffEnabled,
@@ -652,6 +849,7 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
             selectedScenarioId,
             scenarios,
             nodesByScenarioId,
+            edgesByScenarioId,
           });
           lastAutoSavedSnapshotRef.current = snapshot;
         } catch {
@@ -667,6 +865,7 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
     fallbackEnabled,
     handoffEnabled,
     hasSelectedFlow,
+    edgesByScenarioId,
     nodesByScenarioId,
     persistBuilderState,
     scenarios,
@@ -832,115 +1031,83 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
                 : "bg-white"
             }`}
           >
-            <div className={hasSelectedFlow ? "flex items-center justify-between border-b border-slate-200/80 px-5 py-3" : "hidden"}>
-              <div className="flex items-center gap-2">
-                <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
-                  <Route className="h-3.5 w-3.5 text-sky-600" />
-                  {selectedScenario?.title ?? "Flujo"}
-                </span>
-                <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
-                  <Bot className="h-3.5 w-3.5 text-violet-600" />
-                  {nodes.length} bloques
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="relative">
-                  <Button
-                    type="button"
-                    variant="default"
-                    aria-label={isBlockLibraryOpen ? "Cerrar lista de nodos" : "Agregar nodo"}
-                    aria-expanded={isBlockLibraryOpen}
-                    onClick={() => setIsBlockLibraryOpen((current) => !current)}
-                    className="h-8 rounded-full border border-blue-600 bg-blue-600 px-3 text-white hover:bg-blue-700"
-                  >
-                    <Plus className="h-4 w-4 font-bold" strokeWidth={2.8} />
-                    <span className="text-xs font-semibold">Agregar</span>
-                  </Button>
-                  {isBlockLibraryOpen ? (
-                    <div className="absolute right-0 top-10 z-20 w-64 overflow-hidden rounded-xl border border-slate-200 bg-white py-2 shadow-[0_22px_48px_-30px_rgba(15,23,42,0.35)]">
-                      <p className="px-3 pb-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                        Agregar nodo
-                      </p>
-                      <div className="grid gap-1 px-2">
-                        {blockLibrary.map((block) => {
-                          const Icon = block.icon;
-                          return (
-                            <button
-                              key={block.id}
-                              type="button"
-                              onClick={() => addBlock(block.id as BuilderNode["kind"])}
-                              className="flex w-full items-start gap-3 rounded-lg px-2 py-2 text-left transition hover:bg-slate-50"
-                            >
-                              <span className={`mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-lg ring-1 ${block.style}`}>
-                                <Icon className="h-3.5 w-3.5" />
-                              </span>
-                              <span>
-                                <span className="block text-sm font-semibold text-slate-900">{block.title}</span>
-                                <span className="block text-xs leading-5 text-slate-500">{block.description}</span>
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-            </div>
-
             <div
-              className={`relative p-5 ${
+              className={`relative ${
                 hasSelectedFlow
-                  ? "min-h-[calc(76vh-57px)] overflow-auto"
+                  ? "h-[76vh] overflow-hidden"
                   : "grid min-h-[calc(100dvh-18rem)] place-items-center overflow-hidden"
               }`}
             >
-              {hasSelectedFlow ? (
-                <div className="absolute inset-0 opacity-50 [background-image:linear-gradient(to_right,rgba(148,163,184,0.16)_1px,transparent_1px),linear-gradient(to_bottom,rgba(148,163,184,0.16)_1px,transparent_1px)] [background-size:36px_36px]" />
-              ) : null}
               {selectedScenario ? (
-                <div className="relative mx-auto h-[calc(76vh-100px)] w-full max-w-6xl overflow-hidden rounded-[18px] border border-slate-200 bg-white/40">
-                  <ReactFlow
-                    key={`${selectedScenario.id}-${flowNodes.length}`}
-                    nodes={flowNodes}
-                    edges={flowEdges}
-                    onNodesChange={handleFlowNodesChange}
-                    onConnect={handleConnectNodes}
-                    onNodeClick={(_event, node: Node) => openNodeEditor(node.id)}
-                    fitView
-                    fitViewOptions={{ padding: 0.25, minZoom: 0.5, maxZoom: 1.1 }}
-                    defaultEdgeOptions={{
-                      type: "smoothstep",
-                      animated: true,
-                      markerEnd: { type: MarkerType.ArrowClosed, color: "rgba(59,130,246,0.9)" },
-                      style: { stroke: "rgba(59,130,246,0.62)", strokeWidth: 2 },
-                    }}
-                    proOptions={{ hideAttribution: true }}
-                  >
-                    <Background color="rgba(148,163,184,0.34)" gap={22} />
-                    <MiniMap position="bottom-left" pannable zoomable />
-                    <Controls position="bottom-right" />
-                  </ReactFlow>
-                  <div className="pointer-events-none absolute inset-0 z-10">
-                    {nodes.map((node, index) => {
-                      const position = getSafePosition(scenarioNodePositions[node.id], index);
-                      return (
-                        <button
-                          key={`overlay-${node.id}`}
-                          type="button"
-                          onClick={() => openNodeEditor(node.id)}
-                          className="pointer-events-auto absolute w-[320px] rounded-xl border border-slate-200 bg-white/95 p-3 text-left shadow-[0_12px_28px_-22px_rgba(15,23,42,0.35)] transition hover:border-[var(--primary)]"
-                          style={{ left: position.x, top: position.y }}
-                        >
-                          <p className="text-sm font-semibold text-slate-900">{getOrderedNodeTitle(node, index)}</p>
-                          <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
-                            {node.meta || "BLOQUE"}
-                          </p>
-                          <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-700">{node.body || "Sin contenido"}</p>
-                        </button>
-                      );
-                    })}
+                <div className="relative h-full w-full overflow-hidden bg-white">
+                  <div className="pointer-events-none absolute left-4 top-4 z-20 flex items-center gap-2">
+                    <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
+                      <Route className="h-3.5 w-3.5 text-sky-600" />
+                      {selectedScenario?.title ?? "Flujo"}
+                    </span>
+                    <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
+                      <Bot className="h-3.5 w-3.5 text-violet-600" />
+                      {nodes.length} bloques
+                    </span>
+                    <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
+                      <Split className="h-3.5 w-3.5 text-blue-600" />
+                      {renderEdges.length} conexiones
+                    </span>
                   </div>
+                  <div className="pointer-events-auto absolute right-4 top-4 z-20">
+                    <div className="relative">
+                      <Button
+                        type="button"
+                        variant="default"
+                        aria-label={isBlockLibraryOpen ? "Cerrar lista de nodos" : "Agregar nodo"}
+                        aria-expanded={isBlockLibraryOpen}
+                        onClick={() => setIsBlockLibraryOpen((current) => !current)}
+                        className="h-11 w-11 rounded-full border border-blue-600 bg-blue-600 p-0 text-white shadow-[0_16px_28px_-20px_rgba(37,99,235,0.7)] hover:bg-blue-700"
+                      >
+                        <Plus className="h-5 w-5 font-bold" strokeWidth={3.2} />
+                      </Button>
+                      {isBlockLibraryOpen ? (
+                        <div className="absolute right-0 top-11 z-20 w-64 overflow-hidden rounded-xl border border-slate-200 bg-white py-2 shadow-[0_22px_48px_-30px_rgba(15,23,42,0.35)]">
+                          <p className="px-3 pb-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                            Agregar nodo
+                          </p>
+                          <div className="grid gap-1 px-2">
+                            {blockLibrary.map((block) => {
+                              const Icon = block.icon;
+                              return (
+                                <button
+                                  key={block.id}
+                                  type="button"
+                                  onClick={() => addBlock(block.id as BuilderNode["kind"])}
+                                  className="flex w-full items-start gap-3 rounded-lg px-2 py-2 text-left transition hover:bg-slate-50"
+                                >
+                                  <span className={`mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-lg ring-1 ${block.style}`}>
+                                    <Icon className="h-3.5 w-3.5" />
+                                  </span>
+                                  <span>
+                                    <span className="block text-sm font-semibold text-slate-900">{block.title}</span>
+                                    <span className="block text-xs leading-5 text-slate-500">{block.description}</span>
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                  <ReactFlowProvider>
+                    <ChatbotFlowCanvas
+                      scenarioKey={selectedScenario?.id ?? "no-scenario"}
+                      nodes={flowNodes}
+                      edges={renderEdges}
+                      edgeAppearance={edgeAppearance}
+                      onNodesChange={handleFlowNodesChange}
+                      onConnect={handleConnectNodes}
+                      onEdgeClick={handleEdgeClick}
+                      onNodeOpen={openNodeEditor}
+                    />
+                  </ReactFlowProvider>
                 </div>
               ) : hasWorkflows ? (
                 <div className="flex w-full items-center justify-center bg-white px-6 py-8 sm:px-10">
@@ -1212,14 +1379,24 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
                 </label>
               </div>
               <div className="flex items-center justify-between border-t border-slate-200 px-6 py-4">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
-                  onClick={() => handleDeleteNode(selectedNode.id)}
-                >
-                  Eliminar nodo
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="border-amber-200 text-amber-700 hover:bg-amber-50 hover:text-amber-800"
+                    onClick={() => handleDeleteOutgoingConnection(selectedNode.id)}
+                  >
+                    Quitar conexion
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                    onClick={() => handleDeleteNode(selectedNode.id)}
+                  >
+                    Eliminar nodo
+                  </Button>
+                </div>
                 <Button type="button" onClick={() => setIsNodeEditorOpen(false)}>
                   Cerrar
                 </Button>

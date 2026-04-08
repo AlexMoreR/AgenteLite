@@ -1,5 +1,7 @@
 import type {
+  OfficialApiChatbotBuilderEdge,
   OfficialApiChatbotBuilderNode,
+  OfficialApiChatbotEdgesByScenarioId,
   OfficialApiChatbotNodesByScenarioId,
   OfficialApiChatbotScenario,
 } from "@/features/official-api/types/official-api";
@@ -17,6 +19,7 @@ export type OfficialApiChatbotBuilderState = {
   selectedScenarioId: string;
   scenarios: OfficialApiChatbotScenario[];
   nodesByScenarioId: OfficialApiChatbotNodesByScenarioId;
+  edgesByScenarioId: OfficialApiChatbotEdgesByScenarioId;
 };
 
 export type StoredOfficialApiAutomationRule = {
@@ -106,6 +109,7 @@ const defaultBuilderState: OfficialApiChatbotBuilderState = {
   selectedScenarioId: "",
   scenarios: [],
   nodesByScenarioId: {},
+  edgesByScenarioId: {},
 };
 
 function normalizeNode(node: OfficialApiChatbotBuilderNode) {
@@ -134,6 +138,138 @@ function normalizeNodesByScenarioId(
         : getDefaultBuilderNodes(fallback),
     ]),
   );
+}
+
+function normalizeEdge(edge: OfficialApiChatbotBuilderEdge) {
+  const safe = (value: string) => value.replace(/[^a-zA-Z0-9_-]/g, "_");
+  const fallbackId = `edge_${safe(edge.source.trim())}__${safe(edge.target.trim())}`;
+  return {
+    id: edge.id.trim() || fallbackId,
+    source: edge.source.trim(),
+    target: edge.target.trim(),
+  } satisfies OfficialApiChatbotBuilderEdge;
+}
+
+function normalizeEdgesByScenarioId(input: unknown): OfficialApiChatbotEdgesByScenarioId {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(input).map(([scenarioId, edges]) => [
+      scenarioId,
+      Array.isArray(edges)
+        ? edges
+            .map((edge) => normalizeEdge(edge as OfficialApiChatbotBuilderEdge))
+            .filter((edge) => edge.source && edge.target)
+        : [],
+    ]),
+  );
+}
+
+function buildDefaultNodesFromState(state: Pick<OfficialApiChatbotBuilderState, "welcomeMessage" | "fallbackMessage" | "businessHours">) {
+  return getDefaultBuilderNodes({
+    welcomeMessage: state.welcomeMessage,
+    fallbackMessage: state.fallbackMessage,
+    businessHours: state.businessHours,
+  });
+}
+
+function getActiveScenarioNodes(state: OfficialApiChatbotBuilderState): OfficialApiChatbotBuilderNode[] {
+  const selectedNodes = state.nodesByScenarioId[state.selectedScenarioId];
+  if (selectedNodes && selectedNodes.length > 0) {
+    return selectedNodes;
+  }
+
+  const firstScenarioId = state.scenarios[0]?.id ?? "";
+  const firstScenarioNodes = state.nodesByScenarioId[firstScenarioId];
+  if (firstScenarioNodes && firstScenarioNodes.length > 0) {
+    return firstScenarioNodes;
+  }
+
+  return buildDefaultNodesFromState(state);
+}
+
+function getActiveScenarioEdges(
+  state: OfficialApiChatbotBuilderState,
+  nodes: OfficialApiChatbotBuilderNode[],
+): OfficialApiChatbotBuilderEdge[] {
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  const selectedEdges = state.edgesByScenarioId[state.selectedScenarioId];
+  const firstScenarioId = state.scenarios[0]?.id ?? "";
+  const firstScenarioEdges = state.edgesByScenarioId[firstScenarioId];
+  const candidateEdges = selectedEdges ?? firstScenarioEdges ?? [];
+
+  return candidateEdges.filter((edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target) && edge.source !== edge.target);
+}
+
+function getPrimaryPathNodeIds(
+  nodes: OfficialApiChatbotBuilderNode[],
+  edges: OfficialApiChatbotBuilderEdge[],
+): string[] {
+  if (nodes.length === 0) {
+    return [];
+  }
+
+  const outgoingBySource = new Map<string, string[]>();
+  for (const edge of edges) {
+    const targets = outgoingBySource.get(edge.source) ?? [];
+    targets.push(edge.target);
+    outgoingBySource.set(edge.source, targets);
+  }
+
+  const triggerNode = nodes.find((node) => node.kind === "trigger");
+  let currentId = triggerNode?.id ?? nodes[0]?.id ?? "";
+  const visited = new Set<string>();
+  const orderedIds: string[] = [];
+
+  while (currentId && !visited.has(currentId)) {
+    visited.add(currentId);
+    orderedIds.push(currentId);
+    const nextId = outgoingBySource.get(currentId)?.[0] ?? "";
+    currentId = nextId;
+  }
+
+  return orderedIds;
+}
+
+function selectRuntimeNodes(state: OfficialApiChatbotBuilderState) {
+  const activeNodes = getActiveScenarioNodes(state);
+  const activeEdges = getActiveScenarioEdges(state, activeNodes);
+  const nodeById = new Map(activeNodes.map((node) => [node.id, node]));
+  const primaryPathNodes = getPrimaryPathNodeIds(activeNodes, activeEdges)
+    .map((nodeId) => nodeById.get(nodeId))
+    .filter((node): node is OfficialApiChatbotBuilderNode => Boolean(node));
+  const orderedNodes = primaryPathNodes.length > 0 ? primaryPathNodes : activeNodes;
+
+  const isWelcomeNode = (node: OfficialApiChatbotBuilderNode) =>
+    node.id === "welcome" || node.title.toLowerCase().includes("bienvenida");
+  const isFallbackNode = (node: OfficialApiChatbotBuilderNode) =>
+    node.id === "fallback" || node.title.toLowerCase().includes("fallback");
+
+  const welcomeNode = orderedNodes.find((node) => isWelcomeNode(node)) ?? activeNodes.find((node) => isWelcomeNode(node));
+  const fallbackNode = orderedNodes.find((node) => isFallbackNode(node)) ?? activeNodes.find((node) => isFallbackNode(node));
+  const routerNode = orderedNodes.find((node) => node.kind === "condition") ?? activeNodes.find((node) => node.kind === "condition");
+  const replyNode =
+    orderedNodes.find((node) => node.id === "reply") ??
+    orderedNodes.find((node) => node.kind === "message" && !isWelcomeNode(node) && !isFallbackNode(node)) ??
+    activeNodes.find((node) => node.id === "reply") ??
+    activeNodes.find((node) => node.kind === "message" && !isWelcomeNode(node) && !isFallbackNode(node));
+  const captureNode =
+    orderedNodes.find((node) => node.id === "capture" || node.kind === "input") ??
+    activeNodes.find((node) => node.id === "capture" || node.kind === "input");
+  const handoffNode =
+    orderedNodes.find((node) => node.id === "handoff" || node.kind === "action") ??
+    activeNodes.find((node) => node.id === "handoff" || node.kind === "action");
+
+  return {
+    welcomeNode,
+    fallbackNode,
+    routerNode,
+    replyNode,
+    captureNode,
+    handoffNode,
+  };
 }
 
 const scenarioConfig = {
@@ -245,6 +381,7 @@ export async function getOfficialApiChatbotBuilderState(
         fallbackMessage: parsed.fallbackMessage || defaultBuilderState.fallbackMessage,
         businessHours: parsed.businessHours || defaultBuilderState.businessHours,
       }),
+      edgesByScenarioId: normalizeEdgesByScenarioId(parsed.edgesByScenarioId),
     };
   } catch {
     return defaultBuilderState;
@@ -276,34 +413,17 @@ export async function saveOfficialApiChatbotBuilderState(
       fallbackMessage: state.fallbackMessage,
       businessHours: state.businessHours,
     }),
+    edgesByScenarioId: normalizeEdgesByScenarioId(state.edgesByScenarioId),
   };
 
-  const activeNodes =
-    normalizedState.nodesByScenarioId[normalizedState.selectedScenarioId] ??
-    getDefaultBuilderNodes({
-      welcomeMessage: normalizedState.welcomeMessage,
-      fallbackMessage: normalizedState.fallbackMessage,
-      businessHours: normalizedState.businessHours,
-    });
-
-  const welcomeNode = activeNodes.find((node) => node.id === "welcome" || node.title.toLowerCase().includes("bienvenida"));
-  const fallbackNode = activeNodes.find((node) => node.id === "fallback" || node.title.toLowerCase().includes("fallback"));
-  const routerNode = activeNodes.find((node) => node.kind === "condition");
-  const replyNode =
-    activeNodes.find((node) => node.id === "reply") ??
-    activeNodes.find((node) => node.kind === "message" && node.id !== "welcome" && node.id !== "fallback");
-
+  const { welcomeNode, fallbackNode, routerNode, replyNode } = selectRuntimeNodes(normalizedState);
+  const baseScenarioRule = getScenarioRule(normalizedState);
   const scenarioRule = {
-    ...getScenarioRule(normalizedState),
-    triggerText: routerNode?.meta?.trim() || getScenarioRule(normalizedState).triggerText,
-    responseText: appendFlowNotes(replyNode?.body?.trim() || getScenarioRule(normalizedState).responseText, normalizedState),
+    ...baseScenarioRule,
+    triggerText: routerNode?.meta?.trim() || baseScenarioRule.triggerText,
+    responseText: appendFlowNotes(replyNode?.body?.trim() || baseScenarioRule.responseText, normalizedState),
   };
   const status = normalizedState.isBotEnabled ? "ACTIVE" : "PAUSED";
-
-  await prisma.$executeRaw`
-    DELETE FROM "OfficialApiAutomationRule"
-    WHERE "configId" = ${configId}
-  `;
 
   const ruleRows = [
     {
@@ -356,36 +476,43 @@ export async function saveOfficialApiChatbotBuilderState(
     },
   ].filter((rule) => rule.responseText || rule.name === BUILDER_RULE_NAME);
 
-  for (const rule of ruleRows) {
-    await prisma.$executeRaw`
-      INSERT INTO "OfficialApiAutomationRule" (
-        "id",
-        "configId",
-        "name",
-        "description",
-        "triggerText",
-        "responseText",
-        "isFallback",
-        "priority",
-        "status",
-        "createdAt",
-        "updatedAt"
-      )
-      VALUES (
-        ${randomUUID()},
-        ${configId},
-        ${rule.name},
-        ${rule.description},
-        ${rule.triggerText},
-        ${rule.responseText},
-        ${rule.isFallback},
-        ${rule.priority},
-        ${rule.status}::"OfficialApiAutomationRuleStatus",
-        CURRENT_TIMESTAMP,
-        CURRENT_TIMESTAMP
-      )
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`
+      DELETE FROM "OfficialApiAutomationRule"
+      WHERE "configId" = ${configId}
     `;
-  }
+
+    for (const rule of ruleRows) {
+      await tx.$executeRaw`
+        INSERT INTO "OfficialApiAutomationRule" (
+          "id",
+          "configId",
+          "name",
+          "description",
+          "triggerText",
+          "responseText",
+          "isFallback",
+          "priority",
+          "status",
+          "createdAt",
+          "updatedAt"
+        )
+        VALUES (
+          ${randomUUID()},
+          ${configId},
+          ${rule.name},
+          ${rule.description},
+          ${rule.triggerText},
+          ${rule.responseText},
+          ${rule.isFallback},
+          ${rule.priority},
+          ${rule.status}::"OfficialApiAutomationRuleStatus",
+          CURRENT_TIMESTAMP,
+          CURRENT_TIMESTAMP
+        )
+      `;
+    }
+  });
 }
 
 function parseHour(value: string) {
@@ -451,13 +578,7 @@ export async function resolveOfficialApiAutomationReply(input: {
   const welcomeRule = activeRules.find((rule) => rule.name === WELCOME_RULE_NAME);
   const afterHoursRule = activeRules.find((rule) => rule.name === AFTER_HOURS_RULE_NAME);
   const fallbackRule = activeRules.find((rule) => rule.isFallback);
-  const welcomeNode = state.nodes.find((node) => node.id === "welcome" || node.title.toLowerCase().includes("bienvenida"));
-  const fallbackNode = state.nodes.find((node) => node.id === "fallback" || node.title.toLowerCase().includes("fallback"));
-  const replyNode =
-    state.nodes.find((node) => node.id === "reply") ??
-    state.nodes.find((node) => node.kind === "message" && node.id !== "welcome" && node.id !== "fallback");
-  const captureNode = state.nodes.find((node) => node.id === "capture" || node.kind === "input");
-  const handoffNode = state.nodes.find((node) => node.id === "handoff" || node.kind === "action");
+  const { welcomeNode, fallbackNode, replyNode, captureNode, handoffNode } = selectRuntimeNodes(state);
 
   const appendNodeNotes = (base: string | null) => {
     const parts = [base?.trim() || ""].filter(Boolean);

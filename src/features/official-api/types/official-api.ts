@@ -131,6 +131,12 @@ export type OfficialApiChatbotBuilderNode = {
 };
 
 export type OfficialApiChatbotNodesByScenarioId = Record<string, OfficialApiChatbotBuilderNode[]>;
+export type OfficialApiChatbotBuilderEdge = {
+  id: string;
+  source: string;
+  target: string;
+};
+export type OfficialApiChatbotEdgesByScenarioId = Record<string, OfficialApiChatbotBuilderEdge[]>;
 
 export type OfficialApiChatbotData = {
   configId: string | null;
@@ -155,6 +161,7 @@ export type OfficialApiChatbotData = {
     selectedScenarioId: string;
     scenarios: OfficialApiChatbotScenario[];
     nodesByScenarioId: OfficialApiChatbotNodesByScenarioId;
+    edgesByScenarioId: OfficialApiChatbotEdgesByScenarioId;
   };
 };
 

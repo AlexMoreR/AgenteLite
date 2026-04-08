@@ -6,6 +6,11 @@
       "sourceType": "github",
       "computedHash": "4d5fe1dacfebc0c1b3837b061405150ed2e4971c096543afc46c23161c5a4f7a"
     },
+    "reactflow-expert": {
+      "source": "erichowens/some_claude_skills",
+      "sourceType": "github",
+      "computedHash": "c3529b6932dfe5904365eb22b27dffd76028437a9d85bb6fb5b6f8d5332899d5"
+    },
     "responsive-design": {
       "source": "wshobson/agents",
       "sourceType": "github",

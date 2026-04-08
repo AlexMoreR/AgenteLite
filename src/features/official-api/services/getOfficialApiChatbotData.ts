@@ -64,6 +64,7 @@ export async function getOfficialApiChatbotData(workspaceId: string): Promise<Of
         selectedScenarioId: "new-lead",
         scenarios: [],
         nodesByScenarioId: {},
+        edgesByScenarioId: {},
       },
     };
   }
@@ -295,6 +296,7 @@ export async function getOfficialApiChatbotData(workspaceId: string): Promise<Of
       selectedScenarioId: builderState.selectedScenarioId,
       scenarios: builderState.scenarios,
       nodesByScenarioId: builderState.nodesByScenarioId,
+      edgesByScenarioId: builderState.edgesByScenarioId,
     },
   };
 }
