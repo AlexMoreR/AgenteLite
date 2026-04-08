@@ -14,6 +14,7 @@ FROM node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
+ENV PRISMA_AUTO_RESOLVE_FAILED_OFFICIAL_API_MIGRATION=false
 
 COPY package*.json ./
 COPY prisma ./prisma
@@ -25,4 +26,4 @@ COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
 
 EXPOSE 3000
 
-CMD ["sh", "-c", "npx prisma migrate deploy && npm run start"]
+CMD ["sh", "-c", "if [ \"$PRISMA_AUTO_RESOLVE_FAILED_OFFICIAL_API_MIGRATION\" = \"true\" ]; then if npx prisma migrate status 2>&1 | grep -q 'Following migration have failed:'; then echo 'Detected failed Prisma migration. Resolving 20260402130000_add_official_api_module_base as applied...'; npx prisma migrate resolve --applied 20260402130000_add_official_api_module_base; fi; fi; npx prisma migrate deploy && npm run start"]
