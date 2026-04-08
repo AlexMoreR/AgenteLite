@@ -23,7 +23,9 @@ COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/next.config.ts ./next.config.ts
 COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
+COPY docker/entrypoint.sh ./docker/entrypoint.sh
+RUN chmod +x ./docker/entrypoint.sh
 
 EXPOSE 3000
 
-CMD ["sh", "-ec", "if [ \"$PRISMA_AUTO_RESOLVE_FAILED_OFFICIAL_API_MIGRATION\" = \"true\" ]; then echo 'Running Prisma migrate deploy with auto-recovery for failed official API base migration...'; DEPLOY_STATUS=0; DEPLOY_OUTPUT=\"$(npx prisma migrate deploy 2>&1)\" || DEPLOY_STATUS=$?; echo \"$DEPLOY_OUTPUT\"; if [ \"$DEPLOY_STATUS\" -ne 0 ]; then if echo \"$DEPLOY_OUTPUT\" | grep -q 'P3009' && echo \"$DEPLOY_OUTPUT\" | grep -q '20260402130000_add_official_api_module_base'; then echo 'Detected failed migration 20260402130000_add_official_api_module_base. Resolving as applied and retrying deploy...'; npx prisma migrate resolve --applied 20260402130000_add_official_api_module_base; npx prisma migrate deploy; else exit \"$DEPLOY_STATUS\"; fi; fi; else npx prisma migrate deploy; fi; exec npm run start"]
+CMD ["sh", "./docker/entrypoint.sh"]
