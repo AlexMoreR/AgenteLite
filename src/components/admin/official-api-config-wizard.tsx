@@ -58,6 +58,8 @@ type OfficialApiConfigWizardProps = {
   backHref?: string;
   presentation?: "modal" | "page";
   publicBaseUrl?: string;
+  previewHref?: string;
+  previewChatsHref?: string;
 };
 
 const steps = [
@@ -152,11 +154,11 @@ const metaChecklistSections = [
   },
 ] as const;
 
-const finalSaveChecklist = [
-  "La URL del webhook debe ser publica.",
-  "El Verify Token debe coincidir en Meta y aqui.",
-  "Guarda primero en el sistema.",
-  "Si Meta ya valido el challenge, el canal queda activo.",
+const webhookSaveSteps = [
+  "Configurar Callback URL y Verify token.",
+  "Agregar App secret",
+  "Suscribir app al WABA.",
+  "Revisar datos finales antes de guardar.",
 ] as const;
 
 const OFFICIAL_API_WIZARD_DRAFT_KEY = "official-api-config-wizard:v1";
@@ -318,6 +320,8 @@ export function OfficialApiConfigWizard({
   backHref,
   presentation = "modal",
   publicBaseUrl = "",
+  previewHref,
+  previewChatsHref,
 }: OfficialApiConfigWizardProps) {
   const [currentStep, setCurrentStep] = React.useState(0);
   const [form, setForm] = React.useState<FormState>(() => getInitialFormState(workspace));
@@ -856,68 +860,72 @@ export function OfficialApiConfigWizard({
           onClick={(event) => event.stopPropagation()}
         >
           <div className="border-b border-[var(--line)] bg-[linear-gradient(180deg,#f8fafc_0%,#ffffff_100%)] px-6 py-5">
-            <div className="flex items-start justify-between gap-4">
-              {backHref && !isModal ? (
-                <Link
-                  href={backHref}
-                  className="rounded-full border border-[var(--line)] p-2 text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
-                  aria-label="Volver"
-                >
-                  <ArrowLeft className="h-4 w-4" />
-                </Link>
-              ) : onClose ? (
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="rounded-full border border-[var(--line)] p-2 text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
-                  aria-label="Cerrar"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              ) : null}
-          </div>
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
+              <div className="shrink-0">
+                {backHref && !isModal ? (
+                  <Link
+                    href={backHref}
+                    className="rounded-full border border-[var(--line)] p-2 text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
+                    aria-label="Volver"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                  </Link>
+                ) : onClose ? (
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="rounded-full border border-[var(--line)] p-2 text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
+                    aria-label="Cerrar"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                ) : null}
+              </div>
 
-          <div className="mt-5 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
-            {steps.map((step, index) => {
-              const Icon = step.icon;
-              const isActive = index === currentStep;
-              const isDone = completedSteps.has(index) && !isActive;
+              <div className="min-w-0 flex-1">
+                <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-5">
+                  {steps.map((step, index) => {
+                    const Icon = step.icon;
+                    const isActive = index === currentStep;
+                    const isDone = completedSteps.has(index) && !isActive;
 
-              return (
-                <div
-                  key={step.key}
-                  className={`rounded-[1.15rem] border px-4 py-3 transition ${
-                    isActive
-                      ? "border-[var(--primary)] bg-[color-mix(in_srgb,var(--primary)_8%,white)]"
-                      : isDone
-                        ? "border-emerald-200 bg-emerald-50"
-                        : "border-[var(--line)] bg-white"
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`inline-flex h-8 w-8 items-center justify-center rounded-full ${
-                        isActive
-                          ? "bg-[var(--primary)] text-white"
-                          : isDone
-                            ? "bg-emerald-600 text-white"
-                            : "bg-slate-100 text-slate-500"
-                      }`}
-                    >
-                      <Icon className="h-4 w-4" />
-                    </span>
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-slate-900">{step.title}</p>
-                      <p className="truncate text-[11px] text-slate-500">{step.description}</p>
-                    </div>
-                  </div>
+                    return (
+                      <div
+                        key={step.key}
+                        className={`rounded-[1.15rem] border px-4 py-3 transition ${
+                          isActive
+                            ? "border-[var(--primary)] bg-[color-mix(in_srgb,var(--primary)_8%,white)]"
+                            : isDone
+                              ? "border-emerald-200 bg-emerald-50"
+                              : "border-[var(--line)] bg-white"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`inline-flex h-8 w-8 items-center justify-center rounded-full ${
+                              isActive
+                                ? "bg-[var(--primary)] text-white"
+                                : isDone
+                                  ? "bg-emerald-600 text-white"
+                                  : "bg-slate-100 text-slate-500"
+                            }`}
+                          >
+                            <Icon className="h-4 w-4" />
+                          </span>
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-slate-900">{step.title}</p>
+                            <p className="truncate text-[11px] text-slate-500">{step.description}</p>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-              );
-            })}
-          </div>
-        </div>
 
-        <form
+              </div>
+            </div>
+          </div>
+          <form
           action={adminUpdateOfficialApiConfigAction}
           className={isModal ? "max-h-[calc(100vh-9rem)] overflow-y-auto" : ""}
         >
@@ -1217,151 +1225,164 @@ export function OfficialApiConfigWizard({
                   </div>
                 ) : null}
 
-                <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-                  <div className="grid gap-4 rounded-[1.25rem] border border-[var(--line)] bg-white p-5">
-                    <label className="block space-y-1.5">
-                      <span className="text-sm font-medium text-slate-700">Callback URL para Meta</span>
-                      <Input
-                        value={callbackUrl}
-                        readOnly
-                        className="h-11 rounded-xl bg-slate-50"
-                        placeholder="https://tu-dominio.com/api/webhooks/meta/official-api"
-                      />
-                    </label>
-                    <p className="text-xs leading-5 text-slate-500">
-                      Pega esta URL en Meta como <span className="font-semibold">Callback URL</span>.
-                    </p>
+                <div className="grid gap-5">
+                  <div className="rounded-[1rem] border border-slate-200 bg-slate-50 p-5">
+                    <p className="text-base font-semibold text-slate-900">Webhook y guardar</p>
+                    <div className="mt-4 grid gap-2.5">
+                      {webhookSaveSteps.map((item, index) => (
+                        <div key={item} className="space-y-3">
+                          <div className="flex items-start gap-3 text-sm leading-6 text-slate-700">
+                            <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-900 text-[10px] font-semibold text-white">
+                              {index + 1}
+                            </span>
+                            <span>{item}</span>
+                          </div>
 
-                    <label className="block space-y-1.5">
-                      <span className="text-sm font-medium text-slate-700">Verify token</span>
-                      <Input
-                        value={form.webhookVerifyToken}
-                        onChange={updateField("webhookVerifyToken")}
-                        className="h-11 rounded-xl"
-                        placeholder="meta-webhook-verzay-2026"
-                      />
-                    </label>
-                    <p className="text-xs leading-5 text-slate-500">
-                      Debe ser el mismo en Meta y en este formulario.
-                    </p>
-                  </div>
+                          {index === 0 ? (
+                            <div className="ml-8 grid gap-4 md:grid-cols-2">
+                              <label className="block space-y-1.5">
+                                <span className="text-sm font-medium text-slate-700">Callback URL para Meta</span>
+                                <Input
+                                  value={callbackUrl}
+                                  readOnly
+                                  className="h-11 rounded-xl bg-slate-50"
+                                  placeholder="https://tu-dominio.com/api/webhooks/meta/official-api"
+                                />
+                              </label>
 
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  <label className="block space-y-1.5">
-                    <span className="text-sm font-medium text-slate-700">App secret</span>
-                    <Input
-                      value={form.appSecret}
-                      onChange={updateField("appSecret")}
-                      className="h-11 rounded-xl"
-                      placeholder="opcional-para-validacion"
-                    />
-                  </label>
-                </div>
-
-                <div className="rounded-[1.25rem] border border-[var(--line)] bg-white p-5">
-                  <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                    <div className="space-y-1">
-                      <p className="text-sm font-semibold text-slate-900">Suscripcion de app al WABA</p>
-                      <p className="text-sm text-slate-600">
-                        Conecta la app con la cuenta para recibir mensajes reales.
-                      </p>
-                    </div>
-
-                    <Button
-                      type="button"
-                      variant={subscriptionStatus?.subscribed ? "outline" : "default"}
-                      className="h-10 rounded-xl px-4"
-                      onClick={handleSubscribeApp}
-                      disabled={
-                        isSubscribingApp ||
-                        !form.accessToken.trim() ||
-                        !form.wabaId.trim()
-                      }
-                    >
-                      {isSubscribingApp
-                        ? "Suscribiendo..."
-                        : subscriptionStatus?.subscribed
-                          ? "Reintentar suscripcion"
-                          : "Suscribir app al WABA"}
-                    </Button>
-                  </div>
-
-                  <div className="mt-4 grid gap-3 text-sm">
-                    <div className="rounded-[1rem] border border-slate-200 bg-slate-50 p-4 text-slate-700">
-                      <div className="flex items-start gap-3">
-                        {subscriptionStatus?.subscribed ? (
-                          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
-                        ) : subscriptionStatus?.error ? (
-                          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
-                        ) : (
-                          <Webhook className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" />
-                        )}
-                        <div className="space-y-1">
-                          <p className="font-medium text-slate-900">
-                            {isLoadingSubscriptionStatus
-                              ? "Consultando suscripcion actual..."
-                              : subscriptionStatus?.subscribed
-                                ? "La app ya aparece suscrita al WABA."
-                                : "La suscripcion de la app al WABA aun no esta confirmada."}
-                          </p>
-                          {subscriptionStatus?.appId ? (
-                            <p className="text-slate-600">App ID detectado en Meta: {subscriptionStatus.appId}</p>
+                              <label className="block space-y-1.5">
+                                <span className="text-sm font-medium text-slate-700">Verify token</span>
+                                <Input
+                                  value={form.webhookVerifyToken}
+                                  onChange={updateField("webhookVerifyToken")}
+                                  className="h-11 rounded-xl"
+                                  placeholder="meta-webhook-verzay-2026"
+                                />
+                              </label>
+                            </div>
                           ) : null}
-                          {subscriptionStatus?.error ? (
-                            <p className="text-rose-700">{subscriptionStatus.error}</p>
+
+                          {index === 1 ? (
+                            <div className="ml-8">
+                              <label className="block space-y-1.5">
+                                <Input
+                                  value={form.appSecret}
+                                  onChange={updateField("appSecret")}
+                                  className="h-11 rounded-xl"
+                                  placeholder="App secret"
+                                />
+                              </label>
+                            </div>
                           ) : null}
-                          {!subscriptionStatus?.subscribed && !subscriptionStatus?.error ? (
-                            <p className="text-slate-600">
-                              Si los mensajes reales no llegan, revisa esta suscripcion.
-                            </p>
+
+                          {index === 2 ? (
+                            <div className="ml-8 rounded-[1rem] border border-[var(--line)] bg-white p-4">
+                              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+
+                                <Button
+                                  type="button"
+                                  variant={subscriptionStatus?.subscribed ? "outline" : "default"}
+                                  className="h-10 rounded-xl px-4"
+                                  onClick={handleSubscribeApp}
+                                  disabled={
+                                    isSubscribingApp ||
+                                    !form.accessToken.trim() ||
+                                    !form.wabaId.trim()
+                                  }
+                                >
+                                  {isSubscribingApp
+                                    ? "Suscribiendo..."
+                                    : subscriptionStatus?.subscribed
+                                      ? "Reintentar suscripcion"
+                                      : "Suscribir app al WABA"}
+                                </Button>
+                              </div>
+
+                              <div className="mt-4 grid gap-3 text-sm">
+                                <div className="rounded-[1rem] border border-slate-200 bg-slate-50 p-4 text-slate-700">
+                                  <div className="flex items-start gap-3">
+                                    {subscriptionStatus?.subscribed ? (
+                                      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                                    ) : subscriptionStatus?.error ? (
+                                      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
+                                    ) : (
+                                      <Webhook className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" />
+                                    )}
+                                    <div className="space-y-1">
+                                      <p className="font-medium text-slate-900">
+                                        {isLoadingSubscriptionStatus
+                                          ? "Consultando suscripcion actual..."
+                                          : subscriptionStatus?.subscribed
+                                            ? "La app ya aparece suscrita al WABA."
+                                            : "La suscripcion de la app al WABA aun no esta confirmada."}
+                                      </p>
+                                      {subscriptionStatus?.appId ? (
+                                        <p className="text-slate-600">App ID detectado en Meta: {subscriptionStatus.appId}</p>
+                                      ) : null}
+                                      {subscriptionStatus?.error ? (
+                                        <p className="text-rose-700">{subscriptionStatus.error}</p>
+                                      ) : null}
+                                      {!subscriptionStatus?.subscribed && !subscriptionStatus?.error ? (
+                                        <p className="text-slate-600">
+                                          Si los mensajes reales no llegan, revisa esta suscripcion.
+                                        </p>
+                                      ) : null}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ) : null}
+
+                          {index === 3 ? (
+                            <div className="ml-8 rounded-[1rem] border border-[var(--line)] bg-white p-4">
+                              <p className="text-sm font-semibold text-slate-900">Datos a guardar</p>
+                              <div className="mt-4 grid gap-3 md:grid-cols-2">
+                                <div>
+                                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Access token</p>
+                                  <p className="mt-1 text-sm text-slate-700">
+                                    {form.accessToken.trim() ? `${form.accessToken.trim().slice(0, 10)}...` : "No definido"}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Phone number id</p>
+                                  <p className="mt-1 text-sm text-slate-700">{form.phoneNumberId.trim() || "No definido"}</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">WABA id</p>
+                                  <p className="mt-1 text-sm text-slate-700">{form.wabaId.trim() || "No definido"}</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Webhook verify token</p>
+                                  <p className="mt-1 text-sm text-slate-700">{form.webhookVerifyToken.trim() || "Opcional / vacio"}</p>
+                                </div>
+                                <div className="md:col-span-2">
+                                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">App secret</p>
+                                  <p className="mt-1 text-sm text-slate-700">{form.appSecret.trim() || "Opcional / vacio"}</p>
+                                </div>
+                              </div>
+                            </div>
                           ) : null}
                         </div>
-                      </div>
+                      ))}
                     </div>
                   </div>
                 </div>
+              </div>
+            ) : null}
 
-                <div className="rounded-[1.25rem] border border-[var(--line)] bg-slate-50 p-5">
-                  <p className="text-sm font-semibold text-slate-900">Datos a guardar</p>
-                  <div className="mt-4 grid gap-3 md:grid-cols-2">
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Access token</p>
-                      <p className="mt-1 text-sm text-slate-700">
-                        {form.accessToken.trim() ? `${form.accessToken.trim().slice(0, 10)}...` : "No definido"}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Phone number id</p>
-                      <p className="mt-1 text-sm text-slate-700">{form.phoneNumberId.trim() || "No definido"}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">WABA id</p>
-                      <p className="mt-1 text-sm text-slate-700">{form.wabaId.trim() || "No definido"}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Webhook verify token</p>
-                      <p className="mt-1 text-sm text-slate-700">{form.webhookVerifyToken.trim() || "Opcional / vacio"}</p>
-                    </div>
-                    <div className="md:col-span-2">
-                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">App secret</p>
-                      <p className="mt-1 text-sm text-slate-700">{form.appSecret.trim() || "Opcional / vacio"}</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="rounded-[1.25rem] border border-emerald-200 bg-emerald-50 p-5">
-                  <p className="text-sm font-semibold text-emerald-900">Checklist final antes de guardar</p>
-                  <div className="mt-4 grid gap-4">
-                    {finalSaveChecklist.map((item) => (
-                      <div key={item} className="flex items-start gap-3 text-sm text-emerald-900">
-                        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-                        <span>{item}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+            {previewHref || previewChatsHref ? (
+              <div className="mt-6 flex flex-wrap items-center justify-end gap-3">
+                {previewHref ? (
+                  <Button asChild variant="outline" className="rounded-xl">
+                    <Link href={previewHref}>Vista previa</Link>
+                  </Button>
+                ) : null}
+                {previewChatsHref ? (
+                  <Button asChild variant="outline" className="rounded-xl">
+                    <Link href={previewChatsHref}>Vista previa chats</Link>
+                  </Button>
+                ) : null}
               </div>
             ) : null}
           </div>
