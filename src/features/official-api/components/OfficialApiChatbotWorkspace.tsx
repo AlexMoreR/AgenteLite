@@ -91,8 +91,42 @@ function ChatbotFlowCanvas({
   onEdgeClick,
   onNodeOpen,
 }: ChatbotFlowCanvasProps) {
-  const [canvasNodes, , onCanvasNodesChange] = useNodesState(nodes);
+  const [canvasNodes, setCanvasNodes, onCanvasNodesChange] = useNodesState(nodes);
   const [canvasEdges, setCanvasEdges, onCanvasEdgesChange] = useEdgesState(edges);
+  const nodesSignature = useMemo(
+    () =>
+      nodes
+        .map((node) => `${node.id}:${node.position.x}:${node.position.y}:${String(node.data?.label ?? "")}`)
+        .join("|"),
+    [nodes],
+  );
+  const canvasNodesSignature = useMemo(
+    () =>
+      canvasNodes
+        .map((node) => `${node.id}:${node.position.x}:${node.position.y}:${String(node.data?.label ?? "")}`)
+        .join("|"),
+    [canvasNodes],
+  );
+  const edgesSignature = useMemo(
+    () => edges.map((edge) => `${edge.id}:${edge.source}:${edge.target}`).join("|"),
+    [edges],
+  );
+  const canvasEdgesSignature = useMemo(
+    () => canvasEdges.map((edge) => `${edge.id}:${edge.source}:${edge.target}`).join("|"),
+    [canvasEdges],
+  );
+
+  useEffect(() => {
+    if (canvasNodesSignature !== nodesSignature) {
+      setCanvasNodes(nodes);
+    }
+  }, [canvasNodesSignature, nodes, nodesSignature, scenarioKey, setCanvasNodes]);
+
+  useEffect(() => {
+    if (canvasEdgesSignature !== edgesSignature) {
+      setCanvasEdges(edges);
+    }
+  }, [canvasEdgesSignature, edges, edgesSignature, scenarioKey, setCanvasEdges]);
 
   return (
     <ReactFlow
