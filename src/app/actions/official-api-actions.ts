@@ -37,7 +37,7 @@ export async function sendOfficialApiReplyAction(formData: FormData): Promise<vo
   }
 
   const config = await getOfficialApiConfigByWorkspaceId(membership.workspace.id);
-  if (!hasOfficialApiBaseCredentials(config)) {
+  if (!config || !hasOfficialApiBaseCredentials(config)) {
     redirect("/cliente/api-oficial?error=La+API+oficial+no+esta+activa");
   }
 
