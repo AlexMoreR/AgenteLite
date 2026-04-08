@@ -82,7 +82,7 @@ const steps = [
   {
     key: "fase-4",
     title: "Paso 4",
-    description: "Probar envio.",
+    description: "Probar",
     icon: CreditCard,
   },
   {
@@ -142,10 +142,11 @@ const metaChecklistSections = [
   },
   {
     title: "Fase 4",
-    heading: "Probar envio",
+    heading: "Probar",
     items: [
       "Probar POST /messages con el Phone Number ID.",
       "Enviar un texto de prueba con Bearer token.",
+      "Antes de probar, manda primero un mensaje al numero oficial.",
       "Si funciona, el cliente queda listo del lado API.",
     ],
   },
@@ -189,8 +190,7 @@ function renderChecklistSection(section?: (typeof metaChecklistSections)[number]
 
   return (
     <div className="rounded-[1rem] border border-slate-200 bg-slate-50 p-5">
-      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{section.title}</p>
-      <p className="mt-1 text-base font-semibold text-slate-900">{section.heading}</p>
+      <p className="text-base font-semibold text-slate-900">{section.heading}</p>
       <div className="mt-4 grid gap-2.5">
         {section.items.map((item, index) => (
           <div
@@ -917,7 +917,10 @@ export function OfficialApiConfigWizard({
           </div>
         </div>
 
-        <form action={adminUpdateOfficialApiConfigAction} className="max-h-[calc(100vh-9rem)] overflow-y-auto">
+        <form
+          action={adminUpdateOfficialApiConfigAction}
+          className={isModal ? "max-h-[calc(100vh-9rem)] overflow-y-auto" : ""}
+        >
           <input type="hidden" name="userId" value={user.id} />
           <input type="hidden" name="workspaceId" value={workspace.id} />
           <input type="hidden" name="accessToken" value={form.accessToken} />
@@ -944,78 +947,85 @@ export function OfficialApiConfigWizard({
 
             {currentStep === 1 ? (
               <div className="space-y-4">
-                {renderChecklistSection(metaChecklistSections[1])}
+                <div className="rounded-[1rem] border border-slate-200 bg-slate-50 p-5">
+                  <p className="text-base font-semibold text-slate-900">
+                    {metaChecklistSections[1]?.heading}
+                  </p>
 
-                <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-                  <div className="grid gap-4 rounded-[1.25rem] border border-[var(--line)] bg-white p-5">
-                    <label className="block space-y-1.5">
-                      <span className="text-sm font-medium text-slate-700">WABA id o Identificador</span>
-                      <Input
-                        value={form.wabaId}
-                        onChange={updateField("wabaId")}
-                        className="h-11 rounded-xl"
-                        placeholder="1427290438576966"
-                      />
-                    </label>
-                    <p className="mt-2 text-xs leading-5 text-slate-500">
-                      En Meta puede aparecer como <span className="font-semibold">Identificador</span>.
-                    </p>
+                  <div className="mt-4 grid gap-2.5">
+                    {metaChecklistSections[1]?.items.map((item, index) => (
+                      <div key={typeof item === "string" ? item : item.text} className="space-y-3">
+                        {index !== 3 ? (
+                          <div className="flex items-start gap-3 text-sm leading-6 text-slate-700">
+                            <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-900 text-[10px] font-semibold text-white">
+                              {index < 3 ? index + 1 : index}
+                            </span>
+                            <span>{renderChecklistItem(item)}</span>
+                          </div>
+                        ) : null}
 
-                    <label className="block space-y-1.5">
-                      <span className="text-sm font-medium text-slate-700">Phone number id</span>
-                      <Input
-                        value={form.phoneNumberId}
-                        onChange={updateField("phoneNumberId")}
-                        className="h-11 rounded-xl"
-                        placeholder="1068775089646460"
-                      />
-                    </label>
-                    <p className="text-xs leading-5 text-slate-500">
-                      Pega aqui el identificador del numero.
-                    </p>
+                        {index === 3 ? (
+                          <div className="ml-8">
+                            <label className="block space-y-1.5">
+                              <Input
+                                value={form.wabaId}
+                                onChange={updateField("wabaId")}
+                                className="h-11 rounded-xl"
+                                placeholder="Guardar el WABA ID. En Meta tambien puede aparecer como Identificador."
+                              />
+                            </label>
+                          </div>
+                        ) : null}
+
+                        {index === 7 ? (
+                          <div className="ml-8">
+                            <label className="block space-y-1.5">
+                              <Input
+                                value={form.phoneNumberId}
+                                onChange={updateField("phoneNumberId")}
+                                className="h-11 rounded-xl"
+                                placeholder="Desde el panel de control de Meta para Desarrolladores."
+                              />
+                            </label>
+                          </div>
+                        ) : null}
+                      </div>
+                    ))}
                   </div>
-
                 </div>
               </div>
             ) : null}
 
             {currentStep === 2 ? (
               <div className="space-y-4">
-                {renderChecklistSection(metaChecklistSections[2])}
+                <div className="rounded-[1rem] border border-slate-200 bg-slate-50 p-5">
+                  <p className="text-base font-semibold text-slate-900">
+                    {metaChecklistSections[2]?.heading}
+                  </p>
 
-                <div className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
-                  <div className="grid gap-4">
-                    <label className="block space-y-1.5">
-                      <span className="text-sm font-medium text-slate-700">Access token</span>
-                      <textarea
-                        rows={6}
-                        value={form.accessToken}
-                        onChange={updateField("accessToken")}
-                        className="w-full rounded-[20px] border border-[var(--line)] bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-[var(--primary)]"
-                        placeholder="EAAG..."
-                      />
-                    </label>
+                  <div className="mt-4 grid gap-2.5">
+                    {metaChecklistSections[2]?.items.map((item, index) => (
+                      <div key={typeof item === "string" ? item : item.text} className="space-y-3">
+                        <div className="flex items-start gap-3 text-sm leading-6 text-slate-700">
+                          <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-900 text-[10px] font-semibold text-white">
+                            {index + 1}
+                          </span>
+                          <span>{renderChecklistItem(item)}</span>
+                        </div>
 
-                  </div>
-
-                  <div className="rounded-[1.25rem] border border-[var(--line)] bg-slate-50 p-5">
-                    <p className="text-sm font-semibold text-slate-900">Datos cargados en esta fase</p>
-                    <div className="mt-4 grid gap-3">
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Access token</p>
-                        <p className="mt-1 text-sm text-slate-700">
-                          {form.accessToken.trim() ? `${form.accessToken.trim().slice(0, 10)}...` : "Aun no cargado"}
-                        </p>
+                        {index === 6 ? (
+                          <div className="ml-8">
+                            <textarea
+                              rows={6}
+                              value={form.accessToken}
+                              onChange={updateField("accessToken")}
+                              className="w-full rounded-[20px] border border-[var(--line)] bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-[var(--primary)]"
+                              placeholder="EAAG..."
+                            />
+                          </div>
+                        ) : null}
                       </div>
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Phone number id</p>
-                        <p className="mt-1 text-sm text-slate-700">{form.phoneNumberId.trim() || "Aun no cargado"}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">WABA id</p>
-                        <p className="mt-1 text-sm text-slate-700">{form.wabaId.trim() || "Aun no cargado"}</p>
-                      </div>
-                    </div>
+                    ))}
                   </div>
                 </div>
               </div>
@@ -1023,193 +1033,173 @@ export function OfficialApiConfigWizard({
 
             {currentStep === 3 ? (
               <div className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
-                <div className="space-y-4">
-                  {renderChecklistSection(metaChecklistSections[3])}
+                <div className="rounded-[1rem] border border-slate-200 bg-slate-50 p-5">
+                  <p className="text-base font-semibold text-slate-900">
+                    {metaChecklistSections[3]?.heading}
+                  </p>
 
-                  <div className="grid gap-4">
-                    <label className="block space-y-1.5">
-                      <span className="text-sm font-medium text-slate-700">
-                        PIN de registro
-                      </span>
-                      <Input
-                        value={form.registrationPin}
-                        onChange={updateField("registrationPin")}
-                        className="h-11 rounded-xl"
-                        placeholder="Opcional si Meta lo solicita"
-                      />
-                      <p className="text-xs leading-5 text-slate-500">
-                        Si configuraste verificacion en dos pasos para el numero, pon aqui el PIN.
-                      </p>
-                    </label>
-
-                    <div className="flex flex-wrap items-center gap-3">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="h-10 rounded-xl px-4"
-                        onClick={handleRegisterPhone}
-                        disabled={
-                          isRegisteringPhone ||
-                          !form.accessToken.trim() ||
-                          !form.phoneNumberId.trim()
-                        }
-                      >
-                        {isRegisteringPhone ? "Registrando..." : "Registrar numero por API"}
-                      </Button>
-                    </div>
-
-                    {registerPhoneResult ? (
-                      <div
-                        className={`rounded-[1.25rem] border p-4 text-sm ${
-                          registerPhoneResult.ok
-                            ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                            : "border-rose-200 bg-rose-50 text-rose-800"
-                        }`}
-                      >
-                        <div className="flex items-start gap-3">
-                          {registerPhoneResult.ok ? (
-                            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-                          ) : (
-                            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                          )}
-                          <span>{registerPhoneResult.message}</span>
+                  <div className="mt-4 grid gap-2.5">
+                    {metaChecklistSections[3]?.items.map((item, index) => (
+                      <div key={typeof item === "string" ? item : item.text} className="space-y-3">
+                        <div className="flex items-start gap-3 text-sm leading-6 text-slate-700">
+                          <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-900 text-[10px] font-semibold text-white">
+                            {index + 1}
+                          </span>
+                          <span>{renderChecklistItem(item)}</span>
                         </div>
+
+                        {index === 2 ? (
+                          <div className="ml-8 grid gap-4">
+                            <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+                              <label className="block space-y-1.5">
+                                <Input
+                                  value={form.registrationPin}
+                                  onChange={updateField("registrationPin")}
+                                  className="h-11 rounded-xl"
+                                  placeholder="Si configuraste verificacion en dos pasos para el numero, pon aqui el PIN."
+                                />
+                              </label>
+
+                              <Button
+                                type="button"
+                                className="h-11 rounded-xl px-4"
+                                onClick={handleRegisterPhone}
+                                disabled={
+                                  isRegisteringPhone ||
+                                  !form.accessToken.trim() ||
+                                  !form.phoneNumberId.trim()
+                                }
+                              >
+                                {isRegisteringPhone ? "Registrando..." : "Registrar"}
+                              </Button>
+                            </div>
+
+                            {registerPhoneResult ? (
+                              <div
+                                className={`rounded-[1.25rem] border p-4 text-sm ${
+                                  registerPhoneResult.ok
+                                    ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                                    : "border-rose-200 bg-rose-50 text-rose-800"
+                                }`}
+                              >
+                                <div className="flex items-start gap-3">
+                                  {registerPhoneResult.ok ? (
+                                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                                  ) : (
+                                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                                  )}
+                                  <span>{registerPhoneResult.message}</span>
+                                </div>
+                              </div>
+                            ) : null}
+
+                            <label className="block space-y-1.5">
+                              <Input
+                                value={testRecipient}
+                                onChange={(event) => setTestRecipient(event.target.value)}
+                                className="h-11 rounded-xl"
+                                placeholder="Ingresa el numero al que vamos enviar el mensaje de prueba."
+                              />
+                            </label>
+
+                            <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+                              <label className="block space-y-1.5">
+                                <span className="text-sm font-medium text-slate-700">Mensaje de prueba</span>
+                                <Input
+                                  value={testMessage}
+                                  onChange={(event) => setTestMessage(event.target.value)}
+                                  className="h-11 rounded-xl"
+                                  placeholder="Escribe el mensaje de prueba"
+                                />
+                              </label>
+
+                              <Button
+                                type="button"
+                                className="h-11 rounded-xl px-4"
+                                onClick={handleSendTestMessage}
+                                disabled={
+                                  isTestingMessage ||
+                                  !form.accessToken.trim() ||
+                                  !form.phoneNumberId.trim() ||
+                                  !form.wabaId.trim() ||
+                                  !testRecipient.trim() ||
+                                  !testMessage.trim()
+                                }
+                              >
+                                {isTestingMessage ? "Probando..." : "Probar envio"}
+                              </Button>
+                            </div>
+
+                            {!form.accessToken.trim() || !form.phoneNumberId.trim() || !form.wabaId.trim() ? (
+                              <span className="text-xs text-amber-700">
+                                Completa primero Access Token, Phone Number ID y WABA ID.
+                              </span>
+                            ) : null}
+
+                            {testMessageResult ? (
+                              <div
+                                className={`rounded-[1.25rem] border p-4 text-sm ${
+                                  testMessageResult.ok
+                                    ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                                    : "border-rose-200 bg-rose-50 text-rose-800"
+                                }`}
+                              >
+                                <div className="flex items-start gap-3">
+                                  {testMessageResult.ok ? (
+                                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                                  ) : (
+                                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                                  )}
+                                  <span>{testMessageResult.message}</span>
+                                </div>
+                              </div>
+                            ) : null}
+
+                            <label className="block space-y-1.5">
+                              <span className="text-sm font-medium text-slate-700">Access token</span>
+                              <textarea
+                                rows={6}
+                                value={form.accessToken}
+                                onChange={updateField("accessToken")}
+                                className="w-full rounded-[20px] border border-[var(--line)] bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-[var(--primary)]"
+                                placeholder="EAAG..."
+                              />
+                            </label>
+
+                            <div className="grid gap-4 md:grid-cols-2">
+                              <label className="block space-y-1.5">
+                                <span className="text-sm font-medium text-slate-700">Phone number id</span>
+                                <Input
+                                  value={form.phoneNumberId}
+                                  onChange={updateField("phoneNumberId")}
+                                  className="h-11 rounded-xl"
+                                  placeholder="123456789012345"
+                                />
+                              </label>
+
+                              <label className="block space-y-1.5">
+                                <span className="text-sm font-medium text-slate-700">WABA id</span>
+                                <Input
+                                  value={form.wabaId}
+                                  onChange={updateField("wabaId")}
+                                  className="h-11 rounded-xl"
+                                  placeholder="987654321098765"
+                                />
+                              </label>
+                            </div>
+
+                            {!isCredentialStepValid ? (
+                              <div className="rounded-[1.25rem] border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                                Para continuar, completa access token, phone number id y WABA id.
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null}
                       </div>
-                    ) : null}
-
-                    <div className="rounded-[1.25rem] border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900">
-                      Antes de probar, manda primero un mensaje al numero oficial.
-                    </div>
-
-                    <label className="block space-y-1.5">
-                      <span className="text-sm font-medium text-slate-700">Numero destino de prueba</span>
-                      <Input
-                        value={testRecipient}
-                        onChange={(event) => setTestRecipient(event.target.value)}
-                        className="h-11 rounded-xl"
-                        placeholder="573001112233"
-                      />
-                      <p className="text-xs leading-5 text-slate-500">
-                        Usa formato internacional. Ejemplo: 573001112233.
-                      </p>
-                    </label>
-
-                    <label className="block space-y-1.5">
-                      <span className="text-sm font-medium text-slate-700">Mensaje de prueba</span>
-                      <textarea
-                        rows={4}
-                        value={testMessage}
-                        onChange={(event) => setTestMessage(event.target.value)}
-                        className="w-full rounded-[20px] border border-[var(--line)] bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-[var(--primary)]"
-                        placeholder="Escribe el mensaje de prueba"
-                      />
-                    </label>
-
-                    <div className="flex flex-wrap items-center gap-3">
-                      <Button
-                        type="button"
-                        className="h-10 rounded-xl px-4"
-                        onClick={handleSendTestMessage}
-                        disabled={
-                          isTestingMessage ||
-                          !form.accessToken.trim() ||
-                          !form.phoneNumberId.trim() ||
-                          !form.wabaId.trim() ||
-                          !testRecipient.trim() ||
-                          !testMessage.trim()
-                        }
-                      >
-                        {isTestingMessage ? "Probando..." : "Probar envio"}
-                      </Button>
-
-                      {!form.accessToken.trim() || !form.phoneNumberId.trim() || !form.wabaId.trim() ? (
-                        <span className="text-xs text-amber-700">
-                          Completa primero Access Token, Phone Number ID y WABA ID.
-                        </span>
-                      ) : null}
-                    </div>
-
-                    {testMessageResult ? (
-                      <div
-                        className={`rounded-[1.25rem] border p-4 text-sm ${
-                          testMessageResult.ok
-                            ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                            : "border-rose-200 bg-rose-50 text-rose-800"
-                        }`}
-                      >
-                        <div className="flex items-start gap-3">
-                          {testMessageResult.ok ? (
-                            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-                          ) : (
-                            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                          )}
-                          <span>{testMessageResult.message}</span>
-                        </div>
-                      </div>
-                    ) : null}
-
-                    <label className="block space-y-1.5">
-                      <span className="text-sm font-medium text-slate-700">Access token</span>
-                      <textarea
-                        rows={6}
-                        value={form.accessToken}
-                        onChange={updateField("accessToken")}
-                        className="w-full rounded-[20px] border border-[var(--line)] bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-[var(--primary)]"
-                        placeholder="EAAG..."
-                      />
-                    </label>
-
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <label className="block space-y-1.5">
-                        <span className="text-sm font-medium text-slate-700">Phone number id</span>
-                        <Input
-                          value={form.phoneNumberId}
-                          onChange={updateField("phoneNumberId")}
-                          className="h-11 rounded-xl"
-                          placeholder="123456789012345"
-                        />
-                      </label>
-
-                      <label className="block space-y-1.5">
-                        <span className="text-sm font-medium text-slate-700">WABA id</span>
-                        <Input
-                          value={form.wabaId}
-                          onChange={updateField("wabaId")}
-                          className="h-11 rounded-xl"
-                          placeholder="987654321098765"
-                        />
-                      </label>
-                    </div>
-
-                    {!isCredentialStepValid ? (
-                      <div className="rounded-[1.25rem] border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-                        Para continuar, completa access token, phone number id y WABA id.
-                      </div>
-                    ) : null}
+                    ))}
                   </div>
                 </div>
 
-                <div className="rounded-[1.25rem] border border-[var(--line)] bg-slate-50 p-5">
-                  <p className="text-sm font-semibold text-slate-900">Datos cargados</p>
-                  <div className="mt-4 grid gap-3">
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Cliente</p>
-                      <p className="mt-1 text-sm text-slate-700">{user.name || user.email}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Workspace</p>
-                      <p className="mt-1 text-sm text-slate-700">{workspace.name}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Estado esperado</p>
-                      <p className="mt-1 text-sm text-slate-700">
-                        {workspace.officialApiConfig?.status === "CONNECTED"
-                          ? "Se actualizara la configuracion actual"
-                          : "Se guardara la primera configuracion de este cliente"}
-                      </p>
-                    </div>
-                  </div>
-                </div>
               </div>
             ) : null}
 
