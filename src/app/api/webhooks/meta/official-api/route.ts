@@ -2,7 +2,11 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { resolveOfficialApiAutomationReply } from "@/lib/official-api-chatbot";
-import { sendOfficialApiTextMessage } from "@/lib/official-api-messaging";
+import {
+  sendOfficialApiImageMessage,
+  sendOfficialApiTextMessage,
+  sendOfficialApiTypingIndicator,
+} from "@/lib/official-api-messaging";
 import { prisma } from "@/lib/prisma";
 import { ensureOfficialApiConfigTable } from "@/lib/official-api-config";
 
@@ -307,6 +311,7 @@ async function syncInboundMessages(configId: string, payload: MetaWebhookPayload
     contactId: string;
     waId: string;
     content: string | null;
+    inboundExternalMessageId: string;
   }> = [];
 
   for (const message of inboundMessages) {
@@ -447,6 +452,7 @@ async function syncInboundMessages(configId: string, payload: MetaWebhookPayload
       contactId: contact.id,
       waId: message.waId,
       content: message.content,
+      inboundExternalMessageId: message.id,
     });
   }
 
@@ -559,18 +565,89 @@ export async function POST(request: Request) {
         inboundText: message.content,
       });
 
-      if (!reply?.trim()) {
+      if (!reply || (!reply.image && !reply.text?.trim())) {
         continue;
       }
 
-      await sendOfficialApiTextMessage({
-        config,
-        conversationId: message.conversationId,
-        contactId: message.contactId,
-        to: message.waId,
-        message: reply,
-        source: "automation",
-      });
+      try {
+        const typingResult = await sendOfficialApiTypingIndicator({
+          config,
+          to: message.waId,
+          inboundMessageId: message.inboundExternalMessageId,
+          delayMs: 900,
+        });
+        if (!typingResult.ok) {
+          console.warn("[official-api] typing indicator failed, continuing flow", {
+            configId: config.id,
+            conversationId: message.conversationId,
+            contactId: message.contactId,
+            error: typingResult.error,
+          });
+        }
+      } catch {
+        console.warn("[official-api] typing indicator threw error, continuing flow", {
+          configId: config.id,
+          conversationId: message.conversationId,
+          contactId: message.contactId,
+        });
+      }
+
+      const primaryText = reply.text?.trim() || "";
+      if (primaryText) {
+        await sendOfficialApiTextMessage({
+          config,
+          conversationId: message.conversationId,
+          contactId: message.contactId,
+          to: message.waId,
+          message: primaryText,
+          source: "automation",
+        });
+      }
+
+      let imageSent = false;
+      if (reply.image?.url) {
+        try {
+          const imageResult = await sendOfficialApiImageMessage({
+            config,
+            conversationId: message.conversationId,
+            contactId: message.contactId,
+            to: message.waId,
+            imageUrl: reply.image.url,
+            caption: reply.image.caption,
+            source: "automation",
+          });
+          imageSent = imageResult.ok;
+          if (!imageResult.ok) {
+            console.warn("[official-api] image node failed, continuing flow", {
+              configId: config.id,
+              conversationId: message.conversationId,
+              contactId: message.contactId,
+              error: imageResult.error,
+            });
+          }
+        } catch {
+          imageSent = false;
+          console.warn("[official-api] image node threw error, continuing flow", {
+            configId: config.id,
+            conversationId: message.conversationId,
+            contactId: message.contactId,
+          });
+        }
+      }
+
+      if (!primaryText && !imageSent) {
+        const fallbackCaptionText = reply.image?.caption?.trim() || "";
+        if (fallbackCaptionText) {
+          await sendOfficialApiTextMessage({
+            config,
+            conversationId: message.conversationId,
+            contactId: message.contactId,
+            to: message.waId,
+            message: fallbackCaptionText,
+            source: "automation",
+          });
+        }
+      }
     }
 
     await storeWebhookEvent({

@@ -34,10 +34,10 @@ const builderSchema = z.object({
     z.array(
       z.object({
         id: z.string().trim().min(1).max(120),
-        kind: z.enum(["trigger", "message", "input", "condition", "action"]),
+        kind: z.enum(["trigger", "message", "image", "input", "condition", "action"]),
         title: z.string().trim().min(1).max(120),
         body: z.string().trim().max(4096),
-        meta: z.string().trim().max(255),
+        meta: z.string().trim().max(2048),
       }),
     ).min(1),
   ),

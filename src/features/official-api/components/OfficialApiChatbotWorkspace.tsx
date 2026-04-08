@@ -7,10 +7,12 @@ import {
   X,
   Clock3,
   Copy,
+  Image as ImageIcon,
   FileText,
   MessageSquarePlus,
   MoreVertical,
   Inbox,
+  Upload,
   Plus,
   Save,
   Settings2,
@@ -86,12 +88,18 @@ type EdgeAppearance = {
 };
 
 function ChatbotFlowNode({ data, selected }: NodeProps<Node<FlowNodeData>>) {
-  const preview = data.body.trim() || "Sin contenido aun.";
+  const preview = data.kind === "image"
+    ? (data.body.trim() || data.meta.trim() || "Sin contenido aun.")
+    : (data.body.trim() || "Sin contenido aun.");
+  const imageUrl = data.kind === "image" && isLikelyDirectImageUrl(data.meta) ? data.meta.trim() : "";
+  const imageCaption = data.kind === "image" ? data.body.trim() : "";
   const headerIcon =
     data.kind === "trigger" ? (
       <Rocket className="h-4 w-4 text-blue-600" />
     ) : data.kind === "message" ? (
       <MessageSquarePlus className="h-4 w-4 text-sky-600" />
+    ) : data.kind === "image" ? (
+      <ImageIcon className="h-4 w-4 text-indigo-600" />
     ) : data.kind === "input" ? (
       <UserRound className="h-4 w-4 text-emerald-600" />
     ) : data.kind === "condition" ? (
@@ -123,7 +131,22 @@ function ChatbotFlowNode({ data, selected }: NodeProps<Node<FlowNodeData>>) {
           <BaseNodeHeaderTitle className="truncate">{data.title}</BaseNodeHeaderTitle>
         </BaseNodeHeader>
         <BaseNodeContent>
-          <p className="line-clamp-4 whitespace-pre-line text-sm leading-5 text-slate-700">{preview}</p>
+          {data.kind === "image" && imageUrl ? (
+            <div className="space-y-2">
+              <div className="overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+                <img
+                  src={imageUrl}
+                  alt="Vista previa de imagen del nodo"
+                  className="h-36 w-full object-cover"
+                />
+              </div>
+              {imageCaption ? (
+                <p className="line-clamp-3 whitespace-pre-line text-sm leading-5 text-slate-700">{imageCaption}</p>
+              ) : null}
+            </div>
+          ) : (
+            <p className="line-clamp-4 whitespace-pre-line text-sm leading-5 text-slate-700">{preview}</p>
+          )}
         </BaseNodeContent>
         <BaseNodeFooter>
           <p className="truncate text-xs text-slate-500">
@@ -159,6 +182,15 @@ const PROXIMITY_DISTANCE_PX = 220;
 
 function getDistance(a: { x: number; y: number }, b: { x: number; y: number }) {
   return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function isLikelyDirectImageUrl(value: string) {
+  const trimmed = value.trim();
+  if (!/^https?:\/\/\S+$/i.test(trimmed)) {
+    return false;
+  }
+
+  return /\.(png|jpe?g|webp|gif|bmp|svg)(\?.*)?$/i.test(trimmed);
 }
 
 function getClosestNodeByProximity(input: {
@@ -435,6 +467,13 @@ const blockLibrary = [
     style: "bg-sky-50 text-sky-700 ring-sky-200",
   },
   {
+    id: "image",
+    title: "Enviar imagen",
+    description: "Comparte una imagen del producto con contexto.",
+    icon: ImageIcon,
+    style: "bg-indigo-50 text-indigo-700 ring-indigo-200",
+  },
+  {
     id: "input",
     title: "Captura",
     description: "Nombre, ciudad, producto o presupuesto.",
@@ -537,6 +576,8 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
   const [isBlockLibraryOpen, setIsBlockLibraryOpen] = useState(false);
   const [isCreatingWorkflow, setIsCreatingWorkflow] = useState(false);
   const [newWorkflowTitle, setNewWorkflowTitle] = useState("");
+  const [isUploadingNodeImage, setIsUploadingNodeImage] = useState(false);
+  const [nodeImageUploadError, setNodeImageUploadError] = useState("");
   const [openMenuScenarioId, setOpenMenuScenarioId] = useState("");
   const [scenarioPendingDelete, setScenarioPendingDelete] = useState<OfficialApiChatbotScenario | null>(null);
   const [isNodeEditorOpen, setIsNodeEditorOpen] = useState(false);
@@ -556,6 +597,9 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
   const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastAutoSavedSnapshotRef = useRef("");
   const autoSaveScenarioIdRef = useRef("");
+  const nodeImageInputRef = useRef<HTMLInputElement | null>(null);
+  const blockLibraryButtonRef = useRef<HTMLButtonElement | null>(null);
+  const blockLibraryPanelRef = useRef<HTMLDivElement | null>(null);
 
   const hasWorkflows = scenarios.length > 0;
   const selectedScenario = scenarios.find((scenario) => scenario.id === selectedScenarioId);
@@ -568,6 +612,8 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
     () => nodes.find((node) => node.id === selectedNodeId) ?? nodes[0] ?? null,
     [nodes, selectedNodeId],
   );
+  const selectedImageUrl = selectedNode?.kind === "image" ? selectedNode.meta.trim() : "";
+  const hasInvalidImageUrl = selectedNode?.kind === "image" && selectedImageUrl.length > 0 && !isLikelyDirectImageUrl(selectedImageUrl);
   const openNodeEditor = useCallback((nodeId: string) => {
     const node = nodes.find((item) => item.id === nodeId);
     if (node?.kind === "trigger") {
@@ -688,6 +734,12 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
         kind: "message",
         title: "Enviar mensaje",
         body: "Escribe aqui la respuesta del bot.",
+        meta: "",
+      },
+      image: {
+        kind: "image",
+        title: "Enviar imagen",
+        body: "",
         meta: "",
       },
       input: {
@@ -1079,6 +1131,44 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
     });
   }
 
+  async function handleNodeImageFileSelected(file: File | null) {
+    if (!file || !selectedNode || selectedNode.kind !== "image") {
+      return;
+    }
+
+    setNodeImageUploadError("");
+    setIsUploadingNodeImage(true);
+    try {
+      const formData = new FormData();
+      formData.append("image", file);
+
+      const response = await fetch("/api/cliente/api-oficial/chatbot/upload-image", {
+        method: "POST",
+        body: formData,
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | { ok?: boolean; url?: string; error?: string }
+        | null;
+
+      if (!response.ok || !payload?.ok || !payload.url) {
+        throw new Error(payload?.error || "No se pudo subir la imagen.");
+      }
+
+      updateNode(selectedNode.id, { meta: payload.url });
+      toast.success("Imagen subida", {
+        description: "La URL quedo cargada en el nodo.",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No se pudo subir la imagen.";
+      setNodeImageUploadError(message);
+      toast.error("Error al subir imagen", {
+        description: message,
+      });
+    } finally {
+      setIsUploadingNodeImage(false);
+    }
+  }
+
   useEffect(() => {
     return () => {
       if (autoSaveTimeoutRef.current) {
@@ -1086,6 +1176,42 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (!isBlockLibraryOpen) {
+      return;
+    }
+
+    function handlePointerDown(event: globalThis.MouseEvent) {
+      const target = event.target as globalThis.Node | null;
+      if (!target) {
+        return;
+      }
+
+      if (blockLibraryPanelRef.current?.contains(target)) {
+        return;
+      }
+
+      if (blockLibraryButtonRef.current?.contains(target)) {
+        return;
+      }
+
+      setIsBlockLibraryOpen(false);
+    }
+
+    function handleKeyDown(event: globalThis.KeyboardEvent) {
+      if (event.key === "Escape") {
+        setIsBlockLibraryOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isBlockLibraryOpen]);
 
   useEffect(() => {
     if (!hasSelectedFlow || !selectedScenarioId) {
@@ -1335,6 +1461,7 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
                   <div className="pointer-events-auto absolute right-4 top-4 z-20">
                     <div className="relative">
                       <Button
+                        ref={blockLibraryButtonRef}
                         type="button"
                         variant="default"
                         aria-label={isBlockLibraryOpen ? "Cerrar lista de nodos" : "Agregar nodo"}
@@ -1345,7 +1472,10 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
                         <Plus className="h-5 w-5 font-bold" strokeWidth={3.2} />
                       </Button>
                       {isBlockLibraryOpen ? (
-                        <div className="absolute right-0 top-11 z-20 w-64 overflow-hidden rounded-xl border border-slate-200 bg-white py-2 shadow-[0_22px_48px_-30px_rgba(15,23,42,0.35)]">
+                        <div
+                          ref={blockLibraryPanelRef}
+                          className="absolute right-0 top-11 z-20 w-64 overflow-hidden rounded-xl border border-slate-200 bg-white py-2 shadow-[0_22px_48px_-30px_rgba(15,23,42,0.35)]"
+                        >
                           <p className="px-3 pb-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
                             Agregar nodo
                           </p>
@@ -1642,15 +1772,72 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
                 </div>
               </div>
               <div className="space-y-4 px-6 py-5">
-                <label className="block space-y-2">
-                  <span className="text-sm font-medium text-slate-900">Contenido</span>
-                  <textarea
-                    value={selectedNode.body}
-                    onChange={(event) => updateNode(selectedNode.id, { body: event.target.value })}
-                    className="field-textarea min-h-32"
-                    placeholder="Contenido del nodo"
-                  />
-                </label>
+                {selectedNode.kind === "image" ? (
+                  <>
+                    <label className="block space-y-2">
+                      <span className="text-sm font-medium text-slate-900">URL de imagen</span>
+                      <Input
+                        value={selectedNode.meta}
+                        onChange={(event) => updateNode(selectedNode.id, { meta: event.target.value })}
+                        placeholder="https://..."
+                      />
+                      {hasInvalidImageUrl ? (
+                        <p className="text-xs text-amber-600">
+                          Usa una URL directa de imagen (`.jpg`, `.png`, `.webp`, etc.) para evitar fallos al enviar.
+                        </p>
+                      ) : (
+                        <p className="text-xs text-slate-500">
+                          Debe ser enlace directo de imagen publica.
+                        </p>
+                      )}
+                    </label>
+                    <div className="space-y-2">
+                      <Input
+                        ref={nodeImageInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(event) => {
+                          const file = event.currentTarget.files?.[0] ?? null;
+                          void handleNodeImageFileSelected(file);
+                          event.currentTarget.value = "";
+                        }}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="inline-flex items-center gap-2"
+                        disabled={isUploadingNodeImage}
+                        onClick={() => nodeImageInputRef.current?.click()}
+                      >
+                        <Upload className="h-4 w-4" />
+                        {isUploadingNodeImage ? "Subiendo..." : "Subir imagen"}
+                      </Button>
+                      {nodeImageUploadError ? (
+                        <p className="text-xs text-rose-600">{nodeImageUploadError}</p>
+                      ) : null}
+                    </div>
+                    <label className="block space-y-2">
+                      <span className="text-sm font-medium text-slate-900">Texto (opcional)</span>
+                      <textarea
+                        value={selectedNode.body}
+                        onChange={(event) => updateNode(selectedNode.id, { body: event.target.value })}
+                        className="field-textarea min-h-28"
+                        placeholder="Si lo dejas vacio, la imagen se envia sin texto."
+                      />
+                    </label>
+                  </>
+                ) : (
+                  <label className="block space-y-2">
+                    <span className="text-sm font-medium text-slate-900">Contenido</span>
+                    <textarea
+                      value={selectedNode.body}
+                      onChange={(event) => updateNode(selectedNode.id, { body: event.target.value })}
+                      className="field-textarea min-h-32"
+                      placeholder="Contenido del nodo"
+                    />
+                  </label>
+                )}
                 {selectedNode.kind === "condition" ? (
                   <label className="block space-y-2">
                     <span className="text-sm font-medium text-slate-900">Meta / keywords</span>

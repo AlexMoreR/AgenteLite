@@ -35,6 +35,14 @@ export type StoredOfficialApiAutomationRule = {
   status: "DRAFT" | "ACTIVE" | "PAUSED";
 };
 
+export type OfficialApiAutomationReply = {
+  text: string | null;
+  image: {
+    url: string;
+    caption: string | null;
+  } | null;
+};
+
 const BUILDER_RULE_NAME = "__builder_config__";
 const WELCOME_RULE_NAME = "__welcome__";
 const AFTER_HOURS_RULE_NAME = "__after_hours__";
@@ -298,6 +306,9 @@ function selectRuntimeNodes(state: OfficialApiChatbotBuilderState) {
   const handoffNode =
     orderedNodes.find((node) => node.id === "handoff" || node.kind === "action") ??
     activeNodes.find((node) => node.id === "handoff" || node.kind === "action");
+  const imageNode =
+    orderedNodes.find((node) => node.kind === "image") ??
+    activeNodes.find((node) => node.kind === "image");
 
   return {
     welcomeNode,
@@ -306,6 +317,7 @@ function selectRuntimeNodes(state: OfficialApiChatbotBuilderState) {
     replyNode,
     captureNode,
     handoffNode,
+    imageNode,
   };
 }
 
@@ -609,11 +621,15 @@ function extractKeywords(triggerText: string | null) {
     .filter(Boolean);
 }
 
+function isValidHttpUrl(value: string) {
+  return /^https?:\/\/\S+$/i.test(value.trim());
+}
+
 export async function resolveOfficialApiAutomationReply(input: {
   configId: string;
   conversationId: string;
   inboundText: string | null;
-}): Promise<string | null> {
+}): Promise<OfficialApiAutomationReply | null> {
   const state = await getOfficialApiChatbotBuilderState(input.configId);
   if (!state.isBotEnabled) {
     return null;
@@ -622,6 +638,7 @@ export async function resolveOfficialApiAutomationReply(input: {
   const rules = await listOfficialApiAutomationRules(input.configId);
   const activeRules = rules.filter((rule) => rule.status === "ACTIVE");
   const normalizedInbound = normalizeText(input.inboundText ?? "");
+  const activeNodes = getActiveScenarioNodes(state);
 
   const inboundCountRows = await prisma.$queryRaw<Array<{ total: bigint | number }>>`
     SELECT COUNT(*) AS "total"
@@ -634,16 +651,41 @@ export async function resolveOfficialApiAutomationReply(input: {
   const welcomeRule = activeRules.find((rule) => rule.name === WELCOME_RULE_NAME);
   const afterHoursRule = activeRules.find((rule) => rule.name === AFTER_HOURS_RULE_NAME);
   const fallbackRule = activeRules.find((rule) => rule.isFallback);
-  const { welcomeNode, fallbackNode, replyNode, routerNode } = selectRuntimeNodes(state);
+  const { welcomeNode, fallbackNode, replyNode, routerNode, imageNode } = selectRuntimeNodes(state);
+  const imageMeta = imageNode?.meta?.trim() || "";
+  const imageBody = imageNode?.body?.trim() || "";
+  const imageUrl = imageMeta || (isValidHttpUrl(imageBody) ? imageBody : "");
+  const imageCaption = imageBody && imageBody !== imageUrl ? imageBody : null;
+  const imageReply =
+    imageUrl && isValidHttpUrl(imageUrl)
+      ? {
+          url: imageUrl,
+          caption: imageCaption,
+        }
+      : null;
+  const buildReply = (text: string | null): OfficialApiAutomationReply => {
+    const normalizedText = text?.trim() || null;
+    const shouldSkipTextBecauseCaptionMatches =
+      Boolean(normalizedText) &&
+      Boolean(imageReply?.caption) &&
+      normalizedText === imageReply?.caption;
+
+    return {
+      text: shouldSkipTextBecauseCaptionMatches ? null : normalizedText,
+      image: imageReply,
+    };
+  };
   const directReply = replyNode?.body?.trim() || "";
   const hasRouterKeywords = Boolean(routerNode?.meta?.trim());
   const shouldReplyDirectly = Boolean(directReply) && !hasRouterKeywords;
 
   if (shouldReplyDirectly) {
     const welcomeText = welcomeNode?.body?.trim() || "";
-    return inboundCount <= 1 && welcomeText
-      ? `${welcomeText}\n\n${directReply}`
-      : directReply;
+    return buildReply(
+      inboundCount <= 1 && welcomeText
+        ? `${welcomeText}\n\n${directReply}`
+        : directReply,
+    );
   }
 
   const matchedRule = activeRules.find((rule) => {
@@ -657,26 +699,40 @@ export async function resolveOfficialApiAutomationReply(input: {
   if (matchedRule?.responseText) {
     const matchedReply = replyNode?.body?.trim() || matchedRule.responseText;
     const welcomeText = welcomeNode?.body?.trim() || welcomeRule?.responseText;
-    return inboundCount <= 1 && welcomeText
-      ? `${welcomeText}\n\n${matchedReply}`
-      : matchedReply;
+    return buildReply(
+      inboundCount <= 1 && welcomeText
+        ? `${welcomeText}\n\n${matchedReply}`
+        : matchedReply,
+    );
   }
 
   if (isOutsideBusinessHours(state.businessHours) && afterHoursRule?.responseText) {
     const afterHoursReply = normalizeAfterHoursReply(afterHoursRule.responseText);
     const welcomeText = welcomeNode?.body?.trim() || welcomeRule?.responseText;
-    return inboundCount <= 1 && welcomeText
-      ? `${welcomeText}\n\n${afterHoursReply}`
-      : afterHoursReply;
+    return buildReply(
+      inboundCount <= 1 && welcomeText
+        ? `${welcomeText}\n\n${afterHoursReply}`
+        : afterHoursReply,
+    );
   }
 
   if (fallbackRule?.responseText || fallbackNode?.body?.trim()) {
     const fallbackReply = fallbackNode?.body?.trim() || fallbackRule?.responseText || "";
     const welcomeText = welcomeNode?.body?.trim() || welcomeRule?.responseText;
-    return inboundCount <= 1 && welcomeText
-      ? `${welcomeText}\n\n${fallbackReply}`
-      : fallbackReply;
+    return buildReply(
+      inboundCount <= 1 && welcomeText
+        ? `${welcomeText}\n\n${fallbackReply}`
+        : fallbackReply,
+    );
   }
 
-  return inboundCount <= 1 ? welcomeNode?.body?.trim() || welcomeRule?.responseText || null : null;
+  const fallbackMessageNode =
+    activeNodes.find((node) => node.kind === "message" && node.body.trim())?.body?.trim() || null;
+  const finalText = inboundCount <= 1
+    ? welcomeNode?.body?.trim() || welcomeRule?.responseText || fallbackMessageNode
+    : fallbackMessageNode;
+  if (!finalText && !imageReply) {
+    return null;
+  }
+  return buildReply(finalText);
 }

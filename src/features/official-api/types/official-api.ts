@@ -124,7 +124,7 @@ export type OfficialApiChatbotChecklistItem = {
 
 export type OfficialApiChatbotBuilderNode = {
   id: string;
-  kind: "trigger" | "message" | "input" | "condition" | "action";
+  kind: "trigger" | "message" | "image" | "input" | "condition" | "action";
   title: string;
   body: string;
   meta: string;
