@@ -17,6 +17,7 @@ export type OfficialApiChatbotBuilderState = {
   captureLeadEnabled: boolean;
   handoffEnabled: boolean;
   fallbackEnabled: boolean;
+  replyEveryMessageEnabled: boolean;
   selectedScenarioId: string;
   scenarios: OfficialApiChatbotScenario[];
   nodesByScenarioId: OfficialApiChatbotNodesByScenarioId;
@@ -120,6 +121,7 @@ const defaultBuilderState: OfficialApiChatbotBuilderState = {
   captureLeadEnabled: true,
   handoffEnabled: true,
   fallbackEnabled: true,
+  replyEveryMessageEnabled: false,
   selectedScenarioId: "",
   scenarios: [],
   nodesByScenarioId: {},
@@ -680,6 +682,9 @@ export async function resolveOfficialApiAutomationReply(input: {
   const shouldReplyDirectly = Boolean(directReply) && !hasRouterKeywords;
 
   if (shouldReplyDirectly) {
+    if (!state.replyEveryMessageEnabled && inboundCount > 1) {
+      return null;
+    }
     const welcomeText = welcomeNode?.body?.trim() || "";
     return buildReply(
       inboundCount <= 1 && welcomeText
@@ -730,7 +735,7 @@ export async function resolveOfficialApiAutomationReply(input: {
     activeNodes.find((node) => node.kind === "message" && node.body.trim())?.body?.trim() || null;
   const finalText = inboundCount <= 1
     ? welcomeNode?.body?.trim() || welcomeRule?.responseText || fallbackMessageNode
-    : fallbackMessageNode;
+    : null;
   if (!finalText && !imageReply) {
     return null;
   }

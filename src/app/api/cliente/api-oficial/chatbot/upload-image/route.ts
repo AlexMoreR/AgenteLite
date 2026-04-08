@@ -6,14 +6,32 @@ import { auth } from "@/auth";
 import { canAccessOfficialApiModule } from "@/lib/admin-module-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
-const MAX_FILE_SIZE_BYTES = 8 * 1024 * 1024;
-const ALLOWED_IMAGE_MIME_TYPES = new Set([
+const MAX_FILE_SIZE_BYTES = 16 * 1024 * 1024;
+const ALLOWED_MEDIA_MIME_TYPES = new Set([
   "image/jpeg",
   "image/jpg",
   "image/png",
   "image/webp",
   "image/gif",
   "image/bmp",
+  "audio/mpeg",
+  "audio/mp3",
+  "audio/ogg",
+  "audio/opus",
+  "audio/wav",
+  "audio/x-wav",
+  "audio/webm",
+  "video/mp4",
+  "video/webm",
+  "video/quicktime",
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "text/plain",
 ]);
 
 function getBaseUrl(request: Request) {
@@ -33,7 +51,7 @@ function getBaseUrl(request: Request) {
   return process.env.NEXT_PUBLIC_APP_URL?.trim() || "";
 }
 
-function getSafeImageExtension(fileName: string) {
+function getSafeMediaExtension(fileName: string) {
   const ext = path.extname(fileName).toLowerCase();
   if (ext === ".jpeg" || ext === ".jpg") {
     return ".jpg";
@@ -50,7 +68,52 @@ function getSafeImageExtension(fileName: string) {
   if (ext === ".bmp") {
     return ".bmp";
   }
-  return ".jpg";
+  if (ext === ".mp3") {
+    return ".mp3";
+  }
+  if (ext === ".ogg") {
+    return ".ogg";
+  }
+  if (ext === ".opus") {
+    return ".opus";
+  }
+  if (ext === ".wav") {
+    return ".wav";
+  }
+  if (ext === ".webm") {
+    return ".webm";
+  }
+  if (ext === ".mp4") {
+    return ".mp4";
+  }
+  if (ext === ".mov") {
+    return ".mov";
+  }
+  if (ext === ".pdf") {
+    return ".pdf";
+  }
+  if (ext === ".doc") {
+    return ".doc";
+  }
+  if (ext === ".docx") {
+    return ".docx";
+  }
+  if (ext === ".xls") {
+    return ".xls";
+  }
+  if (ext === ".xlsx") {
+    return ".xlsx";
+  }
+  if (ext === ".ppt") {
+    return ".ppt";
+  }
+  if (ext === ".pptx") {
+    return ".pptx";
+  }
+  if (ext === ".txt") {
+    return ".txt";
+  }
+  return ".bin";
 }
 
 export async function POST(request: Request) {
@@ -68,23 +131,23 @@ export async function POST(request: Request) {
   }
 
   const formData = await request.formData().catch(() => null);
-  const file = formData?.get("image");
+  const file = formData?.get("file") ?? formData?.get("image");
   if (!(file instanceof File)) {
-    return NextResponse.json({ ok: false, error: "No se recibio ninguna imagen." }, { status: 400 });
+    return NextResponse.json({ ok: false, error: "No se recibio ningun archivo." }, { status: 400 });
   }
 
-  if (!ALLOWED_IMAGE_MIME_TYPES.has(file.type)) {
-    return NextResponse.json({ ok: false, error: "Formato no permitido. Usa JPG, PNG, WEBP, GIF o BMP." }, { status: 400 });
+  if (!ALLOWED_MEDIA_MIME_TYPES.has(file.type)) {
+    return NextResponse.json({ ok: false, error: "Formato no permitido para este nodo." }, { status: 400 });
   }
 
   if (file.size <= 0 || file.size > MAX_FILE_SIZE_BYTES) {
-    return NextResponse.json({ ok: false, error: "La imagen debe pesar entre 1 byte y 8 MB." }, { status: 400 });
+    return NextResponse.json({ ok: false, error: "El archivo debe pesar entre 1 byte y 16 MB." }, { status: 400 });
   }
 
   const uploadDir = path.join(process.cwd(), "public", "uploads", "official-api-chatbot");
   await mkdir(uploadDir, { recursive: true });
 
-  const ext = getSafeImageExtension(file.name);
+  const ext = getSafeMediaExtension(file.name);
   const fileName = `${Date.now()}-${randomUUID()}${ext}`;
   const filePath = path.join(uploadDir, fileName);
   const bytes = Buffer.from(await file.arrayBuffer());

@@ -29,9 +29,9 @@ export function OfficialApiPanelShell({
       icon: MessageSquareText,
     },
     {
-      key: "chatbot",
-      label: "Chatbot",
-      href: `${basePath}/chatbot`,
+      key: "flujos",
+      label: "Flujos",
+      href: `${basePath}/flujos`,
       icon: Bot,
     },
   ];
@@ -42,8 +42,8 @@ export function OfficialApiPanelShell({
         <nav className="flex min-w-max items-center gap-1.5 rounded-[20px] border border-[rgba(148,163,184,0.14)] bg-white p-2 shadow-[0_12px_30px_-26px_rgba(15,23,42,0.14)]">
           {tabs.map((tab) => {
             const active =
-              tab.key === "chatbot"
-                ? pathname.startsWith(`${basePath}/chatbot`)
+              tab.key === "flujos"
+                ? pathname.startsWith(`${basePath}/flujos`) || pathname.startsWith(`${basePath}/chatbot`)
                 : tab.key === "chats"
                   ? pathname.startsWith(`${basePath}/chats`)
                   : pathname === tab.href;

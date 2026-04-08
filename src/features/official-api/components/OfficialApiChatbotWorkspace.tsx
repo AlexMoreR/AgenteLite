@@ -8,6 +8,11 @@ import {
   Clock3,
   Copy,
   Image as ImageIcon,
+  AudioLines,
+  Video,
+  File,
+  ChevronLeft,
+  ChevronRight,
   FileText,
   MessageSquarePlus,
   MoreVertical,
@@ -100,6 +105,12 @@ function ChatbotFlowNode({ data, selected }: NodeProps<Node<FlowNodeData>>) {
       <MessageSquarePlus className="h-4 w-4 text-sky-600" />
     ) : data.kind === "image" ? (
       <ImageIcon className="h-4 w-4 text-indigo-600" />
+    ) : data.kind === "audio" ? (
+      <AudioLines className="h-4 w-4 text-fuchsia-600" />
+    ) : data.kind === "video" ? (
+      <Video className="h-4 w-4 text-rose-600" />
+    ) : data.kind === "document" ? (
+      <File className="h-4 w-4 text-violet-600" />
     ) : data.kind === "input" ? (
       <UserRound className="h-4 w-4 text-emerald-600" />
     ) : data.kind === "condition" ? (
@@ -191,6 +202,36 @@ function isLikelyDirectImageUrl(value: string) {
   }
 
   return /\.(png|jpe?g|webp|gif|bmp|svg)(\?.*)?$/i.test(trimmed);
+}
+
+function isUploadableNodeKind(kind: BuilderNode["kind"]): kind is "image" | "audio" | "video" | "document" {
+  return kind === "image" || kind === "audio" || kind === "video" || kind === "document";
+}
+
+function getUploadAcceptByKind(kind: "image" | "audio" | "video" | "document") {
+  if (kind === "image") {
+    return "image/*";
+  }
+  if (kind === "audio") {
+    return "audio/*";
+  }
+  if (kind === "video") {
+    return "video/*";
+  }
+  return ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+}
+
+function getUploadLabelByKind(kind: "image" | "audio" | "video" | "document") {
+  if (kind === "image") {
+    return "imagen";
+  }
+  if (kind === "audio") {
+    return "audio";
+  }
+  if (kind === "video") {
+    return "video";
+  }
+  return "documento";
 }
 
 function getClosestNodeByProximity(input: {
@@ -364,9 +405,6 @@ function ChatbotFlowCanvas({
         if (target?.closest(".react-flow__handle")) {
           return;
         }
-        if (node.data?.kind === "trigger") {
-          return;
-        }
         onNodeOpen(node.id);
       }}
       defaultViewport={{ x: 0, y: 0, zoom: 1 }}
@@ -390,9 +428,9 @@ function ChatbotFlowCanvas({
     >
       <Background
         variant={BackgroundVariant.Dots}
-        color="rgba(148,163,184,0.9)"
-        gap={24}
-        size={1.6}
+        color="rgba(100,116,139,0.35)"
+        gap={22}
+        size={1.7}
       />
       <Controls position="bottom-right" />
     </ReactFlow>
@@ -458,21 +496,45 @@ function normalizeScenarioEdges(nodes: BuilderNode[], inputEdges: BuilderEdge[] 
   return buildSequentialEdges(nodes);
 }
 
-const blockLibrary = [
+const sendBlockLibrary = [
   {
     id: "message",
-    title: "Mensaje",
+    title: "Texto",
     description: "Texto, saludo o respuesta corta.",
     icon: MessageSquarePlus,
     style: "bg-sky-50 text-sky-700 ring-sky-200",
   },
   {
     id: "image",
-    title: "Enviar imagen",
+    title: "Imagen",
     description: "Comparte una imagen del producto con contexto.",
     icon: ImageIcon,
     style: "bg-indigo-50 text-indigo-700 ring-indigo-200",
   },
+  {
+    id: "audio",
+    title: "Audio",
+    description: "Envia una nota de voz o audio por URL.",
+    icon: AudioLines,
+    style: "bg-fuchsia-50 text-fuchsia-700 ring-fuchsia-200",
+  },
+  {
+    id: "video",
+    title: "Video",
+    description: "Envia un video por URL publica.",
+    icon: Video,
+    style: "bg-rose-50 text-rose-700 ring-rose-200",
+  },
+  {
+    id: "document",
+    title: "Documento",
+    description: "Envia un PDF o documento por URL.",
+    icon: File,
+    style: "bg-violet-50 text-violet-700 ring-violet-200",
+  },
+] as const;
+
+const blockLibrary = [
   {
     id: "input",
     title: "Captura",
@@ -564,6 +626,7 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
   const [captureLeadEnabled, setCaptureLeadEnabled] = useState(data.defaults.captureLeadEnabled);
   const [handoffEnabled, setHandoffEnabled] = useState(data.defaults.handoffEnabled);
   const [fallbackEnabled, setFallbackEnabled] = useState(data.defaults.fallbackEnabled);
+  const [replyEveryMessageEnabled, setReplyEveryMessageEnabled] = useState(data.defaults.replyEveryMessageEnabled);
   const [businessHours, setBusinessHours] = useState(data.defaults.businessHours);
   const [nodesByScenarioId, setNodesByScenarioId] = useState<OfficialApiChatbotNodesByScenarioId>(
     data.defaults.nodesByScenarioId,
@@ -574,6 +637,7 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
   const [copiedTemplateId, setCopiedTemplateId] = useState("");
   const [isSaving, startSaving] = useTransition();
   const [isBlockLibraryOpen, setIsBlockLibraryOpen] = useState(false);
+  const [blockLibrarySection, setBlockLibrarySection] = useState<"root" | "send">("root");
   const [isCreatingWorkflow, setIsCreatingWorkflow] = useState(false);
   const [newWorkflowTitle, setNewWorkflowTitle] = useState("");
   const [isUploadingNodeImage, setIsUploadingNodeImage] = useState(false);
@@ -614,15 +678,13 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
   );
   const selectedImageUrl = selectedNode?.kind === "image" ? selectedNode.meta.trim() : "";
   const hasInvalidImageUrl = selectedNode?.kind === "image" && selectedImageUrl.length > 0 && !isLikelyDirectImageUrl(selectedImageUrl);
+  const selectedUploadNodeKind =
+    selectedNode && isUploadableNodeKind(selectedNode.kind) ? selectedNode.kind : null;
   const openNodeEditor = useCallback((nodeId: string) => {
-    const node = nodes.find((item) => item.id === nodeId);
-    if (node?.kind === "trigger") {
-      return;
-    }
     setIsBlockLibraryOpen(false);
     setSelectedNodeId(nodeId);
     setIsNodeEditorOpen(true);
-  }, [nodes]);
+  }, []);
   const scenarioNodePositions = useMemo(
     () => (selectedScenario ? (nodePositionsByScenarioId[selectedScenario.id] ?? {}) : {}),
     [nodePositionsByScenarioId, selectedScenario],
@@ -743,6 +805,24 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
         body: "",
         meta: "",
       },
+      audio: {
+        kind: "audio",
+        title: "Enviar audio",
+        body: "",
+        meta: "",
+      },
+      video: {
+        kind: "video",
+        title: "Enviar video",
+        body: "",
+        meta: "",
+      },
+      document: {
+        kind: "document",
+        title: "Enviar documento",
+        body: "",
+        meta: "",
+      },
       input: {
         kind: "input",
         title: "Nueva captura",
@@ -825,6 +905,7 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
     }));
     setSelectedNodeId(nextNode.id);
     setIsBlockLibraryOpen(false);
+    setBlockLibrarySection("root");
   }
 
   function createWorkflow() {
@@ -932,6 +1013,7 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
         captureLeadEnabled,
         handoffEnabled,
         fallbackEnabled,
+        replyEveryMessageEnabled,
         selectedScenarioId: input.selectedScenarioId,
         scenarios: input.scenarios,
         nodesByScenarioId: normalizedNodesByScenarioId,
@@ -958,6 +1040,7 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
     data.defaults.welcomeMessage,
     fallbackEnabled,
     handoffEnabled,
+    replyEveryMessageEnabled,
   ]);
 
   function handleSaveBuilder() {
@@ -1152,15 +1235,17 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
   }
 
   async function handleNodeImageFileSelected(file: File | null) {
-    if (!file || !selectedNode || selectedNode.kind !== "image") {
+    if (!file || !selectedNode || !isUploadableNodeKind(selectedNode.kind)) {
       return;
     }
 
+    const uploadKind = selectedNode.kind;
+    const uploadLabel = getUploadLabelByKind(uploadKind);
     setNodeImageUploadError("");
     setIsUploadingNodeImage(true);
     try {
       const formData = new FormData();
-      formData.append("image", file);
+      formData.append("file", file);
 
       const response = await fetch("/api/cliente/api-oficial/chatbot/upload-image", {
         method: "POST",
@@ -1171,17 +1256,17 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
         | null;
 
       if (!response.ok || !payload?.ok || !payload.url) {
-        throw new Error(payload?.error || "No se pudo subir la imagen.");
+        throw new Error(payload?.error || `No se pudo subir el ${uploadLabel}.`);
       }
 
       updateNode(selectedNode.id, { meta: payload.url });
-      toast.success("Imagen subida", {
+      toast.success(`${uploadLabel[0].toUpperCase()}${uploadLabel.slice(1)} subido`, {
         description: "La URL quedo cargada en el nodo.",
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "No se pudo subir la imagen.";
+      const message = error instanceof Error ? error.message : `No se pudo subir el ${uploadLabel}.`;
       setNodeImageUploadError(message);
-      toast.error("Error al subir imagen", {
+      toast.error(`Error al subir ${uploadLabel}`, {
         description: message,
       });
     } finally {
@@ -1248,6 +1333,7 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
       captureLeadEnabled,
       handoffEnabled,
       fallbackEnabled,
+      replyEveryMessageEnabled,
     });
 
     if (autoSaveScenarioIdRef.current !== selectedScenarioId) {
@@ -1287,6 +1373,7 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
     captureLeadEnabled,
     fallbackEnabled,
     handoffEnabled,
+    replyEveryMessageEnabled,
     hasSelectedFlow,
     edgesByScenarioId,
     nodePositionsByScenarioId,
@@ -1339,11 +1426,11 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
                 key={scenario.id}
                 role="button"
                 tabIndex={0}
-                onClick={() => router.push(`/cliente/api-oficial/chatbot/${scenario.id}`)}
+                onClick={() => router.push(`/cliente/api-oficial/flujos/${scenario.id}`)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();
-                    router.push(`/cliente/api-oficial/chatbot/${scenario.id}`);
+                    router.push(`/cliente/api-oficial/flujos/${scenario.id}`);
                   }
                 }}
                 className={`flex items-center justify-between rounded-2xl border p-3.5 shadow-[0_10px_22px_-18px_rgba(15,23,42,0.2)] transition ${
@@ -1405,20 +1492,43 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
                   size="icon"
                   aria-label={isBlockLibraryOpen ? "Cerrar bloques" : "Abrir bloques"}
                   aria-expanded={isBlockLibraryOpen}
-                  onClick={() => setIsBlockLibraryOpen((current) => !current)}
+                  onClick={() => {
+                    setIsBlockLibraryOpen((current) => {
+                      const next = !current;
+                      if (next) {
+                        setBlockLibrarySection("root");
+                      }
+                      return next;
+                    });
+                  }}
                 >
                   <Plus className="h-4 w-4" />
                 </Button>
               </div>
               {isBlockLibraryOpen ? (
                 <div className="grid gap-3">
-                  {blockLibrary.map((block) => {
+                  {[
+                    {
+                      id: "send",
+                      title: "Enviar",
+                      description: "Texto, imagen o audio.",
+                      icon: MessageSquarePlus,
+                      style: "bg-sky-50 text-sky-700 ring-sky-200",
+                    },
+                    ...blockLibrary,
+                  ].map((block) => {
                     const Icon = block.icon;
                     return (
                       <button
                         key={block.id}
                         type="button"
-                        onClick={() => addBlock(block.id as BuilderNode["kind"])}
+                        onClick={() => {
+                          if (block.id === "send") {
+                            setBlockLibrarySection("send");
+                            return;
+                          }
+                          addBlock(block.id as BuilderNode["kind"]);
+                        }}
                         className="rounded-[24px] border border-slate-200 bg-white p-4 text-left shadow-[0_14px_34px_-28px_rgba(15,23,42,0.24)] transition hover:border-slate-300"
                       >
                         <span className={`inline-flex h-9 w-9 items-center justify-center rounded-2xl ring-1 ${block.style}`}>
@@ -1451,7 +1561,7 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
           <main
             className={`relative overflow-hidden ${
               hasSelectedFlow
-                ? "bg-[radial-gradient(circle_at_top,rgba(226,232,240,0.75),transparent_34%),linear-gradient(180deg,#f8fafc_0%,#f1f5f9_100%)]"
+                ? "bg-[radial-gradient(circle_at_top,rgba(203,213,225,0.62),transparent_36%),linear-gradient(180deg,#f8fafc_0%,#eef2f7_100%)]"
                 : "bg-white"
             }`}
           >
@@ -1463,7 +1573,7 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
               }`}
             >
               {selectedScenario ? (
-                <div className="relative h-full w-full overflow-hidden bg-white">
+                <div className="relative h-full w-full overflow-hidden bg-transparent">
                   <div className="pointer-events-none absolute left-4 top-4 z-20 flex items-center gap-2">
                     <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
                       <Route className="h-3.5 w-3.5 text-sky-600" />
@@ -1486,35 +1596,75 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
                         variant="default"
                         aria-label={isBlockLibraryOpen ? "Cerrar lista de nodos" : "Agregar nodo"}
                         aria-expanded={isBlockLibraryOpen}
-                        onClick={() => setIsBlockLibraryOpen((current) => !current)}
+                        onClick={() => {
+                          setIsBlockLibraryOpen((current) => {
+                            const next = !current;
+                            if (next) {
+                              setBlockLibrarySection("root");
+                            }
+                            return next;
+                          });
+                        }}
                         className="h-11 w-11 rounded-full border border-blue-600 bg-blue-600 p-0 text-white shadow-[0_16px_28px_-20px_rgba(37,99,235,0.7)] hover:bg-blue-700"
                       >
-                        <Plus className="h-5 w-5 font-bold" strokeWidth={3.2} />
-                      </Button>
+                          <Plus className="h-5 w-5 font-bold" strokeWidth={3.2} />
+                        </Button>
                       {isBlockLibraryOpen ? (
                         <div
                           ref={blockLibraryPanelRef}
                           className="absolute right-0 top-11 z-20 w-64 overflow-hidden rounded-xl border border-slate-200 bg-white py-2 shadow-[0_22px_48px_-30px_rgba(15,23,42,0.35)]"
                         >
                           <p className="px-3 pb-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                            Agregar nodo
+                            {blockLibrarySection === "root" ? "Agregar nodo" : "Enviar"}
                           </p>
+                          {blockLibrarySection === "send" ? (
+                            <button
+                              type="button"
+                              onClick={() => setBlockLibrarySection("root")}
+                              className="mx-2 mb-1 flex w-[calc(100%-1rem)] items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs font-medium text-slate-600 transition hover:bg-slate-50"
+                            >
+                              <ChevronLeft className="h-3.5 w-3.5" />
+                              Volver
+                            </button>
+                          ) : null}
                           <div className="grid gap-1 px-2">
-                            {blockLibrary.map((block) => {
+                            {(blockLibrarySection === "root"
+                              ? [
+                                  {
+                                    id: "send",
+                                    title: "Enviar",
+                                    description: "Texto, imagen o audio.",
+                                    icon: MessageSquarePlus,
+                                    style: "bg-sky-50 text-sky-700 ring-sky-200",
+                                  },
+                                  ...blockLibrary,
+                                ]
+                              : sendBlockLibrary).map((block) => {
                               const Icon = block.icon;
                               return (
                                 <button
                                   key={block.id}
                                   type="button"
-                                  onClick={() => addBlock(block.id as BuilderNode["kind"])}
+                                  onClick={() => {
+                                    if (block.id === "send") {
+                                      setBlockLibrarySection("send");
+                                      return;
+                                    }
+                                    addBlock(block.id as BuilderNode["kind"]);
+                                  }}
                                   className="flex w-full items-start gap-3 rounded-lg px-2 py-2 text-left transition hover:bg-slate-50"
                                 >
                                   <span className={`mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-lg ring-1 ${block.style}`}>
                                     <Icon className="h-3.5 w-3.5" />
                                   </span>
                                   <span>
-                                    <span className="block text-sm font-semibold text-slate-900">{block.title}</span>
-                                    <span className="block text-xs leading-5 text-slate-500">{block.description}</span>
+                                    <span className="inline-flex items-center gap-1 text-sm font-semibold text-slate-900">
+                                      {block.title}
+                                      {block.id === "send" ? <ChevronRight className="h-3.5 w-3.5 text-slate-400" /> : null}
+                                    </span>
+                                    {blockLibrarySection === "root" ? (
+                                      <span className="block text-xs leading-5 text-slate-500">{block.description}</span>
+                                    ) : null}
                                   </span>
                                 </button>
                               );
@@ -1772,7 +1922,7 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
             </div>
           </div>
         ) : null}
-        {isNodeEditorOpen && selectedNode && selectedNode.kind !== "trigger" ? (
+        {isNodeEditorOpen && selectedNode ? (
           <div className="absolute inset-0 z-40 flex items-center justify-center bg-slate-950/25 p-6 backdrop-blur-[2px]">
             <div className="w-full max-w-2xl overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_30px_80px_-48px_rgba(15,23,42,0.32)]">
               <div className="relative border-b border-slate-200 px-6 py-5">
@@ -1792,7 +1942,26 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
                 </div>
               </div>
               <div className="space-y-4 px-6 py-5">
-                {selectedNode.kind === "image" ? (
+                {selectedNode.kind === "trigger" ? (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900">Modo de respuesta</p>
+                        <p className="mt-1 text-xs leading-5 text-slate-600">
+                          Define si el flujo responde solo una vez al iniciar o en cada mensaje entrante.
+                        </p>
+                      </div>
+                      <Switch
+                        checked={replyEveryMessageEnabled}
+                        onCheckedChange={setReplyEveryMessageEnabled}
+                        aria-label="Repetir respuesta en cada mensaje"
+                      />
+                    </div>
+                    <p className="mt-3 text-xs font-medium text-slate-700">
+                      {replyEveryMessageEnabled ? "Repetir: responde en cada mensaje." : "Unico: responde solo al primer mensaje."}
+                    </p>
+                  </div>
+                ) : selectedNode.kind === "image" ? (
                   <>
                     <label className="block space-y-2">
                       <span className="text-sm font-medium text-slate-900">URL de imagen</span>
@@ -1815,7 +1984,7 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
                       <Input
                         ref={nodeImageInputRef}
                         type="file"
-                        accept="image/*"
+                        accept={selectedUploadNodeKind ? getUploadAcceptByKind(selectedUploadNodeKind) : "image/*"}
                         className="hidden"
                         onChange={(event) => {
                           const file = event.currentTarget.files?.[0] ?? null;
@@ -1847,6 +2016,120 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
                       />
                     </label>
                   </>
+                ) : selectedNode.kind === "audio" ? (
+                  <>
+                    <label className="block space-y-2">
+                      <span className="text-sm font-medium text-slate-900">URL de audio</span>
+                      <Input
+                        value={selectedNode.meta}
+                        onChange={(event) => updateNode(selectedNode.id, { meta: event.target.value })}
+                        placeholder="https://.../audio.ogg"
+                      />
+                    </label>
+                    <div className="space-y-2">
+                      <Input
+                        ref={nodeImageInputRef}
+                        type="file"
+                        accept={selectedUploadNodeKind ? getUploadAcceptByKind(selectedUploadNodeKind) : "audio/*"}
+                        className="hidden"
+                        onChange={(event) => {
+                          const file = event.currentTarget.files?.[0] ?? null;
+                          void handleNodeImageFileSelected(file);
+                          event.currentTarget.value = "";
+                        }}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="inline-flex items-center gap-2"
+                        disabled={isUploadingNodeImage}
+                        onClick={() => nodeImageInputRef.current?.click()}
+                      >
+                        <Upload className="h-4 w-4" />
+                        {isUploadingNodeImage ? "Subiendo..." : "Subir audio"}
+                      </Button>
+                      {nodeImageUploadError ? (
+                        <p className="text-xs text-rose-600">{nodeImageUploadError}</p>
+                      ) : null}
+                    </div>
+                    <p className="text-xs text-slate-500">Usa una URL publica directa del archivo de audio.</p>
+                  </>
+                ) : selectedNode.kind === "video" ? (
+                  <>
+                    <label className="block space-y-2">
+                      <span className="text-sm font-medium text-slate-900">URL de video</span>
+                      <Input
+                        value={selectedNode.meta}
+                        onChange={(event) => updateNode(selectedNode.id, { meta: event.target.value })}
+                        placeholder="https://.../video.mp4"
+                      />
+                    </label>
+                    <div className="space-y-2">
+                      <Input
+                        ref={nodeImageInputRef}
+                        type="file"
+                        accept={selectedUploadNodeKind ? getUploadAcceptByKind(selectedUploadNodeKind) : "video/*"}
+                        className="hidden"
+                        onChange={(event) => {
+                          const file = event.currentTarget.files?.[0] ?? null;
+                          void handleNodeImageFileSelected(file);
+                          event.currentTarget.value = "";
+                        }}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="inline-flex items-center gap-2"
+                        disabled={isUploadingNodeImage}
+                        onClick={() => nodeImageInputRef.current?.click()}
+                      >
+                        <Upload className="h-4 w-4" />
+                        {isUploadingNodeImage ? "Subiendo..." : "Subir video"}
+                      </Button>
+                      {nodeImageUploadError ? (
+                        <p className="text-xs text-rose-600">{nodeImageUploadError}</p>
+                      ) : null}
+                    </div>
+                    <p className="text-xs text-slate-500">Usa una URL publica directa del video.</p>
+                  </>
+                ) : selectedNode.kind === "document" ? (
+                  <>
+                    <label className="block space-y-2">
+                      <span className="text-sm font-medium text-slate-900">URL de documento</span>
+                      <Input
+                        value={selectedNode.meta}
+                        onChange={(event) => updateNode(selectedNode.id, { meta: event.target.value })}
+                        placeholder="https://.../archivo.pdf"
+                      />
+                    </label>
+                    <div className="space-y-2">
+                      <Input
+                        ref={nodeImageInputRef}
+                        type="file"
+                        accept={selectedUploadNodeKind ? getUploadAcceptByKind(selectedUploadNodeKind) : ".pdf,.doc,.docx,.txt"}
+                        className="hidden"
+                        onChange={(event) => {
+                          const file = event.currentTarget.files?.[0] ?? null;
+                          void handleNodeImageFileSelected(file);
+                          event.currentTarget.value = "";
+                        }}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="inline-flex items-center gap-2"
+                        disabled={isUploadingNodeImage}
+                        onClick={() => nodeImageInputRef.current?.click()}
+                      >
+                        <Upload className="h-4 w-4" />
+                        {isUploadingNodeImage ? "Subiendo..." : "Subir documento"}
+                      </Button>
+                      {nodeImageUploadError ? (
+                        <p className="text-xs text-rose-600">{nodeImageUploadError}</p>
+                      ) : null}
+                    </div>
+                    <p className="text-xs text-slate-500">Usa una URL publica directa (PDF recomendado).</p>
+                  </>
                 ) : (
                   <label className="block space-y-2">
                     <span className="text-sm font-medium text-slate-900">Contenido</span>
@@ -1869,24 +2152,28 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
                 ) : null}
               </div>
               <div className="flex items-center justify-between border-t border-slate-200 px-6 py-4">
-                <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="border-amber-200 text-amber-700 hover:bg-amber-50 hover:text-amber-800"
-                    onClick={() => handleDeleteOutgoingConnection(selectedNode.id)}
-                  >
-                    Quitar conexion
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
-                    onClick={() => handleDeleteNode(selectedNode.id)}
-                  >
-                    Eliminar nodo
-                  </Button>
-                </div>
+                {selectedNode.kind !== "trigger" ? (
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="border-amber-200 text-amber-700 hover:bg-amber-50 hover:text-amber-800"
+                      onClick={() => handleDeleteOutgoingConnection(selectedNode.id)}
+                    >
+                      Quitar conexion
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                      onClick={() => handleDeleteNode(selectedNode.id)}
+                    >
+                      Eliminar nodo
+                    </Button>
+                  </div>
+                ) : (
+                  <div />
+                )}
                 <Button type="button" onClick={() => setIsNodeEditorOpen(false)}>
                   Cerrar
                 </Button>

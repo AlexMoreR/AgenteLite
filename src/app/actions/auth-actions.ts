@@ -637,6 +637,7 @@ export async function adminUpdateOfficialApiConfigAction(formData: FormData): Pr
   revalidatePath("/cliente/api-oficial");
   revalidatePath("/cliente/api-oficial/chats");
   revalidatePath("/cliente/api-oficial/chatbot");
+  revalidatePath("/cliente/api-oficial/flujos");
   const successRedirect =
     parsed.data.returnTo?.trim() || "/admin/configuracion/usuarios?ok=API+oficial+de+WhatsApp+actualizada";
   redirect(successRedirect);
@@ -747,5 +748,6 @@ export async function adminUpdateUserModuleAccessAction(formData: FormData): Pro
   revalidatePath("/cliente/api-oficial");
   revalidatePath("/cliente/api-oficial/chats");
   revalidatePath("/cliente/api-oficial/chatbot");
+  revalidatePath("/cliente/api-oficial/flujos");
   redirect("/admin/configuracion/permisos?ok=Permisos+actualizados");
 }

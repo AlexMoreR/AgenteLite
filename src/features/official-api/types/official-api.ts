@@ -124,7 +124,7 @@ export type OfficialApiChatbotChecklistItem = {
 
 export type OfficialApiChatbotBuilderNode = {
   id: string;
-  kind: "trigger" | "message" | "image" | "input" | "condition" | "action";
+  kind: "trigger" | "message" | "image" | "audio" | "video" | "document" | "input" | "condition" | "action";
   title: string;
   body: string;
   meta: string;
@@ -160,6 +160,7 @@ export type OfficialApiChatbotData = {
     captureLeadEnabled: boolean;
     handoffEnabled: boolean;
     fallbackEnabled: boolean;
+    replyEveryMessageEnabled: boolean;
     selectedScenarioId: string;
     scenarios: OfficialApiChatbotScenario[];
     nodesByScenarioId: OfficialApiChatbotNodesByScenarioId;

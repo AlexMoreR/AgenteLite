@@ -33,10 +33,10 @@ export const officialApiPlannedRoutes: OfficialApiRouteDefinition[] = [
     status: "next-phase",
   },
   {
-    id: "chatbot",
-    title: "Chatbot basico",
-    href: "/cliente/api-oficial/chatbot",
-    description: "Reglas de respuesta automatica y acciones simples por cliente.",
+    id: "flujos",
+    title: "Flujos",
+    href: "/cliente/api-oficial/flujos",
+    description: "Flujos de respuesta automatica y acciones simples por cliente.",
     status: "phase-1",
   },
 ];
@@ -64,7 +64,7 @@ export const officialApiInitialDataModel: OfficialApiDataModelDefinition[] = [
   },
   {
     model: "OfficialApiAutomationRule",
-    description: "Base futura para reglas de chatbot por cliente.",
+    description: "Base futura para reglas de flujos por cliente.",
   },
 ];
 
@@ -72,5 +72,5 @@ export const officialApiNextBuildSteps = [
   "Fase 2: formulario de credenciales desde administracion de usuarios y validacion basica de conexion.",
   "Fase 3: webhook oficial para recibir mensajes y estados desde Meta.",
   "Fase 4: bandeja de chats multi-tenant con contactos y mensajes reales.",
-  "Fase 5: ampliar chatbot con persistencia de reglas, builder visual y activacion por plantillas.",
+  "Fase 5: ampliar flujos con persistencia de reglas, builder visual y activacion por plantillas.",
 ];
