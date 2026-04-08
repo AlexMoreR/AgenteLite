@@ -40,7 +40,7 @@ export async function getOfficialApiChatbotData(workspaceId: string): Promise<Of
     },
   });
 
-  if (!hasOfficialApiBaseCredentials(config)) {
+  if (!config || !hasOfficialApiBaseCredentials(config)) {
     return {
       configId: config?.id ?? null,
       isConnected: false,
@@ -68,10 +68,11 @@ export async function getOfficialApiChatbotData(workspaceId: string): Promise<Of
       },
     };
   }
+  const activeConfig = config;
 
   const [builderState, storedRules] = await Promise.all([
-    getOfficialApiChatbotBuilderState(config.id),
-    listOfficialApiAutomationRules(config.id),
+    getOfficialApiChatbotBuilderState(activeConfig.id),
+    listOfficialApiAutomationRules(activeConfig.id),
   ]);
 
   const metricsRows = await prisma.$queryRaw<Array<{
@@ -83,12 +84,12 @@ export async function getOfficialApiChatbotData(workspaceId: string): Promise<Of
     activeRules: bigint | number;
   }>>`
     SELECT
-      (SELECT COUNT(*) FROM "OfficialApiContact" WHERE "configId" = ${config.id}) AS "totalContacts",
-      (SELECT COUNT(*) FROM "OfficialApiConversation" WHERE "configId" = ${config.id}) AS "totalConversations",
-      (SELECT COUNT(*) FROM "OfficialApiMessage" WHERE "configId" = ${config.id} AND "direction" = 'INBOUND'::"OfficialApiMessageDirection") AS "inboundMessages",
-      (SELECT COUNT(*) FROM "OfficialApiMessage" WHERE "configId" = ${config.id} AND "direction" = 'OUTBOUND'::"OfficialApiMessageDirection") AS "outboundMessages",
-      (SELECT COUNT(*) FROM "OfficialApiAutomationRule" WHERE "configId" = ${config.id}) AS "totalRules",
-      (SELECT COUNT(*) FROM "OfficialApiAutomationRule" WHERE "configId" = ${config.id} AND "status" = 'ACTIVE'::"OfficialApiAutomationRuleStatus") AS "activeRules"
+      (SELECT COUNT(*) FROM "OfficialApiContact" WHERE "configId" = ${activeConfig.id}) AS "totalContacts",
+      (SELECT COUNT(*) FROM "OfficialApiConversation" WHERE "configId" = ${activeConfig.id}) AS "totalConversations",
+      (SELECT COUNT(*) FROM "OfficialApiMessage" WHERE "configId" = ${activeConfig.id} AND "direction" = 'INBOUND'::"OfficialApiMessageDirection") AS "inboundMessages",
+      (SELECT COUNT(*) FROM "OfficialApiMessage" WHERE "configId" = ${activeConfig.id} AND "direction" = 'OUTBOUND'::"OfficialApiMessageDirection") AS "outboundMessages",
+      (SELECT COUNT(*) FROM "OfficialApiAutomationRule" WHERE "configId" = ${activeConfig.id}) AS "totalRules",
+      (SELECT COUNT(*) FROM "OfficialApiAutomationRule" WHERE "configId" = ${activeConfig.id} AND "status" = 'ACTIVE'::"OfficialApiAutomationRuleStatus") AS "activeRules"
   `;
 
   const metricsRow = metricsRows[0];
@@ -107,11 +108,11 @@ export async function getOfficialApiChatbotData(workspaceId: string): Promise<Of
   const contactsValue = totalContacts > 0 ? totalContacts : 18;
 
   return {
-    configId: config.id,
+    configId: activeConfig.id,
     isConnected: true,
     workspaceName: workspace?.name ?? "Workspace",
-    phoneNumberIdLabel: compactId(config.phoneNumberId),
-    wabaIdLabel: compactId(config.wabaId),
+    phoneNumberIdLabel: compactId(activeConfig.phoneNumberId),
+    wabaIdLabel: compactId(activeConfig.wabaId),
     metrics: [
       {
         id: "automation-rate",

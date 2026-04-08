@@ -14,7 +14,7 @@ export async function getOfficialApiChatsData(input: {
   const config = await getOfficialApiConfigByWorkspaceId(input.workspaceId);
   const searchQuery = normalizeSearch(input.q);
 
-  if (!hasOfficialApiBaseCredentials(config)) {
+  if (!config || !hasOfficialApiBaseCredentials(config)) {
     return {
       configId: config?.id ?? null,
       isConnected: false,
@@ -24,6 +24,7 @@ export async function getOfficialApiChatsData(input: {
       searchQuery,
     };
   }
+  const activeConfig = config;
 
   const conversationRows = await prisma.$queryRaw<Array<{
     id: string;
@@ -63,7 +64,7 @@ export async function getOfficialApiChatsData(input: {
       ORDER BY m."createdAt" DESC
       LIMIT 1
     ) lm ON true
-    WHERE c."configId" = ${config.id}
+    WHERE c."configId" = ${activeConfig.id}
     ORDER BY c."lastMessageAt" DESC NULLS LAST, c."updatedAt" DESC
   `;
 
@@ -133,7 +134,7 @@ export async function getOfficialApiChatsData(input: {
           LEFT JOIN "OfficialApiMessage" m
             ON m."conversationId" = c."id"
           WHERE c."id" = ${selectedConversationId}
-            AND c."configId" = ${config.id}
+            AND c."configId" = ${activeConfig.id}
           ORDER BY m."createdAt" ASC NULLS FIRST
         `;
 
@@ -165,7 +166,7 @@ export async function getOfficialApiChatsData(input: {
     : null;
 
   return {
-    configId: config.id,
+    configId: activeConfig.id,
     isConnected: true,
     conversations: conversations.map((conversation) => ({
       id: conversation.id,

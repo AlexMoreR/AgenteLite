@@ -165,7 +165,6 @@ function ChatbotFlowCanvas({
       defaultEdgeOptions={{
         type: "default",
         animated: false,
-        pathOptions: { curvature: edgeAppearance.curvature },
         markerEnd: { type: MarkerType.ArrowClosed, color: edgeAppearance.markerColor },
         style: { stroke: edgeAppearance.stroke, strokeWidth: edgeAppearance.strokeWidth, strokeLinecap: "round" },
       }}
