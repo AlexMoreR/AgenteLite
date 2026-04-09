@@ -1213,21 +1213,20 @@ export function OfficialApiConfigWizard({
 
             {currentStep === 4 ? (
               <div className="space-y-4">
-                {effectiveOfficialApiConfig?.lastValidatedAt ? (
-                  <div className="rounded-[1.25rem] border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
-                    <div className="flex items-start gap-3">
-                      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-                      <span>
-                        Webhook verificado por Meta.
-                        {webhookVerifiedLabel ? ` Ultima verificacion registrada: ${webhookVerifiedLabel}.` : ""}
-                      </span>
-                    </div>
-                  </div>
-                ) : null}
-
                 <div className="grid gap-5">
                   <div className="rounded-[1rem] border border-slate-200 bg-slate-50 p-5">
-                    <p className="text-base font-semibold text-slate-900">Webhook y guardar</p>
+                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                      <p className="text-base font-semibold text-slate-900">Webhook y guardar</p>
+                      {effectiveOfficialApiConfig?.lastValidatedAt ? (
+                        <div className="inline-flex w-full items-start gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900 md:w-auto md:max-w-[32rem]">
+                          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                          <span>
+                            Webhook verificado por Meta.
+                            {webhookVerifiedLabel ? ` ${webhookVerifiedLabel}` : ""}
+                          </span>
+                        </div>
+                      ) : null}
+                    </div>
                     <div className="mt-4 grid gap-2.5">
                       {webhookSaveSteps.map((item, index) => (
                         <div key={item} className="space-y-3">
@@ -1241,7 +1240,6 @@ export function OfficialApiConfigWizard({
                           {index === 0 ? (
                             <div className="ml-8 grid gap-4 md:grid-cols-2">
                               <label className="block space-y-1.5">
-                                <span className="text-sm font-medium text-slate-700">Callback URL para Meta</span>
                                 <Input
                                   value={callbackUrl}
                                   readOnly
@@ -1251,7 +1249,6 @@ export function OfficialApiConfigWizard({
                               </label>
 
                               <label className="block space-y-1.5">
-                                <span className="text-sm font-medium text-slate-700">Verify token</span>
                                 <Input
                                   value={form.webhookVerifyToken}
                                   onChange={updateField("webhookVerifyToken")}
@@ -1282,7 +1279,11 @@ export function OfficialApiConfigWizard({
                                 <Button
                                   type="button"
                                   variant={subscriptionStatus?.subscribed ? "outline" : "default"}
-                                  className="h-10 rounded-xl px-4"
+                                  className={`h-10 rounded-xl px-4 ${
+                                    subscriptionStatus?.subscribed
+                                      ? "border-[var(--primary)] bg-[var(--primary)] text-white hover:bg-[color-mix(in_srgb,var(--primary)_88%,black)]"
+                                      : ""
+                                  }`}
                                   onClick={handleSubscribeApp}
                                   disabled={
                                     isSubscribingApp ||
@@ -1313,8 +1314,8 @@ export function OfficialApiConfigWizard({
                                         {isLoadingSubscriptionStatus
                                           ? "Consultando suscripcion actual..."
                                           : subscriptionStatus?.subscribed
-                                            ? "La app ya aparece suscrita al WABA."
-                                            : "La suscripcion de la app al WABA aun no esta confirmada."}
+                                            ? "La app suscrita al WABA."
+                                            : "La suscripcion confirmada."}
                                       </p>
                                       {subscriptionStatus?.appId ? (
                                         <p className="text-slate-600">App ID detectado en Meta: {subscriptionStatus.appId}</p>
