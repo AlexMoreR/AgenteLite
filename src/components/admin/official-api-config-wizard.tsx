@@ -135,7 +135,7 @@ const metaChecklistSections = [
       },
       "Crear una app tipo Business.",
       "Agregar el producto WhatsApp.",
-      "Entrar a WhatsApp > Configuracion de la API.",
+      "Entrar a WhatsApp > Configuracion de la API (Empezar a usar la Api).",
       "Hacer clic en Generar token de acceso.",
       "Seleccionar la cuenta de WhatsApp Business y el numero conectado.",
       "Copiar y guardar el Access Token.",
@@ -992,7 +992,7 @@ export function OfficialApiConfigWizard({
                                 value={form.phoneNumberId}
                                 onChange={updateField("phoneNumberId")}
                                 className="h-11 rounded-xl"
-                                placeholder="Desde el panel de control de Meta para Desarrolladores."
+                                placeholder="Copia y pega el identificador del numero de whatsapp"
                               />
                             </label>
                           </div>
@@ -1274,7 +1274,7 @@ export function OfficialApiConfigWizard({
 
                           {index === 2 ? (
                             <div className="ml-8 rounded-[1rem] border border-[var(--line)] bg-white p-4">
-                              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                              <div className="flex justify-end">
 
                                 <Button
                                   type="button"
@@ -1372,7 +1372,7 @@ export function OfficialApiConfigWizard({
               </div>
             ) : null}
 
-            {previewHref || previewChatsHref ? (
+            {currentStep === 4 && (previewHref || previewChatsHref) ? (
               <div className="mt-6 flex flex-wrap items-center justify-end gap-3">
                 {previewHref ? (
                   <Button asChild variant="outline" className="rounded-xl">
