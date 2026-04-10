@@ -117,9 +117,9 @@ export function SharedInbox({
     : "empty";
 
   return (
-    <div className="flex min-h-[calc(100dvh-9rem)] flex-1 flex-col gap-0 md:min-h-0 md:grid md:grid-cols-[380px_minmax(0,1fr)]">
+    <div className="chat-inbox-grid flex min-h-[calc(100dvh-9rem)] flex-1 flex-col gap-0 overflow-hidden md:min-h-0 md:h-full md:grid md:grid-cols-[380px_minmax(0,1fr)]">
       <Card
-        className={`${hasMobileSelection ? "hidden md:flex" : "flex"} min-h-0 flex-1 overflow-hidden border border-[rgba(148,163,184,0.14)] bg-white p-0 shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)] md:h-[72vh] md:flex-none`}
+        className={`${hasMobileSelection ? "hidden md:flex" : "flex"} chat-inbox-sidebar min-h-0 flex-1 overflow-hidden border border-[rgba(148,163,184,0.14)] bg-white p-0 shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)] md:h-full`}
       >
         <div className="flex min-h-0 w-full flex-col">
           <div className="shrink-0 border-b border-[rgba(148,163,184,0.12)] bg-white px-3 py-3">
@@ -213,7 +213,7 @@ export function SharedInbox({
       </Card>
 
       <Card
-        className={`${hasMobileSelection || conversations.length === 0 ? "flex" : "hidden md:flex"} min-h-0 flex-1 overflow-hidden border border-[rgba(148,163,184,0.14)] bg-white p-0 shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)] md:h-[72vh] md:flex-none`}
+        className={`${hasMobileSelection || conversations.length === 0 ? "flex" : "hidden md:flex"} chat-inbox-panel min-h-0 flex-1 overflow-hidden border border-[rgba(148,163,184,0.14)] bg-white p-0 shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)] md:h-full`}
       >
         {selectedConversation ? (
           <div className="flex min-h-0 h-full w-full flex-1 flex-col">
@@ -255,7 +255,7 @@ export function SharedInbox({
 
             <div className="flex min-h-0 flex-1 flex-col bg-[#f3f4f6]">
               <div
-                className="min-h-0 flex-1 overflow-y-auto px-3 py-3 pb-24 md:px-5 md:py-5 md:pb-5"
+                className="chat-messages-scroll min-h-0 flex-1 overflow-y-auto px-3 py-3 pb-24 md:px-5 md:py-5 md:pb-5"
                 style={{
                   backgroundColor: "#f3f4f6",
                   backgroundImage:
@@ -316,7 +316,7 @@ export function SharedInbox({
               </div>
 
               {composer ? (
-                <div className="sticky bottom-0 z-10 shrink-0 border-t border-[rgba(148,163,184,0.12)] bg-white px-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 md:static md:px-2 md:py-2">
+                <div className="chat-composer sticky bottom-0 z-10 shrink-0 border-t border-[rgba(148,163,184,0.12)] bg-white px-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 md:static md:px-2 md:py-2">
                   <form action={composer.action}>
                     {composer.hiddenFields.map((field) => (
                       <input key={`${field.name}-${field.value}`} type="hidden" name={field.name} value={field.value} />

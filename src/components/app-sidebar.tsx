@@ -2,10 +2,10 @@
 
 import {
   Bot,
+  Cable,
   FileText,
   LayoutDashboard,
   Megaphone,
-  MessageSquare,
   MessageSquareText,
   Package,
   Settings,
@@ -52,7 +52,7 @@ export function AppSidebar({ pathname, brandName, adminModuleAccess, user, ...pr
   const isClientAgentsRoute = pathname.startsWith("/cliente/agentes");
   const isClientChatsRoute = pathname.startsWith("/cliente/chats");
   const isClientMarketingRoute = pathname.startsWith("/cliente/marketing-ia");
-  const isClientOfficialApiRoute = pathname.startsWith("/cliente/api-oficial");
+  const isClientConnectionRoute = pathname.startsWith("/cliente/conexion") || pathname.startsWith("/cliente/api-oficial");
 
   const navMain = [
     {
@@ -70,7 +70,7 @@ export function AppSidebar({ pathname, brandName, adminModuleAccess, user, ...pr
           !isClientAgentsRoute &&
           !isClientChatsRoute &&
           !isClientMarketingRoute &&
-          !isClientOfficialApiRoute),
+          !isClientConnectionRoute),
       items: [
         { title: "Vista general", url: dashboardHref },
       ],
@@ -152,15 +152,19 @@ export function AppSidebar({ pathname, brandName, adminModuleAccess, user, ...pr
       items: [{ title: "Anuncios", url: "/cliente/marketing-ia" }],
     });
 
-    if (user.role === "ADMIN" || adminModuleAccess.client_official_api) {
-      navMain.push({
-        title: "Api oficial",
-        url: "/cliente/api-oficial",
-        icon: MessageSquare,
-        isActive: pathname.startsWith("/cliente/api-oficial"),
-        items: [{ title: "Conversaciones", url: "/cliente/api-oficial" }],
-      });
-    }
+    navMain.push({
+      title: "Conexion",
+      url: "/cliente/conexion",
+      icon: Cable,
+      isActive: pathname.startsWith("/cliente/conexion") || pathname.startsWith("/cliente/api-oficial"),
+      items: [
+        { title: "Resumen", url: "/cliente/conexion" },
+        { title: "WhatsApp Business", url: "/cliente/conexion/whatsapp-business" },
+        ...(user.role === "ADMIN" || adminModuleAccess.client_official_api
+          ? [{ title: "API oficial", url: "/cliente/api-oficial" }]
+          : []),
+      ],
+    });
 
     navMain.push({
       title: "Agentes",

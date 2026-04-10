@@ -77,6 +77,8 @@ export function AppShell({
   const isMarketingHome = pathname === "/";
   const isAuthPath = pathname === "/login" || pathname === "/register";
   const isAgentWorkspacePath = pathname.startsWith("/cliente/agentes/");
+  const isChatWorkspacePath = pathname.startsWith("/cliente/chats");
+  const isFullHeightWorkspacePath = isAgentWorkspacePath || isChatWorkspacePath;
   const showClientPlanAlert = Boolean(user?.role === "CLIENTE" && pathname.startsWith("/cliente") && clientPlanAlert);
   const showClientPlanBlock = Boolean(user?.role === "CLIENTE" && pathname.startsWith("/cliente") && clientPlanBlock?.isExpired);
   const currentPage = pathname === "/"
@@ -85,8 +87,10 @@ export function AppShell({
       ? "Cotizaciones"
     : pathname.startsWith("/cliente/chats")
       ? "Chats"
+    : pathname.startsWith("/cliente/conexion")
+      ? "Conexion"
     : pathname.startsWith("/cliente/api-oficial")
-      ? "Api oficial"
+      ? "Conexion"
     : pathname.startsWith("/cliente/marketing-ia/ads-generator")
       ? "Ads Generator"
     : pathname.startsWith("/cliente/marketing-ia/creativos") || pathname.startsWith("/cliente/marketing-ia/facebook-ads")
@@ -144,8 +148,22 @@ export function AppShell({
       return [{ label: "Chats", href: "", isCurrent: true }];
     }
 
+    if (pathname.startsWith("/cliente/conexion/whatsapp-business")) {
+      return [
+        { label: "Conexion", href: "/cliente/conexion", isCurrent: false },
+        { label: "WhatsApp Business", href: "", isCurrent: true },
+      ];
+    }
+
+    if (pathname.startsWith("/cliente/conexion")) {
+      return [{ label: "Conexion", href: "", isCurrent: true }];
+    }
+
     if (pathname.startsWith("/cliente/api-oficial")) {
-      return [{ label: "Api oficial", href: "", isCurrent: true }];
+      return [
+        { label: "Conexion", href: "/cliente/conexion", isCurrent: false },
+        { label: "API oficial", href: "", isCurrent: true },
+      ];
     }
 
     if (pathname.startsWith("/cliente/marketing-ia/creativos") || pathname.startsWith("/cliente/marketing-ia/facebook-ads")) {
@@ -224,7 +242,7 @@ export function AppShell({
   if (user) {
     return (
       <SidebarProvider>
-        <div className="admin-print-shell flex min-h-screen">
+        <div className={cn("admin-print-shell flex min-h-screen", isChatWorkspacePath && "chat-app-frame h-dvh overflow-hidden")}>
           <AppSidebar
             pathname={pathname}
             user={{
@@ -237,7 +255,12 @@ export function AppShell({
             adminModuleAccess={adminModuleAccess}
             className="admin-print-sidebar flex"
           />
-          <SidebarInset className="admin-print-inset">
+          <SidebarInset
+            className={cn(
+              "admin-print-inset",
+              isChatWorkspacePath && "chat-app-shell min-h-0 h-dvh overflow-hidden",
+            )}
+          >
             <header className="admin-print-header flex h-12 shrink-0 items-center border-b border-[var(--line)] bg-white">
               <div className="flex items-center gap-2 px-4">
                 <SidebarTrigger className="-ml-1" />
@@ -266,7 +289,8 @@ export function AppShell({
             <main
               className={cn(
                 "admin-print-main flex flex-1 flex-col",
-                isAgentWorkspacePath ? "min-h-0 overflow-hidden p-0 md:p-4" : "p-3 md:p-4",
+                isFullHeightWorkspacePath ? "min-h-0 overflow-hidden p-0 md:p-4" : "p-3 md:p-4",
+                isChatWorkspacePath && "chat-app-main",
               )}
             >
               {showClientPlanAlert && clientPlanAlert ? <ClientPlanWarningBar {...clientPlanAlert} /> : null}

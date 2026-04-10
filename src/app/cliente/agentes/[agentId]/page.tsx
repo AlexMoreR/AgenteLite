@@ -57,7 +57,7 @@ export default async function ClienteAgentePanelPage({ params }: PageProps) {
             <div className="space-y-2">
               <h2 className="text-[1.4rem] font-semibold tracking-[-0.05em] text-slate-950 sm:text-2xl">Resumen del agente</h2>
               <p className="max-w-2xl text-sm leading-7 text-slate-600">
-                Desde aqui puedes ver como quedo entrenado el agente y entrar a los canales o conversaciones cuando lo necesites.
+                Desde aqui puedes ver como quedo entrenado el agente y entrar a conversaciones o al modulo de conexion cuando lo necesites.
               </p>
             </div>
 
@@ -67,7 +67,7 @@ export default async function ClienteAgentePanelPage({ params }: PageProps) {
                 <p className="mt-2 text-sm font-medium text-slate-900">{agent.status}</p>
               </div>
               <div className="rounded-2xl bg-slate-50 px-4 py-4">
-                <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">Canales</p>
+                <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">Conexion</p>
                 <p className="mt-2 text-sm font-medium text-slate-900">{agent.channels.length}</p>
               </div>
               <div className="rounded-2xl bg-slate-50 px-4 py-4">
@@ -85,18 +85,18 @@ export default async function ClienteAgentePanelPage({ params }: PageProps) {
               <Cable className="h-6 w-6" />
             </div>
             <div className="space-y-2">
-              <h2 className="text-xl font-semibold tracking-[-0.04em] text-slate-950">Canales</h2>
+              <h2 className="text-xl font-semibold tracking-[-0.04em] text-slate-950">Conexion</h2>
               <p className="text-sm leading-7 text-slate-600">
-                Administra la conexion de WhatsApp y verifica si el agente ya esta vinculado.
+                Administra la conexion de WhatsApp de este agente desde el modulo dedicado.
               </p>
             </div>
 
             <Link
-              href={`/cliente/agentes/${agent.id}/canales`}
+              href={`/cliente/conexion/whatsapp-business/${agent.id}`}
               className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)] sm:w-auto"
             >
               <MessageSquareText className="h-4 w-4" />
-              Abrir canales
+              Abrir conexion
             </Link>
           </div>
         </Card>

@@ -5,7 +5,6 @@ import { ArrowRight, Sparkles } from "lucide-react";
 import { auth } from "@/auth";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { getAdminModuleAccess } from "@/lib/admin-module-access";
-import { getOfficialApiConfigByWorkspaceId } from "@/lib/official-api-config";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
 export const metadata: Metadata = {
@@ -31,12 +30,8 @@ export default async function ClientePage({ searchParams }: PageProps) {
   const agentCount = membership?.workspace._count.agents ?? 0;
   const channelCount = membership?.workspace._count.channels ?? 0;
   const hasWorkspace = Boolean(membership);
-  const officialApiConfig = membership?.workspace.id
-    ? await getOfficialApiConfigByWorkspaceId(membership.workspace.id)
-    : null;
   const moduleAccess = await getAdminModuleAccess(session.user.id, session.user.role);
   const canSeeOfficialApiModule = session.user.role === "ADMIN" || moduleAccess.client_official_api;
-  const officialApiEnabled = officialApiConfig?.status === "CONNECTED";
   const firstName = session.user.name?.trim().split(/\s+/)[0] ?? "";
   const welcomeHeading = firstName ? `Bienvenido ${firstName}` : "Bienvenido";
 
@@ -89,11 +84,17 @@ export default async function ClientePage({ searchParams }: PageProps) {
           cta={hasWorkspace ? "Administrar atencion" : "Comenzar"}
         />
         <DashboardModuleCard
-          title="Canales"
-          description="Conecta WhatsApp por agente y organiza las entradas de conversacion desde un solo lugar."
-          metric={`${channelCount} conectados`}
-          href="/cliente/agentes"
-          cta="Ver canales"
+          title="Conexion"
+          description="Agrupa WhatsApp Business por Evolution API y la API oficial en un modulo separado del trabajo de agentes."
+          metric={
+            hasWorkspace
+              ? canSeeOfficialApiModule
+                ? `${channelCount} canales + API oficial`
+                : `${channelCount} canales`
+              : "Requiere negocio configurado"
+          }
+          href={hasWorkspace ? "/cliente/conexion" : "/cliente/onboarding?returnTo=/cliente/conexion"}
+          cta="Abrir modulo"
         />
         <DashboardModuleCard
           title="Marketing IA"
@@ -102,25 +103,6 @@ export default async function ClientePage({ searchParams }: PageProps) {
           href={hasWorkspace ? "/cliente/marketing-ia" : "/cliente/onboarding?returnTo=/cliente/marketing-ia"}
           cta="Abrir modulo"
         />
-        {canSeeOfficialApiModule ? (
-          <DashboardModuleCard
-            title="Api oficial"
-            description={
-              officialApiEnabled
-                ? "Tu canal oficial ya esta activo y listo para operar con resumen y bandeja de chats."
-                : "Prepara la base multi-tenant para conectar clientes con WhatsApp Cloud API oficial de Meta."
-            }
-            metric={
-              !hasWorkspace
-                ? "Requiere negocio configurado"
-                : officialApiEnabled
-                  ? "Activo"
-                  : "Habla con admin"
-            }
-            href={hasWorkspace ? "/cliente/api-oficial" : "/cliente/onboarding?returnTo=/cliente/api-oficial"}
-            cta="Abrir modulo"
-          />
-        ) : null}
       </div>
     </section>
   );

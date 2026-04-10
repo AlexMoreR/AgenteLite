@@ -6,5 +6,5 @@ type PageProps = {
 
 export default async function ClienteAgenteWhatsappPage({ params }: PageProps) {
   const { agentId } = await params;
-  redirect(`/cliente/agentes/${agentId}/canales`);
+  redirect(`/cliente/conexion/whatsapp-business/${agentId}`);
 }

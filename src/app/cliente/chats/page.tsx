@@ -271,7 +271,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   }
 
   return (
-    <section className="space-y-4">
+    <section className="chat-app-layout flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
       <ChatsAutoRefresh intervalMs={5000} />
       <QueryFeedbackToast
         okMessage={okMessage}

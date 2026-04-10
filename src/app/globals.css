@@ -36,6 +36,55 @@ body {
   line-height: 1.45;
 }
 
+html:has(.chat-app-layout),
+body:has(.chat-app-layout) {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+.chat-app-frame,
+.chat-app-shell,
+.chat-app-main,
+.chat-app-layout,
+.chat-inbox-grid,
+.chat-inbox-panel {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.chat-app-frame,
+.chat-app-shell,
+.chat-app-layout {
+  height: 100%;
+}
+
+.chat-inbox-grid {
+  flex: 1 1 auto;
+}
+
+.chat-inbox-sidebar {
+  height: 100%;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.chat-inbox-panel {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-messages-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.chat-composer {
+  flex-shrink: 0;
+}
+
 ::selection {
   background: #e5e7eb;
   color: #111827;

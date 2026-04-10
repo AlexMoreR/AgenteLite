@@ -243,7 +243,7 @@ export async function createAgentAction(formData: FormData): Promise<void> {
 
       revalidatePath("/cliente");
       revalidatePath("/cliente/agentes");
-      redirect(`/cliente/agentes/${agent.id}/whatsapp?ok=Canal+preparado`);
+      redirect(`/cliente/conexion/whatsapp-business/${agent.id}?ok=Canal+preparado`);
     } catch {
       const existingChannel = await prisma.whatsAppChannel.findFirst({
         where: {
@@ -258,10 +258,10 @@ export async function createAgentAction(formData: FormData): Promise<void> {
       revalidatePath("/cliente");
       revalidatePath("/cliente/agentes");
       if (existingChannel) {
-        redirect(`/cliente/agentes/${agent.id}/whatsapp?ok=Canal+preparado`);
+        redirect(`/cliente/conexion/whatsapp-business/${agent.id}?ok=Canal+preparado`);
       }
 
-      redirect(`/cliente/agentes/${agent.id}/whatsapp?error=No+pudimos+preparar+la+conexion+automatica`);
+      redirect(`/cliente/conexion/whatsapp-business/${agent.id}?error=No+pudimos+preparar+la+conexion+automatica`);
     }
   }
 
