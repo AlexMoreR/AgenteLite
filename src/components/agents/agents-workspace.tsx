@@ -238,12 +238,7 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
           <div className="space-y-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="space-y-1">
-                <div className="flex items-center gap-3">
-                  <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
-                    <Bot className="h-5 w-5" />
-                  </span>
-                  <h2 className="text-xl font-semibold tracking-[-0.04em] text-slate-950">Agentes creados</h2>
-                </div>
+                <h2 className="text-xl font-semibold tracking-[-0.04em] text-slate-950">Agentes creados</h2>
               </div>
               <button
                 type="button"

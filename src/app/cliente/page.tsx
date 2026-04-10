@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
-import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { ArrowRight, Bot, Megaphone, MessageSquare, MessageSquareMore, Sparkles } from "lucide-react";
+import { ArrowRight, Sparkles } from "lucide-react";
 import { auth } from "@/auth";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { getAdminModuleAccess } from "@/lib/admin-module-access";
@@ -83,7 +82,6 @@ export default async function ClientePage({ searchParams }: PageProps) {
 
       <div className="grid gap-4 lg:grid-cols-4">
         <DashboardModuleCard
-          icon={<Bot className="h-4.5 w-4.5" />}
           title="Atencion IA"
           description="Configura personalidad, tono comercial, reglas y activacion de tu asistente de atencion."
           metric={hasWorkspace ? `${agentCount} creados` : "Requiere negocio configurado"}
@@ -91,7 +89,6 @@ export default async function ClientePage({ searchParams }: PageProps) {
           cta={hasWorkspace ? "Administrar atencion" : "Comenzar"}
         />
         <DashboardModuleCard
-          icon={<MessageSquareMore className="h-4.5 w-4.5" />}
           title="Canales"
           description="Conecta WhatsApp por agente y organiza las entradas de conversacion desde un solo lugar."
           metric={`${channelCount} conectados`}
@@ -99,7 +96,6 @@ export default async function ClientePage({ searchParams }: PageProps) {
           cta="Ver canales"
         />
         <DashboardModuleCard
-          icon={<Megaphone className="h-4.5 w-4.5" />}
           title="Marketing IA"
           description="Construye contexto, genera creativos y pasa a anuncios listos para Meta Ads Manager."
           metric={hasWorkspace ? "Creativos + Ads Generator" : "Requiere negocio configurado"}
@@ -108,7 +104,6 @@ export default async function ClientePage({ searchParams }: PageProps) {
         />
         {canSeeOfficialApiModule ? (
           <DashboardModuleCard
-            icon={<MessageSquare className="h-4.5 w-4.5" />}
             title="Api oficial"
             description={
               officialApiEnabled
@@ -132,14 +127,12 @@ export default async function ClientePage({ searchParams }: PageProps) {
 }
 
 function DashboardModuleCard({
-  icon,
   title,
   description,
   metric,
   href,
   cta,
 }: {
-  icon: ReactNode;
   title: string;
   description: string;
   metric: string;
@@ -154,10 +147,7 @@ function DashboardModuleCard({
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(37,99,235,0.06),transparent_24%),radial-gradient(circle_at_bottom_left,rgba(14,165,233,0.05),transparent_28%)]" />
 
       <div className="relative flex h-full flex-col gap-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="inline-flex h-11 w-11 items-center justify-center rounded-[18px] bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
-            {icon}
-          </div>
+        <div className="flex items-start justify-end">
           <span className="inline-flex rounded-full border border-[color:color-mix(in_srgb,var(--primary)_16%,white)] bg-white/88 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
             {metric}
           </span>

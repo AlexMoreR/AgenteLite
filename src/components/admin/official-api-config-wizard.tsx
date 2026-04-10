@@ -139,15 +139,13 @@ const metaChecklistSections = [
       "Hacer clic en Generar token de acceso.",
       "Seleccionar la cuenta de WhatsApp Business y el numero conectado.",
       "Copiar y guardar el Access Token.",
-      "Usar la seccion Enviar y recibir mensajes para hacer una prueba si hace falta.",
+      "Tiene que estar el Modo de la app Desarrollo en (ACTIVO).",
     ],
   },
   {
     title: "Fase 4",
     heading: "Probar",
     items: [
-      "Probar POST /messages con el Phone Number ID.",
-      "Enviar un texto de prueba con Bearer token.",
       "Antes de probar, manda primero un mensaje al numero oficial.",
       "Si funciona, el cliente queda listo del lado API.",
     ],
@@ -228,7 +226,7 @@ function getInitialFormState(workspace: OfficialApiConfigWizardProps["workspace"
     wabaId: workspace?.officialApiConfig?.wabaId ?? "",
     webhookVerifyToken: workspace?.officialApiConfig?.webhookVerifyToken ?? "",
     appSecret: workspace?.officialApiConfig?.appSecret ?? "",
-    registrationPin: "",
+    registrationPin: "12345",
   };
 }
 
@@ -716,7 +714,7 @@ export function OfficialApiConfigWizard({
         body: JSON.stringify({
           accessToken: form.accessToken,
           phoneNumberId: form.phoneNumberId,
-          pin: form.registrationPin,
+          pin: form.registrationPin.trim() || "12345",
         }),
       });
 
@@ -1024,7 +1022,7 @@ export function OfficialApiConfigWizard({
                         {index === 6 ? (
                           <div className="ml-8">
                             <textarea
-                              rows={6}
+                              rows={3}
                               value={form.accessToken}
                               onChange={updateField("accessToken")}
                               className="w-full rounded-[20px] border border-[var(--line)] bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-[var(--primary)]"
@@ -1040,7 +1038,7 @@ export function OfficialApiConfigWizard({
             ) : null}
 
             {currentStep === 3 ? (
-              <div className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
+              <div className="grid gap-5">
                 <div className="rounded-[1rem] border border-slate-200 bg-slate-50 p-5">
                   <p className="text-base font-semibold text-slate-900">
                     {metaChecklistSections[3]?.heading}
@@ -1056,15 +1054,16 @@ export function OfficialApiConfigWizard({
                           <span>{renderChecklistItem(item)}</span>
                         </div>
 
-                        {index === 2 ? (
+                        {index === 0 ? (
                           <div className="ml-8 grid gap-4">
                             <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
                               <label className="block space-y-1.5">
+                                <span className="text-sm font-medium text-slate-700">Numero para prueba</span>
                                 <Input
-                                  value={form.registrationPin}
-                                  onChange={updateField("registrationPin")}
+                                  value={testRecipient}
+                                  onChange={(event) => setTestRecipient(event.target.value)}
                                   className="h-11 rounded-xl"
-                                  placeholder="Si configuraste verificacion en dos pasos para el numero, pon aqui el PIN."
+                                  placeholder="Ingresa el numero al que vamos enviar el mensaje de prueba."
                                 />
                               </label>
 
@@ -1100,15 +1099,6 @@ export function OfficialApiConfigWizard({
                                 </div>
                               </div>
                             ) : null}
-
-                            <label className="block space-y-1.5">
-                              <Input
-                                value={testRecipient}
-                                onChange={(event) => setTestRecipient(event.target.value)}
-                                className="h-11 rounded-xl"
-                                placeholder="Ingresa el numero al que vamos enviar el mensaje de prueba."
-                              />
-                            </label>
 
                             <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
                               <label className="block space-y-1.5">
@@ -1163,44 +1153,6 @@ export function OfficialApiConfigWizard({
                               </div>
                             ) : null}
 
-                            <label className="block space-y-1.5">
-                              <span className="text-sm font-medium text-slate-700">Access token</span>
-                              <textarea
-                                rows={6}
-                                value={form.accessToken}
-                                onChange={updateField("accessToken")}
-                                className="w-full rounded-[20px] border border-[var(--line)] bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-[var(--primary)]"
-                                placeholder="EAAG..."
-                              />
-                            </label>
-
-                            <div className="grid gap-4 md:grid-cols-2">
-                              <label className="block space-y-1.5">
-                                <span className="text-sm font-medium text-slate-700">Phone number id</span>
-                                <Input
-                                  value={form.phoneNumberId}
-                                  onChange={updateField("phoneNumberId")}
-                                  className="h-11 rounded-xl"
-                                  placeholder="123456789012345"
-                                />
-                              </label>
-
-                              <label className="block space-y-1.5">
-                                <span className="text-sm font-medium text-slate-700">WABA id</span>
-                                <Input
-                                  value={form.wabaId}
-                                  onChange={updateField("wabaId")}
-                                  className="h-11 rounded-xl"
-                                  placeholder="987654321098765"
-                                />
-                              </label>
-                            </div>
-
-                            {!isCredentialStepValid ? (
-                              <div className="rounded-[1.25rem] border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-                                Para continuar, completa access token, phone number id y WABA id.
-                              </div>
-                            ) : null}
                           </div>
                         ) : null}
                       </div>
@@ -1274,8 +1226,7 @@ export function OfficialApiConfigWizard({
 
                           {index === 2 ? (
                             <div className="ml-8 rounded-[1rem] border border-[var(--line)] bg-white p-4">
-                              <div className="flex justify-end">
-
+                              <div className="grid gap-3 text-sm md:grid-cols-[auto_minmax(0,1fr)] md:items-start">
                                 <Button
                                   type="button"
                                   variant={subscriptionStatus?.subscribed ? "outline" : "default"}
@@ -1297,9 +1248,7 @@ export function OfficialApiConfigWizard({
                                       ? "Reintentar suscripcion"
                                       : "Suscribir app al WABA"}
                                 </Button>
-                              </div>
 
-                              <div className="mt-4 grid gap-3 text-sm">
                                 <div className="rounded-[1rem] border border-slate-200 bg-slate-50 p-4 text-slate-700">
                                   <div className="flex items-start gap-3">
                                     {subscriptionStatus?.subscribed ? (
@@ -1335,35 +1284,6 @@ export function OfficialApiConfigWizard({
                             </div>
                           ) : null}
 
-                          {index === 3 ? (
-                            <div className="ml-8 rounded-[1rem] border border-[var(--line)] bg-white p-4">
-                              <p className="text-sm font-semibold text-slate-900">Datos a guardar</p>
-                              <div className="mt-4 grid gap-3 md:grid-cols-2">
-                                <div>
-                                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Access token</p>
-                                  <p className="mt-1 text-sm text-slate-700">
-                                    {form.accessToken.trim() ? `${form.accessToken.trim().slice(0, 10)}...` : "No definido"}
-                                  </p>
-                                </div>
-                                <div>
-                                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Phone number id</p>
-                                  <p className="mt-1 text-sm text-slate-700">{form.phoneNumberId.trim() || "No definido"}</p>
-                                </div>
-                                <div>
-                                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">WABA id</p>
-                                  <p className="mt-1 text-sm text-slate-700">{form.wabaId.trim() || "No definido"}</p>
-                                </div>
-                                <div>
-                                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Webhook verify token</p>
-                                  <p className="mt-1 text-sm text-slate-700">{form.webhookVerifyToken.trim() || "Opcional / vacio"}</p>
-                                </div>
-                                <div className="md:col-span-2">
-                                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">App secret</p>
-                                  <p className="mt-1 text-sm text-slate-700">{form.appSecret.trim() || "Opcional / vacio"}</p>
-                                </div>
-                              </div>
-                            </div>
-                          ) : null}
                         </div>
                       ))}
                     </div>

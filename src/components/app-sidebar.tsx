@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   Megaphone,
   MessageSquare,
+  MessageSquareText,
   Package,
   Settings,
   Tag,
@@ -49,6 +50,7 @@ export function AppSidebar({ pathname, brandName, adminModuleAccess, user, ...pr
   const isAdminQuotesRoute = pathname.startsWith("/admin/cotizaciones");
   const isAdminSuppliersRoute = pathname.startsWith("/admin/proveedores");
   const isClientAgentsRoute = pathname.startsWith("/cliente/agentes");
+  const isClientChatsRoute = pathname.startsWith("/cliente/chats");
   const isClientMarketingRoute = pathname.startsWith("/cliente/marketing-ia");
   const isClientOfficialApiRoute = pathname.startsWith("/cliente/api-oficial");
 
@@ -66,6 +68,7 @@ export function AppSidebar({ pathname, brandName, adminModuleAccess, user, ...pr
           !isAdminQuotesRoute &&
           !isAdminSuppliersRoute &&
           !isClientAgentsRoute &&
+          !isClientChatsRoute &&
           !isClientMarketingRoute &&
           !isClientOfficialApiRoute),
       items: [
@@ -133,6 +136,14 @@ export function AppSidebar({ pathname, brandName, adminModuleAccess, user, ...pr
   }
 
   if (user.role === "ADMIN" || user.role === "CLIENTE") {
+    navMain.push({
+      title: "Chats",
+      url: "/cliente/chats",
+      icon: MessageSquareText,
+      isActive: pathname.startsWith("/cliente/chats"),
+      items: [{ title: "Bandeja", url: "/cliente/chats" }],
+    });
+
     navMain.push({
       title: "Marketing IA",
       url: "/cliente/marketing-ia",

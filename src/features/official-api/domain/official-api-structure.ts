@@ -14,8 +14,8 @@ export const officialApiPlannedRoutes: OfficialApiRouteDefinition[] = [
   {
     id: "chats",
     title: "Chats",
-    href: "/cliente/api-oficial/chats",
-    description: "Bandeja de contactos, conversaciones y envio de mensajes.",
+    href: "/cliente/chats",
+    description: "Bandeja central para chats de agentes y API oficial.",
     status: "next-phase",
   },
   {

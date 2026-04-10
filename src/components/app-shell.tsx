@@ -83,6 +83,8 @@ export function AppShell({
     ? "Inicio"
     : pathname.startsWith("/admin/cotizaciones")
       ? "Cotizaciones"
+    : pathname.startsWith("/cliente/chats")
+      ? "Chats"
     : pathname.startsWith("/cliente/api-oficial")
       ? "Api oficial"
     : pathname.startsWith("/cliente/marketing-ia/ads-generator")
@@ -136,6 +138,10 @@ export function AppShell({
 
     if (pathname.startsWith("/cliente/agentes")) {
       return [{ label: "Agentes", href: "", isCurrent: true }];
+    }
+
+    if (pathname.startsWith("/cliente/chats")) {
+      return [{ label: "Chats", href: "", isCurrent: true }];
     }
 
     if (pathname.startsWith("/cliente/api-oficial")) {

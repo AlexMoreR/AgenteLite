@@ -1,10 +1,9 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { BadgeDollarSign, Cable, MessageSquareText, Shield, Sparkles } from "lucide-react";
+import { Cable, MessageSquareText, Sparkles } from "lucide-react";
 import { auth } from "@/auth";
 import { AgentPanelShell } from "@/components/agents/agent-panel-shell";
 import { Card } from "@/components/ui/card";
-import { parseAgentTrainingConfig, summarizeTraining } from "@/lib/agent-training";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
@@ -46,9 +45,6 @@ export default async function ClienteAgentePanelPage({ params }: PageProps) {
     redirect("/cliente/agentes?error=Agente+no+encontrado");
   }
 
-  const training = parseAgentTrainingConfig(agent.trainingConfig);
-  const trainingSummary = training ? summarizeTraining(training) : null;
-
   return (
     <AgentPanelShell agentId={agent.id}>
       <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
@@ -80,81 +76,6 @@ export default async function ClienteAgentePanelPage({ params }: PageProps) {
               </div>
             </div>
 
-            {training && trainingSummary ? (
-              <div className="space-y-4 rounded-[28px] border border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcff_100%)] p-5">
-                <div className="space-y-1">
-                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--primary)]">Entrenamiento</p>
-                  <h3 className="text-lg font-semibold text-slate-950">Asi atendera tu agente</h3>
-                </div>
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-2xl bg-slate-50 px-4 py-4">
-                    <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">Que vende</p>
-                    <p className="mt-2 text-sm leading-6 text-slate-700">{training.businessDescription}</p>
-                  </div>
-                  <div className="rounded-2xl bg-slate-50 px-4 py-4">
-                    <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">Clientes</p>
-                    <p className="mt-2 text-sm leading-6 text-slate-700">{trainingSummary.audiences}</p>
-                  </div>
-                  <div className="rounded-2xl bg-slate-50 px-4 py-4">
-                    <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">Rango</p>
-                    <p className="mt-2 text-sm leading-6 text-slate-700">{trainingSummary.priceRange}</p>
-                  </div>
-                  <div className="rounded-2xl bg-slate-50 px-4 py-4">
-                    <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">Tono</p>
-                    <p className="mt-2 text-sm leading-6 text-slate-700">{trainingSummary.tone}</p>
-                  </div>
-                </div>
-
-                <div className="grid gap-3 lg:grid-cols-2">
-                  <div className="rounded-2xl border border-[rgba(148,163,184,0.14)] bg-white px-4 py-4">
-                    <div className="flex items-center gap-2">
-                      <BadgeDollarSign className="h-4 w-4 text-[var(--primary)]" />
-                      <p className="text-sm font-semibold text-slate-900">Como responde y vende</p>
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-                        {trainingSummary.responseLength}
-                      </span>
-                      {trainingSummary.styleExtras.map((item) => (
-                        <span key={item} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-                          {item}
-                        </span>
-                      ))}
-                      {trainingSummary.salesActions.map((item) => (
-                        <span
-                          key={item}
-                          className="rounded-full bg-[color-mix(in_srgb,var(--primary)_10%,white)] px-3 py-1 text-xs font-medium text-[var(--primary)]"
-                        >
-                          {item}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="rounded-2xl border border-[rgba(148,163,184,0.14)] bg-white px-4 py-4">
-                    <div className="flex items-center gap-2">
-                      <Shield className="h-4 w-4 text-[var(--primary)]" />
-                      <p className="text-sm font-semibold text-slate-900">Reglas importantes</p>
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {training.forbiddenRules.map((item) => (
-                        <span key={item} className="rounded-full bg-rose-50 px-3 py-1 text-xs font-medium text-rose-700">
-                          {item}
-                        </span>
-                      ))}
-                    </div>
-                    {training.customRules ? (
-                      <p className="mt-3 text-sm leading-6 text-slate-600 whitespace-pre-line">{training.customRules}</p>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="rounded-[24px] border border-dashed border-[rgba(148,163,184,0.22)] bg-slate-50 px-4 py-4 text-sm text-slate-600">
-                Este agente aun no tiene entrenamiento intuitivo guardado.
-              </div>
-            )}
           </div>
         </Card>
 

@@ -1,7 +1,18 @@
 import Image from "next/image";
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { ArrowLeft, Bot, MessageSquareText, Search, SendHorizonal, UserRound } from "lucide-react";
+import {
+  ArrowLeft,
+  BadgeCheck,
+  Bot,
+  Facebook,
+  Instagram,
+  MessageCircle,
+  MessageSquareText,
+  Search,
+  SendHorizonal,
+  UserRound,
+} from "lucide-react";
 import { ChatScrollAnchor } from "@/components/agents/chat-scroll-anchor";
 import { Card } from "@/components/ui/card";
 
@@ -9,6 +20,7 @@ export type SharedInboxConversationItem = {
   id: string;
   label: string;
   secondaryLabel: string;
+  channelType?: "whatsapp" | "whatsapp_official" | "instagram" | "facebook";
   avatarUrl?: string | null;
   lastMessage: string | null;
   lastMessageDirection?: "INBOUND" | "OUTBOUND" | null;
@@ -67,6 +79,22 @@ function formatDateDivider(date: Date) {
   }).format(date);
 }
 
+function renderChannelIcon(channelType?: SharedInboxConversationItem["channelType"]) {
+  if (channelType === "whatsapp_official") {
+    return <BadgeCheck className="h-3.5 w-3.5 shrink-0 text-emerald-600" />;
+  }
+  if (channelType === "instagram") {
+    return <Instagram className="h-3.5 w-3.5 shrink-0 text-pink-600" />;
+  }
+  if (channelType === "facebook") {
+    return <Facebook className="h-3.5 w-3.5 shrink-0 text-blue-600" />;
+  }
+  if (channelType === "whatsapp") {
+    return <MessageCircle className="h-3.5 w-3.5 shrink-0 text-emerald-600" />;
+  }
+  return null;
+}
+
 export function SharedInbox({
   searchAction,
   selectedConversationId,
@@ -89,9 +117,9 @@ export function SharedInbox({
     : "empty";
 
   return (
-    <div className="flex min-h-[calc(100dvh-8rem)] flex-1 flex-col gap-0 md:min-h-0 md:grid md:grid-cols-[380px_minmax(0,1fr)]">
+    <div className="flex min-h-[calc(100dvh-9rem)] flex-1 flex-col gap-0 md:min-h-0 md:grid md:grid-cols-[380px_minmax(0,1fr)]">
       <Card
-        className={`${hasMobileSelection ? "hidden md:flex" : "flex"} min-h-0 flex-1 overflow-hidden border border-[rgba(148,163,184,0.14)] bg-white p-0 shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)] md:h-[76vh] md:flex-none`}
+        className={`${hasMobileSelection ? "hidden md:flex" : "flex"} min-h-0 flex-1 overflow-hidden border border-[rgba(148,163,184,0.14)] bg-white p-0 shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)] md:h-[72vh] md:flex-none`}
       >
         <div className="flex min-h-0 w-full flex-col">
           <div className="shrink-0 border-b border-[rgba(148,163,184,0.12)] bg-white px-3 py-3">
@@ -143,7 +171,10 @@ export function SharedInbox({
 
                     <div className="min-w-0 overflow-hidden space-y-0.5">
                       <div className="flex items-center justify-between gap-3">
-                        <p className="min-w-0 flex-1 truncate text-[13px] font-semibold text-slate-950">{conversation.label}</p>
+                        <div className="min-w-0 flex flex-1 items-center gap-1.5">
+                          <p className="min-w-0 flex-1 truncate text-[13px] font-semibold text-slate-950">{conversation.label}</p>
+                          {renderChannelIcon(conversation.channelType)}
+                        </div>
                         <span className="shrink-0 text-[10px] text-slate-500">
                           {conversation.lastMessageAt
                             ? new Intl.DateTimeFormat("es-CO", {
@@ -182,7 +213,7 @@ export function SharedInbox({
       </Card>
 
       <Card
-        className={`${hasMobileSelection || conversations.length === 0 ? "flex" : "hidden md:flex"} min-h-0 flex-1 overflow-hidden border border-[rgba(148,163,184,0.14)] bg-white p-0 shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)] md:h-[76vh] md:flex-none`}
+        className={`${hasMobileSelection || conversations.length === 0 ? "flex" : "hidden md:flex"} min-h-0 flex-1 overflow-hidden border border-[rgba(148,163,184,0.14)] bg-white p-0 shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)] md:h-[72vh] md:flex-none`}
       >
         {selectedConversation ? (
           <div className="flex min-h-0 h-full w-full flex-1 flex-col">
