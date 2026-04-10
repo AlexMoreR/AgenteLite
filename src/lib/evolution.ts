@@ -137,11 +137,10 @@ export async function getEvolutionConnectionQr(instanceName: string) {
   }
 }
 
-export async function createEvolutionChannelForAgent(input: {
+export async function createEvolutionChannel(input: {
   workspaceId: string;
-  workspaceName: string;
-  agentId: string;
-  agentName: string;
+  name: string;
+  agentId?: string | null;
 }) {
   const settings = await getEvolutionSettings();
   if (!settings.apiBaseUrl || !settings.apiToken || !settings.webhookBaseUrl) {
@@ -188,9 +187,9 @@ export async function createEvolutionChannelForAgent(input: {
   const channel = await prisma.whatsAppChannel.create({
     data: {
       workspaceId: input.workspaceId,
-      agentId: input.agentId,
+      agentId: input.agentId ?? null,
       provider: "EVOLUTION",
-      name: `WhatsApp ${input.agentName}`,
+      name: input.name,
       evolutionInstanceName: instanceName,
       status: qrCode ? "QRCODE" : "CONNECTING",
       qrCode,
@@ -208,6 +207,19 @@ export async function createEvolutionChannelForAgent(input: {
     channelId: channel.id,
     instanceName: channel.evolutionInstanceName,
   };
+}
+
+export async function createEvolutionChannelForAgent(input: {
+  workspaceId: string;
+  workspaceName: string;
+  agentId: string;
+  agentName: string;
+}) {
+  return createEvolutionChannel({
+    workspaceId: input.workspaceId,
+    agentId: input.agentId,
+    name: `WhatsApp ${input.agentName}`,
+  });
 }
 
 export async function deleteEvolutionInstance(instanceName: string) {

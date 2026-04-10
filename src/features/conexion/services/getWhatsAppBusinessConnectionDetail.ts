@@ -21,25 +21,44 @@ async function buildQrDataUrl(qrValue: string | null) {
   });
 }
 
-export async function getWhatsAppBusinessConnectionDetail(workspaceId: string, agentId: string) {
-  const agent = await prisma.agent.findFirst({
+export async function getWhatsAppBusinessConnectionDetail(workspaceId: string, channelOrAgentId: string) {
+  let channel = await prisma.whatsAppChannel.findFirst({
     where: {
-      id: agentId,
+      id: channelOrAgentId,
       workspaceId,
     },
     include: {
-      channels: {
-        orderBy: { createdAt: "desc" },
-        take: 1,
+      agent: {
+        select: {
+          id: true,
+          name: true,
+        },
       },
     },
   });
 
-  if (!agent) {
+  if (!channel) {
+    channel = await prisma.whatsAppChannel.findFirst({
+      where: {
+        workspaceId,
+        agentId: channelOrAgentId,
+      },
+      orderBy: { createdAt: "desc" },
+      include: {
+        agent: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+    });
+  }
+
+  if (!channel) {
     return null;
   }
 
-  const channel = agent.channels[0] ?? null;
   const remoteConnectionState = channel?.evolutionInstanceName
     ? await getEvolutionConnectionState(channel.evolutionInstanceName)
     : null;
@@ -87,9 +106,12 @@ export async function getWhatsAppBusinessConnectionDetail(workspaceId: string, a
       : "");
 
   return {
-    agent: {
-      id: agent.id,
-      name: agent.name,
+    connection: {
+      id: channel.id,
+      name: channel.name,
+      provider: channel.provider,
+      agentId: channel.agent?.id ?? null,
+      agentName: channel.agent?.name ?? "",
     },
     channel,
     isConnected,

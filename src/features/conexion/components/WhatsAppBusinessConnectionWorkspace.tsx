@@ -5,9 +5,12 @@ import { WhatsappQrCountdown } from "@/components/agents/whatsapp-qr-countdown";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 
 type WhatsAppBusinessConnectionWorkspaceProps = {
-  agent: {
+  connection: {
     id: string;
     name: string;
+    provider: string;
+    agentId: string | null;
+    agentName: string;
   };
   isConnected: boolean;
   qrDataUrl: string;
@@ -19,7 +22,7 @@ type WhatsAppBusinessConnectionWorkspaceProps = {
 };
 
 export function WhatsAppBusinessConnectionWorkspace({
-  agent,
+  connection,
   isConnected,
   qrDataUrl,
   pairingCode,
@@ -51,7 +54,11 @@ export function WhatsAppBusinessConnectionWorkspace({
         </Link>
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Conexion</p>
-          <h1 className="text-2xl font-semibold tracking-[-0.05em] text-slate-950">{agent.name}</h1>
+          <h1 className="text-2xl font-semibold tracking-[-0.05em] text-slate-950">{connection.name}</h1>
+          <p className="mt-1 text-sm text-slate-600">
+            {connection.provider === "OFFICIAL_API" ? "WhatsApp API (Meta)" : "WhatsApp QR Code"}
+            {connection.agentName ? ` · Agente vinculado: ${connection.agentName}` : ""}
+          </p>
         </div>
       </div>
 
@@ -64,14 +71,16 @@ export function WhatsAppBusinessConnectionWorkspace({
               </div>
               <h2 className="mt-4 text-xl font-semibold tracking-[-0.04em] text-slate-950">WhatsApp conectado</h2>
               <p className="mt-2 text-sm leading-6 text-slate-600">
-                Este canal ya esta vinculado y listo para seguir operando con el agente.
+                Este canal ya esta vinculado y listo para seguir operando.
               </p>
-              <Link
-                href={`/cliente/agentes/${agent.id}`}
-                className="mt-5 inline-flex h-10 w-full items-center justify-center rounded-full bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)] sm:w-auto"
-              >
-                Ir al agente
-              </Link>
+              {connection.agentId ? (
+                <Link
+                  href={`/cliente/agentes/${connection.agentId}`}
+                  className="mt-5 inline-flex h-10 w-full items-center justify-center rounded-full bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)] sm:w-auto"
+                >
+                  Ir al agente
+                </Link>
+              ) : null}
             </div>
           ) : (
             <div className="flex flex-col items-center">
@@ -107,7 +116,7 @@ export function WhatsAppBusinessConnectionWorkspace({
                 </div>
                 <div>
                   <h2 className="text-lg font-semibold tracking-[-0.04em] text-slate-950">Conexion completada</h2>
-                  <p className="text-sm text-slate-600">Tu numero ya esta vinculado con este agente.</p>
+                  <p className="text-sm text-slate-600">Tu canal ya quedo activo.</p>
                 </div>
               </div>
             </div>

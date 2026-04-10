@@ -42,7 +42,7 @@ export default async function ClienteConexionWhatsAppBusinessDetailPage({ params
 
   return (
     <WhatsAppBusinessConnectionWorkspace
-      agent={detail.agent}
+      connection={detail.connection}
       isConnected={detail.isConnected}
       qrDataUrl={detail.qrDataUrl}
       pairingCode={detail.pairingCode}

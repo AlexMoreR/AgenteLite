@@ -1,0 +1,4 @@
+ALTER TYPE "ChannelProvider" ADD VALUE IF NOT EXISTS 'OFFICIAL_API';
+
+ALTER TABLE "WhatsAppChannel"
+ALTER COLUMN "evolutionInstanceName" DROP NOT NULL;

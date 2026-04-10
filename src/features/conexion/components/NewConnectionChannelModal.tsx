@@ -1,16 +1,20 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { MessageCirclePlus, X } from "lucide-react";
+import { createConnectionChannelAction } from "@/app/actions/connection-actions";
+
+type ConnectionProvider = "EVOLUTION" | "OFFICIAL_API";
 
 type NewConnectionChannelModalProps = {
   canSeeOfficialApiModule: boolean;
+  officialApiEnabled: boolean;
 };
 
-export function NewConnectionChannelModal({ canSeeOfficialApiModule }: NewConnectionChannelModalProps) {
+export function NewConnectionChannelModal({ canSeeOfficialApiModule, officialApiEnabled }: NewConnectionChannelModalProps) {
   const [open, setOpen] = useState(false);
+  const [selectedProvider, setSelectedProvider] = useState<ConnectionProvider | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -18,12 +22,18 @@ export function NewConnectionChannelModal({ canSeeOfficialApiModule }: NewConnec
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setOpen(false);
+        setSelectedProvider(null);
       }
     };
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [open]);
+
+  const closeModal = () => {
+    setOpen(false);
+    setSelectedProvider(null);
+  };
 
   return (
     <>
@@ -42,7 +52,7 @@ export function NewConnectionChannelModal({ canSeeOfficialApiModule }: NewConnec
           role="dialog"
           aria-modal="true"
           aria-label="Nuevo canal"
-          onClick={() => setOpen(false)}
+          onClick={closeModal}
         >
           <div
             className="w-full max-w-2xl rounded-[2rem] border border-[rgba(148,163,184,0.16)] bg-white p-6 shadow-[0_32px_80px_-32px_rgba(15,23,42,0.45)]"
@@ -51,12 +61,21 @@ export function NewConnectionChannelModal({ canSeeOfficialApiModule }: NewConnec
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-2">
                 <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Nuevo canal</p>
-                <h2 className="text-2xl font-semibold tracking-[-0.05em] text-slate-950">Elige el tipo de conexion</h2>
+                <h2 className="text-2xl font-semibold tracking-[-0.05em] text-slate-950">
+                  {selectedProvider ? "Ponle un nombre a tu canal" : "Elige el tipo de conexion"}
+                </h2>
+                <p className="max-w-2xl text-sm leading-6 text-slate-600">
+                  {selectedProvider === "EVOLUTION"
+                    ? "Escribe el nombre del canal. Al crear, se generara la instancia de Evolution y se abrira el QR automaticamente."
+                    : selectedProvider === "OFFICIAL_API"
+                      ? "Escribe el nombre del canal oficial. Si el administrador ya activo la API oficial, el canal se crea de inmediato."
+                      : "Selecciona el proveedor del canal que quieres crear."}
+                </p>
               </div>
 
               <button
                 type="button"
-                onClick={() => setOpen(false)}
+                onClick={closeModal}
                 className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-[rgba(148,163,184,0.18)] text-slate-500 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
                 aria-label="Cerrar modal"
               >
@@ -64,26 +83,61 @@ export function NewConnectionChannelModal({ canSeeOfficialApiModule }: NewConnec
               </button>
             </div>
 
-            <div className="mt-6 grid gap-4 md:grid-cols-2">
-              <ChannelOptionCard
-                href="/cliente/conexion/whatsapp-business"
-                title="WhatsApp QR Code"
-                description="Conecta numeros de whatsapp bussines por QR o Codigo."
-                cta="Empezar Ahora"
-                icon={<WhatsAppGlyph className="h-8 w-8" />}
-                onNavigate={() => setOpen(false)}
-              />
+            {selectedProvider ? (
+              <form action={createConnectionChannelAction} className="mt-6 space-y-4">
+                <input type="hidden" name="provider" value={selectedProvider} />
 
-              <ChannelOptionCard
-                href={canSeeOfficialApiModule ? "/cliente/api-oficial" : undefined}
-                title="WhatsApp API (Meta)"
-                description="Manejas la api oficial de meta este es para ti."
-                cta={canSeeOfficialApiModule ? "Empezar ahora" : "Desactivado"}
-                icon={<WhatsAppGlyph className="h-8 w-8" />}
-                disabled={!canSeeOfficialApiModule}
-                onNavigate={() => setOpen(false)}
-              />
-            </div>
+                <div className="space-y-2">
+                  <label htmlFor="channel-name" className="text-sm font-medium text-slate-700">
+                    Nombre del canal
+                  </label>
+                  <input
+                    id="channel-name"
+                    name="name"
+                    type="text"
+                    required
+                    autoFocus
+                    placeholder={selectedProvider === "EVOLUTION" ? "Ej. WhatsApp ventas principal" : "Ej. WhatsApp oficial tienda"}
+                    className="h-12 w-full rounded-2xl border border-[rgba(148,163,184,0.18)] bg-white px-4 text-sm text-slate-900 outline-none transition focus:border-[var(--primary)] focus:ring-4 focus:ring-[color:color-mix(in_srgb,var(--primary)_12%,white)]"
+                  />
+                </div>
+
+                <div className="flex flex-wrap justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedProvider(null)}
+                    className="inline-flex h-11 items-center justify-center rounded-2xl border border-[rgba(148,163,184,0.18)] px-4 text-sm font-medium text-slate-700 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+                  >
+                    Volver
+                  </button>
+                  <button
+                    type="submit"
+                    className="inline-flex h-11 items-center justify-center rounded-2xl bg-[var(--primary)] px-5 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
+                  >
+                    Crear canal
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <div className="mt-6 grid gap-4 md:grid-cols-2">
+                <ChannelOptionCard
+                  title="WhatsApp QR Code"
+                  description="Conecta numeros de WhatsApp Business por QR o codigo con Evolution."
+                  cta="Empezar ahora"
+                  icon={<WhatsAppGlyph className="h-8 w-8" />}
+                  onSelect={() => setSelectedProvider("EVOLUTION")}
+                />
+
+                <ChannelOptionCard
+                  title="WhatsApp API (Meta)"
+                  description="Crea el canal oficial si tu workspace ya tiene la API oficial activada por administracion."
+                  cta={canSeeOfficialApiModule && officialApiEnabled ? "Empezar ahora" : "Desactivado"}
+                  icon={<WhatsAppGlyph className="h-8 w-8" />}
+                  disabled={!canSeeOfficialApiModule || !officialApiEnabled}
+                  onSelect={() => setSelectedProvider("OFFICIAL_API")}
+                />
+              </div>
+            )}
           </div>
         </div>
       ) : null}
@@ -92,40 +146,33 @@ export function NewConnectionChannelModal({ canSeeOfficialApiModule }: NewConnec
 }
 
 function ChannelOptionCard({
-  href,
   title,
   description,
   cta,
   icon,
   disabled = false,
-  onNavigate,
+  onSelect,
 }: {
-  href?: string;
   title: string;
   description: string;
   cta: string;
   icon: ReactNode;
   disabled?: boolean;
-  onNavigate: () => void;
+  onSelect: () => void;
 }) {
-  const baseClassName = "group relative overflow-hidden rounded-[28px] border p-5 text-left transition";
-
-  if (disabled || !href) {
-    return (
-      <div className={`${baseClassName} border-[rgba(148,163,184,0.16)] bg-slate-50/80 opacity-80`}>
-        <ChannelOptionContent title={title} description={description} cta={cta} icon={icon} disabled />
-      </div>
-    );
-  }
-
   return (
-    <Link
-      href={href}
-      onClick={onNavigate}
-      className={`${baseClassName} border-[var(--line)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.95))] shadow-[0_24px_54px_-42px_rgba(15,23,42,0.14)] hover:-translate-y-0.5 hover:shadow-[0_28px_60px_-42px_rgba(15,23,42,0.18)]`}
+    <button
+      type="button"
+      onClick={disabled ? undefined : onSelect}
+      disabled={disabled}
+      className={`group relative overflow-hidden rounded-[28px] border p-5 text-left transition ${
+        disabled
+          ? "cursor-not-allowed border-[rgba(148,163,184,0.16)] bg-slate-50/80 opacity-80"
+          : "border-[var(--line)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.95))] shadow-[0_24px_54px_-42px_rgba(15,23,42,0.14)] hover:-translate-y-0.5 hover:shadow-[0_28px_60px_-42px_rgba(15,23,42,0.18)]"
+      }`}
     >
-      <ChannelOptionContent title={title} description={description} cta={cta} icon={icon} />
-    </Link>
+      <ChannelOptionContent title={title} description={description} cta={cta} icon={icon} disabled={disabled} />
+    </button>
   );
 }
 
@@ -147,7 +194,7 @@ function ChannelOptionContent({
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(37,99,235,0.06),transparent_24%),radial-gradient(circle_at_bottom_left,rgba(14,165,233,0.05),transparent_28%)]" />
 
       <div className="relative flex h-full flex-col items-center gap-4 text-center">
-        <div className="inline-flex h-14 w-14 self-center items-center justify-center rounded-2xl bg-[color-mix(in_srgb,#22c55e_14%,white)] text-[#16a34a]">
+        <div className="inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,#22c55e_14%,white)] text-[#16a34a]">
           {icon}
         </div>
 

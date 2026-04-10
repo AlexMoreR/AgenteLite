@@ -128,6 +128,7 @@ enum AgentStatus {
 
 enum ChannelProvider {
   EVOLUTION
+  OFFICIAL_API
 }
 
 enum WhatsAppChannelStatus {
@@ -242,7 +243,7 @@ model WhatsAppChannel {
   provider                ChannelProvider       @default(EVOLUTION)
   name                    String
   phoneNumber             String?
-  evolutionInstanceName   String                @unique
+  evolutionInstanceName   String?               @unique
   evolutionExternalKey    String?
   status                  WhatsAppChannelStatus @default(DISCONNECTED)
   qrCode                  String?

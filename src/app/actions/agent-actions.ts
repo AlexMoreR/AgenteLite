@@ -234,7 +234,7 @@ export async function createAgentAction(formData: FormData): Promise<void> {
 
   if (parsed.data.postCreateAction === "conectar") {
     try {
-      await createEvolutionChannelForAgent({
+      const created = await createEvolutionChannelForAgent({
         workspaceId: membership.workspace.id,
         workspaceName: membership.workspace.name,
         agentId: agent.id,
@@ -243,7 +243,8 @@ export async function createAgentAction(formData: FormData): Promise<void> {
 
       revalidatePath("/cliente");
       revalidatePath("/cliente/agentes");
-      redirect(`/cliente/conexion/whatsapp-business/${agent.id}?ok=Canal+preparado`);
+      revalidatePath("/cliente/conexion/whatsapp-business");
+      redirect(`/cliente/conexion/whatsapp-business/${created.channelId}?ok=Canal+preparado`);
     } catch {
       const existingChannel = await prisma.whatsAppChannel.findFirst({
         where: {
@@ -258,10 +259,10 @@ export async function createAgentAction(formData: FormData): Promise<void> {
       revalidatePath("/cliente");
       revalidatePath("/cliente/agentes");
       if (existingChannel) {
-        redirect(`/cliente/conexion/whatsapp-business/${agent.id}?ok=Canal+preparado`);
+        redirect(`/cliente/conexion/whatsapp-business/${existingChannel.id}?ok=Canal+preparado`);
       }
 
-      redirect(`/cliente/conexion/whatsapp-business/${agent.id}?error=No+pudimos+preparar+la+conexion+automatica`);
+      redirect("/cliente/conexion/whatsapp-business?error=No+pudimos+preparar+la+conexion+automatica");
     }
   }
 
@@ -405,6 +406,10 @@ export async function deleteAgentAction(formData: FormData): Promise<void> {
   }
 
   for (const channel of agent.channels) {
+    if (!channel.evolutionInstanceName) {
+      continue;
+    }
+
     try {
       await deleteEvolutionInstance(channel.evolutionInstanceName);
     } catch {

@@ -13,50 +13,53 @@ function getConnectionLabel(status: string | null | undefined) {
 }
 
 export async function getWhatsAppBusinessConnections(workspaceId: string) {
-  const agents = await prisma.agent.findMany({
-    where: { workspaceId },
+  const channels = await prisma.whatsAppChannel.findMany({
+    where: {
+      workspaceId,
+    },
     orderBy: { createdAt: "desc" },
     select: {
       id: true,
       name: true,
-      status: true,
+      provider: true,
+      createdAt: true,
       updatedAt: true,
+      phoneNumber: true,
+      status: true,
+      lastConnectionAt: true,
+      agent: {
+        select: {
+          id: true,
+          name: true,
+          status: true,
+        },
+      },
       _count: {
         select: {
           conversations: true,
           messages: true,
         },
       },
-      channels: {
-        orderBy: { createdAt: "desc" },
-        take: 1,
-        select: {
-          id: true,
-          status: true,
-          phoneNumber: true,
-          lastConnectionAt: true,
-          updatedAt: true,
-        },
-      },
     },
   });
 
-  const items = agents.map((agent) => {
-    const channel = agent.channels[0] ?? null;
-
-    return {
-      id: agent.id,
-      name: agent.name,
-      agentStatus: agent.status,
-      channelStatus: channel?.status ?? null,
-      channelStatusLabel: getConnectionLabel(channel?.status),
-      phoneNumber: channel?.phoneNumber ?? "",
-      lastConnectionAt: channel?.lastConnectionAt ?? null,
-      updatedAt: channel?.updatedAt ?? agent.updatedAt,
-      conversationsCount: agent._count.conversations,
-      messagesCount: agent._count.messages,
-    };
-  });
+  const items = channels
+    .filter((channel) => channel.provider === "EVOLUTION" || channel.provider === "OFFICIAL_API")
+    .map((channel) => ({
+      id: channel.id,
+      name: channel.name,
+      provider: channel.provider,
+    providerLabel: channel.provider === "OFFICIAL_API" ? "WhatsApp API (Meta)" : "WhatsApp QR Code",
+    linkedAgentName: channel.agent?.name ?? "",
+    linkedAgentStatus: channel.agent?.status ?? "",
+    channelStatus: channel.status,
+    channelStatusLabel: getConnectionLabel(channel.status),
+    phoneNumber: channel.phoneNumber ?? "",
+    lastConnectionAt: channel.lastConnectionAt ?? null,
+    updatedAt: channel.updatedAt ?? channel.createdAt,
+    conversationsCount: channel._count.conversations,
+      messagesCount: channel._count.messages,
+    }));
 
   return {
     items,

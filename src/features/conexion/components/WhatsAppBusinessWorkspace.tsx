@@ -12,7 +12,10 @@ type WhatsAppBusinessWorkspaceProps = {
   items: Array<{
     id: string;
     name: string;
-    agentStatus: string;
+    provider: string;
+    providerLabel: string;
+    linkedAgentName: string;
+    linkedAgentStatus: string;
     channelStatus: string | null;
     channelStatusLabel: string;
     phoneNumber: string;
@@ -29,12 +32,12 @@ export function WhatsAppBusinessWorkspace({ summary, items }: WhatsAppBusinessWo
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Conexion</p>
         <h1 className="text-2xl font-semibold tracking-[-0.05em] text-slate-950">WhatsApp Business</h1>
         <p className="max-w-3xl text-sm leading-6 text-slate-600">
-          Aqui administras la conexion por agente con Evolution API sin entrar al modulo de agentes para cada revision tecnica.
+          Aqui administras los canales de WhatsApp que se crean dentro del modulo de conexion.
         </p>
       </div>
 
       <div className="grid gap-3 md:grid-cols-4">
-        <SummaryCard label="Agentes" value={String(summary.totalAgents)} icon={<MessageSquareText className="h-4 w-4" />} />
+        <SummaryCard label="Canales" value={String(summary.totalAgents)} icon={<MessageSquareText className="h-4 w-4" />} />
         <SummaryCard label="Conectados" value={String(summary.connectedAgents)} icon={<CheckCircle2 className="h-4 w-4" />} />
         <SummaryCard label="Esperando QR" value={String(summary.pendingAgents)} icon={<Clock3 className="h-4 w-4" />} />
         <SummaryCard label="Sin conectar" value={String(summary.disconnectedAgents)} icon={<Smartphone className="h-4 w-4" />} />
@@ -63,7 +66,12 @@ export function WhatsAppBusinessWorkspace({ summary, items }: WhatsAppBusinessWo
                     </div>
 
                     <div className="flex flex-wrap gap-2 text-sm text-slate-600">
-                      <span className="rounded-full bg-slate-50 px-3 py-1">Estado del agente: {item.agentStatus}</span>
+                      <span className="rounded-full bg-slate-50 px-3 py-1">Proveedor: {item.providerLabel}</span>
+                      {item.linkedAgentName ? (
+                        <span className="rounded-full bg-slate-50 px-3 py-1">
+                          Agente: {item.linkedAgentName} ({item.linkedAgentStatus})
+                        </span>
+                      ) : null}
                       <span className="rounded-full bg-slate-50 px-3 py-1">
                         {item.phoneNumber ? `Numero: ${item.phoneNumber}` : "Sin numero vinculado"}
                       </span>
@@ -82,7 +90,7 @@ export function WhatsAppBusinessWorkspace({ summary, items }: WhatsAppBusinessWo
           })
         ) : (
           <div className="rounded-[24px] border border-dashed border-[rgba(148,163,184,0.3)] bg-white px-5 py-8 text-sm text-slate-600">
-            Aun no hay agentes creados. Cuando existan, sus conexiones de WhatsApp apareceran aqui.
+            Aun no hay canales creados. Usa el boton de nuevo canal para crear una conexion.
           </div>
         )}
       </div>
