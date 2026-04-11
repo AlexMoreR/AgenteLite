@@ -10,9 +10,17 @@ type ConnectionProvider = "EVOLUTION" | "OFFICIAL_API";
 type NewConnectionChannelModalProps = {
   canSeeOfficialApiModule: boolean;
   officialApiEnabled: boolean;
+  targetAgent?: {
+    id: string;
+    name: string;
+  } | null;
 };
 
-export function NewConnectionChannelModal({ canSeeOfficialApiModule, officialApiEnabled }: NewConnectionChannelModalProps) {
+export function NewConnectionChannelModal({
+  canSeeOfficialApiModule,
+  officialApiEnabled,
+  targetAgent,
+}: NewConnectionChannelModalProps) {
   const [open, setOpen] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<ConnectionProvider | null>(null);
 
@@ -66,11 +74,14 @@ export function NewConnectionChannelModal({ canSeeOfficialApiModule, officialApi
                 </h2>
                 <p className="max-w-2xl text-sm leading-6 text-slate-600">
                   {selectedProvider === "EVOLUTION"
-                    ? "Escribe el nombre del canal. Al crear, se generara la instancia de Evolution y se abrira el QR automaticamente."
+                    ? "Escribe el nombre del canal. Al crear, se generara QR para conectar tu linea de whatsapp."
                     : selectedProvider === "OFFICIAL_API"
                       ? "Escribe el nombre del canal oficial. Si el administrador ya activo la API oficial, el canal se crea de inmediato."
                       : "Selecciona el proveedor del canal que quieres crear."}
                 </p>
+                {targetAgent ? (
+                  <p className="text-sm font-medium text-[var(--primary)]">Se vinculara a {targetAgent.name}.</p>
+                ) : null}
               </div>
 
               <button
@@ -86,6 +97,7 @@ export function NewConnectionChannelModal({ canSeeOfficialApiModule, officialApi
             {selectedProvider ? (
               <form action={createConnectionChannelAction} className="mt-6 space-y-4">
                 <input type="hidden" name="provider" value={selectedProvider} />
+                {targetAgent ? <input type="hidden" name="agentId" value={targetAgent.id} /> : null}
 
                 <div className="space-y-2">
                   <label htmlFor="channel-name" className="text-sm font-medium text-slate-700">

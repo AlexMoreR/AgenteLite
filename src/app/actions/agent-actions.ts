@@ -19,7 +19,6 @@ import {
 } from "@/lib/agent-training";
 import { generateAgentReply } from "@/lib/agent-ai";
 import {
-  createEvolutionChannelForAgent,
   deleteEvolutionInstance,
   sendEvolutionPresence,
   sendEvolutionTextMessage,
@@ -233,37 +232,10 @@ export async function createAgentAction(formData: FormData): Promise<void> {
   });
 
   if (parsed.data.postCreateAction === "conectar") {
-    try {
-      const created = await createEvolutionChannelForAgent({
-        workspaceId: membership.workspace.id,
-        workspaceName: membership.workspace.name,
-        agentId: agent.id,
-        agentName: agent.name,
-      });
-
-      revalidatePath("/cliente");
-      revalidatePath("/cliente/agentes");
-      revalidatePath("/cliente/conexion/whatsapp-business");
-      redirect(`/cliente/conexion/whatsapp-business/${created.channelId}?ok=Canal+preparado`);
-    } catch {
-      const existingChannel = await prisma.whatsAppChannel.findFirst({
-        where: {
-          agentId: agent.id,
-          workspaceId: membership.workspace.id,
-        },
-        select: {
-          id: true,
-        },
-      });
-
-      revalidatePath("/cliente");
-      revalidatePath("/cliente/agentes");
-      if (existingChannel) {
-        redirect(`/cliente/conexion/whatsapp-business/${existingChannel.id}?ok=Canal+preparado`);
-      }
-
-      redirect("/cliente/conexion/whatsapp-business?error=No+pudimos+preparar+la+conexion+automatica");
-    }
+    revalidatePath("/cliente");
+    revalidatePath("/cliente/agentes");
+    revalidatePath("/cliente/conexion");
+    redirect(`/cliente/conexion?agentId=${agent.id}&ok=Agente+creado.+Ahora+elige+o+crea+una+conexion`);
   }
 
   revalidatePath("/cliente");

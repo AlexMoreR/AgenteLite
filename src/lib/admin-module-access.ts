@@ -2,6 +2,7 @@ import type { Role } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
 const ADMIN_MODULE_ACCESS_SETTING_KEY = "adminModuleAccess";
+let ensureAppSettingTablePromise: Promise<void> | null = null;
 
 export const adminModuleDefinitions = [
   {
@@ -81,14 +82,21 @@ const defaultAdminVisibleModules = new Set<AdminModuleKey>([
 ]);
 
 async function ensureAppSettingTable(): Promise<void> {
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "AppSetting" (
-      "key" TEXT NOT NULL PRIMARY KEY,
-      "value" TEXT NOT NULL,
-      "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-  `);
+  if (!ensureAppSettingTablePromise) {
+    ensureAppSettingTablePromise = prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "AppSetting" (
+        "key" TEXT NOT NULL PRIMARY KEY,
+        "value" TEXT NOT NULL,
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+    `).then(() => undefined).catch((error) => {
+      ensureAppSettingTablePromise = null;
+      throw error;
+    });
+  }
+
+  await ensureAppSettingTablePromise;
 }
 
 function getAdminModuleKeySet(): Set<AdminModuleKey> {

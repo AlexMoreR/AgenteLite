@@ -2,6 +2,8 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { randomUUID } from "node:crypto";
 
+let ensureOfficialApiConfigTablePromise: Promise<void> | null = null;
+
 export type OfficialApiConfigRecord = {
   id: string;
   workspaceId: string;
@@ -27,7 +29,13 @@ export function hasOfficialApiBaseCredentials(
 }
 
 export async function ensureOfficialApiConfigTable(): Promise<void> {
-  await prisma.$executeRawUnsafe(`
+  if (ensureOfficialApiConfigTablePromise) {
+    await ensureOfficialApiConfigTablePromise;
+    return;
+  }
+
+  ensureOfficialApiConfigTablePromise = (async () => {
+    await prisma.$executeRawUnsafe(`
     DO $$
     BEGIN
       IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'OfficialApiConnectionStatus') THEN
@@ -54,7 +62,7 @@ export async function ensureOfficialApiConfigTable(): Promise<void> {
     END $$;
   `);
 
-  await prisma.$executeRawUnsafe(`
+    await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS "OfficialApiClientConfig" (
       "id" TEXT NOT NULL PRIMARY KEY,
       "workspaceId" TEXT NOT NULL UNIQUE,
@@ -73,12 +81,12 @@ export async function ensureOfficialApiConfigTable(): Promise<void> {
     );
   `);
 
-  await prisma.$executeRawUnsafe(`
+    await prisma.$executeRawUnsafe(`
     CREATE INDEX IF NOT EXISTS "OfficialApiClientConfig_status_updatedAt_idx"
     ON "OfficialApiClientConfig" ("status", "updatedAt");
   `);
 
-  await prisma.$executeRawUnsafe(`
+    await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS "OfficialApiContact" (
       "id" TEXT NOT NULL PRIMARY KEY,
       "configId" TEXT NOT NULL,
@@ -96,17 +104,17 @@ export async function ensureOfficialApiConfigTable(): Promise<void> {
     );
   `);
 
-  await prisma.$executeRawUnsafe(`
+    await prisma.$executeRawUnsafe(`
     CREATE UNIQUE INDEX IF NOT EXISTS "OfficialApiContact_configId_waId_key"
     ON "OfficialApiContact" ("configId", "waId");
   `);
 
-  await prisma.$executeRawUnsafe(`
+    await prisma.$executeRawUnsafe(`
     CREATE INDEX IF NOT EXISTS "OfficialApiContact_configId_lastMessageAt_idx"
     ON "OfficialApiContact" ("configId", "lastMessageAt");
   `);
 
-  await prisma.$executeRawUnsafe(`
+    await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS "OfficialApiConversation" (
       "id" TEXT NOT NULL PRIMARY KEY,
       "configId" TEXT NOT NULL,
@@ -125,22 +133,22 @@ export async function ensureOfficialApiConfigTable(): Promise<void> {
     );
   `);
 
-  await prisma.$executeRawUnsafe(`
+    await prisma.$executeRawUnsafe(`
     CREATE UNIQUE INDEX IF NOT EXISTS "OfficialApiConversation_configId_externalThreadId_key"
     ON "OfficialApiConversation" ("configId", "externalThreadId");
   `);
 
-  await prisma.$executeRawUnsafe(`
+    await prisma.$executeRawUnsafe(`
     CREATE INDEX IF NOT EXISTS "OfficialApiConversation_configId_status_lastMessageAt_idx"
     ON "OfficialApiConversation" ("configId", "status", "lastMessageAt");
   `);
 
-  await prisma.$executeRawUnsafe(`
+    await prisma.$executeRawUnsafe(`
     CREATE INDEX IF NOT EXISTS "OfficialApiConversation_contactId_lastMessageAt_idx"
     ON "OfficialApiConversation" ("contactId", "lastMessageAt");
   `);
 
-  await prisma.$executeRawUnsafe(`
+    await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS "OfficialApiMessage" (
       "id" TEXT NOT NULL PRIMARY KEY,
       "configId" TEXT NOT NULL,
@@ -171,27 +179,27 @@ export async function ensureOfficialApiConfigTable(): Promise<void> {
     );
   `);
 
-  await prisma.$executeRawUnsafe(`
+    await prisma.$executeRawUnsafe(`
     CREATE UNIQUE INDEX IF NOT EXISTS "OfficialApiMessage_configId_externalMessageId_key"
     ON "OfficialApiMessage" ("configId", "externalMessageId");
   `);
 
-  await prisma.$executeRawUnsafe(`
+    await prisma.$executeRawUnsafe(`
     CREATE INDEX IF NOT EXISTS "OfficialApiMessage_configId_createdAt_idx"
     ON "OfficialApiMessage" ("configId", "createdAt");
   `);
 
-  await prisma.$executeRawUnsafe(`
+    await prisma.$executeRawUnsafe(`
     CREATE INDEX IF NOT EXISTS "OfficialApiMessage_conversationId_createdAt_idx"
     ON "OfficialApiMessage" ("conversationId", "createdAt");
   `);
 
-  await prisma.$executeRawUnsafe(`
+    await prisma.$executeRawUnsafe(`
     CREATE INDEX IF NOT EXISTS "OfficialApiMessage_contactId_createdAt_idx"
     ON "OfficialApiMessage" ("contactId", "createdAt");
   `);
 
-  await prisma.$executeRawUnsafe(`
+    await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS "OfficialApiWebhookEvent" (
       "id" TEXT NOT NULL PRIMARY KEY,
       "configId" TEXT NOT NULL,
@@ -209,17 +217,17 @@ export async function ensureOfficialApiConfigTable(): Promise<void> {
     );
   `);
 
-  await prisma.$executeRawUnsafe(`
+    await prisma.$executeRawUnsafe(`
     CREATE INDEX IF NOT EXISTS "OfficialApiWebhookEvent_configId_createdAt_idx"
     ON "OfficialApiWebhookEvent" ("configId", "createdAt");
   `);
 
-  await prisma.$executeRawUnsafe(`
+    await prisma.$executeRawUnsafe(`
     CREATE INDEX IF NOT EXISTS "OfficialApiWebhookEvent_deliveryId_idx"
     ON "OfficialApiWebhookEvent" ("deliveryId");
   `);
 
-  await prisma.$executeRawUnsafe(`
+    await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS "OfficialApiAutomationRule" (
       "id" TEXT NOT NULL PRIMARY KEY,
       "configId" TEXT NOT NULL,
@@ -238,10 +246,16 @@ export async function ensureOfficialApiConfigTable(): Promise<void> {
     );
   `);
 
-  await prisma.$executeRawUnsafe(`
+    await prisma.$executeRawUnsafe(`
     CREATE INDEX IF NOT EXISTS "OfficialApiAutomationRule_configId_status_priority_idx"
     ON "OfficialApiAutomationRule" ("configId", "status", "priority");
-  `);
+    `);
+  })().catch((error) => {
+    ensureOfficialApiConfigTablePromise = null;
+    throw error;
+  });
+
+  await ensureOfficialApiConfigTablePromise;
 }
 
 export async function getOfficialApiConfigByWorkspaceIds(

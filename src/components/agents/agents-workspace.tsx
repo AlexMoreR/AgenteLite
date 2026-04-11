@@ -71,7 +71,7 @@ const steps = [
   },
   {
     title: "Activacion",
-    subtitle: "Elige si quieres probar el agente primero o conectar WhatsApp ahora.",
+    subtitle: "Elige si quieres probar el agente primero o dejar lista su conexion desde el modulo Conexion.",
   },
 ] as const;
 
@@ -174,11 +174,11 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
   const [pendingDelete, setPendingDelete] = useState<AgentCard | null>(null);
   const [resetOpen, setResetOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [postCreateAction, setPostCreateAction] = useState<"probar" | "conectar">("probar");
   const [responseLengthValue, setResponseLengthValue] = useState(50);
   const [audienceMode, setAudienceMode] = useState<"persona" | "empresa">("persona");
   const [selectedAudiences, setSelectedAudiences] = useState<string[]>(["Mujer"]);
   const formRef = useRef<HTMLFormElement>(null);
+  const postCreateActionRef = useRef<HTMLInputElement>(null);
 
   const personaAudienceOptions = ["Mujer", "Hombre", "Jovenes", "Adultos mayores", "Mamas", "Otro"];
   const empresaAudienceOptions = ["Empresa", "Pymes", "Emprendedores", "Profesionales", "Otro"];
@@ -186,7 +186,9 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
   const openCreateFlow = () => {
     setStep(0);
     setIsSubmitting(false);
-    setPostCreateAction("probar");
+    if (postCreateActionRef.current) {
+      postCreateActionRef.current.value = "probar";
+    }
     setResponseLengthValue(50);
     setAudienceMode("persona");
     setSelectedAudiences(["Mujer"]);
@@ -200,7 +202,9 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
     setModalOpen(false);
   };
   const submitCreateFlow = (action: "probar" | "conectar") => {
-    setPostCreateAction(action);
+    if (postCreateActionRef.current) {
+      postCreateActionRef.current.value = action;
+    }
     setIsSubmitting(true);
     formRef.current?.requestSubmit();
   };
@@ -404,7 +408,7 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
             </div>
 
             <form ref={formRef} action={createAgentAction} noValidate className="flex min-h-0 flex-1 flex-col">
-              <input type="hidden" name="postCreateAction" value={postCreateAction} />
+              <input ref={postCreateActionRef} type="hidden" name="postCreateAction" defaultValue="probar" />
               <div
                 className={
                   isSubmitting
@@ -654,11 +658,11 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
                                   <p className="text-sm font-semibold text-slate-900">Ultimo paso</p>
                                   <TrainingHelpPopover
                                     title="Ultimo paso"
-                                    description="Te recomendamos probar primero. Si ya lo tienes claro, tambien puedes conectar el WhatsApp de una vez."
+                                    description="Te recomendamos probar primero. Si ya lo tienes claro, tambien puedes ir al modulo Conexion y vincular el canal."
                                   />
                                 </div>
                                 <p className="max-w-2xl text-sm leading-6 text-slate-600">
-                                  Para una persona de negocio, lo mejor es probar un par de mensajes y despues conectar el numero real.
+                                  Para una persona de negocio, lo mejor es probar un par de mensajes y despues vincular el canal real desde Conexion.
                                 </p>
                               </div>
                             </div>
@@ -692,7 +696,7 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
                               </span>
                               <h3 className="mt-4 text-lg font-semibold tracking-[-0.03em] text-slate-950">Conectar ahora</h3>
                               <p className="mt-2 text-sm leading-6 text-slate-600">
-                                Crea el agente y pasa directo al QR para vincular tu WhatsApp en este momento.
+                                Crea el agente y ve al modulo Conexion para elegir o crear el canal que vas a usar.
                               </p>
                               <span className="mt-5 inline-flex h-11 items-center justify-center rounded-2xl border border-[rgba(148,163,184,0.18)] px-4 text-sm font-medium text-slate-700 transition group-hover:border-[var(--primary)]/30 group-hover:text-[var(--primary)]">
                                 Conectar ahora

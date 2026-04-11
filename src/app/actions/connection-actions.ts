@@ -1,5 +1,6 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
@@ -16,7 +17,22 @@ const createConnectionChannelSchema = z.object({
     .trim()
     .min(2, "Escribe un nombre de canal valido")
     .max(100, "El nombre del canal es demasiado largo"),
+  agentId: z.string().trim().optional(),
 });
+
+function getRequiredFormValue(formData: FormData, key: string) {
+  const value = formData.get(key);
+  return typeof value === "string" ? value : "";
+}
+
+function getOptionalFormValue(formData: FormData, key: string) {
+  const value = formData.get(key);
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  return value.trim().length ? value : undefined;
+}
 
 export async function createConnectionChannelAction(formData: FormData): Promise<void> {
   const session = await auth();
@@ -30,8 +46,9 @@ export async function createConnectionChannelAction(formData: FormData): Promise
   }
 
   const parsed = createConnectionChannelSchema.safeParse({
-    provider: formData.get("provider"),
-    name: formData.get("name"),
+    provider: getRequiredFormValue(formData, "provider"),
+    name: getRequiredFormValue(formData, "name"),
+    agentId: getOptionalFormValue(formData, "agentId"),
   });
 
   if (!parsed.success) {
@@ -39,15 +56,38 @@ export async function createConnectionChannelAction(formData: FormData): Promise
     redirect(`/cliente/conexion?error=${encodeURIComponent(message)}`);
   }
 
+  let agentId: string | null = null;
+
+  if (parsed.data.agentId) {
+    const agent = await prisma.agent.findFirst({
+      where: {
+        id: parsed.data.agentId,
+        workspaceId: membership.workspace.id,
+      },
+      select: {
+        id: true,
+        name: true,
+      },
+    });
+
+    if (!agent) {
+      redirect("/cliente/conexion?error=No+se+encontro+el+agente+para+vincular");
+    }
+
+    agentId = agent.id;
+  }
+
   if (parsed.data.provider === "EVOLUTION") {
     const created = await createEvolutionChannel({
       workspaceId: membership.workspace.id,
       name: parsed.data.name,
+      agentId,
     });
 
     revalidatePath("/cliente/conexion");
     revalidatePath("/cliente/conexion/whatsapp-business");
-    redirect(`/cliente/conexion/whatsapp-business/${created.channelId}?ok=Canal+creado`);
+    const okMessage = agentId ? "Canal+creado+y+vinculado" : "Canal+creado";
+    redirect(`/cliente/conexion/whatsapp-business/${created.channelId}?ok=${okMessage}`);
   }
 
   const officialApiConfig = await getOfficialApiConfigByWorkspaceId(membership.workspace.id);
@@ -55,11 +95,13 @@ export async function createConnectionChannelAction(formData: FormData): Promise
     redirect("/cliente/conexion?error=La+API+oficial+no+esta+activa+para+este+workspace");
   }
 
-  const channel = await prisma.whatsAppChannel.create({
+  await prisma.whatsAppChannel.create({
     data: {
       workspaceId: membership.workspace.id,
+      agentId,
       provider: "OFFICIAL_API",
       name: parsed.data.name,
+      evolutionInstanceName: `official-${officialApiConfig.phoneNumberId}-${randomUUID()}`,
       status: "CONNECTED",
       metadata: {
         officialApiConfigId: officialApiConfig.id,
@@ -67,19 +109,22 @@ export async function createConnectionChannelAction(formData: FormData): Promise
         wabaId: officialApiConfig.wabaId,
       },
     },
-    select: {
-      id: true,
-    },
   });
 
   revalidatePath("/cliente/conexion");
   revalidatePath("/cliente/conexion/whatsapp-business");
   revalidatePath("/cliente/api-oficial");
-  redirect(`/cliente/conexion/whatsapp-business/${channel.id}?ok=Canal+oficial+creado`);
+  const okMessage = agentId ? "Canal+oficial+creado+y+vinculado" : "Canal+oficial+creado";
+  redirect(`/cliente/conexion?${agentId ? `agentId=${agentId}&` : ""}ok=${okMessage}`);
 }
 
 const deleteConnectionChannelSchema = z.object({
   channelId: z.string().trim().min(1, "Canal invalido"),
+});
+
+const assignConnectionChannelSchema = z.object({
+  channelId: z.string().trim().min(1, "Canal invalido"),
+  agentId: z.string().trim().min(1, "Agente invalido"),
 });
 
 export async function deleteConnectionChannelAction(formData: FormData): Promise<void> {
@@ -94,7 +139,7 @@ export async function deleteConnectionChannelAction(formData: FormData): Promise
   }
 
   const parsed = deleteConnectionChannelSchema.safeParse({
-    channelId: formData.get("channelId"),
+    channelId: getRequiredFormValue(formData, "channelId"),
   });
 
   if (!parsed.success) {
@@ -108,6 +153,7 @@ export async function deleteConnectionChannelAction(formData: FormData): Promise
     },
     select: {
       id: true,
+      provider: true,
       evolutionInstanceName: true,
     },
   });
@@ -116,7 +162,7 @@ export async function deleteConnectionChannelAction(formData: FormData): Promise
     redirect("/cliente/conexion?error=Canal+no+encontrado");
   }
 
-  if (channel.evolutionInstanceName) {
+  if (channel.provider === "EVOLUTION" && channel.evolutionInstanceName) {
     try {
       await deleteEvolutionInstance(channel.evolutionInstanceName);
     } catch {
@@ -131,4 +177,62 @@ export async function deleteConnectionChannelAction(formData: FormData): Promise
   revalidatePath("/cliente/conexion");
   revalidatePath("/cliente/conexion/whatsapp-business");
   redirect("/cliente/conexion?ok=Canal+eliminado");
+}
+
+export async function assignConnectionChannelAction(formData: FormData): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+    redirect("/unauthorized");
+  }
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    redirect("/cliente/conexion?error=Debes+crear+tu+negocio+primero");
+  }
+
+  const parsed = assignConnectionChannelSchema.safeParse({
+    channelId: getRequiredFormValue(formData, "channelId"),
+    agentId: getRequiredFormValue(formData, "agentId"),
+  });
+
+  if (!parsed.success) {
+    redirect("/cliente/conexion?error=No+se+pudo+vincular+el+canal");
+  }
+
+  const [agent, channel] = await Promise.all([
+    prisma.agent.findFirst({
+      where: {
+        id: parsed.data.agentId,
+        workspaceId: membership.workspace.id,
+      },
+      select: {
+        id: true,
+      },
+    }),
+    prisma.whatsAppChannel.findFirst({
+      where: {
+        id: parsed.data.channelId,
+        workspaceId: membership.workspace.id,
+      },
+      select: {
+        id: true,
+      },
+    }),
+  ]);
+
+  if (!agent || !channel) {
+    redirect("/cliente/conexion?error=No+se+encontro+el+agente+o+el+canal");
+  }
+
+  await prisma.whatsAppChannel.update({
+    where: { id: channel.id },
+    data: {
+      agentId: agent.id,
+    },
+  });
+
+  revalidatePath("/cliente/conexion");
+  revalidatePath("/cliente/conexion/whatsapp-business");
+  revalidatePath(`/cliente/agentes/${agent.id}`);
+  redirect(`/cliente/conexion?agentId=${agent.id}&ok=Canal+vinculado+al+agente`);
 }
