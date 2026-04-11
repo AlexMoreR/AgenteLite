@@ -1,6 +1,17 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { ArrowRight, CheckCircle2, Clock3, Link2, MessageSquareText, Smartphone, Trash2 } from "lucide-react";
+import {
+  FiArrowRight,
+  FiClock,
+  FiLink,
+  FiMail,
+  FiMessageCircle,
+  FiMessageSquare,
+  FiSmartphone,
+  FiTrash2,
+} from "react-icons/fi";
+import { HiOutlineCheckCircle } from "react-icons/hi";
+import { HiMiniChartBar } from "react-icons/hi2";
 import { assignConnectionChannelAction, deleteConnectionChannelAction } from "@/app/actions/connection-actions";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { NewConnectionChannelModal } from "./NewConnectionChannelModal";
@@ -50,7 +61,10 @@ export function ConnectionsWorkspaceV2({
 
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-[-0.05em] text-slate-950">Conexion</h1>
+          <div className="inline-flex items-center gap-3">
+            <HiMiniChartBar className="h-6 w-6 text-sky-600" />
+            <h1 className="text-2xl font-semibold tracking-[-0.05em] text-slate-950">Conexion</h1>
+          </div>
           <p className="max-w-3xl text-sm text-slate-600">Crea y administra tus canales de conexion.</p>
         </div>
 
@@ -66,7 +80,7 @@ export function ConnectionsWorkspaceV2({
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-start gap-3">
               <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
-                <Link2 className="h-5 w-5" />
+                <FiLink className="h-5 w-5" />
               </span>
               <div className="space-y-1">
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--primary)]">Agente seleccionado</p>
@@ -86,21 +100,21 @@ export function ConnectionsWorkspaceV2({
       ) : null}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <SummaryCard label="Canales" value={String(items.length)} icon={<MessageSquareText className="h-4 w-4" />} />
+        <SummaryCard label="Canales" value={String(items.length)} icon={<FiMessageSquare className="h-4 w-4" />} />
         <SummaryCard
           label="Conectados"
           value={String(items.filter((item) => item.channelStatus === "CONNECTED").length)}
-          icon={<CheckCircle2 className="h-4 w-4" />}
+          icon={<HiOutlineCheckCircle className="h-4 w-4" />}
         />
         <SummaryCard
           label="Esperando QR"
           value={String(items.filter((item) => item.channelStatus === "QRCODE").length)}
-          icon={<Clock3 className="h-4 w-4" />}
+          icon={<FiClock className="h-4 w-4" />}
         />
         <SummaryCard
           label="Sin conectar"
           value={String(items.filter((item) => item.channelStatus === "DISCONNECTED").length)}
-          icon={<Smartphone className="h-4 w-4" />}
+          icon={<FiSmartphone className="h-4 w-4" />}
         />
       </div>
 
@@ -118,29 +132,23 @@ export function ConnectionsWorkspaceV2({
                   key={item.id}
                   className="rounded-[24px] border border-[rgba(148,163,184,0.14)] bg-white p-5 shadow-[0_20px_60px_-48px_rgba(15,23,42,0.18)]"
                 >
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                    <div className="space-y-3">
-                      <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+                    <div className="flex min-w-0 flex-1 flex-col gap-3 xl:flex-row xl:items-center xl:gap-4">
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
                         <h3 className="text-lg font-semibold tracking-[-0.04em] text-slate-950">{item.name}</h3>
                         <StatusPill label={item.channelStatusLabel} />
                       </div>
 
-                      <div className="flex flex-wrap gap-2 text-sm text-slate-600">
-                        <span className="rounded-full bg-slate-50 px-3 py-1">Proveedor: {item.providerLabel}</span>
-                        {item.linkedAgentName ? (
-                          <span className="rounded-full bg-slate-50 px-3 py-1">
-                            Agente: {item.linkedAgentName} ({item.linkedAgentStatus})
-                          </span>
+                      <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
+                        {item.phoneNumber ? (
+                          <span className="rounded-full bg-slate-50 px-3 py-1">Numero: {item.phoneNumber}</span>
                         ) : null}
-                        <span className="rounded-full bg-slate-50 px-3 py-1">
-                          {item.phoneNumber ? `Numero: ${item.phoneNumber}` : "Sin numero vinculado"}
-                        </span>
-                        <span className="rounded-full bg-slate-50 px-3 py-1">{item.conversationsCount} conversaciones</span>
-                        <span className="rounded-full bg-slate-50 px-3 py-1">{item.messagesCount} mensajes</span>
+                        <MetricPill icon={<FiMessageCircle className="h-4 w-4" />} value={String(item.conversationsCount)} />
+                        <MetricPill icon={<FiMail className="h-4 w-4" />} value={String(item.messagesCount)} />
                       </div>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-3 xl:justify-end">
                       {canAssignToTargetAgent ? (
                         <form action={assignConnectionChannelAction}>
                           <input type="hidden" name="channelId" value={item.id} />
@@ -149,7 +157,7 @@ export function ConnectionsWorkspaceV2({
                             type="submit"
                             className="inline-flex h-10 items-center justify-center gap-2 rounded-full bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
                           >
-                            <Link2 className="h-4 w-4" />
+                            <FiLink className="h-4 w-4" />
                             Asignar a este agente
                           </button>
                         </form>
@@ -160,7 +168,7 @@ export function ConnectionsWorkspaceV2({
                         className="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-[rgba(148,163,184,0.18)] bg-white px-4 text-sm font-medium text-slate-700 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
                       >
                         Abrir
-                        <ArrowRight className="h-4 w-4" />
+                        <FiArrowRight className="h-4 w-4" />
                       </Link>
 
                       <form action={deleteConnectionChannelAction}>
@@ -169,7 +177,7 @@ export function ConnectionsWorkspaceV2({
                           type="submit"
                           className="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-[rgba(239,68,68,0.18)] bg-[color-mix(in_srgb,#ef4444_6%,white)] px-4 text-sm font-medium text-[#b91c1c] transition hover:bg-[color-mix(in_srgb,#ef4444_12%,white)]"
                         >
-                          <Trash2 className="h-4 w-4" />
+                          <FiTrash2 className="h-4 w-4" />
                           Eliminar
                         </button>
                       </form>
@@ -196,10 +204,22 @@ function StatusPill({ label }: { label: string }) {
       : label === "Esperando QR"
         ? "border-[rgba(217,119,6,0.16)] bg-[color-mix(in_srgb,#f59e0b_10%,white)] text-[#b45309]"
         : "border-[rgba(148,163,184,0.16)] bg-slate-50 text-slate-600";
+  const dotTone =
+    label === "Conectado" ? "bg-[#16a34a]" : label === "Esperando QR" ? "bg-[#f59e0b]" : "bg-slate-400";
 
   return (
-    <span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${tone}`}>
+    <span className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${tone}`}>
+      <span className={`h-2 w-2 rounded-full ${dotTone}`} />
       {label}
+    </span>
+  );
+}
+
+function MetricPill({ icon, value }: { icon: ReactNode; value: string }) {
+  return (
+    <span className="inline-flex items-center gap-2 rounded-full bg-slate-50 px-3 py-1 text-slate-600">
+      <span className="text-slate-400">{icon}</span>
+      <span>{value}</span>
     </span>
   );
 }

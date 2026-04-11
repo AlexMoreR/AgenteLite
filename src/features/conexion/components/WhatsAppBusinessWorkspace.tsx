@@ -66,15 +66,14 @@ export function WhatsAppBusinessWorkspace({ summary, items }: WhatsAppBusinessWo
                     </div>
 
                     <div className="flex flex-wrap gap-2 text-sm text-slate-600">
-                      <span className="rounded-full bg-slate-50 px-3 py-1">Proveedor: {item.providerLabel}</span>
                       {item.linkedAgentName ? (
                         <span className="rounded-full bg-slate-50 px-3 py-1">
                           Agente: {item.linkedAgentName} ({item.linkedAgentStatus})
                         </span>
                       ) : null}
-                      <span className="rounded-full bg-slate-50 px-3 py-1">
-                        {item.phoneNumber ? `Numero: ${item.phoneNumber}` : "Sin numero vinculado"}
-                      </span>
+                      {item.phoneNumber ? (
+                        <span className="rounded-full bg-slate-50 px-3 py-1">Numero: {item.phoneNumber}</span>
+                      ) : null}
                       <span className="rounded-full bg-slate-50 px-3 py-1">{item.conversationsCount} conversaciones</span>
                       <span className="rounded-full bg-slate-50 px-3 py-1">{item.messagesCount} mensajes</span>
                     </div>
