@@ -71,6 +71,11 @@ import { toast } from "sonner";
 type OfficialApiChatbotWorkspaceProps = {
   data: OfficialApiChatbotData;
   initialScenarioId?: string;
+  basePath?: string;
+  routeQuery?: string;
+  saveEndpoint?: string;
+  uploadEndpoint?: string;
+  saveSuccessDescription?: string;
 };
 
 type BuilderNode = OfficialApiChatbotBuilderNode;
@@ -612,7 +617,15 @@ function normalizeNodesByScenarioForSave(nodesByScenarioId: OfficialApiChatbotNo
   ) satisfies OfficialApiChatbotNodesByScenarioId;
 }
 
-export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: OfficialApiChatbotWorkspaceProps) {
+export function OfficialApiChatbotWorkspace({
+  data,
+  initialScenarioId,
+  basePath = "/cliente/api-oficial/flujos",
+  routeQuery = "",
+  saveEndpoint = "/api/cliente/api-oficial/chatbot",
+  uploadEndpoint = "/api/cliente/api-oficial/chatbot/upload-image",
+  saveSuccessDescription = "La configuracion del flujo quedo lista en la API oficial.",
+}: OfficialApiChatbotWorkspaceProps) {
   const router = useRouter();
   const initialSelectedScenarioId =
     initialScenarioId && data.defaults.scenarios.some((scenario) => scenario.id === initialScenarioId)
@@ -1000,7 +1013,7 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
   }) => {
     const normalizedNodesByScenarioId = normalizeNodesByScenarioForSave(input.nodesByScenarioId);
     const activeNodes = normalizedNodesByScenarioId[input.selectedScenarioId] ?? [];
-    const response = await fetch("/api/cliente/api-oficial/chatbot", {
+    const response = await fetch(saveEndpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -1029,7 +1042,7 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
 
     if (input.successMessage) {
       toast.success(input.successMessage, {
-        description: "La configuracion del flujo quedo lista en la API oficial.",
+        description: saveSuccessDescription,
       });
     }
   }, [
@@ -1041,6 +1054,8 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
     fallbackEnabled,
     handoffEnabled,
     replyEveryMessageEnabled,
+    saveEndpoint,
+    saveSuccessDescription,
   ]);
 
   function handleSaveBuilder() {
@@ -1247,7 +1262,7 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
       const formData = new FormData();
       formData.append("file", file);
 
-      const response = await fetch("/api/cliente/api-oficial/chatbot/upload-image", {
+      const response = await fetch(uploadEndpoint, {
         method: "POST",
         body: formData,
       });
@@ -1426,11 +1441,11 @@ export function OfficialApiChatbotWorkspace({ data, initialScenarioId }: Officia
                 key={scenario.id}
                 role="button"
                 tabIndex={0}
-                onClick={() => router.push(`/cliente/api-oficial/flujos/${scenario.id}`)}
+                onClick={() => router.push(`${basePath}/${scenario.id}${routeQuery}`)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();
-                    router.push(`/cliente/api-oficial/flujos/${scenario.id}`);
+                    router.push(`${basePath}/${scenario.id}${routeQuery}`);
                   }
                 }}
                 className={`flex items-center justify-between rounded-2xl border p-3.5 shadow-[0_10px_22px_-18px_rgba(15,23,42,0.2)] transition ${

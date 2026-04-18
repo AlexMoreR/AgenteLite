@@ -34,7 +34,7 @@ export default async function ClienteConexionWhatsAppBusinessDetailPage({ params
   const detail = await getWhatsAppBusinessConnectionDetail(membership.workspace.id, agentId);
 
   if (!detail) {
-    redirect("/cliente/conexion/whatsapp-business?error=Agente+no+encontrado");
+    redirect("/cliente/conexion?error=Canal+no+encontrado");
   }
 
   const okMessage = typeof paramsData.ok === "string" ? paramsData.ok : "";

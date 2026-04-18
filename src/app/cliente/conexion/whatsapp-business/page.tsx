@@ -1,8 +1,5 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { auth } from "@/auth";
-import { WhatsAppBusinessWorkspace, getWhatsAppBusinessConnections } from "@/features/conexion";
-import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
 export const metadata: Metadata = {
   robots: {
@@ -11,18 +8,28 @@ export const metadata: Metadata = {
   },
 };
 
-export default async function ClienteConexionWhatsAppBusinessPage() {
-  const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
-    redirect("/unauthorized");
+type PageProps = {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
+
+export default async function ClienteConexionWhatsAppBusinessPage({ searchParams }: PageProps) {
+  const params = await searchParams;
+  const query = new URLSearchParams();
+
+  for (const [key, value] of Object.entries(params)) {
+    if (typeof value === "string") {
+      query.set(key, value);
+      continue;
+    }
+
+    if (Array.isArray(value)) {
+      for (const entry of value) {
+        if (typeof entry === "string") {
+          query.append(key, entry);
+        }
+      }
+    }
   }
 
-  const membership = await getPrimaryWorkspaceForUser(session.user.id);
-  if (!membership) {
-    redirect("/cliente/conexion?error=Debes+crear+tu+negocio+primero");
-  }
-
-  const data = await getWhatsAppBusinessConnections(membership.workspace.id);
-
-  return <WhatsAppBusinessWorkspace summary={data.summary} items={data.items} />;
+  redirect(`/cliente/conexion${query.size ? `?${query.toString()}` : ""}`);
 }

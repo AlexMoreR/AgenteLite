@@ -110,6 +110,7 @@ export async function getWhatsAppBusinessConnectionDetail(workspaceId: string, c
       id: channel.id,
       name: channel.name,
       provider: channel.provider,
+      isActive: channel.isActive,
       agentId: channel.agent?.id ?? null,
       agentName: channel.agent?.name ?? "",
     },

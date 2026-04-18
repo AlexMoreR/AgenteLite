@@ -105,6 +105,7 @@ export async function POST(request: Request) {
           workspaceId: true,
           agentId: true,
           name: true,
+          isActive: true,
           evolutionInstanceName: true,
           status: true,
           phoneNumber: true,
@@ -365,7 +366,7 @@ export async function POST(request: Request) {
       model: agent?.model ?? null,
     });
 
-    if (agent?.isActive && agent.status === "ACTIVE" && channel.evolutionInstanceName && messageText) {
+    if (channel.isActive && agent?.isActive && agent.status === "ACTIVE" && channel.evolutionInstanceName && messageText) {
       const existingOutbound = await prisma.message.findFirst({
         where: {
           conversationId: conversation.id,
@@ -529,6 +530,8 @@ export async function POST(request: Request) {
       console.log("[EVOLUTION] auto_reply_skipped", {
         reason: !agent
           ? "agent_not_found"
+          : !channel.isActive
+            ? "channel_inactive"
           : !agent.isActive
             ? "agent_inactive"
             : agent.status !== "ACTIVE"

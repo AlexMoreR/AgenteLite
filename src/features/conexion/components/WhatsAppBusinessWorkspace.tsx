@@ -43,7 +43,7 @@ export function WhatsAppBusinessWorkspace({ summary, items }: WhatsAppBusinessWo
         <SummaryCard label="Sin conectar" value={String(summary.disconnectedAgents)} icon={<Smartphone className="h-4 w-4" />} />
       </div>
 
-      <div className="grid gap-4">
+      <div className="grid gap-2">
         {items.length ? (
           items.map((item) => {
             const isConnected = item.channelStatus === "CONNECTED";

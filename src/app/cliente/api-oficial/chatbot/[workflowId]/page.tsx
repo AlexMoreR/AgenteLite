@@ -6,5 +6,5 @@ type PageProps = {
 
 export default async function OfficialApiChatbotWorkflowPage({ params }: PageProps) {
   const { workflowId } = await params;
-  redirect(`/cliente/api-oficial/flujos/${workflowId}`);
+  redirect(`/cliente/flujos/${workflowId}?sourceType=official-api`);
 }

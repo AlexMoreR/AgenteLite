@@ -6,8 +6,8 @@ import type { ReactNode } from "react";
 import {
   Bot,
   Brain,
+  MessageSquareText,
   Sparkles,
-  Workflow,
 } from "lucide-react";
 
 type AgentPanelShellProps = {
@@ -19,8 +19,8 @@ type AgentPanelShellProps = {
 const tabs = [
   { key: "resumen", label: "Resumen", href: (agentId: string) => `/cliente/agentes/${agentId}`, icon: Bot },
   { key: "entrenamiento", label: "Entrenamiento", href: (agentId: string) => `/cliente/agentes/${agentId}/entrenamiento`, icon: Sparkles },
-  { key: "conocimiento", label: "Conocimiento", href: "", icon: Brain, disabled: true },
-  { key: "automatizar", label: "Escalar/Automatizar", href: "", icon: Workflow, disabled: true },
+  { key: "conocimiento", label: "Conocimiento", href: (agentId: string) => `/cliente/agentes/${agentId}/conocimiento`, icon: Brain },
+  { key: "chatbots", label: "Chatbots", href: (agentId: string) => `/cliente/agentes/${agentId}/chatbots`, icon: MessageSquareText },
 ];
 
 export function AgentPanelShell({ agentId, children, hideMobileNav = false }: AgentPanelShellProps) {
@@ -28,7 +28,7 @@ export function AgentPanelShell({ agentId, children, hideMobileNav = false }: Ag
   const trainingHref = `/cliente/agentes/${agentId}/entrenamiento`;
   const playgroundHref = `/cliente/agentes/${agentId}/probar`;
   const shouldHideMobileNav = hideMobileNav || pathname === playgroundHref;
-  const mobileTabs = tabs.filter((tab) => !tab.disabled).slice(0, 4);
+  const mobileTabs = tabs.slice(0, 4);
 
   return (
     <section className="flex min-h-0 w-full flex-1 flex-col overflow-x-hidden">
@@ -37,21 +37,10 @@ export function AgentPanelShell({ agentId, children, hideMobileNav = false }: Ag
           {tabs.map((tab) => {
             const href = typeof tab.href === "function" ? tab.href(agentId) : "";
             const active =
-              !tab.disabled &&
-              (pathname === href || (tab.key === "entrenamiento" && pathname === playgroundHref) || (href === trainingHref && pathname === playgroundHref));
+              pathname === href ||
+              (tab.key === "entrenamiento" && pathname === playgroundHref) ||
+              (href === trainingHref && pathname === playgroundHref);
             const Icon = tab.icon;
-
-            if (tab.disabled) {
-              return (
-                <span
-                  key={tab.key}
-                  className="inline-flex h-10 items-center gap-2 rounded-xl px-3 text-sm font-medium text-slate-400"
-                >
-                  <Icon className="h-4 w-4" />
-                  {tab.label}
-                </span>
-              );
-            }
 
             return (
               <Link

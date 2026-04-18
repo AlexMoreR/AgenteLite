@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
-import { Bot, FileText } from "lucide-react";
+import { FileText } from "lucide-react";
 
 type OfficialApiPanelShellProps = {
   children: ReactNode;
@@ -22,12 +22,6 @@ export function OfficialApiPanelShell({
       href: basePath,
       icon: FileText,
     },
-    {
-      key: "flujos",
-      label: "Flujos",
-      href: `${basePath}/flujos`,
-      icon: Bot,
-    },
   ];
 
   return (
@@ -35,10 +29,7 @@ export function OfficialApiPanelShell({
       <div className="overflow-x-auto">
         <nav className="flex min-w-max items-center gap-1.5 rounded-[20px] border border-[rgba(148,163,184,0.14)] bg-white p-2 shadow-[0_12px_30px_-26px_rgba(15,23,42,0.14)]">
           {tabs.map((tab) => {
-            const active =
-              tab.key === "flujos"
-                ? pathname.startsWith(`${basePath}/flujos`) || pathname.startsWith(`${basePath}/chatbot`)
-                : pathname === tab.href;
+            const active = pathname === tab.href;
             const Icon = tab.icon;
 
             return (

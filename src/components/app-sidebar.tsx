@@ -11,6 +11,7 @@ import {
   Settings,
   Tag,
   Truck,
+  Wallet,
 } from "lucide-react";
 import type { Role } from "@prisma/client";
 import { NavMain } from "@/components/nav-main";
@@ -51,7 +52,9 @@ export function AppSidebar({ pathname, brandName, adminModuleAccess, user, ...pr
   const isAdminSuppliersRoute = pathname.startsWith("/admin/proveedores");
   const isClientAgentsRoute = pathname.startsWith("/cliente/agentes");
   const isClientChatsRoute = pathname.startsWith("/cliente/chats");
+  const isClientFlowsRoute = pathname.startsWith("/cliente/flujos");
   const isClientMarketingRoute = pathname.startsWith("/cliente/marketing-ia");
+  const isClientFinanzasRoute = pathname.startsWith("/cliente/finanzas");
   const isClientConnectionRoute = pathname.startsWith("/cliente/conexion") || pathname.startsWith("/cliente/api-oficial");
 
   const navMain = [
@@ -69,7 +72,9 @@ export function AppSidebar({ pathname, brandName, adminModuleAccess, user, ...pr
           !isAdminSuppliersRoute &&
           !isClientAgentsRoute &&
           !isClientChatsRoute &&
+          !isClientFlowsRoute &&
           !isClientMarketingRoute &&
+          !isClientFinanzasRoute &&
           !isClientConnectionRoute),
       items: [
         { title: "Vista general", url: dashboardHref },
@@ -145,6 +150,14 @@ export function AppSidebar({ pathname, brandName, adminModuleAccess, user, ...pr
     });
 
     navMain.push({
+      title: "Flujos",
+      url: "/cliente/flujos",
+      icon: FileText,
+      isActive: pathname.startsWith("/cliente/flujos"),
+      items: [{ title: "Builder", url: "/cliente/flujos" }],
+    });
+
+    navMain.push({
       title: "Marketing IA",
       url: "/cliente/marketing-ia",
       icon: Megaphone,
@@ -153,17 +166,24 @@ export function AppSidebar({ pathname, brandName, adminModuleAccess, user, ...pr
     });
 
     navMain.push({
-      title: "Conexion",
-      url: "/cliente/conexion",
-      icon: Cable,
-      isActive: pathname.startsWith("/cliente/conexion") || pathname.startsWith("/cliente/api-oficial"),
-      items: [
-        { title: "Resumen", url: "/cliente/conexion" },
-        { title: "WhatsApp Business", url: "/cliente/conexion/whatsapp-business" },
-        ...(user.role === "ADMIN" || adminModuleAccess.client_official_api
-          ? [{ title: "API oficial", url: "/cliente/api-oficial" }]
-          : []),
-      ],
+      title: "Finanzas",
+      url: "/cliente/finanzas",
+      icon: Wallet,
+      isActive: pathname.startsWith("/cliente/finanzas"),
+      items: [{ title: "Mis finanzas", url: "/cliente/finanzas" }],
+    });
+
+      navMain.push({
+        title: "Conexion",
+        url: "/cliente/conexion",
+        icon: Cable,
+        isActive: pathname.startsWith("/cliente/conexion") || pathname.startsWith("/cliente/api-oficial"),
+        items: [
+          { title: "Resumen", url: "/cliente/conexion" },
+          ...(user.role === "ADMIN" || adminModuleAccess.client_official_api
+            ? [{ title: "API oficial", url: "/cliente/api-oficial" }]
+            : []),
+        ],
     });
 
     navMain.push({

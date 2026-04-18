@@ -190,7 +190,9 @@ model Workspace {
   contacts      Contact[]
   conversations Conversation[]
   messages      Message[]
-  officialApiConfig OfficialApiClientConfig?
+  officialApiConfig   OfficialApiClientConfig?
+  financeTransactions FinanceTransaction[]
+  financeGoogleSheet  FinanceGoogleSheet?
 
   @@index([ownerId])
 }
@@ -242,6 +244,7 @@ model WhatsAppChannel {
   agentId                 String?
   provider                ChannelProvider       @default(EVOLUTION)
   name                    String
+  isActive                Boolean               @default(true)
   phoneNumber             String?
   evolutionInstanceName   String?               @unique
   evolutionExternalKey    String?
@@ -579,6 +582,39 @@ model OfficialApiWebhookEvent {
 
   @@index([configId, createdAt])
   @@index([deliveryId])
+}
+
+enum FinanceTransactionType {
+  INCOME
+  EXPENSE
+}
+
+model FinanceTransaction {
+  id          String                @id @default(cuid())
+  workspaceId String
+  type        FinanceTransactionType
+  amount      Decimal               @db.Decimal(12, 2)
+  description String
+  category    String?
+  date        DateTime              @default(now())
+  source      String                @default("manual")
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+  workspace   Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, date])
+  @@index([workspaceId, type])
+}
+
+model FinanceGoogleSheet {
+  id          String    @id @default(cuid())
+  workspaceId String    @unique
+  sheetUrl    String
+  sheetId     String
+  lastSyncAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }
 
 model OfficialApiAutomationRule {

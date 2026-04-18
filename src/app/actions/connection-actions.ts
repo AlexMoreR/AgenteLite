@@ -127,6 +127,11 @@ const assignConnectionChannelSchema = z.object({
   agentId: z.string().trim().min(1, "Agente invalido"),
 });
 
+const toggleConnectionChannelStatusSchema = z.object({
+  channelId: z.string().trim().min(1, "Canal invalido"),
+  returnTo: z.string().trim().optional(),
+});
+
 export async function deleteConnectionChannelAction(formData: FormData): Promise<void> {
   const session = await auth();
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
@@ -235,4 +240,63 @@ export async function assignConnectionChannelAction(formData: FormData): Promise
   revalidatePath("/cliente/conexion/whatsapp-business");
   revalidatePath(`/cliente/agentes/${agent.id}`);
   redirect(`/cliente/conexion?agentId=${agent.id}&ok=Canal+vinculado+al+agente`);
+}
+
+export async function toggleConnectionChannelStatusAction(formData: FormData): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+    redirect("/unauthorized");
+  }
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    redirect("/cliente/conexion?error=Debes+crear+tu+negocio+primero");
+  }
+
+  const parsed = toggleConnectionChannelStatusSchema.safeParse({
+    channelId: getRequiredFormValue(formData, "channelId"),
+    returnTo: getOptionalFormValue(formData, "returnTo"),
+  });
+
+  if (!parsed.success) {
+    redirect("/cliente/conexion?error=Canal+invalido");
+  }
+
+  const channel = await prisma.whatsAppChannel.findFirst({
+    where: {
+      id: parsed.data.channelId,
+      workspaceId: membership.workspace.id,
+    },
+    select: {
+      id: true,
+      name: true,
+      isActive: true,
+      agentId: true,
+    },
+  });
+
+  if (!channel) {
+    redirect("/cliente/conexion?error=Canal+no+encontrado");
+  }
+
+  const nextIsActive = !channel.isActive;
+
+  await prisma.whatsAppChannel.update({
+    where: { id: channel.id },
+    data: {
+      isActive: nextIsActive,
+    },
+  });
+
+  revalidatePath("/cliente/conexion");
+  revalidatePath("/cliente/conexion/whatsapp-business");
+  revalidatePath(`/cliente/conexion/whatsapp-business/${channel.id}`);
+
+  if (channel.agentId) {
+    revalidatePath(`/cliente/agentes/${channel.agentId}`);
+  }
+
+  const okMessage = nextIsActive ? "Canal+encendido" : "Canal+apagado";
+  const returnTo = parsed.data.returnTo?.trim() || `/cliente/conexion/whatsapp-business/${channel.id}`;
+  redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}ok=${okMessage}`);
 }

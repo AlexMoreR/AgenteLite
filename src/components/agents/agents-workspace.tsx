@@ -238,22 +238,30 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
   return (
     <>
       <div className="space-y-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0 flex-1">
+            <div className="inline-flex items-center gap-3">
+              <Bot className="h-6 w-6 text-sky-600" />
+              <h1 className="text-2xl font-semibold tracking-[-0.05em] text-slate-950">Agentes</h1>
+            </div>
+            <p className="max-w-3xl text-sm text-slate-600">
+              Crea y administra tus agentes de venta para WhatsApp.
+            </p>
+          </div>
+          {agents.length > 0 ? (
+            <button
+              type="button"
+              onClick={openCreateFlow}
+              className="inline-flex h-11 items-center justify-center gap-2 self-start rounded-2xl bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)] sm:shrink-0"
+            >
+              <Plus className="h-4 w-4" />
+              Crear agente
+            </button>
+          ) : null}
+        </div>
+
         {agents.length > 0 ? (
           <div className="space-y-4">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="space-y-1">
-                <h2 className="text-xl font-semibold tracking-[-0.04em] text-slate-950">Agentes creados</h2>
-              </div>
-              <button
-                type="button"
-                onClick={openCreateFlow}
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
-              >
-                <Plus className="h-4 w-4" />
-                Crear agente
-              </button>
-            </div>
-
             <div className="space-y-3">
               {agents.map((agent) => (
                 <Card

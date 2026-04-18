@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { CheckCircle2, ChevronLeft, Smartphone } from "lucide-react";
+import { toggleConnectionChannelStatusAction } from "@/app/actions/connection-actions";
 import { WhatsappQrAutoRefresh } from "@/components/agents/whatsapp-qr-auto-refresh";
 import { WhatsappQrCountdown } from "@/components/agents/whatsapp-qr-countdown";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
@@ -9,6 +10,7 @@ type WhatsAppBusinessConnectionWorkspaceProps = {
     id: string;
     name: string;
     provider: string;
+    isActive: boolean;
     agentId: string | null;
     agentName: string;
   };
@@ -46,14 +48,35 @@ export function WhatsAppBusinessConnectionWorkspace({
 
       <div className="flex flex-wrap items-center gap-3">
         <Link
-          href="/cliente/conexion/whatsapp-business"
+          href="/cliente/conexion"
           className="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-[rgba(148,163,184,0.18)] bg-white px-4 text-sm font-medium text-slate-700 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
         >
           <ChevronLeft className="h-4 w-4" />
           Volver
         </Link>
+        <form action={toggleConnectionChannelStatusAction}>
+          <input type="hidden" name="channelId" value={connection.id} />
+          <input type="hidden" name="returnTo" value={`/cliente/conexion/whatsapp-business/${connection.id}`} />
+          <button
+            type="submit"
+            className="inline-flex h-9 items-center gap-2.5 rounded-full border border-[rgba(148,163,184,0.18)] bg-white px-3 text-sm font-medium text-slate-700 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+            aria-label={connection.isActive ? `Apagar ${connection.name}` : `Encender ${connection.name}`}
+          >
+            <span
+              className={`relative inline-flex h-5 w-9 shrink-0 rounded-full transition ${
+                connection.isActive ? "bg-emerald-500/90" : "bg-slate-300"
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-[0_2px_10px_-4px_rgba(15,23,42,0.45)] transition-transform ${
+                  connection.isActive ? "translate-x-4.5" : "translate-x-0.5"
+                }`}
+              />
+            </span>
+            {connection.isActive ? "Canal encendido" : "Canal apagado"}
+          </button>
+        </form>
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Conexion</p>
           <h1 className="text-2xl font-semibold tracking-[-0.05em] text-slate-950">{connection.name}</h1>
           <p className="mt-1 text-sm text-slate-600">
             {connection.provider === "OFFICIAL_API" ? "WhatsApp API (Meta)" : "WhatsApp QR Code"}

@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
 
 export default async function OfficialApiChatbotPage() {
-  redirect("/cliente/api-oficial/flujos");
+  redirect("/cliente/flujos?sourceType=official-api");
 }

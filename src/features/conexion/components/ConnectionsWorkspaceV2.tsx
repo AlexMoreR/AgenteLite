@@ -1,18 +1,17 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import {
-  FiArrowRight,
-  FiClock,
   FiLink,
   FiMail,
   FiMessageCircle,
-  FiMessageSquare,
-  FiSmartphone,
   FiTrash2,
 } from "react-icons/fi";
-import { HiOutlineCheckCircle } from "react-icons/hi";
 import { HiMiniChartBar } from "react-icons/hi2";
-import { assignConnectionChannelAction, deleteConnectionChannelAction } from "@/app/actions/connection-actions";
+import {
+  assignConnectionChannelAction,
+  deleteConnectionChannelAction,
+  toggleConnectionChannelStatusAction,
+} from "@/app/actions/connection-actions";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { NewConnectionChannelModal } from "./NewConnectionChannelModal";
 
@@ -36,6 +35,7 @@ type ConnectionsWorkspaceProps = {
     linkedAgentStatus: string;
     channelStatus: string | null;
     channelStatusLabel: string;
+    isActive: boolean;
     phoneNumber: string;
     conversationsCount: number;
     messagesCount: number;
@@ -99,25 +99,6 @@ export function ConnectionsWorkspaceV2({
         </div>
       ) : null}
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <SummaryCard label="Canales" value={String(items.length)} icon={<FiMessageSquare className="h-4 w-4" />} />
-        <SummaryCard
-          label="Conectados"
-          value={String(items.filter((item) => item.channelStatus === "CONNECTED").length)}
-          icon={<HiOutlineCheckCircle className="h-4 w-4" />}
-        />
-        <SummaryCard
-          label="Esperando QR"
-          value={String(items.filter((item) => item.channelStatus === "QRCODE").length)}
-          icon={<FiClock className="h-4 w-4" />}
-        />
-        <SummaryCard
-          label="Sin conectar"
-          value={String(items.filter((item) => item.channelStatus === "DISCONNECTED").length)}
-          icon={<FiSmartphone className="h-4 w-4" />}
-        />
-      </div>
-
       <div className="space-y-3">
 
         {items.length ? (
@@ -130,55 +111,82 @@ export function ConnectionsWorkspaceV2({
               return (
                 <div
                   key={item.id}
-                  className="rounded-[24px] border border-[rgba(148,163,184,0.14)] bg-white p-5 shadow-[0_20px_60px_-48px_rgba(15,23,42,0.18)]"
+                  className="group relative rounded-[22px] border border-[#e5e7eb] bg-white px-4 py-3 shadow-[0_18px_50px_-46px_rgba(15,23,42,0.16)] transition duration-200 hover:-translate-y-0.5 hover:border-[var(--primary)]/30 hover:shadow-[0_24px_70px_-42px_rgba(15,23,42,0.24)]"
                 >
-                  <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-                    <div className="flex min-w-0 flex-1 flex-col gap-3 xl:flex-row xl:items-center xl:gap-4">
-                      <div className="flex min-w-0 flex-wrap items-center gap-2">
-                        <h3 className="text-lg font-semibold tracking-[-0.04em] text-slate-950">{item.name}</h3>
-                        <StatusPill label={item.channelStatusLabel} />
-                      </div>
+                  <Link
+                    href={detailHref}
+                    aria-label={`Abrir ${item.name}`}
+                    className="absolute inset-0 z-0 rounded-[24px]"
+                  />
 
-                      <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
-                        {item.phoneNumber ? (
-                          <span className="rounded-full bg-slate-50 px-3 py-1">Numero: {item.phoneNumber}</span>
-                        ) : null}
-                        <MetricPill icon={<FiMessageCircle className="h-4 w-4" />} value={String(item.conversationsCount)} />
-                        <MetricPill icon={<FiMail className="h-4 w-4" />} value={String(item.messagesCount)} />
+                  <div className="pointer-events-none relative z-10 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                    <div className="flex min-w-0 flex-1 items-center gap-2.5 xl:self-center">
+                      <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-transparent text-[#16a34a]">
+                        <WhatsAppGlyph className="h-6 w-6" />
+                      </span>
+
+                      <div className="flex min-w-0 flex-1 flex-col justify-center gap-1.5">
+                        <div className="flex min-w-0 flex-wrap items-center gap-2">
+                          <h3 className="text-[15px] font-semibold tracking-[-0.03em] text-slate-950">{item.name}</h3>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2 text-[13px] text-slate-600">
+                          {item.phoneNumber ? (
+                            <span className="rounded-full bg-slate-50 px-2.5 py-1">Numero: {item.phoneNumber}</span>
+                          ) : null}
+                        </div>
                       </div>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-3 xl:justify-end">
+                    <div className="flex flex-wrap items-center gap-2.5 xl:justify-end">
+                      <StatusPill label={item.channelStatusLabel} />
+                      <form action={toggleConnectionChannelStatusAction} className="pointer-events-auto relative z-20">
+                        <input type="hidden" name="channelId" value={item.id} />
+                        <input type="hidden" name="returnTo" value="/cliente/conexion" />
+                        <button
+                          type="submit"
+                          className="inline-flex h-6 items-center justify-center bg-transparent p-0 transition hover:opacity-90"
+                          aria-label={item.isActive ? `Apagar ${item.name}` : `Encender ${item.name}`}
+                          title={item.isActive ? "Apagar canal" : "Encender canal"}
+                        >
+                          <span
+                            className={`relative inline-flex h-6 w-10 shrink-0 rounded-full transition ${
+                              item.isActive ? "bg-emerald-500/90" : "bg-slate-300"
+                            }`}
+                          >
+                            <span
+                              className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-[0_2px_10px_-4px_rgba(15,23,42,0.45)] transition-transform ${
+                                item.isActive ? "translate-x-4.5" : "translate-x-0.5"
+                              }`}
+                            />
+                          </span>
+                        </button>
+                      </form>
+                      <MetricPill icon={<FiMessageCircle className="h-4 w-4" />} value={String(item.conversationsCount)} />
+                      <MetricPill icon={<FiMail className="h-4 w-4" />} value={String(item.messagesCount)} />
+
                       {canAssignToTargetAgent ? (
-                        <form action={assignConnectionChannelAction}>
+                        <form action={assignConnectionChannelAction} className="pointer-events-auto relative z-20">
                           <input type="hidden" name="channelId" value={item.id} />
                           <input type="hidden" name="agentId" value={targetAgent?.id} />
                           <button
                             type="submit"
-                            className="inline-flex h-10 items-center justify-center gap-2 rounded-full bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
+                            className="inline-flex h-9 items-center justify-center gap-2 rounded-full bg-[var(--primary)] px-3.5 text-[13px] font-medium text-white transition hover:bg-[var(--primary-strong)]"
                           >
-                            <FiLink className="h-4 w-4" />
+                            <FiLink className="h-3.5 w-3.5" />
                             Asignar a este agente
                           </button>
                         </form>
                       ) : null}
 
-                      <Link
-                        href={detailHref}
-                        className="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-[rgba(148,163,184,0.18)] bg-white px-4 text-sm font-medium text-slate-700 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
-                      >
-                        Abrir
-                        <FiArrowRight className="h-4 w-4" />
-                      </Link>
-
-                      <form action={deleteConnectionChannelAction}>
+                      <form action={deleteConnectionChannelAction} className="pointer-events-auto relative z-20">
                         <input type="hidden" name="channelId" value={item.id} />
                         <button
                           type="submit"
-                          className="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-[rgba(239,68,68,0.18)] bg-[color-mix(in_srgb,#ef4444_6%,white)] px-4 text-sm font-medium text-[#b91c1c] transition hover:bg-[color-mix(in_srgb,#ef4444_12%,white)]"
+                          aria-label={`Eliminar ${item.name}`}
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[rgba(239,68,68,0.18)] bg-[color-mix(in_srgb,#ef4444_6%,white)] text-[#b91c1c] transition hover:bg-[color-mix(in_srgb,#ef4444_12%,white)]"
                         >
-                          <FiTrash2 className="h-4 w-4" />
-                          Eliminar
+                          <FiTrash2 className="h-3.5 w-3.5" />
                         </button>
                       </form>
                     </div>
@@ -200,15 +208,15 @@ export function ConnectionsWorkspaceV2({
 function StatusPill({ label }: { label: string }) {
   const tone =
     label === "Conectado"
-      ? "border-[rgba(22,163,74,0.14)] bg-[color-mix(in_srgb,#16a34a_8%,white)] text-[#15803d]"
+      ? "text-[#15803d]"
       : label === "Esperando QR"
-        ? "border-[rgba(217,119,6,0.16)] bg-[color-mix(in_srgb,#f59e0b_10%,white)] text-[#b45309]"
-        : "border-[rgba(148,163,184,0.16)] bg-slate-50 text-slate-600";
+        ? "text-[#b45309]"
+        : "text-slate-600";
   const dotTone =
     label === "Conectado" ? "bg-[#16a34a]" : label === "Esperando QR" ? "bg-[#f59e0b]" : "bg-slate-400";
 
   return (
-    <span className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${tone}`}>
+    <span className={`inline-flex items-center gap-1.5 px-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${tone}`}>
       <span className={`h-2 w-2 rounded-full ${dotTone}`} />
       {label}
     </span>
@@ -217,31 +225,17 @@ function StatusPill({ label }: { label: string }) {
 
 function MetricPill({ icon, value }: { icon: ReactNode; value: string }) {
   return (
-    <span className="inline-flex items-center gap-2 rounded-full bg-slate-50 px-3 py-1 text-slate-600">
+    <span className="inline-flex items-center gap-1.5 px-1 text-[13px] text-slate-600">
       <span className="text-slate-400">{icon}</span>
       <span>{value}</span>
     </span>
   );
 }
 
-function SummaryCard({ label, value, icon }: { label: string; value: string; icon: ReactNode }) {
+function WhatsAppGlyph({ className }: { className?: string }) {
   return (
-    <div className="group relative overflow-hidden rounded-[20px] border border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(244,247,255,0.9))] px-4 py-3 shadow-[0_16px_40px_-34px_rgba(15,23,42,0.18)] transition hover:-translate-y-0.5 hover:shadow-[0_18px_44px_-32px_rgba(15,23,42,0.22)]">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(37,99,235,0.07),transparent_28%),linear-gradient(180deg,transparent,rgba(226,232,240,0.22))]" />
-
-      <div className="relative flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-slate-500">{label}</p>
-          <p className="mt-3 text-[2rem] font-semibold leading-none tracking-[-0.07em] text-slate-950">{value}</p>
-        </div>
-
-        <div className="relative shrink-0">
-          <div className="absolute inset-0 translate-y-1 rounded-[18px] bg-[linear-gradient(180deg,rgba(37,99,235,0.08),rgba(37,99,235,0.02))] blur-md transition group-hover:opacity-100" />
-          <div className="relative inline-flex h-12 w-12 items-center justify-center rounded-[18px] border border-white/70 bg-[linear-gradient(180deg,rgba(227,235,255,1),rgba(216,228,255,0.88))] text-[var(--primary)] shadow-[inset_0_1px_0_rgba(255,255,255,0.78)]">
-            {icon}
-          </div>
-        </div>
-      </div>
-    </div>
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className={className}>
+      <path d="M19.05 4.94A9.9 9.9 0 0 0 12.02 2C6.51 2 2.02 6.48 2.02 12c0 1.76.46 3.48 1.33 5L2 22l5.15-1.34A9.95 9.95 0 0 0 12.02 22h.01c5.51 0 9.99-4.49 9.99-10 0-2.67-1.04-5.18-2.97-7.06Zm-7.03 15.38h-.01a8.3 8.3 0 0 1-4.23-1.16l-.3-.18-3.06.8.82-2.98-.2-.31a8.27 8.27 0 0 1-1.28-4.43c0-4.58 3.73-8.31 8.32-8.31 2.22 0 4.3.86 5.87 2.43a8.23 8.23 0 0 1 2.43 5.88c0 4.58-3.73 8.31-8.36 8.31Zm4.56-6.2c-.25-.12-1.47-.72-1.7-.8-.23-.08-.4-.12-.57.12-.17.25-.65.8-.8.96-.15.17-.3.19-.55.07-.25-.12-1.05-.39-2-1.24-.74-.66-1.24-1.47-1.39-1.72-.15-.25-.02-.38.11-.5.11-.11.25-.29.37-.43.12-.15.16-.25.24-.42.08-.17.04-.32-.02-.44-.06-.12-.57-1.37-.78-1.87-.2-.49-.4-.42-.57-.43h-.48c-.17 0-.44.06-.67.31-.23.25-.88.86-.88 2.1 0 1.23.9 2.43 1.02 2.59.12.17 1.77 2.7 4.29 3.78.6.26 1.08.42 1.44.53.61.19 1.17.16 1.61.1.49-.07 1.47-.6 1.68-1.18.21-.58.21-1.08.15-1.18-.06-.1-.22-.16-.47-.28Z" />
+    </svg>
   );
 }
