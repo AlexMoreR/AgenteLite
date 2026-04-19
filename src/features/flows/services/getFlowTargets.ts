@@ -59,12 +59,12 @@ export async function getFlowTargets(input: {
     items.push({
       id: channel.id,
       sourceType: "evolution",
-      title: channel.name,
+      title: "API no oficial",
       description: channel.agent?.name
-        ? `Canal Evolution vinculado a ${channel.agent.name}.`
-        : "Canal Evolution listo para construir respuestas y rutas visuales.",
+        ? `Canal no oficial con Evolution vinculado a ${channel.agent.name}.`
+        : "Canal no oficial con Evolution listo para construir respuestas y rutas visuales.",
       href: `/cliente/flujos?sourceType=evolution&sourceId=${channel.id}`,
-      badge: channel.status === "CONNECTED" ? "QR conectado" : "Evolution",
+      badge: "Evolution",
       isConnected: channel.status === "CONNECTED" || channel.status === "QRCODE",
     });
   }

@@ -75,7 +75,7 @@ export async function getEvolutionFlowData(workspaceId: string, channelId: strin
         id: "conversations",
         label: "Conversaciones",
         value: new Intl.NumberFormat("es-CO").format(channel._count.conversations),
-        helper: "Sirve para medir cuanto se puede automatizar desde Evolution.",
+        helper: "Sirve para medir cuanto se puede automatizar desde la API no oficial con Evolution.",
       },
       {
         id: "messages",
@@ -88,7 +88,7 @@ export async function getEvolutionFlowData(workspaceId: string, channelId: strin
       {
         id: "welcome",
         title: "Bienvenida visual",
-        description: "Crea la entrada automatica del canal Evolution.",
+        description: "Crea la entrada automatica del canal no oficial con Evolution.",
         status: "ready",
       },
       {
@@ -109,13 +109,13 @@ export async function getEvolutionFlowData(workspaceId: string, channelId: strin
       {
         id: "follow-up",
         title: "Seguimiento corto",
-        category: "Evolution",
+        category: "API no oficial",
         message: "Hola, sigo atento a tu mensaje. Si quieres, te ayudo a continuar con tu pedido.",
       },
       {
         id: "handoff",
         title: "Paso a asesor",
-        category: "Evolution",
+        category: "API no oficial",
         message: "Voy a dejar tu caso listo para que una persona del equipo te continúe atendiendo.",
       },
     ],

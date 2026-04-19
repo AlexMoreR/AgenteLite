@@ -257,7 +257,12 @@ export function AppShell({
   if (user) {
     return (
       <SidebarProvider>
-        <div className={cn("admin-print-shell flex min-h-screen", (isChatWorkspacePath || isFinanzasPath) && "chat-app-frame h-dvh overflow-hidden")}>
+        <div
+          className={cn(
+            "admin-print-shell flex min-h-screen",
+            (isChatWorkspacePath || isFinanzasPath) && "chat-app-frame min-h-svh h-svh overflow-hidden md:min-h-screen md:h-dvh",
+          )}
+        >
           <AppSidebar
             pathname={pathname}
             user={{
@@ -273,7 +278,8 @@ export function AppShell({
           <SidebarInset
             className={cn(
               "admin-print-inset",
-              (isChatWorkspacePath || isFinanzasPath) && "chat-app-shell min-h-0 h-dvh overflow-hidden",
+              (isChatWorkspacePath || isFinanzasPath) &&
+                "chat-app-shell min-h-svh h-svh overflow-hidden md:min-h-0 md:h-dvh",
             )}
           >
             <header

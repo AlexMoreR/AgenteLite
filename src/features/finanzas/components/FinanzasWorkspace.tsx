@@ -539,7 +539,7 @@ export function FinanzasWorkspace({
   }
 
   return (
-    <div className="chat-app-layout flex h-full min-h-0 flex-col overflow-hidden bg-[linear-gradient(180deg,#f6fbf8_0%,#f8fafc_22%,#f8fafc_100%)]">
+    <div className="chat-app-layout flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-[linear-gradient(180deg,#f6fbf8_0%,#f8fafc_22%,#f8fafc_100%)]">
       <div className="min-h-0 flex-1 overflow-hidden px-1.5 py-1.5 sm:px-2 sm:py-2 lg:px-3">
         <div className="mx-auto grid h-full max-w-7xl min-h-0 gap-1.5">
           <div className="flex min-h-0 flex-col overflow-hidden rounded-[20px] border border-[#31456f] bg-[linear-gradient(180deg,#1b2748_0%,#223463_100%)] text-white shadow-[0_24px_60px_-36px_rgba(15,23,42,0.7)]">

@@ -1,6 +1,4 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowLeft, Route, Workflow } from "lucide-react";
 import { auth } from "@/auth";
 import { OfficialApiChatbotWorkspace, OfficialApiLockedState, getOfficialApiChatbotData } from "@/features/official-api";
 import { getEvolutionFlowData } from "@/features/flows/services/getEvolutionFlowData";
@@ -45,21 +43,7 @@ export default async function ClientFlowWorkflowPage({ params, searchParams }: P
     }
 
     return (
-      <section className="space-y-4">
-        <div className="flex flex-wrap items-center gap-3">
-          <Link
-            href="/cliente/flujos?sourceType=official-api"
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-[rgba(148,163,184,0.18)] bg-white px-4 text-sm font-medium text-slate-700 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Volver
-          </Link>
-          <span className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-medium text-slate-700 ring-1 ring-[rgba(148,163,184,0.18)]">
-            <Route className="h-4 w-4 text-[var(--primary)]" />
-            API oficial
-          </span>
-        </div>
-
+      <section>
         <OfficialApiChatbotWorkspace
           key={`flows-official-${workflowId}`}
           data={data}
@@ -87,21 +71,7 @@ export default async function ClientFlowWorkflowPage({ params, searchParams }: P
     const routeQuery = `?sourceType=evolution&sourceId=${encodeURIComponent(query.sourceId)}`;
 
     return (
-      <section className="space-y-4">
-        <div className="flex flex-wrap items-center gap-3">
-          <Link
-            href={`/cliente/flujos${routeQuery}`}
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-[rgba(148,163,184,0.18)] bg-white px-4 text-sm font-medium text-slate-700 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Volver
-          </Link>
-          <span className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-medium text-slate-700 ring-1 ring-[rgba(148,163,184,0.18)]">
-            <Workflow className="h-4 w-4 text-[var(--primary)]" />
-            Evolution
-          </span>
-        </div>
-
+      <section>
         <OfficialApiChatbotWorkspace
           key={`flows-evolution-${query.sourceId}-${workflowId}`}
           data={data}
@@ -110,7 +80,7 @@ export default async function ClientFlowWorkflowPage({ params, searchParams }: P
           routeQuery={routeQuery}
           saveEndpoint={`/api/cliente/flujos?sourceType=evolution&sourceId=${encodeURIComponent(query.sourceId)}`}
           uploadEndpoint="/api/cliente/flujos/upload-media"
-          saveSuccessDescription="La configuracion del flujo quedo lista para el canal Evolution."
+          saveSuccessDescription="La configuracion del flujo quedo lista para la API no oficial con Evolution."
         />
       </section>
     );
