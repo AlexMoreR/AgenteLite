@@ -13,7 +13,25 @@ import {
 
 type ActionResult = { ok: true; count?: number } | { ok: false; error: string };
 
-export async function addTransactionAction(formData: FormData): Promise<ActionResult> {
+type TransactionPayload = {
+  id: string;
+  type: "INCOME" | "EXPENSE";
+  amount: number;
+  description: string;
+  category: string | null;
+  date: string;
+  source: string;
+  createdAt: string;
+};
+
+export async function addTransactionAction(
+  formData: FormData,
+): Promise<
+  | ({ ok: true; transaction: TransactionPayload; sheetSync: "synced" | "skipped" | "failed" } & {
+      count?: number;
+    })
+  | { ok: false; error: string }
+> {
   const session = await auth();
   if (!session?.user?.id || !["ADMIN", "CLIENTE"].includes(session.user.role ?? "")) {
     return { ok: false, error: "No autorizado" };
@@ -32,7 +50,7 @@ export async function addTransactionAction(formData: FormData): Promise<ActionRe
   if (!amount || amount <= 0) return { ok: false, error: "Monto inválido" };
   if (!description) return { ok: false, error: "Descripción requerida" };
 
-  await prisma.financeTransaction.create({
+  const created = await prisma.financeTransaction.create({
     data: {
       workspaceId: membership.workspace.id,
       type,
@@ -43,6 +61,8 @@ export async function addTransactionAction(formData: FormData): Promise<ActionRe
       source: "manual",
     },
   });
+
+  let sheetSync: "synced" | "skipped" | "failed" = "skipped";
 
   const sheet = await prisma.financeGoogleSheet.findUnique({
     where: { workspaceId: membership.workspace.id },
@@ -60,11 +80,13 @@ export async function addTransactionAction(formData: FormData): Promise<ActionRe
     });
 
     if (appendResult.ok) {
+      sheetSync = "synced";
       await prisma.financeGoogleSheet.update({
         where: { workspaceId: membership.workspace.id },
         data: { lastSyncAt: new Date() },
       });
     } else {
+      sheetSync = "failed";
       console.error(
         "[Finanzas] No se pudo guardar la transacción en Google Sheets:",
         appendResult.error,
@@ -73,7 +95,20 @@ export async function addTransactionAction(formData: FormData): Promise<ActionRe
   }
 
   revalidatePath("/cliente/finanzas");
-  return { ok: true };
+  return {
+    ok: true,
+    transaction: {
+      id: created.id,
+      type: created.type,
+      amount: Number(created.amount),
+      description: created.description,
+      category: created.category,
+      date: created.date.toISOString(),
+      source: created.source,
+      createdAt: created.createdAt.toISOString(),
+    },
+    sheetSync,
+  };
 }
 
 export async function deleteTransactionAction(id: string): Promise<ActionResult> {

@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { auth } from "@/auth";
 import { getFinanzasData } from "@/features/finanzas/services/getFinanzasData";
-import { FinanzasWorkspace } from "@/features/finanzas/components/FinanzasWorkspace";
+import { FinanzasEntryWorkspace } from "@/features/finanzas/components/FinanzasEntryWorkspace";
 
 export const metadata: Metadata = { title: "Finanzas" };
 
@@ -18,5 +18,5 @@ export default async function FinanzasPage() {
   const data = await getFinanzasData(session.user.id);
   if (!data) redirect("/cliente");
 
-  return <FinanzasWorkspace {...data} />;
+  return <FinanzasEntryWorkspace />;
 }

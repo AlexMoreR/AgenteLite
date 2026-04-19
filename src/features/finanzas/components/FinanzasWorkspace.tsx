@@ -8,8 +8,8 @@ import {
   Wallet,
   RefreshCw,
   Trash2,
-  Send,
-  Sheet,
+  SendHorizonal,
+  Settings,
   X,
 } from "lucide-react";
 import {
@@ -18,12 +18,19 @@ import {
   connectGoogleSheetAction,
   syncGoogleSheetAction,
 } from "@/app/actions/finanzas-actions";
+import { formatMoney } from "@/lib/currency";
 import type { FinanzasData, FinanceTransaction } from "../types";
+
+type ChatEvent =
+  | { id: string; kind: "assistant"; text: string }
+  | { id: string; kind: "user"; text: string }
+  | { id: string; kind: "userTransaction"; transaction: FinanceTransaction }
+  | { id: string; kind: "transaction"; transaction: FinanceTransaction };
 
 function parseTransactionText(
   text: string,
 ): { type: "INCOME" | "EXPENSE"; amount: number; description: string } | null {
-  const lower = text.toLowerCase().trim();
+  const lower = normalizeText(text);
 
   const expenseRx =
     /\b(gast[oóeé]|gastaste|gast[eé]|compr[oóeé]|compré|compre|pag[oóueé]|pagaste|pagu[eé]|egreso|sali[oó])\b/;
@@ -65,13 +72,46 @@ function parseTransactionText(
   };
 }
 
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat("es-CO", {
-    style: "currency",
-    currency: "COP",
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(amount);
+function parseTransactionDraft(text: string): {
+  type: "INCOME" | "EXPENSE" | null;
+  amount: number | null;
+  description: string;
+} {
+  const lower = normalizeText(text);
+  const expenseRx =
+    /\b(gasto|gaste|gastaste|compra|compre|compre|pago|pague|egreso|salio)\b/;
+  const incomeRx =
+    /\b(ingreso|ingrese|venta|ventas|cobre|cobro|recibi|gane|facture)\b/;
+
+  const amountMatch = text.match(
+    /\b(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+(?:[.,]\d{1,2})?)\b/,
+  );
+
+  let amount: number | null = null;
+  if (amountMatch) {
+    const raw = amountMatch[1];
+    amount = /^\d{1,3}(\.\d{3})+$/.test(raw)
+      ? parseFloat(raw.replace(/\./g, ""))
+      : parseFloat(raw.replace(/\./g, "").replace(",", "."));
+    if (!Number.isFinite(amount) || amount <= 0) amount = null;
+  }
+
+  const stopWords =
+    /\b(gasto|gaste|gasté|compra|compré|compre|pago|pagué|pague|egreso|ingreso|ingresé|ingrese|recibí|recibi|cobré|cobre|entró|entro|ganó|gano|gané|gane|venta|ventas|facturé|facture|un|una|en|de|por|a|al|del|me)\b/gi;
+
+  const description = text
+    .replace(expenseRx, " ")
+    .replace(incomeRx, " ")
+    .replace(stopWords, " ")
+    .replace(amountMatch?.[1] ?? "", " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return {
+    type: expenseRx.test(lower) ? "EXPENSE" : incomeRx.test(lower) ? "INCOME" : null,
+    amount,
+    description,
+  };
 }
 
 function formatDateLabel(isoDate: string): string {
@@ -91,6 +131,240 @@ function formatTime(isoDate: string): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function isSameCalendarDay(left: string, right: string): boolean {
+  const a = new Date(left);
+  const b = new Date(right);
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+function normalizeText(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+}
+
+function isGreetingIntent(text: string): boolean {
+  const normalized = normalizeText(text);
+  return [
+    "hola",
+    "buenas",
+    "buen dia",
+    "buenos dias",
+    "buenas tardes",
+    "buenas noches",
+    "hey",
+    "hello",
+  ].some((token) => normalized === token || normalized.startsWith(`${token} `));
+}
+
+function startOfDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function isQuestionIntent(text: string): boolean {
+  const normalized = normalizeText(text);
+  if (normalized.includes("?")) return true;
+
+  return [
+    "cuanto",
+    "que ",
+    "que gaste",
+    "que ingrese",
+    "cual",
+    "resumen",
+    "balance",
+    "total",
+    "mostrar",
+    "muestra",
+    "listar",
+    "cuantos",
+    "como voy",
+    "gaste hoy",
+    "gaste ayer",
+    "gastos de hoy",
+    "gastos de ayer",
+    "ingresos de hoy",
+    "ingresos de ayer",
+  ].some((token) => normalized.includes(token));
+}
+
+function parseRequestedDate(text: string): { label: string; matcher: (date: Date) => boolean } | null {
+  const normalized = normalizeText(text);
+  const now = new Date();
+  const today = startOfDay(now);
+
+  if (normalized.includes("hoy")) {
+    return {
+      label: "hoy",
+      matcher: (date) => startOfDay(date).getTime() === today.getTime(),
+    };
+  }
+
+  if (normalized.includes("ayer")) {
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    return {
+      label: "ayer",
+      matcher: (date) => startOfDay(date).getTime() === yesterday.getTime(),
+    };
+  }
+
+  const isoMatch = normalized.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
+  if (isoMatch) {
+    const target = new Date(Number(isoMatch[1]), Number(isoMatch[2]) - 1, Number(isoMatch[3]));
+    return {
+      label: `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`,
+      matcher: (date) => startOfDay(date).getTime() === target.getTime(),
+    };
+  }
+
+  const localMatch = normalized.match(/\b(\d{1,2})[/-](\d{1,2})(?:[/-](\d{4}))?\b/);
+  if (localMatch) {
+    const year = localMatch[3] ? Number(localMatch[3]) : now.getFullYear();
+    const target = new Date(year, Number(localMatch[2]) - 1, Number(localMatch[1]));
+    const label = `${String(localMatch[1]).padStart(2, "0")}/${String(localMatch[2]).padStart(2, "0")}${localMatch[3] ? `/${localMatch[3]}` : ""}`;
+    return {
+      label,
+      matcher: (date) => startOfDay(date).getTime() === target.getTime(),
+    };
+  }
+
+  return null;
+}
+
+function buildAssistantReply(
+  text: string,
+  transactions: FinanceTransaction[],
+  currency: FinanzasData["currency"],
+): string {
+  const normalized = normalizeText(text);
+  const dateFilter = parseRequestedDate(text);
+  const txs = dateFilter
+    ? transactions.filter((item) => dateFilter.matcher(new Date(item.date)))
+    : transactions;
+
+  if (normalized.includes("balance") || normalized.includes("como voy")) {
+    const income = txs.filter((item) => item.type === "INCOME").reduce((sum, item) => sum + item.amount, 0);
+    const expense = txs.filter((item) => item.type === "EXPENSE").reduce((sum, item) => sum + item.amount, 0);
+    const balance = income - expense;
+    const rangeLabel = dateFilter ? ` para ${dateFilter.label}` : "";
+    return `Tu balance${rangeLabel} es ${formatMoney(balance, currency)}. Ingresos ${formatMoney(income, currency)} y gastos ${formatMoney(expense, currency)}.`;
+  }
+
+  const askingExpenses =
+    normalized.includes("gasto") || normalized.includes("gaste") || normalized.includes("egreso");
+  const askingIncome =
+    normalized.includes("ingreso") || normalized.includes("ingrese") || normalized.includes("venta") || normalized.includes("cobre");
+
+  let scoped = txs;
+  let label = "movimientos";
+
+  if (askingExpenses && !askingIncome) {
+    scoped = txs.filter((item) => item.type === "EXPENSE");
+    label = "gastos";
+  } else if (askingIncome && !askingExpenses) {
+    scoped = txs.filter((item) => item.type === "INCOME");
+    label = "ingresos";
+  }
+
+  if (!scoped.length) {
+    if (dateFilter) {
+      return `No veo ${label} registrados para ${dateFilter.label}.`;
+    }
+    return `Todavia no encuentro ${label} registrados para responder eso.`;
+  }
+
+  const total = scoped.reduce((sum, item) => sum + item.amount, 0);
+  const latest = scoped[scoped.length - 1];
+  const rangeLabel = dateFilter ? ` de ${dateFilter.label}` : "";
+
+  if (normalized.includes("cuanto") || normalized.includes("total") || normalized.includes("cuantos")) {
+    return `Tienes ${scoped.length} ${label}${rangeLabel} por ${formatMoney(total, currency)}. El ultimo fue ${latest.description} por ${formatMoney(latest.amount, currency)}.`;
+  }
+
+  const preview = scoped
+    .slice(-3)
+    .reverse()
+    .map((item) => `${item.description} ${formatMoney(item.amount, currency)}`)
+    .join(", ");
+
+  return `Veo ${scoped.length} ${label}${rangeLabel}. Los mas recientes son: ${preview}.`;
+}
+
+function buildIncompleteTransactionReply(
+  draft: ReturnType<typeof parseTransactionDraft>,
+  currency: FinanzasData["currency"],
+): string | null {
+  if (!draft.type) return null;
+  if (!draft.amount && !draft.description) {
+    return `Claro. Vamos a registrar ${draft.type === "INCOME" ? "un ingreso" : "un gasto"}. Enviame monto y descripcion, por ejemplo: "${draft.type === "INCOME" ? "ingreso 250000 venta" : "gasto 80000 gasolina"}".`;
+  }
+  if (!draft.amount) {
+    return `Entendi que quieres registrar ${draft.type === "INCOME" ? "un ingreso" : "un gasto"} por "${draft.description}". Solo me falta el monto. Ejemplo: "${draft.type === "INCOME" ? "ingreso 250000" : "gasto 50000"} ${draft.description}".`;
+  }
+  if (!draft.description) {
+    return `Perfecto, ya tengo el monto ${formatMoney(draft.amount, currency)}. Ahora dime una descripcion corta para registrarlo, por ejemplo supermercado, transporte o venta.`;
+  }
+  return null;
+}
+
+function buildDefaultAssistantReply(currency: FinanzasData["currency"]): string {
+  return `Estoy listo para ayudarte con tus finanzas. Puedes saludarme, registrar un movimiento como "gasto 50000 transporte" o preguntarme algo como "que gaste hoy". Moneda activa: ${currency}.`;
+}
+
+function buildHistoryAssistantReply(
+  transaction: FinanceTransaction,
+  currency: FinanzasData["currency"],
+): string {
+  return transaction.type === "INCOME"
+    ? `Registré tu ingreso de ${formatMoney(transaction.amount, currency)} en ${transaction.description}.`
+    : `Registré tu gasto de ${formatMoney(transaction.amount, currency)} en ${transaction.description}.`;
+}
+
+function buildInitialChatEvents(
+  transactions: FinanceTransaction[],
+  currency: FinanzasData["currency"],
+): ChatEvent[] {
+  const intro: ChatEvent = {
+    id: "assistant-welcome",
+    kind: "assistant",
+    text: "Escribe un gasto, un ingreso o una pregunta como “que gaste hoy” y te respondo aqui mismo.",
+  };
+
+  const items = transactions.flatMap((transaction) => {
+    if (transaction.source === "manual") {
+      return [
+        {
+          id: `user-tx-${transaction.id}`,
+          kind: "userTransaction" as const,
+          transaction,
+        },
+        {
+          id: `assistant-history-${transaction.id}`,
+          kind: "assistant" as const,
+          text: buildHistoryAssistantReply(transaction, currency),
+        },
+      ];
+    }
+
+    return [
+      {
+        id: `tx-${transaction.id}`,
+        kind: "transaction" as const,
+        transaction,
+      },
+    ];
+  });
+
+  return [intro, ...items];
 }
 
 type GoogleSheetDialogProps = {
@@ -162,7 +436,7 @@ function GoogleSheetDialog({
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-3">
               <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white text-emerald-600 shadow-sm ring-1 ring-emerald-100">
-                <Sheet className="h-5 w-5" />
+                <Settings className="h-5 w-5" />
               </div>
               <div>
                 <h2 className="text-base font-semibold text-slate-900">Google Sheets</h2>
@@ -304,25 +578,25 @@ export function FinanzasWorkspace({
   transactions: initialTransactions,
   googleSheet,
   serviceAccountEmail,
+  currency,
 }: FinanzasData) {
   const [transactions, setTransactions] = useState<FinanceTransaction[]>(initialTransactions);
+  const [chatEvents, setChatEvents] = useState<ChatEvent[]>(() =>
+    buildInitialChatEvents(initialTransactions, currency),
+  );
   const [input, setInput] = useState("");
   const [parseError, setParseError] = useState<string | null>(null);
   const [showSheet, setShowSheet] = useState(false);
   const [isPending, startTransition] = useTransition();
   const feedRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const router = useRouter();
-
-  useEffect(() => {
-    setTransactions(initialTransactions);
-  }, [initialTransactions]);
 
   useEffect(() => {
     if (feedRef.current) {
       feedRef.current.scrollTop = feedRef.current.scrollHeight;
     }
-  }, [transactions.length]);
+  }, [chatEvents.length]);
 
   const summary = useMemo(() => {
     const income = transactions
@@ -334,33 +608,59 @@ export function FinanzasWorkspace({
     return { income, expense, balance: income - expense };
   }, [transactions]);
 
-  const topCategories = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const t of transactions.filter((t) => t.type === "EXPENSE")) {
-      const cat = t.category || "Sin categoria";
-      map.set(cat, (map.get(cat) ?? 0) + t.amount);
-    }
-    return Array.from(map.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 6);
-  }, [transactions]);
-
-  const grouped = useMemo(() => {
-    const groups = new Map<string, FinanceTransaction[]>();
-    for (const t of transactions) {
-      const key = formatDateLabel(t.date);
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key)?.push(t);
-    }
-    return Array.from(groups.entries());
-  }, [transactions]);
-
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setParseError(null);
-    const parsed = parseTransactionText(input);
+    const message = input.trim();
+    if (!message) return;
+
+    const userEvent: ChatEvent = {
+      id: `user-${Date.now()}`,
+      kind: "user",
+      text: message,
+    };
+
+    setChatEvents((prev) => [...prev, userEvent]);
+    setInput("");
+
+    if (isGreetingIntent(message)) {
+      setChatEvents((prev) => [
+        ...prev,
+        {
+          id: `assistant-${Date.now() + 1}`,
+          kind: "assistant",
+          text: "Hola, soy tu asistente de finanzas. Estoy aqui para ayudarte a registrar ingresos, gastos y responder consultas. Que movimiento vamos a reportar hoy?",
+        },
+      ]);
+      return;
+    }
+
+    if (isQuestionIntent(message)) {
+      const reply = buildAssistantReply(message, transactions, currency);
+      setChatEvents((prev) => [
+        ...prev,
+        {
+          id: `assistant-${Date.now() + 1}`,
+          kind: "assistant",
+          text: reply,
+        },
+      ]);
+      return;
+    }
+
+    const parsed = parseTransactionText(message);
     if (!parsed) {
-      setParseError('Prueba con "gasto 500 supermercado" o "ingreso 2000 salario"');
+      const draft = parseTransactionDraft(message);
+      const guidedReply =
+        buildIncompleteTransactionReply(draft, currency) ?? buildDefaultAssistantReply(currency);
+      setChatEvents((prev) => [
+        ...prev,
+        {
+          id: `assistant-${Date.now() + 2}`,
+          kind: "assistant",
+          text: guidedReply,
+        },
+      ]);
       return;
     }
 
@@ -369,10 +669,9 @@ export function FinanzasWorkspace({
     fd.append("amount", String(parsed.amount));
     fd.append("description", parsed.description);
 
-    const optimisticId = `temp-${Date.now()}`;
     const optimisticDate = new Date().toISOString();
     const optimistic: FinanceTransaction = {
-      id: optimisticId,
+      id: `temp-${Date.now()}`,
       type: parsed.type,
       amount: parsed.amount,
       description: parsed.description,
@@ -383,328 +682,299 @@ export function FinanzasWorkspace({
     };
 
     setTransactions((prev) => [...prev, optimistic]);
-    setInput("");
 
     startTransition(async () => {
       const result = await addTransactionAction(fd);
       if (!result.ok) {
         setParseError(result.error);
-        setTransactions((prev) => prev.filter((t) => t.id !== optimisticId));
-      } else {
-        router.refresh();
+        setTransactions((prev) => prev.filter((t) => t.id !== optimistic.id));
+        setChatEvents((prev) => [
+          ...prev,
+          {
+            id: `assistant-${Date.now() + 3}`,
+            kind: "assistant",
+            text: result.error,
+          },
+        ]);
+        return;
       }
+
+      const savedTransaction = result.transaction;
+      setTransactions((prev) => prev.map((item) => (item.id === optimistic.id ? savedTransaction : item)));
+      setChatEvents((prev) => [
+        ...prev,
+        {
+          id: `assistant-${Date.now() + 4}`,
+          kind: "assistant",
+          text:
+            result.sheetSync === "synced"
+              ? `Listo. Guarde ${parsed.type === "INCOME" ? "el ingreso" : "el gasto"} de ${formatMoney(parsed.amount, currency)} y tambien lo envie a Google Sheets.`
+              : result.sheetSync === "failed"
+                ? `Lo guarde aqui, pero Google Sheets no respondio. Revisa la conexion de la hoja.`
+                : `Listo. Guarde ${parsed.type === "INCOME" ? "el ingreso" : "el gasto"} de ${formatMoney(parsed.amount, currency)}.`,
+        },
+      ]);
     });
   }
 
   function handleDelete(id: string) {
     if (id.startsWith("temp-")) return;
     setTransactions((prev) => prev.filter((t) => t.id !== id));
+    setChatEvents((prev) =>
+      prev.filter((event) => {
+        if (
+          (event.kind === "transaction" || event.kind === "userTransaction") &&
+          event.transaction.id === id
+        ) {
+          return false;
+        }
+
+        if (event.kind === "assistant" && event.id === `assistant-history-${id}`) {
+          return false;
+        }
+
+        return true;
+      }),
+    );
     startTransition(async () => {
       await deleteTransactionAction(id);
-      router.refresh();
     });
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-[linear-gradient(180deg,#f6fbf8_0%,#f8fafc_22%,#f8fafc_100%)]">
-      <div className="shrink-0 border-b border-slate-200/80 bg-white/80 px-4 py-4 backdrop-blur-xl sm:px-5 lg:px-6">
-        <div className="mx-auto flex w-full max-w-7xl flex-col gap-4">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-emerald-600/80">
-                Finanzas
-              </p>
-              <h1 className="mt-1 text-[clamp(1.4rem,1.2rem+1vw,2rem)] font-semibold tracking-[-0.05em] text-slate-950">
-                Panel de caja
-              </h1>
-            </div>
-            <button
-              onClick={() => setShowSheet(true)}
-              className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-2 text-xs font-medium transition sm:px-4 sm:text-sm ${
-                googleSheet
-                  ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300"
-                  : "border-slate-200 bg-white text-slate-700 hover:border-emerald-300 hover:text-emerald-700"
-              }`}
-            >
-              <Sheet className="h-4 w-4" />
-              <span className="hidden sm:inline">
-                {googleSheet ? "Google Sheet activo" : "Conectar Sheet"}
-              </span>
-              <span className="sm:hidden">{googleSheet ? "Sheet" : "Conectar"}</span>
-            </button>
-          </div>
+    <div className="chat-app-layout flex h-full min-h-0 flex-col overflow-hidden bg-[linear-gradient(180deg,#f6fbf8_0%,#f8fafc_22%,#f8fafc_100%)]">
+      <div className="min-h-0 flex-1 overflow-hidden px-1.5 py-1.5 sm:px-2 sm:py-2 lg:px-3">
+        <div className="mx-auto grid h-full max-w-7xl min-h-0 gap-1.5">
+          <div className="flex min-h-0 flex-col overflow-hidden rounded-[20px] border border-[#31456f] bg-[linear-gradient(180deg,#1b2748_0%,#223463_100%)] text-white shadow-[0_24px_60px_-36px_rgba(15,23,42,0.7)]">
+            <div className="border-b border-white/10 px-3 py-1.5 sm:px-4">
+              <div className="relative flex items-center justify-center">
+                <div className="flex flex-wrap justify-center gap-1">
+                  <div className="inline-flex min-w-0 items-center gap-1 rounded-full border border-emerald-200/18 bg-white/8 px-2 py-1 backdrop-blur-md">
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-100/12">
+                      <TrendingUp className="h-3 w-3 text-emerald-300" />
+                    </span>
+                    <p className="truncate text-[11px] font-semibold text-emerald-200">
+                      {formatMoney(summary.income, currency)}
+                    </p>
+                  </div>
 
-          <div className="grid gap-3 md:grid-cols-3">
-            <div className="rounded-[24px] border border-emerald-100 bg-[linear-gradient(135deg,#ffffff_0%,#f2fbf5_100%)] p-4 shadow-[0_10px_30px_-22px_rgba(16,185,129,0.6)]">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-slate-500">Ingresos</span>
-                <TrendingUp className="h-4 w-4 text-emerald-500" />
-              </div>
-              <p className="mt-3 text-xl font-semibold tracking-[-0.04em] text-emerald-700 sm:text-2xl">
-                {formatCurrency(summary.income)}
-              </p>
-            </div>
+                  <div className="inline-flex min-w-0 items-center gap-1 rounded-full border border-rose-200/16 bg-white/8 px-2 py-1 backdrop-blur-md">
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-rose-400/10">
+                      <TrendingDown className="h-3 w-3 text-rose-300" />
+                    </span>
+                    <p className="truncate text-[11px] font-semibold text-rose-200">
+                      {formatMoney(summary.expense, currency)}
+                    </p>
+                  </div>
 
-            <div className="rounded-[24px] border border-rose-100 bg-[linear-gradient(135deg,#ffffff_0%,#fff4f4_100%)] p-4 shadow-[0_10px_30px_-22px_rgba(244,63,94,0.45)]">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-slate-500">Gastos</span>
-                <TrendingDown className="h-4 w-4 text-rose-500" />
+                  <div
+                    className={`inline-flex min-w-0 items-center gap-1 rounded-full border px-2 py-1 backdrop-blur-md ${
+                      summary.balance >= 0
+                        ? "border-cyan-200/20 bg-[linear-gradient(135deg,rgba(20,184,166,0.22)_0%,rgba(15,23,42,0.2)_100%)]"
+                        : "border-rose-200/18 bg-[linear-gradient(135deg,rgba(244,63,94,0.16)_0%,rgba(15,23,42,0.22)_100%)]"
+                    }`}
+                  >
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/10">
+                      <Wallet className="h-3 w-3 text-white/80" />
+                    </span>
+                    <p className="truncate text-[11px] font-semibold text-white">
+                      {formatMoney(summary.balance, currency)}
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowSheet(true)}
+                  className="absolute right-0 top-1/2 flex h-8 w-8 -translate-y-1/2 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/6 text-white/72 transition hover:bg-white/8 hover:text-white"
+                  title={googleSheet ? "Configurar Google Sheet" : "Conectar Google Sheet"}
+                  aria-label={googleSheet ? "Configurar Google Sheet" : "Conectar Google Sheet"}
+                >
+                  <Settings className="h-4 w-4" />
+                </button>
               </div>
-              <p className="mt-3 text-xl font-semibold tracking-[-0.04em] text-rose-600 sm:text-2xl">
-                {formatCurrency(summary.expense)}
-              </p>
             </div>
 
             <div
-              className={`rounded-[24px] p-4 shadow-[0_14px_40px_-24px_rgba(15,23,42,0.45)] ${
-                summary.balance >= 0
-                  ? "bg-[linear-gradient(135deg,#0f172a_0%,#0f766e_100%)]"
-                  : "bg-[linear-gradient(135deg,#3f0d12_0%,#be123c_100%)]"
-              }`}
+              ref={feedRef}
+              className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 sm:px-4 sm:py-4"
             >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-white/70">Balance</span>
-                <Wallet className="h-4 w-4 text-white/80" />
-              </div>
-              <p className="mt-3 text-xl font-semibold tracking-[-0.04em] text-white sm:text-2xl">
-                {formatCurrency(summary.balance)}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full bg-white px-3 py-1.5 text-xs text-slate-500 ring-1 ring-slate-200">
-              {transactions.length} movimientos
-            </span>
-            {topCategories.slice(0, 3).map(([cat, amount]) => (
-              <span
-                key={cat}
-                className="inline-flex max-w-full items-center gap-2 rounded-full bg-white px-3 py-1.5 text-xs text-slate-600 ring-1 ring-slate-200"
-              >
-                <span className="truncate">{cat}</span>
-                <span className="font-semibold text-rose-500">{formatCurrency(amount)}</span>
-              </span>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="min-h-0 flex-1 overflow-hidden px-3 py-3 sm:px-4 sm:py-4 lg:px-6">
-        <div className="mx-auto grid h-full max-w-7xl min-h-0 gap-3 lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-4">
-          <div className="flex min-h-0 flex-col overflow-hidden rounded-[28px] border border-slate-200/80 bg-white shadow-[0_24px_60px_-38px_rgba(15,23,42,0.35)]">
-            <div className="border-b border-slate-100 px-4 py-4 sm:px-5">
-              <form onSubmit={handleSubmit} className="space-y-3">
-                {parseError && (
-                  <p className="rounded-2xl bg-rose-50 px-3 py-2 text-xs text-rose-600">
-                    {parseError}
-                  </p>
-                )}
-
-                <div className="flex gap-2">
-                  <input
-                    ref={inputRef}
-                    value={input}
-                    onChange={(e) => {
-                      setInput(e.target.value);
-                      setParseError(null);
-                    }}
-                    placeholder='gasto 500 supermercado'
-                    className="min-w-0 flex-1 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-emerald-400 focus:bg-white focus:outline-none"
-                    disabled={isPending}
-                  />
-                  <button
-                    type="submit"
-                    disabled={isPending || !input.trim()}
-                    className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-600 text-white transition hover:bg-emerald-700 disabled:opacity-40"
-                  >
-                    <Send className="h-4 w-4" />
-                  </button>
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  {["gasto 500 transporte", "ingreso 2500 venta"].map((example) => (
-                    <button
-                      key={example}
-                      type="button"
-                      onClick={() => {
-                        setInput(example);
-                        setParseError(null);
-                        inputRef.current?.focus();
-                      }}
-                      className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-200"
-                    >
-                      {example}
-                    </button>
-                  ))}
-                </div>
-              </form>
-            </div>
-
-            <div ref={feedRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-3 sm:px-4 sm:py-4">
-              {transactions.length === 0 ? (
+              {chatEvents.length <= 1 && transactions.length === 0 ? (
                 <div className="flex h-full flex-col items-center justify-center px-4 py-16 text-center">
-                  <div className="flex h-16 w-16 items-center justify-center rounded-[24px] bg-emerald-50 text-emerald-400">
+                  <div className="flex h-16 w-16 items-center justify-center rounded-[24px] bg-white/8 text-emerald-200">
                     <Wallet className="h-8 w-8" />
                   </div>
-                  <p className="mt-4 text-base font-semibold text-slate-800">Sin movimientos todavia</p>
-                  <p className="mt-1 max-w-xs text-sm text-slate-400">
+                  <p className="mt-4 text-base font-semibold text-white">Sin movimientos todavia</p>
+                  <p className="mt-1 max-w-xs text-sm text-white/58">
                     Escribe uno arriba y aparecera aqui.
                   </p>
                 </div>
               ) : (
-                <div className="space-y-5">
-                  {grouped.map(([dateLabel, txs]) => (
-                    <section key={dateLabel} className="space-y-3">
-                      <div className="sticky top-0 z-10 -mx-1 rounded-full bg-white/90 px-1 py-1 backdrop-blur">
-                        <div className="flex items-center gap-3">
-                          <div className="h-px flex-1 bg-slate-100" />
-                          <span className="rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold text-slate-500">
-                            {dateLabel}
-                          </span>
-                          <div className="h-px flex-1 bg-slate-100" />
+                <div className="space-y-3">
+                  {chatEvents.map((event, index) => {
+                    if (event.kind === "user") {
+                      return (
+                        <div key={event.id} className="flex justify-end">
+                          <div className="max-w-[82%] rounded-[18px] rounded-br-md bg-white px-3 py-2 text-[12px] leading-5 text-slate-900 shadow-[0_14px_35px_-24px_rgba(15,23,42,0.35)]">
+                            {event.text}
+                          </div>
                         </div>
-                      </div>
+                      );
+                    }
 
-                      <div className="space-y-2">
-                        {txs.map((t) => (
+                    if (event.kind === "assistant") {
+                      return (
+                        <div key={event.id} className="flex justify-start">
+                          <div className="max-w-[84%] rounded-[18px] rounded-bl-md border border-white/10 bg-white/8 px-3 py-2 text-[12px] leading-5 text-white shadow-[0_14px_35px_-26px_rgba(15,23,42,0.35)] backdrop-blur-sm">
+                            {event.text}
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    const t = event.transaction;
+                    const isUserTransaction = event.kind === "userTransaction";
+                    const previousTransaction = [...chatEvents]
+                      .slice(0, index)
+                      .reverse()
+                      .find(
+                        (
+                          previousEvent,
+                        ): previousEvent is Extract<
+                          ChatEvent,
+                          { kind: "transaction" | "userTransaction" }
+                        > =>
+                          previousEvent.kind === "transaction" ||
+                          previousEvent.kind === "userTransaction",
+                      );
+                    const showDateDivider =
+                      !previousTransaction || !isSameCalendarDay(previousTransaction.transaction.date, t.date);
+                    return (
+                      <div key={event.id} className="space-y-1">
+                        {showDateDivider && (
+                          <div className="flex items-center gap-3 px-1">
+                            <div className="h-px flex-1 bg-white/10" />
+                            <span className="rounded-full bg-white/8 px-3 py-1 text-[11px] font-semibold text-white/65">
+                              {formatDateLabel(t.date)}
+                            </span>
+                            <div className="h-px flex-1 bg-white/10" />
+                          </div>
+                        )}
+
+                        <div className={isUserTransaction ? "flex justify-end" : ""}>
                           <article
-                            key={t.id}
-                            className={`rounded-[22px] border px-4 py-3 shadow-[0_10px_30px_-24px_rgba(15,23,42,0.35)] ${
-                              t.type === "INCOME"
-                                ? "border-emerald-100 bg-[linear-gradient(135deg,#ffffff_0%,#f0fdf4_100%)]"
-                                : "border-slate-200 bg-white"
+                            className={`rounded-[18px] border px-3 py-2.5 shadow-[0_10px_30px_-24px_rgba(15,23,42,0.35)] ${
+                              isUserTransaction
+                                ? "w-full max-w-[84%] border-white/14 bg-[linear-gradient(135deg,rgba(255,255,255,0.12)_0%,rgba(148,163,184,0.12)_100%)]"
+                                : t.type === "INCOME"
+                                  ? "border-emerald-200/30 bg-[linear-gradient(135deg,rgba(255,255,255,0.16)_0%,rgba(16,185,129,0.14)_100%)]"
+                                  : "border-white/10 bg-white/6"
                             }`}
                           >
-                            <div className="flex items-start gap-3">
-                              <div
-                                className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl ${
-                                  t.type === "INCOME"
-                                    ? "bg-emerald-100 text-emerald-700"
-                                    : "bg-rose-50 text-rose-600"
-                                }`}
-                              >
-                                {t.type === "INCOME" ? (
-                                  <TrendingUp className="h-4 w-4" />
-                                ) : (
-                                  <TrendingDown className="h-4 w-4" />
-                                )}
-                              </div>
+                          <div className="flex items-start gap-2.5">
+                            <div
+                              className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-[14px] ${
+                                t.type === "INCOME"
+                                  ? "bg-emerald-100/18 text-emerald-200"
+                                  : "bg-rose-400/12 text-rose-200"
+                              }`}
+                            >
+                              {t.type === "INCOME" ? (
+                                <TrendingUp className="h-3.5 w-3.5" />
+                              ) : (
+                                <TrendingDown className="h-3.5 w-3.5" />
+                              )}
+                            </div>
 
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-start justify-between gap-3">
-                                  <div className="min-w-0">
-                                    <div className="flex flex-wrap items-center gap-2">
-                                      <p className="truncate text-sm font-medium text-slate-900">
-                                        {t.description}
-                                      </p>
-                                      {t.source === "google_sheet" && (
-                                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
-                                          Sheet
-                                        </span>
-                                      )}
-                                      {t.category && (
-                                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500">
-                                          {t.category}
-                                        </span>
-                                      )}
-                                    </div>
-                                    <p className="mt-1 text-xs text-slate-400">{formatTime(t.date)}</p>
-                                  </div>
-
-                                  <div className="flex items-center gap-2">
-                                    <p
-                                      className={`text-right text-base font-semibold tracking-[-0.03em] sm:text-lg ${
-                                        t.type === "INCOME" ? "text-emerald-700" : "text-rose-600"
-                                      }`}
-                                    >
-                                      {t.type === "INCOME" ? "+" : "-"}
-                                      {formatCurrency(t.amount)}
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    <p className="truncate text-[12px] font-medium text-white">
+                                      {t.description}
                                     </p>
-                                    <button
-                                      onClick={() => handleDelete(t.id)}
-                                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-300 transition hover:bg-rose-50 hover:text-rose-500"
-                                    >
-                                      <Trash2 className="h-3.5 w-3.5" />
-                                    </button>
+                                    {t.source === "google_sheet" && (
+                                      <span className="rounded-full bg-white/8 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/65">
+                                        Sheet
+                                      </span>
+                                    )}
+                                    {t.category && (
+                                      <span className="rounded-full bg-white/8 px-2 py-0.5 text-[10px] text-white/65">
+                                        {t.category}
+                                      </span>
+                                    )}
                                   </div>
+                                  <p className="mt-0.5 text-[11px] text-white/50">{formatTime(t.date)}</p>
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                  <p
+                                    className={`text-right text-[12px] font-semibold tracking-[-0.02em] ${
+                                      t.type === "INCOME" ? "text-emerald-200" : "text-rose-200"
+                                    }`}
+                                  >
+                                    {t.type === "INCOME" ? "+" : "-"}
+                                    {formatMoney(t.amount, currency)}
+                                  </p>
+                                  <button
+                                    onClick={() => handleDelete(t.id)}
+                                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-white/30 transition hover:bg-rose-400/12 hover:text-rose-200"
+                                  >
+                                    <Trash2 className="h-3 w-3" />
+                                  </button>
                                 </div>
                               </div>
                             </div>
+                          </div>
                           </article>
-                        ))}
+                        </div>
                       </div>
-                    </section>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
+            </div>
+
+            <div className="chat-composer shrink-0 border-t border-white/10 bg-transparent px-2 pb-[calc(env(safe-area-inset-bottom)+0.25rem)] pt-1.5 md:px-2 md:py-1.5">
+              <form onSubmit={handleSubmit}>
+                <div className="flex items-center gap-1.5 rounded-full border border-white/10 bg-white/6 px-2.5 py-1.5 shadow-[0_16px_30px_-26px_rgba(15,23,42,0.9)] backdrop-blur-md">
+                  <textarea
+                    ref={inputRef}
+                    value={input}
+                      onChange={(e) => {
+                        setInput(e.target.value);
+                        setParseError(null);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          if (!isPending && input.trim()) {
+                            e.currentTarget.form?.requestSubmit();
+                          }
+                        }
+                      }}
+                      rows={1}
+                      placeholder="Cuéntame el gasto, el ingreso o hazme una pregunta sobre tus movimientos."
+                      className="h-8 flex-1 resize-none bg-transparent pt-1.5 text-[14px] text-white placeholder:text-white/45 outline-none"
+                      disabled={isPending}
+                    />
+
+                    <button
+                      type="submit"
+                      disabled={isPending || !input.trim()}
+                      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-slate-950 transition hover:bg-slate-100 disabled:opacity-40"
+                    >
+                      <SendHorizonal className="h-3.5 w-3.5" />
+                    </button>
+                </div>
+                {parseError && (
+                  <p className="mt-2 rounded-2xl bg-rose-500/12 px-3 py-2 text-xs text-rose-100">
+                    {parseError}
+                  </p>
+                )}
+              </form>
             </div>
           </div>
-
-          <aside className="min-h-0 overflow-auto rounded-[28px] border border-slate-200/80 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] p-4 shadow-[0_20px_50px_-34px_rgba(15,23,42,0.35)]">
-            <div className="space-y-4">
-              <div className="rounded-[24px] bg-slate-950 px-4 py-4 text-white">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs uppercase tracking-[0.18em] text-white/55">Estado</span>
-                  <Wallet className="h-4 w-4 text-white/70" />
-                </div>
-                <p className="mt-3 text-2xl font-semibold tracking-[-0.05em]">
-                  {summary.balance >= 0 ? "En positivo" : "En ajuste"}
-                </p>
-                <p className="mt-2 text-sm text-white/65">{formatCurrency(summary.balance)}</p>
-              </div>
-
-              {topCategories.length > 0 && (
-                <div className="rounded-[24px] border border-slate-200 bg-white p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-                    Top gastos
-                  </p>
-                  <div className="mt-4 space-y-2">
-                    {topCategories.map(([cat, amount]) => (
-                      <div
-                        key={cat}
-                        className="flex items-center justify-between gap-3 rounded-2xl bg-slate-50 px-3 py-3"
-                      >
-                        <span className="truncate text-sm text-slate-600">{cat}</span>
-                        <span className="shrink-0 text-sm font-semibold text-rose-500">
-                          {formatCurrency(amount)}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div className="rounded-[24px] border border-slate-200 bg-white p-4">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-                    Google Sheet
-                  </p>
-                  <button
-                    onClick={() => setShowSheet(true)}
-                    className="rounded-full bg-slate-100 px-3 py-1 text-[11px] font-medium text-slate-600 transition hover:bg-slate-200"
-                  >
-                    Abrir
-                  </button>
-                </div>
-                <div
-                  className={`mt-4 rounded-2xl px-3 py-3 ring-1 ring-inset ${
-                    googleSheet
-                      ? "bg-emerald-50 text-emerald-700 ring-emerald-100"
-                      : "bg-slate-50 text-slate-500 ring-slate-200"
-                  }`}
-                >
-                  <p className="text-sm font-medium">
-                    {googleSheet ? "Sincronizacion activa" : "Sin conexion"}
-                  </p>
-                  {googleSheet?.lastSyncAt && (
-                    <p className="mt-1 text-xs opacity-80">
-                      {new Date(googleSheet.lastSyncAt).toLocaleString("es-CO")}
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-          </aside>
         </div>
       </div>
 

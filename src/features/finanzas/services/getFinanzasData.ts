@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { SERVICE_ACCOUNT_EMAIL } from "@/lib/google-sheets";
+import { getSystemCurrency } from "@/lib/system-settings";
 import type { FinanzasData } from "../types";
 
 export async function getFinanzasData(userId: string): Promise<FinanzasData | null> {
@@ -13,7 +14,7 @@ export async function getFinanzasData(userId: string): Promise<FinanzasData | nu
 
   const workspaceId = membership.workspace.id;
 
-  const [transactions, googleSheet] = await Promise.all([
+  const [transactions, googleSheet, currency] = await Promise.all([
     prisma.financeTransaction.findMany({
       where: { workspaceId },
       orderBy: { date: "asc" },
@@ -33,6 +34,7 @@ export async function getFinanzasData(userId: string): Promise<FinanzasData | nu
       where: { workspaceId },
       select: { id: true, sheetUrl: true, sheetId: true, lastSyncAt: true },
     }),
+    getSystemCurrency(),
   ]);
 
   return {
@@ -47,5 +49,6 @@ export async function getFinanzasData(userId: string): Promise<FinanzasData | nu
       : null,
     workspaceId,
     serviceAccountEmail: SERVICE_ACCOUNT_EMAIL,
+    currency,
   };
 }

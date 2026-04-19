@@ -1,3 +1,5 @@
+import type { SupportedCurrencyCode } from "@/lib/currency";
+
 export type FinanceTransactionType = "INCOME" | "EXPENSE";
 
 export type FinanceTransaction = {
@@ -23,6 +25,7 @@ export type FinanzasData = {
   googleSheet: FinanceGoogleSheet | null;
   workspaceId: string;
   serviceAccountEmail: string | null;
+  currency: SupportedCurrencyCode;
 };
 
 export type ParsedTransaction = {
