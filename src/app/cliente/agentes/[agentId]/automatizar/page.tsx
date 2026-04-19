@@ -6,5 +6,5 @@ type PageProps = {
 
 export default async function AgentAutomationPage({ params }: PageProps) {
   const { agentId } = await params;
-  redirect(`/cliente/agentes/${agentId}/chatbots`);
+  redirect(`/cliente/agentes/${agentId}`);
 }

@@ -36,12 +36,14 @@ export default async function ClientFlowsPage({ searchParams }: PageProps) {
     });
 
     return (
-      <section className="space-y-5">
-        <div className="space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Modulo nuevo</p>
-          <h1 className="text-2xl font-semibold tracking-[-0.05em] text-slate-950">Flujos</h1>
+      <section className="space-y-4">
+        <div className="min-w-0 flex-1">
+          <div className="inline-flex items-center gap-3">
+            <Workflow className="h-6 w-6 text-sky-600" />
+            <h1 className="text-2xl font-semibold tracking-[-0.05em] text-slate-950">Flujos</h1>
+          </div>
           <p className="max-w-3xl text-sm leading-6 text-slate-600">
-            Centraliza aqui el builder visual de chatbots y automatizaciones. Elige si quieres trabajar sobre la API oficial o un canal Evolution.
+            Crea y administra tus flujos y automatizaciones para API oficial o canales Evolution.
           </p>
         </div>
 

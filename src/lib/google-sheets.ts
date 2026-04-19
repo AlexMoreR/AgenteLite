@@ -41,32 +41,38 @@ async function getAccessToken(): Promise<string | null> {
   const rawKey = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY;
   if (!email || !rawKey) return null;
 
-  // Normalize \n literals that come from .env files
-  const privateKey = rawKey.replace(/\\n/g, "\n");
-  const now = Math.floor(Date.now() / 1000);
+  let jwt: string;
+  try {
+    // Normalize \n literals that come from .env files
+    const privateKey = rawKey.replace(/\\n/g, "\n");
+    const now = Math.floor(Date.now() / 1000);
 
-  const header = b64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
-  const claims = b64url(
-    JSON.stringify({
-      iss: email,
-      scope: "https://www.googleapis.com/auth/spreadsheets",
-      aud: "https://oauth2.googleapis.com/token",
-      iat: now,
-      exp: now + 3600,
-    }),
-  );
+    const header = b64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
+    const claims = b64url(
+      JSON.stringify({
+        iss: email,
+        scope: "https://www.googleapis.com/auth/spreadsheets",
+        aud: "https://oauth2.googleapis.com/token",
+        iat: now,
+        exp: now + 3600,
+      }),
+    );
 
-  const sigInput = `${header}.${claims}`;
-  const signer = createSign("RSA-SHA256");
-  signer.update(sigInput);
-  // Use base64 then convert to base64url (works on all Node versions)
-  const sig = signer
-    .sign(privateKey, "base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=/g, "");
+    const sigInput = `${header}.${claims}`;
+    const signer = createSign("RSA-SHA256");
+    signer.update(sigInput);
+    // Use base64 then convert to base64url (works on all Node versions)
+    const sig = signer
+      .sign(privateKey, "base64")
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=/g, "");
 
-  const jwt = `${sigInput}.${sig}`;
+    jwt = `${sigInput}.${sig}`;
+  } catch (err) {
+    console.error("[Google Auth] JWT signing error:", err);
+    return null;
+  }
 
   try {
     const res = await fetch("https://oauth2.googleapis.com/token", {
@@ -219,6 +225,67 @@ async function sheetsAppend(
     const msg = err instanceof Error ? err.message : "Error de red";
     return { data: null, error: msg };
   }
+}
+
+// ── Sheet row ID helpers ─────────────────────────────────────────────────────
+
+export function makeSheetTxId(rowIndex: number, type: string, amount: number, description: string): string {
+  const key = `${rowIndex}|${type}|${amount.toFixed(2)}|${description}`;
+  return `sh:${Buffer.from(key).toString("base64url")}`;
+}
+
+export function parseSheetTxId(id: string): { type: "INCOME" | "EXPENSE"; amount: number; description: string } | null {
+  if (!id.startsWith("sh:")) return null;
+  try {
+    const key = Buffer.from(id.slice(3), "base64url").toString();
+    const parts = key.split("|");
+    if (parts.length < 4) return null;
+    const [, type, amountStr, ...descParts] = parts;
+    const amount = parseFloat(amountStr);
+    if (!type || isNaN(amount)) return null;
+    return { type: type as "INCOME" | "EXPENSE", amount, description: descParts.join("|") };
+  } catch {
+    return null;
+  }
+}
+
+export type ParsedSheetTx = {
+  id: string;
+  rowIndex: number;
+  type: "INCOME" | "EXPENSE";
+  amount: number;
+  description: string;
+  category: string | null;
+  date: Date;
+};
+
+export function parseOurSheetFormat(rows: string[][]): ParsedSheetTx[] {
+  if (!rows || rows.length < 2) return [];
+  const result: ParsedSheetTx[] = [];
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row || row.every((c) => !c?.trim())) continue;
+    const tipo = (row[0] ?? "").trim().toUpperCase();
+    const monto = parseFloat((row[1] ?? "0").replace(",", "."));
+    const desc = (row[2] ?? "").trim();
+    const cat = (row[3] ?? "").trim() || null;
+    const fecha = (row[4] ?? "").trim();
+    const hora = (row[5] ?? "").trim();
+
+    const type = tipo === "INGRESO" ? "INCOME" : tipo === "GASTO" ? "EXPENSE" : null;
+    if (!type || !monto || monto <= 0 || !desc) continue;
+
+    let date: Date;
+    try {
+      date = fecha ? new Date(`${fecha}T${hora || "00:00:00"}`) : new Date();
+      if (isNaN(date.getTime())) date = new Date();
+    } catch {
+      date = new Date();
+    }
+
+    result.push({ id: makeSheetTxId(i, type, monto, desc), rowIndex: i, type, amount: monto, description: desc, category: cat, date });
+  }
+  return result;
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────

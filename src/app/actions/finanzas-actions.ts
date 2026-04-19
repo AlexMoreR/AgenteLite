@@ -61,6 +61,24 @@ const OPENAI_TOOLS = [
   {
     type: "function",
     function: {
+      name: "update_transaction",
+      description: "Corrige el monto, descripción, tipo o categoría de una transacción existente. Usar cuando el usuario dice que algo estaba mal.",
+      parameters: {
+        type: "object",
+        properties: {
+          id: { type: "string", description: "ID de la transacción a actualizar" },
+          type: { type: "string", enum: ["INCOME", "EXPENSE"], description: "Nuevo tipo (opcional)" },
+          amount: { type: "number", description: "Nuevo monto positivo (opcional)" },
+          description: { type: "string", description: "Nueva descripción (opcional)" },
+          category: { type: "string", description: "Nueva categoría (opcional)" },
+        },
+        required: ["id"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "sync_google_sheet",
       description: "Importa o actualiza las transacciones desde Google Sheet. Reemplaza todos los datos previos de la hoja con los actuales.",
       parameters: { type: "object", properties: {}, required: [] },
@@ -208,6 +226,55 @@ Fecha actual: ${new Date().toLocaleDateString("es-CO")}`;
             };
             addedTransactions.push(tx);
             result = JSON.stringify({ success: true, id: created.id });
+          } else if (toolCall.function.name === "update_transaction") {
+            const id = String(args.id);
+            const existing = await prisma.financeTransaction.findFirst({
+              where: { id, workspaceId },
+              select: { type: true, amount: true, description: true, category: true, source: true },
+            });
+            if (!existing) {
+              result = JSON.stringify({ success: false, error: "Transacción no encontrada" });
+            } else {
+              const newType = (args.type as "INCOME" | "EXPENSE" | undefined) ?? existing.type;
+              const newAmount = args.amount != null ? Number(args.amount) : Number(existing.amount);
+              const newDescription = args.description != null ? String(args.description) : existing.description;
+              const newCategory = args.category != null ? (String(args.category) || null) : existing.category;
+
+              const updated = await prisma.financeTransaction.update({
+                where: { id },
+                data: { type: newType, amount: newAmount, description: newDescription, category: newCategory },
+              });
+
+              if (existing.source === "google_sheet" && googleSheet && isServiceAccountConfigured()) {
+                await deleteSheetRowByContent({
+                  sheetId: googleSheet.sheetId,
+                  description: existing.description,
+                  amount: Number(existing.amount),
+                  type: existing.type,
+                });
+                await appendFinanceSheetRow({
+                  sheetId: googleSheet.sheetId,
+                  type: newType,
+                  amount: newAmount,
+                  description: newDescription,
+                  category: newCategory,
+                  date: new Date(),
+                });
+              }
+
+              deletedIds.push(id);
+              addedTransactions.push({
+                id: updated.id,
+                type: updated.type,
+                amount: Number(updated.amount),
+                description: updated.description,
+                category: updated.category,
+                date: updated.date.toISOString(),
+                source: updated.source,
+                createdAt: updated.createdAt.toISOString(),
+              });
+              result = JSON.stringify({ success: true, updated: { type: newType, amount: newAmount, description: newDescription } });
+            }
           } else if (toolCall.function.name === "delete_transaction") {
             const id = String(args.id);
             const tx = await prisma.financeTransaction.findFirst({
@@ -541,6 +608,7 @@ function resolveType(cell: string): "INCOME" | "EXPENSE" | null {
 }
 
 export async function syncGoogleSheetAction(): Promise<ActionResult & { headersJustCreated?: boolean }> {
+  try {
   const session = await auth();
   if (!session?.user?.id || !["ADMIN", "CLIENTE"].includes(session.user.role ?? "")) {
     return { ok: false, error: "No autorizado" };
@@ -686,4 +754,11 @@ export async function syncGoogleSheetAction(): Promise<ActionResult & { headersJ
 
   revalidatePath("/cliente/finanzas");
   return { ok: true, count: toCreate.length };
+  } catch (error) {
+    console.error("[Finanzas] syncGoogleSheetAction failed:", error);
+    return {
+      ok: false,
+      error: "Ocurrió un error al sincronizar la hoja. Revisa la clave privada de Google Sheets y los permisos del archivo.",
+    };
+  }
 }

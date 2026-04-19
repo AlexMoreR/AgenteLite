@@ -6,7 +6,6 @@ import type { ReactNode } from "react";
 import {
   Bot,
   Brain,
-  MessageSquareText,
   Sparkles,
 } from "lucide-react";
 
@@ -20,7 +19,6 @@ const tabs = [
   { key: "resumen", label: "Resumen", href: (agentId: string) => `/cliente/agentes/${agentId}`, icon: Bot },
   { key: "entrenamiento", label: "Entrenamiento", href: (agentId: string) => `/cliente/agentes/${agentId}/entrenamiento`, icon: Sparkles },
   { key: "conocimiento", label: "Conocimiento", href: (agentId: string) => `/cliente/agentes/${agentId}/conocimiento`, icon: Brain },
-  { key: "chatbots", label: "Chatbots", href: (agentId: string) => `/cliente/agentes/${agentId}/chatbots`, icon: MessageSquareText },
 ];
 
 export function AgentPanelShell({ agentId, children, hideMobileNav = false }: AgentPanelShellProps) {
@@ -28,7 +26,7 @@ export function AgentPanelShell({ agentId, children, hideMobileNav = false }: Ag
   const trainingHref = `/cliente/agentes/${agentId}/entrenamiento`;
   const playgroundHref = `/cliente/agentes/${agentId}/probar`;
   const shouldHideMobileNav = hideMobileNav || pathname === playgroundHref;
-  const mobileTabs = tabs.slice(0, 4);
+  const mobileTabs = tabs;
 
   return (
     <section className="flex min-h-0 w-full flex-1 flex-col overflow-x-hidden">
@@ -66,7 +64,7 @@ export function AgentPanelShell({ agentId, children, hideMobileNav = false }: Ag
 
       {!shouldHideMobileNav ? (
         <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-[rgba(148,163,184,0.14)] bg-white/96 px-2 pb-[calc(env(safe-area-inset-bottom)+0.35rem)] pt-2 shadow-[0_-12px_30px_-24px_rgba(15,23,42,0.22)] backdrop-blur md:hidden">
-          <div className="grid grid-cols-2 gap-1 rounded-[22px] border border-[rgba(148,163,184,0.08)] bg-slate-50/70 p-1">
+          <div className="grid grid-cols-3 gap-1 rounded-[22px] border border-[rgba(148,163,184,0.08)] bg-slate-50/70 p-1">
             {mobileTabs.map((tab) => {
                 const href = typeof tab.href === "function" ? tab.href(agentId) : "";
                 const active = pathname === href || (tab.key === "entrenamiento" && pathname === playgroundHref);
