@@ -190,7 +190,7 @@ function SheetTab({
   serviceAccountEmail,
   onClose,
   onSynced,
-}: Omit<SettingsDialogProps, "agentPrompt">) {
+}: Omit<SettingsDialogProps, "agentPrompt" | "onChatCleared">) {
   const [url, setUrl] = useState(googleSheet?.sheetUrl ?? "");
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
