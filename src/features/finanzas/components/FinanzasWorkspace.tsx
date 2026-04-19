@@ -673,7 +673,7 @@ export function FinanzasWorkspace({
             {/* Chat feed */}
             <div
               ref={feedRef}
-              className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 pb-[calc(env(safe-area-inset-bottom)+5.5rem)] sm:px-4 sm:py-4 sm:pb-4 [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.12)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-thumb:hover]:bg-white/20"
+              className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 pb-[calc(env(safe-area-inset-bottom)+7.25rem)] sm:px-4 sm:py-4 sm:pb-4 [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.12)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-thumb:hover]:bg-white/20"
               style={{
                 backgroundColor: "#223463",
                 backgroundImage:
@@ -834,7 +834,7 @@ export function FinanzasWorkspace({
                     }}
                     rows={1}
                     placeholder="Escribeme.."
-                    className="my-auto min-h-[2.75rem] max-h-28 flex-1 resize-none rounded-[18px] border border-white/12 bg-white/8 pr-3 pl-4 py-2 text-[14px] leading-5 text-white placeholder:text-white/45 outline-none backdrop-blur-sm sm:h-8 sm:min-h-0 sm:py-1"
+                    className="my-auto h-11 min-h-11 max-h-28 flex-1 resize-none rounded-[18px] border border-white/12 bg-white/8 pr-3 pl-4 py-2.5 text-[14px] leading-5 text-white placeholder:text-white/45 outline-none backdrop-blur-sm sm:h-10 sm:min-h-10 sm:py-2"
                     disabled={isBusy}
                   />
                   <button
