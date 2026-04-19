@@ -9,38 +9,17 @@ import { TrainingResponseLengthField } from "@/components/agents/training-respon
 import { Card } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import {
+  defaultAgentTrainingConfig,
   forbiddenRuleOptions,
   parseAgentTrainingConfig,
   targetAudienceOptions,
   toneOptions,
-  type AgentTrainingConfig,
 } from "@/lib/agent-training";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
 type PageProps = {
   params: Promise<{ agentId: string }>;
-};
-
-const defaultTraining: AgentTrainingConfig = {
-  businessDescription: "",
-  targetAudiences: ["Mujer"],
-  priceRangeMin: "",
-  priceRangeMax: "",
-  salesTone: "amigable-profesional",
-  responseLength: "equilibrado",
-  useEmojis: false,
-  useExpressivePunctuation: true,
-  useTuteo: true,
-  useCustomerName: true,
-  askNameFirst: true,
-  offerBestSeller: true,
-  handlePriceObjections: true,
-  askForOrder: true,
-  sendPaymentLink: false,
-  handoffToHuman: true,
-  forbiddenRules: [...forbiddenRuleOptions.slice(0, 4)],
-  customRules: "",
 };
 
 function ToggleField({
@@ -105,7 +84,7 @@ export default async function AgentTrainingPage({ params }: PageProps) {
     redirect("/cliente/agentes?error=Agente+no+encontrado");
   }
 
-  const training = parseAgentTrainingConfig(agent.trainingConfig) ?? defaultTraining;
+  const training = parseAgentTrainingConfig(agent.trainingConfig) ?? defaultAgentTrainingConfig;
 
   return (
     <AgentPanelShell agentId={agent.id}>

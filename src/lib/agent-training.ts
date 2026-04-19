@@ -86,6 +86,27 @@ export type AgentTrainingConfig = {
   customRules: string;
 };
 
+export const defaultAgentTrainingConfig: AgentTrainingConfig = {
+  businessDescription: "",
+  targetAudiences: ["Mujer"],
+  priceRangeMin: "",
+  priceRangeMax: "",
+  salesTone: "amigable-profesional",
+  responseLength: "equilibrado",
+  useEmojis: false,
+  useExpressivePunctuation: true,
+  useTuteo: true,
+  useCustomerName: true,
+  askNameFirst: true,
+  offerBestSeller: true,
+  handlePriceObjections: true,
+  askForOrder: true,
+  sendPaymentLink: false,
+  handoffToHuman: true,
+  forbiddenRules: [...forbiddenRuleOptions.slice(0, 4)],
+  customRules: "",
+};
+
 function getTonePrompt(value: SalesTone) {
   return toneOptions.find((item) => item.value === value)?.prompt ?? toneOptions[1].prompt;
 }

@@ -6,7 +6,6 @@ import {
   Building2,
   CheckCircle2,
   Globe,
-  Megaphone,
   Sparkles,
   Users2,
 } from "lucide-react";
@@ -84,30 +83,16 @@ function MarketingPageContent({
       />
 
       <div className="grid gap-4">
-        <div className="relative overflow-hidden rounded-[12px] border border-[var(--line)] bg-[linear-gradient(180deg,var(--surface)_0%,#f8fafc_100%)] p-4 text-[var(--foreground)] shadow-[0_24px_54px_-40px_rgba(15,23,42,0.14)] sm:p-7">
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(37,99,235,0.08),transparent_26%),radial-gradient(circle_at_bottom_left,rgba(37,99,235,0.04),transparent_30%)]" />
-          <div className="pointer-events-none absolute right-0 top-0 text-[color-mix(in_srgb,var(--primary)_78%,white)] opacity-10">
-            <Sparkles className="h-28 w-28" strokeWidth={1.5} />
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-1">
+            <h1 className="text-2xl font-semibold tracking-[-0.05em] text-slate-950">Marketing IA</h1>
+            <p className="max-w-3xl text-sm text-slate-600">
+              Prepara el contexto del negocio y crea anuncios con el mismo lenguaje visual del resto del workspace.
+            </p>
           </div>
 
-          <div className="relative space-y-3 sm:space-y-4">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-              <div className="flex items-start gap-3 sm:gap-4">
-                <div className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[16px] bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)] sm:h-12 sm:w-12 sm:rounded-[20px]">
-                  <Megaphone className="h-4.5 w-4.5 sm:h-5 sm:w-5" />
-                </div>
-
-                <div className="space-y-1">
-                  <h1 className="text-[1.15rem] font-semibold tracking-[-0.05em] text-slate-950 sm:text-[1.85rem]">
-                    Marketing IA
-                  </h1>
-                </div>
-              </div>
-
-              <div className="sm:pt-1">
-                <MarketingIaResetButton />
-              </div>
-            </div>
+          <div className="sm:pt-1">
+            <MarketingIaResetButton />
           </div>
         </div>
 

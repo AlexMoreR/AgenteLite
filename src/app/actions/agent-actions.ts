@@ -11,8 +11,12 @@ import {
   buildFallbackMessage,
   buildHandoffMessage,
   buildWelcomeMessage,
+  defaultAgentTrainingConfig,
   forbiddenRuleOptions,
+  parseAgentTrainingConfig,
   getResponseLengthFromValue,
+  responseLengthOptions,
+  summarizeTraining,
   targetAudienceOptions,
   toneOptions,
   type SalesTone,
@@ -91,6 +95,168 @@ const simulateAgentReplySchema = z.object({
 const updateAgentTrainingSchema = createAgentSchema.extend({
   agentId: z.string().trim().min(1, "Agente invalido"),
 });
+
+const agentCopilotHistorySchema = z
+  .array(
+    z.object({
+      role: z.enum(["user", "assistant"]),
+      content: z.string().trim().min(1, "Mensaje vacio").max(3000, "Mensaje demasiado largo"),
+    }),
+  )
+  .max(20, "Demasiados mensajes en el historial");
+
+const agentCopilotPatchSchema = z.object({
+  businessName: z.string().trim().min(2, "Nombre del negocio invalido").max(120, "Nombre demasiado largo").optional(),
+  businessDescription: z
+    .string()
+    .trim()
+    .min(12, "Cuenta un poco mas sobre lo que vendes")
+    .max(500, "Descripcion demasiado larga")
+    .optional(),
+  targetAudiences: z.array(z.enum(targetAudienceOptions)).min(1).max(5).optional(),
+  priceRangeMin: z.string().trim().max(40, "Valor demasiado largo").optional(),
+  priceRangeMax: z.string().trim().max(40, "Valor demasiado largo").optional(),
+  salesTone: z.enum(toneOptions.map((item) => item.value) as [string, ...string[]]).optional(),
+  responseLength: z.enum(responseLengthOptions.map((item) => item.value) as [string, ...string[]]).optional(),
+  useEmojis: z.boolean().optional(),
+  useExpressivePunctuation: z.boolean().optional(),
+  useTuteo: z.boolean().optional(),
+  useCustomerName: z.boolean().optional(),
+  askNameFirst: z.boolean().optional(),
+  offerBestSeller: z.boolean().optional(),
+  handlePriceObjections: z.boolean().optional(),
+  askForOrder: z.boolean().optional(),
+  sendPaymentLink: z.boolean().optional(),
+  handoffToHuman: z.boolean().optional(),
+  forbiddenRules: z.array(z.enum(forbiddenRuleOptions)).max(10, "Demasiadas reglas").optional(),
+  customRules: z.string().trim().max(600, "Las reglas personalizadas son demasiado largas").optional(),
+});
+
+const runAgentPromptCopilotSchema = z.object({
+  agentId: z.string().trim().min(1, "Agente invalido"),
+  message: z.string().trim().min(1, "Escribe un mensaje").max(2000, "Mensaje demasiado largo"),
+  history: agentCopilotHistorySchema.default([]),
+});
+
+const applyAgentPromptCopilotSchema = z.object({
+  agentId: z.string().trim().min(1, "Agente invalido"),
+  changes: agentCopilotPatchSchema,
+});
+
+type AgentCopilotPatch = z.infer<typeof agentCopilotPatchSchema>;
+
+function extractJsonBlock(raw: string) {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+
+  const fencedMatch = trimmed.match(/```json\s*([\s\S]*?)```/i) ?? trimmed.match(/```\s*([\s\S]*?)```/i);
+  if (fencedMatch?.[1]) {
+    return fencedMatch[1].trim();
+  }
+
+  const start = trimmed.indexOf("{");
+  const end = trimmed.lastIndexOf("}");
+  if (start >= 0 && end > start) {
+    return trimmed.slice(start, end + 1);
+  }
+
+  return trimmed;
+}
+
+function sanitizeAgentCopilotPatch(rawPatch: AgentCopilotPatch) {
+  const parsed = agentCopilotPatchSchema.safeParse(rawPatch);
+  if (!parsed.success) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(parsed.data).filter(([, value]) => value !== undefined),
+  ) as AgentCopilotPatch;
+}
+
+function mergeAgentCopilotPatchIntoTraining(
+  currentTraining: ReturnType<typeof buildAgentTrainingConfig>,
+  changes: AgentCopilotPatch,
+) {
+  const {
+    businessName,
+    targetAudiences,
+    forbiddenRules,
+    customRules,
+    ...restTrainingChanges
+  } = changes;
+  void businessName;
+
+  return buildAgentTrainingConfig({
+    ...currentTraining,
+    ...restTrainingChanges,
+    targetAudiences: targetAudiences ?? currentTraining.targetAudiences,
+    forbiddenRules: forbiddenRules ?? currentTraining.forbiddenRules,
+    customRules: customRules ?? currentTraining.customRules,
+  });
+}
+
+function summarizeAgentCopilotChanges(changes: AgentCopilotPatch) {
+  const items: string[] = [];
+
+  if (changes.businessName) items.push(`Nombre del negocio: ${changes.businessName}`);
+  if (changes.businessDescription) items.push("Descripcion comercial actualizada");
+  if (changes.targetAudiences?.length) items.push(`Audiencia: ${changes.targetAudiences.join(", ")}`);
+  if (changes.salesTone) items.push(`Tono: ${changes.salesTone}`);
+  if (changes.responseLength) items.push(`Longitud: ${changes.responseLength}`);
+  if (changes.priceRangeMin !== undefined || changes.priceRangeMax !== undefined) {
+    items.push(
+      `Rango de precios: ${changes.priceRangeMin?.trim() || "sin minimo"} - ${changes.priceRangeMax?.trim() || "sin maximo"}`,
+    );
+  }
+  if (changes.useEmojis !== undefined) items.push(`${changes.useEmojis ? "Activa" : "Desactiva"} emojis`);
+  if (changes.useExpressivePunctuation !== undefined) {
+    items.push(`${changes.useExpressivePunctuation ? "Activa" : "Desactiva"} signos expresivos`);
+  }
+  if (changes.useTuteo !== undefined) items.push(`${changes.useTuteo ? "Activa" : "Desactiva"} tuteo`);
+  if (changes.useCustomerName !== undefined) items.push(`${changes.useCustomerName ? "Usa" : "No usa"} nombre del cliente`);
+  if (changes.askNameFirst !== undefined) items.push(`${changes.askNameFirst ? "Pide" : "No pide"} nombre al inicio`);
+  if (changes.offerBestSeller !== undefined) items.push(`${changes.offerBestSeller ? "Ofrece" : "No ofrece"} producto mas vendido`);
+  if (changes.handlePriceObjections !== undefined) items.push(`${changes.handlePriceObjections ? "Maneja" : "No maneja"} objeciones de precio`);
+  if (changes.askForOrder !== undefined) items.push(`${changes.askForOrder ? "Intenta" : "Evita"} cierre directo`);
+  if (changes.sendPaymentLink !== undefined) items.push(`${changes.sendPaymentLink ? "Envia" : "No envia"} link de pago`);
+  if (changes.handoffToHuman !== undefined) items.push(`${changes.handoffToHuman ? "Escala" : "No escala"} a humano`);
+  if (changes.forbiddenRules) items.push(`Reglas restringidas: ${changes.forbiddenRules.join(", ") || "ninguna"}`);
+  if (changes.customRules !== undefined) items.push(changes.customRules ? "Reglas personalizadas actualizadas" : "Reglas personalizadas eliminadas");
+
+  return items;
+}
+
+function buildAgentCopilotInstructions(input: {
+  agentName: string;
+  businessName: string;
+  currentPrompt: string;
+  training: ReturnType<typeof buildAgentTrainingConfig>;
+}) {
+  const trainingSummary = summarizeTraining(input.training);
+
+  return [
+    "Eres un copiloto experto en configurar agentes comerciales de WhatsApp para negocios.",
+    "Tu trabajo es ayudar al usuario a mejorar el prompt del agente, responder dudas de configuracion y proponer cambios estructurados cuando el usuario pida editar, agregar, quitar o ajustar algo.",
+    "Responde siempre en espanol claro, practico y breve.",
+    "Si el usuario solo hace una pregunta, responde y deja changes como objeto vacio.",
+    "Si el usuario pide modificar algo, convierte esa intencion en cambios concretos sobre la configuracion.",
+    `Agente actual: ${input.agentName}. Negocio actual: ${input.businessName}.`,
+    `Resumen actual: tono ${trainingSummary.tone}; longitud ${trainingSummary.responseLength}; audiencias ${trainingSummary.audiences}; rango ${trainingSummary.priceRange}; extras ${trainingSummary.styleExtras.join(", ") || "ninguno"}; ventas ${trainingSummary.salesActions.join(", ") || "ninguna"}.`,
+    `Descripcion actual del negocio: ${input.training.businessDescription || "sin descripcion"}.`,
+    `Reglas prohibidas actuales: ${input.training.forbiddenRules.join(", ") || "ninguna"}.`,
+    `Reglas personalizadas actuales: ${input.training.customRules || "ninguna"}.`,
+    `Prompt actual:\n${input.currentPrompt}`,
+    `Puedes editar solo estas claves en changes: businessName, businessDescription, targetAudiences, priceRangeMin, priceRangeMax, salesTone, responseLength, useEmojis, useExpressivePunctuation, useTuteo, useCustomerName, askNameFirst, offerBestSeller, handlePriceObjections, askForOrder, sendPaymentLink, handoffToHuman, forbiddenRules, customRules.`,
+    `Valores validos para targetAudiences: ${targetAudienceOptions.join(", ")}.`,
+    `Valores validos para salesTone: ${toneOptions.map((item) => item.value).join(", ")}.`,
+    `Valores validos para responseLength: ${responseLengthOptions.map((item) => item.value).join(", ")}.`,
+    `Valores validos para forbiddenRules: ${forbiddenRuleOptions.join(", ")}.`,
+    "Si el usuario quiere agregar o quitar una regla personalizada, devuelve customRules completo ya actualizado, no una instruccion parcial.",
+    "Si el usuario pide eliminar algo como rango de precios o reglas personalizadas, puedes devolver strings vacios.",
+    'Devuelve UNICAMENTE JSON valido con esta forma exacta: {"reply":"texto para el usuario","changes":{}}. No uses markdown ni explicaciones fuera del JSON.',
+  ].join("\n\n");
+}
 
 function collectTrainingFormInput(formData: FormData) {
   const rawForbiddenRules = formData
@@ -336,6 +502,211 @@ export async function updateAgentTrainingAction(formData: FormData): Promise<voi
   revalidatePath(`/cliente/agentes/${agent.id}`);
   revalidatePath(`/cliente/agentes/${agent.id}/entrenamiento`);
   redirect(`/cliente/agentes/${agent.id}/entrenamiento?ok=Entrenamiento+actualizado`);
+}
+
+export async function runAgentPromptCopilotAction(input: {
+  agentId: string;
+  message: string;
+  history: Array<{ role: "user" | "assistant"; content: string }>;
+}): Promise<
+  | {
+      ok: true;
+      reply: string;
+      changes: AgentCopilotPatch;
+      changeSummary: string[];
+      promptPreview: string | null;
+    }
+  | { ok: false; error: string }
+> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+    return { ok: false, error: "No autorizado" };
+  }
+
+  const parsed = runAgentPromptCopilotSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message || "No se pudo consultar al copiloto" };
+  }
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    return { ok: false, error: "Debes configurar tu negocio primero" };
+  }
+
+  const agent = await prisma.agent.findFirst({
+    where: {
+      id: parsed.data.agentId,
+      workspaceId: membership.workspace.id,
+    },
+    select: {
+      id: true,
+      name: true,
+      model: true,
+      systemPrompt: true,
+      trainingConfig: true,
+      workspace: {
+        select: {
+          name: true,
+        },
+      },
+    },
+  });
+
+  if (!agent) {
+    return { ok: false, error: "Agente no encontrado" };
+  }
+
+  const currentTraining = parseAgentTrainingConfig(agent.trainingConfig) ?? defaultAgentTrainingConfig;
+  const instructions = buildAgentCopilotInstructions({
+    agentName: agent.name,
+    businessName: agent.workspace.name,
+    currentPrompt: agent.systemPrompt ?? "",
+    training: currentTraining,
+  });
+
+  const fallbackReply =
+    "Puedo ayudarte a ajustar tono, audiencias, reglas, cierre, precios y forma de responder. Dime que quieres cambiar y te propongo el ajuste.";
+
+  const rawResponse = await generateAgentReply({
+    model: agent.model,
+    systemPrompt: instructions,
+    fallbackMessage: JSON.stringify({ reply: fallbackReply, changes: {} }),
+    history: parsed.data.history.map((item) => ({
+      direction: item.role === "assistant" ? "OUTBOUND" : "INBOUND",
+      content: item.content,
+    })),
+    latestUserMessage: parsed.data.message,
+  });
+
+  const maybeJson = extractJsonBlock(rawResponse);
+  let decodedJson: unknown = null;
+  try {
+    decodedJson = JSON.parse(maybeJson);
+  } catch {
+    decodedJson = null;
+  }
+
+  const parsedJson = z
+    .object({
+      reply: z.string().trim().min(1).max(4000),
+      changes: agentCopilotPatchSchema.default({}),
+    })
+    .safeParse(decodedJson);
+
+  if (!parsedJson.success) {
+    return {
+      ok: true,
+      reply: rawResponse.trim() || fallbackReply,
+      changes: {},
+      changeSummary: [],
+      promptPreview: null,
+    };
+  }
+
+  const changes = sanitizeAgentCopilotPatch(parsedJson.data.changes);
+  const mergedTraining = mergeAgentCopilotPatchIntoTraining(currentTraining, changes);
+  const nextBusinessName = changes.businessName?.trim() || agent.workspace.name;
+  const nextAgentName = `Asistente ${nextBusinessName}`;
+  const promptPreview =
+    Object.keys(changes).length > 0
+      ? buildAgentSystemPrompt({
+          agentName: nextAgentName,
+          businessName: nextBusinessName,
+          training: mergedTraining,
+        })
+      : null;
+
+  return {
+    ok: true,
+    reply: parsedJson.data.reply,
+    changes,
+    changeSummary: summarizeAgentCopilotChanges(changes),
+    promptPreview,
+  };
+}
+
+export async function applyAgentPromptCopilotChangesAction(input: {
+  agentId: string;
+  changes: AgentCopilotPatch;
+}): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+    return { ok: false, error: "No autorizado" };
+  }
+
+  const parsed = applyAgentPromptCopilotSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message || "No se pudo aplicar el cambio" };
+  }
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    return { ok: false, error: "Debes configurar tu negocio primero" };
+  }
+
+  const agent = await prisma.agent.findFirst({
+    where: {
+      id: parsed.data.agentId,
+      workspaceId: membership.workspace.id,
+    },
+    select: {
+      id: true,
+      trainingConfig: true,
+      workspace: {
+        select: {
+          name: true,
+        },
+      },
+    },
+  });
+
+  if (!agent) {
+    return { ok: false, error: "Agente no encontrado" };
+  }
+
+  const currentTraining = parseAgentTrainingConfig(agent.trainingConfig) ?? defaultAgentTrainingConfig;
+  const changes = sanitizeAgentCopilotPatch(parsed.data.changes);
+  if (Object.keys(changes).length === 0) {
+    return { ok: false, error: "No hay cambios para aplicar" };
+  }
+
+  const nextTraining = mergeAgentCopilotPatchIntoTraining(currentTraining, changes);
+  const nextBusinessName = changes.businessName?.trim() || agent.workspace.name;
+  const nextAgentName = `Asistente ${nextBusinessName}`;
+
+  await prisma.agent.update({
+    where: { id: agent.id },
+    data: {
+      name: nextAgentName,
+      description: nextTraining.businessDescription,
+      trainingConfig: nextTraining,
+      systemPrompt: buildAgentSystemPrompt({
+        agentName: nextAgentName,
+        businessName: nextBusinessName,
+        training: nextTraining,
+      }),
+      welcomeMessage: buildWelcomeMessage({
+        agentName: nextAgentName,
+        businessName: nextBusinessName,
+        training: nextTraining,
+      }),
+      fallbackMessage: buildFallbackMessage(nextTraining),
+      handoffMessage: buildHandoffMessage(),
+    },
+  });
+
+  if (membership.workspace.name !== nextBusinessName) {
+    await prisma.workspace.update({
+      where: { id: membership.workspace.id },
+      data: { name: nextBusinessName },
+    });
+  }
+
+  revalidatePath("/cliente/agentes");
+  revalidatePath(`/cliente/agentes/${agent.id}`);
+  revalidatePath(`/cliente/agentes/${agent.id}/entrenamiento`);
+
+  return { ok: true, message: "Cambios aplicados al agente" };
 }
 
 export async function deleteAgentAction(formData: FormData): Promise<void> {
