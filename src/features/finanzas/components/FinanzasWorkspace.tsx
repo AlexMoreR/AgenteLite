@@ -549,34 +549,24 @@ export function FinanzasWorkspace({
               <div className="relative flex items-center justify-center">
                 <div className="grid w-full grid-cols-3 gap-1.5 px-9 sm:hidden">
                   <div className="min-w-0 rounded-2xl border border-emerald-200/18 bg-white/8 px-2 py-1.5 backdrop-blur-md">
-                    <div className="flex items-center gap-1.5">
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-100/12">
-                        <TrendingUp className="h-3 w-3 text-emerald-300" />
-                      </span>
-                      <div className="min-w-0">
-                        <p className="text-[9px] font-medium uppercase tracking-[0.14em] text-emerald-100/70">
-                          Ingresos
-                        </p>
-                        <p className="truncate text-[11px] font-semibold text-emerald-200" title={formatMoney(summary.income, currency)}>
-                          {formatCompactMoney(summary.income, currency)}
-                        </p>
-                      </div>
+                    <div className="min-w-0">
+                      <p className="text-[9px] font-medium uppercase tracking-[0.14em] text-emerald-100/70">
+                        Ingresos
+                      </p>
+                      <p className="truncate text-[11px] font-semibold text-emerald-200" title={formatMoney(summary.income, currency)}>
+                        {formatCompactMoney(summary.income, currency)}
+                      </p>
                     </div>
                   </div>
 
                   <div className="min-w-0 rounded-2xl border border-rose-200/16 bg-white/8 px-2 py-1.5 backdrop-blur-md">
-                    <div className="flex items-center gap-1.5">
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-rose-400/10">
-                        <TrendingDown className="h-3 w-3 text-rose-300" />
-                      </span>
-                      <div className="min-w-0">
-                        <p className="text-[9px] font-medium uppercase tracking-[0.14em] text-rose-100/70">
-                          Gastos
-                        </p>
-                        <p className="truncate text-[11px] font-semibold text-rose-200" title={formatMoney(summary.expense, currency)}>
-                          {formatCompactMoney(summary.expense, currency)}
-                        </p>
-                      </div>
+                    <div className="min-w-0">
+                      <p className="text-[9px] font-medium uppercase tracking-[0.14em] text-rose-100/70">
+                        Gastos
+                      </p>
+                      <p className="truncate text-[11px] font-semibold text-rose-200" title={formatMoney(summary.expense, currency)}>
+                        {formatCompactMoney(summary.expense, currency)}
+                      </p>
                     </div>
                   </div>
 
@@ -587,18 +577,13 @@ export function FinanzasWorkspace({
                         : "border-rose-200/18 bg-[linear-gradient(135deg,rgba(244,63,94,0.16)_0%,rgba(15,23,42,0.22)_100%)]"
                     }`}
                   >
-                    <div className="flex items-center gap-1.5">
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/10">
-                        <Wallet className="h-3 w-3 text-white/80" />
-                      </span>
-                      <div className="min-w-0">
-                        <p className="text-[9px] font-medium uppercase tracking-[0.14em] text-white/60">
-                          Balance
-                        </p>
-                        <p className="truncate text-[11px] font-semibold text-white" title={formatMoney(summary.balance, currency)}>
-                          {formatCompactMoney(summary.balance, currency)}
-                        </p>
-                      </div>
+                    <div className="min-w-0">
+                      <p className="text-[9px] font-medium uppercase tracking-[0.14em] text-white/60">
+                        Balance
+                      </p>
+                      <p className="truncate text-[11px] font-semibold text-white" title={formatMoney(summary.balance, currency)}>
+                        {formatCompactMoney(summary.balance, currency)}
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -662,7 +647,7 @@ export function FinanzasWorkspace({
             {/* Chat feed */}
             <div
               ref={feedRef}
-              className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 sm:px-4 sm:py-4 [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.12)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-thumb:hover]:bg-white/20"
+              className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 pb-24 sm:px-4 sm:py-4 sm:pb-4 [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.12)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-thumb:hover]:bg-white/20"
             >
               {chatEvents.length <= 1 && transactions.length === 0 ? (
                 <div className="flex h-full flex-col items-center justify-center px-4 py-16 text-center">
@@ -802,7 +787,7 @@ export function FinanzasWorkspace({
             </div>
 
             {/* Composer */}
-            <div className="chat-composer shrink-0 border-t border-white/10 bg-transparent px-2 pb-[calc(env(safe-area-inset-bottom)+0.35rem)] pt-2 md:px-2 md:py-1.5">
+            <div className="chat-composer sticky bottom-0 z-10 shrink-0 border-t border-white/10 bg-[linear-gradient(180deg,rgba(27,39,72,0.7)_0%,rgba(34,52,99,0.96)_35%,rgba(34,52,99,0.98)_100%)] px-2 pb-[calc(env(safe-area-inset-bottom)+0.65rem)] pt-2 backdrop-blur md:static md:bg-transparent md:px-2 md:py-1.5 md:backdrop-blur-0">
               <form onSubmit={handleSubmit}>
                 <div className="flex items-end gap-2 rounded-[24px] border border-white/10 bg-white/6 px-2.5 py-2 shadow-[0_16px_30px_-26px_rgba(15,23,42,0.9)] backdrop-blur-md sm:items-center sm:rounded-full sm:py-1.5">
                   <textarea
