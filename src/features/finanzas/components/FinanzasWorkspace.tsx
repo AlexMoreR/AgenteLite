@@ -34,6 +34,7 @@ type ChatEvent =
   | { id: string; kind: "transaction"; transaction: FinanceTransaction };
 
 type LLMMessage = { role: "user" | "assistant"; content: string };
+type SummaryCardKey = "income" | "expense" | "balance";
 
 function formatDateLabel(isoDate: string): string {
   const d = new Date(isoDate);
@@ -449,6 +450,7 @@ export function FinanzasWorkspace({
   const [input, setInput] = useState("");
   const [isThinking, setIsThinking] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [expandedSummaryCard, setExpandedSummaryCard] = useState<SummaryCardKey | null>(null);
   const [isPending, startTransition] = useTransition();
   const feedRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
@@ -466,6 +468,14 @@ export function FinanzasWorkspace({
     const expense = transactions.filter((t) => t.type === "EXPENSE").reduce((s, t) => s + t.amount, 0);
     return { income, expense, balance: income - expense };
   }, [transactions]);
+
+  function getSummaryValue(key: SummaryCardKey, value: number) {
+    return expandedSummaryCard === key ? formatMoney(value, currency) : formatCompactMoney(value, currency);
+  }
+
+  function handleSummaryCardClick(key: SummaryCardKey) {
+    setExpandedSummaryCard((current) => (current === key ? null : key));
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -548,44 +558,60 @@ export function FinanzasWorkspace({
             <div className="border-b border-white/10 px-3 py-1.5 sm:px-4 sm:py-1.5">
               <div className="relative flex items-center justify-center">
                 <div className="grid w-full grid-cols-3 gap-1.5 px-9 sm:hidden">
-                  <div className="min-w-0 rounded-2xl border border-emerald-200/18 bg-white/8 px-2 py-1.5 backdrop-blur-md">
-                    <div className="min-w-0">
-                      <p className="text-[9px] font-medium uppercase tracking-[0.14em] text-emerald-100/70">
+                  <button
+                    type="button"
+                    onClick={() => handleSummaryCardClick("income")}
+                    className="min-w-0 rounded-2xl border border-emerald-200/18 bg-white/8 px-2 py-1.5 text-center backdrop-blur-md transition active:scale-[0.99]"
+                    aria-label={`Mostrar ${expandedSummaryCard === "income" ? "valor corto" : "valor completo"} de ingresos`}
+                    title={formatMoney(summary.income, currency)}
+                  >
+                    <div className="min-w-0 text-center">
+                      <p className="text-center text-[9px] font-medium uppercase tracking-[0.14em] text-emerald-100/70">
                         Ingresos
                       </p>
-                      <p className="truncate text-[11px] font-semibold text-emerald-200" title={formatMoney(summary.income, currency)}>
-                        {formatCompactMoney(summary.income, currency)}
+                      <p className="mt-0.5 text-center text-[10px] font-semibold leading-tight tracking-[-0.02em] text-emerald-200">
+                        {getSummaryValue("income", summary.income)}
                       </p>
                     </div>
-                  </div>
+                  </button>
 
-                  <div className="min-w-0 rounded-2xl border border-rose-200/16 bg-white/8 px-2 py-1.5 backdrop-blur-md">
-                    <div className="min-w-0">
-                      <p className="text-[9px] font-medium uppercase tracking-[0.14em] text-rose-100/70">
+                  <button
+                    type="button"
+                    onClick={() => handleSummaryCardClick("expense")}
+                    className="min-w-0 rounded-2xl border border-rose-200/16 bg-white/8 px-2 py-1.5 text-center backdrop-blur-md transition active:scale-[0.99]"
+                    aria-label={`Mostrar ${expandedSummaryCard === "expense" ? "valor corto" : "valor completo"} de gastos`}
+                    title={formatMoney(summary.expense, currency)}
+                  >
+                    <div className="min-w-0 text-center">
+                      <p className="text-center text-[9px] font-medium uppercase tracking-[0.14em] text-rose-100/70">
                         Gastos
                       </p>
-                      <p className="truncate text-[11px] font-semibold text-rose-200" title={formatMoney(summary.expense, currency)}>
-                        {formatCompactMoney(summary.expense, currency)}
+                      <p className="mt-0.5 text-center text-[10px] font-semibold leading-tight tracking-[-0.02em] text-rose-200">
+                        {getSummaryValue("expense", summary.expense)}
                       </p>
                     </div>
-                  </div>
+                  </button>
 
-                  <div
+                  <button
+                    type="button"
+                    onClick={() => handleSummaryCardClick("balance")}
                     className={`min-w-0 rounded-2xl border px-2 py-1.5 backdrop-blur-md ${
                       summary.balance >= 0
                         ? "border-cyan-200/20 bg-[linear-gradient(135deg,rgba(20,184,166,0.22)_0%,rgba(15,23,42,0.2)_100%)]"
                         : "border-rose-200/18 bg-[linear-gradient(135deg,rgba(244,63,94,0.16)_0%,rgba(15,23,42,0.22)_100%)]"
                     }`}
+                    aria-label={`Mostrar ${expandedSummaryCard === "balance" ? "valor corto" : "valor completo"} del balance`}
+                    title={formatMoney(summary.balance, currency)}
                   >
-                    <div className="min-w-0">
-                      <p className="text-[9px] font-medium uppercase tracking-[0.14em] text-white/60">
+                    <div className="min-w-0 text-center">
+                      <p className="text-center text-[9px] font-medium uppercase tracking-[0.14em] text-white/60">
                         Balance
                       </p>
-                      <p className="truncate text-[11px] font-semibold text-white" title={formatMoney(summary.balance, currency)}>
-                        {formatCompactMoney(summary.balance, currency)}
+                      <p className="mt-0.5 text-center text-[10px] font-semibold leading-tight tracking-[-0.02em] text-white">
+                        {getSummaryValue("balance", summary.balance)}
                       </p>
                     </div>
-                  </div>
+                  </button>
                 </div>
 
                 <div className="hidden flex-wrap justify-center gap-1 px-9 sm:flex sm:gap-2 sm:pl-0 sm:pr-10">
@@ -647,7 +673,7 @@ export function FinanzasWorkspace({
             {/* Chat feed */}
             <div
               ref={feedRef}
-              className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 pb-24 sm:px-4 sm:py-4 sm:pb-4 [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.12)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-thumb:hover]:bg-white/20"
+              className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 pb-36 sm:px-4 sm:py-4 sm:pb-4 [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.12)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-thumb:hover]:bg-white/20"
               style={{
                 backgroundColor: "#223463",
                 backgroundImage:
@@ -794,8 +820,8 @@ export function FinanzasWorkspace({
             </div>
 
             {/* Composer */}
-            <div className="chat-composer sticky bottom-0 z-10 shrink-0 border-t border-white/10 bg-[linear-gradient(180deg,rgba(27,39,72,0.7)_0%,rgba(34,52,99,0.96)_35%,rgba(34,52,99,0.98)_100%)] px-2 pb-[calc(env(safe-area-inset-bottom)+0.65rem)] pt-2 backdrop-blur md:static md:bg-transparent md:px-2 md:py-1.5 md:backdrop-blur-0">
-              <form onSubmit={handleSubmit}>
+            <div className="chat-composer fixed inset-x-0 bottom-0 z-20 shrink-0 border-t border-white/10 bg-[linear-gradient(180deg,rgba(27,39,72,0.7)_0%,rgba(34,52,99,0.96)_35%,rgba(34,52,99,0.98)_100%)] px-2 pb-[calc(env(safe-area-inset-bottom)+0.65rem)] pt-2 backdrop-blur md:static md:z-10 md:bg-transparent md:px-2 md:py-1.5 md:backdrop-blur-0">
+              <form onSubmit={handleSubmit} className="mx-auto w-full max-w-7xl">
                 <div className="flex items-center gap-2 rounded-[24px] border border-white/10 bg-white/6 px-2.5 py-2 shadow-[0_16px_30px_-26px_rgba(15,23,42,0.9)] backdrop-blur-md sm:rounded-full sm:py-1.5">
                   <textarea
                     value={input}
