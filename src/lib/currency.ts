@@ -35,3 +35,21 @@ export function formatMoney(value: number | string, currency: SupportedCurrencyC
 
   return moneyFormatter.format(numericValue);
 }
+
+export function formatCompactMoney(value: number | string, currency: SupportedCurrencyCode): string {
+  const numericValue = Number(value);
+  const locale = getCurrencyLocale(currency);
+  const moneyFormatter = new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency,
+    notation: "compact",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 1,
+  });
+
+  if (!Number.isFinite(numericValue)) {
+    return moneyFormatter.format(0);
+  }
+
+  return moneyFormatter.format(numericValue);
+}

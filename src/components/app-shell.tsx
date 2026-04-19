@@ -80,6 +80,7 @@ export function AppShell({
   const isChatWorkspacePath = pathname.startsWith("/cliente/chats");
   const isFlowsWorkspacePath = pathname.startsWith("/cliente/flujos");
   const isFinanzasPath = pathname.startsWith("/cliente/finanzas");
+  const isFinanzasAssistantPath = pathname.startsWith("/cliente/finanzas/asistente");
   const isFullHeightWorkspacePath = isAgentWorkspacePath || isChatWorkspacePath || isFlowsWorkspacePath || isFinanzasPath;
   const showClientPlanAlert = Boolean(user?.role === "CLIENTE" && pathname.startsWith("/cliente") && clientPlanAlert);
   const showClientPlanBlock = Boolean(user?.role === "CLIENTE" && pathname.startsWith("/cliente") && clientPlanBlock?.isExpired);
@@ -275,7 +276,12 @@ export function AppShell({
               (isChatWorkspacePath || isFinanzasPath) && "chat-app-shell min-h-0 h-dvh overflow-hidden",
             )}
           >
-            <header className="admin-print-header flex h-12 shrink-0 items-center border-b border-[var(--line)] bg-white">
+            <header
+              className={cn(
+                "admin-print-header flex h-12 shrink-0 items-center border-b border-[var(--line)] bg-white",
+                isFinanzasAssistantPath && "hidden md:flex",
+              )}
+            >
               <div className="flex items-center gap-2 px-4">
                 <SidebarTrigger className="-ml-1" />
                 <Separator

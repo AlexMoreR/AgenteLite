@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useTransition, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
+  ArrowLeft,
   TrendingUp,
   TrendingDown,
   Wallet,
@@ -23,7 +24,7 @@ import {
   clearChatHistoryAction,
 } from "@/app/actions/finanzas-actions";
 import { DEFAULT_FINANCE_SYSTEM_PROMPT } from "@/features/finanzas/constants";
-import { formatMoney } from "@/lib/currency";
+import { formatCompactMoney, formatMoney } from "@/lib/currency";
 import type { FinanzasData, FinanceTransaction, FinanceChatMessage } from "../types";
 
 type ChatEvent =
@@ -546,7 +547,63 @@ export function FinanzasWorkspace({
             {/* Summary bar */}
             <div className="border-b border-white/10 px-3 py-1.5 sm:px-4 sm:py-1.5">
               <div className="relative flex items-center justify-center">
-                <div className="flex flex-wrap justify-center gap-1 pr-9 sm:gap-2 sm:pr-10">
+                <div className="grid w-full grid-cols-3 gap-1.5 px-9 sm:hidden">
+                  <div className="min-w-0 rounded-2xl border border-emerald-200/18 bg-white/8 px-2 py-1.5 backdrop-blur-md">
+                    <div className="flex items-center gap-1.5">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-100/12">
+                        <TrendingUp className="h-3 w-3 text-emerald-300" />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-[9px] font-medium uppercase tracking-[0.14em] text-emerald-100/70">
+                          Ingresos
+                        </p>
+                        <p className="truncate text-[11px] font-semibold text-emerald-200" title={formatMoney(summary.income, currency)}>
+                          {formatCompactMoney(summary.income, currency)}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="min-w-0 rounded-2xl border border-rose-200/16 bg-white/8 px-2 py-1.5 backdrop-blur-md">
+                    <div className="flex items-center gap-1.5">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-rose-400/10">
+                        <TrendingDown className="h-3 w-3 text-rose-300" />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-[9px] font-medium uppercase tracking-[0.14em] text-rose-100/70">
+                          Gastos
+                        </p>
+                        <p className="truncate text-[11px] font-semibold text-rose-200" title={formatMoney(summary.expense, currency)}>
+                          {formatCompactMoney(summary.expense, currency)}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div
+                    className={`min-w-0 rounded-2xl border px-2 py-1.5 backdrop-blur-md ${
+                      summary.balance >= 0
+                        ? "border-cyan-200/20 bg-[linear-gradient(135deg,rgba(20,184,166,0.22)_0%,rgba(15,23,42,0.2)_100%)]"
+                        : "border-rose-200/18 bg-[linear-gradient(135deg,rgba(244,63,94,0.16)_0%,rgba(15,23,42,0.22)_100%)]"
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/10">
+                        <Wallet className="h-3 w-3 text-white/80" />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-[9px] font-medium uppercase tracking-[0.14em] text-white/60">
+                          Balance
+                        </p>
+                        <p className="truncate text-[11px] font-semibold text-white" title={formatMoney(summary.balance, currency)}>
+                          {formatCompactMoney(summary.balance, currency)}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="hidden flex-wrap justify-center gap-1 px-9 sm:flex sm:gap-2 sm:pl-0 sm:pr-10">
                   <div className="inline-flex min-w-0 items-center gap-1.5 rounded-full border border-emerald-200/18 bg-white/8 px-2.5 py-1 backdrop-blur-md sm:gap-2 sm:px-3.5 sm:py-2">
                     <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-100/12 sm:h-7 sm:w-7">
                       <TrendingUp className="h-3 w-3 text-emerald-300 sm:h-4 sm:w-4" />
@@ -580,6 +637,16 @@ export function FinanzasWorkspace({
                     </p>
                   </div>
                 </div>
+
+                <button
+                  type="button"
+                  onClick={() => router.push("/cliente/finanzas")}
+                  className="absolute left-0 top-1/2 flex h-7 w-7 -translate-y-1/2 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/6 text-white/72 transition hover:bg-white/8 hover:text-white sm:h-8 sm:w-8 md:hidden"
+                  title="Volver"
+                  aria-label="Volver a finanzas"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                </button>
 
                 <button
                   type="button"
