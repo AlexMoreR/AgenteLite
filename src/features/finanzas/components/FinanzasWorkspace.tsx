@@ -540,9 +540,9 @@ export function FinanzasWorkspace({
 
   return (
     <div className="chat-app-layout flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-[linear-gradient(180deg,#f6fbf8_0%,#f8fafc_22%,#f8fafc_100%)]">
-      <div className="min-h-0 flex-1 overflow-hidden px-1.5 py-1.5 sm:px-2 sm:py-2 lg:px-3">
+      <div className="min-h-0 flex-1 overflow-hidden px-0 py-0 md:px-2 md:py-2 lg:px-3">
         <div className="mx-auto grid h-full max-w-7xl min-h-0 gap-1.5">
-          <div className="flex min-h-0 flex-col overflow-hidden rounded-[20px] border border-[#31456f] bg-[linear-gradient(180deg,#1b2748_0%,#223463_100%)] text-white shadow-[0_24px_60px_-36px_rgba(15,23,42,0.7)]">
+          <div className="flex min-h-0 flex-col overflow-hidden rounded-none border-0 bg-[linear-gradient(180deg,#1b2748_0%,#223463_100%)] text-white shadow-none md:rounded-[20px] md:border md:border-[#31456f] md:shadow-[0_24px_60px_-36px_rgba(15,23,42,0.7)]">
 
             {/* Summary bar */}
             <div className="border-b border-white/10 px-3 py-1.5 sm:px-4 sm:py-1.5">
@@ -648,6 +648,13 @@ export function FinanzasWorkspace({
             <div
               ref={feedRef}
               className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 pb-24 sm:px-4 sm:py-4 sm:pb-4 [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.12)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-thumb:hover]:bg-white/20"
+              style={{
+                backgroundColor: "#223463",
+                backgroundImage:
+                  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220' viewBox='0 0 220 220'%3E%3Cg fill='none' stroke='%23ffffff' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round' opacity='0.12'%3E%3Ccircle cx='30' cy='34' r='10'/%3E%3Cpath d='M68 24l9 14 16 2-11 11 3 16-14-8-14 8 3-16-11-11 16-2z'/%3E%3Crect x='122' y='22' width='26' height='26' rx='7'/%3E%3Cpath d='M180 24l16 16M196 24l-16 16'/%3E%3Cpath d='M22 92h24v24H22z'/%3E%3Cpath d='M34 84v40M22 104h24'/%3E%3Cpath d='M72 96c8-10 22-10 30 0-8 10-22 10-30 0z'/%3E%3Cpath d='M128 84l24 24M152 84l-24 24'/%3E%3Ccircle cx='188' cy='100' r='15'/%3E%3Cpath d='M182 100h12M188 94v12'/%3E%3Cpath d='M26 160c8-10 22-10 30 0-8 10-22 10-30 0z'/%3E%3Cpath d='M74 154l12 12 18-18'/%3E%3Cpath d='M122 154c0-8 7-15 15-15s15 7 15 15-7 15-15 15-15-7-15-15z'/%3E%3Cpath d='M172 144h28v20h-28z'/%3E%3Cpath d='M178 138l8 8 12-12'/%3E%3C/g%3E%3C/svg%3E\")",
+                backgroundPosition: "center",
+                backgroundSize: "220px 220px",
+              }}
             >
               {chatEvents.length <= 1 && transactions.length === 0 ? (
                 <div className="flex h-full flex-col items-center justify-center px-4 py-16 text-center">
@@ -665,7 +672,7 @@ export function FinanzasWorkspace({
                     if (event.kind === "user") {
                       return (
                         <div key={event.id} className="flex justify-end">
-                          <div className="max-w-[84%] rounded-[18px] rounded-br-md bg-white px-3 py-2 text-[14px] leading-6 text-slate-900 shadow-[0_14px_35px_-24px_rgba(15,23,42,0.35)] sm:max-w-[72%] sm:text-[15px] lg:max-w-[62%]">
+                          <div className="max-w-[84%] rounded-[18px] rounded-br-md border border-emerald-200/18 bg-[linear-gradient(180deg,rgba(16,185,129,0.24)_0%,rgba(6,46,35,0.34)_100%)] px-3 py-2 text-[14px] text-white shadow-[0_16px_34px_-24px_rgba(15,23,42,0.52)] backdrop-blur-md sm:max-w-[72%] sm:text-[15px] lg:max-w-[62%]">
                             {event.text}
                           </div>
                         </div>
@@ -675,7 +682,7 @@ export function FinanzasWorkspace({
                     if (event.kind === "assistant") {
                       return (
                         <div key={event.id} className="flex justify-start">
-                          <div className="max-w-[84%] rounded-[18px] rounded-bl-md border border-white/10 bg-white/8 px-3 py-2 text-[14px] leading-6 text-white shadow-[0_14px_35px_-26px_rgba(15,23,42,0.35)] backdrop-blur-sm sm:max-w-[72%] sm:text-[15px] lg:max-w-[62%]">
+                          <div className="max-w-[84%] rounded-[18px] rounded-bl-md border border-white/10 bg-white/8 px-3 py-2 text-[14px] text-white shadow-[0_14px_35px_-26px_rgba(15,23,42,0.35)] backdrop-blur-sm sm:max-w-[72%] sm:text-[15px] lg:max-w-[62%]">
                             {event.text}
                           </div>
                         </div>
@@ -789,7 +796,7 @@ export function FinanzasWorkspace({
             {/* Composer */}
             <div className="chat-composer sticky bottom-0 z-10 shrink-0 border-t border-white/10 bg-[linear-gradient(180deg,rgba(27,39,72,0.7)_0%,rgba(34,52,99,0.96)_35%,rgba(34,52,99,0.98)_100%)] px-2 pb-[calc(env(safe-area-inset-bottom)+0.65rem)] pt-2 backdrop-blur md:static md:bg-transparent md:px-2 md:py-1.5 md:backdrop-blur-0">
               <form onSubmit={handleSubmit}>
-                <div className="flex items-end gap-2 rounded-[24px] border border-white/10 bg-white/6 px-2.5 py-2 shadow-[0_16px_30px_-26px_rgba(15,23,42,0.9)] backdrop-blur-md sm:items-center sm:rounded-full sm:py-1.5">
+                <div className="flex items-center gap-2 rounded-[24px] border border-white/10 bg-white/6 px-2.5 py-2 shadow-[0_16px_30px_-26px_rgba(15,23,42,0.9)] backdrop-blur-md sm:rounded-full sm:py-1.5">
                   <textarea
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
@@ -801,7 +808,7 @@ export function FinanzasWorkspace({
                     }}
                     rows={1}
                     placeholder="Escribeme.."
-                    className="min-h-[2.5rem] max-h-28 flex-1 resize-none bg-transparent px-0 py-1 text-[14px] leading-5 text-white placeholder:text-white/45 outline-none sm:h-8 sm:min-h-0 sm:py-0.5"
+                    className="my-auto min-h-[2.5rem] max-h-28 flex-1 resize-none bg-transparent px-0 py-2 text-[14px] leading-5 text-white placeholder:text-white/45 outline-none sm:h-8 sm:min-h-0 sm:py-1"
                     disabled={isBusy}
                   />
                   <button
