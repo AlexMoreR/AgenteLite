@@ -544,38 +544,38 @@ export function FinanzasWorkspace({
           <div className="flex min-h-0 flex-col overflow-hidden rounded-[20px] border border-[#31456f] bg-[linear-gradient(180deg,#1b2748_0%,#223463_100%)] text-white shadow-[0_24px_60px_-36px_rgba(15,23,42,0.7)]">
 
             {/* Summary bar */}
-            <div className="border-b border-white/10 px-3 py-1.5 sm:px-4">
+            <div className="border-b border-white/10 px-3 py-1.5 sm:px-4 sm:py-1.5">
               <div className="relative flex items-center justify-center">
-                <div className="flex flex-wrap justify-center gap-2">
-                  <div className="inline-flex min-w-0 items-center gap-2 rounded-full border border-emerald-200/18 bg-white/8 px-3.5 py-2 backdrop-blur-md">
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-100/12">
-                      <TrendingUp className="h-4 w-4 text-emerald-300" />
+                <div className="flex flex-wrap justify-center gap-1 pr-9 sm:gap-2 sm:pr-10">
+                  <div className="inline-flex min-w-0 items-center gap-1.5 rounded-full border border-emerald-200/18 bg-white/8 px-2.5 py-1 backdrop-blur-md sm:gap-2 sm:px-3.5 sm:py-2">
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-100/12 sm:h-7 sm:w-7">
+                      <TrendingUp className="h-3 w-3 text-emerald-300 sm:h-4 sm:w-4" />
                     </span>
-                    <p className="truncate text-[15px] font-semibold text-emerald-200">
+                    <p className="truncate text-[12px] font-semibold text-emerald-200 sm:text-[15px]">
                       {formatMoney(summary.income, currency)}
                     </p>
                   </div>
 
-                  <div className="inline-flex min-w-0 items-center gap-2 rounded-full border border-rose-200/16 bg-white/8 px-3.5 py-2 backdrop-blur-md">
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-rose-400/10">
-                      <TrendingDown className="h-4 w-4 text-rose-300" />
+                  <div className="inline-flex min-w-0 items-center gap-1.5 rounded-full border border-rose-200/16 bg-white/8 px-2.5 py-1 backdrop-blur-md sm:gap-2 sm:px-3.5 sm:py-2">
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-rose-400/10 sm:h-7 sm:w-7">
+                      <TrendingDown className="h-3 w-3 text-rose-300 sm:h-4 sm:w-4" />
                     </span>
-                    <p className="truncate text-[15px] font-semibold text-rose-200">
+                    <p className="truncate text-[12px] font-semibold text-rose-200 sm:text-[15px]">
                       {formatMoney(summary.expense, currency)}
                     </p>
                   </div>
 
                   <div
-                    className={`inline-flex min-w-0 items-center gap-2 rounded-full border px-3.5 py-2 backdrop-blur-md ${
+                    className={`inline-flex min-w-0 items-center gap-1.5 rounded-full border px-2.5 py-1 backdrop-blur-md sm:gap-2 sm:px-3.5 sm:py-2 ${
                       summary.balance >= 0
                         ? "border-cyan-200/20 bg-[linear-gradient(135deg,rgba(20,184,166,0.22)_0%,rgba(15,23,42,0.2)_100%)]"
                         : "border-rose-200/18 bg-[linear-gradient(135deg,rgba(244,63,94,0.16)_0%,rgba(15,23,42,0.22)_100%)]"
                     }`}
                   >
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/10">
-                      <Wallet className="h-4 w-4 text-white/80" />
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/10 sm:h-7 sm:w-7">
+                      <Wallet className="h-3 w-3 text-white/80 sm:h-4 sm:w-4" />
                     </span>
-                    <p className="truncate text-[15px] font-semibold text-white">
+                    <p className="truncate text-[12px] font-semibold text-white sm:text-[15px]">
                       {formatMoney(summary.balance, currency)}
                     </p>
                   </div>
@@ -584,7 +584,7 @@ export function FinanzasWorkspace({
                 <button
                   type="button"
                   onClick={() => setShowSettings(true)}
-                  className="absolute right-0 top-1/2 flex h-8 w-8 -translate-y-1/2 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/6 text-white/72 transition hover:bg-white/8 hover:text-white"
+                  className="absolute right-0 top-1/2 flex h-7 w-7 -translate-y-1/2 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/6 text-white/72 transition hover:bg-white/8 hover:text-white sm:h-8 sm:w-8"
                   title="Configuración"
                 >
                   <Settings className="h-4 w-4" />
@@ -613,7 +613,7 @@ export function FinanzasWorkspace({
                     if (event.kind === "user") {
                       return (
                         <div key={event.id} className="flex justify-end">
-                          <div className="max-w-[62%] rounded-[18px] rounded-br-md bg-white px-3 py-2 text-[15px] leading-6 text-slate-900 shadow-[0_14px_35px_-24px_rgba(15,23,42,0.35)]">
+                          <div className="max-w-[84%] rounded-[18px] rounded-br-md bg-white px-3 py-2 text-[14px] leading-6 text-slate-900 shadow-[0_14px_35px_-24px_rgba(15,23,42,0.35)] sm:max-w-[72%] sm:text-[15px] lg:max-w-[62%]">
                             {event.text}
                           </div>
                         </div>
@@ -623,7 +623,7 @@ export function FinanzasWorkspace({
                     if (event.kind === "assistant") {
                       return (
                         <div key={event.id} className="flex justify-start">
-                          <div className="max-w-[62%] rounded-[18px] rounded-bl-md border border-white/10 bg-white/8 px-3 py-2 text-[15px] leading-6 text-white shadow-[0_14px_35px_-26px_rgba(15,23,42,0.35)] backdrop-blur-sm">
+                          <div className="max-w-[84%] rounded-[18px] rounded-bl-md border border-white/10 bg-white/8 px-3 py-2 text-[14px] leading-6 text-white shadow-[0_14px_35px_-26px_rgba(15,23,42,0.35)] backdrop-blur-sm sm:max-w-[72%] sm:text-[15px] lg:max-w-[62%]">
                             {event.text}
                           </div>
                         </div>
@@ -658,10 +658,10 @@ export function FinanzasWorkspace({
                           <article
                             className={`rounded-[18px] border px-3 py-2.5 shadow-[0_10px_30px_-24px_rgba(15,23,42,0.35)] ${
                               isUserTransaction
-                                ? "max-w-[62%] border-white/14 bg-[linear-gradient(135deg,rgba(255,255,255,0.12)_0%,rgba(148,163,184,0.12)_100%)]"
+                                ? "max-w-[84%] border-white/14 bg-[linear-gradient(135deg,rgba(255,255,255,0.12)_0%,rgba(148,163,184,0.12)_100%)] sm:max-w-[72%] lg:max-w-[62%]"
                                 : t.type === "INCOME"
-                                  ? "max-w-[62%] border-emerald-200/30 bg-[linear-gradient(135deg,rgba(255,255,255,0.16)_0%,rgba(16,185,129,0.14)_100%)]"
-                                  : "max-w-[62%] border-white/10 bg-white/6"
+                                  ? "max-w-[84%] border-emerald-200/30 bg-[linear-gradient(135deg,rgba(255,255,255,0.16)_0%,rgba(16,185,129,0.14)_100%)] sm:max-w-[72%] lg:max-w-[62%]"
+                                  : "max-w-[84%] border-white/10 bg-white/6 sm:max-w-[72%] lg:max-w-[62%]"
                             }`}
                           >
                             <div className="flex items-start gap-2.5">
@@ -679,7 +679,7 @@ export function FinanzasWorkspace({
                                 )}
                               </div>
                               <div className="min-w-0 flex-1">
-                                <div className="flex items-start justify-between gap-3">
+                                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
                                   <div className="min-w-0">
                                     <div className="flex flex-wrap items-center gap-1.5">
                                       <p className="truncate text-[15px] text-white">{t.description}</p>
@@ -696,7 +696,7 @@ export function FinanzasWorkspace({
                                     </div>
                                     <p className="mt-0.5 text-[11px] text-white/50">{formatTime(t.date)}</p>
                                   </div>
-                                  <div className="flex items-center gap-2">
+                                  <div className="flex items-center justify-between gap-2 sm:justify-end">
                                     <p
                                       className={`text-right text-[15px] tracking-[-0.02em] ${
                                         t.type === "INCOME" ? "text-emerald-200" : "text-rose-200"
@@ -735,9 +735,9 @@ export function FinanzasWorkspace({
             </div>
 
             {/* Composer */}
-            <div className="chat-composer shrink-0 border-t border-white/10 bg-transparent px-2 pb-[calc(env(safe-area-inset-bottom)+0.25rem)] pt-1.5 md:px-2 md:py-1.5">
+            <div className="chat-composer shrink-0 border-t border-white/10 bg-transparent px-2 pb-[calc(env(safe-area-inset-bottom)+0.35rem)] pt-2 md:px-2 md:py-1.5">
               <form onSubmit={handleSubmit}>
-                <div className="flex items-center gap-1.5 rounded-full border border-white/10 bg-white/6 px-2.5 py-1.5 shadow-[0_16px_30px_-26px_rgba(15,23,42,0.9)] backdrop-blur-md">
+                <div className="flex items-end gap-2 rounded-[24px] border border-white/10 bg-white/6 px-2.5 py-2 shadow-[0_16px_30px_-26px_rgba(15,23,42,0.9)] backdrop-blur-md sm:items-center sm:rounded-full sm:py-1.5">
                   <textarea
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
@@ -748,14 +748,14 @@ export function FinanzasWorkspace({
                       }
                     }}
                     rows={1}
-                    placeholder="Cuéntame el gasto, el ingreso o hazme una pregunta sobre tus movimientos."
-                    className="h-8 flex-1 resize-none bg-transparent pt-1.5 text-[14px] text-white placeholder:text-white/45 outline-none"
+                    placeholder="Escribeme.."
+                    className="min-h-[2.5rem] max-h-28 flex-1 resize-none bg-transparent px-0 py-1 text-[14px] leading-5 text-white placeholder:text-white/45 outline-none sm:h-8 sm:min-h-0 sm:py-0.5"
                     disabled={isBusy}
                   />
                   <button
                     type="submit"
                     disabled={isBusy || !input.trim()}
-                    className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--primary)] text-white transition hover:opacity-90 disabled:opacity-40"
+                    className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--primary)] text-white transition hover:opacity-90 disabled:opacity-40 sm:h-8 sm:w-8"
                   >
                     <SendHorizonal className="h-3.5 w-3.5" />
                   </button>
