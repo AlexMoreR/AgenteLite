@@ -673,7 +673,7 @@ export function FinanzasWorkspace({
             {/* Chat feed */}
             <div
               ref={feedRef}
-              className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 pb-36 sm:px-4 sm:py-4 sm:pb-4 [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.12)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-thumb:hover]:bg-white/20"
+              className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 pb-[calc(env(safe-area-inset-bottom)+5.5rem)] sm:px-4 sm:py-4 sm:pb-4 [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.12)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-thumb:hover]:bg-white/20"
               style={{
                 backgroundColor: "#223463",
                 backgroundImage:
@@ -820,9 +820,9 @@ export function FinanzasWorkspace({
             </div>
 
             {/* Composer */}
-            <div className="chat-composer fixed inset-x-0 bottom-0 z-20 shrink-0 border-t border-white/10 bg-[linear-gradient(180deg,rgba(27,39,72,0.7)_0%,rgba(34,52,99,0.96)_35%,rgba(34,52,99,0.98)_100%)] px-2 pb-[calc(env(safe-area-inset-bottom)+0.65rem)] pt-2 backdrop-blur md:static md:z-10 md:bg-transparent md:px-2 md:py-1.5 md:backdrop-blur-0">
+            <div className="chat-composer fixed inset-x-0 bottom-0 z-20 shrink-0 bg-transparent px-3 pb-[calc(env(safe-area-inset-bottom)+0.65rem)] pt-2 md:static md:z-10 md:px-2 md:py-1.5">
               <form onSubmit={handleSubmit} className="mx-auto w-full max-w-7xl">
-                <div className="flex items-center gap-2 rounded-[24px] border border-white/10 bg-white/6 px-2.5 py-2 shadow-[0_16px_30px_-26px_rgba(15,23,42,0.9)] backdrop-blur-md sm:rounded-full sm:py-1.5">
+                <div className="flex items-center gap-2.5">
                   <textarea
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
@@ -834,15 +834,15 @@ export function FinanzasWorkspace({
                     }}
                     rows={1}
                     placeholder="Escribeme.."
-                    className="my-auto min-h-[2.5rem] max-h-28 flex-1 resize-none bg-transparent px-0 py-2 text-[14px] leading-5 text-white placeholder:text-white/45 outline-none sm:h-8 sm:min-h-0 sm:py-1"
+                    className="my-auto min-h-[2.75rem] max-h-28 flex-1 resize-none rounded-[18px] border border-white/12 bg-white/8 pr-3 pl-4 py-2 text-[14px] leading-5 text-white placeholder:text-white/45 outline-none backdrop-blur-sm sm:h-8 sm:min-h-0 sm:py-1"
                     disabled={isBusy}
                   />
                   <button
                     type="submit"
                     disabled={isBusy || !input.trim()}
-                    className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--primary)] text-white transition hover:opacity-90 disabled:opacity-40 sm:h-8 sm:w-8"
+                    className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-emerald-200/35 bg-[linear-gradient(180deg,#34d399_0%,#10b981_100%)] text-white shadow-[0_16px_30px_-20px_rgba(16,185,129,0.55)] transition hover:brightness-105 disabled:border-emerald-200/20 disabled:bg-[linear-gradient(180deg,#34d399_0%,#10b981_100%)] disabled:text-white disabled:shadow-none sm:h-10 sm:w-10"
                   >
-                    <SendHorizonal className="h-3.5 w-3.5" />
+                    <SendHorizonal className="h-4.5 w-4.5 text-white" />
                   </button>
                 </div>
               </form>
