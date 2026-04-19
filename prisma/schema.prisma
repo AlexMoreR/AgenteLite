@@ -191,8 +191,10 @@ model Workspace {
   conversations Conversation[]
   messages      Message[]
   officialApiConfig   OfficialApiClientConfig?
-  financeTransactions FinanceTransaction[]
-  financeGoogleSheet  FinanceGoogleSheet?
+  financeTransactions  FinanceTransaction[]
+  financeGoogleSheet   FinanceGoogleSheet?
+  financeAgentConfig   FinanceAgentConfig?
+  financeChatMessages  FinanceChatMessage[]
 
   @@index([ownerId])
 }
@@ -615,6 +617,26 @@ model FinanceGoogleSheet {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+model FinanceChatMessage {
+  id          String    @id @default(cuid())
+  workspaceId String
+  role        String
+  content     String    @db.Text
+  createdAt   DateTime  @default(now())
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+}
+
+model FinanceAgentConfig {
+  id           String    @id @default(cuid())
+  workspaceId  String    @unique
+  systemPrompt String    @db.Text
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }
 
 model OfficialApiAutomationRule {

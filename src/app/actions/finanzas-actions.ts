@@ -9,9 +9,325 @@ import {
   ensureSheetHeaders,
   readSheetRows,
   isServiceAccountConfigured,
+  deleteSheetRowByContent,
 } from "@/lib/google-sheets";
+import { formatMoney } from "@/lib/currency";
+import { DEFAULT_FINANCE_SYSTEM_PROMPT } from "@/features/finanzas/constants";
 
 type ActionResult = { ok: true; count?: number } | { ok: false; error: string };
+
+type OAMessage =
+  | { role: "system" | "user" | "assistant"; content: string }
+  | { role: "tool"; tool_call_id: string; content: string };
+
+type OAToolCall = {
+  id: string;
+  type: "function";
+  function: { name: string; arguments: string };
+};
+
+const OPENAI_TOOLS = [
+  {
+    type: "function",
+    function: {
+      name: "register_transaction",
+      description: "Registra un ingreso o gasto. Si hay Google Sheet conectado, también lo agrega a la hoja.",
+      parameters: {
+        type: "object",
+        properties: {
+          type: { type: "string", enum: ["INCOME", "EXPENSE"], description: "Tipo de transacción" },
+          amount: { type: "number", description: "Monto positivo" },
+          description: { type: "string", description: "Descripción corta" },
+          category: { type: "string", description: "Categoría opcional" },
+        },
+        required: ["type", "amount", "description"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "delete_transaction",
+      description: "Elimina una transacción por su ID. Si la transacción es de Google Sheet (source=google_sheet), también la elimina de la hoja.",
+      parameters: {
+        type: "object",
+        properties: {
+          id: { type: "string", description: "ID de la transacción a eliminar" },
+        },
+        required: ["id"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "sync_google_sheet",
+      description: "Importa o actualiza las transacciones desde Google Sheet. Reemplaza todos los datos previos de la hoja con los actuales.",
+      parameters: { type: "object", properties: {}, required: [] },
+    },
+  },
+] as const;
+
+export async function sendFinanceMessageAction(
+  userMessage: string,
+  history: Array<{ role: "user" | "assistant"; content: string }>,
+): Promise<
+  | {
+      ok: true;
+      reply: string;
+      addedTransactions: TransactionPayload[];
+      deletedIds: string[];
+    }
+  | { ok: false; error: string }
+> {
+  const session = await auth();
+  if (!session?.user?.id || !["ADMIN", "CLIENTE"].includes(session.user.role ?? "")) {
+    return { ok: false, error: "No autorizado" };
+  }
+
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return { ok: false, error: "OpenAI no configurado" };
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) return { ok: false, error: "Workspace no encontrado" };
+
+  const workspaceId = membership.workspace.id;
+
+  const [transactions, agentConfig, googleSheet] = await Promise.all([
+    prisma.financeTransaction.findMany({
+      where: { workspaceId },
+      orderBy: { date: "desc" },
+      take: 60,
+      select: { id: true, type: true, amount: true, description: true, category: true, date: true },
+    }),
+    prisma.financeAgentConfig.findUnique({ where: { workspaceId }, select: { systemPrompt: true } }),
+    prisma.financeGoogleSheet.findUnique({ where: { workspaceId }, select: { sheetId: true } }),
+  ]);
+
+  const currency = "COP";
+
+  const txSummary = transactions.length
+    ? transactions
+        .map(
+          (t) =>
+            `[${t.id}] ${t.type === "INCOME" ? "INGRESO" : "GASTO"} ${formatMoney(Number(t.amount), currency)} - ${t.description}${t.category ? ` (${t.category})` : ""} ${new Date(t.date).toLocaleDateString("es-CO")}`,
+        )
+        .join("\n")
+    : "Sin transacciones aún.";
+
+  const income = transactions
+    .filter((t) => t.type === "INCOME")
+    .reduce((s, t) => s + Number(t.amount), 0);
+  const expense = transactions
+    .filter((t) => t.type === "EXPENSE")
+    .reduce((s, t) => s + Number(t.amount), 0);
+
+  const basePrompt = agentConfig?.systemPrompt ?? DEFAULT_FINANCE_SYSTEM_PROMPT;
+
+  const systemContent = `${basePrompt}
+
+--- CONTEXTO ACTUAL ---
+Moneda: ${currency}
+Balance: ${formatMoney(income - expense, currency)} (Ingresos ${formatMoney(income, currency)} / Gastos ${formatMoney(expense, currency)})
+Últimas transacciones (más reciente primero):
+${txSummary}
+Fecha actual: ${new Date().toLocaleDateString("es-CO")}`;
+
+  const messages: OAMessage[] = [
+    { role: "system", content: systemContent },
+    ...history.slice(-20),
+    { role: "user", content: userMessage },
+  ];
+
+  const addedTransactions: TransactionPayload[] = [];
+  const deletedIds: string[] = [];
+
+  for (let iter = 0; iter < 6; iter++) {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages,
+        tools: OPENAI_TOOLS,
+        tool_choice: "auto",
+        max_tokens: 512,
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      return { ok: false, error: (err as { error?: { message?: string } }).error?.message ?? "Error de OpenAI" };
+    }
+
+    const data = (await res.json()) as {
+      choices: Array<{
+        finish_reason: string;
+        message: { role: string; content: string | null; tool_calls?: OAToolCall[] };
+      }>;
+    };
+
+    const choice = data.choices[0];
+    const msg = choice.message;
+
+    messages.push(msg as OAMessage);
+
+    if (choice.finish_reason === "tool_calls" && msg.tool_calls?.length) {
+      for (const toolCall of msg.tool_calls) {
+        let result = "";
+        try {
+          const args = JSON.parse(toolCall.function.arguments) as Record<string, unknown>;
+
+          if (toolCall.function.name === "register_transaction") {
+            const type = args.type as "INCOME" | "EXPENSE";
+            const amount = Number(args.amount);
+            const description = String(args.description ?? "");
+            const category = args.category ? String(args.category) : null;
+            const now = new Date();
+
+            const created = await prisma.financeTransaction.create({
+              data: { workspaceId, type, amount, description, category, date: now, source: "manual" },
+            });
+
+            if (googleSheet && isServiceAccountConfigured()) {
+              await appendFinanceSheetRow({ sheetId: googleSheet.sheetId, type, amount, description, category, date: now });
+            }
+
+            const tx: TransactionPayload = {
+              id: created.id,
+              type: created.type,
+              amount: Number(created.amount),
+              description: created.description,
+              category: created.category,
+              date: created.date.toISOString(),
+              source: created.source,
+              createdAt: created.createdAt.toISOString(),
+            };
+            addedTransactions.push(tx);
+            result = JSON.stringify({ success: true, id: created.id });
+          } else if (toolCall.function.name === "delete_transaction") {
+            const id = String(args.id);
+            const tx = await prisma.financeTransaction.findFirst({
+              where: { id, workspaceId },
+              select: { source: true, description: true, amount: true, type: true },
+            });
+            await prisma.financeTransaction.deleteMany({ where: { id, workspaceId } });
+            deletedIds.push(id);
+            let sheetDeleted = false;
+            if (tx?.source === "google_sheet" && googleSheet && isServiceAccountConfigured()) {
+              const sheetResult = await deleteSheetRowByContent({
+                sheetId: googleSheet.sheetId,
+                description: tx.description,
+                amount: Number(tx.amount),
+                type: tx.type,
+              });
+              sheetDeleted = sheetResult.rowDeleted;
+            }
+            result = JSON.stringify({
+              success: true,
+              deletedFromSheet: tx?.source === "google_sheet" ? sheetDeleted : "n/a",
+            });
+          } else if (toolCall.function.name === "sync_google_sheet") {
+            if (!googleSheet) {
+              result = JSON.stringify({ success: false, error: "No hay Google Sheet conectado" });
+            } else {
+              const beforeIds = (await prisma.financeTransaction.findMany({
+                where: { workspaceId },
+                select: { id: true },
+              })).map((t) => t.id);
+
+              const syncResult = await syncGoogleSheetAction();
+
+              if (syncResult.ok) {
+                for (const oldId of beforeIds) deletedIds.push(oldId);
+                const newTxs = await prisma.financeTransaction.findMany({
+                  where: { workspaceId },
+                  orderBy: { date: "asc" },
+                  select: { id: true, type: true, amount: true, description: true, category: true, date: true, source: true, createdAt: true },
+                });
+                for (const t of newTxs) {
+                  addedTransactions.push({
+                    id: t.id, type: t.type, amount: Number(t.amount),
+                    description: t.description, category: t.category,
+                    date: t.date.toISOString(), source: t.source, createdAt: t.createdAt.toISOString(),
+                  });
+                }
+                result = JSON.stringify({ success: true, imported: syncResult.count ?? 0 });
+              } else {
+                result = JSON.stringify({ success: false, error: syncResult.error });
+              }
+            }
+          }
+        } catch (e) {
+          result = JSON.stringify({ success: false, error: String(e) });
+        }
+
+        messages.push({ role: "tool", tool_call_id: toolCall.id, content: result });
+      }
+      continue;
+    }
+
+    const reply = msg.content ?? "Listo.";
+
+    await prisma.financeChatMessage.createMany({
+      data: [
+        { workspaceId, role: "user", content: userMessage },
+        { workspaceId, role: "assistant", content: reply },
+      ],
+    });
+
+    if (addedTransactions.length || deletedIds.length) {
+      revalidatePath("/cliente/finanzas");
+    }
+
+    return {
+      ok: true,
+      reply,
+      addedTransactions,
+      deletedIds,
+    };
+  }
+
+  return { ok: false, error: "El agente no pudo completar la solicitud." };
+}
+
+export async function saveAgentPromptAction(prompt: string): Promise<ActionResult> {
+  const session = await auth();
+  if (!session?.user?.id || !["ADMIN", "CLIENTE"].includes(session.user.role ?? "")) {
+    return { ok: false, error: "No autorizado" };
+  }
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) return { ok: false, error: "Workspace no encontrado" };
+
+  await prisma.financeAgentConfig.upsert({
+    where: { workspaceId: membership.workspace.id },
+    create: { workspaceId: membership.workspace.id, systemPrompt: prompt },
+    update: { systemPrompt: prompt },
+  });
+
+  return { ok: true };
+}
+
+export async function clearChatHistoryAction(): Promise<ActionResult> {
+  const session = await auth();
+  if (!session?.user?.id || !["ADMIN", "CLIENTE"].includes(session.user.role ?? "")) {
+    return { ok: false, error: "No autorizado" };
+  }
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) return { ok: false, error: "Workspace no encontrado" };
+
+  await prisma.financeChatMessage.deleteMany({
+    where: { workspaceId: membership.workspace.id },
+  });
+
+  revalidatePath("/cliente/finanzas");
+  return { ok: true };
+}
 
 type TransactionPayload = {
   id: string;
@@ -363,7 +679,7 @@ export async function syncGoogleSheetAction(): Promise<ActionResult & { headersJ
   }
 
   await prisma.$transaction([
-    prisma.financeTransaction.deleteMany({ where: { workspaceId, source: "google_sheet" } }),
+    prisma.financeTransaction.deleteMany({ where: { workspaceId } }),
     prisma.financeTransaction.createMany({ data: toCreate }),
     prisma.financeGoogleSheet.update({ where: { workspaceId }, data: { lastSyncAt: new Date() } }),
   ]);

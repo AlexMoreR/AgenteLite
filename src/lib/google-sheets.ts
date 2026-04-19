@@ -150,6 +150,47 @@ async function sheetsPut(
   }
 }
 
+async function getFirstSheetTabId(token: string, spreadsheetId: string): Promise<number> {
+  try {
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties.sheetId`;
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) return 0;
+    const data = (await res.json()) as {
+      sheets?: Array<{ properties?: { sheetId?: number } }>;
+    };
+    return data.sheets?.[0]?.properties?.sheetId ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+async function sheetsBatchUpdate(
+  token: string,
+  sheetId: string,
+  requests: unknown[],
+): Promise<ApiResult<true>> {
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}:batchUpdate`;
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ requests }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+      const msg = body.error?.message ?? `HTTP ${res.status}`;
+      return { data: null, error: msg };
+    }
+    return { data: true, error: null };
+  } catch (err) {
+    return { data: null, error: err instanceof Error ? err.message : "Error de red" };
+  }
+}
+
 async function sheetsAppend(
   token: string,
   sheetId: string,
@@ -245,6 +286,52 @@ export async function readSheetRows(sheetId: string): Promise<string[][] | null>
   if (!token) return null;
   const { data } = await sheetsGet(token, sheetId, "A:F");
   return data;
+}
+
+export async function deleteSheetRowByContent(input: {
+  sheetId: string;
+  description: string;
+  amount: number;
+  type: "INCOME" | "EXPENSE";
+}): Promise<{ ok: boolean; rowDeleted: boolean; error?: string }> {
+  const token = await getAccessToken();
+  if (!token) return { ok: false, rowDeleted: false, error: "No se pudo obtener token de Google" };
+
+  const { data: rows, error: readErr } = await sheetsGet(token, input.sheetId, "A:F");
+  if (readErr || !rows) return { ok: false, rowDeleted: false, error: readErr ?? "Error leyendo hoja" };
+
+  const typeStr = input.type === "INCOME" ? "INGRESO" : "GASTO";
+
+  let matchIndex = -1;
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    const rowType = (row[0] ?? "").trim().toUpperCase();
+    const rowAmount = parseFloat((row[1] ?? "0").replace(",", "."));
+    const rowDesc = (row[2] ?? "").trim().toLowerCase();
+    if (
+      rowType === typeStr &&
+      rowDesc === input.description.toLowerCase() &&
+      Math.abs(rowAmount - input.amount) < 0.02
+    ) {
+      matchIndex = i;
+      break;
+    }
+  }
+
+  if (matchIndex === -1) return { ok: true, rowDeleted: false };
+
+  const tabId = await getFirstSheetTabId(token, input.sheetId);
+
+  const { error } = await sheetsBatchUpdate(token, input.sheetId, [
+    {
+      deleteDimension: {
+        range: { sheetId: tabId, dimension: "ROWS", startIndex: matchIndex, endIndex: matchIndex + 1 },
+      },
+    },
+  ]);
+
+  if (error) return { ok: false, rowDeleted: false, error };
+  return { ok: true, rowDeleted: true };
 }
 
 export async function appendFinanceSheetRow(input: {

@@ -300,13 +300,18 @@ export function AppShell({
                 </Breadcrumb>
               </div>
             </header>
-            <main
-              className={cn(
-                "admin-print-main flex flex-1 flex-col",
-                isFullHeightWorkspacePath ? "min-h-0 overflow-hidden p-0 md:p-4" : "p-3 md:p-4",
-                isChatWorkspacePath && "chat-app-main",
-              )}
-            >
+              <main
+                className={cn(
+                  "admin-print-main flex flex-1 flex-col",
+                  isFullHeightWorkspacePath
+                    ? cn(
+                        "min-h-0 overflow-hidden p-0",
+                        isFinanzasPath ? "md:p-2" : "md:p-4",
+                      )
+                    : "p-3 md:p-4",
+                  isChatWorkspacePath && "chat-app-main",
+                )}
+              >
               {showClientPlanAlert && clientPlanAlert ? <ClientPlanWarningBar {...clientPlanAlert} /> : null}
               {children}
             </main>

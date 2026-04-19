@@ -20,12 +20,21 @@ export type FinanceGoogleSheet = {
   lastSyncAt: string | null;
 };
 
+export type FinanceChatMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  createdAt: string;
+};
+
 export type FinanzasData = {
   transactions: FinanceTransaction[];
+  chatMessages: FinanceChatMessage[];
   googleSheet: FinanceGoogleSheet | null;
   workspaceId: string;
   serviceAccountEmail: string | null;
   currency: SupportedCurrencyCode;
+  agentPrompt: string | null;
 };
 
 export type ParsedTransaction = {

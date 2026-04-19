@@ -14,7 +14,7 @@ export async function getFinanzasData(userId: string): Promise<FinanzasData | nu
 
   const workspaceId = membership.workspace.id;
 
-  const [transactions, googleSheet, currency] = await Promise.all([
+  const [transactions, googleSheet, currency, agentConfig, chatMessages] = await Promise.all([
     prisma.financeTransaction.findMany({
       where: { workspaceId },
       orderBy: { date: "asc" },
@@ -35,6 +35,16 @@ export async function getFinanzasData(userId: string): Promise<FinanzasData | nu
       select: { id: true, sheetUrl: true, sheetId: true, lastSyncAt: true },
     }),
     getSystemCurrency(),
+    prisma.financeAgentConfig.findUnique({
+      where: { workspaceId },
+      select: { systemPrompt: true },
+    }),
+    prisma.financeChatMessage.findMany({
+      where: { workspaceId },
+      orderBy: { createdAt: "asc" },
+      take: 200,
+      select: { id: true, role: true, content: true, createdAt: true },
+    }),
   ]);
 
   return {
@@ -47,8 +57,15 @@ export async function getFinanzasData(userId: string): Promise<FinanzasData | nu
     googleSheet: googleSheet
       ? { ...googleSheet, lastSyncAt: googleSheet.lastSyncAt?.toISOString() ?? null }
       : null,
+    chatMessages: chatMessages.map((m) => ({
+      id: m.id,
+      role: m.role as "user" | "assistant",
+      content: m.content,
+      createdAt: m.createdAt.toISOString(),
+    })),
     workspaceId,
     serviceAccountEmail: SERVICE_ACCOUNT_EMAIL,
     currency,
+    agentPrompt: agentConfig?.systemPrompt ?? null,
   };
 }
