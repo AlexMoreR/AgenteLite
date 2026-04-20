@@ -6,6 +6,7 @@ import { AppShell } from "@/components/app-shell";
 import { Providers } from "@/components/providers";
 import { getAdminModuleAccess } from "@/lib/admin-module-access";
 import { CLIENT_PLAN_PAYMENT_HREF, getWorkspacePlanState } from "@/lib/plans";
+import { prisma } from "@/lib/prisma";
 import { getSiteUrl, siteConfig } from "@/lib/site";
 import {
   getSystemBrandName,
@@ -91,16 +92,41 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const session = await auth();
-  const clientWorkspace =
-    session?.user?.role === "CLIENTE" && session.user.id
-      ? await getPrimaryWorkspaceForUser(session.user.id)
-      : null;
+  const primaryWorkspace = session?.user?.id ? await getPrimaryWorkspaceForUser(session.user.id) : null;
+  const clientWorkspace = session?.user?.role === "CLIENTE" ? primaryWorkspace : null;
   const [primaryColor, primaryStrongColor, brandName, adminModuleAccess] = await Promise.all([
     getSystemPrimaryColor(),
     getSystemPrimaryStrongColor(),
     getSystemBrandName(),
     getAdminModuleAccess(session?.user?.id, session?.user?.role),
   ]);
+  const chatSidebarItems = primaryWorkspace?.workspace.id
+    ? await prisma.whatsAppChannel.findMany({
+        where: {
+          workspaceId: primaryWorkspace.workspace.id,
+          provider: {
+            in: ["EVOLUTION", "OFFICIAL_API"],
+          },
+        },
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true,
+          name: true,
+          provider: true,
+          agent: {
+            select: {
+              name: true,
+            },
+          },
+        },
+      }).then((channels) =>
+        channels.map((channel) => ({
+          title: channel.name,
+          url: `/cliente/chats?connection=${encodeURIComponent(`channel:${channel.id}`)}`,
+          helper: channel.provider === "OFFICIAL_API" ? "API oficial" : channel.agent?.name || "WhatsApp",
+        })),
+      )
+    : [];
   const workspaceAccess = clientWorkspace?.workspace.id
     ? await enforceWorkspacePlanAccess(clientWorkspace.workspace.id)
     : null;
@@ -146,6 +172,7 @@ export default async function RootLayout({
             initialUser={session?.user ?? null}
             brandName={brandName}
             adminModuleAccess={adminModuleAccess}
+            chatSidebarItems={chatSidebarItems}
             clientPlanAlert={clientPlanAlert}
             clientPlanBlock={clientPlanBlock}
           >

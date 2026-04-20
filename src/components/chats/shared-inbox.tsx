@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   BadgeCheck,
   Bot,
+  ChevronRight,
   Facebook,
   Instagram,
   MessageCircle,
@@ -45,10 +46,21 @@ export type SharedInboxSelectedConversation = {
   messages: SharedInboxMessageItem[];
 };
 
+export type SharedInboxSidebarItem = {
+  id: string;
+  label: string;
+  helper?: string;
+  href: string;
+  isActive?: boolean;
+  channelType?: SharedInboxConversationItem["channelType"];
+};
+
 type SharedInboxProps = {
   searchAction: string;
   selectedConversationId: string;
   searchQuery: string;
+  selectedConnectionKey?: string;
+  sidebarItems?: SharedInboxSidebarItem[];
   conversations: SharedInboxConversationItem[];
   selectedConversation: SharedInboxSelectedConversation | null;
   backHref: string;
@@ -99,6 +111,8 @@ export function SharedInbox({
   searchAction,
   selectedConversationId,
   searchQuery,
+  selectedConnectionKey = "",
+  sidebarItems = [],
   conversations,
   selectedConversation,
   backHref,
@@ -115,16 +129,80 @@ export function SharedInbox({
   const selectedConversationScrollKey = selectedConversation
     ? `${selectedConversation.id}:${selectedConversation.messages.length}:${selectedConversation.messages.at(-1)?.id ?? ""}`
     : "empty";
+  const hasSidebar = sidebarItems.length > 0;
 
   return (
-    <div className="chat-inbox-grid flex min-h-[calc(100dvh-9rem)] flex-1 flex-col gap-0 overflow-hidden md:min-h-0 md:h-full md:grid md:grid-cols-[380px_minmax(0,1fr)]">
+    <div
+      className={`chat-inbox-grid flex min-h-[calc(100dvh-9rem)] flex-1 flex-col gap-0 overflow-hidden md:min-h-0 md:h-full md:grid ${
+        hasSidebar ? "md:grid-cols-[250px_360px_minmax(0,1fr)]" : "md:grid-cols-[380px_minmax(0,1fr)]"
+      }`}
+    >
+      {hasSidebar ? (
+        <div className="hidden min-h-0 overflow-hidden rounded-xl border border-[rgba(255,255,255,0.08)] bg-[#171717] p-0 text-white shadow-[0_28px_70px_-42px_rgba(15,23,42,0.42)] md:flex md:h-full">
+          <div className="flex min-h-0 w-full flex-col">
+            <div className="border-b border-white/8 px-4 py-4">
+              <div className="flex items-center gap-3">
+                <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-white/90">
+                  <MessageSquareText className="h-4.5 w-4.5" />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-[13px] font-semibold tracking-[-0.03em] text-white">Chats</p>
+                  <p className="text-[11px] text-white/45">Conexiones creadas</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
+              <nav className="space-y-1">
+                {sidebarItems.map((item) => {
+                  const isActive = item.isActive || selectedConnectionKey === item.id;
+                  return (
+                    <Link
+                      key={item.id}
+                      href={item.href}
+                      className={`group flex items-center gap-3 rounded-2xl px-3 py-2.5 transition ${
+                        isActive ? "bg-white/8 text-white" : "text-white/72 hover:bg-white/5 hover:text-white"
+                      }`}
+                    >
+                      <span
+                        className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border ${
+                          isActive ? "border-white/16 bg-white/8" : "border-white/8 bg-white/4"
+                        }`}
+                      >
+                        {item.channelType === "whatsapp_official" ? (
+                          <BadgeCheck className="h-4 w-4 text-emerald-400" />
+                        ) : (
+                          <MessageCircle className="h-4 w-4 text-emerald-400" />
+                        )}
+                      </span>
+
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">{item.label}</p>
+                        {item.helper ? <p className="truncate text-[11px] text-white/42">{item.helper}</p> : null}
+                      </div>
+
+                      <ChevronRight
+                        className={`h-4 w-4 shrink-0 transition ${
+                          isActive ? "translate-x-0 text-white/75" : "text-white/28 group-hover:text-white/55"
+                        }`}
+                      />
+                    </Link>
+                  );
+                })}
+              </nav>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <Card
         className={`${hasMobileSelection ? "hidden md:flex" : "flex"} chat-inbox-sidebar min-h-0 flex-1 overflow-hidden border border-[rgba(148,163,184,0.14)] bg-white p-0 shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)] md:h-full`}
       >
         <div className="flex min-h-0 w-full flex-col">
           <div className="shrink-0 border-b border-[rgba(148,163,184,0.12)] bg-white px-3 py-3">
             <form className="relative" action={searchAction}>
-              <input type="hidden" name="conversationId" value={selectedConversationId} />
+              <input type="hidden" name="chatKey" value={selectedConversationId} />
+              {selectedConnectionKey ? <input type="hidden" name="connection" value={selectedConnectionKey} /> : null}
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"

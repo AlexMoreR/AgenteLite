@@ -33,6 +33,11 @@ type AppShellProps = {
   initialUser: InitialUser | null;
   brandName: string;
   adminModuleAccess: Record<AdminModuleKey, boolean>;
+  chatSidebarItems: Array<{
+    title: string;
+    url: string;
+    helper?: string;
+  }>;
   clientPlanAlert: {
     daysRemaining: number;
     expiresAtLabel: string;
@@ -50,6 +55,7 @@ export function AppShell({
   initialUser,
   brandName,
   adminModuleAccess,
+  chatSidebarItems,
   clientPlanAlert,
   clientPlanBlock,
 }: AppShellProps) {
@@ -275,6 +281,7 @@ export function AppShell({
             }}
             brandName={brandName}
             adminModuleAccess={adminModuleAccess}
+            chatSidebarItems={chatSidebarItems}
             className="admin-print-sidebar flex"
           />
           <SidebarInset

@@ -673,7 +673,7 @@ export function FinanzasWorkspace({
             {/* Chat feed */}
             <div
               ref={feedRef}
-              className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-white px-4 py-4 pb-[calc(env(safe-area-inset-bottom)+7.25rem)] sm:px-5 sm:py-5 sm:pb-5 [scrollbar-width:thin] [scrollbar-color:rgba(148,163,184,0.26)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb:hover]:bg-slate-400"
+              className="min-h-0 flex-1 overflow-y-auto bg-white px-4 py-4 pb-4 sm:px-5 sm:py-5 sm:pb-5 md:overscroll-contain [scrollbar-width:thin] [scrollbar-color:rgba(148,163,184,0.26)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb:hover]:bg-slate-400"
             >
               {chatEvents.length <= 1 && transactions.length === 0 ? (
                 <div className="flex h-full flex-col items-center justify-center px-4 py-16 text-center">
@@ -813,7 +813,7 @@ export function FinanzasWorkspace({
             </div>
 
             {/* Composer */}
-            <div className="chat-composer fixed inset-x-0 bottom-0 z-20 shrink-0 border-t border-[rgba(148,163,184,0.1)] bg-white px-4 pb-[calc(env(safe-area-inset-bottom)+0.65rem)] pt-3 shadow-[0_-10px_18px_-18px_rgba(15,23,42,0.16)] md:static md:z-10 md:px-4 md:py-3">
+            <div className="chat-composer sticky bottom-0 z-20 shrink-0 border-t border-[rgba(148,163,184,0.08)] bg-white px-4 pb-[calc(env(safe-area-inset-bottom)+0.65rem)] pt-3 md:static md:z-10 md:border-t md:border-[rgba(148,163,184,0.1)] md:px-4 md:py-3 md:shadow-[0_-10px_18px_-18px_rgba(15,23,42,0.16)]">
               <form onSubmit={handleSubmit} className="mx-auto w-full max-w-7xl">
                 <div className="flex items-center gap-3">
                   <textarea

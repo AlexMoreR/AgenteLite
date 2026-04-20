@@ -14,7 +14,7 @@ import {
   Wallet,
 } from "lucide-react";
 import type { Role } from "@prisma/client";
-import { NavMain } from "@/components/nav-main";
+import { NavMain, type NavMainItem } from "@/components/nav-main";
 import { NavUser } from "@/components/nav-user";
 import { TeamSwitcher } from "@/components/team-switcher";
 import type { AdminModuleKey } from "@/lib/admin-module-access";
@@ -35,6 +35,11 @@ type AppSidebarProps = {
   pathname: string;
   brandName: string;
   adminModuleAccess: Record<AdminModuleKey, boolean>;
+  chatSidebarItems: Array<{
+    title: string;
+    url: string;
+    helper?: string;
+  }>;
   user: {
     name?: string | null;
     email?: string | null;
@@ -43,7 +48,7 @@ type AppSidebarProps = {
   };
 };
 
-export function AppSidebar({ pathname, brandName, adminModuleAccess, user, ...props }: AppSidebarProps & React.ComponentProps<typeof Sidebar>) {
+export function AppSidebar({ pathname, brandName, adminModuleAccess, chatSidebarItems, user, ...props }: AppSidebarProps & React.ComponentProps<typeof Sidebar>) {
   const dashboardHref = user.role ? roleHome[user.role] : "/";
   const isAdminConfigRoute = pathname.startsWith("/admin/configuracion");
   const isAdminCategoriesRoute = pathname.startsWith("/admin/categorias");
@@ -57,7 +62,7 @@ export function AppSidebar({ pathname, brandName, adminModuleAccess, user, ...pr
   const isClientFinanzasRoute = pathname.startsWith("/cliente/finanzas");
   const isClientConnectionRoute = pathname.startsWith("/cliente/conexion") || pathname.startsWith("/cliente/api-oficial");
 
-  const navMain = [
+  const navMain: NavMainItem[] = [
     {
       title: "Dashboard",
       url: dashboardHref,
@@ -146,7 +151,11 @@ export function AppSidebar({ pathname, brandName, adminModuleAccess, user, ...pr
       url: "/cliente/chats",
       icon: MessageSquareText,
       isActive: pathname.startsWith("/cliente/chats"),
-      items: [{ title: "Bandeja", url: "/cliente/chats" }],
+      expandable: true,
+      items: [
+        { title: "Bandeja", url: "/cliente/chats", helper: "General" },
+        ...chatSidebarItems,
+      ],
     });
 
     navMain.push({

@@ -21,6 +21,7 @@ type UnifiedConversation = {
   source: "agent" | "official";
   conversationId: string;
   agentId?: string;
+  channelId?: string;
   label: string;
   secondaryLabel: string;
   avatarUrl?: string | null;
@@ -60,6 +61,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
 
   const params = await searchParams;
   const selectedChatKeyParam = typeof params.chatKey === "string" ? params.chatKey : "";
+  const selectedConnectionParam = typeof params.connection === "string" ? params.connection : "";
   const searchQuery = typeof params.q === "string" ? params.q.trim() : "";
   const okMessage = typeof params.ok === "string" ? params.ok : "";
   const errorMessage = typeof params.error === "string" ? params.error : "";
@@ -68,20 +70,24 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
 
   const canUseOfficialApi = await canAccessOfficialApiModule(session.user.id, session.user.role);
 
-  const [agents, agentConversations] = await Promise.all([
-    prisma.agent.findMany({
+  const [channels, agentConversations] = await Promise.all([
+    prisma.whatsAppChannel.findMany({
       where: { workspaceId: membership.workspace.id },
       select: {
         id: true,
         name: true,
+        provider: true,
+        phoneNumber: true,
         status: true,
-        channels: {
-          where: { provider: "EVOLUTION" },
-          orderBy: { createdAt: "asc" },
-          select: { evolutionInstanceName: true },
-          take: 1,
+        evolutionInstanceName: true,
+        agent: {
+          select: {
+            id: true,
+            name: true,
+          },
         },
       },
+      orderBy: { createdAt: "asc" },
     }),
     prisma.conversation.findMany({
       where: {
@@ -93,6 +99,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       select: {
         id: true,
         agentId: true,
+        channelId: true,
         contact: {
           select: { name: true, phoneNumber: true },
         },
@@ -105,16 +112,18 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     }),
   ]);
 
-  const agentById = new Map(agents.map((agent) => [agent.id, agent]));
-  const selectedAgent =
+  const channelsById = new Map(channels.map((channel) => [channel.id, channel]));
+  const selectedAgentConversation =
     selectedChatRef?.source === "agent"
-      ? agentById.get(agentConversations.find((item) => item.id === selectedChatRef.conversationId)?.agentId || "") || null
+      ? agentConversations.find((item) => item.id === selectedChatRef.conversationId) || null
       : null;
+  const selectedChannel =
+    selectedAgentConversation?.channelId ? channelsById.get(selectedAgentConversation.channelId) || null : null;
 
   const avatarPhoneNumbers = [
     ...new Set(agentConversations.slice(0, 20).map((conversation) => conversation.contact.phoneNumber)),
   ];
-  const selectedInstanceName = selectedAgent?.channels[0]?.evolutionInstanceName ?? null;
+  const selectedInstanceName = selectedChannel?.evolutionInstanceName ?? null;
   const avatarUrls = selectedInstanceName
     ? Object.fromEntries(
         (
@@ -136,6 +145,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     source: "agent",
     conversationId: conversation.id,
     agentId: conversation.agentId || undefined,
+    channelId: conversation.channelId || undefined,
     label: getAgentContactLabel(conversation.contact),
     secondaryLabel: conversation.contact.phoneNumber,
     avatarUrl: avatarUrls[conversation.contact.phoneNumber] ?? null,
@@ -146,6 +156,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
 
   let officialRows: UnifiedConversation[] = [];
   let officialData: Awaited<ReturnType<typeof getOfficialApiChatsData>> | null = null;
+  const officialChannel = channels.find((channel) => channel.provider === "OFFICIAL_API") ?? null;
 
   if (canUseOfficialApi) {
     officialData = await getOfficialApiChatsData({
@@ -154,24 +165,44 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       q: searchQuery,
     });
 
-    if (!officialData.isConnected) {
-      return <OfficialApiLockedState workspaceName={membership.workspace.name} />;
+    if (officialData.isConnected) {
+      officialRows = officialData.conversations.map((conversation) => ({
+        key: `official:${conversation.id}`,
+        source: "official",
+        conversationId: conversation.id,
+        channelId: officialChannel?.id,
+        label: getOfficialContactLabel(conversation.contact),
+        secondaryLabel: conversation.contact.phoneNumber || conversation.contact.waId,
+        avatarUrl: null,
+        lastMessage: conversation.lastMessage?.content ?? null,
+        lastMessageDirection: conversation.lastMessage?.direction ?? null,
+        lastMessageAt: conversation.lastMessage?.createdAt ?? null,
+      }));
     }
-
-    officialRows = officialData.conversations.map((conversation) => ({
-      key: `official:${conversation.id}`,
-      source: "official",
-      conversationId: conversation.id,
-      label: getOfficialContactLabel(conversation.contact),
-      secondaryLabel: conversation.contact.phoneNumber || conversation.contact.waId,
-      avatarUrl: null,
-      lastMessage: conversation.lastMessage?.content ?? null,
-      lastMessageDirection: conversation.lastMessage?.direction ?? null,
-      lastMessageAt: conversation.lastMessage?.createdAt ?? null,
-    }));
   }
 
+  const inferredConnectionKey =
+    selectedChatRef?.source === "agent"
+      ? selectedAgentConversation?.channelId
+        ? `channel:${selectedAgentConversation.channelId}`
+        : ""
+      : selectedChatRef?.source === "official"
+        ? officialChannel?.id
+          ? `channel:${officialChannel.id}`
+          : ""
+        : "";
+
+  const selectedConnectionKey = selectedConnectionParam || inferredConnectionKey;
+
   const merged = [...agentRows, ...officialRows]
+    .filter((item) => {
+      if (!selectedConnectionKey) return true;
+      if (selectedConnectionKey.startsWith("channel:")) {
+        const channelId = selectedConnectionKey.slice("channel:".length);
+        return item.channelId === channelId;
+      }
+      return true;
+    })
     .filter((item) => {
       if (!searchQuery) return true;
       const q = searchQuery.toLowerCase();
@@ -188,6 +219,11 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     });
 
   const selectedUnified = merged.find((item) => item.key === selectedChatKeyParam) || merged[0] || null;
+  const isOfficialUnavailable = Boolean(canUseOfficialApi && officialChannel && officialData && !officialData.isConnected);
+  const isOfficialConnectionSelected =
+    Boolean(selectedConnectionKey) &&
+    officialChannel !== null &&
+    selectedConnectionKey === `channel:${officialChannel.id}`;
 
   let selectedConversation: {
     id: string;
@@ -283,6 +319,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       <SharedInbox
         searchAction="/cliente/chats"
         selectedConversationId={selectedUnified?.key ?? ""}
+        selectedConnectionKey={selectedConnectionKey}
         searchQuery={searchQuery}
         conversations={merged.map((item) => ({
           id: item.key,
@@ -293,7 +330,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           lastMessage: item.lastMessage,
           lastMessageDirection: item.lastMessageDirection,
           lastMessageAt: item.lastMessageAt,
-          href: `/cliente/chats?chatKey=${encodeURIComponent(item.key)}${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ""}`,
+          href: `/cliente/chats?chatKey=${encodeURIComponent(item.key)}${selectedConnectionKey ? `&connection=${encodeURIComponent(selectedConnectionKey)}` : ""}${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ""}`,
         }))}
         selectedConversation={selectedConversation}
         backHref="/cliente/chats"
@@ -323,10 +360,26 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
             : undefined
         }
         emptyListTitle="Aun no hay conversaciones"
-        emptyListDescription="Cuando lleguen mensajes por tus canales, apareceran aqui en una sola bandeja."
-        emptySelectionTitle="Selecciona una conversacion"
-        emptySelectionDescription="Elige un chat de la columna izquierda para ver el historial y responder desde el panel."
+        emptyListDescription={
+          isOfficialConnectionSelected && isOfficialUnavailable
+            ? "Este canal oficial todavia no esta disponible. Mientras tanto, puedes seguir usando los otros canales."
+            : "Cuando lleguen mensajes por tus canales, apareceran aqui en una sola bandeja."
+        }
+        emptySelectionTitle={isOfficialConnectionSelected && isOfficialUnavailable ? "Canal oficial no disponible" : "Selecciona una conversacion"}
+        emptySelectionDescription={
+          isOfficialConnectionSelected && isOfficialUnavailable
+            ? "Habla con un administrador para activar la API oficial en este workspace."
+            : "Elige un chat de la columna izquierda para ver el historial y responder desde el panel."
+        }
       />
+
+      {isOfficialUnavailable ? (
+        <OfficialApiLockedState
+          title="Api oficial no disponible"
+          description="La bandeja sigue activa para tus otros canales, pero la API oficial aun no esta conectada."
+          workspaceName={membership.workspace.name}
+        />
+      ) : null}
 
       {!canUseOfficialApi ? (
         <Card className="border border-[rgba(148,163,184,0.14)] bg-white p-4 text-sm text-slate-600">
