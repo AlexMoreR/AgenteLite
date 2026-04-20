@@ -679,7 +679,7 @@ export function FinanzasWorkspace({
             {/* Chat feed */}
             <div
               ref={feedRef}
-              className="min-h-0 flex-1 overflow-y-auto bg-[linear-gradient(180deg,#fbfcff_0%,#f8fafc_100%)] px-3 py-3 pb-[calc(env(safe-area-inset-bottom)+5.5rem)] sm:px-5 sm:py-5 sm:pb-5 md:bg-white md:pb-5 md:[-webkit-overflow-scrolling:touch] md:[scrollbar-width:thin] md:[scrollbar-color:rgba(148,163,184,0.26)_transparent] md:[&::-webkit-scrollbar]:w-1.5 md:[&::-webkit-scrollbar-track]:bg-transparent md:[&::-webkit-scrollbar-thumb]:rounded-full md:[&::-webkit-scrollbar-thumb]:bg-slate-300 md:[&::-webkit-scrollbar-thumb:hover]:bg-slate-400"
+              className="min-h-0 flex-1 overflow-y-auto bg-[linear-gradient(180deg,#fbfcff_0%,#f8fafc_100%)] px-3 py-3 pb-3 sm:px-5 sm:py-5 sm:pb-5 md:bg-white md:pb-5 md:[-webkit-overflow-scrolling:touch] md:[scrollbar-width:thin] md:[scrollbar-color:rgba(148,163,184,0.26)_transparent] md:[&::-webkit-scrollbar]:w-1.5 md:[&::-webkit-scrollbar-track]:bg-transparent md:[&::-webkit-scrollbar-thumb]:rounded-full md:[&::-webkit-scrollbar-thumb]:bg-slate-300 md:[&::-webkit-scrollbar-thumb:hover]:bg-slate-400"
             >
               {chatEvents.length <= 1 && transactions.length === 0 ? (
                 <div className="flex h-full flex-col items-center justify-center px-4 py-16 text-center">
@@ -822,7 +822,7 @@ export function FinanzasWorkspace({
             </div>
 
             {/* Composer */}
-            <div className="chat-composer sticky bottom-0 z-10 shrink-0 border-t border-[rgba(148,163,184,0.08)] bg-white/95 px-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3 backdrop-blur md:static md:bg-white md:border-[rgba(148,163,184,0.1)] md:px-4 md:py-3 md:shadow-[0_-10px_18px_-18px_rgba(15,23,42,0.16)]">
+            <div className="chat-composer z-10 shrink-0 border-t border-[rgba(148,163,184,0.08)] bg-white px-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3 md:border-[rgba(148,163,184,0.1)] md:px-4 md:py-3 md:shadow-[0_-10px_18px_-18px_rgba(15,23,42,0.16)]">
               <form onSubmit={handleSubmit} className="mx-auto w-full max-w-7xl">
                 <div className="flex items-end gap-3">
                   <textarea
