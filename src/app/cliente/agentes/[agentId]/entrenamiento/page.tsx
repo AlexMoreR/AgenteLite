@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { MessageCircleHeart, PlayCircle, Save, Shield, Sparkles } from "lucide-react";
+import { PlayCircle, Shield } from "lucide-react";
 import { auth } from "@/auth";
-import { updateAgentTrainingAction } from "@/app/actions/agent-actions";
+import { AgentTrainingAutosaveForm } from "@/components/agents/agent-training-autosave-form";
 import { AgentPanelShell } from "@/components/agents/agent-panel-shell";
 import { TrainingHelpPopover } from "@/components/agents/training-help-popover";
 import { TrainingResponseLengthField } from "@/components/agents/training-response-length-field";
@@ -22,6 +22,22 @@ type PageProps = {
   params: Promise<{ agentId: string }>;
 };
 
+function SectionHeader({
+  title,
+  helpText,
+}: {
+  title: string;
+  helpText?: string;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="h-4 w-1 rounded-full bg-[var(--primary)]" />
+      <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">{title}</span>
+      {helpText ? <TrainingHelpPopover title={title} description={helpText} /> : null}
+    </div>
+  );
+}
+
 function ToggleField({
   name,
   title,
@@ -36,16 +52,21 @@ function ToggleField({
   helpText: string;
 }) {
   return (
-    <label className="group flex min-h-14 cursor-pointer items-center justify-between gap-4 rounded-[22px] border border-[rgba(148,163,184,0.14)] bg-white px-4 py-3 transition-[border-color,box-shadow,transform] duration-200 ease-out hover:border-[color-mix(in_srgb,var(--primary)_24%,white)] active:scale-[0.995]">
-      <span className="space-y-1">
-        <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-900">
+    <label className="group flex min-h-14 cursor-pointer items-center justify-between gap-3 rounded-[18px] border border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcfd_100%)] px-3.5 py-3 transition-[border-color,box-shadow,transform] duration-200 ease-out hover:border-[color-mix(in_srgb,var(--primary)_34%,white)] hover:shadow-[0_18px_32px_-28px_rgba(15,23,42,0.26)] active:scale-[0.997]">
+      <span className="min-w-0 space-y-0.5">
+        <span className="inline-flex items-center gap-1.5 text-[13px] font-semibold leading-5 text-slate-900">
           <span>{title}</span>
           <TrainingHelpPopover title={title} description={helpText} />
         </span>
-        <span className="block text-sm leading-6 text-slate-600">{description}</span>
+        <span className="block text-[12px] leading-5 text-slate-500">{description}</span>
       </span>
       <span className="relative shrink-0">
-        <Switch name={name} defaultChecked={defaultChecked} aria-label={title} />
+        <Switch
+          name={name}
+          defaultChecked={defaultChecked}
+          aria-label={title}
+          className="h-6 w-11 bg-slate-200 data-[state=checked]:bg-[var(--primary)] data-[state=checked]:shadow-[0_8px_18px_-14px_color-mix(in_srgb,var(--primary)_88%,black)]"
+        />
       </span>
     </label>
   );
@@ -88,74 +109,68 @@ export default async function AgentTrainingPage({ params }: PageProps) {
 
   return (
     <AgentPanelShell agentId={agent.id}>
-      <form action={updateAgentTrainingAction} className="space-y-4">
-        <input type="hidden" name="agentId" value={agent.id} />
-        <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-          <Card className="border border-[rgba(148,163,184,0.14)] bg-white p-4 sm:p-5 lg:p-6">
-            <div className="space-y-4">
-              <div className="flex items-start gap-4">
-                <div className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_10%,white)] text-[var(--primary)]">
-                  <Sparkles className="h-6 w-6" />
-                </div>
-                <div className="min-w-0 flex-1 space-y-1.5 pt-0.5">
-                  <div className="flex flex-col items-start gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-                    <h2 className="text-[1.25rem] font-semibold tracking-[-0.04em] text-slate-950 sm:text-[1.45rem]">Entrenamiento del agente</h2>
-                    <Link
-                      href={`/cliente/agentes/${agent.id}/probar`}
-                      className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)] sm:w-auto"
-                    >
-                      <PlayCircle className="h-4 w-4" />
-                      Probar agente
-                    </Link>
-                  </div>
+      <AgentTrainingAutosaveForm agentId={agent.id} className="space-y-4">
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.18fr)_minmax(340px,0.82fr)]">
+          <Card className="border border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcfd_100%)] p-4 shadow-[0_20px_44px_-38px_rgba(15,23,42,0.18)] sm:p-5">
+            <div className="space-y-5">
+              <div className="grid gap-4">
+                <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+                  <label className="space-y-2">
+                    <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-slate-700">
+                      <span>Como se llama tu negocio</span>
+                      <TrainingHelpPopover
+                        title="Nombre del negocio"
+                        description="Este nombre se usara cuando el agente se presente y tambien para identificarlo dentro del negocio."
+                      />
+                    </span>
+                    <input
+                      name="businessName"
+                      defaultValue={agent.workspace.name}
+                      placeholder="Ej. Aizen Store"
+                      minLength={2}
+                      className="field-select h-11 rounded-[16px] border-[rgba(148,163,184,0.14)] bg-white text-[13px] shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_12px_22px_-28px_rgba(15,23,42,0.28)] focus:border-[var(--primary)]"
+                      required
+                    />
+                  </label>
+                  <Link
+                    href={`/cliente/agentes/${agent.id}/probar`}
+                    className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
+                  >
+                    <PlayCircle className="h-4 w-4" />
+                    Probar agente
+                  </Link>
                 </div>
               </div>
 
-              <div className="grid gap-5 rounded-[24px] border border-[rgba(148,163,184,0.12)] bg-slate-50/70 p-4 sm:rounded-[28px] sm:p-5">
-                <label className="space-y-2.5">
-                  <span className="inline-flex items-center gap-2 text-sm font-medium text-slate-700">
-                    <span>Como se llama tu negocio</span>
-                    <TrainingHelpPopover
-                      title="Nombre del negocio"
-                      description="Este nombre se usara cuando el agente se presente y tambien para identificarlo dentro del negocio."
-                    />
-                  </span>
-                  <input
-                    name="businessName"
-                    defaultValue={agent.workspace.name}
-                    placeholder="Ej. Aizen Store"
-                    className="field-select h-[52px] rounded-[22px] border-white bg-white shadow-[0_10px_24px_-22px_rgba(15,23,42,0.24)]"
-                    required
-                  />
-                </label>
-
-                <label className="space-y-2.5">
-                  <span className="inline-flex items-center gap-2 text-sm font-medium text-slate-700">
+              <div className="space-y-3.5">
+                <SectionHeader
+                  title="Contexto"
+                  helpText="Describe tus productos o servicios con palabras simples. Mientras mas claro seas, mejor respondera el agente."
+                />
+                <label className="space-y-2">
+                  <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-slate-700">
                     <span>Que vendes y como lo explicarias en WhatsApp</span>
-                    <TrainingHelpPopover
-                      title="Que vendes"
-                      description="Describe tus productos o servicios con palabras simples. Mientras mas claro seas, mejor respondera el agente."
-                    />
                   </span>
                   <textarea
                     name="businessDescription"
-                    rows={5}
+                    rows={4}
                     defaultValue={training.businessDescription}
                     placeholder="Escribe aqui una explicacion simple de lo que vendes, para quien es y que te diferencia."
-                    className="flex min-h-[180px] w-full rounded-[24px] border border-white bg-white px-4 py-4 text-sm leading-7 text-slate-800 shadow-[0_10px_24px_-22px_rgba(15,23,42,0.24)] outline-none transition placeholder:text-slate-400 focus:border-[var(--primary)]"
+                    minLength={12}
+                    className="flex min-h-[138px] w-full rounded-[20px] border border-[rgba(148,163,184,0.14)] bg-white px-3.5 py-3 text-[13px] leading-6 text-slate-800 shadow-[0_18px_32px_-34px_rgba(15,23,42,0.18)] outline-none transition placeholder:text-slate-400 focus:border-[var(--primary)]"
                     required
                   />
                 </label>
 
-                <fieldset className="space-y-3.5">
-                  <legend className="inline-flex items-center gap-2 text-sm font-medium text-slate-700">
+                <fieldset className="space-y-2.5">
+                  <legend className="inline-flex items-center gap-1.5 text-[13px] font-medium text-slate-700">
                     <span>A que tipo de cliente le vendes</span>
                     <TrainingHelpPopover
                       title="Tipo de cliente"
                       description="Selecciona los perfiles que mas te compran. Esto ayuda al agente a usar ejemplos y tono mas cercanos."
                     />
                   </legend>
-                  <p className="text-sm leading-6 text-slate-500">Marca las opciones que mas se parezcan a tu cliente ideal.</p>
+                  <p className="text-[12px] leading-5 text-slate-500">Marca las opciones que mas se parezcan a tu cliente ideal.</p>
                   <div className="flex flex-wrap gap-2">
                     {targetAudienceOptions.map((option) => (
                       <label key={option} className="cursor-pointer">
@@ -166,7 +181,7 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                           defaultChecked={training.targetAudiences.includes(option)}
                           className="peer sr-only"
                         />
-                        <span className="inline-flex min-h-11 items-center justify-center rounded-full border border-white bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-[0_10px_24px_-24px_rgba(15,23,42,0.2)] transition peer-checked:border-[var(--primary)] peer-checked:bg-[color-mix(in_srgb,var(--primary)_8%,white)] peer-checked:text-[var(--primary)]">
+                        <span className="inline-flex min-h-9 items-center justify-center rounded-full border border-[rgba(148,163,184,0.14)] bg-white px-3 py-1.5 text-[12px] font-medium text-slate-700 shadow-[0_10px_18px_-26px_rgba(15,23,42,0.22)] transition hover:border-[color-mix(in_srgb,var(--primary)_30%,white)] peer-checked:border-[color-mix(in_srgb,var(--primary)_88%,white)] peer-checked:bg-[color-mix(in_srgb,var(--primary)_8%,white)] peer-checked:text-[var(--primary)]">
                           {option}
                         </span>
                       </label>
@@ -174,61 +189,12 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                   </div>
                 </fieldset>
 
-                <div className="rounded-[24px] border border-[rgba(148,163,184,0.12)] bg-white px-4 py-4">
-                  <div className="flex items-start gap-3">
-                    <div className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-slate-600">
-                      <MessageCircleHeart className="h-5 w-5" />
-                    </div>
-                    <div className="space-y-1">
-                      <p className="text-sm font-semibold text-slate-900">Ayuda extra para responder mejor</p>
-                      <p className="text-sm leading-6 text-slate-500">
-                        Si manejas un rango de precios, escribirlo ayuda a que el agente oriente mejor al cliente.
-                      </p>
-                    </div>
-                  </div>
-                  <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                    <label className="space-y-2">
-                      <span className="inline-flex items-center gap-2 text-sm font-medium text-slate-700">
-                        <span>Precio desde</span>
-                        <TrainingHelpPopover
-                          title="Precio desde"
-                          description="Pon el valor mas bajo habitual de tu oferta. Si no manejas un minimo claro, puedes dejarlo vacio."
-                        />
-                      </span>
-                      <input
-                        name="priceRangeMin"
-                        defaultValue={training.priceRangeMin}
-                        placeholder="Ej. 80.000 COP"
-                        className="field-select h-12 rounded-2xl border-[rgba(148,163,184,0.16)] bg-slate-50"
-                      />
-                    </label>
-                    <label className="space-y-2">
-                      <span className="inline-flex items-center gap-2 text-sm font-medium text-slate-700">
-                        <span>Precio hasta</span>
-                        <TrainingHelpPopover
-                          title="Precio hasta"
-                          description="Pon el valor mas alto habitual para que el agente pueda orientar mejor a clientes con distinto presupuesto."
-                        />
-                      </span>
-                      <input
-                        name="priceRangeMax"
-                        defaultValue={training.priceRangeMax}
-                        placeholder="Ej. 220.000 COP"
-                        className="field-select h-12 rounded-2xl border-[rgba(148,163,184,0.16)] bg-slate-50"
-                      />
-                    </label>
-                  </div>
-                </div>
-
-                <fieldset className="space-y-3">
-                  <legend className="inline-flex items-center gap-2 text-sm font-medium text-slate-700">
-                    <span>Tono</span>
-                    <TrainingHelpPopover
-                      title="Tono"
-                      description="Aqui eliges la personalidad del agente al responder: mas formal, mas cercano o mas entusiasta."
-                    />
-                  </legend>
-                  <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-[18px] border border-[color-mix(in_srgb,var(--primary)_12%,white)] bg-[color-mix(in_srgb,var(--primary)_5%,white)] px-3.5 py-3">
+                  <SectionHeader
+                    title="Personalidad"
+                    helpText="Aqui eliges la personalidad del agente al responder: mas formal, mas cercano o mas entusiasta."
+                  />
+                  <div className="mt-3 grid gap-2 md:grid-cols-3">
                     {toneOptions.map((option) => (
                       <label key={option.value} className="cursor-pointer">
                         <input
@@ -238,34 +204,74 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                           defaultChecked={training.salesTone === option.value}
                           className="peer sr-only"
                         />
-                        <span className="flex min-h-[108px] flex-col justify-between rounded-[24px] border border-[rgba(148,163,184,0.16)] bg-white p-4 transition peer-checked:border-[var(--primary)] peer-checked:bg-[color-mix(in_srgb,var(--primary)_6%,white)]">
-                          <span className="text-sm font-semibold text-slate-900">{option.label}</span>
-                          <span className="text-sm leading-6 text-slate-600">{option.prompt}</span>
+                        <span className="flex min-h-[74px] flex-col justify-between rounded-[16px] border border-[rgba(148,163,184,0.16)] bg-white px-3 py-2.5 transition duration-200 hover:border-[color-mix(in_srgb,var(--primary)_34%,white)] peer-checked:border-[color-mix(in_srgb,var(--primary)_88%,white)] peer-checked:bg-[color-mix(in_srgb,var(--primary)_8%,white)] peer-checked:shadow-[0_0_0_1px_color-mix(in_srgb,var(--primary)_24%,white),0_16px_28px_-28px_color-mix(in_srgb,var(--primary)_88%,black)]">
+                          <span className="text-[13px] font-semibold leading-5 text-slate-900">{option.label}</span>
+                          <span className="text-[11px] leading-4.5 text-slate-500">{option.prompt}</span>
                         </span>
                       </label>
                     ))}
                   </div>
-                </fieldset>
+                </div>
+              </div>
 
-                <TrainingResponseLengthField
-                  defaultValue={training.responseLength}
-                  helpText="Controla si el agente respondera corto y directo o con mas contexto cuando explique y venda."
-                />
+              <div className="rounded-[22px] border border-[rgba(148,163,184,0.12)] bg-[linear-gradient(180deg,#ffffff_0%,#fafbfc_100%)] p-4">
+                <div className="min-w-0 space-y-3">
+                    <div className="space-y-0.5">
+                      <SectionHeader
+                        title="Ajuste fino"
+                        helpText="Si manejas un rango de precios, escribirlo ayuda a que el agente oriente mejor al cliente."
+                      />
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <label className="space-y-1.5">
+                        <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-slate-700">
+                          <span>Precio desde</span>
+                          <TrainingHelpPopover
+                            title="Precio desde"
+                            description="Pon el valor mas bajo habitual de tu oferta. Si no manejas un minimo claro, puedes dejarlo vacio."
+                          />
+                        </span>
+                        <input
+                          name="priceRangeMin"
+                          defaultValue={training.priceRangeMin}
+                          placeholder="Ej. 80.000 COP"
+                          className="field-select h-10 rounded-[16px] border-[rgba(148,163,184,0.14)] bg-slate-50 text-[13px] focus:border-[var(--primary)]"
+                        />
+                      </label>
+                      <label className="space-y-1.5">
+                        <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-slate-700">
+                          <span>Precio hasta</span>
+                          <TrainingHelpPopover
+                            title="Precio hasta"
+                            description="Pon el valor mas alto habitual para que el agente pueda orientar mejor a clientes con distinto presupuesto."
+                          />
+                        </span>
+                        <input
+                          name="priceRangeMax"
+                          defaultValue={training.priceRangeMax}
+                          placeholder="Ej. 220.000 COP"
+                          className="field-select h-10 rounded-[16px] border-[rgba(148,163,184,0.14)] bg-slate-50 text-[13px] focus:border-[var(--primary)]"
+                        />
+                      </label>
+                    </div>
+
+                    <TrainingResponseLengthField
+                      defaultValue={training.responseLength}
+                      helpText="Controla si el agente respondera corto y directo o con mas contexto cuando explique y venda."
+                    />
+                </div>
               </div>
             </div>
           </Card>
 
           <div className="space-y-4">
-            <Card className="border border-[rgba(148,163,184,0.14)] bg-white p-4 sm:p-5 lg:p-6">
-              <div className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <h3 className="text-lg font-semibold text-slate-950">Estilo y cierre</h3>
-                  <TrainingHelpPopover
-                    title="Estilo y cierre"
-                    description="Activa aqui los comportamientos que quieres ver en la conversacion: como habla, como recomienda y como intenta cerrar la venta."
-                  />
-                </div>
-                <div className="grid gap-3">
+            <Card className="border border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcfd_100%)] p-4 shadow-[0_20px_44px_-38px_rgba(15,23,42,0.18)] sm:p-5">
+              <div className="space-y-3.5">
+                <SectionHeader
+                  title="Estilo y cierre"
+                  helpText="Activa aqui los comportamientos que quieres ver en la conversacion: como habla, como recomienda y como intenta cerrar la venta."
+                />
+                <div className="grid gap-2.5">
                   <ToggleField name="useEmojis" title="Usar emojis" description="Puede usarlos con moderacion." defaultChecked={training.useEmojis} helpText="Activalo si tu marca se comunica de forma cercana y natural. Si tu negocio es mas serio, puedes dejarlo apagado." />
                   <ToggleField name="useExpressivePunctuation" title="Usar ! y ?" description="Usa signos expresivos cuando suene natural." defaultChecked={training.useExpressivePunctuation} helpText="Permite respuestas con mas energia cuando encajen con la conversacion, sin sonar exagerado." />
                   <ToggleField name="useTuteo" title="Tutear al cliente" description="Habla de tu en lugar de usted." defaultChecked={training.useTuteo} helpText="Enciendelo si tu negocio habla de forma cercana. Apagalo si prefieres una comunicacion mas formal o neutra." />
@@ -280,19 +286,18 @@ export default async function AgentTrainingPage({ params }: PageProps) {
               </div>
             </Card>
 
-            <Card className="border border-[rgba(148,163,184,0.14)] bg-white p-4 sm:p-5 lg:p-6">
-              <div className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <Shield className="h-5 w-5 text-[var(--primary)]" />
-                  <h3 className="text-lg font-semibold text-slate-950">Reglas importantes</h3>
-                  <TrainingHelpPopover
+            <Card className="border border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcfd_100%)] p-4 shadow-[0_20px_44px_-38px_rgba(15,23,42,0.18)] sm:p-5">
+              <div className="space-y-3.5">
+                <div className="flex items-center justify-between gap-3">
+                  <SectionHeader
                     title="Reglas importantes"
-                    description="Estas reglas protegen al negocio para que el agente no invente informacion ni haga promesas incorrectas."
+                    helpText="Estas reglas protegen al negocio para que el agente no invente informacion ni haga promesas incorrectas."
                   />
+                  <Shield className="h-4.5 w-4.5 shrink-0 text-[var(--primary)]" />
                 </div>
-                <div className="grid gap-3">
+                <div className="grid gap-2.5">
                   {forbiddenRuleOptions.map((rule) => (
-                    <label key={rule} className="flex items-center gap-3 rounded-[20px] border border-[rgba(148,163,184,0.14)] bg-slate-50 px-4 py-3">
+                    <label key={rule} className="flex items-center gap-2.5 rounded-[16px] border border-[rgba(148,163,184,0.12)] bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] px-3.5 py-2.5 transition hover:border-[color-mix(in_srgb,var(--primary)_28%,white)]">
                       <input
                         type="checkbox"
                         name="forbiddenRules"
@@ -300,12 +305,12 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                         defaultChecked={training.forbiddenRules.includes(rule)}
                         className="h-4 w-4 rounded border-slate-300 text-[var(--primary)] focus:ring-[var(--primary)]"
                       />
-                      <span className="text-sm text-slate-700">{rule}</span>
+                      <span className="text-[13px] leading-5 text-slate-700">{rule}</span>
                     </label>
                   ))}
                 </div>
-                <label className="space-y-2">
-                  <span className="inline-flex items-center gap-2 text-sm font-medium text-slate-700">
+                <label className="space-y-1.5">
+                  <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-slate-700">
                     <span>Otras reglas especificas del negocio</span>
                     <TrainingHelpPopover
                       title="Otras reglas del negocio"
@@ -314,26 +319,16 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                   </span>
                   <textarea
                     name="customRules"
-                    rows={5}
+                    rows={4}
                     defaultValue={training.customRules}
-                    className="flex w-full rounded-[24px] border border-[rgba(148,163,184,0.18)] bg-white px-4 py-4 text-sm leading-7 text-slate-800 outline-none transition focus:border-[var(--primary)]"
+                    className="flex w-full rounded-[20px] border border-[rgba(148,163,184,0.16)] bg-white px-3.5 py-3 text-[13px] leading-6 text-slate-800 outline-none transition focus:border-[var(--primary)]"
                   />
                 </label>
               </div>
             </Card>
-
-            <div className="flex justify-end">
-              <button
-                type="submit"
-                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-5 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)] sm:w-auto"
-              >
-                <Save className="h-4 w-4" />
-                Guardar entrenamiento
-              </button>
-            </div>
           </div>
         </div>
-      </form>
+      </AgentTrainingAutosaveForm>
     </AgentPanelShell>
   );
 }

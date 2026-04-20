@@ -53,9 +53,36 @@ export default async function ClienteAgentePanelPage({ params }: PageProps) {
     redirect("/cliente/agentes?error=Agente+no+encontrado");
   }
 
+  let copilotMessages: Array<{ id: string; role: string; content: string }> = [];
+  try {
+    copilotMessages = await prisma.$queryRaw<Array<{ id: string; role: string; content: string }>>`
+      SELECT "id", "role", "content"
+      FROM "AgentCopilotMessage"
+      WHERE "agentId" = ${agent.id} AND "workspaceId" = ${membership.workspace.id}
+      ORDER BY "createdAt" ASC
+      LIMIT 200
+    `;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (
+      !message.includes('relation "AgentCopilotMessage" does not exist') &&
+      !message.includes('tabla "AgentCopilotMessage" no existe') &&
+      !message.includes('Table "public.AgentCopilotMessage" does not exist')
+    ) {
+      throw error;
+    }
+  }
+
   return (
     <AgentPanelShell agentId={agent.id}>
-      <AgentPromptCopilot agentId={agent.id} />
+      <AgentPromptCopilot
+        agentId={agent.id}
+        initialMessages={copilotMessages.map((message) => ({
+          id: message.id,
+          role: message.role as "user" | "assistant",
+          content: message.content,
+        }))}
+      />
     </AgentPanelShell>
   );
 }

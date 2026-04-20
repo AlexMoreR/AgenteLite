@@ -77,10 +77,12 @@ export function AppShell({
   const isMarketingHome = pathname === "/";
   const isAuthPath = pathname === "/login" || pathname === "/register";
   const isAgentWorkspacePath = pathname.startsWith("/cliente/agentes/");
+  const isAgentCopilotPath = /^\/cliente\/agentes\/[^/]+$/.test(pathname);
   const isChatWorkspacePath = pathname.startsWith("/cliente/chats");
   const isFlowsWorkspacePath = pathname.startsWith("/cliente/flujos");
   const isFinanzasPath = pathname.startsWith("/cliente/finanzas");
   const isFinanzasAssistantPath = pathname.startsWith("/cliente/finanzas/asistente");
+  const isViewportLockedWorkspacePath = isChatWorkspacePath || isFinanzasPath || isAgentCopilotPath;
   const isFullHeightWorkspacePath = isAgentWorkspacePath || isChatWorkspacePath || isFlowsWorkspacePath || isFinanzasPath;
   const showClientPlanAlert = Boolean(user?.role === "CLIENTE" && pathname.startsWith("/cliente") && clientPlanAlert);
   const showClientPlanBlock = Boolean(user?.role === "CLIENTE" && pathname.startsWith("/cliente") && clientPlanBlock?.isExpired);
@@ -260,7 +262,7 @@ export function AppShell({
         <div
           className={cn(
             "admin-print-shell flex min-h-screen",
-            (isChatWorkspacePath || isFinanzasPath) && "chat-app-frame min-h-svh h-svh overflow-hidden md:min-h-screen md:h-dvh",
+            isViewportLockedWorkspacePath && "chat-app-frame min-h-svh h-svh overflow-hidden md:min-h-screen md:h-dvh",
           )}
         >
           <AppSidebar
@@ -278,8 +280,7 @@ export function AppShell({
           <SidebarInset
             className={cn(
               "admin-print-inset",
-              (isChatWorkspacePath || isFinanzasPath) &&
-                "chat-app-shell min-h-svh h-svh overflow-hidden md:min-h-0 md:h-dvh",
+              isViewportLockedWorkspacePath && "chat-app-shell min-h-svh h-svh overflow-hidden md:min-h-0 md:h-dvh",
             )}
           >
             <header
@@ -321,7 +322,7 @@ export function AppShell({
                         isFinanzasPath ? "md:p-2" : "md:p-4",
                       )
                     : "p-3 md:p-4",
-                  isChatWorkspacePath && "chat-app-main",
+                  isViewportLockedWorkspacePath && "chat-app-main",
                 )}
               >
               {showClientPlanAlert && clientPlanAlert ? <ClientPlanWarningBar {...clientPlanAlert} /> : null}

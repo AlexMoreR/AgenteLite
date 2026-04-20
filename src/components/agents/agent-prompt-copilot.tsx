@@ -1,21 +1,24 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { SendHorizonal, Sparkles } from "lucide-react";
+import type { ResponseLength, SalesTone, TargetAudience } from "@/lib/agent-training";
 import {
   applyAgentPromptCopilotChangesAction,
+  importAgentPromptCopilotHistoryAction,
   runAgentPromptCopilotAction,
 } from "@/app/actions/agent-actions";
+import { ChatScrollAnchor } from "@/components/agents/chat-scroll-anchor";
 
 type AgentCopilotPatch = {
   businessName?: string;
   businessDescription?: string;
-  targetAudiences?: string[];
+  targetAudiences?: TargetAudience[];
   priceRangeMin?: string;
   priceRangeMax?: string;
-  salesTone?: string;
-  responseLength?: string;
+  salesTone?: SalesTone;
+  responseLength?: ResponseLength;
   useEmojis?: boolean;
   useExpressivePunctuation?: boolean;
   useTuteo?: boolean;
@@ -42,32 +45,185 @@ type PendingSuggestion = {
   promptPreview: string | null;
 };
 
+type PersistedCopilotState = {
+  draft: string;
+  pendingSuggestion: PendingSuggestion | null;
+  feedback: string | null;
+};
+
+type LegacyPersistedCopilotState = PersistedCopilotState & {
+  messages?: CopilotMessage[];
+};
+
 let copilotMessageSequence = 0;
+
+const defaultWelcomeMessage: CopilotMessage = {
+  id: "assistant-welcome",
+  role: "assistant",
+  content:
+    "Soy tu copiloto del agente. Puedes pedirme que mejore el tono, agregue reglas, quite comportamientos o restructure el prompt para tu negocio.",
+};
 
 function createCopilotMessageId(prefix: string) {
   copilotMessageSequence += 1;
   return `${prefix}-${copilotMessageSequence}`;
 }
 
+function normalizeCopilotMessages(rawMessages: unknown): CopilotMessage[] {
+  if (!Array.isArray(rawMessages) || rawMessages.length === 0) {
+    return [];
+  }
+
+  const seenIds = new Set<string>();
+  const normalizedMessages = rawMessages
+    .map((item, index) => {
+      if (!item || typeof item !== "object") {
+        return null;
+      }
+
+      const rawRole = "role" in item ? item.role : null;
+      const rawContent = "content" in item ? item.content : null;
+      const rawId = "id" in item ? item.id : null;
+
+      if ((rawRole !== "assistant" && rawRole !== "user") || typeof rawContent !== "string" || !rawContent.trim()) {
+        return null;
+      }
+
+      const fallbackId = `${rawRole}-${index + 1}`;
+      let nextId = typeof rawId === "string" && rawId.trim() ? rawId.trim() : fallbackId;
+
+      if (seenIds.has(nextId)) {
+        nextId = `${fallbackId}-${index + 1}`;
+      }
+
+      seenIds.add(nextId);
+
+      return {
+        id: nextId,
+        role: rawRole,
+        content: rawContent.trim(),
+      } satisfies CopilotMessage;
+    })
+    .filter((item): item is CopilotMessage => item !== null);
+
+  return normalizedMessages;
+}
+
+function withWelcomeMessage(messages: CopilotMessage[]) {
+  return messages.length > 0 ? messages : [defaultWelcomeMessage];
+}
+
+function stripWelcomeMessage(messages: CopilotMessage[]) {
+  return messages.filter((message) => message.id !== defaultWelcomeMessage.id);
+}
+
+function syncCopilotMessageSequence(messages: CopilotMessage[]) {
+  const highestSuffix = messages.reduce((maxValue, message) => {
+    const match = message.id.match(/-(\d+)$/);
+    if (!match) {
+      return maxValue;
+    }
+
+    const parsed = Number.parseInt(match[1] || "0", 10);
+    return Number.isFinite(parsed) ? Math.max(maxValue, parsed) : maxValue;
+  }, 0);
+
+  copilotMessageSequence = Math.max(copilotMessageSequence, highestSuffix);
+}
+
 export function AgentPromptCopilot({
   agentId,
+  initialMessages,
 }: {
   agentId: string;
+  initialMessages: CopilotMessage[];
 }) {
   const router = useRouter();
+  const storageKey = `agent-prompt-copilot:v3:${agentId}`;
+  const legacyStorageKey = `agent-prompt-copilot:v2:${agentId}`;
+  const initialMessagesRef = useRef<CopilotMessage[] | null>(null);
+  if (initialMessagesRef.current === null) {
+    initialMessagesRef.current = normalizeCopilotMessages(initialMessages);
+    syncCopilotMessageSequence(initialMessagesRef.current);
+  }
+
+  const normalizedInitialMessages = initialMessagesRef.current;
+  const hasHydratedRef = useRef(false);
+  const hasImportedLegacyRef = useRef(false);
+  const initialConversationCountRef = useRef(normalizedInitialMessages.length);
   const [draft, setDraft] = useState("");
-  const [messages, setMessages] = useState<CopilotMessage[]>([
-    {
-      id: "assistant-welcome",
-      role: "assistant",
-      content:
-        "Soy tu copiloto del agente. Puedes pedirme que mejore el tono, agregue reglas, quite comportamientos o restructure el prompt para tu negocio.",
-    },
-  ]);
+  const [messages, setMessages] = useState<CopilotMessage[]>(withWelcomeMessage(normalizedInitialMessages));
   const [pendingSuggestion, setPendingSuggestion] = useState<PendingSuggestion | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [isSending, startSendTransition] = useTransition();
   const [isApplying, startApplyTransition] = useTransition();
+  const [, startImportTransition] = useTransition();
+  const lastMessageId = messages[messages.length - 1]?.id ?? "empty";
+  const scrollDependencyKey = `${messages.length}-${lastMessageId}-${pendingSuggestion ? "suggestion" : "clean"}-${
+    isSending ? "sending" : "idle"
+  }`;
+
+  useEffect(() => {
+    try {
+      const rawState = window.localStorage.getItem(storageKey);
+      if (rawState) {
+        const parsedState = JSON.parse(rawState) as Partial<PersistedCopilotState>;
+        setDraft(typeof parsedState.draft === "string" ? parsedState.draft : "");
+        setPendingSuggestion(parsedState.pendingSuggestion ?? null);
+        setFeedback(typeof parsedState.feedback === "string" ? parsedState.feedback : null);
+      }
+
+      const rawLegacyState = window.localStorage.getItem(legacyStorageKey);
+      if (rawLegacyState) {
+        const parsedLegacyState = JSON.parse(rawLegacyState) as Partial<LegacyPersistedCopilotState>;
+        const normalizedLegacyMessages = normalizeCopilotMessages(parsedLegacyState.messages);
+        const legacyConversation = stripWelcomeMessage(normalizedLegacyMessages);
+
+        if (legacyConversation.length > 0 && initialConversationCountRef.current === 0 && !hasImportedLegacyRef.current) {
+          hasImportedLegacyRef.current = true;
+          syncCopilotMessageSequence(legacyConversation);
+          setMessages(withWelcomeMessage(legacyConversation));
+          startImportTransition(async () => {
+            const result = await importAgentPromptCopilotHistoryAction({
+              agentId,
+              history: legacyConversation.map((message) => ({
+                role: message.role,
+                content: message.content,
+              })),
+            });
+
+            if (result.ok) {
+              window.localStorage.removeItem(legacyStorageKey);
+              router.refresh();
+            } else {
+              hasImportedLegacyRef.current = false;
+            }
+          });
+        } else if (initialConversationCountRef.current > 0) {
+          window.localStorage.removeItem(legacyStorageKey);
+        }
+      }
+    } catch {
+      setDraft("");
+      setMessages(withWelcomeMessage(initialMessagesRef.current ?? []));
+      setPendingSuggestion(null);
+      setFeedback(null);
+    } finally {
+      hasHydratedRef.current = true;
+    }
+  }, [agentId, legacyStorageKey, router, storageKey]);
+
+  useEffect(() => {
+    if (!hasHydratedRef.current) return;
+
+    const nextState: PersistedCopilotState = {
+      draft,
+      pendingSuggestion,
+      feedback,
+    };
+
+    window.localStorage.setItem(storageKey, JSON.stringify(nextState));
+  }, [draft, feedback, pendingSuggestion, storageKey]);
 
   function handleSend(prefilled?: string) {
     const message = (prefilled ?? draft).trim();
@@ -84,16 +240,11 @@ export function AgentPromptCopilot({
 
     setMessages((current) => [...current, nextUserMessage]);
 
-    const historyForAction = messages.map((item) => ({
-      role: item.role,
-      content: item.content,
-    }));
-
     startSendTransition(async () => {
       const result = await runAgentPromptCopilotAction({
         agentId,
         message,
-        history: historyForAction,
+        history: [],
       });
 
       if (!result.ok) {
@@ -152,16 +303,16 @@ export function AgentPromptCopilot({
   }
 
   return (
-    <div className="rounded-[28px] border border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] p-4 shadow-[0_24px_54px_-42px_rgba(15,23,42,0.14)] sm:p-5">
-      <div className="space-y-4">
-        <div className="max-h-[420px] space-y-3 overflow-y-auto rounded-[24px] border border-[rgba(148,163,184,0.12)] bg-slate-50/70 p-3 sm:p-4">
+    <div className="chat-app-layout flex h-full min-h-0 flex-col overflow-hidden rounded-[22px] border border-[rgba(203,213,225,0.88)] bg-white p-0 shadow-[inset_0_1px_0_rgba(255,255,255,0.98),inset_0_0_0_1px_rgba(255,255,255,0.55),0_0_0_1px_rgba(226,232,240,0.92),0_4px_10px_rgba(15,23,42,0.06),0_18px_38px_-18px_rgba(15,23,42,0.16)]">
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-white px-4 pb-[calc(env(safe-area-inset-bottom)+7rem)] pt-5 sm:px-5 sm:pb-[calc(env(safe-area-inset-bottom)+7.2rem)] md:pb-5">
           {messages.map((message) => (
             <div key={message.id} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
               <div
-                className={`max-w-[88%] rounded-[22px] px-4 py-3 text-sm leading-6 shadow-[0_10px_24px_-22px_rgba(15,23,42,0.18)] ${
+                className={`max-w-[82%] rounded-[22px] px-4 py-2.5 text-sm leading-6 shadow-[0_10px_22px_-22px_rgba(15,23,42,0.14)] ${
                   message.role === "user"
-                    ? "rounded-br-md bg-[linear-gradient(180deg,#1d4ed8_0%,#1e40af_100%)] text-white"
-                    : "rounded-bl-md border border-[rgba(148,163,184,0.12)] bg-white text-slate-800"
+                    ? "rounded-br-[8px] bg-[linear-gradient(180deg,#3b5bfd_0%,#2c4df5_100%)] text-white"
+                    : "rounded-bl-[8px] border border-[rgba(148,163,184,0.1)] bg-[#f3f5f8] text-slate-800"
                 }`}
               >
                 {message.content}
@@ -171,15 +322,15 @@ export function AgentPromptCopilot({
 
           {isSending ? (
             <div className="flex justify-start">
-              <div className="inline-flex items-center gap-2 rounded-full border border-[rgba(148,163,184,0.12)] bg-white px-4 py-2 text-sm text-slate-500">
-                <Sparkles className="h-4 w-4 animate-pulse" />
+              <div className="inline-flex items-center gap-2 rounded-full border border-[rgba(148,163,184,0.1)] bg-[#f3f5f8] px-3.5 py-2 text-sm text-slate-500">
+                <Sparkles className="h-4 w-4 animate-pulse text-[var(--primary)]" />
                 Pensando cambios...
               </div>
             </div>
           ) : null}
 
           {pendingSuggestion ? (
-            <div className="rounded-[22px] border border-[color:color-mix(in_srgb,var(--primary)_16%,white)] bg-[color:color-mix(in_srgb,var(--primary)_4%,white)] px-4 py-4">
+            <div className="rounded-[24px] border border-[rgba(59,91,253,0.12)] bg-[#f8faff] px-4 py-4">
               <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--primary)]">
                 Sugerencia lista para aplicar
               </p>
@@ -187,7 +338,7 @@ export function AgentPromptCopilot({
                 {pendingSuggestion.changeSummary.map((item) => (
                   <span
                     key={item}
-                    className="inline-flex rounded-full border border-[color:color-mix(in_srgb,var(--primary)_16%,white)] bg-white px-2.5 py-1 text-[11px] font-medium text-slate-700"
+                    className="inline-flex rounded-full border border-[rgba(148,163,184,0.14)] bg-white px-2.5 py-1 text-[11px] font-medium text-slate-700"
                   >
                     {item}
                   </span>
@@ -210,43 +361,47 @@ export function AgentPromptCopilot({
                     setFeedback(null);
                   }}
                   disabled={isApplying}
-                  className="inline-flex h-11 items-center justify-center rounded-2xl border border-[rgba(148,163,184,0.16)] px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+                  className="inline-flex h-11 items-center justify-center rounded-2xl border border-[rgba(148,163,184,0.16)] bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
                 >
                   Descartar sugerencia
                 </button>
               </div>
             </div>
           ) : null}
+
+          <ChatScrollAnchor dependencyKey={scrollDependencyKey} />
         </div>
 
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            handleSend();
-          }}
-          className="flex items-center gap-3"
-        >
-          <textarea
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            rows={1}
-            placeholder="Ej. Haz que el agente hable mas formal, quite emojis y agregue una regla para no prometer tiempos de entrega."
-            className="h-12 min-h-12 flex-1 resize-none rounded-[24px] border border-[rgba(148,163,184,0.16)] bg-white px-4 py-[0.8rem] text-sm leading-5 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-[var(--primary)]"
-            disabled={isSending || isApplying}
-          />
-          <button
-            type="submit"
-            disabled={isSending || isApplying || !draft.trim()}
-            className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[var(--primary)] text-white transition hover:bg-[var(--primary-strong)] disabled:opacity-50"
-            aria-label="Enviar instruccion al copiloto"
-          >
-            <SendHorizonal className="h-4.5 w-4.5" />
-          </button>
-        </form>
+        <div className="chat-composer sticky bottom-[calc(env(safe-area-inset-bottom)+5.95rem)] z-20 shrink-0 border-t border-[rgba(148,163,184,0.1)] bg-white px-4 pb-3 pt-3 sm:px-5 md:static md:border-t md:pb-4">
+          {feedback ? (
+            <div className="mb-3 rounded-[18px] bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{feedback}</div>
+          ) : null}
 
-        {feedback ? (
-          <div className="rounded-[18px] bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{feedback}</div>
-        ) : null}
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              handleSend();
+            }}
+            className="flex items-center gap-3"
+          >
+            <textarea
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              rows={1}
+              placeholder="Ej. Haz que el agente hable mas formal, quite emojis y agregue una regla para no prometer tiempos de entrega."
+              className="h-12 min-h-12 flex-1 resize-none rounded-full border border-transparent bg-[#eef1f5] px-4 py-[0.8rem] text-sm leading-5 text-slate-800 outline-none transition placeholder:text-slate-500 focus:border-[color-mix(in_srgb,var(--primary)_18%,white)] focus:bg-white"
+              disabled={isSending || isApplying}
+            />
+            <button
+              type="submit"
+              disabled={isSending || isApplying || !draft.trim()}
+              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--primary)] text-white transition hover:bg-[var(--primary-strong)] disabled:bg-[color-mix(in_srgb,var(--primary)_40%,white)] disabled:text-white/90"
+              aria-label="Enviar instruccion al copiloto"
+            >
+              <SendHorizonal className="h-4 w-4" />
+            </button>
+          </form>
+        </div>
       </div>
     </div>
   );

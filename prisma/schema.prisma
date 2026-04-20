@@ -195,6 +195,7 @@ model Workspace {
   financeGoogleSheet   FinanceGoogleSheet?
   financeAgentConfig   FinanceAgentConfig?
   financeChatMessages  FinanceChatMessage[]
+  agentCopilotMessages AgentCopilotMessage[]
 
   @@index([ownerId])
 }
@@ -235,6 +236,7 @@ model Agent {
   channels            WhatsAppChannel[]
   conversations       Conversation[]
   messages            Message[]
+  copilotMessages     AgentCopilotMessage[]
 
   @@unique([workspaceId, slug])
   @@index([workspaceId, status])
@@ -628,6 +630,19 @@ model FinanceChatMessage {
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, createdAt])
+}
+
+model AgentCopilotMessage {
+  id          String    @id @default(cuid())
+  workspaceId String
+  agentId     String
+  role        String
+  content     String    @db.Text
+  createdAt   DateTime  @default(now())
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  agent       Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, agentId, createdAt])
 }
 
 model FinanceAgentConfig {

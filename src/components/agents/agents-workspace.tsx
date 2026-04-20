@@ -287,9 +287,6 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
                             WhatsApp
                           </span>
                         </div>
-                        <p className="mt-1 truncate text-sm text-slate-600">
-                          {agent.description || "Aun no tiene descripcion comercial."}
-                        </p>
                       </div>
 
                       <div className="hidden shrink-0 items-center gap-8 lg:flex">

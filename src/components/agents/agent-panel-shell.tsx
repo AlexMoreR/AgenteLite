@@ -58,7 +58,11 @@ export function AgentPanelShell({ agentId, children, hideMobileNav = false }: Ag
         </nav>
       </div>
 
-      <div className={`mt-0 flex-1 md:mt-0 ${!shouldHideMobileNav ? "pb-[calc(env(safe-area-inset-bottom)+5.75rem)] md:pb-0" : ""}`}>
+      <div
+        className={`mt-0 flex min-h-0 flex-1 flex-col overflow-hidden md:mt-0 ${
+          !shouldHideMobileNav ? "pb-[calc(env(safe-area-inset-bottom)+5.75rem)] md:pb-0" : ""
+        }`}
+      >
         {children}
       </div>
 
