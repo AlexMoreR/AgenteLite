@@ -6,6 +6,7 @@ import { z } from "zod";
 import { auth } from "@/auth";
 import { generateUniqueAgentSlug } from "@/lib/agent";
 import {
+  type AgentKnowledgePromptProduct,
   buildAgentSystemPrompt,
   buildAgentTrainingConfig,
   buildFallbackMessage,
@@ -96,6 +97,11 @@ const simulateAgentReplySchema = z.object({
 
 const updateAgentTrainingSchema = createAgentSchema.extend({
   agentId: z.string().trim().min(1, "Agente invalido"),
+});
+
+const saveAgentKnowledgeProductsSchema = z.object({
+  agentId: z.string().trim().min(1, "Agente invalido"),
+  productIds: z.array(z.string().trim().min(1)).max(60, "Demasiados productos seleccionados"),
 });
 
 export type AgentTrainingAutosaveState = {
@@ -225,6 +231,38 @@ function isMissingAgentCopilotTableError(error: unknown) {
     message.includes('tabla "AgentCopilotMessage" no existe') ||
     message.includes('Table "public.AgentCopilotMessage" does not exist')
   );
+}
+
+function isMissingAgentKnowledgeTableError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes('relation "AgentKnowledgeProduct" does not exist') ||
+    message.includes('tabla "AgentKnowledgeProduct" no existe') ||
+    message.includes('Table "public.AgentKnowledgeProduct" does not exist')
+  );
+}
+
+async function getAgentKnowledgePromptProducts(agentId: string) {
+  try {
+    return await prisma.$queryRaw<Array<AgentKnowledgePromptProduct>>`
+      SELECT
+        p."name",
+        p."description",
+        p."thumbnailUrl",
+        p."price"::text AS "price"
+      FROM "AgentKnowledgeProduct" akp
+      INNER JOIN "Product" p ON p."id" = akp."productId"
+      WHERE akp."agentId" = ${agentId}
+      ORDER BY akp."createdAt" ASC, p."name" ASC
+      LIMIT 30
+    `;
+  } catch (error) {
+    if (isMissingAgentKnowledgeTableError(error)) {
+      return [];
+    }
+
+    throw error;
+  }
 }
 
 async function getAgentCopilotMessages(workspaceId: string, agentId: string, limit: number) {
@@ -451,6 +489,7 @@ async function persistAgentTraining(
     customRules: input.customRules,
   });
   const nextAgentName = `Asistente ${input.businessName}`;
+  const knowledgeProducts = await getAgentKnowledgePromptProducts(agent.id);
 
   await prisma.agent.update({
     where: { id: agent.id },
@@ -462,6 +501,7 @@ async function persistAgentTraining(
         agentName: nextAgentName,
         businessName: input.businessName,
         training,
+        knowledgeProducts,
       }),
       welcomeMessage: buildWelcomeMessage({
         agentName: nextAgentName,
@@ -943,6 +983,7 @@ export async function applyAgentPromptCopilotChangesAction(input: {
   const nextTraining = mergeAgentCopilotPatchIntoTraining(currentTraining, changes);
   const nextBusinessName = changes.businessName?.trim() || agent.workspace.name;
   const nextAgentName = `Asistente ${nextBusinessName}`;
+  const knowledgeProducts = await getAgentKnowledgePromptProducts(agent.id);
 
   await prisma.agent.update({
     where: { id: agent.id },
@@ -954,6 +995,7 @@ export async function applyAgentPromptCopilotChangesAction(input: {
         agentName: nextAgentName,
         businessName: nextBusinessName,
         training: nextTraining,
+        knowledgeProducts,
       }),
       welcomeMessage: buildWelcomeMessage({
         agentName: nextAgentName,
@@ -977,6 +1019,110 @@ export async function applyAgentPromptCopilotChangesAction(input: {
   revalidatePath(`/cliente/agentes/${agent.id}/entrenamiento`);
 
   return { ok: true, message: "Cambios aplicados al agente" };
+}
+
+export async function saveAgentKnowledgeProductsAction(formData: FormData): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+    redirect("/unauthorized");
+  }
+
+  const parsed = saveAgentKnowledgeProductsSchema.safeParse({
+    agentId: formData.get("agentId"),
+    productIds: formData.getAll("productIds"),
+  });
+
+  const fallbackAgentId = String(formData.get("agentId") || "");
+  if (!parsed.success) {
+    redirect(`/cliente/agentes/${fallbackAgentId}/conocimiento?error=No+se+pudo+guardar+el+conocimiento`);
+  }
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    redirect("/cliente/agentes?error=Debes+configurar+tu+negocio+primero");
+  }
+
+  const agent = await prisma.agent.findFirst({
+    where: {
+      id: parsed.data.agentId,
+      workspaceId: membership.workspace.id,
+    },
+    select: {
+      id: true,
+      name: true,
+      trainingConfig: true,
+      workspace: {
+        select: {
+          name: true,
+        },
+      },
+    },
+  });
+
+  if (!agent) {
+    redirect("/cliente/agentes?error=Agente+no+encontrado");
+  }
+
+  const uniqueProductIds = Array.from(new Set(parsed.data.productIds.map((item) => item.trim()).filter(Boolean)));
+  const products = uniqueProductIds.length
+    ? await prisma.product.findMany({
+        where: {
+          id: {
+            in: uniqueProductIds,
+          },
+        },
+        select: {
+          id: true,
+        },
+      })
+    : [];
+
+  if (products.length !== uniqueProductIds.length) {
+    redirect(`/cliente/agentes/${agent.id}/conocimiento?error=Uno+o+mas+productos+no+existen`);
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`
+        DELETE FROM "AgentKnowledgeProduct"
+        WHERE "agentId" = ${agent.id}
+      `;
+
+      for (const productId of uniqueProductIds) {
+        await tx.$executeRaw`
+          INSERT INTO "AgentKnowledgeProduct" ("agentId", "productId")
+          VALUES (${agent.id}, ${productId})
+        `;
+      }
+    });
+  } catch (error) {
+    if (!isMissingAgentKnowledgeTableError(error)) {
+      throw error;
+    }
+
+    redirect(`/cliente/agentes/${agent.id}/conocimiento?error=Debes+aplicar+la+migracion+de+conocimiento`);
+  }
+
+  const training = parseAgentTrainingConfig(agent.trainingConfig) ?? defaultAgentTrainingConfig;
+  const knowledgeProducts = await getAgentKnowledgePromptProducts(agent.id);
+
+  await prisma.agent.update({
+    where: { id: agent.id },
+    data: {
+      systemPrompt: buildAgentSystemPrompt({
+        agentName: agent.name,
+        businessName: agent.workspace.name,
+        training,
+        knowledgeProducts,
+      }),
+    },
+  });
+
+  revalidatePath(`/cliente/agentes/${agent.id}`);
+  revalidatePath(`/cliente/agentes/${agent.id}/conocimiento`);
+  revalidatePath(`/cliente/agentes/${agent.id}/entrenamiento`);
+  revalidatePath(`/cliente/agentes/${agent.id}/probar`);
+  redirect(`/cliente/agentes/${agent.id}/conocimiento?ok=Conocimiento+actualizado`);
 }
 
 export async function deleteAgentAction(formData: FormData): Promise<void> {

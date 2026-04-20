@@ -6,7 +6,7 @@ export function FinanzasEntryWorkspace() {
     <section className="mx-auto flex min-h-[calc(100dvh-12rem)] w-full max-w-5xl items-center justify-center px-4 py-10 sm:px-6">
       <div className="w-full rounded-[32px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] p-6 shadow-[0_24px_60px_-42px_rgba(15,23,42,0.2)] sm:p-8">
         <div className="mx-auto flex max-w-2xl flex-col items-center text-center">
-          <span className="inline-flex h-16 w-16 items-center justify-center rounded-[22px] bg-[linear-gradient(135deg,#1b2748_0%,#223463_100%)] text-white shadow-[0_18px_40px_-24px_rgba(15,23,42,0.55)]">
+          <span className="inline-flex h-16 w-16 items-center justify-center rounded-[22px] bg-[linear-gradient(135deg,var(--primary)_0%,var(--primary-strong)_100%)] text-white shadow-[0_18px_40px_-24px_color-mix(in_srgb,var(--primary)_42%,black)]">
             <Bot className="h-8 w-8" />
           </span>
 
@@ -19,7 +19,7 @@ export function FinanzasEntryWorkspace() {
 
           <Link
             href="/cliente/finanzas/asistente"
-            className="mt-8 inline-flex items-center gap-2 rounded-full bg-[linear-gradient(135deg,#1b2748_0%,#223463_100%)] px-6 py-3 text-sm font-semibold text-white shadow-[0_18px_40px_-24px_rgba(15,23,42,0.55)] transition hover:scale-[1.01] hover:shadow-[0_24px_48px_-24px_rgba(15,23,42,0.65)]"
+            className="mt-8 inline-flex items-center gap-2 rounded-full bg-[linear-gradient(135deg,var(--primary)_0%,var(--primary-strong)_100%)] px-6 py-3 text-sm font-semibold text-white shadow-[0_18px_40px_-24px_color-mix(in_srgb,var(--primary)_42%,black)] transition hover:scale-[1.01] hover:shadow-[0_24px_48px_-24px_color-mix(in_srgb,var(--primary)_52%,black)]"
           >
             <Bot className="h-4 w-4" />
             Ingresar

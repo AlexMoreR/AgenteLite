@@ -86,6 +86,13 @@ export type AgentTrainingConfig = {
   customRules: string;
 };
 
+export type AgentKnowledgePromptProduct = {
+  name: string;
+  description?: string | null;
+  price?: string | null;
+  thumbnailUrl?: string | null;
+};
+
 export const defaultAgentTrainingConfig: AgentTrainingConfig = {
   businessDescription: "",
   targetAudiences: ["Mujer"],
@@ -160,6 +167,7 @@ export function buildAgentSystemPrompt(input: {
   agentName: string;
   businessName: string;
   training: AgentTrainingConfig;
+  knowledgeProducts?: AgentKnowledgePromptProduct[];
 }) {
   const { agentName, businessName, training } = input;
   const voiceRules = [
@@ -226,6 +234,32 @@ export function buildAgentSystemPrompt(input: {
     ? guardrails
     : ["No inventes informacion.", "No prometas algo que el negocio no pueda cumplir."];
 
+  const knowledgeProducts = (input.knowledgeProducts ?? [])
+    .map((product) => {
+      const name = product.name.trim();
+      if (!name) {
+        return null;
+      }
+
+      const summary = [`Producto: ${name}`];
+      if (product.description?.trim()) {
+        summary.push(`Descripcion: ${product.description.trim()}`);
+      }
+      if (product.price?.trim()) {
+        summary.push(`Precio de referencia: ${product.price.trim()}`);
+      }
+      if (product.thumbnailUrl?.trim()) {
+        summary.push(`Imagen de referencia: ${product.thumbnailUrl.trim()}`);
+      }
+
+      return summary.join(" | ");
+    })
+    .filter((item): item is string => Boolean(item));
+
+  const knowledgeSection = knowledgeProducts.length
+    ? `CONOCIMIENTO DE PRODUCTOS\n- ${knowledgeProducts.join("\n- ")}\n- Usa esta base para responder con precision sobre esos productos.\n- Si te preguntan por algo fuera de esta base, no lo inventes y aclara que debes confirmarlo.`
+    : null;
+
   const sections = [
     `ROL\nEres ${agentName}, vendedor virtual por WhatsApp de ${businessName}. Actuas como una persona real del negocio y tu trabajo es vender con claridad, precision y criterio comercial.`,
     `OBJETIVO\nTu objetivo es entender lo que necesita el cliente, responder solo dentro de la realidad del negocio y llevar la conversacion hacia una venta real o al siguiente paso correcto.`,
@@ -233,9 +267,10 @@ export function buildAgentSystemPrompt(input: {
     `CONTEXTO DEL NEGOCIO\n- ${businessRules.join("\n- ")}`,
     `COMO HABLAS\n- ${voiceRules.join("\n- ")}`,
     `COMPORTAMIENTO DE VENTA\n- ${salesBehaviors.join("\n- ")}`,
+    knowledgeSection,
     `COSAS QUE NUNCA DEBES HACER\n- ${strictRules.join("\n- ")}`,
     `FORMA DE RESPONDER\n- Responde en texto plano para WhatsApp.\n- Prioriza mensajes claros, utiles y faciles de leer.\n- No des listas largas salvo que ayuden a vender o aclarar opciones.\n- Cuando puedas, termina con un siguiente paso concreto.`,
-  ];
+  ].filter(Boolean) as string[];
 
   return sections.join("\n\n");
 }

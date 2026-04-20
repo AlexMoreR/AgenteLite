@@ -237,6 +237,7 @@ model Agent {
   conversations       Conversation[]
   messages            Message[]
   copilotMessages     AgentCopilotMessage[]
+  knowledgeProducts   AgentKnowledgeProduct[]
 
   @@unique([workspaceId, slug])
   @@index([workspaceId, status])
@@ -329,6 +330,18 @@ model Product {
   images             ProductImage[]
   suppliers          ProductSupplier[]
   quoteItems         QuoteItem[]
+  agentKnowledge     AgentKnowledgeProduct[]
+}
+
+model AgentKnowledgeProduct {
+  agentId    String
+  productId  String
+  createdAt  DateTime @default(now())
+  agent      Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@id([agentId, productId])
+  @@index([productId])
 }
 
 model ProductImage {
