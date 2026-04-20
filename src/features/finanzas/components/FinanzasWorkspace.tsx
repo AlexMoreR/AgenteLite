@@ -459,11 +459,11 @@ export function FinanzasWorkspace({
   const isBusy = isPending || isThinking;
 
   useEffect(() => {
-    const scrollTarget = endRef.current;
-    if (!scrollTarget) return;
+    const feed = feedRef.current;
+    if (!feed) return;
 
     const frame = window.requestAnimationFrame(() => {
-      scrollTarget.scrollIntoView({ block: "end" });
+      feed.scrollTop = feed.scrollHeight;
     });
 
     return () => window.cancelAnimationFrame(frame);
@@ -555,13 +555,13 @@ export function FinanzasWorkspace({
   }
 
   return (
-    <div className="chat-app-layout flex min-h-dvh flex-1 flex-col overflow-visible bg-[var(--background)] md:h-full md:min-h-0 md:overflow-hidden">
-      <div className="flex flex-1 flex-col overflow-visible px-0 py-0 md:min-h-0 md:overflow-hidden md:px-2 md:py-2 lg:px-3">
-        <div className="mx-auto grid w-full max-w-7xl flex-1 gap-1.5 md:h-full md:min-h-0">
-          <div className="flex flex-col overflow-visible rounded-none border-0 bg-white text-slate-900 shadow-none md:min-h-0 md:overflow-hidden md:rounded-[22px] md:border md:border-[rgba(203,213,225,0.88)] md:shadow-[inset_0_1px_0_rgba(255,255,255,0.98),inset_0_0_0_1px_rgba(255,255,255,0.55),0_0_0_1px_rgba(226,232,240,0.92),0_4px_10px_rgba(15,23,42,0.06),0_18px_38px_-18px_rgba(15,23,42,0.16)]">
+    <div className="chat-app-layout flex min-h-[calc(100dvh-8rem)] flex-1 flex-col bg-[var(--background)] md:h-full md:min-h-0 md:overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col px-0 py-0 md:px-2 md:py-2 lg:px-3">
+        <div className="mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-none border-0 bg-white text-slate-900 shadow-none md:rounded-[22px] md:border md:border-[rgba(203,213,225,0.88)] md:shadow-[inset_0_1px_0_rgba(255,255,255,0.98),inset_0_0_0_1px_rgba(255,255,255,0.55),0_0_0_1px_rgba(226,232,240,0.92),0_4px_10px_rgba(15,23,42,0.06),0_18px_38px_-18px_rgba(15,23,42,0.16)]">
 
             {/* Summary bar */}
-            <div className="relative z-10 border-b border-[rgba(148,163,184,0.08)] bg-white px-3 py-2 sm:px-4 sm:py-2 md:shadow-[0_1px_0_rgba(226,232,240,0.85),0_8px_10px_-12px_rgba(15,23,42,0.08)]">
+            <div className="sticky top-0 z-10 border-b border-[rgba(148,163,184,0.08)] bg-white px-3 py-2 sm:px-4 sm:py-2 md:static md:shadow-[0_1px_0_rgba(226,232,240,0.85),0_8px_10px_-12px_rgba(15,23,42,0.08)]">
               <div className="relative flex items-center justify-center">
                 <div className="grid w-full grid-cols-3 gap-1.5 px-9 sm:hidden">
                   <button
@@ -679,7 +679,7 @@ export function FinanzasWorkspace({
             {/* Chat feed */}
             <div
               ref={feedRef}
-              className="bg-white px-4 py-4 pb-4 sm:px-5 sm:py-5 sm:pb-5 md:min-h-0 md:flex-1 md:overflow-y-auto md:overscroll-contain md:pb-5 md:[-webkit-overflow-scrolling:touch] md:[scrollbar-width:thin] md:[scrollbar-color:rgba(148,163,184,0.26)_transparent] md:[&::-webkit-scrollbar]:w-1.5 md:[&::-webkit-scrollbar-track]:bg-transparent md:[&::-webkit-scrollbar-thumb]:rounded-full md:[&::-webkit-scrollbar-thumb]:bg-slate-300 md:[&::-webkit-scrollbar-thumb:hover]:bg-slate-400"
+              className="min-h-0 flex-1 overflow-y-auto bg-[linear-gradient(180deg,#fbfcff_0%,#f8fafc_100%)] px-3 py-3 pb-28 sm:px-5 sm:py-5 sm:pb-5 md:bg-white md:pb-5 md:[-webkit-overflow-scrolling:touch] md:[scrollbar-width:thin] md:[scrollbar-color:rgba(148,163,184,0.26)_transparent] md:[&::-webkit-scrollbar]:w-1.5 md:[&::-webkit-scrollbar-track]:bg-transparent md:[&::-webkit-scrollbar-thumb]:rounded-full md:[&::-webkit-scrollbar-thumb]:bg-slate-300 md:[&::-webkit-scrollbar-thumb:hover]:bg-slate-400"
             >
               {chatEvents.length <= 1 && transactions.length === 0 ? (
                 <div className="flex h-full flex-col items-center justify-center px-4 py-16 text-center">
@@ -692,12 +692,12 @@ export function FinanzasWorkspace({
                   </p>
                 </div>
               ) : (
-                <div className="space-y-3">
+                <div className="space-y-3.5 sm:space-y-3">
                   {chatEvents.map((event, index) => {
                     if (event.kind === "user") {
                       return (
                         <div key={event.id} className="flex justify-end">
-                          <div className="max-w-[84%] rounded-[22px] rounded-br-[8px] bg-[linear-gradient(180deg,#3b5bfd_0%,#2c4df5_100%)] px-4 py-2.5 text-[14px] text-white shadow-none sm:max-w-[72%] sm:text-[15px] md:shadow-[0_10px_22px_-22px_rgba(15,23,42,0.14)] lg:max-w-[62%]">
+                          <div className="max-w-[78%] rounded-[22px] rounded-br-[10px] bg-[linear-gradient(180deg,#3b5bfd_0%,#2c4df5_100%)] px-3.5 py-3 text-[13.5px] font-medium leading-5 text-white shadow-[0_14px_28px_-24px_rgba(44,77,245,0.55)] [overflow-wrap:anywhere] sm:max-w-[72%] sm:px-4 sm:py-2.5 sm:text-[15px] md:shadow-[0_10px_22px_-22px_rgba(15,23,42,0.14)] lg:max-w-[62%]">
                             {event.text}
                           </div>
                         </div>
@@ -707,7 +707,7 @@ export function FinanzasWorkspace({
                     if (event.kind === "assistant") {
                       return (
                         <div key={event.id} className="flex justify-start">
-                          <div className="max-w-[84%] rounded-[22px] rounded-bl-[8px] border border-[rgba(148,163,184,0.1)] bg-[#f3f5f8] px-4 py-2.5 text-[14px] text-slate-800 shadow-none sm:max-w-[72%] sm:text-[15px] md:shadow-[0_10px_22px_-22px_rgba(15,23,42,0.14)] lg:max-w-[62%]">
+                          <div className="max-w-[82%] rounded-[22px] rounded-bl-[10px] border border-[rgba(148,163,184,0.12)] bg-white px-3.5 py-3 text-[13.5px] leading-5 text-slate-700 shadow-[0_16px_30px_-28px_rgba(15,23,42,0.28)] [overflow-wrap:anywhere] sm:max-w-[72%] sm:px-4 sm:py-2.5 sm:text-[15px] md:bg-[#f3f5f8] md:shadow-[0_10px_22px_-22px_rgba(15,23,42,0.14)] lg:max-w-[62%]">
                             {event.text}
                           </div>
                         </div>
@@ -740,12 +740,12 @@ export function FinanzasWorkspace({
                         )}
                         <div className={`flex ${isUserTransaction ? "justify-end" : "justify-start"}`}>
                           <article
-                            className={`rounded-[22px] border px-4 py-3 shadow-none md:shadow-[0_10px_22px_-22px_rgba(15,23,42,0.14)] ${
+                            className={`rounded-[24px] border px-3.5 py-3.5 shadow-[0_18px_30px_-30px_rgba(15,23,42,0.2)] sm:px-4 sm:py-3 md:shadow-[0_10px_22px_-22px_rgba(15,23,42,0.14)] ${
                               isUserTransaction
-                                ? "max-w-[84%] rounded-br-[8px] border-[rgba(59,91,253,0.12)] bg-[color:color-mix(in_srgb,var(--primary)_6%,white)] sm:max-w-[72%] lg:max-w-[62%]"
+                                ? "max-w-[82%] rounded-br-[10px] border-[rgba(59,91,253,0.12)] bg-[color:color-mix(in_srgb,var(--primary)_6%,white)] sm:max-w-[72%] lg:max-w-[62%]"
                                 : t.type === "INCOME"
-                                  ? "max-w-[84%] rounded-bl-[8px] border-emerald-200/70 bg-emerald-50 sm:max-w-[72%] lg:max-w-[62%]"
-                                  : "max-w-[84%] rounded-bl-[8px] border-rose-200/65 bg-rose-50 sm:max-w-[72%] lg:max-w-[62%]"
+                                  ? "max-w-[82%] rounded-bl-[10px] border-emerald-200/70 bg-emerald-50 sm:max-w-[72%] lg:max-w-[62%]"
+                                  : "max-w-[82%] rounded-bl-[10px] border-rose-200/65 bg-rose-50 sm:max-w-[72%] lg:max-w-[62%]"
                             }`}
                           >
                             <div className="flex items-start gap-2.5">
@@ -766,7 +766,9 @@ export function FinanzasWorkspace({
                                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
                                   <div className="min-w-0">
                                     <div className="flex flex-wrap items-center gap-1.5">
-                                      <p className="truncate text-[15px] text-slate-900">{t.description}</p>
+                                      <p className="text-[14px] leading-5 text-slate-900 [overflow-wrap:anywhere] sm:text-[15px]">
+                                        {t.description}
+                                      </p>
                                       {t.source === "google_sheet" && (
                                         <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500 ring-1 ring-slate-200">
                                           Sheet
@@ -781,11 +783,11 @@ export function FinanzasWorkspace({
                                     <p className="mt-0.5 text-[11px] text-slate-500">{formatTime(t.date)}</p>
                                   </div>
                                   <div className="flex items-center justify-between gap-2 sm:justify-end">
-                                    <p
-                                      className={`text-right text-[15px] tracking-[-0.02em] ${
-                                        t.type === "INCOME" ? "text-emerald-700" : "text-rose-700"
-                                      }`}
-                                    >
+                                     <p
+                                       className={`text-right text-[15px] font-semibold tracking-[-0.02em] ${
+                                         t.type === "INCOME" ? "text-emerald-700" : "text-rose-700"
+                                       }`}
+                                     >
                                       {t.type === "INCOME" ? "+" : "-"}
                                       {formatMoney(t.amount, currency)}
                                     </p>
@@ -807,22 +809,22 @@ export function FinanzasWorkspace({
 
                   {isThinking && (
                     <div className="flex justify-start">
-                      <div className="flex items-center gap-1.5 rounded-[22px] rounded-bl-[8px] border border-[rgba(148,163,184,0.1)] bg-[#f3f5f8] px-4 py-3">
+                      <div className="flex items-center gap-1.5 rounded-[22px] rounded-bl-[10px] border border-[rgba(148,163,184,0.1)] bg-white px-3.5 py-3 shadow-[0_16px_30px_-28px_rgba(15,23,42,0.28)] md:bg-[#f3f5f8] md:px-4">
                         <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:0ms]" />
                         <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:150ms]" />
                         <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:300ms]" />
                       </div>
                     </div>
                   )}
-                  <div ref={endRef} aria-hidden="true" />
+                  <div ref={endRef} aria-hidden="true" className="h-px w-full" />
                 </div>
               )}
             </div>
 
             {/* Composer */}
-            <div className="chat-composer z-10 shrink-0 border-t border-[rgba(148,163,184,0.08)] bg-white px-4 pb-[calc(env(safe-area-inset-bottom)+0.65rem)] pt-3 md:border-[rgba(148,163,184,0.1)] md:px-4 md:py-3 md:shadow-[0_-10px_18px_-18px_rgba(15,23,42,0.16)]">
+            <div className="chat-composer sticky bottom-0 z-10 shrink-0 border-t border-[rgba(148,163,184,0.08)] bg-white/95 px-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3 backdrop-blur md:static md:bg-white md:border-[rgba(148,163,184,0.1)] md:px-4 md:py-3 md:shadow-[0_-10px_18px_-18px_rgba(15,23,42,0.16)]">
               <form onSubmit={handleSubmit} className="mx-auto w-full max-w-7xl">
-                <div className="flex items-center gap-3">
+                <div className="flex items-end gap-3">
                   <textarea
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
@@ -834,13 +836,13 @@ export function FinanzasWorkspace({
                     }}
                     rows={1}
                     placeholder="Escribeme.."
-                    className="my-auto h-12 min-h-12 max-h-28 flex-1 resize-none rounded-full border border-transparent bg-[#eef1f5] px-4 py-[0.8rem] text-[14px] leading-5 text-slate-800 placeholder:text-slate-500 outline-none transition focus:border-[color-mix(in_srgb,var(--primary)_18%,white)] focus:bg-white"
+                    className="flex min-h-[52px] flex-1 resize-none rounded-2xl border border-[rgba(148,163,184,0.14)] bg-slate-50/80 px-4 py-3 text-[14px] leading-5 text-slate-800 placeholder:text-slate-500 outline-none transition focus:border-[var(--primary)] focus:bg-white focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_18%,white)] md:min-h-[44px]"
                     disabled={isBusy}
                   />
                   <button
                     type="submit"
                     disabled={isBusy || !input.trim()}
-                    className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--primary)] text-white transition hover:bg-[var(--primary-strong)] disabled:bg-[color-mix(in_srgb,var(--primary)_40%,white)] disabled:text-white/90"
+                    className="inline-flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-2xl bg-[var(--primary)] text-white transition hover:bg-[var(--primary-strong)] disabled:cursor-not-allowed disabled:bg-[color-mix(in_srgb,var(--primary)_40%,white)] disabled:text-white/90 md:h-11 md:w-11"
                   >
                     <SendHorizonal className="h-4 w-4 text-white" />
                   </button>
