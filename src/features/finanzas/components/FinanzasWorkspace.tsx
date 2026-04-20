@@ -555,7 +555,7 @@ export function FinanzasWorkspace({
           <div className="flex min-h-0 flex-col overflow-hidden rounded-none border-0 bg-white text-slate-900 shadow-none md:rounded-[22px] md:border md:border-[rgba(203,213,225,0.88)] md:shadow-[inset_0_1px_0_rgba(255,255,255,0.98),inset_0_0_0_1px_rgba(255,255,255,0.55),0_0_0_1px_rgba(226,232,240,0.92),0_4px_10px_rgba(15,23,42,0.06),0_18px_38px_-18px_rgba(15,23,42,0.16)]">
 
             {/* Summary bar */}
-            <div className="border-b border-[rgba(148,163,184,0.1)] bg-white px-3 py-2 shadow-[0_10px_18px_-18px_rgba(15,23,42,0.22)] sm:px-4 sm:py-2">
+            <div className="relative z-10 border-b border-[rgba(148,163,184,0.08)] bg-white px-3 py-2 shadow-[0_1px_0_rgba(226,232,240,0.85),0_8px_10px_-12px_rgba(15,23,42,0.08)] sm:px-4 sm:py-2">
               <div className="relative flex items-center justify-center">
                 <div className="grid w-full grid-cols-3 gap-1.5 px-9 sm:hidden">
                   <button
@@ -725,11 +725,11 @@ export function FinanzasWorkspace({
                       <div key={event.id} className="space-y-1">
                         {showDateDivider && (
                           <div className="flex items-center gap-3 px-1">
-                            <div className="h-px flex-1 bg-slate-200" />
+                            <div className="h-px flex-1 bg-slate-200 shadow-[0_1px_2px_rgba(15,23,42,0.08)]" />
                             <span className="rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold text-slate-500">
                               {formatDateLabel(t.date)}
                             </span>
-                            <div className="h-px flex-1 bg-slate-200" />
+                            <div className="h-px flex-1 bg-slate-200 shadow-[0_1px_2px_rgba(15,23,42,0.08)]" />
                           </div>
                         )}
                         <div className={`flex ${isUserTransaction ? "justify-end" : "justify-start"}`}>
@@ -813,7 +813,7 @@ export function FinanzasWorkspace({
             </div>
 
             {/* Composer */}
-            <div className="chat-composer fixed inset-x-0 bottom-0 z-20 shrink-0 border-t border-[rgba(148,163,184,0.1)] bg-white px-4 pb-[calc(env(safe-area-inset-bottom)+0.65rem)] pt-3 md:static md:z-10 md:px-4 md:py-3">
+            <div className="chat-composer fixed inset-x-0 bottom-0 z-20 shrink-0 border-t border-[rgba(148,163,184,0.1)] bg-white px-4 pb-[calc(env(safe-area-inset-bottom)+0.65rem)] pt-3 shadow-[0_-10px_18px_-18px_rgba(15,23,42,0.16)] md:static md:z-10 md:px-4 md:py-3">
               <form onSubmit={handleSubmit} className="mx-auto w-full max-w-7xl">
                 <div className="flex items-center gap-3">
                   <textarea
