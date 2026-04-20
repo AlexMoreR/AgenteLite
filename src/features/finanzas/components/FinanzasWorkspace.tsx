@@ -453,14 +453,20 @@ export function FinanzasWorkspace({
   const [expandedSummaryCard, setExpandedSummaryCard] = useState<SummaryCardKey | null>(null);
   const [isPending, startTransition] = useTransition();
   const feedRef = useRef<HTMLDivElement>(null);
+  const endRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
   const isBusy = isPending || isThinking;
 
   useEffect(() => {
-    if (feedRef.current) {
-      feedRef.current.scrollTop = feedRef.current.scrollHeight;
-    }
+    const scrollTarget = endRef.current;
+    if (!scrollTarget) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      scrollTarget.scrollIntoView({ block: "end" });
+    });
+
+    return () => window.cancelAnimationFrame(frame);
   }, [chatEvents.length, isThinking]);
 
   const summary = useMemo(() => {
@@ -549,10 +555,10 @@ export function FinanzasWorkspace({
   }
 
   return (
-    <div className="chat-app-layout flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-[var(--background)]">
-      <div className="min-h-0 flex-1 overflow-hidden px-0 py-0 md:px-2 md:py-2 lg:px-3">
-        <div className="mx-auto grid h-full max-w-7xl min-h-0 gap-1.5">
-          <div className="flex min-h-0 flex-col overflow-hidden rounded-none border-0 bg-white text-slate-900 shadow-none md:rounded-[22px] md:border md:border-[rgba(203,213,225,0.88)] md:shadow-[inset_0_1px_0_rgba(255,255,255,0.98),inset_0_0_0_1px_rgba(255,255,255,0.55),0_0_0_1px_rgba(226,232,240,0.92),0_4px_10px_rgba(15,23,42,0.06),0_18px_38px_-18px_rgba(15,23,42,0.16)]">
+    <div className="chat-app-layout flex min-h-dvh flex-1 flex-col overflow-visible bg-[var(--background)] md:h-full md:min-h-0 md:overflow-hidden">
+      <div className="flex flex-1 flex-col overflow-visible px-0 py-0 md:min-h-0 md:overflow-hidden md:px-2 md:py-2 lg:px-3">
+        <div className="mx-auto grid w-full max-w-7xl flex-1 gap-1.5 md:h-full md:min-h-0">
+          <div className="flex flex-col overflow-visible rounded-none border-0 bg-white text-slate-900 shadow-none md:min-h-0 md:overflow-hidden md:rounded-[22px] md:border md:border-[rgba(203,213,225,0.88)] md:shadow-[inset_0_1px_0_rgba(255,255,255,0.98),inset_0_0_0_1px_rgba(255,255,255,0.55),0_0_0_1px_rgba(226,232,240,0.92),0_4px_10px_rgba(15,23,42,0.06),0_18px_38px_-18px_rgba(15,23,42,0.16)]">
 
             {/* Summary bar */}
             <div className="relative z-10 border-b border-[rgba(148,163,184,0.08)] bg-white px-3 py-2 sm:px-4 sm:py-2 md:shadow-[0_1px_0_rgba(226,232,240,0.85),0_8px_10px_-12px_rgba(15,23,42,0.08)]">
@@ -673,7 +679,7 @@ export function FinanzasWorkspace({
             {/* Chat feed */}
             <div
               ref={feedRef}
-              className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-white px-4 py-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] sm:px-5 sm:py-5 sm:pb-5 [-webkit-overflow-scrolling:touch] [scrollbar-width:thin] [scrollbar-color:rgba(148,163,184,0.26)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb:hover]:bg-slate-400"
+              className="bg-white px-4 py-4 pb-4 sm:px-5 sm:py-5 sm:pb-5 md:min-h-0 md:flex-1 md:overflow-y-auto md:overscroll-contain md:pb-5 md:[-webkit-overflow-scrolling:touch] md:[scrollbar-width:thin] md:[scrollbar-color:rgba(148,163,184,0.26)_transparent] md:[&::-webkit-scrollbar]:w-1.5 md:[&::-webkit-scrollbar-track]:bg-transparent md:[&::-webkit-scrollbar-thumb]:rounded-full md:[&::-webkit-scrollbar-thumb]:bg-slate-300 md:[&::-webkit-scrollbar-thumb:hover]:bg-slate-400"
             >
               {chatEvents.length <= 1 && transactions.length === 0 ? (
                 <div className="flex h-full flex-col items-center justify-center px-4 py-16 text-center">
@@ -808,6 +814,7 @@ export function FinanzasWorkspace({
                       </div>
                     </div>
                   )}
+                  <div ref={endRef} aria-hidden="true" />
                 </div>
               )}
             </div>

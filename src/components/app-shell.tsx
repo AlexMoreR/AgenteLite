@@ -269,7 +269,10 @@ export function AppShell({
         <div
           className={cn(
             "admin-print-shell flex min-h-screen",
-            isViewportLockedWorkspacePath && "chat-app-frame min-h-dvh h-dvh overflow-hidden md:min-h-screen md:h-dvh",
+            isViewportLockedWorkspacePath &&
+              (isFinanzasPath
+                ? "chat-app-frame min-h-dvh md:min-h-screen md:h-dvh md:overflow-hidden"
+                : "chat-app-frame min-h-dvh h-dvh overflow-hidden md:min-h-screen md:h-dvh"),
           )}
         >
           <AppSidebar
@@ -288,7 +291,10 @@ export function AppShell({
           <SidebarInset
             className={cn(
               "admin-print-inset",
-              isViewportLockedWorkspacePath && "chat-app-shell min-h-dvh h-dvh overflow-hidden md:min-h-0 md:h-dvh",
+              isViewportLockedWorkspacePath &&
+                (isFinanzasPath
+                  ? "chat-app-shell min-h-dvh md:min-h-0 md:h-dvh md:overflow-hidden"
+                  : "chat-app-shell min-h-dvh h-dvh overflow-hidden md:min-h-0 md:h-dvh"),
             )}
           >
             <header
@@ -326,8 +332,9 @@ export function AppShell({
                   "admin-print-main flex flex-1 flex-col",
                   isFullHeightWorkspacePath
                     ? cn(
-                        "min-h-0 overflow-hidden p-0",
-                        isFinanzasPath ? "md:p-2" : "md:p-4",
+                        isFinanzasPath
+                          ? "min-h-dvh overflow-visible p-0 md:min-h-0 md:overflow-hidden md:p-2"
+                          : "min-h-0 overflow-hidden p-0 md:p-4",
                       )
                     : "p-3 md:p-4",
                   isViewportLockedWorkspacePath && "chat-app-main",
