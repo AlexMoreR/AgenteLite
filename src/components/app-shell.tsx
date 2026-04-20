@@ -269,7 +269,7 @@ export function AppShell({
         <div
           className={cn(
             "admin-print-shell flex min-h-screen",
-            isViewportLockedWorkspacePath && "chat-app-frame min-h-svh h-svh overflow-hidden md:min-h-screen md:h-dvh",
+            isViewportLockedWorkspacePath && "chat-app-frame min-h-dvh h-dvh overflow-hidden md:min-h-screen md:h-dvh",
           )}
         >
           <AppSidebar
@@ -288,7 +288,7 @@ export function AppShell({
           <SidebarInset
             className={cn(
               "admin-print-inset",
-              isViewportLockedWorkspacePath && "chat-app-shell min-h-svh h-svh overflow-hidden md:min-h-0 md:h-dvh",
+              isViewportLockedWorkspacePath && "chat-app-shell min-h-dvh h-dvh overflow-hidden md:min-h-0 md:h-dvh",
             )}
           >
             <header

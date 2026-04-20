@@ -70,7 +70,7 @@ function NavMainMenuItem({ item }: { item: NavMainItem }) {
 
         <CollapsibleTrigger asChild>
           <SidebarMenuAction className="group-data-[collapsible=icon]/sidebar:hidden">
-            <ChevronDown className={`h-4 w-4 transition ${open ? "rotate-180" : "rotate-0"}`} />
+            <ChevronDown className="h-4 w-4 transition" />
             <span className="sr-only">Abrir submenu de {item.title}</span>
           </SidebarMenuAction>
         </CollapsibleTrigger>
