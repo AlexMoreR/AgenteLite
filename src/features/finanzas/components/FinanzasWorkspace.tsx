@@ -555,7 +555,7 @@ export function FinanzasWorkspace({
           <div className="flex min-h-0 flex-col overflow-hidden rounded-none border-0 bg-white text-slate-900 shadow-none md:rounded-[22px] md:border md:border-[rgba(203,213,225,0.88)] md:shadow-[inset_0_1px_0_rgba(255,255,255,0.98),inset_0_0_0_1px_rgba(255,255,255,0.55),0_0_0_1px_rgba(226,232,240,0.92),0_4px_10px_rgba(15,23,42,0.06),0_18px_38px_-18px_rgba(15,23,42,0.16)]">
 
             {/* Summary bar */}
-            <div className="relative z-10 border-b border-[rgba(148,163,184,0.08)] bg-white px-3 py-2 shadow-[0_1px_0_rgba(226,232,240,0.85),0_8px_10px_-12px_rgba(15,23,42,0.08)] sm:px-4 sm:py-2">
+            <div className="relative z-10 border-b border-[rgba(148,163,184,0.08)] bg-white px-3 py-2 sm:px-4 sm:py-2 md:shadow-[0_1px_0_rgba(226,232,240,0.85),0_8px_10px_-12px_rgba(15,23,42,0.08)]">
               <div className="relative flex items-center justify-center">
                 <div className="grid w-full grid-cols-3 gap-1.5 px-9 sm:hidden">
                   <button
@@ -595,7 +595,7 @@ export function FinanzasWorkspace({
                   <button
                     type="button"
                     onClick={() => handleSummaryCardClick("balance")}
-                    className={`min-w-0 rounded-2xl border px-2 py-1.5 backdrop-blur-md ${
+                    className={`min-w-0 rounded-2xl border px-2 py-1.5 ${
                       summary.balance >= 0
                         ? "border-[color:color-mix(in_srgb,var(--primary)_18%,white)] bg-[color:color-mix(in_srgb,var(--primary)_7%,white)]"
                         : "border-rose-200/70 bg-rose-50"
@@ -634,7 +634,7 @@ export function FinanzasWorkspace({
                   </div>
 
                   <div
-                    className={`inline-flex min-w-0 items-center gap-1.5 rounded-full border px-2.5 py-1 backdrop-blur-md sm:gap-2 sm:px-3.5 sm:py-2 ${
+                    className={`inline-flex min-w-0 items-center gap-1.5 rounded-full border px-2.5 py-1 sm:gap-2 sm:px-3.5 sm:py-2 md:backdrop-blur-md ${
                       summary.balance >= 0
                         ? "border-[color:color-mix(in_srgb,var(--primary)_18%,white)] bg-[color:color-mix(in_srgb,var(--primary)_7%,white)]"
                         : "border-rose-200/65 bg-rose-50"
@@ -691,7 +691,7 @@ export function FinanzasWorkspace({
                     if (event.kind === "user") {
                       return (
                         <div key={event.id} className="flex justify-end">
-                          <div className="max-w-[84%] rounded-[22px] rounded-br-[8px] bg-[linear-gradient(180deg,#3b5bfd_0%,#2c4df5_100%)] px-4 py-2.5 text-[14px] text-white shadow-[0_10px_22px_-22px_rgba(15,23,42,0.14)] sm:max-w-[72%] sm:text-[15px] lg:max-w-[62%]">
+                          <div className="max-w-[84%] rounded-[22px] rounded-br-[8px] bg-[linear-gradient(180deg,#3b5bfd_0%,#2c4df5_100%)] px-4 py-2.5 text-[14px] text-white shadow-none sm:max-w-[72%] sm:text-[15px] md:shadow-[0_10px_22px_-22px_rgba(15,23,42,0.14)] lg:max-w-[62%]">
                             {event.text}
                           </div>
                         </div>
@@ -701,7 +701,7 @@ export function FinanzasWorkspace({
                     if (event.kind === "assistant") {
                       return (
                         <div key={event.id} className="flex justify-start">
-                          <div className="max-w-[84%] rounded-[22px] rounded-bl-[8px] border border-[rgba(148,163,184,0.1)] bg-[#f3f5f8] px-4 py-2.5 text-[14px] text-slate-800 shadow-[0_10px_22px_-22px_rgba(15,23,42,0.14)] sm:max-w-[72%] sm:text-[15px] lg:max-w-[62%]">
+                          <div className="max-w-[84%] rounded-[22px] rounded-bl-[8px] border border-[rgba(148,163,184,0.1)] bg-[#f3f5f8] px-4 py-2.5 text-[14px] text-slate-800 shadow-none sm:max-w-[72%] sm:text-[15px] md:shadow-[0_10px_22px_-22px_rgba(15,23,42,0.14)] lg:max-w-[62%]">
                             {event.text}
                           </div>
                         </div>
@@ -725,16 +725,16 @@ export function FinanzasWorkspace({
                       <div key={event.id} className="space-y-1">
                         {showDateDivider && (
                           <div className="flex items-center gap-3 px-1">
-                            <div className="h-px flex-1 bg-slate-200 shadow-[0_1px_2px_rgba(15,23,42,0.08)]" />
+                            <div className="h-px flex-1 bg-slate-200 md:shadow-[0_1px_2px_rgba(15,23,42,0.08)]" />
                             <span className="rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold text-slate-500">
                               {formatDateLabel(t.date)}
                             </span>
-                            <div className="h-px flex-1 bg-slate-200 shadow-[0_1px_2px_rgba(15,23,42,0.08)]" />
+                            <div className="h-px flex-1 bg-slate-200 md:shadow-[0_1px_2px_rgba(15,23,42,0.08)]" />
                           </div>
                         )}
                         <div className={`flex ${isUserTransaction ? "justify-end" : "justify-start"}`}>
                           <article
-                            className={`rounded-[22px] border px-4 py-3 shadow-[0_10px_22px_-22px_rgba(15,23,42,0.14)] ${
+                            className={`rounded-[22px] border px-4 py-3 shadow-none md:shadow-[0_10px_22px_-22px_rgba(15,23,42,0.14)] ${
                               isUserTransaction
                                 ? "max-w-[84%] rounded-br-[8px] border-[rgba(59,91,253,0.12)] bg-[color:color-mix(in_srgb,var(--primary)_6%,white)] sm:max-w-[72%] lg:max-w-[62%]"
                                 : t.type === "INCOME"

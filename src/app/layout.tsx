@@ -124,6 +124,7 @@ export default async function RootLayout({
           title: channel.name,
           url: `/cliente/chats?connection=${encodeURIComponent(`channel:${channel.id}`)}`,
           helper: channel.provider === "OFFICIAL_API" ? "API oficial" : channel.agent?.name || "WhatsApp",
+          kind: channel.provider === "OFFICIAL_API" ? ("official" as const) : ("whatsapp" as const),
         })),
       )
     : [];

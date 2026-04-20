@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ChevronDown, type LucideIcon } from "lucide-react";
+import { BadgeCheck, ChevronDown, MessageCircle, type LucideIcon } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   SidebarGroup,
@@ -25,6 +25,7 @@ export type NavMainItem = {
     title: string;
     url: string;
     helper?: string;
+    kind?: "general" | "whatsapp" | "official";
   }[];
 };
 
@@ -80,14 +81,20 @@ function NavMainMenuItem({ item }: { item: NavMainItem }) {
               {item.items.map((subitem) => (
                 <SidebarMenuSubItem key={`${item.title}-${subitem.title}`}>
                   <SidebarMenuSubButton asChild className="h-auto rounded-lg px-2.5 py-2 hover:bg-slate-50">
-                    <Link href={subitem.url} className="flex min-h-8 flex-col items-start">
-                      <span className="block truncate text-[13px] font-medium text-slate-700">{subitem.title}</span>
-                      {subitem.helper ? (
-                        <span className="block truncate text-[11px] text-slate-400">{subitem.helper}</span>
-                      ) : null}
-                    </Link>
-                  </SidebarMenuSubButton>
-                </SidebarMenuSubItem>
+                    <Link href={subitem.url} className="flex min-h-8 items-center gap-2.5">
+                      <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-500">
+                        {subitem.kind === "official" ? (
+                          <BadgeCheck className="h-3.5 w-3.5 text-emerald-600" />
+                            ) : subitem.kind === "whatsapp" ? (
+                              <MessageCircle className="h-3.5 w-3.5 text-emerald-600" />
+                            ) : (
+                              <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+                            )}
+                          </span>
+                          <span className="block flex-1 truncate text-[13px] font-medium text-slate-700">{subitem.title}</span>
+                        </Link>
+                      </SidebarMenuSubButton>
+                    </SidebarMenuSubItem>
               ))}
             </SidebarMenuSub>
           </div>

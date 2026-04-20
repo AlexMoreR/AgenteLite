@@ -39,6 +39,7 @@ type AppSidebarProps = {
     title: string;
     url: string;
     helper?: string;
+    kind?: "general" | "whatsapp" | "official";
   }>;
   user: {
     name?: string | null;
@@ -153,7 +154,7 @@ export function AppSidebar({ pathname, brandName, adminModuleAccess, chatSidebar
       isActive: pathname.startsWith("/cliente/chats"),
       expandable: true,
       items: [
-        { title: "Bandeja", url: "/cliente/chats", helper: "General" },
+        { title: "Bandeja", url: "/cliente/chats", helper: "General", kind: "general" },
         ...chatSidebarItems,
       ],
     });
