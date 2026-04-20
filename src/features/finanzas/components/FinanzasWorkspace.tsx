@@ -549,27 +549,27 @@ export function FinanzasWorkspace({
   }
 
   return (
-    <div className="chat-app-layout flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-[linear-gradient(180deg,#f6fbf8_0%,#f8fafc_22%,#f8fafc_100%)]">
+    <div className="chat-app-layout flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-[var(--background)]">
       <div className="min-h-0 flex-1 overflow-hidden px-0 py-0 md:px-2 md:py-2 lg:px-3">
         <div className="mx-auto grid h-full max-w-7xl min-h-0 gap-1.5">
-          <div className="flex min-h-0 flex-col overflow-hidden rounded-none border-0 bg-[linear-gradient(180deg,#1b2748_0%,#223463_100%)] text-white shadow-none md:rounded-[20px] md:border md:border-[#31456f] md:shadow-[0_24px_60px_-36px_rgba(15,23,42,0.7)]">
+          <div className="flex min-h-0 flex-col overflow-hidden rounded-none border-0 bg-white text-slate-900 shadow-none md:rounded-[22px] md:border md:border-[rgba(203,213,225,0.88)] md:shadow-[inset_0_1px_0_rgba(255,255,255,0.98),inset_0_0_0_1px_rgba(255,255,255,0.55),0_0_0_1px_rgba(226,232,240,0.92),0_4px_10px_rgba(15,23,42,0.06),0_18px_38px_-18px_rgba(15,23,42,0.16)]">
 
             {/* Summary bar */}
-            <div className="border-b border-white/10 px-3 py-1.5 sm:px-4 sm:py-1.5">
+            <div className="border-b border-[rgba(148,163,184,0.1)] bg-white px-3 py-2 shadow-[0_10px_18px_-18px_rgba(15,23,42,0.22)] sm:px-4 sm:py-2">
               <div className="relative flex items-center justify-center">
                 <div className="grid w-full grid-cols-3 gap-1.5 px-9 sm:hidden">
                   <button
                     type="button"
                     onClick={() => handleSummaryCardClick("income")}
-                    className="min-w-0 rounded-2xl border border-emerald-200/18 bg-white/8 px-2 py-1.5 text-center backdrop-blur-md transition active:scale-[0.99]"
+                    className="min-w-0 rounded-2xl border border-emerald-200/55 bg-emerald-50 px-2 py-1.5 text-center transition active:scale-[0.99]"
                     aria-label={`Mostrar ${expandedSummaryCard === "income" ? "valor corto" : "valor completo"} de ingresos`}
                     title={formatMoney(summary.income, currency)}
                   >
                     <div className="min-w-0 text-center">
-                      <p className="text-center text-[9px] font-medium uppercase tracking-[0.14em] text-emerald-100/70">
+                      <p className="text-center text-[9px] font-medium uppercase tracking-[0.14em] text-emerald-600/80">
                         Ingresos
                       </p>
-                      <p className="mt-0.5 text-center text-[10px] font-semibold leading-tight tracking-[-0.02em] text-emerald-200">
+                      <p className="mt-0.5 text-center text-[10px] font-semibold leading-tight tracking-[-0.02em] text-emerald-700">
                         {getSummaryValue("income", summary.income)}
                       </p>
                     </div>
@@ -578,15 +578,15 @@ export function FinanzasWorkspace({
                   <button
                     type="button"
                     onClick={() => handleSummaryCardClick("expense")}
-                    className="min-w-0 rounded-2xl border border-rose-200/16 bg-white/8 px-2 py-1.5 text-center backdrop-blur-md transition active:scale-[0.99]"
+                    className="min-w-0 rounded-2xl border border-rose-200/65 bg-rose-50 px-2 py-1.5 text-center transition active:scale-[0.99]"
                     aria-label={`Mostrar ${expandedSummaryCard === "expense" ? "valor corto" : "valor completo"} de gastos`}
                     title={formatMoney(summary.expense, currency)}
                   >
                     <div className="min-w-0 text-center">
-                      <p className="text-center text-[9px] font-medium uppercase tracking-[0.14em] text-rose-100/70">
+                      <p className="text-center text-[9px] font-medium uppercase tracking-[0.14em] text-rose-600/80">
                         Gastos
                       </p>
-                      <p className="mt-0.5 text-center text-[10px] font-semibold leading-tight tracking-[-0.02em] text-rose-200">
+                      <p className="mt-0.5 text-center text-[10px] font-semibold leading-tight tracking-[-0.02em] text-rose-700">
                         {getSummaryValue("expense", summary.expense)}
                       </p>
                     </div>
@@ -597,17 +597,17 @@ export function FinanzasWorkspace({
                     onClick={() => handleSummaryCardClick("balance")}
                     className={`min-w-0 rounded-2xl border px-2 py-1.5 backdrop-blur-md ${
                       summary.balance >= 0
-                        ? "border-cyan-200/20 bg-[linear-gradient(135deg,rgba(20,184,166,0.22)_0%,rgba(15,23,42,0.2)_100%)]"
-                        : "border-rose-200/18 bg-[linear-gradient(135deg,rgba(244,63,94,0.16)_0%,rgba(15,23,42,0.22)_100%)]"
+                        ? "border-[color:color-mix(in_srgb,var(--primary)_18%,white)] bg-[color:color-mix(in_srgb,var(--primary)_7%,white)]"
+                        : "border-rose-200/70 bg-rose-50"
                     }`}
                     aria-label={`Mostrar ${expandedSummaryCard === "balance" ? "valor corto" : "valor completo"} del balance`}
                     title={formatMoney(summary.balance, currency)}
                   >
                     <div className="min-w-0 text-center">
-                      <p className="text-center text-[9px] font-medium uppercase tracking-[0.14em] text-white/60">
+                      <p className="text-center text-[9px] font-medium uppercase tracking-[0.14em] text-slate-500">
                         Balance
                       </p>
-                      <p className="mt-0.5 text-center text-[10px] font-semibold leading-tight tracking-[-0.02em] text-white">
+                      <p className={`mt-0.5 text-center text-[10px] font-semibold leading-tight tracking-[-0.02em] ${summary.balance >= 0 ? "text-[var(--primary)]" : "text-rose-700"}`}>
                         {getSummaryValue("balance", summary.balance)}
                       </p>
                     </div>
@@ -615,20 +615,20 @@ export function FinanzasWorkspace({
                 </div>
 
                 <div className="hidden flex-wrap justify-center gap-1 px-9 sm:flex sm:gap-2 sm:pl-0 sm:pr-10">
-                  <div className="inline-flex min-w-0 items-center gap-1.5 rounded-full border border-emerald-200/18 bg-white/8 px-2.5 py-1 backdrop-blur-md sm:gap-2 sm:px-3.5 sm:py-2">
-                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-100/12 sm:h-7 sm:w-7">
-                      <TrendingUp className="h-3 w-3 text-emerald-300 sm:h-4 sm:w-4" />
+                  <div className="inline-flex min-w-0 items-center gap-1.5 rounded-full border border-emerald-200/65 bg-emerald-50 px-2.5 py-1 sm:gap-2 sm:px-3.5 sm:py-2">
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-100 sm:h-7 sm:w-7">
+                      <TrendingUp className="h-3 w-3 text-emerald-600 sm:h-4 sm:w-4" />
                     </span>
-                    <p className="truncate text-[12px] font-semibold text-emerald-200 sm:text-[15px]">
+                    <p className="truncate text-[12px] font-semibold text-emerald-700 sm:text-[15px]">
                       {formatMoney(summary.income, currency)}
                     </p>
                   </div>
 
-                  <div className="inline-flex min-w-0 items-center gap-1.5 rounded-full border border-rose-200/16 bg-white/8 px-2.5 py-1 backdrop-blur-md sm:gap-2 sm:px-3.5 sm:py-2">
-                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-rose-400/10 sm:h-7 sm:w-7">
-                      <TrendingDown className="h-3 w-3 text-rose-300 sm:h-4 sm:w-4" />
+                  <div className="inline-flex min-w-0 items-center gap-1.5 rounded-full border border-rose-200/65 bg-rose-50 px-2.5 py-1 sm:gap-2 sm:px-3.5 sm:py-2">
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-rose-100 sm:h-7 sm:w-7">
+                      <TrendingDown className="h-3 w-3 text-rose-600 sm:h-4 sm:w-4" />
                     </span>
-                    <p className="truncate text-[12px] font-semibold text-rose-200 sm:text-[15px]">
+                    <p className="truncate text-[12px] font-semibold text-rose-700 sm:text-[15px]">
                       {formatMoney(summary.expense, currency)}
                     </p>
                   </div>
@@ -636,14 +636,14 @@ export function FinanzasWorkspace({
                   <div
                     className={`inline-flex min-w-0 items-center gap-1.5 rounded-full border px-2.5 py-1 backdrop-blur-md sm:gap-2 sm:px-3.5 sm:py-2 ${
                       summary.balance >= 0
-                        ? "border-cyan-200/20 bg-[linear-gradient(135deg,rgba(20,184,166,0.22)_0%,rgba(15,23,42,0.2)_100%)]"
-                        : "border-rose-200/18 bg-[linear-gradient(135deg,rgba(244,63,94,0.16)_0%,rgba(15,23,42,0.22)_100%)]"
+                        ? "border-[color:color-mix(in_srgb,var(--primary)_18%,white)] bg-[color:color-mix(in_srgb,var(--primary)_7%,white)]"
+                        : "border-rose-200/65 bg-rose-50"
                     }`}
                   >
-                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/10 sm:h-7 sm:w-7">
-                      <Wallet className="h-3 w-3 text-white/80 sm:h-4 sm:w-4" />
+                    <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full sm:h-7 sm:w-7 ${summary.balance >= 0 ? "bg-[color:color-mix(in_srgb,var(--primary)_12%,white)]" : "bg-rose-100"}`}>
+                      <Wallet className={`h-3 w-3 sm:h-4 sm:w-4 ${summary.balance >= 0 ? "text-[var(--primary)]" : "text-rose-600"}`} />
                     </span>
-                    <p className="truncate text-[12px] font-semibold text-white sm:text-[15px]">
+                    <p className={`truncate text-[12px] font-semibold sm:text-[15px] ${summary.balance >= 0 ? "text-[var(--primary)]" : "text-rose-700"}`}>
                       {formatMoney(summary.balance, currency)}
                     </p>
                   </div>
@@ -652,7 +652,7 @@ export function FinanzasWorkspace({
                 <button
                   type="button"
                   onClick={() => router.push("/cliente/finanzas")}
-                  className="absolute left-0 top-1/2 flex h-7 w-7 -translate-y-1/2 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/6 text-white/72 transition hover:bg-white/8 hover:text-white sm:h-8 sm:w-8 md:hidden"
+                  className="absolute left-0 top-1/2 flex h-7 w-7 -translate-y-1/2 shrink-0 items-center justify-center rounded-full border border-[rgba(148,163,184,0.14)] bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-700 sm:h-8 sm:w-8 md:hidden"
                   title="Volver"
                   aria-label="Volver a finanzas"
                 >
@@ -662,7 +662,7 @@ export function FinanzasWorkspace({
                 <button
                   type="button"
                   onClick={() => setShowSettings(true)}
-                  className="absolute right-0 top-1/2 flex h-7 w-7 -translate-y-1/2 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/6 text-white/72 transition hover:bg-white/8 hover:text-white sm:h-8 sm:w-8"
+                  className="absolute right-0 top-1/2 flex h-7 w-7 -translate-y-1/2 shrink-0 items-center justify-center rounded-full border border-[rgba(148,163,184,0.14)] bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-700 sm:h-8 sm:w-8"
                   title="Configuración"
                 >
                   <Settings className="h-4 w-4" />
@@ -673,23 +673,16 @@ export function FinanzasWorkspace({
             {/* Chat feed */}
             <div
               ref={feedRef}
-              className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 pb-[calc(env(safe-area-inset-bottom)+7.25rem)] sm:px-4 sm:py-4 sm:pb-4 [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.12)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-thumb:hover]:bg-white/20"
-              style={{
-                backgroundColor: "#223463",
-                backgroundImage:
-                  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220' viewBox='0 0 220 220'%3E%3Cg fill='none' stroke='%23ffffff' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round' opacity='0.12'%3E%3Ccircle cx='30' cy='34' r='10'/%3E%3Cpath d='M68 24l9 14 16 2-11 11 3 16-14-8-14 8 3-16-11-11 16-2z'/%3E%3Crect x='122' y='22' width='26' height='26' rx='7'/%3E%3Cpath d='M180 24l16 16M196 24l-16 16'/%3E%3Cpath d='M22 92h24v24H22z'/%3E%3Cpath d='M34 84v40M22 104h24'/%3E%3Cpath d='M72 96c8-10 22-10 30 0-8 10-22 10-30 0z'/%3E%3Cpath d='M128 84l24 24M152 84l-24 24'/%3E%3Ccircle cx='188' cy='100' r='15'/%3E%3Cpath d='M182 100h12M188 94v12'/%3E%3Cpath d='M26 160c8-10 22-10 30 0-8 10-22 10-30 0z'/%3E%3Cpath d='M74 154l12 12 18-18'/%3E%3Cpath d='M122 154c0-8 7-15 15-15s15 7 15 15-7 15-15 15-15-7-15-15z'/%3E%3Cpath d='M172 144h28v20h-28z'/%3E%3Cpath d='M178 138l8 8 12-12'/%3E%3C/g%3E%3C/svg%3E\")",
-                backgroundPosition: "center",
-                backgroundSize: "220px 220px",
-              }}
+              className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-white px-4 py-4 pb-[calc(env(safe-area-inset-bottom)+7.25rem)] sm:px-5 sm:py-5 sm:pb-5 [scrollbar-width:thin] [scrollbar-color:rgba(148,163,184,0.26)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb:hover]:bg-slate-400"
             >
               {chatEvents.length <= 1 && transactions.length === 0 ? (
                 <div className="flex h-full flex-col items-center justify-center px-4 py-16 text-center">
-                  <div className="flex h-16 w-16 items-center justify-center rounded-[24px] bg-white/8 text-emerald-200">
+                  <div className="flex h-16 w-16 items-center justify-center rounded-[24px] bg-[color:color-mix(in_srgb,var(--primary)_8%,white)] text-[var(--primary)]">
                     <Wallet className="h-8 w-8" />
                   </div>
-                  <p className="mt-4 text-base font-semibold text-white">Sin movimientos todavía</p>
-                  <p className="mt-1 max-w-xs text-sm text-white/58">
-                    Escríbeme un gasto o ingreso y lo registro automáticamente.
+                  <p className="mt-4 text-base font-semibold text-slate-900">Sin movimientos todavia</p>
+                  <p className="mt-1 max-w-xs text-sm text-slate-500">
+                    Escribeme un gasto o ingreso y lo registro automaticamente.
                   </p>
                 </div>
               ) : (
@@ -698,7 +691,7 @@ export function FinanzasWorkspace({
                     if (event.kind === "user") {
                       return (
                         <div key={event.id} className="flex justify-end">
-                          <div className="max-w-[84%] rounded-[18px] rounded-br-md border border-emerald-200/18 bg-[linear-gradient(180deg,rgba(16,185,129,0.24)_0%,rgba(6,46,35,0.34)_100%)] px-3 py-2 text-[14px] text-white shadow-[0_16px_34px_-24px_rgba(15,23,42,0.52)] backdrop-blur-md sm:max-w-[72%] sm:text-[15px] lg:max-w-[62%]">
+                          <div className="max-w-[84%] rounded-[22px] rounded-br-[8px] bg-[linear-gradient(180deg,#3b5bfd_0%,#2c4df5_100%)] px-4 py-2.5 text-[14px] text-white shadow-[0_10px_22px_-22px_rgba(15,23,42,0.14)] sm:max-w-[72%] sm:text-[15px] lg:max-w-[62%]">
                             {event.text}
                           </div>
                         </div>
@@ -708,7 +701,7 @@ export function FinanzasWorkspace({
                     if (event.kind === "assistant") {
                       return (
                         <div key={event.id} className="flex justify-start">
-                          <div className="max-w-[84%] rounded-[18px] rounded-bl-md border border-white/10 bg-white/8 px-3 py-2 text-[14px] text-white shadow-[0_14px_35px_-26px_rgba(15,23,42,0.35)] backdrop-blur-sm sm:max-w-[72%] sm:text-[15px] lg:max-w-[62%]">
+                          <div className="max-w-[84%] rounded-[22px] rounded-bl-[8px] border border-[rgba(148,163,184,0.1)] bg-[#f3f5f8] px-4 py-2.5 text-[14px] text-slate-800 shadow-[0_10px_22px_-22px_rgba(15,23,42,0.14)] sm:max-w-[72%] sm:text-[15px] lg:max-w-[62%]">
                             {event.text}
                           </div>
                         </div>
@@ -732,29 +725,29 @@ export function FinanzasWorkspace({
                       <div key={event.id} className="space-y-1">
                         {showDateDivider && (
                           <div className="flex items-center gap-3 px-1">
-                            <div className="h-px flex-1 bg-white/10" />
-                            <span className="rounded-full bg-white/8 px-3 py-1 text-[11px] font-semibold text-white/65">
+                            <div className="h-px flex-1 bg-slate-200" />
+                            <span className="rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold text-slate-500">
                               {formatDateLabel(t.date)}
                             </span>
-                            <div className="h-px flex-1 bg-white/10" />
+                            <div className="h-px flex-1 bg-slate-200" />
                           </div>
                         )}
                         <div className={`flex ${isUserTransaction ? "justify-end" : "justify-start"}`}>
                           <article
-                            className={`rounded-[18px] border px-3 py-2.5 shadow-[0_10px_30px_-24px_rgba(15,23,42,0.35)] ${
+                            className={`rounded-[22px] border px-4 py-3 shadow-[0_10px_22px_-22px_rgba(15,23,42,0.14)] ${
                               isUserTransaction
-                                ? "max-w-[84%] border-white/14 bg-[linear-gradient(135deg,rgba(255,255,255,0.12)_0%,rgba(148,163,184,0.12)_100%)] sm:max-w-[72%] lg:max-w-[62%]"
+                                ? "max-w-[84%] rounded-br-[8px] border-[rgba(59,91,253,0.12)] bg-[color:color-mix(in_srgb,var(--primary)_6%,white)] sm:max-w-[72%] lg:max-w-[62%]"
                                 : t.type === "INCOME"
-                                  ? "max-w-[84%] border-emerald-200/30 bg-[linear-gradient(135deg,rgba(255,255,255,0.16)_0%,rgba(16,185,129,0.14)_100%)] sm:max-w-[72%] lg:max-w-[62%]"
-                                  : "max-w-[84%] border-white/10 bg-white/6 sm:max-w-[72%] lg:max-w-[62%]"
+                                  ? "max-w-[84%] rounded-bl-[8px] border-emerald-200/70 bg-emerald-50 sm:max-w-[72%] lg:max-w-[62%]"
+                                  : "max-w-[84%] rounded-bl-[8px] border-rose-200/65 bg-rose-50 sm:max-w-[72%] lg:max-w-[62%]"
                             }`}
                           >
                             <div className="flex items-start gap-2.5">
                               <div
                                 className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-[14px] ${
                                   t.type === "INCOME"
-                                    ? "bg-emerald-100/18 text-emerald-200"
-                                    : "bg-rose-400/12 text-rose-200"
+                                    ? "bg-emerald-100 text-emerald-600"
+                                    : "bg-rose-100 text-rose-600"
                                 }`}
                               >
                                 {t.type === "INCOME" ? (
@@ -767,24 +760,24 @@ export function FinanzasWorkspace({
                                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
                                   <div className="min-w-0">
                                     <div className="flex flex-wrap items-center gap-1.5">
-                                      <p className="truncate text-[15px] text-white">{t.description}</p>
+                                      <p className="truncate text-[15px] text-slate-900">{t.description}</p>
                                       {t.source === "google_sheet" && (
-                                        <span className="rounded-full bg-white/8 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/65">
+                                        <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500 ring-1 ring-slate-200">
                                           Sheet
                                         </span>
                                       )}
                                       {t.category && (
-                                        <span className="rounded-full bg-white/8 px-2 py-0.5 text-[10px] text-white/65">
+                                        <span className="rounded-full bg-white px-2 py-0.5 text-[10px] text-slate-500 ring-1 ring-slate-200">
                                           {t.category}
                                         </span>
                                       )}
                                     </div>
-                                    <p className="mt-0.5 text-[11px] text-white/50">{formatTime(t.date)}</p>
+                                    <p className="mt-0.5 text-[11px] text-slate-500">{formatTime(t.date)}</p>
                                   </div>
                                   <div className="flex items-center justify-between gap-2 sm:justify-end">
                                     <p
                                       className={`text-right text-[15px] tracking-[-0.02em] ${
-                                        t.type === "INCOME" ? "text-emerald-200" : "text-rose-200"
+                                        t.type === "INCOME" ? "text-emerald-700" : "text-rose-700"
                                       }`}
                                     >
                                       {t.type === "INCOME" ? "+" : "-"}
@@ -792,7 +785,7 @@ export function FinanzasWorkspace({
                                     </p>
                                     <button
                                       onClick={() => handleDelete(t.id)}
-                                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-white/30 transition hover:bg-rose-400/12 hover:text-rose-200"
+                                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-slate-400 transition hover:bg-rose-100 hover:text-rose-600"
                                     >
                                       <Trash2 className="h-3 w-3" />
                                     </button>
@@ -808,10 +801,10 @@ export function FinanzasWorkspace({
 
                   {isThinking && (
                     <div className="flex justify-start">
-                      <div className="flex items-center gap-1.5 rounded-[18px] rounded-bl-md border border-white/10 bg-white/8 px-4 py-3 backdrop-blur-sm">
-                        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-white/60 [animation-delay:0ms]" />
-                        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-white/60 [animation-delay:150ms]" />
-                        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-white/60 [animation-delay:300ms]" />
+                      <div className="flex items-center gap-1.5 rounded-[22px] rounded-bl-[8px] border border-[rgba(148,163,184,0.1)] bg-[#f3f5f8] px-4 py-3">
+                        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:0ms]" />
+                        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:150ms]" />
+                        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:300ms]" />
                       </div>
                     </div>
                   )}
@@ -820,9 +813,9 @@ export function FinanzasWorkspace({
             </div>
 
             {/* Composer */}
-            <div className="chat-composer fixed inset-x-0 bottom-0 z-20 shrink-0 bg-transparent px-3 pb-[calc(env(safe-area-inset-bottom)+0.65rem)] pt-2 md:static md:z-10 md:px-2 md:py-1.5">
+            <div className="chat-composer fixed inset-x-0 bottom-0 z-20 shrink-0 border-t border-[rgba(148,163,184,0.1)] bg-white px-4 pb-[calc(env(safe-area-inset-bottom)+0.65rem)] pt-3 md:static md:z-10 md:px-4 md:py-3">
               <form onSubmit={handleSubmit} className="mx-auto w-full max-w-7xl">
-                <div className="flex items-center gap-2.5">
+                <div className="flex items-center gap-3">
                   <textarea
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
@@ -834,15 +827,15 @@ export function FinanzasWorkspace({
                     }}
                     rows={1}
                     placeholder="Escribeme.."
-                    className="my-auto h-11 min-h-11 max-h-28 flex-1 resize-none rounded-[18px] border border-white/12 bg-white/8 pr-3 pl-4 py-2.5 text-[14px] leading-5 text-white placeholder:text-white/45 outline-none backdrop-blur-sm sm:h-10 sm:min-h-10 sm:py-2"
+                    className="my-auto h-12 min-h-12 max-h-28 flex-1 resize-none rounded-full border border-transparent bg-[#eef1f5] px-4 py-[0.8rem] text-[14px] leading-5 text-slate-800 placeholder:text-slate-500 outline-none transition focus:border-[color-mix(in_srgb,var(--primary)_18%,white)] focus:bg-white"
                     disabled={isBusy}
                   />
                   <button
                     type="submit"
                     disabled={isBusy || !input.trim()}
-                    className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-emerald-200/35 bg-[linear-gradient(180deg,#34d399_0%,#10b981_100%)] text-white shadow-[0_16px_30px_-20px_rgba(16,185,129,0.55)] transition hover:brightness-105 disabled:border-emerald-200/20 disabled:bg-[linear-gradient(180deg,#34d399_0%,#10b981_100%)] disabled:text-white disabled:shadow-none sm:h-10 sm:w-10"
+                    className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--primary)] text-white transition hover:bg-[var(--primary-strong)] disabled:bg-[color-mix(in_srgb,var(--primary)_40%,white)] disabled:text-white/90"
                   >
-                    <SendHorizonal className="h-4.5 w-4.5 text-white" />
+                    <SendHorizonal className="h-4 w-4 text-white" />
                   </button>
                 </div>
               </form>
