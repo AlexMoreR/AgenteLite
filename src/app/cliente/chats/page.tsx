@@ -230,6 +230,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     label: string;
     secondaryLabel: string;
     avatarUrl?: string | null;
+    automationPaused?: boolean;
     messages: Array<{
       id: string;
       content: string | null;
