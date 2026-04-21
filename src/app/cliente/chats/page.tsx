@@ -9,7 +9,7 @@ import { Card } from "@/components/ui/card";
 import { OfficialApiLockedState, getOfficialApiChatsData } from "@/features/official-api";
 import { canAccessOfficialApiModule } from "@/lib/admin-module-access";
 import { getConversationAutomationPaused } from "@/lib/conversation-automation";
-import { fetchEvolutionProfilePictureUrl } from "@/lib/evolution";
+import { fetchEvolutionMediaDataUrl, fetchEvolutionProfilePictureUrl } from "@/lib/evolution";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
@@ -50,6 +50,65 @@ function parseChatKey(input: string): { source: "agent" | "official"; conversati
     return { source, conversationId };
   }
   return null;
+}
+
+function getEvolutionPayloadRecord(rawPayload: unknown) {
+  if (!rawPayload || typeof rawPayload !== "object") {
+    return null;
+  }
+
+  const record = rawPayload as Record<string, unknown>;
+  const evolution = record.evolution;
+  return evolution && typeof evolution === "object" ? (evolution as Record<string, unknown>) : record;
+}
+
+function getEvolutionMessageId(rawPayload: unknown) {
+  const evolution = getEvolutionPayloadRecord(rawPayload);
+  const data = evolution?.data;
+  if (!data || typeof data !== "object") {
+    return null;
+  }
+
+  const key = (data as Record<string, unknown>).key;
+  if (!key || typeof key !== "object") {
+    return null;
+  }
+
+  const id = (key as Record<string, unknown>).id;
+  return typeof id === "string" && id.trim() ? id.trim() : null;
+}
+
+function getEvolutionMediaMimeType(rawPayload: unknown) {
+  const evolution = getEvolutionPayloadRecord(rawPayload);
+  const data = evolution?.data;
+  if (!data || typeof data !== "object") {
+    return null;
+  }
+
+  const message = (data as Record<string, unknown>).message;
+  if (!message || typeof message !== "object") {
+    return null;
+  }
+
+  for (const key of ["imageMessage", "audioMessage", "videoMessage", "documentMessage"] as const) {
+    const mediaRecord = (message as Record<string, unknown>)[key];
+    if (mediaRecord && typeof mediaRecord === "object") {
+      const mimeType = (mediaRecord as Record<string, unknown>).mimetype;
+      if (typeof mimeType === "string" && mimeType.trim()) {
+        return mimeType.trim();
+      }
+    }
+  }
+
+  return null;
+}
+
+function shouldResolveEvolutionMediaUrl(mediaUrl?: string | null) {
+  if (!mediaUrl) {
+    return true;
+  }
+
+  return mediaUrl.includes("mmg.whatsapp.net") || mediaUrl.includes(".enc") || mediaUrl.startsWith("/");
 }
 
 export default async function ClienteChatsPage({ searchParams }: PageProps) {
@@ -287,6 +346,11 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         select: {
           id: true,
           agentId: true,
+          channel: {
+            select: {
+              evolutionInstanceName: true,
+            },
+          },
           contact: { select: { name: true, phoneNumber: true } },
           messages: {
           orderBy: { createdAt: "asc" },
@@ -307,7 +371,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         secondaryLabel: detail.contact.phoneNumber,
         avatarUrl: selectedUnified.avatarUrl ?? null,
         automationPaused,
-        messages: detail.messages.map((message) => {
+        messages: await Promise.all(detail.messages.map(async (message) => {
           const outbound = message.direction === "OUTBOUND";
           const isManualOutbound =
             outbound &&
@@ -315,6 +379,23 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
             message.rawPayload !== null &&
             "source" in message.rawPayload &&
             (message.rawPayload.source === "manual" || message.rawPayload.source === "instance");
+          const resolvableMediaType =
+            message.type === "IMAGE" || message.type === "AUDIO" || message.type === "VIDEO" || message.type === "DOCUMENT"
+              ? message.type
+              : null;
+          const shouldResolveMedia =
+            Boolean(resolvableMediaType) &&
+            shouldResolveEvolutionMediaUrl(message.mediaUrl);
+          const evolutionMessageId = getEvolutionMessageId(message.rawPayload);
+          const resolvedMediaUrl =
+            shouldResolveMedia && detail.channel?.evolutionInstanceName && evolutionMessageId && resolvableMediaType
+              ? await fetchEvolutionMediaDataUrl({
+                  instanceName: detail.channel.evolutionInstanceName,
+                  messageId: evolutionMessageId,
+                  mediaType: resolvableMediaType,
+                  mimeType: getEvolutionMediaMimeType(message.rawPayload),
+                })
+              : null;
           return {
             id: message.id,
             content: message.content,
@@ -323,10 +404,10 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
             authorType: outbound ? (isManualOutbound ? "user" : "bot") : "user",
             outboundStatusLabel: outbound ? "entregado" : null,
             type: message.type,
-            mediaUrl: message.mediaUrl,
+            mediaUrl: resolvedMediaUrl || message.mediaUrl,
             rawPayload: message.rawPayload,
           };
-        }),
+        })),
       };
     }
   }

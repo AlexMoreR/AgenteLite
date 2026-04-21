@@ -155,6 +155,131 @@ async function evolutionRequest<T>(path: string, init?: RequestInit): Promise<T>
   return (await response.json().catch(() => ({}))) as T;
 }
 
+async function evolutionRawRequest(path: string, init?: RequestInit) {
+  const settings = await getEvolutionSettings();
+  if (!settings.apiBaseUrl || !settings.apiToken || !settings.webhookBaseUrl) {
+    throw new Error("La configuracion global de WhatsApp no esta completa");
+  }
+
+  const response = await fetch(`${settings.apiBaseUrl}${path}`, {
+    ...init,
+    headers: {
+      apikey: settings.apiToken,
+      "Content-Type": "application/json",
+      ...(init?.headers ?? {}),
+    },
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "");
+    throw new Error(errorText || `Evolution API respondio con ${response.status}`);
+  }
+
+  return response;
+}
+
+function inferMediaMimeType(input: { mediaType: "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT"; mimeType?: string | null }) {
+  if (input.mimeType?.trim()) {
+    return input.mimeType.trim();
+  }
+
+  switch (input.mediaType) {
+    case "IMAGE":
+      return "image/jpeg";
+    case "AUDIO":
+      return "audio/ogg";
+    case "VIDEO":
+      return "video/mp4";
+    default:
+      return "application/octet-stream";
+  }
+}
+
+function normalizeBase64DataUrl(base64Like: string, mimeType: string) {
+  const trimmed = base64Like.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  if (trimmed.startsWith("data:")) {
+    return trimmed;
+  }
+
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+
+  return `data:${mimeType};base64,${trimmed}`;
+}
+
+function extractBase64Candidate(value: unknown): string | null {
+  const record = asRecord(value);
+  if (!record) {
+    return readString(value);
+  }
+
+  const direct =
+    readString(record.base64) ||
+    readString(record.data) ||
+    readString(record.media) ||
+    readString(record.file) ||
+    readString(record.buffer) ||
+    readString(record.result) ||
+    readString(record.message);
+
+  if (direct) {
+    return direct;
+  }
+
+  return (
+    extractBase64Candidate(record.response) ||
+    extractBase64Candidate(record.data) ||
+    extractBase64Candidate(record.message) ||
+    extractBase64Candidate(record.result)
+  );
+}
+
+export async function fetchEvolutionMediaDataUrl(input: {
+  instanceName: string;
+  messageId: string;
+  mediaType: "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT";
+  mimeType?: string | null;
+}) {
+  try {
+    const response = await evolutionRawRequest(`/chat/getBase64FromMediaMessage/${input.instanceName}`, {
+      method: "POST",
+      body: JSON.stringify({
+        message: {
+          key: {
+            id: input.messageId,
+          },
+        },
+        convertToMp4: input.mediaType === "VIDEO",
+      }),
+    });
+
+    const contentType = response.headers.get("content-type")?.toLowerCase() || "";
+    const mimeType = inferMediaMimeType(input);
+
+    if (contentType.startsWith("image/") || contentType.startsWith("audio/") || contentType.startsWith("video/")) {
+      const buffer = Buffer.from(await response.arrayBuffer());
+      return `data:${contentType};base64,${buffer.toString("base64")}`;
+    }
+
+    if (!contentType.includes("application/json")) {
+      const rawText = await response.text().catch(() => "");
+      return normalizeBase64DataUrl(rawText, mimeType);
+    }
+
+    const payload = await response.json().catch(() => null);
+    const base64Candidate = extractBase64Candidate(payload);
+    return normalizeBase64DataUrl(base64Candidate || "", mimeType);
+  } catch {
+    return null;
+  }
+}
+
 export async function getEvolutionConnectionState(instanceName: string) {
   const settings = await getEvolutionSettings();
   if (!settings.apiBaseUrl || !settings.apiToken) {
