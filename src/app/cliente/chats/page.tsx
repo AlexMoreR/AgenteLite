@@ -313,7 +313,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
             typeof message.rawPayload === "object" &&
             message.rawPayload !== null &&
             "source" in message.rawPayload &&
-            message.rawPayload.source === "manual";
+            (message.rawPayload.source === "manual" || message.rawPayload.source === "instance");
           return {
             id: message.id,
             content: message.content,

@@ -217,17 +217,15 @@ export async function POST(request: Request) {
     messageExternalId: inboundExternalId,
   });
 
-  if (fromMe || !phoneNumber) {
+  if (!phoneNumber) {
     console.log("[EVOLUTION] inbound_skipped", {
-      reason: fromMe ? "from_me" : "missing_phone",
+      reason: "missing_phone",
       eventName,
       instanceName,
     });
     return NextResponse.json({
       ok: true,
-      message: fromMe
-        ? "Outbound/self message ignored"
-        : "Inbound event logged without identifiable phone number",
+      message: "Inbound event logged without identifiable phone number",
       instanceName,
       event: eventName,
     });
@@ -290,12 +288,16 @@ export async function POST(request: Request) {
         contactId: contact.id,
         agentId: channel.agentId ?? null,
         externalId: inboundExternalId,
-        direction: "INBOUND",
+        direction: fromMe ? "OUTBOUND" : "INBOUND",
         type: messageType,
-        status: "RECEIVED",
+        status: fromMe ? "SENT" : "RECEIVED",
         content: messageText,
         mediaUrl,
-        rawPayload: payload as never,
+        rawPayload: {
+          source: fromMe ? "instance" : "webhook",
+          evolution: payload,
+        } as never,
+        ...(fromMe ? { sentAt: new Date() } : {}),
       },
     });
   } catch (error) {
@@ -314,7 +316,7 @@ export async function POST(request: Request) {
 
       return NextResponse.json({
         ok: true,
-        message: "Duplicate inbound event ignored",
+        message: fromMe ? "Duplicate outbound/self event ignored" : "Duplicate inbound event ignored",
         instanceName,
         event: eventName,
       });
@@ -336,9 +338,10 @@ export async function POST(request: Request) {
     contactId: contact.id,
     agentId: channel.agentId,
     phoneNumber,
+    direction: fromMe ? "OUTBOUND" : "INBOUND",
   });
 
-  if (channel.agentId) {
+  if (!fromMe && channel.agentId) {
     const workspaceAccess = await enforceWorkspacePlanAccess(channel.workspaceId);
 
     if (workspaceAccess.planState.blockClientArea) {
