@@ -38,6 +38,7 @@ export type SharedInboxMessageItem = {
   outboundStatusLabel?: string | null;
   type?: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE";
   mediaUrl?: string | null;
+  rawPayload?: unknown;
 };
 
 export type SharedInboxSelectedConversation = {
@@ -125,6 +126,111 @@ function isVideoMessage(message: SharedInboxMessageItem) {
 
 function isDocumentMessage(message: SharedInboxMessageItem) {
   return Boolean(message.mediaUrl) && message.type === "DOCUMENT";
+}
+
+type ChatAdPreview = {
+  title: string;
+  body?: string | null;
+  sourceUrl?: string | null;
+  thumbnailUrl?: string | null;
+  sourceApp?: string | null;
+};
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function getNestedRecord(value: unknown, key: string) {
+  if (!isObjectRecord(value)) {
+    return null;
+  }
+
+  const nested = value[key];
+  return isObjectRecord(nested) ? nested : null;
+}
+
+function getNestedString(value: unknown, key: string) {
+  if (!isObjectRecord(value)) {
+    return null;
+  }
+
+  const nested = value[key];
+  return typeof nested === "string" && nested.trim().length > 0 ? nested : null;
+}
+
+function getNestedValue(value: unknown, key: string) {
+  if (!isObjectRecord(value) || !(key in value)) {
+    return null;
+  }
+
+  return value[key];
+}
+
+function bytesLikeToBase64(value: unknown) {
+  if (value instanceof Uint8Array) {
+    return Buffer.from(value).toString("base64");
+  }
+
+  if (Array.isArray(value)) {
+    const bytes = value.filter((item): item is number => typeof item === "number");
+    return bytes.length > 0 ? Buffer.from(bytes).toString("base64") : null;
+  }
+
+  if (!isObjectRecord(value)) {
+    return null;
+  }
+
+  const numericEntries = Object.entries(value)
+    .filter(([key, entryValue]) => /^\d+$/.test(key) && typeof entryValue === "number")
+    .sort((left, right) => Number(left[0]) - Number(right[0]))
+    .map(([, entryValue]) => entryValue);
+
+  return numericEntries.length > 0 ? Buffer.from(numericEntries).toString("base64") : null;
+}
+
+function extractImagePreviewUrl(message: SharedInboxMessageItem) {
+  if (message.mediaUrl && !message.mediaUrl.includes("mmg.whatsapp.net") && !message.mediaUrl.includes(".enc")) {
+    return message.mediaUrl;
+  }
+
+  const rootPayload = getNestedRecord(message.rawPayload, "evolution") ?? (isObjectRecord(message.rawPayload) ? message.rawPayload : null);
+  const data = getNestedRecord(rootPayload, "data");
+  const messageData = getNestedRecord(data, "message") ?? getNestedRecord(rootPayload, "message");
+  const imageMessage = getNestedRecord(messageData, "imageMessage");
+
+  const thumbnailBytes =
+    getNestedValue(imageMessage, "jpegThumbnail") ??
+    getNestedValue(imageMessage, "thumbnail") ??
+    getNestedValue(getNestedRecord(getNestedRecord(data, "contextInfo"), "externalAdReply"), "thumbnail");
+
+  const base64 = bytesLikeToBase64(thumbnailBytes);
+
+  return base64 ? `data:image/jpeg;base64,${base64}` : message.mediaUrl || null;
+}
+
+function extractChatAdPreview(rawPayload: unknown): ChatAdPreview | null {
+  const rootPayload = getNestedRecord(rawPayload, "evolution") ?? (isObjectRecord(rawPayload) ? rawPayload : null);
+  const data = getNestedRecord(rootPayload, "data");
+  const contextInfo = getNestedRecord(data, "contextInfo") ?? getNestedRecord(rootPayload, "contextInfo");
+  const externalAdReply = getNestedRecord(contextInfo, "externalAdReply");
+
+  if (!externalAdReply) {
+    return null;
+  }
+
+  const title = getNestedString(externalAdReply, "title");
+
+  if (!title) {
+    return null;
+  }
+
+  return {
+    title,
+    body: getNestedString(externalAdReply, "body"),
+    sourceUrl: getNestedString(externalAdReply, "sourceUrl"),
+    thumbnailUrl: getNestedString(externalAdReply, "thumbnailUrl"),
+    sourceApp: getNestedString(externalAdReply, "sourceApp"),
+  };
 }
 
 export function SharedInbox({
@@ -377,6 +483,7 @@ export function SharedInbox({
                       ? new Intl.DateTimeFormat("en-CA").format(previousMessage.createdAt)
                       : null;
                     const showDateDivider = currentDateKey !== previousDateKey;
+                    const adPreview = extractChatAdPreview(message.rawPayload);
                     return (
                       <div key={message.id} className="space-y-2.5 md:space-y-3">
                         {showDateDivider ? (
@@ -395,14 +502,79 @@ export function SharedInbox({
                                 : "border border-[rgba(148,163,184,0.12)] bg-white text-slate-800"
                             }`}
                           >
-                            {isVisualMessage(message) ? (
+                            {adPreview ? (
+                              <div className="space-y-3">
+                                <div
+                                  className={`overflow-hidden rounded-[14px] border ${
+                                    outbound
+                                      ? "border-white/20 bg-white/10"
+                                      : "border-[rgba(148,163,184,0.16)] bg-slate-50"
+                                  }`}
+                                >
+                                  {adPreview.thumbnailUrl ? (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img
+                                      src={adPreview.thumbnailUrl}
+                                      alt={adPreview.title}
+                                      className="h-auto max-h-[220px] w-full object-cover"
+                                    />
+                                  ) : null}
+                                  <div className="space-y-1.5 px-3 py-3">
+                                    <div className="flex items-center gap-2 text-[11px]">
+                                      {adPreview.sourceApp === "facebook" ? (
+                                        <Facebook className={`h-3.5 w-3.5 ${outbound ? "text-white/80" : "text-blue-600"}`} />
+                                      ) : (
+                                        <MessageCircle className={`h-3.5 w-3.5 ${outbound ? "text-white/80" : "text-emerald-600"}`} />
+                                      )}
+                                      <span className={outbound ? "text-white/80" : "text-slate-500"}>
+                                        {adPreview.sourceApp === "facebook" ? "Anuncio de Facebook" : "Referencia de anuncio"}
+                                      </span>
+                                    </div>
+                                    <div className="space-y-1">
+                                      <p className="line-clamp-2 text-[13px] font-semibold leading-5">{adPreview.title}</p>
+                                      {adPreview.body ? (
+                                        <p className={`line-clamp-2 text-[12px] leading-5 ${outbound ? "text-white/85" : "text-slate-600"}`}>
+                                          {adPreview.body}
+                                        </p>
+                                      ) : null}
+                                    </div>
+                                    {adPreview.sourceUrl ? (
+                                      <a
+                                        href={adPreview.sourceUrl}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className={`inline-flex text-[11px] underline underline-offset-2 ${
+                                          outbound ? "text-white/85" : "text-slate-500"
+                                        }`}
+                                      >
+                                        {adPreview.sourceUrl.replace(/^https?:\/\//, "")}
+                                      </a>
+                                    ) : null}
+                                  </div>
+                                </div>
+                                {message.content?.trim() ? <p>{message.content}</p> : null}
+                              </div>
+                            ) : isVisualMessage(message) ? (
                               <div className="space-y-2">
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img
-                                  src={message.mediaUrl || ""}
-                                  alt={message.content?.trim() || "Imagen del chat"}
-                                  className="max-h-[320px] w-full rounded-xl object-cover"
-                                />
+                                {(() => {
+                                  const previewUrl = extractImagePreviewUrl(message);
+                                  return previewUrl ? (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img
+                                      src={previewUrl}
+                                      alt={message.content?.trim() || "Imagen del chat"}
+                                      className="max-h-[320px] w-full rounded-xl object-cover"
+                                    />
+                                  ) : (
+                                    <div
+                                      className={`flex min-h-[140px] items-center justify-center rounded-xl border border-dashed text-sm ${
+                                        outbound ? "border-white/20 text-white/80" : "border-slate-200 text-slate-500"
+                                      }`}
+                                    >
+                                      Imagen no disponible
+                                    </div>
+                                  );
+                                })()}
                                 {message.content?.trim() ? <p>{message.content}</p> : null}
                               </div>
                             ) : isVideoMessage(message) ? (

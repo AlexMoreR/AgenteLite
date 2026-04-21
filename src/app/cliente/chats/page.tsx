@@ -265,16 +265,17 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     secondaryLabel: string;
     avatarUrl?: string | null;
     automationPaused?: boolean;
-    messages: Array<{
-      id: string;
-      content: string | null;
-      direction: "INBOUND" | "OUTBOUND";
-      createdAt: Date;
-      authorType: "user" | "bot";
-      outboundStatusLabel: string | null;
-      type?: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE";
-      mediaUrl?: string | null;
-    }>;
+      messages: Array<{
+        id: string;
+        content: string | null;
+        direction: "INBOUND" | "OUTBOUND";
+        createdAt: Date;
+        authorType: "user" | "bot";
+        outboundStatusLabel: string | null;
+        type?: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE";
+        mediaUrl?: string | null;
+        rawPayload?: unknown;
+      }>;
   } | null = null;
 
   if (selectedUnified?.source === "agent") {
@@ -323,6 +324,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
             outboundStatusLabel: outbound ? "entregado" : null,
             type: message.type,
             mediaUrl: message.mediaUrl,
+            rawPayload: message.rawPayload,
           };
         }),
       };
@@ -350,6 +352,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
             : null,
         type: message.type,
         mediaUrl: message.mediaUrl,
+        rawPayload: message.rawPayload,
       })),
     };
   }
