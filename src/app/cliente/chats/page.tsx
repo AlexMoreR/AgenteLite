@@ -13,6 +13,9 @@ import { fetchEvolutionProfilePictureUrl } from "@/lib/evolution";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 type PageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
