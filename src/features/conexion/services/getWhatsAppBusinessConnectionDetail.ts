@@ -32,6 +32,8 @@ export async function getWhatsAppBusinessConnectionDetail(workspaceId: string, c
         select: {
           id: true,
           name: true,
+          isActive: true,
+          status: true,
         },
       },
     },
@@ -49,6 +51,8 @@ export async function getWhatsAppBusinessConnectionDetail(workspaceId: string, c
           select: {
             id: true,
             name: true,
+            isActive: true,
+            status: true,
           },
         },
       },
@@ -113,6 +117,8 @@ export async function getWhatsAppBusinessConnectionDetail(workspaceId: string, c
       isActive: channel.isActive,
       agentId: channel.agent?.id ?? null,
       agentName: channel.agent?.name ?? "",
+      agentIsActive: channel.agent?.isActive ?? false,
+      agentStatus: channel.agent?.status ?? null,
     },
     channel,
     isConnected,

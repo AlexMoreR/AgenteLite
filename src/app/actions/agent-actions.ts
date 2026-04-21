@@ -74,6 +74,7 @@ const deleteAgentSchema = z.object({
 
 const toggleAgentStatusSchema = z.object({
   agentId: z.string().trim().min(1, "Agente invalido"),
+  returnTo: z.string().trim().max(500).optional(),
 });
 
 const sendManualAgentReplySchema = z.object({
@@ -1239,11 +1240,14 @@ export async function toggleAgentStatusAction(formData: FormData): Promise<void>
 
   const parsed = toggleAgentStatusSchema.safeParse({
     agentId: formData.get("agentId"),
+    returnTo: formData.get("returnTo"),
   });
 
   if (!parsed.success) {
     redirect("/cliente/agentes?error=Agente+invalido");
   }
+
+  const returnTo = parsed.data.returnTo || "";
 
   const membership = await getPrimaryWorkspaceForUser(session.user.id);
   if (!membership) {
@@ -1278,6 +1282,11 @@ export async function toggleAgentStatusAction(formData: FormData): Promise<void>
 
   revalidatePath("/cliente");
   revalidatePath("/cliente/agentes");
+  if (returnTo) {
+    revalidatePath(returnTo);
+    redirect(`${returnTo}?ok=${nextStatus === "ACTIVE" ? "Agente+encendido" : "Agente+apagado"}`);
+  }
+
   redirect(`/cliente/agentes?ok=${nextStatus === "ACTIVE" ? "Agente+encendido" : "Agente+apagado"}`);
 }
 

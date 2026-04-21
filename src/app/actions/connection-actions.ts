@@ -125,6 +125,7 @@ const deleteConnectionChannelSchema = z.object({
 const assignConnectionChannelSchema = z.object({
   channelId: z.string().trim().min(1, "Canal invalido"),
   agentId: z.string().trim().min(1, "Agente invalido"),
+  returnTo: z.string().trim().optional(),
 });
 
 const toggleConnectionChannelStatusSchema = z.object({
@@ -198,6 +199,7 @@ export async function assignConnectionChannelAction(formData: FormData): Promise
   const parsed = assignConnectionChannelSchema.safeParse({
     channelId: getRequiredFormValue(formData, "channelId"),
     agentId: getRequiredFormValue(formData, "agentId"),
+    returnTo: getOptionalFormValue(formData, "returnTo"),
   });
 
   if (!parsed.success) {
@@ -239,7 +241,8 @@ export async function assignConnectionChannelAction(formData: FormData): Promise
   revalidatePath("/cliente/conexion");
   revalidatePath("/cliente/conexion/whatsapp-business");
   revalidatePath(`/cliente/agentes/${agent.id}`);
-  redirect(`/cliente/conexion?agentId=${agent.id}&ok=Canal+vinculado+al+agente`);
+  const returnTo = parsed.data.returnTo?.trim() || "/cliente/conexion";
+  redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}ok=Canal+vinculado+al+agente`);
 }
 
 export async function toggleConnectionChannelStatusAction(formData: FormData): Promise<void> {

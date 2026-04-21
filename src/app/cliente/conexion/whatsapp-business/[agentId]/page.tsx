@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
+import { prisma } from "@/lib/prisma";
 import { WhatsAppBusinessConnectionWorkspace, getWhatsAppBusinessConnectionDetail } from "@/features/conexion";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
@@ -32,6 +33,22 @@ export default async function ClienteConexionWhatsAppBusinessDetailPage({ params
 
   const [{ agentId }, paramsData] = await Promise.all([params, searchParams]);
   const detail = await getWhatsAppBusinessConnectionDetail(membership.workspace.id, agentId);
+  const availableAgents = await prisma.agent.findMany({
+    where: {
+      workspaceId: membership.workspace.id,
+      status: {
+        not: "ARCHIVED",
+      },
+    },
+    orderBy: {
+      name: "asc",
+    },
+    select: {
+      id: true,
+      name: true,
+      status: true,
+    },
+  });
 
   if (!detail) {
     redirect("/cliente/conexion?error=Canal+no+encontrado");
@@ -50,6 +67,7 @@ export default async function ClienteConexionWhatsAppBusinessDetailPage({ params
       channelStatus={detail.channel?.status}
       okMessage={okMessage}
       errorMessage={errorMessage}
+      availableAgents={availableAgents}
     />
   );
 }
