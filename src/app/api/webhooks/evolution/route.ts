@@ -11,6 +11,8 @@ import {
   extractEvolutionInstanceName,
   extractEvolutionMessageId,
   extractEvolutionMessageText,
+  extractEvolutionMessageType,
+  extractEvolutionMediaUrl,
   extractEvolutionPairingCode,
   extractEvolutionPhoneNumber,
   extractEvolutionQrCode,
@@ -190,6 +192,8 @@ export async function POST(request: Request) {
   const remoteJid = extractEvolutionRemoteJid(payload);
   const phoneNumber = normalizePhoneFromJid(remoteJid);
   const messageText = extractEvolutionMessageText(payload);
+  const messageType = extractEvolutionMessageType(payload);
+  const mediaUrl = extractEvolutionMediaUrl(payload);
   const messageExternalId = extractEvolutionMessageId(payload);
   const inboundExternalId = buildInboundExternalId({
     messageExternalId,
@@ -208,6 +212,8 @@ export async function POST(request: Request) {
     fromMe,
     phoneNumber,
     hasMessageText: Boolean(messageText?.trim()),
+    messageType,
+    hasMediaUrl: Boolean(mediaUrl),
     messageExternalId: inboundExternalId,
   });
 
@@ -285,9 +291,10 @@ export async function POST(request: Request) {
         agentId: channel.agentId ?? null,
         externalId: inboundExternalId,
         direction: "INBOUND",
-        type: "TEXT",
+        type: messageType,
         status: "RECEIVED",
         content: messageText,
+        mediaUrl,
         rawPayload: payload as never,
       },
     });

@@ -128,10 +128,84 @@ export function extractEvolutionMessageText(payload: unknown): string | null {
   const data = asRecord(root?.data);
   const message = asRecord(data?.message);
   const extendedText = asRecord(message?.extendedTextMessage);
+  const buttonsResponseMessage = asRecord(message?.buttonsResponseMessage);
+  const listResponseMessage = asRecord(message?.listResponseMessage);
+  const templateButtonReplyMessage = asRecord(message?.templateButtonReplyMessage);
+  const imageMessage = asRecord(message?.imageMessage);
+  const videoMessage = asRecord(message?.videoMessage);
+  const documentMessage = asRecord(message?.documentMessage);
   const conversation = readString(message?.conversation);
   const extendedConversation = readString(extendedText?.text);
+  const buttonText =
+    readString(buttonsResponseMessage?.selectedDisplayText) ||
+    readString(buttonsResponseMessage?.selectedButtonId);
+  const listText =
+    readString(listResponseMessage?.title) ||
+    readString(listResponseMessage?.singleSelectReply && asRecord(listResponseMessage.singleSelectReply)?.selectedRowId);
+  const templateReplyText =
+    readString(templateButtonReplyMessage?.selectedDisplayText) ||
+    readString(templateButtonReplyMessage?.selectedId);
+  const imageCaption = readString(imageMessage?.caption);
+  const videoCaption = readString(videoMessage?.caption);
+  const documentCaption = readString(documentMessage?.caption);
+  const documentFileName = readString(documentMessage?.fileName);
 
-  return conversation || extendedConversation || pickString(data, ["text", "body"]);
+  return (
+    conversation ||
+    extendedConversation ||
+    buttonText ||
+    listText ||
+    templateReplyText ||
+    imageCaption ||
+    videoCaption ||
+    documentCaption ||
+    documentFileName ||
+    pickString(data, ["text", "body"])
+  );
+}
+
+export function extractEvolutionMessageType(payload: unknown) {
+  const root = asRecord(payload);
+  const data = asRecord(root?.data);
+  const message = asRecord(data?.message);
+
+  if (asRecord(message?.imageMessage)) {
+    return "IMAGE" as const;
+  }
+
+  if (asRecord(message?.audioMessage)) {
+    return "AUDIO" as const;
+  }
+
+  if (asRecord(message?.videoMessage)) {
+    return "VIDEO" as const;
+  }
+
+  if (asRecord(message?.documentMessage)) {
+    return "DOCUMENT" as const;
+  }
+
+  return "TEXT" as const;
+}
+
+export function extractEvolutionMediaUrl(payload: unknown): string | null {
+  const root = asRecord(payload);
+  const data = asRecord(root?.data);
+  const message = asRecord(data?.message);
+
+  return (
+    pickNestedString(message, [
+      ["imageMessage", "url"],
+      ["audioMessage", "url"],
+      ["videoMessage", "url"],
+      ["documentMessage", "url"],
+      ["imageMessage", "directPath"],
+      ["audioMessage", "directPath"],
+      ["videoMessage", "directPath"],
+      ["documentMessage", "directPath"],
+    ]) ||
+    pickString(data, ["mediaUrl", "media", "url"])
+  );
 }
 
 export function extractEvolutionMessageId(payload: unknown): string | null {
@@ -150,7 +224,7 @@ export function extractEvolutionFromMe(payload: unknown): boolean {
   const data = asRecord(root?.data);
   const key = asRecord(data?.key);
 
-  return key?.fromMe === true || data?.fromMe === true;
+  return key?.fromMe === true || data?.fromMe === true || root?.fromMe === true;
 }
 
 export function extractEvolutionRemoteJid(payload: unknown): string | null {
@@ -158,11 +232,15 @@ export function extractEvolutionRemoteJid(payload: unknown): string | null {
   const data = asRecord(root?.data);
   const key = asRecord(data?.key);
   const sender = asRecord(data?.sender);
+  const message = asRecord(data?.message);
+  const contextInfo = asRecord(asRecord(message?.extendedTextMessage)?.contextInfo);
 
   return (
     pickString(key, ["remoteJid", "participant"]) ||
     pickString(sender, ["id", "jid"]) ||
-    pickString(data, ["remoteJid"])
+    pickString(data, ["remoteJid", "participant", "from"]) ||
+    pickString(contextInfo, ["participant", "remoteJid"]) ||
+    pickString(root, ["remoteJid"])
   );
 }
 
@@ -173,5 +251,15 @@ export function normalizePhoneFromJid(value: string | null): string | null {
 }
 
 export function isInboundMessageEvent(eventName: string | null): boolean {
-  return eventName === "MESSAGES_UPSERT" || eventName === "MESSAGE_UPSERT";
+  if (!eventName) {
+    return false;
+  }
+
+  return (
+    eventName === "MESSAGES_UPSERT" ||
+    eventName === "MESSAGE_UPSERT" ||
+    eventName === "MESSAGES_UPSERT_NOTIFY" ||
+    eventName === "MESSAGES_UPSERT_APPEND" ||
+    (eventName.includes("MESSAGE") && eventName.includes("UPSERT"))
+  );
 }

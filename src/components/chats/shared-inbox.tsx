@@ -115,6 +115,18 @@ function isVisualMessage(message: SharedInboxMessageItem) {
   return Boolean(message.mediaUrl) && (message.type === "IMAGE" || (!message.type && message.mediaUrl));
 }
 
+function isAudioMessage(message: SharedInboxMessageItem) {
+  return Boolean(message.mediaUrl) && message.type === "AUDIO";
+}
+
+function isVideoMessage(message: SharedInboxMessageItem) {
+  return Boolean(message.mediaUrl) && message.type === "VIDEO";
+}
+
+function isDocumentMessage(message: SharedInboxMessageItem) {
+  return Boolean(message.mediaUrl) && message.type === "DOCUMENT";
+}
+
 export function SharedInbox({
   searchAction,
   selectedConversationId,
@@ -391,6 +403,35 @@ export function SharedInbox({
                                   alt={message.content?.trim() || "Imagen del chat"}
                                   className="max-h-[320px] w-full rounded-xl object-cover"
                                 />
+                                {message.content?.trim() ? <p>{message.content}</p> : null}
+                              </div>
+                            ) : isVideoMessage(message) ? (
+                              <div className="space-y-2">
+                                <video
+                                  src={message.mediaUrl || ""}
+                                  controls
+                                  preload="metadata"
+                                  className="max-h-[320px] w-full rounded-xl bg-black"
+                                />
+                                {message.content?.trim() ? <p>{message.content}</p> : null}
+                              </div>
+                            ) : isAudioMessage(message) ? (
+                              <div className="space-y-2">
+                                <audio src={message.mediaUrl || ""} controls preload="metadata" className="w-full" />
+                                {message.content?.trim() ? <p>{message.content}</p> : null}
+                              </div>
+                            ) : isDocumentMessage(message) ? (
+                              <div className="space-y-2">
+                                <a
+                                  href={message.mediaUrl || "#"}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className={`inline-flex items-center rounded-xl px-3 py-2 text-sm font-medium underline-offset-2 transition hover:underline ${
+                                    outbound ? "bg-white/14 text-white" : "bg-slate-100 text-slate-700"
+                                  }`}
+                                >
+                                  Abrir documento
+                                </a>
                                 {message.content?.trim() ? <p>{message.content}</p> : null}
                               </div>
                             ) : (
