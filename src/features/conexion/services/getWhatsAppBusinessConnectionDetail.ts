@@ -1,5 +1,10 @@
 import QRCode from "qrcode";
-import { getEvolutionConnectionQr, getEvolutionConnectionState } from "@/lib/evolution";
+import {
+  fetchEvolutionInstanceProfile,
+  fetchEvolutionProfilePictureUrl,
+  getEvolutionConnectionQr,
+  getEvolutionConnectionState,
+} from "@/lib/evolution";
 import { prisma } from "@/lib/prisma";
 
 async function buildQrDataUrl(qrValue: string | null) {
@@ -77,6 +82,30 @@ export async function getWhatsAppBusinessConnectionDetail(workspaceId: string, c
     channel?.evolutionInstanceName && !remoteIsConnected
       ? await getEvolutionConnectionQr(channel.evolutionInstanceName)
       : { qrCode: null, pairingCode: null };
+  const instanceProfile =
+    channel?.provider === "EVOLUTION" && channel.evolutionInstanceName
+      ? await fetchEvolutionInstanceProfile(channel.evolutionInstanceName)
+      : null;
+  const normalizedInstanceOwner = instanceProfile?.owner ? instanceProfile.owner.split("@")[0]?.replace(/\D/g, "") ?? "" : "";
+  const resolvedPhoneNumber = channel.phoneNumber || normalizedInstanceOwner || null;
+  const profilePictureUrl =
+    instanceProfile?.profilePictureUrl ||
+    (channel?.provider === "EVOLUTION" && channel.evolutionInstanceName && resolvedPhoneNumber
+      ? await fetchEvolutionProfilePictureUrl({
+          instanceName: channel.evolutionInstanceName,
+          phoneNumber: resolvedPhoneNumber,
+        })
+      : null);
+
+  if (channel.id && resolvedPhoneNumber && channel.phoneNumber !== resolvedPhoneNumber) {
+    await prisma.whatsAppChannel.update({
+      where: { id: channel.id },
+      data: {
+        phoneNumber: resolvedPhoneNumber,
+      },
+    });
+    channel.phoneNumber = resolvedPhoneNumber;
+  }
 
   if (channel?.id && remoteIsConnected && channel.status !== "CONNECTED") {
     await prisma.whatsAppChannel.update({
@@ -123,6 +152,7 @@ export async function getWhatsAppBusinessConnectionDetail(workspaceId: string, c
       id: channel.id,
       name: channel.name,
       provider: channel.provider,
+      phoneNumber: channel.phoneNumber ?? "",
       isActive: channel.isActive,
       agentId: channel.agent?.id ?? null,
       agentName: channel.agent?.name ?? "",
@@ -133,6 +163,7 @@ export async function getWhatsAppBusinessConnectionDetail(workspaceId: string, c
         typeof agentTrainingConfig?.responseDelaySeconds === "number" && Number.isFinite(agentTrainingConfig.responseDelaySeconds)
           ? Math.max(0, Math.min(120, Math.round(agentTrainingConfig.responseDelaySeconds)))
           : 10,
+      logoUrl: profilePictureUrl,
     },
     channel,
     isConnected,

@@ -48,10 +48,71 @@ type EvolutionProfilePictureResponse = {
   profilePictureUrl?: string | null;
 };
 
+type EvolutionInstanceRecord = {
+  instance?: {
+    instanceName?: string;
+    owner?: string | null;
+    ownerJid?: string | null;
+    number?: string | null;
+    phoneNumber?: string | null;
+    wuid?: string | null;
+    profileName?: string | null;
+    profilePictureUrl?: string | null;
+  };
+  response?: unknown;
+  data?: unknown;
+};
+
 type EvolutionPresence = "available" | "unavailable" | "composing" | "recording" | "paused";
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
+
+function readString(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
 
 function normalizeEvolutionState(value: string | null | undefined) {
   return typeof value === "string" && value.trim() ? value.trim().toLowerCase() : null;
+}
+
+function normalizePhoneValue(value: string | null | undefined) {
+  const normalized = typeof value === "string" ? value.split("@")[0]?.replace(/\D/g, "") ?? "" : "";
+  return normalized || null;
+}
+
+function extractInstancePayloadList(payload: unknown): EvolutionInstanceRecord[] {
+  if (Array.isArray(payload)) {
+    return payload as EvolutionInstanceRecord[];
+  }
+
+  const record = asRecord(payload);
+  if (!record) {
+    return [];
+  }
+
+  if (Array.isArray(record.response)) {
+    return record.response as EvolutionInstanceRecord[];
+  }
+
+  if (Array.isArray(record.data)) {
+    return record.data as EvolutionInstanceRecord[];
+  }
+
+  if (record.response && asRecord(record.response)?.instance) {
+    return [record.response as EvolutionInstanceRecord];
+  }
+
+  if (record.data && asRecord(record.data)?.instance) {
+    return [record.data as EvolutionInstanceRecord];
+  }
+
+  if (record.instance) {
+    return [record as EvolutionInstanceRecord];
+  }
+
+  return [];
 }
 
 function buildWebhookHeaders(secret: string) {
@@ -134,6 +195,56 @@ export async function getEvolutionConnectionQr(instanceName: string) {
     };
   } catch {
     return { qrCode: null, pairingCode: null };
+  }
+}
+
+export async function fetchEvolutionInstanceProfile(instanceName: string) {
+  const settings = await getEvolutionSettings();
+  if (!settings.apiBaseUrl || !settings.apiToken || !instanceName) {
+    return null;
+  }
+
+  try {
+    const scopedResponse = await evolutionRequest<EvolutionInstanceRecord[] | EvolutionInstanceRecord>(
+      `/instance/fetchInstances?instanceName=${encodeURIComponent(instanceName)}`,
+      {
+        method: "GET",
+      },
+    );
+    let records = extractInstancePayloadList(scopedResponse);
+
+    if (!records.length) {
+      const fallbackResponse = await evolutionRequest<EvolutionInstanceRecord[] | EvolutionInstanceRecord>("/instance/fetchInstances", {
+        method: "GET",
+      });
+      records = extractInstancePayloadList(fallbackResponse);
+    }
+
+    const instanceRecord =
+      records.find((item) => item.instance?.instanceName === instanceName) ??
+      records.find((item) => {
+        const nested = asRecord(item.instance);
+        return readString(nested?.instanceName) === instanceName;
+      }) ??
+      records[0];
+    const instance = asRecord(instanceRecord?.instance);
+
+    if (!instance) {
+      return null;
+    }
+
+    return {
+      owner:
+        normalizePhoneValue(readString(instance.owner)) ||
+        normalizePhoneValue(readString(instance.ownerJid)) ||
+        normalizePhoneValue(readString(instance.number)) ||
+        normalizePhoneValue(readString(instance.phoneNumber)) ||
+        normalizePhoneValue(readString(instance.wuid)),
+      profileName: readString(instance.profileName),
+      profilePictureUrl: readString(instance.profilePictureUrl),
+    };
+  } catch {
+    return null;
   }
 }
 

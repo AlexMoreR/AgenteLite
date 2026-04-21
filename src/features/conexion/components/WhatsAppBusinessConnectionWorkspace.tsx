@@ -9,6 +9,7 @@ import { assignConnectionChannelAction, toggleConnectionChannelStatusAction } fr
 import { WhatsappQrAutoRefresh } from "@/components/agents/whatsapp-qr-auto-refresh";
 import { WhatsappQrCountdown } from "@/components/agents/whatsapp-qr-countdown";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { AgentAssignAutosaveForm, ReactivationAutosaveForm, ResponseDelayAutosaveForm } from "./ConnectionAutosaveControls";
 
 type WhatsAppBusinessConnectionWorkspaceProps = {
@@ -16,6 +17,7 @@ type WhatsAppBusinessConnectionWorkspaceProps = {
     id: string;
     name: string;
     provider: string;
+    phoneNumber: string;
     isActive: boolean;
     agentId: string | null;
     agentName: string;
@@ -23,6 +25,7 @@ type WhatsAppBusinessConnectionWorkspaceProps = {
     agentStatus: string | null;
     agentReactivationMessage: string;
     agentResponseDelaySeconds: number;
+    logoUrl: string | null;
   };
   isConnected: boolean;
   qrDataUrl: string;
@@ -50,7 +53,10 @@ export function WhatsAppBusinessConnectionWorkspace({
   availableAgents,
 }: WhatsAppBusinessConnectionWorkspaceProps) {
   const effectiveErrorMessage = hasQrCode || channelStatus === "QRCODE" || isConnected ? "" : errorMessage;
-  const providerLabel = connection.provider === "OFFICIAL_API" ? "API oficial" : "QR";
+  const providerLabel =
+    connection.provider === "OFFICIAL_API"
+      ? connection.phoneNumber || "API oficial"
+      : connection.phoneNumber || "QR";
 
   return (
     <section className="space-y-5">
@@ -62,6 +68,69 @@ export function WhatsAppBusinessConnectionWorkspace({
       />
 
       {!isConnected ? <WhatsappQrAutoRefresh isConnected={isConnected} /> : null}
+
+      {isConnected ? (
+        <div className="rounded-[24px] border border-[rgba(148,163,184,0.14)] bg-white p-4 shadow-[0_20px_60px_-48px_rgba(15,23,42,0.24)] sm:rounded-[28px] sm:p-5">
+          <div className="px-1 py-1 sm:px-0 sm:py-0">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div className="flex items-start gap-3">
+                <Avatar className="h-10 w-10 rounded-2xl border border-emerald-100 bg-emerald-50">
+                  {connection.logoUrl ? <AvatarImage src={connection.logoUrl} alt={`Logo de ${connection.name}`} className="object-cover" /> : null}
+                  <AvatarFallback className="rounded-2xl bg-emerald-50 text-emerald-600">
+                    <CheckCircle2 className="h-5 w-5" />
+                  </AvatarFallback>
+                </Avatar>
+                <div className="min-w-0 space-y-1">
+                  <h2 className="truncate text-[1.2rem] font-semibold tracking-[-0.05em] text-slate-950">{connection.name}</h2>
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-slate-600">
+                    <div className="inline-flex items-center gap-2">
+                      <Smartphone className="h-4 w-4 text-slate-500" />
+                      <span>{providerLabel}</span>
+                    </div>
+                    <div className="inline-flex items-center gap-2">
+                      <Bot className="h-4 w-4 text-[var(--primary)]" />
+                      <span className="truncate">{connection.agentName || "Sin agente"}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <form action={toggleConnectionChannelStatusAction}>
+                  <input type="hidden" name="channelId" value={connection.id} />
+                  <input type="hidden" name="returnTo" value={`/cliente/conexion/whatsapp-business/${connection.id}`} />
+                  <button
+                    type="submit"
+                    className="inline-flex h-10 items-center rounded-full px-1 transition"
+                    aria-label={connection.isActive ? `Apagar ${connection.name}` : `Encender ${connection.name}`}
+                  >
+                    <span
+                      className={`relative inline-flex h-7 w-12 shrink-0 rounded-full transition ${
+                        connection.isActive ? "bg-[var(--primary)]" : "bg-slate-300"
+                      }`}
+                    >
+                      <span
+                        className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow-[0_8px_18px_-8px_rgba(15,23,42,0.4)] transition-transform ${
+                          connection.isActive ? "translate-x-6" : "translate-x-1"
+                        }`}
+                      />
+                    </span>
+                  </button>
+                </form>
+
+                {connection.agentId ? (
+                  <Link
+                    href={`/cliente/agentes/${connection.agentId}`}
+                    className="inline-flex h-9 items-center justify-center rounded-full bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
+                  >
+                    Ir al agente
+                  </Link>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <div className={`grid gap-4 ${isConnected ? "" : "xl:grid-cols-[320px_minmax(0,1fr)]"}`}>
         {!isConnected ? (
@@ -93,58 +162,6 @@ export function WhatsAppBusinessConnectionWorkspace({
         <div className="rounded-[24px] border border-[rgba(148,163,184,0.14)] bg-white p-4 shadow-[0_20px_60px_-48px_rgba(15,23,42,0.24)] sm:rounded-[28px] sm:p-5">
           {isConnected ? (
             <div className="px-1 py-1 sm:px-0 sm:py-0">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div className="flex items-start gap-3">
-                  <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
-                  <div className="min-w-0 space-y-1">
-                    <h2 className="truncate text-[1.2rem] font-semibold tracking-[-0.05em] text-slate-950">{connection.name}</h2>
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-slate-600">
-                      <div className="inline-flex items-center gap-2">
-                        <Smartphone className="h-4 w-4 text-slate-500" />
-                        <span>{providerLabel}</span>
-                      </div>
-                      <div className="inline-flex items-center gap-2">
-                        <Bot className="h-4 w-4 text-[var(--primary)]" />
-                        <span className="truncate">{connection.agentName || "Sin agente"}</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-2">
-                  <form action={toggleConnectionChannelStatusAction}>
-                    <input type="hidden" name="channelId" value={connection.id} />
-                    <input type="hidden" name="returnTo" value={`/cliente/conexion/whatsapp-business/${connection.id}`} />
-                    <button
-                      type="submit"
-                      className="inline-flex h-10 items-center rounded-full px-1 transition"
-                      aria-label={connection.isActive ? `Apagar ${connection.name}` : `Encender ${connection.name}`}
-                    >
-                      <span
-                        className={`relative inline-flex h-7 w-12 shrink-0 rounded-full transition ${
-                          connection.isActive ? "bg-[var(--primary)]" : "bg-slate-300"
-                        }`}
-                      >
-                        <span
-                          className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow-[0_8px_18px_-8px_rgba(15,23,42,0.4)] transition-transform ${
-                            connection.isActive ? "translate-x-6" : "translate-x-1"
-                          }`}
-                        />
-                      </span>
-                    </button>
-                  </form>
-
-                  {connection.agentId ? (
-                    <Link
-                      href={`/cliente/agentes/${connection.agentId}`}
-                      className="inline-flex h-9 items-center justify-center rounded-full bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
-                    >
-                      Ir al agente
-                    </Link>
-                  ) : null}
-                </div>
-              </div>
-
               {availableAgents.length ? (
                 <div className="mt-4 space-y-3">
                   <div className="rounded-[24px] border border-[color:color-mix(in_srgb,var(--primary)_18%,white)] bg-white px-4 py-3 shadow-[0_18px_48px_-40px_rgba(37,99,235,0.45)]">

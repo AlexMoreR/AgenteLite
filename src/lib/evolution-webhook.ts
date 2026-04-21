@@ -114,9 +114,12 @@ export function extractEvolutionPhoneNumber(payload: unknown): string | null {
   const instance = asRecord(root?.instance);
 
   return (
-    pickString(data, ["number", "phone", "phoneNumber", "owner"]) ||
-    pickString(instance, ["number", "phone", "phoneNumber", "owner"]) ||
-    pickString(root, ["number", "phone", "phoneNumber", "owner"])
+    pickString(data, ["number", "phone", "phoneNumber", "owner", "ownerJid", "wuid"]) ||
+    pickNestedString(data, [["me", "id"], ["instance", "owner"], ["instance", "ownerJid"], ["instance", "wuid"]]) ||
+    pickString(instance, ["number", "phone", "phoneNumber", "owner", "ownerJid", "wuid"]) ||
+    pickNestedString(instance, [["me", "id"]]) ||
+    pickString(root, ["number", "phone", "phoneNumber", "owner", "ownerJid", "wuid"]) ||
+    pickNestedString(root, [["me", "id"]])
   );
 }
 
