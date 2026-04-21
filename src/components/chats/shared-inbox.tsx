@@ -299,7 +299,7 @@ export function SharedInbox({
         {selectedConversation ? (
           <div className="flex min-h-0 h-full w-full flex-1 flex-col">
             <div className="sticky top-0 z-10 shrink-0 border-b border-[rgba(148,163,184,0.12)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcff_100%)] px-3 py-2.5 md:static md:px-[10px] md:py-[10px]">
-              <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+              <div className="flex min-w-0 items-center justify-between gap-3">
                 <div className="flex min-w-0 flex-1 items-center gap-3">
                   <Link
                     href={backHref}
@@ -331,7 +331,7 @@ export function SharedInbox({
                 </div>
 
                 {headerActions || headerBadge ? (
-                  <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
+                  <div className="flex shrink-0 items-center justify-end gap-2">
                     {headerActions}
                     {headerBadge}
                   </div>

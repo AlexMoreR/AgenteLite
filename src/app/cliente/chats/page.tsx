@@ -1,5 +1,4 @@
 ﻿import { redirect } from "next/navigation";
-import { BadgeCheck, MessageCircle } from "lucide-react";
 import { auth } from "@/auth";
 import { sendUnifiedChatReplyAction, toggleConversationAutomationAction } from "@/app/actions/chats-actions";
 import { ChatsAutoRefresh } from "@/components/agents/chats-auto-refresh";
@@ -129,31 +128,46 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     selectedChatRef?.source === "agent"
       ? agentConversations.find((item) => item.id === selectedChatRef.conversationId) || null
       : null;
-  const selectedChannel =
-    selectedAgentConversation?.channelId ? channelsById.get(selectedAgentConversation.channelId) || null : null;
-
-  const avatarPhoneNumbers = [
-    ...new Set(agentConversations.slice(0, 20).map((conversation) => conversation.contact.phoneNumber)),
+  const avatarLookups = [
+    ...new Set(
+      agentConversations
+        .slice(0, 40)
+        .map((conversation) => {
+          const linkedChannel = conversation.channelId ? channelsById.get(conversation.channelId) || null : null;
+          const instanceName = linkedChannel?.evolutionInstanceName?.trim();
+          const phoneNumber = conversation.contact.phoneNumber?.trim();
+          return instanceName && phoneNumber ? `${instanceName}::${phoneNumber}` : "";
+        })
+        .filter(Boolean),
+    ),
   ];
-  const selectedInstanceName = selectedChannel?.evolutionInstanceName ?? null;
-  const avatarUrls = selectedInstanceName
-    ? Object.fromEntries(
-        (
-          await Promise.all(
-            avatarPhoneNumbers.map(async (phoneNumber) => [
+  const avatarUrls = Object.fromEntries(
+    (
+      await Promise.all(
+        avatarLookups.map(async (lookupKey) => {
+          const [instanceName, phoneNumber] = lookupKey.split("::");
+          if (!instanceName || !phoneNumber) {
+            return [lookupKey, null] as const;
+          }
+
+          return [
+            lookupKey,
+            await fetchEvolutionProfilePictureUrl({
+              instanceName,
               phoneNumber,
-              await fetchEvolutionProfilePictureUrl({
-                instanceName: selectedInstanceName,
-                phoneNumber,
-              }),
-            ]),
-          )
-        ).filter((entry): entry is [string, string] => Boolean(entry[0] && entry[1])),
+            }),
+          ] as const;
+        }),
       )
-    : {};
+    ).filter((entry): entry is [string, string] => Boolean(entry[0] && entry[1])),
+  );
 
   const agentRows: UnifiedConversation[] = agentConversations.map((conversation) => {
     const linkedChannel = conversation.channelId ? channelsById.get(conversation.channelId) || null : null;
+    const avatarLookupKey =
+      linkedChannel?.evolutionInstanceName && conversation.contact.phoneNumber
+        ? `${linkedChannel.evolutionInstanceName}::${conversation.contact.phoneNumber}`
+        : "";
 
     return {
       key: `agent:${conversation.id}`,
@@ -163,7 +177,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       channelId: conversation.channelId || undefined,
       label: getAgentContactLabel(conversation.contact),
       secondaryLabel: conversation.contact.phoneNumber,
-      avatarUrl: avatarUrls[conversation.contact.phoneNumber] ?? null,
+      avatarUrl: (avatarLookupKey ? avatarUrls[avatarLookupKey] : null) ?? null,
       lastMessage: conversation.messages[0]?.content ?? null,
       lastMessageDirection: conversation.messages[0]?.direction ?? null,
       lastMessageAt: conversation.messages[0]?.createdAt ?? null,
@@ -358,19 +372,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         }))}
         selectedConversation={selectedConversation}
         backHref="/cliente/chats"
-        headerBadge={
-          selectedUnified?.source === "official" ? (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200">
-              <BadgeCheck className="h-3.5 w-3.5" />
-              WhatsApp oficial
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
-              <MessageCircle className="h-3.5 w-3.5" />
-              WhatsApp
-            </span>
-          )
-        }
+        headerBadge={null}
         headerActions={
           selectedUnified?.source === "agent" && selectedConversation ? (
             <form action={toggleConversationAutomationAction}>
@@ -378,13 +380,17 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
               <input type="hidden" name="returnTo" value={`/cliente/chats?chatKey=${encodeURIComponent(selectedUnified.key)}`} />
               <button
                 type="submit"
-                className={`inline-flex items-center rounded-full px-3 py-1.5 text-xs font-medium ring-1 transition ${
+                aria-label={selectedConversation.automationPaused ? "Reactivar IA" : "Pausar IA"}
+                className={`inline-flex h-7 w-12 shrink-0 items-center rounded-full p-0.5 ring-1 transition ${
                   selectedConversation.automationPaused
-                    ? "bg-amber-50 text-amber-700 ring-amber-200 hover:bg-amber-100"
-                    : "bg-slate-100 text-slate-700 ring-slate-200 hover:bg-slate-200"
+                    ? "justify-start bg-slate-200 ring-slate-300 hover:bg-slate-300"
+                    : "justify-end bg-[var(--primary)] ring-[color-mix(in_srgb,var(--primary)_24%,white)] hover:bg-[var(--primary-strong)]"
                 }`}
               >
-                {selectedConversation.automationPaused ? "Reactivar IA" : "Pausar IA"}
+                <span className="sr-only">
+                  {selectedConversation.automationPaused ? "Reactivar IA" : "Pausar IA"}
+                </span>
+                <span className="h-6 w-6 rounded-full bg-white shadow-[0_6px_16px_-10px_rgba(15,23,42,0.5)]" />
               </button>
             </form>
           ) : null
