@@ -30,6 +30,7 @@ type UnifiedConversation = {
   secondaryLabel: string;
   avatarUrl?: string | null;
   lastMessage: string | null;
+  lastMessageType?: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
   lastMessageDirection?: "INBOUND" | "OUTBOUND" | null;
   lastMessageAt?: Date | null;
 };
@@ -180,7 +181,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         messages: {
           orderBy: { createdAt: "desc" },
           take: 1,
-          select: { content: true, direction: true, createdAt: true },
+          select: { content: true, direction: true, createdAt: true, type: true },
         },
       },
     }),
@@ -242,6 +243,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       secondaryLabel: conversation.contact.phoneNumber,
       avatarUrl: (avatarLookupKey ? avatarUrls[avatarLookupKey] : null) ?? null,
       lastMessage: conversation.messages[0]?.content ?? null,
+      lastMessageType: conversation.messages[0]?.type ?? null,
       lastMessageDirection: conversation.messages[0]?.direction ?? null,
       lastMessageAt: conversation.messages[0]?.createdAt ?? null,
     };
@@ -268,6 +270,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         secondaryLabel: conversation.contact.phoneNumber || conversation.contact.waId,
         avatarUrl: null,
         lastMessage: conversation.lastMessage?.content ?? null,
+        lastMessageType: conversation.lastMessage?.type ?? null,
         lastMessageDirection: conversation.lastMessage?.direction ?? null,
         lastMessageAt: conversation.lastMessage?.createdAt ?? null,
       }));
@@ -460,6 +463,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           channelType: item.source === "official" ? "whatsapp_official" : "whatsapp",
           avatarUrl: item.avatarUrl ?? null,
           lastMessage: item.lastMessage,
+          lastMessageType: item.lastMessageType ?? null,
           lastMessageDirection: item.lastMessageDirection,
           lastMessageAt: item.lastMessageAt,
           href: `/cliente/chats?chatKey=${encodeURIComponent(item.key)}${selectedConnectionKey ? `&connection=${encodeURIComponent(selectedConnectionKey)}` : ""}${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ""}`,

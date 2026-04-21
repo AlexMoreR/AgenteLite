@@ -10,6 +10,7 @@ import {
   Instagram,
   MessageCircle,
   MessageSquareText,
+  Mic,
   Search,
   SendHorizonal,
   UserRound,
@@ -24,6 +25,7 @@ export type SharedInboxConversationItem = {
   channelType?: "whatsapp" | "whatsapp_official" | "instagram" | "facebook";
   avatarUrl?: string | null;
   lastMessage: string | null;
+  lastMessageType?: SharedInboxMessageItem["type"] | null;
   lastMessageDirection?: "INBOUND" | "OUTBOUND" | null;
   lastMessageAt?: Date | null;
   href: string;
@@ -126,6 +128,64 @@ function isVideoMessage(message: SharedInboxMessageItem) {
 
 function isDocumentMessage(message: SharedInboxMessageItem) {
   return Boolean(message.mediaUrl) && message.type === "DOCUMENT";
+}
+
+function getConversationPreview(conversation: SharedInboxConversationItem) {
+  const content = conversation.lastMessage?.trim();
+  if (content) {
+    return content;
+  }
+
+  if (conversation.lastMessageType === "AUDIO") {
+    return "Audio";
+  }
+  if (conversation.lastMessageType === "IMAGE") {
+    return "Imagen";
+  }
+  if (conversation.lastMessageType === "VIDEO") {
+    return "Video";
+  }
+  if (conversation.lastMessageType === "DOCUMENT") {
+    return "Documento";
+  }
+
+  return "Sin mensajes visibles aun.";
+}
+
+function renderConversationPreview(conversation: SharedInboxConversationItem) {
+  if (conversation.lastMessageType === "AUDIO" && !conversation.lastMessage?.trim()) {
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        <Mic className="h-3.5 w-3.5 shrink-0" />
+        <span>Audio</span>
+      </span>
+    );
+  }
+
+  return getConversationPreview(conversation);
+}
+
+function AudioMessageCard({
+  mediaUrl,
+  content,
+  outbound,
+}: {
+  mediaUrl: string;
+  content: string | null;
+  outbound: boolean;
+}) {
+  return (
+    <div className="w-[280px] max-w-full space-y-2">
+      <audio
+        src={mediaUrl}
+        controls
+        preload="metadata"
+        className={`block w-full min-w-0 rounded-xl ${outbound ? "[color-scheme:dark]" : ""}`}
+      />
+
+      {content?.trim() ? <p>{content}</p> : null}
+    </div>
+  );
 }
 
 type ChatAdPreview = {
@@ -369,8 +429,8 @@ export function SharedInbox({
                         className="h-10 w-10 shrink-0 rounded-2xl object-cover md:h-11 md:w-11"
                       />
                     ) : (
-                      <div className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-sm font-semibold text-slate-700 md:h-11 md:w-11">
-                        {getInitials(conversation.label)}
+                      <div className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-slate-500 md:h-11 md:w-11">
+                        <UserRound className="h-4.5 w-4.5 md:h-5 md:w-5" />
                       </div>
                     )}
 
@@ -393,7 +453,7 @@ export function SharedInbox({
                       <div className="flex min-w-0 max-w-full items-center gap-2 overflow-hidden">
                         {isInbound ? <span className="h-2 w-2 rounded-full bg-emerald-500" /> : null}
                         <p className="block min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[12px] text-slate-600 md:text-[13px]">
-                          {conversation.lastMessage || "Sin mensajes visibles aun."}
+                          {renderConversationPreview(conversation)}
                         </p>
                       </div>
                     </div>
@@ -588,10 +648,15 @@ export function SharedInbox({
                                 {message.content?.trim() ? <p>{message.content}</p> : null}
                               </div>
                             ) : isAudioMessage(message) ? (
-                              <div className="space-y-2">
-                                <audio src={message.mediaUrl || ""} controls preload="metadata" className="w-full" />
-                                {message.content?.trim() ? <p>{message.content}</p> : null}
-                              </div>
+                              message.mediaUrl ? (
+                                <AudioMessageCard
+                                  mediaUrl={message.mediaUrl}
+                                  content={message.content}
+                                  outbound={outbound}
+                                />
+                              ) : (
+                                <p>{message.content || "Audio no disponible"}</p>
+                              )
                             ) : isDocumentMessage(message) ? (
                               <div className="space-y-2">
                                 <a

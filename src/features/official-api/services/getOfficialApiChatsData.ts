@@ -37,6 +37,7 @@ export async function getOfficialApiChatsData(input: {
     lastMessageDirection: "INBOUND" | "OUTBOUND" | null;
     lastMessageCreatedAt: Date | null;
     lastMessageStatus: "RECEIVED" | "SENT" | "DELIVERED" | "READ" | "FAILED" | null;
+    lastMessageType: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT" | "TEMPLATE" | "INTERACTIVE" | "SYSTEM" | null;
   }>>`
     SELECT
       c."id",
@@ -48,7 +49,8 @@ export async function getOfficialApiChatsData(input: {
       lm."content" AS "lastMessageContent",
       lm."direction"::text AS "lastMessageDirection",
       lm."createdAt" AS "lastMessageCreatedAt",
-      lm."status"::text AS "lastMessageStatus"
+      lm."status"::text AS "lastMessageStatus",
+      lm."type"::text AS "lastMessageType"
     FROM "OfficialApiConversation" c
     INNER JOIN "OfficialApiContact" ct
       ON ct."id" = c."contactId"
@@ -95,6 +97,7 @@ export async function getOfficialApiChatsData(input: {
           direction: row.lastMessageDirection,
           createdAt: new Date(row.lastMessageCreatedAt),
           status: row.lastMessageStatus,
+          type: row.lastMessageType || "TEXT",
         }
       : null,
   }));

@@ -40,6 +40,7 @@ export type OfficialApiChatConversationSummary = {
     direction: "INBOUND" | "OUTBOUND";
     createdAt: Date;
     status: "RECEIVED" | "SENT" | "DELIVERED" | "READ" | "FAILED";
+    type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT" | "TEMPLATE" | "INTERACTIVE" | "SYSTEM";
   } | null;
 };
 
