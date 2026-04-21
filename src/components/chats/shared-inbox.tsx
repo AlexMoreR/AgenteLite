@@ -136,7 +136,7 @@ export function SharedInbox({
 
   return (
     <div
-      className={`chat-inbox-grid flex min-h-[calc(100dvh-9rem)] flex-1 flex-col gap-0 overflow-hidden md:min-h-0 md:h-full md:grid ${
+      className={`chat-inbox-grid flex min-h-[calc(100dvh-8rem)] flex-1 flex-col gap-0 overflow-hidden md:min-h-0 md:h-full md:grid ${
         hasSidebar ? "md:grid-cols-[250px_360px_minmax(0,1fr)]" : "md:grid-cols-[380px_minmax(0,1fr)]"
       }`}
     >
@@ -199,10 +199,10 @@ export function SharedInbox({
       ) : null}
 
       <Card
-        className={`${hasMobileSelection ? "hidden md:flex" : "flex"} chat-inbox-sidebar min-h-0 flex-1 overflow-hidden border border-[rgba(148,163,184,0.14)] bg-white p-0 shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)] md:h-full`}
+        className={`${hasMobileSelection ? "hidden md:flex" : "flex"} chat-inbox-sidebar min-h-0 flex-1 overflow-hidden border border-[rgba(148,163,184,0.14)] bg-white p-0 shadow-none md:h-full md:shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)]`}
       >
         <div className="flex min-h-0 w-full flex-col">
-          <div className="shrink-0 border-b border-[rgba(148,163,184,0.12)] bg-white px-3 py-3">
+          <div className="shrink-0 border-b border-[rgba(148,163,184,0.12)] bg-white px-3 py-2.5 md:px-3 md:py-3">
             <form className="relative" action={searchAction}>
               <input type="hidden" name="chatKey" value={selectedConversationId} />
               {selectedConnectionKey ? <input type="hidden" name="connection" value={selectedConnectionKey} /> : null}
@@ -212,7 +212,7 @@ export function SharedInbox({
                 name="q"
                 defaultValue={searchQuery}
                 placeholder="Buscar chat..."
-                className="h-10 w-full rounded-2xl border border-[rgba(148,163,184,0.14)] bg-slate-50 pl-9 pr-3 text-sm text-slate-700 outline-none transition focus:border-[var(--primary)] focus:bg-white"
+                className="h-10 w-full rounded-2xl border border-[rgba(148,163,184,0.14)] bg-slate-50 pl-9 pr-3 text-[14px] text-slate-700 outline-none transition focus:border-[var(--primary)] focus:bg-white md:text-sm"
               />
             </form>
           </div>
@@ -225,7 +225,7 @@ export function SharedInbox({
                   <Link
                     key={conversation.id}
                     href={conversation.href}
-                    className={`group relative grid w-full grid-cols-[44px_minmax(0,1fr)] items-start gap-3 overflow-hidden px-3 py-3 transition ${
+                    className={`group relative grid w-full grid-cols-[40px_minmax(0,1fr)] items-start gap-3 overflow-hidden px-3 py-2.5 transition md:grid-cols-[44px_minmax(0,1fr)] md:px-3 md:py-3 ${
                       isSelected ? "bg-[color-mix(in_srgb,var(--primary)_6%,white)]" : "hover:bg-slate-50/80"
                     }`}
                   >
@@ -239,13 +239,13 @@ export function SharedInbox({
                       <Image
                         src={conversation.avatarUrl}
                         alt={conversation.label}
-                        width={44}
-                        height={44}
+                        width={40}
+                        height={40}
                         unoptimized
-                        className="h-11 w-11 shrink-0 rounded-2xl object-cover"
+                        className="h-10 w-10 shrink-0 rounded-2xl object-cover md:h-11 md:w-11"
                       />
                     ) : (
-                      <div className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-sm font-semibold text-slate-700">
+                      <div className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-sm font-semibold text-slate-700 md:h-11 md:w-11">
                         {getInitials(conversation.label)}
                       </div>
                     )}
@@ -253,10 +253,10 @@ export function SharedInbox({
                     <div className="min-w-0 overflow-hidden space-y-0.5">
                       <div className="flex items-center justify-between gap-3">
                         <div className="min-w-0 flex flex-1 items-center gap-1.5">
-                          <p className="min-w-0 flex-1 truncate text-[13px] font-semibold text-slate-950">{conversation.label}</p>
+                          <p className="min-w-0 flex-1 truncate text-[13px] font-semibold text-slate-950 md:text-[13px]">{conversation.label}</p>
                           {renderChannelIcon(conversation.channelType)}
                         </div>
-                        <span className="shrink-0 text-[10px] text-slate-500">
+                        <span className="shrink-0 text-[10px] text-slate-500 md:text-[10px]">
                           {conversation.lastMessageAt
                             ? new Intl.DateTimeFormat("es-CO", {
                                 hour: "2-digit",
@@ -268,7 +268,7 @@ export function SharedInbox({
 
                       <div className="flex min-w-0 max-w-full items-center gap-2 overflow-hidden">
                         {isInbound ? <span className="h-2 w-2 rounded-full bg-emerald-500" /> : null}
-                        <p className="block min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[13px] text-slate-600">
+                        <p className="block min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[12px] text-slate-600 md:text-[13px]">
                           {conversation.lastMessage || "Sin mensajes visibles aun."}
                         </p>
                       </div>
@@ -294,13 +294,13 @@ export function SharedInbox({
       </Card>
 
       <Card
-        className={`${hasMobileSelection || conversations.length === 0 ? "flex" : "hidden md:flex"} chat-inbox-panel min-h-0 flex-1 overflow-hidden border border-[rgba(148,163,184,0.14)] bg-white p-0 shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)] md:h-full`}
+        className={`${hasMobileSelection || conversations.length === 0 ? "flex" : "hidden md:flex"} chat-inbox-panel min-h-0 flex-1 overflow-hidden border border-[rgba(148,163,184,0.14)] bg-white p-0 shadow-none md:h-full md:shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)]`}
       >
         {selectedConversation ? (
           <div className="flex min-h-0 h-full w-full flex-1 flex-col">
-            <div className="sticky top-0 z-10 shrink-0 border-b border-[rgba(148,163,184,0.12)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcff_100%)] px-3 py-3 md:static md:px-[10px] md:py-[10px]">
-              <div className="flex min-w-0 items-center justify-between gap-4">
-                <div className="flex min-w-0 items-center gap-3">
+            <div className="sticky top-0 z-10 shrink-0 border-b border-[rgba(148,163,184,0.12)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcff_100%)] px-3 py-2.5 md:static md:px-[10px] md:py-[10px]">
+              <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+                <div className="flex min-w-0 flex-1 items-center gap-3">
                   <Link
                     href={backHref}
                     className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[rgba(148,163,184,0.14)] bg-white text-slate-500 transition hover:bg-slate-50 md:hidden"
@@ -323,23 +323,25 @@ export function SharedInbox({
                     </div>
                   )}
                   <div className="min-w-0">
-                    <h2 className="truncate text-sm font-semibold text-slate-950">
+                    <h2 className="truncate text-[13px] font-semibold text-slate-950 md:text-sm">
                       {selectedConversation.label}
                     </h2>
                     <p className="truncate text-xs text-slate-500">{selectedConversation.secondaryLabel}</p>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  {headerActions}
-                  {headerBadge}
-                </div>
+                {headerActions || headerBadge ? (
+                  <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
+                    {headerActions}
+                    {headerBadge}
+                  </div>
+                ) : null}
               </div>
             </div>
 
             <div className="flex min-h-0 flex-1 flex-col bg-[#f3f4f6]">
               <div
-                className="chat-messages-scroll min-h-0 flex-1 overflow-y-auto px-3 py-3 pb-24 md:px-5 md:py-5 md:pb-5"
+                className="chat-messages-scroll min-h-0 flex-1 overflow-y-auto px-2.5 py-2.5 pb-24 md:px-5 md:py-5 md:pb-5"
                 style={{
                   backgroundColor: "#f3f4f6",
                   backgroundImage:
@@ -348,7 +350,7 @@ export function SharedInbox({
                   backgroundSize: "220px 220px",
                 }}
               >
-                <div className="space-y-3">
+                <div className="space-y-2.5 md:space-y-3">
                   {selectedConversation.messages.map((message, index) => {
                     const outbound = message.direction === "OUTBOUND";
                     const previousMessage = selectedConversation.messages[index - 1];
@@ -358,7 +360,7 @@ export function SharedInbox({
                       : null;
                     const showDateDivider = currentDateKey !== previousDateKey;
                     return (
-                      <div key={message.id} className="space-y-3">
+                      <div key={message.id} className="space-y-2.5 md:space-y-3">
                         {showDateDivider ? (
                           <div className="flex justify-center">
                             <span className="rounded-full border border-white/70 bg-white/80 px-3 py-1 text-[11px] font-medium capitalize text-slate-500 shadow-sm backdrop-blur">
@@ -369,7 +371,7 @@ export function SharedInbox({
 
                         <div className={`flex ${outbound ? "justify-end" : "justify-start"}`}>
                           <div
-                            className={`max-w-[85%] rounded-[16px] px-[10px] py-[9px] text-[13px] leading-5 shadow-[0_10px_24px_-20px_rgba(15,23,42,0.16)] md:max-w-[72%] ${
+                            className={`max-w-[88%] rounded-[16px] px-[10px] py-[8px] text-[13px] leading-5 shadow-[0_10px_24px_-20px_rgba(15,23,42,0.16)] md:max-w-[72%] md:px-[10px] md:py-[9px] ${
                               outbound
                                 ? "bg-[var(--primary)] text-white"
                                 : "border border-[rgba(148,163,184,0.12)] bg-white text-slate-800"
@@ -411,11 +413,11 @@ export function SharedInbox({
                         name="message"
                         rows={1}
                         placeholder={composer.placeholder || "Escribe un mensaje..."}
-                        className="flex min-h-[46px] flex-1 resize-none rounded-2xl border border-[rgba(148,163,184,0.14)] bg-slate-50/80 px-3 py-3 text-sm text-slate-800 placeholder:text-slate-400 outline-none transition focus:border-[var(--primary)] focus:bg-white focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_18%,white)] md:min-h-[40px] md:py-2"
+                        className="flex min-h-[44px] flex-1 resize-none rounded-2xl border border-[rgba(148,163,184,0.14)] bg-slate-50/80 px-3 py-2.5 text-[14px] text-slate-800 placeholder:text-slate-400 outline-none transition focus:border-[var(--primary)] focus:bg-white focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_18%,white)] md:min-h-[40px] md:py-2 md:text-sm"
                       />
                       <button
                         type="submit"
-                        className="inline-flex h-[46px] w-[46px] shrink-0 items-center justify-center rounded-2xl bg-[var(--primary)] text-white transition hover:bg-[var(--primary-strong)] md:h-10 md:w-10"
+                        className="inline-flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-2xl bg-[var(--primary)] text-white transition hover:bg-[var(--primary-strong)] md:h-10 md:w-10"
                         aria-label="Enviar mensaje"
                       >
                         <SendHorizonal className="h-5 w-5" />

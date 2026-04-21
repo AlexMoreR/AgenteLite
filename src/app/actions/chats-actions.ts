@@ -6,6 +6,7 @@ import { z } from "zod";
 import { auth } from "@/auth";
 import { sendManualAgentReplyAction } from "@/app/actions/agent-actions";
 import { sendOfficialApiReplyAction } from "@/app/actions/official-api-actions";
+import { getConversationAutomationPaused, setConversationAutomationPaused } from "@/lib/conversation-automation";
 import { sendEvolutionTextMessage } from "@/lib/evolution";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
@@ -81,7 +82,6 @@ export async function toggleConversationAutomationAction(formData: FormData): Pr
     select: {
       id: true,
       agentId: true,
-      automationPaused: true,
       contact: {
         select: {
           id: true,
@@ -106,14 +106,15 @@ export async function toggleConversationAutomationAction(formData: FormData): Pr
     redirect(`${parsed.data.returnTo}${parsed.data.returnTo.includes("?") ? "&" : "?"}error=Conversacion+no+encontrada`);
   }
 
-  const nextPaused = !conversation.automationPaused;
+  const currentPaused = await getConversationAutomationPaused({
+    conversationId: conversation.id,
+    workspaceId: membership.workspace.id,
+  });
+  const nextPaused = !currentPaused;
 
-  await prisma.conversation.update({
-    where: { id: conversation.id },
-    data: {
-      automationPaused: nextPaused,
-      automationPausedAt: nextPaused ? new Date() : null,
-    },
+  await setConversationAutomationPaused({
+    conversationId: conversation.id,
+    paused: nextPaused,
   });
 
   const reactivationMessage =

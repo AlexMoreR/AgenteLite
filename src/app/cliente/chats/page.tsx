@@ -8,6 +8,7 @@ import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { Card } from "@/components/ui/card";
 import { OfficialApiLockedState, getOfficialApiChatsData } from "@/features/official-api";
 import { canAccessOfficialApiModule } from "@/lib/admin-module-access";
+import { getConversationAutomationPaused } from "@/lib/conversation-automation";
 import { fetchEvolutionProfilePictureUrl } from "@/lib/evolution";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
@@ -92,7 +93,18 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     prisma.conversation.findMany({
       where: {
         workspaceId: membership.workspace.id,
-        agentId: { not: null },
+        OR: [
+          {
+            agentId: { not: null },
+          },
+          {
+            channel: {
+              is: {
+                provider: "EVOLUTION",
+              },
+            },
+          },
+        ],
       },
       orderBy: { updatedAt: "desc" },
       take: 120,
@@ -140,19 +152,23 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       )
     : {};
 
-  const agentRows: UnifiedConversation[] = agentConversations.map((conversation) => ({
-    key: `agent:${conversation.id}`,
-    source: "agent",
-    conversationId: conversation.id,
-    agentId: conversation.agentId || undefined,
-    channelId: conversation.channelId || undefined,
-    label: getAgentContactLabel(conversation.contact),
-    secondaryLabel: conversation.contact.phoneNumber,
-    avatarUrl: avatarUrls[conversation.contact.phoneNumber] ?? null,
-    lastMessage: conversation.messages[0]?.content ?? null,
-    lastMessageDirection: conversation.messages[0]?.direction ?? null,
-    lastMessageAt: conversation.messages[0]?.createdAt ?? null,
-  }));
+  const agentRows: UnifiedConversation[] = agentConversations.map((conversation) => {
+    const linkedChannel = conversation.channelId ? channelsById.get(conversation.channelId) || null : null;
+
+    return {
+      key: `agent:${conversation.id}`,
+      source: "agent",
+      conversationId: conversation.id,
+      agentId: conversation.agentId || linkedChannel?.agent?.id || undefined,
+      channelId: conversation.channelId || undefined,
+      label: getAgentContactLabel(conversation.contact),
+      secondaryLabel: conversation.contact.phoneNumber,
+      avatarUrl: avatarUrls[conversation.contact.phoneNumber] ?? null,
+      lastMessage: conversation.messages[0]?.content ?? null,
+      lastMessageDirection: conversation.messages[0]?.direction ?? null,
+      lastMessageAt: conversation.messages[0]?.createdAt ?? null,
+    };
+  });
 
   let officialRows: UnifiedConversation[] = [];
   let officialData: Awaited<ReturnType<typeof getOfficialApiChatsData>> | null = null;
@@ -250,7 +266,6 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         select: {
           id: true,
           agentId: true,
-          automationPaused: true,
           contact: { select: { name: true, phoneNumber: true } },
           messages: {
           orderBy: { createdAt: "asc" },
@@ -260,12 +275,17 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     });
 
     if (detail) {
+      const automationPaused = await getConversationAutomationPaused({
+        conversationId: detail.id,
+        workspaceId: membership.workspace.id,
+      });
+
       selectedConversation = {
         id: detail.id,
         label: getAgentContactLabel(detail.contact),
         secondaryLabel: detail.contact.phoneNumber,
         avatarUrl: selectedUnified.avatarUrl ?? null,
-        automationPaused: detail.automationPaused,
+        automationPaused,
         messages: detail.messages.map((message) => {
           const outbound = message.direction === "OUTBOUND";
           const isManualOutbound =
@@ -403,7 +423,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         />
       ) : null}
 
-      {!canUseOfficialApi ? (
+      {!canUseOfficialApi && isOfficialConnectionSelected ? (
         <Card className="border border-[rgba(148,163,184,0.14)] bg-white p-4 text-sm text-slate-600">
           No tienes acceso al canal de API oficial. Solo veras chats de agentes.
         </Card>

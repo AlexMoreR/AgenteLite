@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { generateAgentReply } from "@/lib/agent-ai";
+import { getConversationAutomationPaused } from "@/lib/conversation-automation";
 import { prisma } from "@/lib/prisma";
 import {
   extractEvolutionConnectionState,
@@ -250,11 +251,11 @@ export async function POST(request: Request) {
     orderBy: {
       updatedAt: "desc",
     },
-    select: { id: true, automationPaused: true },
+    select: { id: true },
   });
 
   const conversation = existingConversation
-    ? { id: existingConversation.id, automationPaused: existingConversation.automationPaused }
+    ? { id: existingConversation.id }
     : await prisma.conversation.create({
         data: {
           workspaceId: channel.workspaceId,
@@ -262,11 +263,14 @@ export async function POST(request: Request) {
           agentId: channel.agentId ?? null,
           contactId: contact.id,
           status: "OPEN",
-          automationPaused: false,
           lastMessageAt: new Date(),
         },
-        select: { id: true, automationPaused: true },
+        select: { id: true },
       });
+  const conversationAutomationPaused = await getConversationAutomationPaused({
+    conversationId: conversation.id,
+    workspaceId: channel.workspaceId,
+  });
 
   try {
     await prisma.message.create({
@@ -386,7 +390,7 @@ export async function POST(request: Request) {
       channel.isActive &&
       agent?.isActive &&
       agent.status === "ACTIVE" &&
-      !conversation.automationPaused &&
+      !conversationAutomationPaused &&
       channel.evolutionInstanceName &&
       messageText
     ) {
@@ -556,7 +560,7 @@ export async function POST(request: Request) {
           ? "agent_not_found"
           : !channel.isActive
             ? "channel_inactive"
-          : conversation.automationPaused
+          : conversationAutomationPaused
             ? "conversation_paused_by_human"
           : !agent.isActive
             ? "agent_inactive"

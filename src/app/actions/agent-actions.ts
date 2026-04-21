@@ -30,6 +30,7 @@ import {
   sendEvolutionPresence,
   sendEvolutionTextMessage,
 } from "@/lib/evolution";
+import { setConversationAutomationPaused } from "@/lib/conversation-automation";
 import { buildDefaultWorkspacePlan } from "@/lib/plans";
 import { prisma } from "@/lib/prisma";
 import {
@@ -1400,11 +1401,14 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<vo
   await prisma.conversation.update({
     where: { id: conversation.id },
     data: {
-      automationPaused: true,
-      automationPausedAt: new Date(),
       lastMessageAt: new Date(),
       status: "OPEN",
     },
+  });
+
+  await setConversationAutomationPaused({
+    conversationId: conversation.id,
+    paused: true,
   });
 
   if (parsed.data.returnTo) {
