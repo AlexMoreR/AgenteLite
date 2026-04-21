@@ -269,6 +269,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       createdAt: Date;
       authorType: "user" | "bot";
       outboundStatusLabel: string | null;
+      type?: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE";
+      mediaUrl?: string | null;
     }>;
   } | null = null;
 
@@ -284,7 +286,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           contact: { select: { name: true, phoneNumber: true } },
           messages: {
           orderBy: { createdAt: "asc" },
-          select: { id: true, content: true, direction: true, createdAt: true, rawPayload: true },
+          select: { id: true, content: true, direction: true, createdAt: true, rawPayload: true, type: true, mediaUrl: true },
         },
       },
     });
@@ -316,6 +318,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
             createdAt: message.createdAt,
             authorType: outbound ? (isManualOutbound ? "user" : "bot") : "user",
             outboundStatusLabel: outbound ? "entregado" : null,
+            type: message.type,
+            mediaUrl: message.mediaUrl,
           };
         }),
       };
@@ -341,6 +345,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
               ? "visto"
               : "enviado"
             : null,
+        type: message.type,
+        mediaUrl: message.mediaUrl,
       })),
     };
   }

@@ -36,6 +36,8 @@ export type SharedInboxMessageItem = {
   createdAt: Date;
   authorType?: "user" | "bot";
   outboundStatusLabel?: string | null;
+  type?: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE";
+  mediaUrl?: string | null;
 };
 
 export type SharedInboxSelectedConversation = {
@@ -107,6 +109,10 @@ function renderChannelIcon(channelType?: SharedInboxConversationItem["channelTyp
     return <MessageCircle className="h-3.5 w-3.5 shrink-0 text-emerald-600" />;
   }
   return null;
+}
+
+function isVisualMessage(message: SharedInboxMessageItem) {
+  return Boolean(message.mediaUrl) && (message.type === "IMAGE" || (!message.type && message.mediaUrl));
 }
 
 export function SharedInbox({
@@ -377,7 +383,19 @@ export function SharedInbox({
                                 : "border border-[rgba(148,163,184,0.12)] bg-white text-slate-800"
                             }`}
                           >
-                            <p>{message.content || "-"}</p>
+                            {isVisualMessage(message) ? (
+                              <div className="space-y-2">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={message.mediaUrl || ""}
+                                  alt={message.content?.trim() || "Imagen del chat"}
+                                  className="max-h-[320px] w-full rounded-xl object-cover"
+                                />
+                                {message.content?.trim() ? <p>{message.content}</p> : null}
+                              </div>
+                            ) : (
+                              <p>{message.content || "-"}</p>
+                            )}
                             <div className={`mt-1.5 flex items-center justify-end gap-1 text-[10px] ${outbound ? "text-white/80" : "text-slate-400"}`}>
                               {message.authorType === "bot" ? (
                                 <Bot className="h-3 w-3" />

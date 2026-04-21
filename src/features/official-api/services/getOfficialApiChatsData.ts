@@ -114,6 +114,8 @@ export async function getOfficialApiChatsData(input: {
           messageDirection: "INBOUND" | "OUTBOUND" | null;
           messageCreatedAt: Date | null;
           messageStatus: "RECEIVED" | "SENT" | "DELIVERED" | "READ" | "FAILED" | null;
+          messageType: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT" | "TEMPLATE" | "INTERACTIVE" | "SYSTEM" | null;
+          messageMediaUrl: string | null;
           messageRawPayload: unknown;
         }>>`
           SELECT
@@ -127,6 +129,8 @@ export async function getOfficialApiChatsData(input: {
             m."direction"::text AS "messageDirection",
             m."createdAt" AS "messageCreatedAt",
             m."status"::text AS "messageStatus",
+            m."type"::text AS "messageType",
+            m."mediaUrl" AS "messageMediaUrl",
             m."rawPayload" AS "messageRawPayload"
           FROM "OfficialApiConversation" c
           INNER JOIN "OfficialApiContact" ct
@@ -159,6 +163,8 @@ export async function getOfficialApiChatsData(input: {
               direction: row.messageDirection!,
               createdAt: new Date(row.messageCreatedAt!),
               status: row.messageStatus!,
+              type: row.messageType || "TEXT",
+              mediaUrl: row.messageMediaUrl,
               rawPayload: row.messageRawPayload,
             })),
         };

@@ -49,6 +49,8 @@ export type OfficialApiChatMessage = {
   direction: "INBOUND" | "OUTBOUND";
   createdAt: Date;
   status: "RECEIVED" | "SENT" | "DELIVERED" | "READ" | "FAILED";
+  type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT" | "TEMPLATE" | "INTERACTIVE" | "SYSTEM";
+  mediaUrl: string | null;
   rawPayload: unknown;
 };
 
