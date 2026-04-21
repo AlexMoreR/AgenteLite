@@ -7,7 +7,7 @@ import {
   sendOfficialApiTextMessage,
   sendOfficialApiTypingIndicator,
 } from "@/lib/official-api-messaging";
-import { resolveAgentKnowledgeImageReply } from "@/lib/agent-knowledge-media";
+import { buildKnowledgeImageReplyText, resolveAgentKnowledgeImageReply } from "@/lib/agent-knowledge-media";
 import { prisma } from "@/lib/prisma";
 import { ensureOfficialApiConfigTable } from "@/lib/official-api-config";
 
@@ -604,7 +604,7 @@ export async function POST(request: Request) {
       const reply =
         chatbotReply || agentKnowledgeImageReply
           ? {
-              text: chatbotReply?.text?.trim() || null,
+              text: agentKnowledgeImageReply ? buildKnowledgeImageReplyText(agentKnowledgeImageReply.productName) : chatbotReply?.text?.trim() || null,
               image:
                 chatbotReply?.image ||
                 (agentKnowledgeImageReply

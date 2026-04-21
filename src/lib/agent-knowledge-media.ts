@@ -162,3 +162,8 @@ export async function resolveAgentKnowledgeImageReply(input: {
     productName: selectedProduct.name,
   };
 }
+
+export function buildKnowledgeImageReplyText(productName: string) {
+  const normalizedName = productName.trim() || "este producto";
+  return `Claro, te comparto una foto de ${normalizedName}.`;
+}

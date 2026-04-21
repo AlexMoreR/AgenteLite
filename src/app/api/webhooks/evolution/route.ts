@@ -25,6 +25,7 @@ import {
   sendEvolutionTextMessageWithReconnect,
 } from "@/lib/evolution";
 import { resolveAgentKnowledgeImageReply } from "@/lib/agent-knowledge-media";
+import { buildKnowledgeImageReplyText } from "@/lib/agent-knowledge-media";
 import { enforceWorkspacePlanAccess } from "@/lib/workspace-plan-access";
 import { getEvolutionSettings } from "@/lib/system-settings";
 
@@ -451,6 +452,10 @@ export async function POST(request: Request) {
         agentId: agent.id,
         latestUserMessage: messageText,
       });
+
+      if (knowledgeImageReply) {
+        replyText = buildKnowledgeImageReplyText(knowledgeImageReply.productName);
+      }
 
       if (replyText || knowledgeImageReply) {
         try {
