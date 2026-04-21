@@ -679,7 +679,7 @@ export function FinanzasWorkspace({
             {/* Chat feed */}
             <div
               ref={feedRef}
-              className="min-h-0 overflow-y-auto bg-[linear-gradient(180deg,#fbfcff_0%,#f8fafc_100%)] px-3 py-3 pb-[calc(env(safe-area-inset-bottom)+7.35rem)] sm:px-5 sm:py-5 sm:pb-5 md:bg-white md:pb-5 md:[-webkit-overflow-scrolling:touch] md:[scrollbar-width:thin] md:[scrollbar-color:rgba(148,163,184,0.26)_transparent] md:[&::-webkit-scrollbar]:w-1.5 md:[&::-webkit-scrollbar-track]:bg-transparent md:[&::-webkit-scrollbar-thumb]:rounded-full md:[&::-webkit-scrollbar-thumb]:bg-slate-300 md:[&::-webkit-scrollbar-thumb:hover]:bg-slate-400"
+              className="min-h-0 overflow-y-auto bg-[linear-gradient(180deg,#fbfcff_0%,#f8fafc_100%)] px-3 py-3 pb-[calc(env(safe-area-inset-bottom)+6.4rem)] sm:px-5 sm:py-5 sm:pb-5 md:bg-white md:pb-5 md:[-webkit-overflow-scrolling:touch] md:[scrollbar-width:thin] md:[scrollbar-color:rgba(148,163,184,0.26)_transparent] md:[&::-webkit-scrollbar]:w-1.5 md:[&::-webkit-scrollbar-track]:bg-transparent md:[&::-webkit-scrollbar-thumb]:rounded-full md:[&::-webkit-scrollbar-thumb]:bg-slate-300 md:[&::-webkit-scrollbar-thumb:hover]:bg-slate-400"
             >
               {chatEvents.length <= 1 && transactions.length === 0 ? (
                 <div className="flex h-full flex-col items-center justify-center px-4 py-16 text-center">
@@ -822,9 +822,9 @@ export function FinanzasWorkspace({
             </div>
 
             {/* Composer */}
-            <div className="chat-composer fixed inset-x-0 bottom-0 z-20 shrink-0 border-t border-[rgba(148,163,184,0.08)] bg-white/98 px-4 pb-[calc(env(safe-area-inset-bottom)+0.85rem)] pt-3.5 shadow-[0_-12px_28px_-24px_rgba(15,23,42,0.2)] backdrop-blur md:static md:border-[rgba(148,163,184,0.1)] md:bg-white md:px-4 md:py-3 md:shadow-[0_-10px_18px_-18px_rgba(15,23,42,0.16)]">
+            <div className="chat-composer fixed inset-x-0 bottom-0 z-20 shrink-0 border-t border-[rgba(148,163,184,0.08)] bg-white/98 px-3 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2.5 shadow-[0_-12px_28px_-24px_rgba(15,23,42,0.2)] backdrop-blur md:static md:border-[rgba(148,163,184,0.1)] md:bg-white md:px-4 md:py-3 md:shadow-[0_-10px_18px_-18px_rgba(15,23,42,0.16)]">
               <form onSubmit={handleSubmit} className="mx-auto w-full max-w-7xl">
-                <div className="flex items-end gap-3.5">
+                <div className="flex items-end gap-2.5 md:gap-3.5">
                   <textarea
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
@@ -836,15 +836,15 @@ export function FinanzasWorkspace({
                     }}
                     rows={1}
                     placeholder="Escribeme.."
-                    className="flex min-h-[56px] flex-1 resize-none rounded-[24px] border border-[rgba(148,163,184,0.14)] bg-slate-50/85 px-4.5 py-3.5 text-[14px] leading-5 text-slate-800 placeholder:text-slate-500 outline-none transition focus:border-[var(--primary)] focus:bg-white focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_18%,white)] md:min-h-[44px]"
+                    className="flex min-h-[46px] flex-1 resize-none rounded-[22px] border border-[rgba(148,163,184,0.14)] bg-slate-50/85 px-3.5 py-3 text-[16px] leading-5 text-slate-800 placeholder:text-slate-500 outline-none transition focus:border-[var(--primary)] focus:bg-white focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_18%,white)] md:min-h-[44px] md:rounded-[24px] md:px-4.5 md:py-3"
                     disabled={isBusy}
                   />
                   <button
                     type="submit"
                     disabled={isBusy || !input.trim()}
-                    className="inline-flex h-[56px] w-[56px] shrink-0 items-center justify-center rounded-[22px] bg-[var(--primary)] text-white transition hover:bg-[var(--primary-strong)] disabled:cursor-not-allowed disabled:bg-[color-mix(in_srgb,var(--primary)_40%,white)] disabled:text-white/90 md:h-11 md:w-11"
+                    className="inline-flex h-[48px] w-[48px] shrink-0 items-center justify-center rounded-[18px] bg-[var(--primary)] text-white transition hover:bg-[var(--primary-strong)] disabled:cursor-not-allowed disabled:bg-[color-mix(in_srgb,var(--primary)_40%,white)] disabled:text-white/90 md:h-11 md:w-11 md:rounded-[22px]"
                   >
-                    <SendHorizonal className="h-5 w-5 text-white" />
+                    <SendHorizonal className="h-4.5 w-4.5 text-white md:h-5 md:w-5" />
                   </button>
                 </div>
               </form>
