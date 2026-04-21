@@ -44,6 +44,7 @@ export type SharedInboxSelectedConversation = {
   secondaryLabel: string;
   avatarUrl?: string | null;
   messages: SharedInboxMessageItem[];
+  automationPaused?: boolean;
 };
 
 export type SharedInboxSidebarItem = {
@@ -65,6 +66,7 @@ type SharedInboxProps = {
   selectedConversation: SharedInboxSelectedConversation | null;
   backHref: string;
   headerBadge?: ReactNode;
+  headerActions?: ReactNode;
   composer?: {
     action: (formData: FormData) => void | Promise<void>;
     hiddenFields: Array<{ name: string; value: string }>;
@@ -117,6 +119,7 @@ export function SharedInbox({
   selectedConversation,
   backHref,
   headerBadge,
+  headerActions,
   composer,
   emptyListTitle,
   emptyListDescription,
@@ -327,7 +330,10 @@ export function SharedInbox({
                   </div>
                 </div>
 
-                {headerBadge}
+                <div className="flex items-center gap-2">
+                  {headerActions}
+                  {headerBadge}
+                </div>
               </div>
             </div>
 

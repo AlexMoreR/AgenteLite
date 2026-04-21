@@ -237,13 +237,14 @@ export async function sendEvolutionTextMessage(input: {
   instanceName: string;
   phoneNumber: string;
   text: string;
+  delayMs?: number;
 }) {
   const response = await evolutionRequest<EvolutionSendTextResponse>(`/message/sendText/${input.instanceName}`, {
     method: "POST",
     body: JSON.stringify({
       number: input.phoneNumber,
       text: input.text,
-      delay: 1200,
+      delay: input.delayMs ?? 1200,
     }),
   });
 
@@ -293,6 +294,7 @@ export async function sendEvolutionTextMessageWithReconnect(input: {
   instanceName: string;
   phoneNumber: string;
   text: string;
+  delayMs?: number;
 }) {
   try {
     return await sendEvolutionTextMessage(input);

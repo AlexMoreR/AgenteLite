@@ -223,6 +223,7 @@ model Agent {
   trainingConfig      Json?
   systemPrompt        String?
   welcomeMessage      String?
+  reactivationMessage String?
   fallbackMessage     String?
   handoffMessage      String?
   model               String?
@@ -294,6 +295,8 @@ model Conversation {
   channelId       String?
   contactId       String
   status          ConversationStatus @default(OPEN)
+  automationPaused   Boolean            @default(false)
+  automationPausedAt DateTime?
   lastMessageAt   DateTime?
   startedAt       DateTime           @default(now())
   closedAt        DateTime?

@@ -1,10 +1,15 @@
 import Link from "next/link";
 import { Bot, CheckCircle2, Smartphone } from "lucide-react";
-import { toggleAgentStatusAction } from "@/app/actions/agent-actions";
+import {
+  saveAgentReactivationMessageAction,
+  saveAgentResponseDelayAction,
+  toggleAgentStatusAction,
+} from "@/app/actions/agent-actions";
 import { assignConnectionChannelAction, toggleConnectionChannelStatusAction } from "@/app/actions/connection-actions";
 import { WhatsappQrAutoRefresh } from "@/components/agents/whatsapp-qr-auto-refresh";
 import { WhatsappQrCountdown } from "@/components/agents/whatsapp-qr-countdown";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
+import { AgentAssignAutosaveForm, ReactivationAutosaveForm, ResponseDelayAutosaveForm } from "./ConnectionAutosaveControls";
 
 type WhatsAppBusinessConnectionWorkspaceProps = {
   connection: {
@@ -16,6 +21,8 @@ type WhatsAppBusinessConnectionWorkspaceProps = {
     agentName: string;
     agentIsActive: boolean;
     agentStatus: string | null;
+    agentReactivationMessage: string;
+    agentResponseDelaySeconds: number;
   };
   isConnected: boolean;
   qrDataUrl: string;
@@ -110,21 +117,20 @@ export function WhatsAppBusinessConnectionWorkspace({
                     <input type="hidden" name="returnTo" value={`/cliente/conexion/whatsapp-business/${connection.id}`} />
                     <button
                       type="submit"
-                      className="inline-flex h-9 items-center gap-2 rounded-full px-1 text-sm font-medium text-slate-700 transition hover:text-emerald-700"
+                      className="inline-flex h-10 items-center rounded-full px-1 transition"
                       aria-label={connection.isActive ? `Apagar ${connection.name}` : `Encender ${connection.name}`}
                     >
                       <span
-                        className={`relative inline-flex h-4.5 w-8 shrink-0 rounded-full transition ${
-                          connection.isActive ? "bg-emerald-500/90" : "bg-slate-300"
+                        className={`relative inline-flex h-7 w-12 shrink-0 rounded-full transition ${
+                          connection.isActive ? "bg-[var(--primary)]" : "bg-slate-300"
                         }`}
                       >
                         <span
-                          className={`absolute top-0.5 h-3.5 w-3.5 rounded-full bg-white shadow-[0_2px_10px_-4px_rgba(15,23,42,0.45)] transition-transform ${
-                            connection.isActive ? "translate-x-4" : "translate-x-0.5"
+                          className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow-[0_8px_18px_-8px_rgba(15,23,42,0.4)] transition-transform ${
+                            connection.isActive ? "translate-x-6" : "translate-x-1"
                           }`}
                         />
                       </span>
-                      {connection.isActive ? "Activo" : "Apagado"}
                     </button>
                   </form>
 
@@ -141,65 +147,87 @@ export function WhatsAppBusinessConnectionWorkspace({
 
               {availableAgents.length ? (
                 <div className="mt-4 space-y-3">
-                  <form action={assignConnectionChannelAction} className="flex flex-col gap-2 sm:flex-row">
-                    <input type="hidden" name="channelId" value={connection.id} />
-                    <input type="hidden" name="returnTo" value={`/cliente/conexion/whatsapp-business/${connection.id}`} />
-                    <select
-                      name="agentId"
-                      defaultValue={connection.agentId || ""}
-                      className="h-9 min-w-0 flex-1 rounded-full border border-[rgba(148,163,184,0.18)] bg-white px-3.5 text-sm text-slate-700 outline-none transition focus:border-[var(--primary)] focus:ring-4 focus:ring-[color:color-mix(in_srgb,var(--primary)_10%,white)]"
-                      aria-label="Seleccionar agente para el canal"
-                    >
-                      <option value="" disabled>
-                        Seleccionar agente
-                      </option>
-                      {availableAgents.map((agent) => (
-                        <option key={agent.id} value={agent.id}>
-                          {agent.name}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      type="submit"
-                      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--primary)] text-white transition hover:bg-[var(--primary-strong)]"
-                      aria-label="Guardar agente del canal"
-                    >
-                      <Bot className="h-4 w-4" />
-                    </button>
-                  </form>
+                  <div className="rounded-[24px] border border-[color:color-mix(in_srgb,var(--primary)_18%,white)] bg-white px-4 py-3 shadow-[0_18px_48px_-40px_rgba(37,99,235,0.45)]">
+                    <div className="space-y-1.5">
+                      <div className="space-y-1">
+                        <p className="text-base font-semibold tracking-[-0.04em] text-slate-950">Agente vinculado</p>
+                        <p className="text-[13px] text-slate-500">Selecciona el agente que respondera en este canal.</p>
+                      </div>
+                      <AgentAssignAutosaveForm
+                        action={assignConnectionChannelAction}
+                        channelId={connection.id}
+                        returnTo={`/cliente/conexion/whatsapp-business/${connection.id}`}
+                        defaultValue={connection.agentId || ""}
+                        availableAgents={availableAgents.map((agent) => ({ id: agent.id, name: agent.name }))}
+                      />
+                    </div>
+                  </div>
 
                   {connection.agentId ? (
-                    <div className="flex flex-col gap-2 rounded-2xl border border-slate-200/80 bg-slate-50/70 px-3.5 py-3 sm:flex-row sm:items-center sm:justify-between">
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-slate-900">Responder al escribir</p>
-                        <p className="text-xs text-slate-500">
-                          {connection.agentIsActive && connection.agentStatus === "ACTIVE"
-                            ? "El agente responde cuando entra un mensaje."
-                            : "El agente no respondera hasta que lo actives."}
-                        </p>
+                    <div className="space-y-3">
+                      <div className="rounded-[24px] border border-[color:color-mix(in_srgb,var(--primary)_18%,white)] bg-white px-4 py-3 shadow-[0_18px_48px_-40px_rgba(37,99,235,0.45)]">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="min-w-0">
+                            <p className="text-base font-semibold tracking-[-0.04em] text-slate-950">Agente activo</p>
+                            <p className="mt-0.5 text-[13px] text-slate-500">
+                              {connection.agentIsActive && connection.agentStatus === "ACTIVE"
+                                ? "Las respuestas automaticas del agente estan habilitadas para este canal."
+                                : "Las respuestas automaticas del agente estan detenidas en este canal."}
+                            </p>
+                          </div>
+                          <form action={toggleAgentStatusAction} className="shrink-0">
+                            <input type="hidden" name="agentId" value={connection.agentId} />
+                            <input type="hidden" name="returnTo" value={`/cliente/conexion/whatsapp-business/${connection.id}`} />
+                            <button
+                              type="submit"
+                              className="inline-flex h-10 items-center rounded-full px-1 transition"
+                              aria-label={connection.agentIsActive ? `Apagar agente ${connection.agentName}` : `Encender agente ${connection.agentName}`}
+                            >
+                              <span
+                                className={`relative inline-flex h-7 w-12 shrink-0 rounded-full transition ${
+                                  connection.agentIsActive ? "bg-[var(--primary)]" : "bg-slate-300"
+                                }`}
+                              >
+                                <span
+                                  className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow-[0_8px_18px_-8px_rgba(15,23,42,0.4)] transition-transform ${
+                                    connection.agentIsActive ? "translate-x-6" : "translate-x-1"
+                                  }`}
+                                />
+                              </span>
+                            </button>
+                          </form>
+                        </div>
                       </div>
-                      <form action={toggleAgentStatusAction}>
-                        <input type="hidden" name="agentId" value={connection.agentId} />
-                        <input type="hidden" name="returnTo" value={`/cliente/conexion/whatsapp-business/${connection.id}`} />
-                        <button
-                          type="submit"
-                          className="inline-flex h-9 items-center gap-2 rounded-full border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
-                          aria-label={connection.agentIsActive ? `Apagar agente ${connection.agentName}` : `Encender agente ${connection.agentName}`}
-                        >
-                          <span
-                            className={`relative inline-flex h-4.5 w-8 shrink-0 rounded-full transition ${
-                              connection.agentIsActive ? "bg-emerald-500/90" : "bg-slate-300"
-                            }`}
-                          >
-                            <span
-                              className={`absolute top-0.5 h-3.5 w-3.5 rounded-full bg-white shadow-[0_2px_10px_-4px_rgba(15,23,42,0.45)] transition-transform ${
-                                connection.agentIsActive ? "translate-x-4" : "translate-x-0.5"
-                              }`}
-                            />
-                          </span>
-                          {connection.agentIsActive ? "Agente activo" : "Agente apagado"}
-                        </button>
-                      </form>
+
+                      <div className="rounded-[24px] border border-[color:color-mix(in_srgb,var(--primary)_18%,white)] bg-white px-4 py-3 shadow-[0_18px_48px_-40px_rgba(37,99,235,0.45)]">
+                        <div className="space-y-2">
+                          <div className="space-y-1">
+                            <p className="text-base font-semibold tracking-[-0.04em] text-slate-950">Frase de reactivacion</p>
+                            <p className="text-[13px] text-slate-500">Mensaje enviado al reactivar una conversacion.</p>
+                          </div>
+                          <ReactivationAutosaveForm
+                            action={saveAgentReactivationMessageAction}
+                            agentId={connection.agentId}
+                            returnTo={`/cliente/conexion/whatsapp-business/${connection.id}`}
+                            defaultValue={connection.agentReactivationMessage || "Somos tu socio aliado."}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="rounded-[24px] border border-[color:color-mix(in_srgb,var(--primary)_18%,white)] bg-white px-4 py-3 shadow-[0_18px_48px_-40px_rgba(37,99,235,0.45)]">
+                        <div className="space-y-2">
+                          <div className="space-y-1">
+                            <p className="text-base font-semibold tracking-[-0.04em] text-slate-950">Retraso de respuesta IA</p>
+                            <p className="text-[13px] text-slate-500">Espera antes de enviar cada respuesta.</p>
+                          </div>
+                          <ResponseDelayAutosaveForm
+                            action={saveAgentResponseDelayAction}
+                            agentId={connection.agentId}
+                            returnTo={`/cliente/conexion/whatsapp-business/${connection.id}`}
+                            defaultValue={connection.agentResponseDelaySeconds}
+                          />
+                        </div>
+                      </div>
                     </div>
                   ) : null}
                 </div>

@@ -250,11 +250,11 @@ export async function POST(request: Request) {
     orderBy: {
       updatedAt: "desc",
     },
-    select: { id: true },
+    select: { id: true, automationPaused: true },
   });
 
   const conversation = existingConversation
-    ? { id: existingConversation.id }
+    ? { id: existingConversation.id, automationPaused: existingConversation.automationPaused }
     : await prisma.conversation.create({
         data: {
           workspaceId: channel.workspaceId,
@@ -262,9 +262,10 @@ export async function POST(request: Request) {
           agentId: channel.agentId ?? null,
           contactId: contact.id,
           status: "OPEN",
+          automationPaused: false,
           lastMessageAt: new Date(),
         },
-        select: { id: true },
+        select: { id: true, automationPaused: true },
       });
 
   try {
@@ -352,8 +353,22 @@ export async function POST(request: Request) {
         systemPrompt: true,
         welcomeMessage: true,
         fallbackMessage: true,
+        trainingConfig: true,
       },
     });
+
+    const responseDelaySeconds =
+      agent?.trainingConfig &&
+      typeof agent.trainingConfig === "object" &&
+      !Array.isArray(agent.trainingConfig) &&
+      typeof (agent.trainingConfig as { responseDelaySeconds?: unknown }).responseDelaySeconds === "number" &&
+      Number.isFinite((agent.trainingConfig as { responseDelaySeconds?: number }).responseDelaySeconds)
+        ? Math.max(
+            0,
+            Math.min(120, Math.round((agent.trainingConfig as { responseDelaySeconds?: number }).responseDelaySeconds ?? 10)),
+          )
+        : 10;
+    const responseDelayMs = responseDelaySeconds * 1000;
 
     console.log("[EVOLUTION] agent_loaded", {
       agentId: channel.agentId,
@@ -364,9 +379,17 @@ export async function POST(request: Request) {
       hasFallbackMessage: Boolean(agent?.fallbackMessage),
       hasSystemPrompt: Boolean(agent?.systemPrompt),
       model: agent?.model ?? null,
+      responseDelaySeconds,
     });
 
-    if (channel.isActive && agent?.isActive && agent.status === "ACTIVE" && channel.evolutionInstanceName && messageText) {
+    if (
+      channel.isActive &&
+      agent?.isActive &&
+      agent.status === "ACTIVE" &&
+      !conversation.automationPaused &&
+      channel.evolutionInstanceName &&
+      messageText
+    ) {
       const existingOutbound = await prisma.message.findFirst({
         where: {
           conversationId: conversation.id,
@@ -433,7 +456,7 @@ export async function POST(request: Request) {
               instanceName: channel.evolutionInstanceName,
               phoneNumber,
               presence: "composing",
-              delay: 1200,
+              delay: responseDelayMs,
             });
           } catch (presenceError) {
             console.warn("[EVOLUTION] presence_failed", {
@@ -449,6 +472,7 @@ export async function POST(request: Request) {
             instanceName: channel.evolutionInstanceName,
             phoneNumber,
             text: replyText,
+            delayMs: 0,
           });
 
           await prisma.message.create({
@@ -532,6 +556,8 @@ export async function POST(request: Request) {
           ? "agent_not_found"
           : !channel.isActive
             ? "channel_inactive"
+          : conversation.automationPaused
+            ? "conversation_paused_by_human"
           : !agent.isActive
             ? "agent_inactive"
             : agent.status !== "ACTIVE"

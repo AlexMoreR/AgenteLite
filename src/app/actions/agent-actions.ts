@@ -81,6 +81,19 @@ const sendManualAgentReplySchema = z.object({
   agentId: z.string().trim().min(1, "Agente invalido"),
   conversationId: z.string().trim().min(1, "Conversacion invalida"),
   message: z.string().trim().min(1, "Escribe un mensaje").max(2000, "Mensaje demasiado largo"),
+  returnTo: z.string().trim().max(500).optional(),
+});
+
+const saveAgentReactivationMessageSchema = z.object({
+  agentId: z.string().trim().min(1, "Agente invalido"),
+  reactivationMessage: z.string().trim().min(1, "Escribe un mensaje").max(300, "Mensaje demasiado largo"),
+  returnTo: z.string().trim().max(500).optional(),
+});
+
+const saveAgentResponseDelaySchema = z.object({
+  agentId: z.string().trim().min(1, "Agente invalido"),
+  responseDelaySeconds: z.coerce.number().int().min(0, "El retraso no puede ser negativo").max(120, "El retraso es demasiado alto"),
+  returnTo: z.string().trim().max(500).optional(),
 });
 
 const simulateAgentReplySchema = z.object({
@@ -1300,11 +1313,16 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<vo
     agentId: formData.get("agentId"),
     conversationId: formData.get("conversationId"),
     message: formData.get("message"),
+    returnTo: formData.get("returnTo"),
   });
 
   const fallbackAgentId = String(formData.get("agentId") || "");
+  const fallbackReturnTo = String(formData.get("returnTo") || "");
 
   if (!parsed.success) {
+    if (fallbackReturnTo) {
+      redirect(`${fallbackReturnTo}${fallbackReturnTo.includes("?") ? "&" : "?"}error=No+se+pudo+enviar+el+mensaje`);
+    }
     redirect(`/cliente/agentes/${fallbackAgentId}/chats?error=No+se+pudo+enviar+el+mensaje`);
   }
 
@@ -1336,6 +1354,9 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<vo
   });
 
   if (!conversation || !conversation.channel?.evolutionInstanceName || !conversation.contact?.phoneNumber) {
+    if (parsed.data.returnTo) {
+      redirect(`${parsed.data.returnTo}${parsed.data.returnTo.includes("?") ? "&" : "?"}error=No+se+encontro+el+canal+o+contacto`);
+    }
     redirect(`/cliente/agentes/${parsed.data.agentId}/chats?error=No+se+encontro+el+canal+o+contacto`);
   }
 
@@ -1379,13 +1400,132 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<vo
   await prisma.conversation.update({
     where: { id: conversation.id },
     data: {
+      automationPaused: true,
+      automationPausedAt: new Date(),
       lastMessageAt: new Date(),
       status: "OPEN",
     },
   });
 
+  if (parsed.data.returnTo) {
+    revalidatePath(parsed.data.returnTo);
+    redirect(`${parsed.data.returnTo}${parsed.data.returnTo.includes("?") ? "&" : "?"}ok=Mensaje+enviado`);
+  }
+
   revalidatePath(`/cliente/agentes/${parsed.data.agentId}/chats`);
   redirect(`/cliente/agentes/${parsed.data.agentId}/chats?conversationId=${conversation.id}&ok=Mensaje+enviado`);
+}
+
+export async function saveAgentReactivationMessageAction(formData: FormData): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+    redirect("/unauthorized");
+  }
+
+  const parsed = saveAgentReactivationMessageSchema.safeParse({
+    agentId: formData.get("agentId"),
+    reactivationMessage: formData.get("reactivationMessage"),
+    returnTo: formData.get("returnTo"),
+  });
+
+  if (!parsed.success) {
+    redirect("/cliente/agentes?error=No+se+pudo+guardar+la+frase");
+  }
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    redirect("/cliente/agentes?error=Debes+configurar+tu+negocio+primero");
+  }
+
+  const agent = await prisma.agent.findFirst({
+    where: {
+      id: parsed.data.agentId,
+      workspaceId: membership.workspace.id,
+    },
+    select: { id: true, trainingConfig: true },
+  });
+
+  if (!agent) {
+    redirect("/cliente/agentes?error=Agente+no+encontrado");
+  }
+
+  await prisma.agent.update({
+    where: { id: agent.id },
+    data: {
+      trainingConfig: {
+        ...(agent.trainingConfig && typeof agent.trainingConfig === "object" && !Array.isArray(agent.trainingConfig)
+          ? agent.trainingConfig
+          : {}),
+        reactivationMessage: parsed.data.reactivationMessage,
+      },
+    },
+  });
+
+  revalidatePath("/cliente");
+  revalidatePath("/cliente/agentes");
+
+  if (parsed.data.returnTo) {
+    revalidatePath(parsed.data.returnTo);
+    redirect(`${parsed.data.returnTo}${parsed.data.returnTo.includes("?") ? "&" : "?"}ok=Frase+de+reactivacion+guardada`);
+  }
+
+  redirect("/cliente/agentes?ok=Frase+de+reactivacion+guardada");
+}
+
+export async function saveAgentResponseDelayAction(formData: FormData): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+    redirect("/unauthorized");
+  }
+
+  const parsed = saveAgentResponseDelaySchema.safeParse({
+    agentId: formData.get("agentId"),
+    responseDelaySeconds: formData.get("responseDelaySeconds"),
+    returnTo: formData.get("returnTo"),
+  });
+
+  if (!parsed.success) {
+    redirect("/cliente/agentes?error=No+se+pudo+guardar+el+retraso");
+  }
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    redirect("/cliente/agentes?error=Debes+configurar+tu+negocio+primero");
+  }
+
+  const agent = await prisma.agent.findFirst({
+    where: {
+      id: parsed.data.agentId,
+      workspaceId: membership.workspace.id,
+    },
+    select: { id: true, trainingConfig: true },
+  });
+
+  if (!agent) {
+    redirect("/cliente/agentes?error=Agente+no+encontrado");
+  }
+
+  await prisma.agent.update({
+    where: { id: agent.id },
+    data: {
+      trainingConfig: {
+        ...(agent.trainingConfig && typeof agent.trainingConfig === "object" && !Array.isArray(agent.trainingConfig)
+          ? agent.trainingConfig
+          : {}),
+        responseDelaySeconds: parsed.data.responseDelaySeconds,
+      },
+    },
+  });
+
+  revalidatePath("/cliente");
+  revalidatePath("/cliente/agentes");
+
+  if (parsed.data.returnTo) {
+    revalidatePath(parsed.data.returnTo);
+    redirect(`${parsed.data.returnTo}${parsed.data.returnTo.includes("?") ? "&" : "?"}ok=Retraso+de+respuesta+guardado`);
+  }
+
+  redirect("/cliente/agentes?ok=Retraso+de+respuesta+guardado");
 }
 
 export async function simulateAgentReplyAction(input: {

@@ -1,7 +1,7 @@
 ﻿import { redirect } from "next/navigation";
 import { BadgeCheck, MessageCircle } from "lucide-react";
 import { auth } from "@/auth";
-import { sendUnifiedChatReplyAction } from "@/app/actions/chats-actions";
+import { sendUnifiedChatReplyAction, toggleConversationAutomationAction } from "@/app/actions/chats-actions";
 import { ChatsAutoRefresh } from "@/components/agents/chats-auto-refresh";
 import { SharedInbox } from "@/components/chats/shared-inbox";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
@@ -246,10 +246,12 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         id: selectedUnified.conversationId,
         workspaceId: membership.workspace.id,
       },
-      select: {
-        id: true,
-        contact: { select: { name: true, phoneNumber: true } },
-        messages: {
+        select: {
+          id: true,
+          agentId: true,
+          automationPaused: true,
+          contact: { select: { name: true, phoneNumber: true } },
+          messages: {
           orderBy: { createdAt: "asc" },
           select: { id: true, content: true, direction: true, createdAt: true, rawPayload: true },
         },
@@ -262,6 +264,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         label: getAgentContactLabel(detail.contact),
         secondaryLabel: detail.contact.phoneNumber,
         avatarUrl: selectedUnified.avatarUrl ?? null,
+        automationPaused: detail.automationPaused,
         messages: detail.messages.map((message) => {
           const outbound = message.direction === "OUTBOUND";
           const isManualOutbound =
@@ -346,6 +349,24 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
               WhatsApp
             </span>
           )
+        }
+        headerActions={
+          selectedUnified?.source === "agent" && selectedConversation ? (
+            <form action={toggleConversationAutomationAction}>
+              <input type="hidden" name="conversationId" value={selectedConversation.id} />
+              <input type="hidden" name="returnTo" value={`/cliente/chats?chatKey=${encodeURIComponent(selectedUnified.key)}`} />
+              <button
+                type="submit"
+                className={`inline-flex items-center rounded-full px-3 py-1.5 text-xs font-medium ring-1 transition ${
+                  selectedConversation.automationPaused
+                    ? "bg-amber-50 text-amber-700 ring-amber-200 hover:bg-amber-100"
+                    : "bg-slate-100 text-slate-700 ring-slate-200 hover:bg-slate-200"
+                }`}
+              >
+                {selectedConversation.automationPaused ? "Reactivar IA" : "Pausar IA"}
+              </button>
+            </form>
+          ) : null
         }
         composer={
           selectedUnified

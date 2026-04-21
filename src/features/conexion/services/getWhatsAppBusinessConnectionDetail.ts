@@ -34,6 +34,7 @@ export async function getWhatsAppBusinessConnectionDetail(workspaceId: string, c
           name: true,
           isActive: true,
           status: true,
+          trainingConfig: true,
         },
       },
     },
@@ -53,6 +54,7 @@ export async function getWhatsAppBusinessConnectionDetail(workspaceId: string, c
             name: true,
             isActive: true,
             status: true,
+            trainingConfig: true,
           },
         },
       },
@@ -108,6 +110,13 @@ export async function getWhatsAppBusinessConnectionDetail(workspaceId: string, c
     (channel?.metadata && typeof channel.metadata === "object" && !Array.isArray(channel.metadata)
       ? ((channel.metadata as { pairingCode?: string | null }).pairingCode ?? "")
       : "");
+  const agentTrainingConfig =
+    channel.agent?.trainingConfig && typeof channel.agent.trainingConfig === "object" && !Array.isArray(channel.agent.trainingConfig)
+      ? (channel.agent.trainingConfig as {
+          reactivationMessage?: unknown;
+          responseDelaySeconds?: unknown;
+        })
+      : null;
 
   return {
     connection: {
@@ -119,6 +128,11 @@ export async function getWhatsAppBusinessConnectionDetail(workspaceId: string, c
       agentName: channel.agent?.name ?? "",
       agentIsActive: channel.agent?.isActive ?? false,
       agentStatus: channel.agent?.status ?? null,
+      agentReactivationMessage: typeof agentTrainingConfig?.reactivationMessage === "string" ? agentTrainingConfig.reactivationMessage : "",
+      agentResponseDelaySeconds:
+        typeof agentTrainingConfig?.responseDelaySeconds === "number" && Number.isFinite(agentTrainingConfig.responseDelaySeconds)
+          ? Math.max(0, Math.min(120, Math.round(agentTrainingConfig.responseDelaySeconds)))
+          : 10,
     },
     channel,
     isConnected,
