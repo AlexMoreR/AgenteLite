@@ -8,6 +8,7 @@ import {
 import { assignConnectionChannelAction, toggleConnectionChannelStatusAction } from "@/app/actions/connection-actions";
 import { WhatsappQrAutoRefresh } from "@/components/agents/whatsapp-qr-auto-refresh";
 import { WhatsappQrCountdown } from "@/components/agents/whatsapp-qr-countdown";
+import { FormActionSwitch } from "@/components/ui/form-action-switch";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { AgentAssignAutosaveForm, ReactivationAutosaveForm, ResponseDelayAutosaveForm } from "./ConnectionAutosaveControls";
@@ -70,13 +71,13 @@ export function WhatsAppBusinessConnectionWorkspace({
       {!isConnected ? <WhatsappQrAutoRefresh isConnected={isConnected} /> : null}
 
       {isConnected ? (
-        <div className="rounded-[24px] border border-[rgba(148,163,184,0.14)] bg-white p-4 shadow-[0_20px_60px_-48px_rgba(15,23,42,0.24)] sm:rounded-[28px] sm:p-5">
+        <div className="rounded-lg border border-[rgba(148,163,184,0.14)] bg-white p-4 shadow-[0_20px_60px_-48px_rgba(15,23,42,0.24)] sm:rounded-lg sm:p-5">
           <div className="px-1 py-1 sm:px-0 sm:py-0">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div className="flex items-start gap-3">
-                <Avatar className="h-10 w-10 rounded-2xl border border-emerald-100 bg-emerald-50">
+                <Avatar className="h-10 w-10 rounded-lg border border-emerald-100 bg-emerald-50">
                   {connection.logoUrl ? <AvatarImage src={connection.logoUrl} alt={`Logo de ${connection.name}`} className="object-cover" /> : null}
-                  <AvatarFallback className="rounded-2xl bg-emerald-50 text-emerald-600">
+                  <AvatarFallback className="rounded-lg bg-emerald-50 text-emerald-600">
                     <CheckCircle2 className="h-5 w-5" />
                   </AvatarFallback>
                 </Avatar>
@@ -96,32 +97,20 @@ export function WhatsAppBusinessConnectionWorkspace({
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                <form action={toggleConnectionChannelStatusAction}>
-                  <input type="hidden" name="channelId" value={connection.id} />
-                  <input type="hidden" name="returnTo" value={`/cliente/conexion/whatsapp-business/${connection.id}`} />
-                  <button
-                    type="submit"
-                    className="inline-flex h-10 items-center rounded-full px-1 transition"
-                    aria-label={connection.isActive ? `Apagar ${connection.name}` : `Encender ${connection.name}`}
-                  >
-                    <span
-                      className={`relative inline-flex h-7 w-12 shrink-0 rounded-full transition ${
-                        connection.isActive ? "bg-[var(--primary)]" : "bg-slate-300"
-                      }`}
-                    >
-                      <span
-                        className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow-[0_8px_18px_-8px_rgba(15,23,42,0.4)] transition-transform ${
-                          connection.isActive ? "translate-x-6" : "translate-x-1"
-                        }`}
-                      />
-                    </span>
-                  </button>
-                </form>
+                <FormActionSwitch
+                  action={toggleConnectionChannelStatusAction}
+                  checked={connection.isActive}
+                  ariaLabel={connection.isActive ? `Apagar ${connection.name}` : `Encender ${connection.name}`}
+                  hiddenFields={[
+                    { name: "channelId", value: connection.id },
+                    { name: "returnTo", value: `/cliente/conexion/whatsapp-business/${connection.id}` },
+                  ]}
+                />
 
                 {connection.agentId ? (
                   <Link
                     href={`/cliente/agentes/${connection.agentId}`}
-                    className="inline-flex h-9 items-center justify-center rounded-full bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
+                    className="inline-flex h-9 items-center justify-center rounded-lg bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
                   >
                     Ir al agente
                   </Link>
@@ -134,9 +123,9 @@ export function WhatsAppBusinessConnectionWorkspace({
 
       <div className={`grid gap-4 ${isConnected ? "" : "xl:grid-cols-[320px_minmax(0,1fr)]"}`}>
         {!isConnected ? (
-          <div className="rounded-[24px] border border-[rgba(148,163,184,0.14)] bg-white p-4 shadow-[0_20px_60px_-48px_rgba(15,23,42,0.3)] sm:rounded-[28px] sm:p-5">
+          <div className="rounded-lg border border-[rgba(148,163,184,0.14)] bg-white p-4 shadow-[0_20px_60px_-48px_rgba(15,23,42,0.3)] sm:rounded-lg sm:p-5">
             <div className="flex flex-col items-center">
-              <div className="flex aspect-square w-full max-w-[248px] items-center justify-center rounded-[24px] bg-slate-50">
+              <div className="flex aspect-square w-full max-w-[248px] items-center justify-center rounded-lg bg-slate-50">
                 {qrDataUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={qrDataUrl} alt="QR de conexion de WhatsApp" className="h-auto w-[90%] max-w-[220px]" />
@@ -146,7 +135,7 @@ export function WhatsAppBusinessConnectionWorkspace({
               </div>
 
               {pairingCode ? (
-                <div className="mt-4 w-full rounded-2xl bg-slate-50 px-4 py-3">
+                <div className="mt-4 w-full rounded-lg bg-slate-50 px-4 py-3">
                   <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">Codigo alterno</p>
                   <p className="mt-2 font-mono text-sm font-semibold text-slate-900">{pairingCode}</p>
                 </div>
@@ -159,12 +148,18 @@ export function WhatsAppBusinessConnectionWorkspace({
           </div>
         ) : null}
 
-        <div className="rounded-[24px] border border-[rgba(148,163,184,0.14)] bg-white p-4 shadow-[0_20px_60px_-48px_rgba(15,23,42,0.24)] sm:rounded-[28px] sm:p-5">
+        <div
+          className={
+            isConnected
+              ? "bg-transparent p-0 shadow-none"
+              : "rounded-lg border border-[rgba(148,163,184,0.14)] bg-white p-4 shadow-[0_20px_60px_-48px_rgba(15,23,42,0.24)] sm:rounded-lg sm:p-5"
+          }
+        >
           {isConnected ? (
             <div className="px-1 py-1 sm:px-0 sm:py-0">
               {availableAgents.length ? (
-                <div className="mt-4 space-y-3">
-                  <div className="rounded-[24px] border border-[color:color-mix(in_srgb,var(--primary)_18%,white)] bg-white px-4 py-3 shadow-[0_18px_48px_-40px_rgba(37,99,235,0.45)]">
+                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                  <div className="rounded-lg border border-[color:color-mix(in_srgb,var(--primary)_18%,white)] bg-white px-4 py-3 shadow-[0_18px_48px_-40px_rgba(37,99,235,0.45)]">
                     <div className="space-y-1.5">
                       <div className="space-y-1">
                         <p className="text-base font-semibold tracking-[-0.04em] text-slate-950">Agente vinculado</p>
@@ -181,9 +176,9 @@ export function WhatsAppBusinessConnectionWorkspace({
                   </div>
 
                   {connection.agentId ? (
-                    <div className="space-y-3">
-                      <div className="rounded-[24px] border border-[color:color-mix(in_srgb,var(--primary)_18%,white)] bg-white px-4 py-3 shadow-[0_18px_48px_-40px_rgba(37,99,235,0.45)]">
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <>
+                      <div className="rounded-lg border border-[color:color-mix(in_srgb,var(--primary)_18%,white)] bg-white px-4 py-3 shadow-[0_18px_48px_-40px_rgba(37,99,235,0.45)]">
+                        <div className="space-y-3">
                           <div className="min-w-0">
                             <p className="text-base font-semibold tracking-[-0.04em] text-slate-950">Agente activo</p>
                             <p className="mt-0.5 text-[13px] text-slate-500">
@@ -192,31 +187,20 @@ export function WhatsAppBusinessConnectionWorkspace({
                                 : "Las respuestas automaticas del agente estan detenidas en este canal."}
                             </p>
                           </div>
-                          <form action={toggleAgentStatusAction} className="shrink-0">
-                            <input type="hidden" name="agentId" value={connection.agentId} />
-                            <input type="hidden" name="returnTo" value={`/cliente/conexion/whatsapp-business/${connection.id}`} />
-                            <button
-                              type="submit"
-                              className="inline-flex h-10 items-center rounded-full px-1 transition"
-                              aria-label={connection.agentIsActive ? `Apagar agente ${connection.agentName}` : `Encender agente ${connection.agentName}`}
-                            >
-                              <span
-                                className={`relative inline-flex h-7 w-12 shrink-0 rounded-full transition ${
-                                  connection.agentIsActive ? "bg-[var(--primary)]" : "bg-slate-300"
-                                }`}
-                              >
-                                <span
-                                  className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow-[0_8px_18px_-8px_rgba(15,23,42,0.4)] transition-transform ${
-                                    connection.agentIsActive ? "translate-x-6" : "translate-x-1"
-                                  }`}
-                                />
-                              </span>
-                            </button>
-                          </form>
+                          <FormActionSwitch
+                            action={toggleAgentStatusAction}
+                            checked={connection.agentIsActive}
+                            ariaLabel={connection.agentIsActive ? `Apagar agente ${connection.agentName}` : `Encender agente ${connection.agentName}`}
+                            hiddenFields={[
+                              { name: "agentId", value: connection.agentId },
+                              { name: "returnTo", value: `/cliente/conexion/whatsapp-business/${connection.id}` },
+                            ]}
+                            wrapperClassName="flex w-full items-center justify-start"
+                          />
                         </div>
                       </div>
 
-                      <div className="rounded-[24px] border border-[color:color-mix(in_srgb,var(--primary)_18%,white)] bg-white px-4 py-3 shadow-[0_18px_48px_-40px_rgba(37,99,235,0.45)]">
+                      <div className="rounded-lg border border-[color:color-mix(in_srgb,var(--primary)_18%,white)] bg-white px-4 py-3 shadow-[0_18px_48px_-40px_rgba(37,99,235,0.45)]">
                         <div className="space-y-2">
                           <div className="space-y-1">
                             <p className="text-base font-semibold tracking-[-0.04em] text-slate-950">Frase de reactivacion</p>
@@ -231,7 +215,7 @@ export function WhatsAppBusinessConnectionWorkspace({
                         </div>
                       </div>
 
-                      <div className="rounded-[24px] border border-[color:color-mix(in_srgb,var(--primary)_18%,white)] bg-white px-4 py-3 shadow-[0_18px_48px_-40px_rgba(37,99,235,0.45)]">
+                      <div className="rounded-lg border border-[color:color-mix(in_srgb,var(--primary)_18%,white)] bg-white px-4 py-3 shadow-[0_18px_48px_-40px_rgba(37,99,235,0.45)]">
                         <div className="space-y-2">
                           <div className="space-y-1">
                             <p className="text-base font-semibold tracking-[-0.04em] text-slate-950">Retraso de respuesta IA</p>
@@ -245,7 +229,7 @@ export function WhatsAppBusinessConnectionWorkspace({
                           />
                         </div>
                       </div>
-                    </div>
+                    </>
                   ) : null}
                 </div>
               ) : null}
@@ -253,7 +237,7 @@ export function WhatsAppBusinessConnectionWorkspace({
           ) : (
             <div className="space-y-5">
               <div className="flex items-center gap-3">
-                <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_10%,white)] text-[var(--primary)]">
+                <div className="inline-flex h-11 w-11 items-center justify-center rounded-lg bg-[color-mix(in_srgb,var(--primary)_10%,white)] text-[var(--primary)]">
                   <Smartphone className="h-5 w-5" />
                 </div>
                 <div>
@@ -284,8 +268,8 @@ export function WhatsAppBusinessConnectionWorkspace({
 
 function StepCard({ step, title, description }: { step: string; title: string; description: string }) {
   return (
-    <div className="rounded-[20px] border border-[rgba(148,163,184,0.12)] bg-slate-50/70 px-4 py-4">
-      <div className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-white text-xs font-semibold text-[var(--primary)] shadow-sm">
+    <div className="rounded-lg border border-[rgba(148,163,184,0.12)] bg-slate-50/70 px-4 py-4">
+      <div className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-white text-xs font-semibold text-[var(--primary)] shadow-sm">
         {step}
       </div>
       <p className="mt-3 text-sm font-semibold leading-5 text-slate-900">{title}</p>

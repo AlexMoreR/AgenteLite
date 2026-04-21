@@ -14,6 +14,7 @@ import {
   deleteConnectionChannelAction,
   toggleConnectionChannelStatusAction,
 } from "@/app/actions/connection-actions";
+import { FormActionSwitch } from "@/components/ui/form-action-switch";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { NewConnectionChannelModal } from "./NewConnectionChannelModal";
@@ -158,28 +159,17 @@ export function ConnectionsWorkspaceV2({
 
                     <div className="flex flex-wrap items-center gap-2.5 xl:justify-end">
                       <StatusPill label={item.channelStatusLabel} />
-                      <form action={toggleConnectionChannelStatusAction} className="pointer-events-auto relative z-20">
-                        <input type="hidden" name="channelId" value={item.id} />
-                        <input type="hidden" name="returnTo" value="/cliente/conexion" />
-                          <button
-                            type="submit"
-                            className="inline-flex h-6 items-center justify-center bg-transparent p-0 transition hover:opacity-90"
-                            aria-label={item.isActive ? `Apagar ${item.name}` : `Encender ${item.name}`}
-                          title={item.isActive ? "Apagar canal" : "Encender canal"}
-                          >
-                            <span
-                              className={`relative inline-flex h-5 w-8 shrink-0 rounded-full transition ${
-                                item.isActive ? "bg-emerald-500/90" : "bg-slate-300"
-                              }`}
-                            >
-                              <span
-                                className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-[0_2px_10px_-4px_rgba(15,23,42,0.45)] transition-transform ${
-                                  item.isActive ? "translate-x-3.5" : "translate-x-0.5"
-                                }`}
-                              />
-                            </span>
-                          </button>
-                      </form>
+                      <FormActionSwitch
+                        action={toggleConnectionChannelStatusAction}
+                        checked={item.isActive}
+                        ariaLabel={item.isActive ? `Apagar ${item.name}` : `Encender ${item.name}`}
+                        hiddenFields={[
+                          { name: "channelId", value: item.id },
+                          { name: "returnTo", value: "/cliente/conexion" },
+                        ]}
+                        wrapperClassName="pointer-events-auto relative z-20"
+                        switchClassName="h-5 w-8 data-[state=checked]:shadow-[0_8px_18px_-14px_color-mix(in_srgb,var(--primary)_88%,black)] [&>span]:h-4 [&>span]:w-4 [&>span]:translate-x-0.5 data-[state=checked]:[&>span]:translate-x-[0.875rem]"
+                      />
                       <MetricPill icon={<FiMessageCircle className="h-4 w-4" />} value={String(item.conversationsCount)} />
                       <MetricPill icon={<FiMail className="h-4 w-4" />} value={String(item.messagesCount)} />
 

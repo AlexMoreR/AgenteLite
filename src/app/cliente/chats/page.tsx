@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { sendUnifiedChatReplyAction, toggleConversationAutomationAction } from "@/app/actions/chats-actions";
 import { ChatsAutoRefresh } from "@/components/agents/chats-auto-refresh";
 import { SharedInbox } from "@/components/chats/shared-inbox";
+import { FormActionSwitch } from "@/components/ui/form-action-switch";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { Card } from "@/components/ui/card";
 import { OfficialApiLockedState, getOfficialApiChatsData } from "@/features/official-api";
@@ -375,24 +376,15 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         headerBadge={null}
         headerActions={
           selectedUnified?.source === "agent" && selectedConversation ? (
-            <form action={toggleConversationAutomationAction}>
-              <input type="hidden" name="conversationId" value={selectedConversation.id} />
-              <input type="hidden" name="returnTo" value={`/cliente/chats?chatKey=${encodeURIComponent(selectedUnified.key)}`} />
-              <button
-                type="submit"
-                aria-label={selectedConversation.automationPaused ? "Reactivar IA" : "Pausar IA"}
-                className={`inline-flex h-7 w-12 shrink-0 items-center rounded-full p-0.5 ring-1 transition ${
-                  selectedConversation.automationPaused
-                    ? "justify-start bg-slate-200 ring-slate-300 hover:bg-slate-300"
-                    : "justify-end bg-[var(--primary)] ring-[color-mix(in_srgb,var(--primary)_24%,white)] hover:bg-[var(--primary-strong)]"
-                }`}
-              >
-                <span className="sr-only">
-                  {selectedConversation.automationPaused ? "Reactivar IA" : "Pausar IA"}
-                </span>
-                <span className="h-6 w-6 rounded-full bg-white shadow-[0_6px_16px_-10px_rgba(15,23,42,0.5)]" />
-              </button>
-            </form>
+            <FormActionSwitch
+              action={toggleConversationAutomationAction}
+              checked={!selectedConversation.automationPaused}
+              ariaLabel={selectedConversation.automationPaused ? "Reactivar IA" : "Pausar IA"}
+              hiddenFields={[
+                { name: "conversationId", value: selectedConversation.id },
+                { name: "returnTo", value: `/cliente/chats?chatKey=${encodeURIComponent(selectedUnified.key)}` },
+              ]}
+            />
           ) : null
         }
         composer={

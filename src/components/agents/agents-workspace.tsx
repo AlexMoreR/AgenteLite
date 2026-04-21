@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { FormActionSwitch } from "@/components/ui/form-action-switch";
 
 type AgentCard = {
   id: string;
@@ -298,26 +299,12 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
                     </Link>
 
                     <div className="flex shrink-0 items-center gap-2 pr-4">
-                      <form action={toggleAgentStatusAction}>
-                        <input type="hidden" name="agentId" value={agent.id} />
-                        <button
-                          type="submit"
-                          className="inline-flex h-7 items-center justify-center bg-transparent p-0 transition hover:opacity-90"
-                          aria-label={agent.status === "ACTIVE" ? `Apagar ${agent.name}` : `Encender ${agent.name}`}
-                        >
-                          <span
-                            className={`relative inline-flex h-7 w-12 shrink-0 rounded-full transition ${
-                              agent.status === "ACTIVE" ? "bg-emerald-500/90" : "bg-slate-300"
-                            }`}
-                          >
-                            <span
-                              className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow-[0_2px_10px_-4px_rgba(15,23,42,0.45)] transition-transform ${
-                                agent.status === "ACTIVE" ? "translate-x-5" : "translate-x-0.5"
-                              }`}
-                            />
-                          </span>
-                        </button>
-                      </form>
+                      <FormActionSwitch
+                        action={toggleAgentStatusAction}
+                        checked={agent.status === "ACTIVE"}
+                        ariaLabel={agent.status === "ACTIVE" ? `Apagar ${agent.name}` : `Encender ${agent.name}`}
+                        hiddenFields={[{ name: "agentId", value: agent.id }]}
+                      />
 
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
