@@ -20,9 +20,11 @@ import {
 } from "@/lib/evolution-webhook";
 import {
   ensureEvolutionInstanceReady,
+  sendEvolutionImageMessage,
   sendEvolutionPresence,
   sendEvolutionTextMessageWithReconnect,
 } from "@/lib/evolution";
+import { resolveAgentKnowledgeImageReply } from "@/lib/agent-knowledge-media";
 import { enforceWorkspacePlanAccess } from "@/lib/workspace-plan-access";
 import { getEvolutionSettings } from "@/lib/system-settings";
 
@@ -386,14 +388,14 @@ export async function POST(request: Request) {
       responseDelaySeconds,
     });
 
-    if (
-      channel.isActive &&
-      agent?.isActive &&
+      if (
+        channel.isActive &&
+        agent?.isActive &&
       agent.status === "ACTIVE" &&
       !conversationAutomationPaused &&
       channel.evolutionInstanceName &&
       messageText
-    ) {
+      ) {
       const existingOutbound = await prisma.message.findFirst({
         where: {
           conversationId: conversation.id,
@@ -402,7 +404,7 @@ export async function POST(request: Request) {
         select: { id: true },
       });
 
-      let replyText: string | null = null;
+        let replyText: string | null = null;
 
       if (!existingOutbound) {
         replyText = agent.welcomeMessage?.trim() || agent.fallbackMessage?.trim() || null;
@@ -443,17 +445,23 @@ export async function POST(request: Request) {
             replyText?.trim() === (agent.fallbackMessage?.trim() || "").trim(),
           historyCount: recentMessages.length,
         });
-      }
+        }
 
-      if (replyText) {
-        try {
-          console.log("[EVOLUTION] auto_reply_sending", {
-            conversationId: conversation.id,
-            agentId: agent.id,
-            phoneNumber,
-            instanceName: channel.evolutionInstanceName,
-            preview: replyText.slice(0, 80),
-          });
+        const knowledgeImageReply = await resolveAgentKnowledgeImageReply({
+          agentId: agent.id,
+          latestUserMessage: messageText,
+        });
+
+        if (replyText || knowledgeImageReply) {
+          try {
+            console.log("[EVOLUTION] auto_reply_sending", {
+              conversationId: conversation.id,
+              agentId: agent.id,
+              phoneNumber,
+              instanceName: channel.evolutionInstanceName,
+              preview: replyText?.slice(0, 80) ?? "",
+              withImage: Boolean(knowledgeImageReply),
+            });
 
           try {
             await sendEvolutionPresence({
@@ -472,29 +480,60 @@ export async function POST(request: Request) {
             });
           }
 
-          const outbound = await sendEvolutionTextMessageWithReconnect({
-            instanceName: channel.evolutionInstanceName,
-            phoneNumber,
-            text: replyText,
-            delayMs: 0,
-          });
+          if (replyText) {
+            const outbound = await sendEvolutionTextMessageWithReconnect({
+              instanceName: channel.evolutionInstanceName,
+              phoneNumber,
+              text: replyText,
+              delayMs: 0,
+            });
 
-          await prisma.message.create({
-            data: {
-              workspaceId: channel.workspaceId,
-              conversationId: conversation.id,
-              channelId: channel.id,
-              contactId: contact.id,
-              agentId: agent.id,
-              externalId: outbound.externalId,
-              direction: "OUTBOUND",
-              type: "TEXT",
-              status: "SENT",
-              content: replyText,
-              sentAt: new Date(),
-              rawPayload: outbound.raw as never,
-            },
-          });
+            await prisma.message.create({
+              data: {
+                workspaceId: channel.workspaceId,
+                conversationId: conversation.id,
+                channelId: channel.id,
+                contactId: contact.id,
+                agentId: agent.id,
+                externalId: outbound.externalId,
+                direction: "OUTBOUND",
+                type: "TEXT",
+                status: "SENT",
+                content: replyText,
+                sentAt: new Date(),
+                rawPayload: outbound.raw as never,
+              },
+            });
+          }
+
+          if (knowledgeImageReply) {
+            const imageCaption = replyText ? null : `Te comparto la foto de ${knowledgeImageReply.productName}.`;
+            const imageOutbound = await sendEvolutionImageMessage({
+              instanceName: channel.evolutionInstanceName,
+              phoneNumber,
+              imageUrl: knowledgeImageReply.url,
+              caption: imageCaption,
+              delayMs: 0,
+            });
+
+            await prisma.message.create({
+              data: {
+                workspaceId: channel.workspaceId,
+                conversationId: conversation.id,
+                channelId: channel.id,
+                contactId: contact.id,
+                agentId: agent.id,
+                externalId: imageOutbound.externalId,
+                direction: "OUTBOUND",
+                type: "IMAGE",
+                status: "SENT",
+                content: imageCaption,
+                mediaUrl: knowledgeImageReply.url,
+                sentAt: new Date(),
+                rawPayload: imageOutbound.raw as never,
+              },
+            });
+          }
 
           await prisma.conversation.update({
             where: { id: conversation.id },
@@ -504,13 +543,14 @@ export async function POST(request: Request) {
             },
           });
 
-          console.log("[EVOLUTION] auto_reply_sent", {
-            conversationId: conversation.id,
-            agentId: agent.id,
-            phoneNumber,
-            externalId: outbound.externalId,
-          });
-        } catch (error) {
+            console.log("[EVOLUTION] auto_reply_sent", {
+              conversationId: conversation.id,
+              agentId: agent.id,
+              phoneNumber,
+              sentText: Boolean(replyText),
+              sentImage: Boolean(knowledgeImageReply),
+            });
+          } catch (error) {
           const errorMessage =
             error instanceof Error ? (error.stack || error.message) : JSON.stringify(error);
 
@@ -533,19 +573,20 @@ export async function POST(request: Request) {
           );
 
           await prisma.message.create({
-            data: {
-              workspaceId: channel.workspaceId,
-              conversationId: conversation.id,
-              channelId: channel.id,
-              contactId: contact.id,
-              agentId: agent.id,
-              direction: "OUTBOUND",
-              type: "TEXT",
-              status: "FAILED",
-              content: replyText,
-              failedAt: new Date(),
-            },
-          });
+              data: {
+                workspaceId: channel.workspaceId,
+                conversationId: conversation.id,
+                channelId: channel.id,
+                contactId: contact.id,
+                agentId: agent.id,
+                direction: "OUTBOUND",
+                type: knowledgeImageReply ? "IMAGE" : "TEXT",
+                status: "FAILED",
+                content: replyText || (knowledgeImageReply ? `Foto solicitada: ${knowledgeImageReply.productName}` : null),
+                mediaUrl: knowledgeImageReply?.url ?? null,
+                failedAt: new Date(),
+              },
+            });
         }
       } else {
         console.log("[EVOLUTION] auto_reply_skipped", {

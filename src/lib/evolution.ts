@@ -44,6 +44,8 @@ type EvolutionSendTextResponse = {
   status?: string;
 };
 
+type EvolutionSendMediaResponse = EvolutionSendTextResponse;
+
 type EvolutionProfilePictureResponse = {
   profilePictureUrl?: string | null;
 };
@@ -372,6 +374,87 @@ export async function sendEvolutionTextMessage(input: {
     externalId,
     raw: response,
   };
+}
+
+export async function sendEvolutionImageMessage(input: {
+  instanceName: string;
+  phoneNumber: string;
+  imageUrl: string;
+  caption?: string | null;
+  delayMs?: number;
+}) {
+  const normalizedCaption = input.caption?.trim() || "";
+  const normalizedFileName = (() => {
+    try {
+      const pathname = new URL(input.imageUrl).pathname;
+      const rawName = pathname.split("/").pop()?.trim() || "";
+      return rawName || "producto.jpg";
+    } catch {
+      return "producto.jpg";
+    }
+  })();
+
+  try {
+    const response = await evolutionRequest<EvolutionSendMediaResponse>(`/message/sendMedia/${input.instanceName}`, {
+      method: "POST",
+      body: JSON.stringify({
+        number: input.phoneNumber,
+        mediatype: "image",
+        mimetype: "image/jpeg",
+        caption: normalizedCaption,
+        media: input.imageUrl,
+        fileName: normalizedFileName,
+        delay: input.delayMs ?? 1200,
+      }),
+    });
+
+    const externalId =
+      response.key?.id ||
+      response.message?.key?.id ||
+      response.data?.key?.id ||
+      response.data?.id ||
+      response.id ||
+      response.messageId ||
+      null;
+
+    return {
+      externalId,
+      raw: response,
+    };
+  } catch (firstError) {
+    const response = await evolutionRequest<EvolutionSendMediaResponse>(`/message/sendMedia/${input.instanceName}`, {
+      method: "POST",
+      body: JSON.stringify({
+        number: input.phoneNumber,
+        mediaMessage: {
+          mediaType: "image",
+          fileName: normalizedFileName,
+          caption: normalizedCaption,
+          media: input.imageUrl,
+        },
+        options: {
+          delay: input.delayMs ?? 1200,
+          presence: "composing",
+        },
+      }),
+    }).catch(() => {
+      throw firstError;
+    });
+
+    const externalId =
+      response.key?.id ||
+      response.message?.key?.id ||
+      response.data?.key?.id ||
+      response.data?.id ||
+      response.id ||
+      response.messageId ||
+      null;
+
+    return {
+      externalId,
+      raw: response,
+    };
+  }
 }
 
 function isEvolutionConnectionClosedError(error: unknown) {

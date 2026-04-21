@@ -7,6 +7,7 @@ import {
   sendOfficialApiTextMessage,
   sendOfficialApiTypingIndicator,
 } from "@/lib/official-api-messaging";
+import { resolveAgentKnowledgeImageReply } from "@/lib/agent-knowledge-media";
 import { prisma } from "@/lib/prisma";
 import { ensureOfficialApiConfigTable } from "@/lib/official-api-config";
 
@@ -48,6 +49,7 @@ type MetaWebhookPayload = {
 
 type OfficialApiWebhookConfigRow = {
   id: string;
+  workspaceId: string;
   appSecret: string | null;
   accessToken: string | null;
   phoneNumberId: string | null;
@@ -112,7 +114,7 @@ async function findConfigByWebhookTarget(input: {
   const query = async () => {
     if (input.phoneNumberId && input.wabaId) {
       return prisma.$queryRaw<OfficialApiWebhookConfigRow[]>`
-        SELECT "id", "appSecret", "accessToken", "phoneNumberId"
+        SELECT "id", "workspaceId", "appSecret", "accessToken", "phoneNumberId"
         FROM "OfficialApiClientConfig"
         WHERE "phoneNumberId" = ${input.phoneNumberId}
            OR "wabaId" = ${input.wabaId}
@@ -122,7 +124,7 @@ async function findConfigByWebhookTarget(input: {
 
     if (input.phoneNumberId) {
       return prisma.$queryRaw<OfficialApiWebhookConfigRow[]>`
-        SELECT "id", "appSecret", "accessToken", "phoneNumberId"
+        SELECT "id", "workspaceId", "appSecret", "accessToken", "phoneNumberId"
         FROM "OfficialApiClientConfig"
         WHERE "phoneNumberId" = ${input.phoneNumberId}
         LIMIT 1
@@ -130,7 +132,7 @@ async function findConfigByWebhookTarget(input: {
     }
 
     return prisma.$queryRaw<OfficialApiWebhookConfigRow[]>`
-      SELECT "id", "appSecret", "accessToken", "phoneNumberId"
+      SELECT "id", "workspaceId", "appSecret", "accessToken", "phoneNumberId"
       FROM "OfficialApiClientConfig"
       WHERE "wabaId" = ${input.wabaId}
       LIMIT 1
@@ -145,6 +147,33 @@ async function findConfigByWebhookTarget(input: {
     const rows = await query();
     return rows[0] ?? null;
   }
+}
+
+async function findOfficialApiLinkedAgent(workspaceId: string) {
+  return prisma.whatsAppChannel.findFirst({
+    where: {
+      workspaceId,
+      provider: "OFFICIAL_API",
+      isActive: true,
+      agentId: {
+        not: null,
+      },
+      agent: {
+        is: {
+          isActive: true,
+          status: "ACTIVE",
+        },
+      },
+    },
+    orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
+    select: {
+      agent: {
+        select: {
+          id: true,
+        },
+      },
+    },
+  });
 }
 
 async function storeWebhookEvent(input: {
@@ -557,13 +586,37 @@ export async function POST(request: Request) {
   try {
     const insertedMessages = await syncInboundMessages(config.id, payload);
     await syncMessageStatuses(config.id, payload);
+    const linkedAgentChannel = await findOfficialApiLinkedAgent(config.workspaceId);
 
     for (const message of insertedMessages) {
-      const reply = await resolveOfficialApiAutomationReply({
+      const agentKnowledgeImageReply = linkedAgentChannel?.agent?.id
+        ? await resolveAgentKnowledgeImageReply({
+            agentId: linkedAgentChannel.agent.id,
+            latestUserMessage: message.content,
+          })
+        : null;
+
+      const chatbotReply = await resolveOfficialApiAutomationReply({
         configId: config.id,
         conversationId: message.conversationId,
         inboundText: message.content,
       });
+      const reply =
+        chatbotReply || agentKnowledgeImageReply
+          ? {
+              text: chatbotReply?.text?.trim() || null,
+              image:
+                chatbotReply?.image ||
+                (agentKnowledgeImageReply
+                  ? {
+                      url: agentKnowledgeImageReply.url,
+                      caption: chatbotReply?.text?.trim()
+                        ? null
+                        : `Te comparto la foto de ${agentKnowledgeImageReply.productName}.`,
+                    }
+                  : null),
+            }
+          : null;
 
       if (!reply || (!reply.image && !reply.text?.trim())) {
         continue;
