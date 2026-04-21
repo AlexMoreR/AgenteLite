@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { getSiteUrl } from "@/lib/site";
 
 type AgentKnowledgeMediaProduct = {
   id: string;
@@ -49,6 +50,23 @@ function normalizeText(value: string) {
 
 function looksLikeHttpUrl(value: string | null | undefined) {
   return typeof value === "string" && /^https?:\/\/\S+$/i.test(value.trim());
+}
+
+function resolveKnowledgeImageUrl(value: string | null | undefined) {
+  const normalized = value?.trim() || "";
+  if (!normalized) {
+    return null;
+  }
+
+  if (looksLikeHttpUrl(normalized)) {
+    return normalized;
+  }
+
+  if (normalized.startsWith("/")) {
+    return getSiteUrl(normalized);
+  }
+
+  return null;
 }
 
 function isImageRequest(messageText: string) {
@@ -104,9 +122,17 @@ export async function resolveAgentKnowledgeImageReply(input: {
     return null;
   }
 
-  const products = (await listAgentKnowledgeMediaProducts(input.agentId)).filter((product) =>
-    looksLikeHttpUrl(product.thumbnailUrl),
-  );
+  const products = (await listAgentKnowledgeMediaProducts(input.agentId))
+    .map((product) => {
+      const resolvedUrl = resolveKnowledgeImageUrl(product.thumbnailUrl);
+      return resolvedUrl
+        ? {
+            ...product,
+            thumbnailUrl: resolvedUrl,
+          }
+        : null;
+    })
+    .filter((product): product is AgentKnowledgeMediaProduct & { thumbnailUrl: string } => Boolean(product));
 
   if (!products.length) {
     return null;

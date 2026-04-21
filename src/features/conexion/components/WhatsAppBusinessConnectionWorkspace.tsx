@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Bot, CheckCircle2, Smartphone } from "lucide-react";
+import { Bot, CheckCircle2, MessageSquareReply, Power, Smartphone, TimerReset, UserRound } from "lucide-react";
 import {
   saveAgentReactivationMessageAction,
   saveAgentResponseDelayAction,
@@ -158,11 +158,14 @@ export function WhatsAppBusinessConnectionWorkspace({
           {isConnected ? (
             <div className="px-1 py-1 sm:px-0 sm:py-0">
               {availableAgents.length ? (
-                <div className="mt-4 grid gap-3 md:grid-cols-2">
-                  <div className="rounded-lg border border-[color:color-mix(in_srgb,var(--primary)_18%,white)] bg-white px-4 py-3 shadow-[0_18px_48px_-40px_rgba(37,99,235,0.45)]">
-                    <div className="space-y-1.5">
-                      <div className="space-y-1">
-                        <p className="text-base font-semibold tracking-[-0.04em] text-slate-950">Agente vinculado</p>
+                <div className="mt-2.5 grid gap-3 md:grid-cols-2">
+                  <div className="rounded-lg border border-[color:color-mix(in_srgb,var(--primary)_18%,white)] bg-white px-4 py-2.5 shadow-[0_18px_48px_-40px_rgba(37,99,235,0.45)]">
+                    <div className="space-y-1">
+                      <div className="space-y-0.5">
+                        <p className="inline-flex items-center gap-2 text-sm font-medium text-slate-900">
+                          <UserRound className="h-4 w-4 text-[var(--primary)]" />
+                          <span>Agente vinculado</span>
+                        </p>
                         <p className="text-[13px] text-slate-500">Selecciona el agente que respondera en este canal.</p>
                       </div>
                       <AgentAssignAutosaveForm
@@ -177,10 +180,13 @@ export function WhatsAppBusinessConnectionWorkspace({
 
                   {connection.agentId ? (
                     <>
-                      <div className="rounded-lg border border-[color:color-mix(in_srgb,var(--primary)_18%,white)] bg-white px-4 py-3 shadow-[0_18px_48px_-40px_rgba(37,99,235,0.45)]">
-                        <div className="space-y-3">
+                      <div className="rounded-lg border border-[color:color-mix(in_srgb,var(--primary)_18%,white)] bg-white px-4 py-2.5 shadow-[0_18px_48px_-40px_rgba(37,99,235,0.45)]">
+                        <div className="space-y-2.5">
                           <div className="min-w-0">
-                            <p className="text-base font-semibold tracking-[-0.04em] text-slate-950">Agente activo</p>
+                            <p className="inline-flex items-center gap-2 text-sm font-medium text-slate-900">
+                              <Power className="h-4 w-4 text-[var(--primary)]" />
+                              <span>Agente activo</span>
+                            </p>
                             <p className="mt-0.5 text-[13px] text-slate-500">
                               {connection.agentIsActive && connection.agentStatus === "ACTIVE"
                                 ? "Las respuestas automaticas del agente estan habilitadas para este canal."
@@ -200,10 +206,13 @@ export function WhatsAppBusinessConnectionWorkspace({
                         </div>
                       </div>
 
-                      <div className="rounded-lg border border-[color:color-mix(in_srgb,var(--primary)_18%,white)] bg-white px-4 py-3 shadow-[0_18px_48px_-40px_rgba(37,99,235,0.45)]">
+                      <div className="rounded-lg border border-[color:color-mix(in_srgb,var(--primary)_18%,white)] bg-white px-4 py-2.5 shadow-[0_18px_48px_-40px_rgba(37,99,235,0.45)]">
                         <div className="space-y-2">
-                          <div className="space-y-1">
-                            <p className="text-base font-semibold tracking-[-0.04em] text-slate-950">Frase de reactivacion</p>
+                          <div className="space-y-0.5">
+                            <p className="inline-flex items-center gap-2 text-sm font-medium text-slate-900">
+                              <MessageSquareReply className="h-4 w-4 text-[var(--primary)]" />
+                              <span>Frase de reactivacion</span>
+                            </p>
                             <p className="text-[13px] text-slate-500">Mensaje enviado al reactivar una conversacion.</p>
                           </div>
                           <ReactivationAutosaveForm
@@ -215,10 +224,13 @@ export function WhatsAppBusinessConnectionWorkspace({
                         </div>
                       </div>
 
-                      <div className="rounded-lg border border-[color:color-mix(in_srgb,var(--primary)_18%,white)] bg-white px-4 py-3 shadow-[0_18px_48px_-40px_rgba(37,99,235,0.45)]">
+                      <div className="rounded-lg border border-[color:color-mix(in_srgb,var(--primary)_18%,white)] bg-white px-4 py-2.5 shadow-[0_18px_48px_-40px_rgba(37,99,235,0.45)]">
                         <div className="space-y-2">
-                          <div className="space-y-1">
-                            <p className="text-base font-semibold tracking-[-0.04em] text-slate-950">Retraso de respuesta IA</p>
+                          <div className="space-y-0.5">
+                            <p className="inline-flex items-center gap-2 text-sm font-medium text-slate-900">
+                              <TimerReset className="h-4 w-4 text-[var(--primary)]" />
+                              <span>Retraso de respuesta IA</span>
+                            </p>
                             <p className="text-[13px] text-slate-500">Espera antes de enviar cada respuesta.</p>
                           </div>
                           <ResponseDelayAutosaveForm
