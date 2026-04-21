@@ -16,11 +16,8 @@ const IMAGE_REQUEST_PATTERNS = [
   /\bfotos\b/i,
   /\bimagen\b/i,
   /\bimagenes\b/i,
-  /\bim[aá]gen\b/i,
-  /\bim[aá]genes\b/i,
-  /\bver\b/i,
   /\bmuestr(?:a|ame|ame la|amelo)\b/i,
-  /\bense(?:n|ñ)a(?:me)?\b/i,
+  /\bensena(?:me)?\b/i,
 ];
 
 const PRODUCT_STOP_WORDS = new Set([
@@ -55,7 +52,7 @@ function looksLikeHttpUrl(value: string | null | undefined) {
 }
 
 function isImageRequest(messageText: string) {
-  return IMAGE_REQUEST_PATTERNS.some((pattern) => pattern.test(messageText));
+  return IMAGE_REQUEST_PATTERNS.some((pattern) => pattern.test(normalizeText(messageText)));
 }
 
 function scoreProductMatch(messageText: string, productName: string) {
