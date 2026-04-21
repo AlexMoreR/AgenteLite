@@ -183,7 +183,7 @@ function bytesLikeToBase64(value: unknown) {
   const numericEntries = Object.entries(value)
     .filter(([key, entryValue]) => /^\d+$/.test(key) && typeof entryValue === "number")
     .sort((left, right) => Number(left[0]) - Number(right[0]))
-    .map(([, entryValue]) => entryValue);
+    .map(([, entryValue]) => entryValue as number);
 
   return numericEntries.length > 0 ? Buffer.from(numericEntries).toString("base64") : null;
 }
