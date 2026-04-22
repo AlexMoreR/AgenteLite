@@ -238,7 +238,7 @@ export function buildAgentSystemPrompt(input: {
       ? "Si aun no sabes el nombre del cliente, tu primera respuesta debe presentarte y pedir su nombre antes de seguir vendiendo."
       : "No pidas el nombre al inicio si no hace falta para avanzar.",
     training.greetNewCustomers
-      ? `Cuando inicies con un cliente nuevo, usa este saludo base: "${resolveWelcomeMessageTemplate(training.customWelcomeMessage || buildDefaultNewCustomerWelcomeMessage(businessName), businessName)}".`
+      ? `Cuando inicies con un cliente nuevo, comienza tu respuesta con este saludo: "${resolveWelcomeMessageTemplate(training.customWelcomeMessage || buildDefaultNewCustomerWelcomeMessage(businessName), businessName)}". Luego, en el mismo mensaje, responde directamente lo que el cliente pregunto o pidio. No ignores su pregunta ni la dejes para despues.`
       : "No uses un saludo fijo para todos los clientes nuevos; adapta la apertura segun el contexto.",
     training.offerBestSeller
       ? "Si el cliente duda o pide recomendacion, sugiere de forma proactiva la opcion mas vendida o mas conveniente."

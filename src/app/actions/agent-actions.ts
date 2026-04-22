@@ -2086,8 +2086,9 @@ export async function simulateAgentReplyAction(input: {
 
   const trimmedHistory = parsed.data.history.filter((item) => item.content.trim());
   const hasOutboundHistory = trimmedHistory.some((item) => item.direction === "OUTBOUND");
+  const hasUserMessage = parsed.data.latestUserMessage.trim().length > 0;
 
-  if (!hasOutboundHistory) {
+  if (!hasOutboundHistory && !hasUserMessage) {
     return {
       ok: true,
       reply: agent.welcomeMessage?.trim() || agent.fallbackMessage?.trim() || "",
@@ -2101,6 +2102,10 @@ export async function simulateAgentReplyAction(input: {
     history: trimmedHistory,
     latestUserMessage: parsed.data.latestUserMessage,
   });
+
+  if (!hasOutboundHistory && agent.welcomeMessage?.trim()) {
+    return { ok: true, reply: `${agent.welcomeMessage.trim()}\n\n${reply}` };
+  }
 
   return { ok: true, reply };
 }
