@@ -403,19 +403,21 @@ export function SharedInbox({
           <div className="min-h-0 flex-1 overflow-y-auto divide-y divide-[rgba(148,163,184,0.12)]">
             {conversations.length > 0 ? (
               conversations.map((conversation) => {
-                const isSelected = selectedConversation?.id === conversation.id;
+                const isSelected = selectedConversationId === conversation.id;
                 const isInbound = conversation.lastMessageDirection === "INBOUND";
                 return (
                   <Link
                     key={conversation.id}
                     href={conversation.href}
-                    className={`group relative grid w-full grid-cols-[40px_minmax(0,1fr)] items-start gap-3 overflow-hidden px-3 py-2.5 transition md:grid-cols-[44px_minmax(0,1fr)] md:px-3 md:py-3 ${
-                      isSelected ? "bg-[color-mix(in_srgb,var(--primary)_6%,white)]" : "hover:bg-slate-50/80"
+                    className={`group relative grid w-full grid-cols-[40px_minmax(0,1fr)] items-start gap-3 overflow-hidden px-3 py-2.5 transition-[background-color,box-shadow,transform] duration-200 md:grid-cols-[44px_minmax(0,1fr)] md:px-3 md:py-3 ${
+                      isSelected
+                        ? "bg-[color-mix(in_srgb,var(--primary)_6%,white)]"
+                        : "hover:bg-[color-mix(in_srgb,var(--primary)_4%,white)] hover:shadow-[inset_0_0_0_1px_rgba(16,185,129,0.08)]"
                     }`}
                   >
                     <span
                       className={`absolute inset-y-3 left-0 w-1 rounded-r-full ${
-                        isSelected ? "bg-[var(--primary)]" : "bg-transparent"
+                        isSelected ? "bg-[var(--primary)]" : "bg-transparent group-hover:bg-emerald-400/70"
                       }`}
                     />
 
