@@ -9,7 +9,7 @@ import { Card } from "@/components/ui/card";
 import { OfficialApiLockedState, getOfficialApiChatsData } from "@/features/official-api";
 import { canAccessOfficialApiModule } from "@/lib/admin-module-access";
 import { getConversationAutomationPaused } from "@/lib/conversation-automation";
-import { fetchEvolutionMediaDataUrl } from "@/lib/evolution";
+import { fetchEvolutionMediaDataUrl, fetchEvolutionProfilePictureUrl } from "@/lib/evolution";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
@@ -176,7 +176,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         agentId: true,
         channelId: true,
         contact: {
-          select: { name: true, phoneNumber: true },
+          select: { id: true, name: true, phoneNumber: true, avatarUrl: true },
         },
         messages: {
           orderBy: { createdAt: "desc" },
@@ -204,7 +204,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       channelId: conversation.channelId || undefined,
       label: getAgentContactLabel(conversation.contact),
       secondaryLabel: conversation.contact.phoneNumber,
-      avatarUrl: null,
+      avatarUrl: conversation.contact.avatarUrl ?? null,
       lastMessage: conversation.messages[0]?.content ?? null,
       lastMessageType: conversation.messages[0]?.type ?? null,
       lastMessageDirection: conversation.messages[0]?.direction ?? null,
@@ -309,16 +309,16 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         id: selectedUnified.conversationId,
         workspaceId: membership.workspace.id,
       },
-        select: {
-          id: true,
-          agentId: true,
-          channel: {
-            select: {
-              evolutionInstanceName: true,
-            },
+      select: {
+        id: true,
+        agentId: true,
+        channel: {
+          select: {
+            evolutionInstanceName: true,
           },
-          contact: { select: { name: true, phoneNumber: true } },
-          messages: {
+        },
+        contact: { select: { id: true, name: true, phoneNumber: true, avatarUrl: true } },
+        messages: {
           orderBy: { createdAt: "asc" },
           select: { id: true, content: true, direction: true, createdAt: true, rawPayload: true, type: true, mediaUrl: true },
         },
@@ -331,49 +331,71 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         workspaceId: membership.workspace.id,
       });
 
+      // Resolve media URLs and cache them back to DB (fire-and-forget)
+      const resolvedMessages = await Promise.all(detail.messages.map(async (message) => {
+        const outbound = message.direction === "OUTBOUND";
+        const isManualOutbound =
+          outbound &&
+          typeof message.rawPayload === "object" &&
+          message.rawPayload !== null &&
+          "source" in message.rawPayload &&
+          (message.rawPayload.source === "manual" || message.rawPayload.source === "instance");
+        const resolvableMediaType =
+          message.type === "IMAGE" || message.type === "AUDIO" || message.type === "VIDEO" || message.type === "DOCUMENT"
+            ? message.type
+            : null;
+        const shouldResolveMedia =
+          Boolean(resolvableMediaType) &&
+          shouldResolveEvolutionMediaUrl(message.mediaUrl);
+        const evolutionMessageId = getEvolutionMessageId(message.rawPayload);
+        const resolvedMediaUrl =
+          shouldResolveMedia && detail.channel?.evolutionInstanceName && evolutionMessageId && resolvableMediaType
+            ? await fetchEvolutionMediaDataUrl({
+                instanceName: detail.channel.evolutionInstanceName,
+                messageId: evolutionMessageId,
+                mediaType: resolvableMediaType,
+                mimeType: getEvolutionMediaMimeType(message.rawPayload),
+              })
+            : null;
+
+        // Cache resolved URL back to DB so next load is instant
+        if (resolvedMediaUrl && resolvedMediaUrl !== message.mediaUrl) {
+          void prisma.message.update({ where: { id: message.id }, data: { mediaUrl: resolvedMediaUrl } });
+        }
+
+        return {
+          id: message.id,
+          content: message.content,
+          direction: message.direction,
+          createdAt: message.createdAt,
+          authorType: (outbound ? (isManualOutbound ? "user" : "bot") : "user") as "user" | "bot",
+          outboundStatusLabel: outbound ? "entregado" : null,
+          type: message.type,
+          mediaUrl: resolvedMediaUrl || message.mediaUrl,
+          rawPayload: message.rawPayload,
+        };
+      }));
+
+      // Cache avatar URL for contact if not already stored
+      let avatarUrl = detail.contact.avatarUrl ?? selectedUnified.avatarUrl ?? null;
+      if (!detail.contact.avatarUrl && detail.channel?.evolutionInstanceName && detail.contact.phoneNumber) {
+        const fetchedAvatar = await fetchEvolutionProfilePictureUrl({
+          instanceName: detail.channel.evolutionInstanceName,
+          phoneNumber: detail.contact.phoneNumber,
+        });
+        if (fetchedAvatar) {
+          avatarUrl = fetchedAvatar;
+          void prisma.contact.update({ where: { id: detail.contact.id }, data: { avatarUrl: fetchedAvatar } });
+        }
+      }
+
       selectedConversation = {
         id: detail.id,
         label: getAgentContactLabel(detail.contact),
         secondaryLabel: detail.contact.phoneNumber,
-        avatarUrl: selectedUnified.avatarUrl ?? null,
+        avatarUrl,
         automationPaused,
-        messages: await Promise.all(detail.messages.map(async (message) => {
-          const outbound = message.direction === "OUTBOUND";
-          const isManualOutbound =
-            outbound &&
-            typeof message.rawPayload === "object" &&
-            message.rawPayload !== null &&
-            "source" in message.rawPayload &&
-            (message.rawPayload.source === "manual" || message.rawPayload.source === "instance");
-          const resolvableMediaType =
-            message.type === "IMAGE" || message.type === "AUDIO" || message.type === "VIDEO" || message.type === "DOCUMENT"
-              ? message.type
-              : null;
-          const shouldResolveMedia =
-            Boolean(resolvableMediaType) &&
-            shouldResolveEvolutionMediaUrl(message.mediaUrl);
-          const evolutionMessageId = getEvolutionMessageId(message.rawPayload);
-          const resolvedMediaUrl =
-            shouldResolveMedia && detail.channel?.evolutionInstanceName && evolutionMessageId && resolvableMediaType
-              ? await fetchEvolutionMediaDataUrl({
-                  instanceName: detail.channel.evolutionInstanceName,
-                  messageId: evolutionMessageId,
-                  mediaType: resolvableMediaType,
-                  mimeType: getEvolutionMediaMimeType(message.rawPayload),
-                })
-              : null;
-          return {
-            id: message.id,
-            content: message.content,
-            direction: message.direction,
-            createdAt: message.createdAt,
-            authorType: outbound ? (isManualOutbound ? "user" : "bot") : "user",
-            outboundStatusLabel: outbound ? "entregado" : null,
-            type: message.type,
-            mediaUrl: resolvedMediaUrl || message.mediaUrl,
-            rawPayload: message.rawPayload,
-          };
-        })),
+        messages: resolvedMessages,
       };
     }
   }
