@@ -1,6 +1,6 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
-import { PlayCircle, Shield } from "lucide-react";
+import { Shield } from "lucide-react";
+import { BusinessNameHeader } from "@/components/agents/business-name-header";
 import { auth } from "@/auth";
 import { AgentTrainingAutosaveForm } from "@/components/agents/agent-training-autosave-form";
 import { AgentPanelShell } from "@/components/agents/agent-panel-shell";
@@ -113,34 +113,19 @@ export default async function AgentTrainingPage({ params }: PageProps) {
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1.18fr)_minmax(340px,0.82fr)]">
           <Card className="border border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcfd_100%)] p-4 shadow-[0_20px_44px_-38px_rgba(15,23,42,0.18)] sm:p-5">
             <div className="space-y-5">
-              <div className="grid gap-4">
-                <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
-                  <label className="space-y-2">
-                    <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-slate-700">
-                      <span>Como se llama tu negocio</span>
-                      <TrainingHelpPopover
-                        title="Nombre del negocio"
-                        description="Este nombre se usara cuando el agente se presente y tambien para identificarlo dentro del negocio."
-                      />
-                    </span>
-                    <input
-                      name="businessName"
-                      defaultValue={agent.workspace.name}
-                      placeholder="Ej. Aizen Store"
-                      minLength={2}
-                      className="field-select h-11 rounded-[16px] border-[rgba(148,163,184,0.14)] bg-white text-[13px] shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_12px_22px_-28px_rgba(15,23,42,0.28)] focus:border-[var(--primary)]"
-                      required
-                    />
-                  </label>
-                  <Link
-                    href={`/cliente/agentes/${agent.id}/probar`}
-                    className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
-                  >
-                    <PlayCircle className="h-4 w-4" />
-                    Probar agente
-                  </Link>
-                </div>
-              </div>
+              <BusinessNameHeader
+                agentId={agent.id}
+                businessName={agent.workspace.name}
+                businessDescription={training.businessDescription}
+                location={training.location}
+                website={training.website}
+                contactPhone={training.contactPhone}
+                contactEmail={training.contactEmail}
+                instagram={training.instagram}
+                facebook={training.facebook}
+                tiktok={training.tiktok}
+                youtube={training.youtube}
+              />
 
               <div className="space-y-3.5">
                 <SectionHeader

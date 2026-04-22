@@ -70,6 +70,14 @@ export type AgentTrainingConfig = {
   targetAudiences: TargetAudience[];
   priceRangeMin: string;
   priceRangeMax: string;
+  location: string;
+  website: string;
+  contactPhone: string;
+  contactEmail: string;
+  instagram: string;
+  facebook: string;
+  tiktok: string;
+  youtube: string;
   salesTone: SalesTone;
   responseLength: ResponseLength;
   useEmojis: boolean;
@@ -105,6 +113,14 @@ export const defaultAgentTrainingConfig: AgentTrainingConfig = {
   targetAudiences: ["Mujer"],
   priceRangeMin: "",
   priceRangeMax: "",
+  location: "",
+  website: "",
+  contactPhone: "",
+  contactEmail: "",
+  instagram: "",
+  facebook: "",
+  tiktok: "",
+  youtube: "",
   salesTone: "amigable-profesional",
   responseLength: "equilibrado",
   useEmojis: false,
@@ -233,6 +249,17 @@ export function buildAgentSystemPrompt(input: {
     "Siempre busca mover la conversacion al siguiente paso util: aclarar, recomendar, cerrar o escalar.",
   ];
 
+  const contactLines = [
+    training.location && `Ubicacion: ${training.location}`,
+    training.website && `Sitio web: ${training.website}`,
+    training.contactPhone && `Telefono de contacto: ${training.contactPhone}`,
+    training.contactEmail && `Correo: ${training.contactEmail}`,
+    training.instagram && `Instagram: ${training.instagram}`,
+    training.facebook && `Facebook: ${training.facebook}`,
+    training.tiktok && `TikTok: ${training.tiktok}`,
+    training.youtube && `YouTube: ${training.youtube}`,
+  ].filter(Boolean) as string[];
+
   const businessRules = [
     `Solo vendes esto: ${training.businessDescription}`,
     `Tu cliente ideal es: ${training.targetAudiences.join(", ")}`,
@@ -297,7 +324,7 @@ export function buildAgentSystemPrompt(input: {
     `ROL\nEres ${agentName}, vendedor virtual por WhatsApp de ${businessName}. Actuas como una persona real del negocio y tu trabajo es vender con claridad, precision y criterio comercial.`,
     `OBJETIVO\nTu objetivo es entender lo que necesita el cliente, responder solo dentro de la realidad del negocio y llevar la conversacion hacia una venta real o al siguiente paso correcto.`,
     `REGLAS NO NEGOCIABLES\n- ${nonNegotiables.join("\n- ")}`,
-    `CONTEXTO DEL NEGOCIO\n- ${businessRules.join("\n- ")}`,
+    `CONTEXTO DEL NEGOCIO\n- ${businessRules.join("\n- ")}${contactLines.length ? `\n\nDATOS DE CONTACTO\n- ${contactLines.join("\n- ")}` : ""}`,
     `COMO HABLAS\n- ${voiceRules.join("\n- ")}`,
     `COMPORTAMIENTO DE VENTA\n- ${salesBehaviors.join("\n- ")}`,
     knowledgeSection,
@@ -392,11 +419,21 @@ export function parseAgentTrainingConfig(value: unknown): AgentTrainingConfig | 
     ? (data.responseLength as ResponseLength)
     : "equilibrado";
 
+  const str = (key: string) => typeof data[key] === "string" ? (data[key] as string) : "";
+
   return {
     businessDescription: data.businessDescription,
     targetAudiences,
-    priceRangeMin: typeof data.priceRangeMin === "string" ? data.priceRangeMin : "",
-    priceRangeMax: typeof data.priceRangeMax === "string" ? data.priceRangeMax : "",
+    priceRangeMin: str("priceRangeMin"),
+    priceRangeMax: str("priceRangeMax"),
+    location: str("location"),
+    website: str("website"),
+    contactPhone: str("contactPhone"),
+    contactEmail: str("contactEmail"),
+    instagram: str("instagram"),
+    facebook: str("facebook"),
+    tiktok: str("tiktok"),
+    youtube: str("youtube"),
     salesTone,
     responseLength,
     useEmojis: Boolean(data.useEmojis),

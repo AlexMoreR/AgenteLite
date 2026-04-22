@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { SendHorizonal, Sparkles } from "lucide-react";
+import { Bot, SendHorizonal, Sparkles } from "lucide-react";
 import type { ResponseLength, SalesTone, TargetAudience } from "@/lib/agent-training";
 import {
   applyAgentPromptCopilotChangesAction,
@@ -302,6 +302,64 @@ export function AgentPromptCopilot({
     });
   }
 
+  const isEmptyState = messages.length === 1 && messages[0]?.id === defaultWelcomeMessage.id;
+
+  const composerForm = (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        handleSend();
+      }}
+      className="flex items-center gap-3"
+    >
+      <textarea
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        rows={1}
+        placeholder="Pregunta lo que quieras"
+        className={`h-12 min-h-12 flex-1 resize-none border border-transparent px-4 py-[0.8rem] text-sm leading-5 outline-none transition placeholder:text-slate-500 focus:border-[color-mix(in_srgb,var(--primary)_18%,white)] ${
+          isEmptyState
+            ? "rounded-full bg-white text-slate-800 shadow-[0_2px_12px_rgba(15,23,42,0.08)] placeholder:text-slate-400 focus:border-[color-mix(in_srgb,var(--primary)_30%,white)]"
+            : "rounded-full bg-[#eef1f5] text-slate-800 focus:bg-white"
+        }`}
+        disabled={isSending || isApplying}
+      />
+      <button
+        type="submit"
+        disabled={isSending || isApplying || !draft.trim()}
+        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--primary)] text-white transition hover:bg-[var(--primary-strong)]"
+        aria-label="Enviar instruccion al copiloto"
+      >
+        <SendHorizonal className="h-4 w-4" />
+      </button>
+    </form>
+  );
+
+  if (isEmptyState) {
+    return (
+      <div className="chat-app-layout flex h-full min-h-0 flex-col overflow-hidden rounded-[22px] border border-[color-mix(in_srgb,var(--primary)_20%,white)] bg-[linear-gradient(160deg,color-mix(in_srgb,var(--primary)_8%,white)_0%,white_60%)] p-0 shadow-[inset_0_1px_0_rgba(255,255,255,0.98),0_0_0_1px_rgba(226,232,240,0.92),0_4px_10px_rgba(15,23,42,0.06),0_18px_38px_-18px_rgba(15,23,42,0.16)]">
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-6 px-6 pb-8">
+          <style>{`@keyframes copilot-float{0%,100%{transform:translateY(0);}50%{transform:translateY(-8px);}}`}</style>
+          <div
+            className="flex h-16 w-16 items-center justify-center rounded-2xl bg-[var(--primary)] shadow-[0_16px_40px_-16px_color-mix(in_srgb,var(--primary)_60%,black)]"
+            style={{ animation: "copilot-float 3s ease-in-out infinite" }}
+          >
+            <Bot className="h-8 w-8 text-white" />
+          </div>
+
+          <div className="space-y-1 text-center">
+            <h2 className="text-xl font-semibold text-slate-900">¿En qué piensas hoy?</h2>
+            <p className="text-sm text-slate-400">Dime qué quieres mejorar en tu agente</p>
+          </div>
+
+          <div className="w-full max-w-md">
+            {composerForm}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="chat-app-layout flex h-full min-h-0 flex-col overflow-hidden rounded-[22px] border border-[rgba(203,213,225,0.88)] bg-white p-0 shadow-[inset_0_1px_0_rgba(255,255,255,0.98),inset_0_0_0_1px_rgba(255,255,255,0.55),0_0_0_1px_rgba(226,232,240,0.92),0_4px_10px_rgba(15,23,42,0.06),0_18px_38px_-18px_rgba(15,23,42,0.16)]">
       <div className="flex min-h-0 flex-1 flex-col">
@@ -376,31 +434,7 @@ export function AgentPromptCopilot({
           {feedback ? (
             <div className="mb-3 rounded-[18px] bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{feedback}</div>
           ) : null}
-
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              handleSend();
-            }}
-            className="flex items-center gap-3"
-          >
-            <textarea
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              rows={1}
-              placeholder="Ej. Haz que el agente hable mas formal, quite emojis y agregue una regla para no prometer tiempos de entrega."
-              className="h-12 min-h-12 flex-1 resize-none rounded-full border border-transparent bg-[#eef1f5] px-4 py-[0.8rem] text-sm leading-5 text-slate-800 outline-none transition placeholder:text-slate-500 focus:border-[color-mix(in_srgb,var(--primary)_18%,white)] focus:bg-white"
-              disabled={isSending || isApplying}
-            />
-            <button
-              type="submit"
-              disabled={isSending || isApplying || !draft.trim()}
-              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--primary)] text-white transition hover:bg-[var(--primary-strong)] disabled:bg-[color-mix(in_srgb,var(--primary)_40%,white)] disabled:text-white/90"
-              aria-label="Enviar instruccion al copiloto"
-            >
-              <SendHorizonal className="h-4 w-4" />
-            </button>
-          </form>
+          {composerForm}
         </div>
       </div>
     </div>

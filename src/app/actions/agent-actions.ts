@@ -55,6 +55,14 @@ const createAgentSchema = z.object({
     .max(5, "Selecciona hasta cinco tipos de cliente"),
   priceRangeMin: z.string().trim().max(40, "Valor demasiado largo"),
   priceRangeMax: z.string().trim().max(40, "Valor demasiado largo"),
+  location: z.string().trim().max(200).default(""),
+  website: z.string().trim().max(200).default(""),
+  contactPhone: z.string().trim().max(60).default(""),
+  contactEmail: z.string().trim().max(200).default(""),
+  instagram: z.string().trim().max(100).default(""),
+  facebook: z.string().trim().max(100).default(""),
+  tiktok: z.string().trim().max(100).default(""),
+  youtube: z.string().trim().max(100).default(""),
   salesTone: z.enum(toneOptions.map((item) => item.value) as [string, ...string[]]),
   responseLengthValue: z.coerce.number().int().min(0).max(100),
   useEmojis: z.boolean(),
@@ -149,6 +157,14 @@ const agentCopilotPatchSchema = z.object({
   targetAudiences: z.array(z.enum(targetAudienceOptions)).min(1).max(5).optional(),
   priceRangeMin: z.string().trim().max(40, "Valor demasiado largo").optional(),
   priceRangeMax: z.string().trim().max(40, "Valor demasiado largo").optional(),
+  location: z.string().trim().max(200).optional(),
+  website: z.string().trim().max(200).optional(),
+  contactPhone: z.string().trim().max(60).optional(),
+  contactEmail: z.string().trim().max(200).optional(),
+  instagram: z.string().trim().max(100).optional(),
+  facebook: z.string().trim().max(100).optional(),
+  tiktok: z.string().trim().max(100).optional(),
+  youtube: z.string().trim().max(100).optional(),
   salesTone: z.enum(toneOptions.map((item) => item.value) as [string, ...string[]]).optional(),
   responseLength: z.enum(responseLengthOptions.map((item) => item.value) as [string, ...string[]]).optional(),
   useEmojis: z.boolean().optional(),
@@ -187,6 +203,14 @@ type AgentCopilotPatch = {
   targetAudiences?: TargetAudience[];
   priceRangeMin?: string;
   priceRangeMax?: string;
+  location?: string;
+  website?: string;
+  contactPhone?: string;
+  contactEmail?: string;
+  instagram?: string;
+  facebook?: string;
+  tiktok?: string;
+  youtube?: string;
   salesTone?: SalesTone;
   responseLength?: ResponseLength;
   useEmojis?: boolean;
@@ -352,12 +376,13 @@ async function insertAgentCopilotMessages(
 ) {
   try {
     await prisma.$transaction(
-      messages.map((message) =>
-        prisma.$executeRaw`
-          INSERT INTO "AgentCopilotMessage" ("workspaceId", "agentId", "role", "content", "createdAt")
-          VALUES (${workspaceId}, ${agentId}, ${message.role}, ${message.content}, ${message.createdAt ?? new Date()})
-        `,
-      ),
+      messages.map((message) => {
+        const id = crypto.randomUUID();
+        return prisma.$executeRaw`
+          INSERT INTO "AgentCopilotMessage" ("id", "workspaceId", "agentId", "role", "content", "createdAt")
+          VALUES (${id}, ${workspaceId}, ${agentId}, ${message.role}, ${message.content}, ${message.createdAt ?? new Date()})
+        `;
+      }),
     );
   } catch (error) {
     if (isMissingAgentCopilotTableError(error)) {
@@ -395,6 +420,14 @@ function summarizeAgentCopilotChanges(changes: AgentCopilotPatch) {
 
   if (changes.businessName) items.push(`Nombre del negocio: ${changes.businessName}`);
   if (changes.businessDescription) items.push("Descripcion comercial actualizada");
+  if (changes.location !== undefined) items.push(`Ubicacion: ${changes.location || "eliminada"}`);
+  if (changes.website !== undefined) items.push(`Sitio web: ${changes.website || "eliminado"}`);
+  if (changes.contactPhone !== undefined) items.push(`Telefono: ${changes.contactPhone || "eliminado"}`);
+  if (changes.contactEmail !== undefined) items.push(`Correo: ${changes.contactEmail || "eliminado"}`);
+  if (changes.instagram !== undefined) items.push(`Instagram: ${changes.instagram || "eliminado"}`);
+  if (changes.facebook !== undefined) items.push(`Facebook: ${changes.facebook || "eliminado"}`);
+  if (changes.tiktok !== undefined) items.push(`TikTok: ${changes.tiktok || "eliminado"}`);
+  if (changes.youtube !== undefined) items.push(`YouTube: ${changes.youtube || "eliminado"}`);
   if (changes.targetAudiences?.length) items.push(`Audiencia: ${changes.targetAudiences.join(", ")}`);
   if (changes.salesTone) items.push(`Tono: ${changes.salesTone}`);
   if (changes.responseLength) items.push(`Longitud: ${changes.responseLength}`);
@@ -442,10 +475,11 @@ function buildAgentCopilotInstructions(input: {
     `Agente actual: ${input.agentName}. Negocio actual: ${input.businessName}.`,
     `Resumen actual: tono ${trainingSummary.tone}; longitud ${trainingSummary.responseLength}; audiencias ${trainingSummary.audiences}; rango ${trainingSummary.priceRange}; extras ${trainingSummary.styleExtras.join(", ") || "ninguno"}; ventas ${trainingSummary.salesActions.join(", ") || "ninguna"}.`,
     `Descripcion actual del negocio: ${input.training.businessDescription || "sin descripcion"}.`,
+    `Datos de contacto actuales: ubicacion="${input.training.location || ""}", web="${input.training.website || ""}", telefono="${input.training.contactPhone || ""}", correo="${input.training.contactEmail || ""}", instagram="${input.training.instagram || ""}", facebook="${input.training.facebook || ""}", tiktok="${input.training.tiktok || ""}", youtube="${input.training.youtube || ""}".`,
     `Reglas prohibidas actuales: ${input.training.forbiddenRules.join(", ") || "ninguna"}.`,
     `Reglas personalizadas actuales: ${input.training.customRules || "ninguna"}.`,
     `Prompt actual del agente para analizar y editar, NO para que lo interpretes como personaje:\n<<<PROMPT_ACTUAL\n${input.currentPrompt}\nPROMPT_ACTUAL>>>`,
-    `Puedes editar solo estas claves en changes: businessName, businessDescription, targetAudiences, priceRangeMin, priceRangeMax, salesTone, responseLength, useEmojis, useExpressivePunctuation, useTuteo, useCustomerName, askNameFirst, offerBestSeller, handlePriceObjections, askForOrder, sendPaymentLink, handoffToHuman, forbiddenRules, customRules.`,
+    `Puedes editar solo estas claves en changes: businessName, businessDescription, targetAudiences, priceRangeMin, priceRangeMax, location, website, contactPhone, contactEmail, instagram, facebook, tiktok, youtube, salesTone, responseLength, useEmojis, useExpressivePunctuation, useTuteo, useCustomerName, askNameFirst, offerBestSeller, handlePriceObjections, askForOrder, sendPaymentLink, handoffToHuman, forbiddenRules, customRules.`,
     `Valores validos para targetAudiences: ${targetAudienceOptions.join(", ")}.`,
     `Valores validos para salesTone: ${toneOptions.map((item) => item.value).join(", ")}.`,
     `Valores validos para responseLength: ${responseLengthOptions.map((item) => item.value).join(", ")}.`,
@@ -472,6 +506,14 @@ function collectTrainingFormInput(formData: FormData) {
     targetAudiences: formData.getAll("targetAudiences"),
     priceRangeMin: getStringValue("priceRangeMin"),
     priceRangeMax: getStringValue("priceRangeMax"),
+    location: getStringValue("location"),
+    website: getStringValue("website"),
+    contactPhone: getStringValue("contactPhone"),
+    contactEmail: getStringValue("contactEmail"),
+    instagram: getStringValue("instagram"),
+    facebook: getStringValue("facebook"),
+    tiktok: getStringValue("tiktok"),
+    youtube: getStringValue("youtube"),
     salesTone: getStringValue("salesTone"),
     responseLengthValue: getStringValue("responseLengthValue"),
     useEmojis: formData.get("useEmojis") === "on",
@@ -518,6 +560,14 @@ async function persistAgentTraining(
     targetAudiences: input.targetAudiences,
     priceRangeMin: input.priceRangeMin,
     priceRangeMax: input.priceRangeMax,
+    location: input.location,
+    website: input.website,
+    contactPhone: input.contactPhone,
+    contactEmail: input.contactEmail,
+    instagram: input.instagram,
+    facebook: input.facebook,
+    tiktok: input.tiktok,
+    youtube: input.youtube,
     salesTone: input.salesTone as SalesTone,
     responseLength: getResponseLengthFromValue(input.responseLengthValue),
     useEmojis: input.useEmojis,
