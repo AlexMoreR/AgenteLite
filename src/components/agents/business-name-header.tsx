@@ -93,7 +93,6 @@ function BusinessModal({ data, onSave, onClose }: {
 
     startSavingTransition(async () => {
       const result = await saveAgentBusinessProfileAction({
-        agentId: data.agentId,
         ...nextData,
       });
 

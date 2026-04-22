@@ -37,7 +37,7 @@ export default async function ClienteAgenteProbarPage({ params }: PageProps) {
   }
 
   return (
-    <AgentPanelShell agentId={agent.id} hideMobileNav>
+    <AgentPanelShell agentId={agent.id}>
       <AgentPlayground agentId={agent.id} agentName={agent.name} />
     </AgentPanelShell>
   );
