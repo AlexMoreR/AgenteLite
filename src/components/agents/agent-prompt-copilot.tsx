@@ -25,6 +25,8 @@ type AgentCopilotPatch = {
   useTuteo?: boolean;
   useCustomerName?: boolean;
   askNameFirst?: boolean;
+  greetNewCustomers?: boolean;
+  customWelcomeMessage?: string;
   offerBestSeller?: boolean;
   handlePriceObjections?: boolean;
   askForOrder?: boolean;

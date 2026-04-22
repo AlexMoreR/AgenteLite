@@ -7,9 +7,11 @@ import { AgentPanelShell } from "@/components/agents/agent-panel-shell";
 import { TrainingSalesToneField } from "@/components/agents/training-sales-tone-field";
 import { TrainingHelpPopover } from "@/components/agents/training-help-popover";
 import { TrainingResponseLengthField } from "@/components/agents/training-response-length-field";
+import { NewCustomerWelcomeField } from "@/components/agents/new-customer-welcome-field";
 import { Card } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import {
+  buildDefaultNewCustomerWelcomeMessage,
   defaultAgentTrainingConfig,
   forbiddenRuleOptions,
   parseAgentTrainingConfig,
@@ -131,6 +133,12 @@ export default async function AgentTrainingPage({ params }: PageProps) {
               />
 
               <div className="space-y-3.5">
+                <NewCustomerWelcomeField
+                  businessName={agent.workspace.name}
+                  defaultChecked={training.greetNewCustomers}
+                  defaultMessage={training.customWelcomeMessage || buildDefaultNewCustomerWelcomeMessage(agent.workspace.name)}
+                />
+
                 <SectionHeader
                   title="Contexto"
                   helpText="Aqui va la explicacion comercial que el agente usara para vender por WhatsApp. Es distinta al resumen general del negocio."
@@ -148,9 +156,6 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                     className="flex min-h-[138px] w-full rounded-[20px] border border-[rgba(148,163,184,0.14)] bg-white px-3.5 py-3 text-[13px] leading-6 text-slate-800 shadow-[0_18px_32px_-34px_rgba(15,23,42,0.18)] outline-none transition placeholder:text-slate-400 focus:border-[var(--primary)]"
                     required
                   />
-                  <p className="text-[12px] leading-5 text-slate-500">
-                    Este texto alimenta el prompt comercial del agente. El resumen del negocio se edita arriba, en el encabezado.
-                  </p>
                 </label>
 
                 <fieldset className="space-y-2.5">

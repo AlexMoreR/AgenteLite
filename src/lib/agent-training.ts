@@ -85,6 +85,8 @@ export type AgentTrainingConfig = {
   useTuteo: boolean;
   useCustomerName: boolean;
   askNameFirst: boolean;
+  greetNewCustomers: boolean;
+  customWelcomeMessage: string;
   offerBestSeller: boolean;
   handlePriceObjections: boolean;
   askForOrder: boolean;
@@ -128,6 +130,8 @@ export const defaultAgentTrainingConfig: AgentTrainingConfig = {
   useTuteo: true,
   useCustomerName: true,
   askNameFirst: true,
+  greetNewCustomers: false,
+  customWelcomeMessage: "",
   offerBestSeller: true,
   handlePriceObjections: true,
   askForOrder: true,
@@ -183,9 +187,27 @@ export function buildAgentTrainingConfig(input: AgentTrainingConfig): AgentTrain
     ...input,
     targetAudiences: input.targetAudiences.filter((value, index, array) => array.indexOf(value) === index),
     forbiddenRules: input.forbiddenRules.filter(Boolean),
+    customWelcomeMessage: input.customWelcomeMessage.trim(),
     customRules: input.customRules.trim(),
     knowledgeFlowIds: input.knowledgeFlowIds.filter((value, index, array) => Boolean(value) && array.indexOf(value) === index),
   };
+}
+
+export function buildDefaultNewCustomerWelcomeMessage(businessName: string) {
+  const normalizedBusinessName = businessName.trim() || "[nombre del negocio]";
+  return `Bienvenido/a a *${normalizedBusinessName}*\n\nQue te podemos ayudar el dia de hoy?`;
+}
+
+function resolveWelcomeMessageTemplate(message: string, businessName: string) {
+  const normalizedBusinessName = businessName.trim();
+  if (!normalizedBusinessName) {
+    return message.trim();
+  }
+
+  return message
+    .replace(/\[nombre del negocio\]/gi, normalizedBusinessName)
+    .replace(/\{nombre del negocio\}/gi, normalizedBusinessName)
+    .trim();
 }
 
 export function buildAgentSystemPrompt(input: {
@@ -215,6 +237,9 @@ export function buildAgentSystemPrompt(input: {
     training.askNameFirst
       ? "Si aun no sabes el nombre del cliente, tu primera respuesta debe presentarte y pedir su nombre antes de seguir vendiendo."
       : "No pidas el nombre al inicio si no hace falta para avanzar.",
+    training.greetNewCustomers
+      ? `Cuando inicies con un cliente nuevo, usa este saludo base: "${resolveWelcomeMessageTemplate(training.customWelcomeMessage || buildDefaultNewCustomerWelcomeMessage(businessName), businessName)}".`
+      : "No uses un saludo fijo para todos los clientes nuevos; adapta la apertura segun el contexto.",
     training.offerBestSeller
       ? "Si el cliente duda o pide recomendacion, sugiere de forma proactiva la opcion mas vendida o mas conveniente."
       : "No empujes recomendaciones proactivas si el cliente no las necesita.",
@@ -342,6 +367,13 @@ export function buildWelcomeMessage(input: {
   training: AgentTrainingConfig;
 }) {
   const { agentName, businessName, training } = input;
+  if (training.greetNewCustomers) {
+    return resolveWelcomeMessageTemplate(
+      training.customWelcomeMessage || buildDefaultNewCustomerWelcomeMessage(businessName),
+      businessName,
+    );
+  }
+
   const greetingPrefix = training.useEmojis ? "Hola! " : "Hola, ";
 
   if (training.askNameFirst) {
@@ -380,6 +412,7 @@ export function summarizeTraining(training: AgentTrainingConfig) {
       training.useExpressivePunctuation ? "Signos expresivos" : null,
       training.useTuteo ? "Tuteo" : null,
       training.useCustomerName ? "Usa el nombre" : null,
+      training.greetNewCustomers ? "Saludo inicial activo" : null,
     ].filter(Boolean) as string[],
     salesActions: [
       training.askNameFirst ? "Pide el nombre al inicio" : null,
@@ -441,6 +474,8 @@ export function parseAgentTrainingConfig(value: unknown): AgentTrainingConfig | 
     useTuteo: Boolean(data.useTuteo),
     useCustomerName: Boolean(data.useCustomerName),
     askNameFirst: Boolean(data.askNameFirst),
+    greetNewCustomers: Boolean(data.greetNewCustomers),
+    customWelcomeMessage: typeof data.customWelcomeMessage === "string" ? data.customWelcomeMessage : "",
     offerBestSeller: Boolean(data.offerBestSeller),
     handlePriceObjections: Boolean(data.handlePriceObjections),
     askForOrder: Boolean(data.askForOrder),
