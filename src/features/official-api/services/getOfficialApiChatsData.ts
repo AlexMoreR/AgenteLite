@@ -6,6 +6,47 @@ function normalizeSearch(value: string | undefined) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+type OfficialMessageType = "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT" | "TEMPLATE" | "INTERACTIVE" | "SYSTEM";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function readNestedRecord(value: unknown, key: string) {
+  if (!isRecord(value)) return null;
+  const nested = value[key];
+  return isRecord(nested) ? nested : null;
+}
+
+function inferOfficialApiMessageType(rawPayload: unknown, mediaUrl: string | null, content: string | null): OfficialMessageType {
+  const root = readNestedRecord(rawPayload, "evolution") ?? (isRecord(rawPayload) ? rawPayload : null);
+  const data = readNestedRecord(root, "data");
+  const message = readNestedRecord(data, "message") ?? readNestedRecord(root, "message");
+
+  if (message) {
+    if (readNestedRecord(message, "audioMessage")) return "AUDIO";
+    if (readNestedRecord(message, "imageMessage")) return "IMAGE";
+    if (readNestedRecord(message, "videoMessage")) return "VIDEO";
+    if (readNestedRecord(message, "documentMessage")) return "DOCUMENT";
+    if (readNestedRecord(message, "templateMessage")) return "TEMPLATE";
+    if (readNestedRecord(message, "interactiveMessage")) return "INTERACTIVE";
+  }
+
+  if (mediaUrl) {
+    const normalized = mediaUrl.toLowerCase();
+    if (/\.(ogg|oga|mp3|wav|m4a|aac|opus|webm)(\?|$)/.test(normalized)) return "AUDIO";
+    if (/\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?|$)/.test(normalized)) return "IMAGE";
+    if (/\.(mp4|mov|avi|mkv|webm)(\?|$)/.test(normalized)) return "VIDEO";
+    return "DOCUMENT";
+  }
+
+  if (content?.trim()) {
+    return "TEXT";
+  }
+
+  return "TEXT";
+}
+
 export async function getOfficialApiChatsData(input: {
   workspaceId: string;
   conversationId?: string;
@@ -37,7 +78,8 @@ export async function getOfficialApiChatsData(input: {
     lastMessageDirection: "INBOUND" | "OUTBOUND" | null;
     lastMessageCreatedAt: Date | null;
     lastMessageStatus: "RECEIVED" | "SENT" | "DELIVERED" | "READ" | "FAILED" | null;
-    lastMessageType: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT" | "TEMPLATE" | "INTERACTIVE" | "SYSTEM" | null;
+    lastMessageMediaUrl: string | null;
+    lastMessageRawPayload: unknown;
   }>>`
     SELECT
       c."id",
@@ -50,7 +92,8 @@ export async function getOfficialApiChatsData(input: {
       lm."direction"::text AS "lastMessageDirection",
       lm."createdAt" AS "lastMessageCreatedAt",
       lm."status"::text AS "lastMessageStatus",
-      lm."type"::text AS "lastMessageType"
+      lm."mediaUrl" AS "lastMessageMediaUrl",
+      lm."rawPayload" AS "lastMessageRawPayload"
     FROM "OfficialApiConversation" c
     INNER JOIN "OfficialApiContact" ct
       ON ct."id" = c."contactId"
@@ -60,7 +103,9 @@ export async function getOfficialApiChatsData(input: {
         m."content",
         m."direction",
         m."createdAt",
-        m."status"
+        m."status",
+        m."mediaUrl",
+        m."rawPayload"
       FROM "OfficialApiMessage" m
       WHERE m."conversationId" = c."id"
       ORDER BY m."createdAt" DESC
@@ -97,7 +142,7 @@ export async function getOfficialApiChatsData(input: {
           direction: row.lastMessageDirection,
           createdAt: new Date(row.lastMessageCreatedAt),
           status: row.lastMessageStatus,
-          type: row.lastMessageType || "TEXT",
+          type: inferOfficialApiMessageType(row.lastMessageRawPayload, row.lastMessageMediaUrl, row.lastMessageContent),
         }
       : null,
   }));
@@ -117,7 +162,6 @@ export async function getOfficialApiChatsData(input: {
           messageDirection: "INBOUND" | "OUTBOUND" | null;
           messageCreatedAt: Date | null;
           messageStatus: "RECEIVED" | "SENT" | "DELIVERED" | "READ" | "FAILED" | null;
-          messageType: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT" | "TEMPLATE" | "INTERACTIVE" | "SYSTEM" | null;
           messageMediaUrl: string | null;
           messageRawPayload: unknown;
         }>>`
@@ -132,7 +176,6 @@ export async function getOfficialApiChatsData(input: {
             m."direction"::text AS "messageDirection",
             m."createdAt" AS "messageCreatedAt",
             m."status"::text AS "messageStatus",
-            m."type"::text AS "messageType",
             m."mediaUrl" AS "messageMediaUrl",
             m."rawPayload" AS "messageRawPayload"
           FROM "OfficialApiConversation" c
@@ -166,7 +209,7 @@ export async function getOfficialApiChatsData(input: {
               direction: row.messageDirection!,
               createdAt: new Date(row.messageCreatedAt!),
               status: row.messageStatus!,
-              type: row.messageType || "TEXT",
+              type: inferOfficialApiMessageType(row.messageRawPayload, row.messageMediaUrl, row.messageContent),
               mediaUrl: row.messageMediaUrl,
               rawPayload: row.messageRawPayload,
             })),

@@ -527,7 +527,7 @@ export function SharedInbox({
 
             <div className="flex min-h-0 flex-1 flex-col bg-[#f3f4f6]">
               <div
-                className="chat-messages-scroll min-h-0 flex-1 overflow-y-auto px-2.5 py-2.5 pb-24 md:px-5 md:py-5 md:pb-5"
+                className="chat-messages-scroll min-h-0 flex-1 overflow-y-auto px-2.5 py-2.5 pb-[calc(env(safe-area-inset-bottom)+7.25rem)] md:px-5 md:py-5 md:pb-5"
                 style={{
                   backgroundColor: "#f3f4f6",
                   backgroundImage:
@@ -700,8 +700,8 @@ export function SharedInbox({
               </div>
 
               {composer ? (
-                <div className="chat-composer sticky bottom-0 z-10 shrink-0 border-t border-[rgba(148,163,184,0.12)] bg-white px-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 md:static md:px-2 md:py-2">
-                  <form action={composer.action}>
+                <div className="chat-composer fixed inset-x-0 bottom-0 z-20 shrink-0 border-t border-[rgba(148,163,184,0.12)] bg-white px-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 shadow-[0_-12px_28px_-24px_rgba(15,23,42,0.2)] md:static md:border-t md:px-2 md:py-2 md:shadow-none">
+                  <form action={composer.action} className="mx-auto w-full max-w-5xl">
                     {composer.hiddenFields.map((field) => (
                       <input key={`${field.name}-${field.value}`} type="hidden" name={field.name} value={field.value} />
                     ))}

@@ -294,6 +294,7 @@ export function AppShell({
             <header
               className={cn(
                 "admin-print-header flex h-12 shrink-0 items-center border-b border-[var(--line)] bg-white",
+                isChatWorkspacePath && "hidden md:flex",
                 isFinanzasAssistantPath && "hidden md:flex",
               )}
             >
