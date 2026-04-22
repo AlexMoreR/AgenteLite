@@ -1,6 +1,7 @@
 "use client";
 
 import { type ReactNode, useActionState, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import {
   autosaveAgentTrainingAction,
   type AgentTrainingAutosaveState,
@@ -17,6 +18,7 @@ export function AgentTrainingAutosaveForm({
   className,
   children,
 }: AgentTrainingAutosaveFormProps) {
+  const router = useRouter();
   const initialState: AgentTrainingAutosaveState = {
     ok: true,
     message: "",
@@ -48,10 +50,6 @@ export function AgentTrainingAutosaveForm({
       return;
     }
 
-    if (!form.checkValidity()) {
-      return;
-    }
-
     form.requestSubmit();
   };
 
@@ -77,19 +75,24 @@ export function AgentTrainingAutosaveForm({
         return;
       }
 
-      if (form.checkValidity()) {
-        form.requestSubmit();
-      }
+      form.requestSubmit();
     }, 220);
   }, [pending]);
 
   useEffect(() => () => clearAutosaveTimer(), []);
+
+  useEffect(() => {
+    if (state.ok && state.savedAt) {
+      router.refresh();
+    }
+  }, [router, state.ok, state.savedAt]);
 
   return (
     <form
       ref={formRef}
       action={formAction}
       className={className}
+      noValidate
       onInputCapture={() => scheduleAutosave()}
       onChangeCapture={() => scheduleAutosave()}
       onClickCapture={(event) => {
@@ -101,11 +104,32 @@ export function AgentTrainingAutosaveForm({
           scheduleAutosave(120);
         }
       }}
-    >
-      <input type="hidden" name="agentId" value={agentId} />
-      <div
-        className="sr-only"
-        aria-live="polite"
+      >
+        <input type="hidden" name="agentId" value={agentId} />
+        <div
+          className={`flex min-h-10 items-center justify-between rounded-[16px] border px-3.5 py-2 text-[12px] ${
+            pending
+              ? "border-[color-mix(in_srgb,var(--primary)_24%,white)] bg-[color-mix(in_srgb,var(--primary)_8%,white)] text-[var(--primary)]"
+              : state.ok && state.savedAt
+                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                : state.message
+                  ? "border-rose-200 bg-rose-50 text-rose-700"
+                  : "border-[rgba(148,163,184,0.14)] bg-white text-slate-500"
+          }`}
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          <span>
+            {pending
+              ? "Guardando entrenamiento..."
+              : state.ok && state.savedAt
+                ? "Entrenamiento guardado."
+                : state.message || "Los cambios se guardan automaticamente y tambien puedes usar el boton Guardar entrenamiento."}
+          </span>
+        </div>
+        <div
+          className="sr-only"
+          aria-live="polite"
         aria-atomic="true"
       >
         {pending

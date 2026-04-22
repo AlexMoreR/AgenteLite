@@ -1,9 +1,10 @@
 import { redirect } from "next/navigation";
 import { Shield } from "lucide-react";
 import { BusinessNameHeader } from "@/components/agents/business-name-header";
-import { auth } from "@/auth";
 import { AgentTrainingAutosaveForm } from "@/components/agents/agent-training-autosave-form";
+import { auth } from "@/auth";
 import { AgentPanelShell } from "@/components/agents/agent-panel-shell";
+import { TrainingSalesToneField } from "@/components/agents/training-sales-tone-field";
 import { TrainingHelpPopover } from "@/components/agents/training-help-popover";
 import { TrainingResponseLengthField } from "@/components/agents/training-response-length-field";
 import { Card } from "@/components/ui/card";
@@ -13,7 +14,6 @@ import {
   forbiddenRuleOptions,
   parseAgentTrainingConfig,
   targetAudienceOptions,
-  toneOptions,
 } from "@/lib/agent-training";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
@@ -92,6 +92,7 @@ export default async function AgentTrainingPage({ params }: PageProps) {
     select: {
       id: true,
       name: true,
+      description: true,
       trainingConfig: true,
       workspace: {
         select: {
@@ -110,13 +111,15 @@ export default async function AgentTrainingPage({ params }: PageProps) {
   return (
     <AgentPanelShell agentId={agent.id}>
       <AgentTrainingAutosaveForm agentId={agent.id} className="space-y-4">
+        <input type="hidden" name="agentId" value={agent.id} />
+        <input type="hidden" name="postCreateAction" value="probar" />
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1.18fr)_minmax(340px,0.82fr)]">
           <Card className="border border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcfd_100%)] p-4 shadow-[0_20px_44px_-38px_rgba(15,23,42,0.18)] sm:p-5">
             <div className="space-y-5">
               <BusinessNameHeader
                 agentId={agent.id}
                 businessName={agent.workspace.name}
-                businessDescription={training.businessDescription}
+                businessSummary={agent.description ?? training.businessDescription}
                 location={training.location}
                 website={training.website}
                 contactPhone={training.contactPhone}
@@ -130,7 +133,7 @@ export default async function AgentTrainingPage({ params }: PageProps) {
               <div className="space-y-3.5">
                 <SectionHeader
                   title="Contexto"
-                  helpText="Describe tus productos o servicios con palabras simples. Mientras mas claro seas, mejor respondera el agente."
+                  helpText="Aqui va la explicacion comercial que el agente usara para vender por WhatsApp. Es distinta al resumen general del negocio."
                 />
                 <label className="space-y-2">
                   <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-slate-700">
@@ -140,11 +143,14 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                     name="businessDescription"
                     rows={4}
                     defaultValue={training.businessDescription}
-                    placeholder="Escribe aqui una explicacion simple de lo que vendes, para quien es y que te diferencia."
+                    placeholder="Escribe como se lo explicarias a un cliente por WhatsApp: que vendes, para quien y por que deberia interesarle."
                     minLength={12}
                     className="flex min-h-[138px] w-full rounded-[20px] border border-[rgba(148,163,184,0.14)] bg-white px-3.5 py-3 text-[13px] leading-6 text-slate-800 shadow-[0_18px_32px_-34px_rgba(15,23,42,0.18)] outline-none transition placeholder:text-slate-400 focus:border-[var(--primary)]"
                     required
                   />
+                  <p className="text-[12px] leading-5 text-slate-500">
+                    Este texto alimenta el prompt comercial del agente. El resumen del negocio se edita arriba, en el encabezado.
+                  </p>
                 </label>
 
                 <fieldset className="space-y-2.5">
@@ -174,29 +180,10 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                   </div>
                 </fieldset>
 
-                <div className="rounded-[18px] border border-[color-mix(in_srgb,var(--primary)_12%,white)] bg-[color-mix(in_srgb,var(--primary)_5%,white)] px-3.5 py-3">
-                  <SectionHeader
-                    title="Personalidad"
-                    helpText="Aqui eliges la personalidad del agente al responder: mas formal, mas cercano o mas entusiasta."
-                  />
-                  <div className="mt-3 grid gap-2 md:grid-cols-3">
-                    {toneOptions.map((option) => (
-                      <label key={option.value} className="cursor-pointer">
-                        <input
-                          type="radio"
-                          name="salesTone"
-                          value={option.value}
-                          defaultChecked={training.salesTone === option.value}
-                          className="peer sr-only"
-                        />
-                        <span className="flex min-h-[74px] flex-col justify-between rounded-[16px] border border-[rgba(148,163,184,0.16)] bg-white px-3 py-2.5 transition duration-200 hover:border-[color-mix(in_srgb,var(--primary)_34%,white)] peer-checked:border-[color-mix(in_srgb,var(--primary)_88%,white)] peer-checked:bg-[color-mix(in_srgb,var(--primary)_8%,white)] peer-checked:shadow-[0_0_0_1px_color-mix(in_srgb,var(--primary)_24%,white),0_16px_28px_-28px_color-mix(in_srgb,var(--primary)_88%,black)]">
-                          <span className="text-[13px] font-semibold leading-5 text-slate-900">{option.label}</span>
-                          <span className="text-[11px] leading-4.5 text-slate-500">{option.prompt}</span>
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
+                <TrainingSalesToneField
+                  defaultValue={training.salesTone}
+                  helpText="Aqui eliges la personalidad del agente al responder: mas formal, mas cercano o mas entusiasta."
+                />
               </div>
 
               <div className="rounded-[22px] border border-[rgba(148,163,184,0.12)] bg-[linear-gradient(180deg,#ffffff_0%,#fafbfc_100%)] p-4">
@@ -312,6 +299,14 @@ export default async function AgentTrainingPage({ params }: PageProps) {
               </div>
             </Card>
           </div>
+        </div>
+        <div className="flex justify-end">
+          <button
+            type="submit"
+            className="inline-flex h-11 items-center justify-center rounded-[16px] bg-[var(--primary)] px-5 text-[13px] font-semibold text-white shadow-[0_18px_32px_-20px_color-mix(in_srgb,var(--primary)_58%,black)] transition hover:bg-[var(--primary-strong)]"
+          >
+            Guardar entrenamiento
+          </button>
         </div>
       </AgentTrainingAutosaveForm>
     </AgentPanelShell>

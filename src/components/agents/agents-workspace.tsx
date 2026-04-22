@@ -461,10 +461,28 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
 
                               <label className="block space-y-2.5">
                                 <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-950">
+                                  <span>Resumen del negocio</span>
+                                  <TrainingHelpPopover
+                                    title="Resumen del negocio"
+                                    description="Es una descripcion general del negocio. Sirve para identificarlo internamente y no reemplaza la forma comercial en que vendes por WhatsApp."
+                                  />
+                                </span>
+                              <div className="overflow-hidden rounded-[28px] border border-white bg-white px-5 py-3 shadow-[0_20px_42px_-34px_rgba(15,23,42,0.14)] transition focus-within:border-[var(--primary)] focus-within:ring-4 focus-within:ring-[color-mix(in_srgb,var(--primary)_12%,white)]">
+                                <textarea
+                                  name="businessSummary"
+                                  rows={3}
+                                  className="flex min-h-[56px] w-full resize-none bg-white py-1 text-[15px] leading-7 text-slate-800 outline-none placeholder:text-slate-400"
+                                  placeholder="Ej. Marca de ropa deportiva femenina enfocada en comodidad, estilo y venta directa por WhatsApp."
+                                />
+                              </div>
+                              </label>
+
+                              <label className="block space-y-2.5">
+                                <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-950">
                                   <span>Que vendes</span>
                                   <TrainingHelpPopover
                                     title="Que vendes"
-                                    description="Describe tus productos o servicios con palabras simples. Mientras mas claro seas, mejor respondera el agente."
+                                    description="Describe tus productos o servicios como se los contarias a un cliente por WhatsApp. Este texto si alimenta la forma de vender del agente."
                                   />
                                 </span>
                               <div className="overflow-hidden rounded-[28px] border border-white bg-white px-5 py-3 shadow-[0_20px_42px_-34px_rgba(15,23,42,0.14)] transition focus-within:border-[var(--primary)] focus-within:ring-4 focus-within:ring-[color-mix(in_srgb,var(--primary)_12%,white)]">

@@ -2,10 +2,11 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Bot, SendHorizonal, Sparkles } from "lucide-react";
+import { Bot, Plus, SendHorizonal, Sparkles } from "lucide-react";
 import type { ResponseLength, SalesTone, TargetAudience } from "@/lib/agent-training";
 import {
   applyAgentPromptCopilotChangesAction,
+  clearAgentCopilotHistoryAction,
   importAgentPromptCopilotHistoryAction,
   runAgentPromptCopilotAction,
 } from "@/app/actions/agent-actions";
@@ -157,6 +158,7 @@ export function AgentPromptCopilot({
   const [feedback, setFeedback] = useState<string | null>(null);
   const [isSending, startSendTransition] = useTransition();
   const [isApplying, startApplyTransition] = useTransition();
+  const [isClearing, startClearTransition] = useTransition();
   const [, startImportTransition] = useTransition();
   const lastMessageId = messages[messages.length - 1]?.id ?? "empty";
   const scrollDependencyKey = `${messages.length}-${lastMessageId}-${pendingSuggestion ? "suggestion" : "clean"}-${
@@ -281,6 +283,20 @@ export function AgentPromptCopilot({
     });
   }
 
+  function handleClear() {
+    startClearTransition(async () => {
+      await clearAgentCopilotHistoryAction({ agentId });
+      setMessages([defaultWelcomeMessage]);
+      setPendingSuggestion(null);
+      setFeedback(null);
+      setDraft("");
+      try {
+        window.localStorage.removeItem(storageKey);
+      } catch { /* ignore */ }
+      router.refresh();
+    });
+  }
+
   function handleApplySuggestion() {
     if (!pendingSuggestion) return;
 
@@ -310,8 +326,17 @@ export function AgentPromptCopilot({
         event.preventDefault();
         handleSend();
       }}
-      className="flex items-center gap-3"
+      className="flex items-center gap-2"
     >
+      <button
+        type="button"
+        onClick={handleClear}
+        disabled={isEmptyState || isClearing || isSending || isApplying}
+        title="Nueva conversación"
+        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[rgba(148,163,184,0.2)] bg-white text-slate-400 transition hover:border-[color-mix(in_srgb,var(--primary)_40%,white)] hover:text-[var(--primary)] disabled:opacity-30"
+      >
+        <Plus className="h-4 w-4" />
+      </button>
       <textarea
         value={draft}
         onChange={(event) => setDraft(event.target.value)}

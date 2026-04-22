@@ -9,6 +9,7 @@ type GenerateAgentReplyInput = {
   fallbackMessage?: string | null;
   history: ConversationTurn[];
   latestUserMessage: string;
+  rawSystemPrompt?: boolean;
 };
 
 type OpenAIResponsesApiResponse = {
@@ -23,6 +24,9 @@ type OpenAIResponsesApiResponse = {
 };
 
 function buildInstructions(input: GenerateAgentReplyInput) {
+  if (input.rawSystemPrompt) {
+    return input.systemPrompt?.trim() || "";
+  }
   return [
     input.systemPrompt?.trim() || "Eres un asistente comercial por WhatsApp.",
     "Responde en texto plano, breve, natural y util para WhatsApp.",
@@ -83,7 +87,7 @@ async function generateWithOpenAI(input: GenerateAgentReplyInput, apiKey: string
     body: JSON.stringify({
       model,
       instructions,
-      temperature: 0.7,
+      temperature: input.rawSystemPrompt ? 0.2 : 0.7,
       input: messages,
     }),
     cache: "no-store",
@@ -156,23 +160,31 @@ export async function generateAgentReply(input: GenerateAgentReplyInput) {
     return fallback;
   }
 
-  try {
-    if (openAiApiKey) {
-      const text = await generateWithOpenAI(input, openAiApiKey);
-      if (text) {
-        return text;
-      }
-    }
+  const attempts: Array<{ provider: "openai" | "gemini"; run: () => Promise<string> }> = [];
 
-    if (geminiApiKey) {
-      const text = await generateWithGemini(input, geminiApiKey);
+  if (openAiApiKey) {
+    attempts.push({
+      provider: "openai",
+      run: () => generateWithOpenAI(input, openAiApiKey),
+    });
+  }
+
+  if (geminiApiKey) {
+    attempts.push({
+      provider: "gemini",
+      run: () => generateWithGemini(input, geminiApiKey),
+    });
+  }
+
+  for (const attempt of attempts) {
+    try {
+      const text = await attempt.run();
       if (text) {
         return text;
       }
+    } catch (error) {
+      console.error(`[AGENT_AI] provider_failed:${attempt.provider}`, error);
     }
-  } catch (error) {
-    console.error("[AGENT_AI] provider_failed", error);
-    return fallback;
   }
 
   return fallback;

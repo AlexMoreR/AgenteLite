@@ -1,14 +1,16 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Building2, Globe, Instagram, Mail, MapPin, Pencil, Phone, PlayCircle, X, Youtube } from "lucide-react";
-import type { TargetAudience } from "@/lib/agent-training";
+import { saveAgentBusinessProfileAction } from "@/app/actions/agent-actions";
 
 type BusinessData = {
+  agentId: string;
   businessName: string;
-  businessDescription: string;
+  businessSummary: string;
   location: string;
   website: string;
   contactPhone: string;
@@ -48,8 +50,9 @@ function BusinessModal({ data, onSave, onClose }: {
   onSave: (next: BusinessData) => void;
   onClose: () => void;
 }) {
+  const router = useRouter();
   const [name, setName] = useState(data.businessName);
-  const [description, setDescription] = useState(data.businessDescription);
+  const [summary, setSummary] = useState(data.businessSummary);
   const [location, setLocation] = useState(data.location);
   const [website, setWebsite] = useState(data.website);
   const [contactPhone, setContactPhone] = useState(data.contactPhone);
@@ -58,14 +61,51 @@ function BusinessModal({ data, onSave, onClose }: {
   const [facebook, setFacebook] = useState(data.facebook);
   const [tiktok, setTiktok] = useState(data.tiktok);
   const [youtube, setYoutube] = useState(data.youtube);
-  const nameRef = useRef<HTMLInputElement>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isSaving, startSavingTransition] = useTransition();
 
-  useEffect(() => { nameRef.current?.focus(); }, []);
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const input = document.querySelector<HTMLInputElement>("[data-business-name-input='true']");
+      input?.focus();
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, []);
 
   function handleSave() {
     if (name.trim().length < 2) return;
-    onSave({ businessName: name.trim(), businessDescription: description.trim(), location: location.trim(), website: website.trim(), contactPhone: contactPhone.trim(), contactEmail: contactEmail.trim(), instagram: instagram.trim(), facebook: facebook.trim(), tiktok: tiktok.trim(), youtube: youtube.trim() });
-    onClose();
+    setError(null);
+
+    const nextData: BusinessData = {
+      agentId: data.agentId,
+      businessName: name.trim(),
+      businessSummary: summary.trim(),
+      location: location.trim(),
+      website: website.trim(),
+      contactPhone: contactPhone.trim(),
+      contactEmail: contactEmail.trim(),
+      instagram: instagram.trim(),
+      facebook: facebook.trim(),
+      tiktok: tiktok.trim(),
+      youtube: youtube.trim(),
+    };
+
+    startSavingTransition(async () => {
+      const result = await saveAgentBusinessProfileAction({
+        agentId: data.agentId,
+        ...nextData,
+      });
+
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+
+      onSave(nextData);
+      router.refresh();
+      onClose();
+    });
   }
 
   return createPortal(
@@ -92,10 +132,10 @@ function BusinessModal({ data, onSave, onClose }: {
           <div className="space-y-1.5">
             <label className="block text-[13px] font-medium text-slate-700">Nombre del negocio</label>
             <input
-              ref={nameRef}
+              data-business-name-input="true"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleSave(); } if (e.key === "Escape") onClose(); }}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleSave(); } if (e.key === "Escape" && !isSaving) onClose(); }}
               placeholder="Ej. Aizen Store"
               className="field-select h-11 w-full rounded-[16px] border-[rgba(148,163,184,0.14)] bg-white text-[13px] shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_12px_22px_-28px_rgba(15,23,42,0.28)] focus:border-[var(--primary)]"
             />
@@ -105,13 +145,13 @@ function BusinessModal({ data, onSave, onClose }: {
           <div className="space-y-1.5">
             <label className="block text-[13px] font-medium text-slate-700">Resumen del negocio</label>
             <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              value={summary}
+              onChange={(e) => setSummary(e.target.value)}
               rows={3}
-              placeholder="Escribe aqui una explicacion simple de lo que vendes, para quien es y que te diferencia."
+              placeholder="Escribe un resumen general del negocio, su enfoque y lo que lo hace especial."
               className="flex w-full resize-none rounded-[16px] border border-[rgba(148,163,184,0.14)] bg-white px-3.5 py-3 text-[13px] leading-6 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-[var(--primary)]"
             />
-            <p className="text-[12px] text-slate-400">Mientras mas claro seas, mejor respondera el agente.</p>
+            <p className="text-[12px] text-slate-400">Este resumen describe el negocio. No reemplaza la forma comercial en que vendes por WhatsApp.</p>
           </div>
 
           <div className="h-px bg-slate-100" />
@@ -140,11 +180,12 @@ function BusinessModal({ data, onSave, onClose }: {
         </div>
 
         <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">
-          <button type="button" onClick={onClose} className="inline-flex h-9 items-center justify-center rounded-xl border border-slate-200 px-4 text-[13px] font-medium text-slate-600 transition hover:bg-slate-50">
+          {error ? <p className="mr-auto max-w-[55%] text-[12px] text-rose-600">{error}</p> : null}
+          <button type="button" disabled={isSaving} onClick={onClose} className="inline-flex h-9 items-center justify-center rounded-xl border border-slate-200 px-4 text-[13px] font-medium text-slate-600 transition hover:bg-slate-50 disabled:opacity-50">
             Cancelar
           </button>
-          <button type="button" onClick={handleSave} disabled={name.trim().length < 2} className="inline-flex h-9 items-center justify-center rounded-xl bg-[var(--primary)] px-4 text-[13px] font-medium text-white transition hover:bg-[var(--primary-strong)] disabled:opacity-50">
-            Guardar
+          <button type="button" onClick={handleSave} disabled={isSaving || name.trim().length < 2} className="inline-flex h-9 items-center justify-center rounded-xl bg-[var(--primary)] px-4 text-[13px] font-medium text-white transition hover:bg-[var(--primary-strong)] disabled:opacity-50">
+            {isSaving ? "Guardando..." : "Guardar"}
           </button>
         </div>
       </div>
@@ -153,20 +194,10 @@ function BusinessModal({ data, onSave, onClose }: {
   );
 }
 
-function dispatchInputEvent(el: HTMLElement) {
-  el.dispatchEvent(new Event("input", { bubbles: true }));
-}
-
-function setNativeValue(el: HTMLInputElement | HTMLTextAreaElement, value: string) {
-  const proto = el instanceof HTMLTextAreaElement ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
-  const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
-  setter?.call(el, value);
-}
-
 export function BusinessNameHeader({
   agentId,
   businessName,
-  businessDescription,
+  businessSummary,
   location,
   website,
   contactPhone,
@@ -178,7 +209,7 @@ export function BusinessNameHeader({
 }: {
   agentId: string;
   businessName: string;
-  businessDescription: string;
+  businessSummary: string;
   location: string;
   website: string;
   contactPhone: string;
@@ -189,6 +220,7 @@ export function BusinessNameHeader({
   youtube: string;
 }) {
   const [name, setName] = useState(businessName);
+  const [summary, setSummary] = useState(businessSummary);
   const [loc, setLoc] = useState(location);
   const [web, setWeb] = useState(website);
   const [phone, setPhone] = useState(contactPhone);
@@ -198,12 +230,31 @@ export function BusinessNameHeader({
   const [tt, setTt] = useState(tiktok);
   const [yt, setYt] = useState(youtube);
   const [modalOpen, setModalOpen] = useState(false);
-  const hiddenNameRef = useRef<HTMLInputElement>(null);
 
   const initials = name.slice(0, 2).toUpperCase();
 
+  useEffect(() => {
+    setName(businessName);
+  }, [businessName]);
+
+  useEffect(() => {
+    setSummary(businessSummary);
+  }, [businessSummary]);
+
+  useEffect(() => {
+    setLoc(location);
+    setWeb(website);
+    setPhone(contactPhone);
+    setEmail(contactEmail);
+    setIg(instagram);
+    setFb(facebook);
+    setTt(tiktok);
+    setYt(youtube);
+  }, [contactEmail, contactPhone, facebook, instagram, location, tiktok, website, youtube]);
+
   function handleSave(next: BusinessData) {
     setName(next.businessName);
+    setSummary(next.businessSummary);
     setLoc(next.location);
     setWeb(next.website);
     setPhone(next.contactPhone);
@@ -212,32 +263,26 @@ export function BusinessNameHeader({
     setFb(next.facebook);
     setTt(next.tiktok);
     setYt(next.youtube);
-
-    setTimeout(() => {
-      if (hiddenNameRef.current) dispatchInputEvent(hiddenNameRef.current);
-
-      const descEl = document.querySelector<HTMLTextAreaElement>('[name="businessDescription"]');
-      if (descEl) { setNativeValue(descEl, next.businessDescription); dispatchInputEvent(descEl); }
-    }, 0);
   }
 
   return (
     <>
+      <input type="hidden" name="businessName" value={name} />
+      <input type="hidden" name="businessSummary" value={summary} />
+      <input type="hidden" name="location" value={loc} />
+      <input type="hidden" name="website" value={web} />
+      <input type="hidden" name="contactPhone" value={phone} />
+      <input type="hidden" name="contactEmail" value={email} />
+      <input type="hidden" name="instagram" value={ig} />
+      <input type="hidden" name="facebook" value={fb} />
+      <input type="hidden" name="tiktok" value={tt} />
+      <input type="hidden" name="youtube" value={yt} />
       <div className="overflow-hidden rounded-[20px] border border-[rgba(148,163,184,0.14)]">
         <div className="flex items-center justify-between gap-3 bg-[var(--primary)] px-4 py-3.5">
           <div className="flex min-w-0 flex-1 items-center gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/20 text-sm font-bold text-white">
               {initials}
             </div>
-            <input ref={hiddenNameRef} type="hidden" name="businessName" value={name} />
-            <input type="hidden" name="location" value={loc} />
-            <input type="hidden" name="website" value={web} />
-            <input type="hidden" name="contactPhone" value={phone} />
-            <input type="hidden" name="contactEmail" value={email} />
-            <input type="hidden" name="instagram" value={ig} />
-            <input type="hidden" name="facebook" value={fb} />
-            <input type="hidden" name="tiktok" value={tt} />
-            <input type="hidden" name="youtube" value={yt} />
             <span className="truncate text-sm font-semibold text-white">{name}</span>
             <button
               type="button"
@@ -260,7 +305,7 @@ export function BusinessNameHeader({
 
       {modalOpen && (
         <BusinessModal
-          data={{ businessName: name, businessDescription, location: loc, website: web, contactPhone: phone, contactEmail: email, instagram: ig, facebook: fb, tiktok: tt, youtube: yt }}
+          data={{ agentId, businessName: name, businessSummary: summary, location: loc, website: web, contactPhone: phone, contactEmail: email, instagram: ig, facebook: fb, tiktok: tt, youtube: yt }}
           onSave={handleSave}
           onClose={() => setModalOpen(false)}
         />
