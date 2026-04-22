@@ -9,7 +9,7 @@ import { Card } from "@/components/ui/card";
 import { OfficialApiLockedState, getOfficialApiChatsData } from "@/features/official-api";
 import { canAccessOfficialApiModule } from "@/lib/admin-module-access";
 import { getConversationAutomationPaused } from "@/lib/conversation-automation";
-import { fetchEvolutionMediaDataUrl, fetchEvolutionProfilePictureUrl } from "@/lib/evolution";
+import { fetchEvolutionMediaDataUrl } from "@/lib/evolution";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
@@ -192,46 +192,9 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     selectedChatRef?.source === "agent"
       ? agentConversations.find((item) => item.id === selectedChatRef.conversationId) || null
       : null;
-  const avatarLookups = [
-    ...new Set(
-      agentConversations
-        .slice(0, 40)
-        .map((conversation) => {
-          const linkedChannel = conversation.channelId ? channelsById.get(conversation.channelId) || null : null;
-          const instanceName = linkedChannel?.evolutionInstanceName?.trim();
-          const phoneNumber = conversation.contact.phoneNumber?.trim();
-          return instanceName && phoneNumber ? `${instanceName}::${phoneNumber}` : "";
-        })
-        .filter(Boolean),
-    ),
-  ];
-  const avatarUrls = Object.fromEntries(
-    (
-      await Promise.all(
-        avatarLookups.map(async (lookupKey) => {
-          const [instanceName, phoneNumber] = lookupKey.split("::");
-          if (!instanceName || !phoneNumber) {
-            return [lookupKey, null] as const;
-          }
-
-          return [
-            lookupKey,
-            await fetchEvolutionProfilePictureUrl({
-              instanceName,
-              phoneNumber,
-            }),
-          ] as const;
-        }),
-      )
-    ).filter((entry): entry is [string, string] => Boolean(entry[0] && entry[1])),
-  );
 
   const agentRows: UnifiedConversation[] = agentConversations.map((conversation) => {
     const linkedChannel = conversation.channelId ? channelsById.get(conversation.channelId) || null : null;
-    const avatarLookupKey =
-      linkedChannel?.evolutionInstanceName && conversation.contact.phoneNumber
-        ? `${linkedChannel.evolutionInstanceName}::${conversation.contact.phoneNumber}`
-        : "";
 
     return {
       key: `agent:${conversation.id}`,
@@ -241,7 +204,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       channelId: conversation.channelId || undefined,
       label: getAgentContactLabel(conversation.contact),
       secondaryLabel: conversation.contact.phoneNumber,
-      avatarUrl: (avatarLookupKey ? avatarUrls[avatarLookupKey] : null) ?? null,
+      avatarUrl: null,
       lastMessage: conversation.messages[0]?.content ?? null,
       lastMessageType: conversation.messages[0]?.type ?? null,
       lastMessageDirection: conversation.messages[0]?.direction ?? null,
@@ -443,7 +406,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
 
   return (
     <section className="chat-app-layout flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
-      <ChatsAutoRefresh intervalMs={5000} />
+      <ChatsAutoRefresh intervalMs={15000} />
       <QueryFeedbackToast
         okMessage={okMessage}
         errorMessage={errorMessage}
