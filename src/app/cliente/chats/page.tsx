@@ -193,8 +193,35 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       ? agentConversations.find((item) => item.id === selectedChatRef.conversationId) || null
       : null;
 
+  // Fetch avatars only for contacts without cached avatarUrl (max 10 per load)
+  const uncachedAvatarLookups = agentConversations
+    .filter((c) => !c.contact.avatarUrl)
+    .slice(0, 10)
+    .flatMap((conversation) => {
+      const linkedChannel = conversation.channelId ? channelsById.get(conversation.channelId) || null : null;
+      const instanceName = linkedChannel?.evolutionInstanceName?.trim();
+      const phoneNumber = conversation.contact.phoneNumber?.trim();
+      return instanceName && phoneNumber
+        ? [{ contactId: conversation.contact.id, instanceName, phoneNumber }]
+        : [];
+    });
+
+  const freshAvatarMap = new Map<string, string>();
+  if (uncachedAvatarLookups.length > 0) {
+    await Promise.all(
+      uncachedAvatarLookups.map(async ({ contactId, instanceName, phoneNumber }) => {
+        const url = await fetchEvolutionProfilePictureUrl({ instanceName, phoneNumber });
+        if (url) {
+          freshAvatarMap.set(contactId, url);
+          void prisma.contact.update({ where: { id: contactId }, data: { avatarUrl: url } });
+        }
+      }),
+    );
+  }
+
   const agentRows: UnifiedConversation[] = agentConversations.map((conversation) => {
     const linkedChannel = conversation.channelId ? channelsById.get(conversation.channelId) || null : null;
+    const avatarUrl = conversation.contact.avatarUrl ?? freshAvatarMap.get(conversation.contact.id) ?? null;
 
     return {
       key: `agent:${conversation.id}`,
@@ -204,7 +231,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       channelId: conversation.channelId || undefined,
       label: getAgentContactLabel(conversation.contact),
       secondaryLabel: conversation.contact.phoneNumber,
-      avatarUrl: conversation.contact.avatarUrl ?? null,
+      avatarUrl,
       lastMessage: conversation.messages[0]?.content ?? null,
       lastMessageType: conversation.messages[0]?.type ?? null,
       lastMessageDirection: conversation.messages[0]?.direction ?? null,
