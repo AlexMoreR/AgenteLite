@@ -6,6 +6,7 @@ import { z } from "zod";
 import { auth } from "@/auth";
 import { generateUniqueAgentSlug } from "@/lib/agent";
 import {
+  type AgentKnowledgePromptFlow,
   type AgentKnowledgePromptProduct,
   buildAgentSystemPrompt,
   buildAgentTrainingConfig,
@@ -33,11 +34,13 @@ import {
 import { setConversationAutomationPaused } from "@/lib/conversation-automation";
 import { buildDefaultWorkspacePlan } from "@/lib/plans";
 import { prisma } from "@/lib/prisma";
+import { canAccessOfficialApiModule } from "@/lib/admin-module-access";
 import {
   generateUniqueWorkspaceSlug,
   getPrimaryWorkspaceForUser,
   type PrimaryWorkspaceMembership,
 } from "@/lib/workspace";
+import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowItems";
 
 const createAgentSchema = z.object({
   businessName: z.string().trim().min(2, "Nombre del negocio invalido").max(120, "Nombre demasiado largo"),
@@ -117,6 +120,7 @@ const updateAgentTrainingSchema = createAgentSchema.extend({
 const saveAgentKnowledgeProductsSchema = z.object({
   agentId: z.string().trim().min(1, "Agente invalido"),
   productIds: z.array(z.string().trim().min(1)).max(60, "Demasiados productos seleccionados"),
+  flowIds: z.array(z.string().trim().min(1)).max(20, "Demasiados flujos seleccionados"),
 });
 
 export type AgentTrainingAutosaveState = {
@@ -278,6 +282,30 @@ async function getAgentKnowledgePromptProducts(agentId: string) {
 
     throw error;
   }
+}
+
+async function getAgentKnowledgePromptFlows(
+  includeOfficialApi: boolean,
+  workspaceId: string,
+  flowIds: string[],
+): Promise<AgentKnowledgePromptFlow[]> {
+  if (!flowIds.length) {
+    return [];
+  }
+
+  const createdFlows = await getCreatedFlowItems({
+    workspaceId,
+    includeOfficialApi,
+  });
+
+  const selectedIds = new Set(flowIds);
+  return createdFlows
+    .filter((flow) => selectedIds.has(flow.id))
+    .map((flow) => ({
+      title: flow.title,
+      description: flow.description,
+      sourceLabel: flow.badge === "Meta" ? "API oficial" : "API no oficial",
+    }));
 }
 
 async function getAgentCopilotMessages(workspaceId: string, agentId: string, limit: number) {
@@ -476,6 +504,7 @@ async function persistAgentTraining(
     select: {
       id: true,
       name: true,
+      trainingConfig: true,
     },
   });
 
@@ -483,6 +512,7 @@ async function persistAgentTraining(
     return { ok: false as const, message: "Agente no encontrado" };
   }
 
+  const currentTraining = parseAgentTrainingConfig(agent.trainingConfig) ?? defaultAgentTrainingConfig;
   const training = buildAgentTrainingConfig({
     businessDescription: input.businessDescription,
     targetAudiences: input.targetAudiences,
@@ -502,9 +532,11 @@ async function persistAgentTraining(
     handoffToHuman: input.handoffToHuman,
     forbiddenRules: input.forbiddenRules,
     customRules: input.customRules,
+    knowledgeFlowIds: currentTraining.knowledgeFlowIds,
   });
   const nextAgentName = `Asistente ${input.businessName}`;
   const knowledgeProducts = await getAgentKnowledgePromptProducts(agent.id);
+  const knowledgeFlows = await getAgentKnowledgePromptFlows(true, membership.workspace.id, training.knowledgeFlowIds);
 
   await prisma.agent.update({
     where: { id: agent.id },
@@ -517,6 +549,7 @@ async function persistAgentTraining(
         businessName: input.businessName,
         training,
         knowledgeProducts,
+        knowledgeFlows,
       }),
       welcomeMessage: buildWelcomeMessage({
         agentName: nextAgentName,
@@ -621,12 +654,14 @@ export async function createAgentAction(formData: FormData): Promise<void> {
     handoffToHuman: parsed.data.handoffToHuman,
     forbiddenRules: parsed.data.forbiddenRules,
     customRules: parsed.data.customRules,
+    knowledgeFlowIds: [],
   });
 
   const systemPrompt = buildAgentSystemPrompt({
     agentName,
     businessName: membership.workspace.name,
     training,
+    knowledgeFlows: [],
   });
 
   const agent = await prisma.agent.create({
@@ -999,6 +1034,11 @@ export async function applyAgentPromptCopilotChangesAction(input: {
   const nextBusinessName = changes.businessName?.trim() || agent.workspace.name;
   const nextAgentName = `Asistente ${nextBusinessName}`;
   const knowledgeProducts = await getAgentKnowledgePromptProducts(agent.id);
+  const knowledgeFlows = await getAgentKnowledgePromptFlows(
+    await canAccessOfficialApiModule(session.user.id, session.user.role),
+    membership.workspace.id,
+    nextTraining.knowledgeFlowIds,
+  );
 
   await prisma.agent.update({
     where: { id: agent.id },
@@ -1011,6 +1051,7 @@ export async function applyAgentPromptCopilotChangesAction(input: {
         businessName: nextBusinessName,
         training: nextTraining,
         knowledgeProducts,
+        knowledgeFlows,
       }),
       welcomeMessage: buildWelcomeMessage({
         agentName: nextAgentName,
@@ -1045,6 +1086,7 @@ export async function saveAgentKnowledgeProductsAction(formData: FormData): Prom
   const parsed = saveAgentKnowledgeProductsSchema.safeParse({
     agentId: formData.get("agentId"),
     productIds: formData.getAll("productIds"),
+    flowIds: formData.getAll("flowIds"),
   });
 
   const fallbackAgentId = String(formData.get("agentId") || "");
@@ -1079,6 +1121,7 @@ export async function saveAgentKnowledgeProductsAction(formData: FormData): Prom
   }
 
   const uniqueProductIds = Array.from(new Set(parsed.data.productIds.map((item) => item.trim()).filter(Boolean)));
+  const uniqueFlowIds = Array.from(new Set(parsed.data.flowIds.map((item) => item.trim()).filter(Boolean)));
   const products = uniqueProductIds.length
     ? await prisma.product.findMany({
         where: {
@@ -1094,6 +1137,17 @@ export async function saveAgentKnowledgeProductsAction(formData: FormData): Prom
 
   if (products.length !== uniqueProductIds.length) {
     redirect(`/cliente/agentes/${agent.id}/conocimiento?error=Uno+o+mas+productos+no+existen`);
+  }
+
+  const canUseOfficialApi = await canAccessOfficialApiModule(session.user.id, session.user.role);
+  const availableFlowTargets = await getCreatedFlowItems({
+    workspaceId: membership.workspace.id,
+    includeOfficialApi: canUseOfficialApi,
+  });
+  const validFlowIds = new Set(availableFlowTargets.map((flow) => flow.id));
+
+  if (uniqueFlowIds.some((flowId) => !validFlowIds.has(flowId))) {
+    redirect(`/cliente/agentes/${agent.id}/conocimiento?error=Uno+o+mas+flujos+no+existen`);
   }
 
   try {
@@ -1120,15 +1174,22 @@ export async function saveAgentKnowledgeProductsAction(formData: FormData): Prom
 
   const training = parseAgentTrainingConfig(agent.trainingConfig) ?? defaultAgentTrainingConfig;
   const knowledgeProducts = await getAgentKnowledgePromptProducts(agent.id);
+  const nextTraining = buildAgentTrainingConfig({
+    ...training,
+    knowledgeFlowIds: uniqueFlowIds,
+  });
+  const knowledgeFlows = await getAgentKnowledgePromptFlows(canUseOfficialApi, membership.workspace.id, nextTraining.knowledgeFlowIds);
 
   await prisma.agent.update({
     where: { id: agent.id },
     data: {
+      trainingConfig: nextTraining,
       systemPrompt: buildAgentSystemPrompt({
         agentName: agent.name,
         businessName: agent.workspace.name,
-        training,
+        training: nextTraining,
         knowledgeProducts,
+        knowledgeFlows,
       }),
     },
   });

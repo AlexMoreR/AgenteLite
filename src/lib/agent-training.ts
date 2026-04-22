@@ -84,6 +84,7 @@ export type AgentTrainingConfig = {
   handoffToHuman: boolean;
   forbiddenRules: string[];
   customRules: string;
+  knowledgeFlowIds: string[];
 };
 
 export type AgentKnowledgePromptProduct = {
@@ -91,6 +92,12 @@ export type AgentKnowledgePromptProduct = {
   description?: string | null;
   price?: string | null;
   thumbnailUrl?: string | null;
+};
+
+export type AgentKnowledgePromptFlow = {
+  title: string;
+  description?: string | null;
+  sourceLabel?: string | null;
 };
 
 export const defaultAgentTrainingConfig: AgentTrainingConfig = {
@@ -112,6 +119,7 @@ export const defaultAgentTrainingConfig: AgentTrainingConfig = {
   handoffToHuman: true,
   forbiddenRules: [...forbiddenRuleOptions.slice(0, 4)],
   customRules: "",
+  knowledgeFlowIds: [],
 };
 
 function getTonePrompt(value: SalesTone) {
@@ -160,6 +168,7 @@ export function buildAgentTrainingConfig(input: AgentTrainingConfig): AgentTrain
     targetAudiences: input.targetAudiences.filter((value, index, array) => array.indexOf(value) === index),
     forbiddenRules: input.forbiddenRules.filter(Boolean),
     customRules: input.customRules.trim(),
+    knowledgeFlowIds: input.knowledgeFlowIds.filter((value, index, array) => Boolean(value) && array.indexOf(value) === index),
   };
 }
 
@@ -168,6 +177,7 @@ export function buildAgentSystemPrompt(input: {
   businessName: string;
   training: AgentTrainingConfig;
   knowledgeProducts?: AgentKnowledgePromptProduct[];
+  knowledgeFlows?: AgentKnowledgePromptFlow[];
 }) {
   const { agentName, businessName, training } = input;
   const voiceRules = [
@@ -260,6 +270,29 @@ export function buildAgentSystemPrompt(input: {
     ? `CONOCIMIENTO DE PRODUCTOS\n- ${knowledgeProducts.join("\n- ")}\n- Usa esta base para responder con precision sobre esos productos.\n- Si te preguntan por algo fuera de esta base, no lo inventes y aclara que debes confirmarlo.`
     : null;
 
+  const knowledgeFlows = (input.knowledgeFlows ?? [])
+    .map((flow) => {
+      const title = flow.title.trim();
+      if (!title) {
+        return null;
+      }
+
+      const summary = [`Flujo disponible: ${title}`];
+      if (flow.sourceLabel?.trim()) {
+        summary.push(`Origen: ${flow.sourceLabel.trim()}`);
+      }
+      if (flow.description?.trim()) {
+        summary.push(`Uso: ${flow.description.trim()}`);
+      }
+
+      return summary.join(" | ");
+    })
+    .filter((item): item is string => Boolean(item));
+
+  const flowKnowledgeSection = knowledgeFlows.length
+    ? `CONOCIMIENTO DE FLUJOS\n- ${knowledgeFlows.join("\n- ")}\n- Si una conversacion coincide con uno de estos recorridos, guia al cliente hacia ese flujo o explica el siguiente paso con claridad.\n- No inventes automatizaciones ni pasos que no existan en esta base.`
+    : null;
+
   const sections = [
     `ROL\nEres ${agentName}, vendedor virtual por WhatsApp de ${businessName}. Actuas como una persona real del negocio y tu trabajo es vender con claridad, precision y criterio comercial.`,
     `OBJETIVO\nTu objetivo es entender lo que necesita el cliente, responder solo dentro de la realidad del negocio y llevar la conversacion hacia una venta real o al siguiente paso correcto.`,
@@ -268,6 +301,7 @@ export function buildAgentSystemPrompt(input: {
     `COMO HABLAS\n- ${voiceRules.join("\n- ")}`,
     `COMPORTAMIENTO DE VENTA\n- ${salesBehaviors.join("\n- ")}`,
     knowledgeSection,
+    flowKnowledgeSection,
     `COSAS QUE NUNCA DEBES HACER\n- ${strictRules.join("\n- ")}`,
     `FORMA DE RESPONDER\n- Responde en texto plano para WhatsApp.\n- Prioriza mensajes claros, utiles y faciles de leer.\n- No des listas largas salvo que ayuden a vender o aclarar opciones.\n- Cuando puedas, termina con un siguiente paso concreto.`,
   ].filter(Boolean) as string[];
@@ -343,6 +377,9 @@ export function parseAgentTrainingConfig(value: unknown): AgentTrainingConfig | 
   const forbiddenRules = Array.isArray(data.forbiddenRules)
     ? data.forbiddenRules.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
     : [];
+  const knowledgeFlowIds = Array.isArray(data.knowledgeFlowIds)
+    ? data.knowledgeFlowIds.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
 
   if (typeof data.businessDescription !== "string" || targetAudiences.length === 0) {
     return null;
@@ -374,6 +411,7 @@ export function parseAgentTrainingConfig(value: unknown): AgentTrainingConfig | 
     handoffToHuman: Boolean(data.handoffToHuman),
     forbiddenRules,
     customRules: typeof data.customRules === "string" ? data.customRules : "",
+    knowledgeFlowIds,
   };
 }
 
