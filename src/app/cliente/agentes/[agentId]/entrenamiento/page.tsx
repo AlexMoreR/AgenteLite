@@ -8,6 +8,7 @@ import { TrainingSalesToneField } from "@/components/agents/training-sales-tone-
 import { TrainingHelpPopover } from "@/components/agents/training-help-popover";
 import { TrainingResponseLengthField } from "@/components/agents/training-response-length-field";
 import { NewCustomerWelcomeField } from "@/components/agents/new-customer-welcome-field";
+import { TrainingTextareaField } from "@/components/agents/training-textarea-field";
 import { Card } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -147,7 +148,7 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                   <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-slate-700">
                     <span>Que vendes y como lo explicarias en WhatsApp</span>
                   </span>
-                  <textarea
+                  <TrainingTextareaField
                     name="businessDescription"
                     rows={4}
                     defaultValue={training.businessDescription}
@@ -294,7 +295,7 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                       description="Escribe aqui condiciones especiales que el agente deba respetar, por ejemplo politicas, tiempos o limites de atencion."
                     />
                   </span>
-                  <textarea
+                  <TrainingTextareaField
                     name="customRules"
                     rows={4}
                     defaultValue={training.customRules}
