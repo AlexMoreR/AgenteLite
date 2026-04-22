@@ -194,9 +194,15 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       : null;
 
   // Fetch avatars only for contacts without cached avatarUrl (max 10 per load)
-  const uncachedAvatarLookups = agentConversations
-    .filter((c) => !c.contact.avatarUrl)
-    .slice(0, 10)
+  // Selected conversation contact gets priority so it always appears in the list
+  const uncachedConversations = agentConversations.filter((c) => !c.contact.avatarUrl);
+  const selectedUncached = selectedAgentConversation && !selectedAgentConversation.contact.avatarUrl
+    ? [selectedAgentConversation]
+    : [];
+  const restUncached = uncachedConversations
+    .filter((c) => c.id !== selectedAgentConversation?.id)
+    .slice(0, 10 - selectedUncached.length);
+  const uncachedAvatarLookups = [...selectedUncached, ...restUncached]
     .flatMap((conversation) => {
       const linkedChannel = conversation.channelId ? channelsById.get(conversation.channelId) || null : null;
       const instanceName = linkedChannel?.evolutionInstanceName?.trim();
