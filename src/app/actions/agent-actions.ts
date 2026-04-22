@@ -930,6 +930,14 @@ export async function createAgentAction(formData: FormData): Promise<void> {
     forbiddenRules: parsed.data.forbiddenRules,
     customRules: parsed.data.customRules,
     knowledgeFlowIds: [],
+    location: "",
+    website: "",
+    contactPhone: "",
+    contactEmail: "",
+    instagram: "",
+    facebook: "",
+    tiktok: "",
+    youtube: "",
   });
 
   const systemPrompt = buildAgentSystemPrompt({
