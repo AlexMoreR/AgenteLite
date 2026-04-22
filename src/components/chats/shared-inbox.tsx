@@ -320,7 +320,7 @@ export function SharedInbox({
 
   return (
     <div
-      className={`chat-inbox-grid flex min-h-[calc(100dvh-8rem)] flex-1 flex-col gap-0 overflow-hidden md:min-h-0 md:h-full md:grid ${
+      className={`chat-inbox-grid flex h-full min-h-0 flex-1 flex-col gap-0 overflow-hidden md:grid ${
         hasSidebar ? "md:grid-cols-[250px_360px_minmax(0,1fr)]" : "md:grid-cols-[380px_minmax(0,1fr)]"
       }`}
     >
@@ -400,7 +400,7 @@ export function SharedInbox({
               />
             </form>
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto divide-y divide-[rgba(148,163,184,0.12)]">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain divide-y divide-[rgba(148,163,184,0.12)] [-webkit-overflow-scrolling:touch]">
             {conversations.length > 0 ? (
               conversations.map((conversation) => {
                 const isSelected = selectedConversationId === conversation.id;
@@ -527,7 +527,7 @@ export function SharedInbox({
 
             <div className="flex min-h-0 flex-1 flex-col bg-[#f3f4f6]">
               <div
-                className="chat-messages-scroll min-h-0 flex-1 overflow-y-auto px-2.5 py-2.5 pb-[calc(env(safe-area-inset-bottom)+7.25rem)] md:px-5 md:py-5 md:pb-5"
+                className="chat-messages-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-2.5 py-2.5 pb-[calc(env(safe-area-inset-bottom)+1rem)] [-webkit-overflow-scrolling:touch] md:px-5 md:py-5 md:pb-5"
                 style={{
                   backgroundColor: "#f3f4f6",
                   backgroundImage:
@@ -700,7 +700,7 @@ export function SharedInbox({
               </div>
 
               {composer ? (
-                <div className="chat-composer fixed inset-x-0 bottom-0 z-20 shrink-0 border-t border-[rgba(148,163,184,0.12)] bg-white px-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 shadow-[0_-12px_28px_-24px_rgba(15,23,42,0.2)] md:static md:border-t md:px-2 md:py-2 md:shadow-none">
+                <div className="chat-composer sticky bottom-0 z-20 shrink-0 border-t border-[rgba(148,163,184,0.12)] bg-white/96 px-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 shadow-[0_-12px_28px_-24px_rgba(15,23,42,0.2)] backdrop-blur md:static md:border-t md:bg-white md:px-2 md:py-2 md:shadow-none md:backdrop-blur-0">
                   <form action={composer.action} className="mx-auto w-full max-w-5xl">
                     {composer.hiddenFields.map((field) => (
                       <input key={`${field.name}-${field.value}`} type="hidden" name={field.name} value={field.value} />

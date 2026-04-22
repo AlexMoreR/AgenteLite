@@ -311,6 +311,14 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     });
 
   const selectedUnified = merged.find((item) => item.key === selectedChatKeyParam) || merged[0] || null;
+  const chatListHref = `/cliente/chats${
+    selectedConnectionKey || searchQuery
+      ? `?${new URLSearchParams([
+          ...(selectedConnectionKey ? [["connection", selectedConnectionKey]] : []),
+          ...(searchQuery ? [["q", searchQuery]] : []),
+        ]).toString()}`
+      : ""
+  }`;
   const isOfficialUnavailable = Boolean(canUseOfficialApi && officialChannel && officialData && !officialData.isConnected);
   const isOfficialConnectionSelected =
     Boolean(selectedConnectionKey) &&
@@ -487,7 +495,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           href: `/cliente/chats?chatKey=${encodeURIComponent(item.key)}${selectedConnectionKey ? `&connection=${encodeURIComponent(selectedConnectionKey)}` : ""}${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ""}`,
         }))}
         selectedConversation={selectedConversation}
-        backHref="/cliente/chats"
+        backHref={chatListHref}
         headerBadge={null}
         headerActions={
           selectedUnified?.source === "agent" && selectedConversation ? (
