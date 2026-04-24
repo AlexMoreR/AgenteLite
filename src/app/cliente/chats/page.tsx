@@ -14,6 +14,7 @@ import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+const INITIAL_CHAT_MESSAGE_LIMIT = 20;
 
 type PageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -109,7 +110,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
             contact: { select: { id: true, name: true, phoneNumber: true, avatarUrl: true } },
             messages: {
               orderBy: { createdAt: "desc" },
-              take: 120,
+              take: INITIAL_CHAT_MESSAGE_LIMIT,
               select: {
                 id: true,
                 content: true,
@@ -444,7 +445,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
 
   return (
     <section className="chat-app-layout flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
-      <ChatsAutoRefresh intervalMs={5000} enabled={Boolean(selectedUnified)} />
+      <ChatsAutoRefresh intervalMs={15000} enabled={Boolean(selectedUnified)} />
       <QueryFeedbackToast
         okMessage={okMessage}
         errorMessage={errorMessage}

@@ -54,6 +54,7 @@ export async function getOfficialApiChatsData(input: {
   q?: string;
   includeSelectedConversation?: boolean;
 }): Promise<OfficialApiChatsData> {
+  const INITIAL_MESSAGE_LIMIT = 20;
   const config = await getOfficialApiConfigByWorkspaceId(input.workspaceId);
   const searchQuery = normalizeSearch(input.q);
 
@@ -126,7 +127,7 @@ export async function getOfficialApiChatsData(input: {
         FROM "OfficialApiMessage" msg
         WHERE msg."conversationId" = c."id"
         ORDER BY msg."createdAt" DESC
-        LIMIT 120
+        LIMIT ${INITIAL_MESSAGE_LIMIT}
       ) m ON true
       WHERE c."id" = ${conversationId}
         AND c."configId" = ${activeConfig.id}
