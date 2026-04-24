@@ -2415,7 +2415,8 @@ export async function simulateAgentReplyAction(input: {
     reply: composeAgentWelcomeReply({
       welcomeMessage: agent.welcomeMessage,
       reply,
-      hasConversationHistory: trimmedHistory.length > 0,
+      // Solo consideramos que ya hubo bienvenida si el bot respondió antes.
+      hasConversationHistory: hasOutboundHistory,
     }),
   };
 }

@@ -462,7 +462,9 @@ export async function POST(request: Request) {
       replyText = composeAgentWelcomeReply({
         welcomeMessage: agent.welcomeMessage,
         reply: replyText,
-        hasConversationHistory: recentMessages.length > 1,
+        // Usamos el historial saliente real como señal de primer contacto.
+        // Eso evita volver a anteponer el saludo si la conversación ya tuvo una respuesta del bot.
+        hasConversationHistory: Boolean(existingOutbound),
       });
 
       console.log("[EVOLUTION] auto_reply_mode", {
