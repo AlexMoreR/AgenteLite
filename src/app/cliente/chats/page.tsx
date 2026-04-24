@@ -53,19 +53,28 @@ function parseChatKey(input: string): { source: "agent" | "official"; conversati
   return null;
 }
 
+function isRenderableMediaUrl(mediaUrl?: string | null) {
+  if (!mediaUrl) {
+    return false;
+  }
+
+  const normalized = mediaUrl.trim().toLowerCase();
+  return (
+    normalized.startsWith("data:") ||
+    normalized.startsWith("blob:") ||
+    normalized.startsWith("http://") ||
+    normalized.startsWith("https://")
+  );
+}
+
 function shouldResolveEvolutionMedia(mediaUrl?: string | null) {
   if (!mediaUrl) {
     return true;
   }
 
   const normalized = mediaUrl.toLowerCase();
-  if (
-    normalized.startsWith("data:") ||
-    normalized.startsWith("blob:") ||
-    normalized.startsWith("http://") ||
-    normalized.startsWith("https://")
-  ) {
-    return normalized.includes("mmg.whatsapp.net") || normalized.includes(".enc");
+  if (!isRenderableMediaUrl(mediaUrl)) {
+    return true;
   }
 
   return normalized.includes("mmg.whatsapp.net") || normalized.includes(".enc");
