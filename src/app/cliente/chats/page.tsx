@@ -393,7 +393,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
 
   return (
     <section className="chat-app-layout flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
-      <ChatsAutoRefresh intervalMs={15000} />
+      <ChatsAutoRefresh intervalMs={5000} enabled={Boolean(selectedUnified)} />
       <QueryFeedbackToast
         okMessage={okMessage}
         errorMessage={errorMessage}

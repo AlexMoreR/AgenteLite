@@ -14,6 +14,7 @@ import {
   UserRound,
 } from "lucide-react";
 import { ChatScrollAnchor } from "@/components/agents/chat-scroll-anchor";
+import { ChatSelectionOverlay } from "@/components/chats/chat-selection-overlay";
 import { ConversationList } from "@/components/chats/conversation-list";
 import { Card } from "@/components/ui/card";
 
@@ -414,7 +415,8 @@ export function SharedInbox({
               </div>
             </div>
 
-            <div className="flex min-h-0 flex-1 flex-col bg-[#f3f4f6]">
+            <div className="relative flex min-h-0 flex-1 flex-col bg-[#f3f4f6]">
+              <ChatSelectionOverlay selectedConversationId={selectedConversationId} />
               <div
                 className="chat-messages-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-2.5 py-2.5 pb-3 [-webkit-overflow-scrolling:touch] md:px-5 md:py-5 md:pb-5"
                 style={{

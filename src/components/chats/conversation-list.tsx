@@ -49,6 +49,21 @@ export function ConversationList({
   const router = useRouter();
   const effectiveSelectedId = isPending && pendingId ? pendingId : selectedConversationId;
 
+  function emitPendingSelection(conversation: SharedInboxConversationItem) {
+    window.dispatchEvent(
+      new CustomEvent("chat-selection-pending", {
+        detail: {
+          id: conversation.id,
+          label: conversation.label,
+          secondaryLabel: conversation.secondaryLabel,
+          avatarUrl: conversation.avatarUrl ?? null,
+          lastMessage: conversation.lastMessage,
+          channelType: conversation.channelType,
+        },
+      }),
+    );
+  }
+
   return (
     <>
       {conversations.map((conversation) => {
@@ -65,6 +80,7 @@ export function ConversationList({
 
               event.preventDefault();
               setPendingId(conversation.id);
+              emitPendingSelection(conversation);
               startTransition(() => {
                 router.push(conversation.href);
               });
