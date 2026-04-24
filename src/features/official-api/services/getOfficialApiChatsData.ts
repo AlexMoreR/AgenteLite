@@ -69,6 +69,7 @@ export async function getOfficialApiChatsData(input: {
   }
   const activeConfig = config;
   const includeSelectedConversation = input.includeSelectedConversation ?? true;
+  const requestedConversationId = input.conversationId?.trim() || "";
   const officialSearchFilter = searchQuery
     ? Prisma.sql`
       AND (
@@ -79,6 +80,91 @@ export async function getOfficialApiChatsData(input: {
       )
     `
     : Prisma.empty;
+
+  type OfficialConversationDetailRow = {
+    conversationId: string;
+    contactId: string;
+    contactName: string | null;
+    contactPhoneNumber: string | null;
+    contactWaId: string;
+    messageId: string | null;
+    messageContent: string | null;
+    messageDirection: "INBOUND" | "OUTBOUND" | null;
+    messageCreatedAt: Date | null;
+    messageStatus: "RECEIVED" | "SENT" | "DELIVERED" | "READ" | "FAILED" | null;
+    messageMediaUrl: string | null;
+    messageRawPayload: unknown;
+  };
+
+  async function fetchConversationDetail(conversationId: string) {
+    const conversationDetailRows = await prisma.$queryRaw<Array<OfficialConversationDetailRow>>`
+      SELECT
+        c."id" AS "conversationId",
+        ct."id" AS "contactId",
+        ct."name" AS "contactName",
+        ct."phoneNumber" AS "contactPhoneNumber",
+        ct."waId" AS "contactWaId",
+        m."id" AS "messageId",
+        m."content" AS "messageContent",
+        m."direction"::text AS "messageDirection",
+        m."createdAt" AS "messageCreatedAt",
+        m."status"::text AS "messageStatus",
+        m."mediaUrl" AS "messageMediaUrl",
+        m."rawPayload" AS "messageRawPayload"
+      FROM "OfficialApiConversation" c
+      INNER JOIN "OfficialApiContact" ct
+        ON ct."id" = c."contactId"
+      LEFT JOIN LATERAL (
+        SELECT
+          msg."id",
+          msg."content",
+          msg."direction",
+          msg."createdAt",
+          msg."status",
+          msg."mediaUrl",
+          msg."rawPayload"
+        FROM "OfficialApiMessage" msg
+        WHERE msg."conversationId" = c."id"
+        ORDER BY msg."createdAt" DESC
+        LIMIT 120
+      ) m ON true
+      WHERE c."id" = ${conversationId}
+        AND c."configId" = ${activeConfig.id}
+      ORDER BY m."createdAt" ASC NULLS FIRST
+    `;
+
+    if (conversationDetailRows.length === 0) {
+      return null;
+    }
+
+    const firstRow = conversationDetailRows[0];
+    return {
+      id: firstRow.conversationId,
+      contact: {
+        id: firstRow.contactId,
+        name: firstRow.contactName,
+        phoneNumber: firstRow.contactPhoneNumber,
+        waId: firstRow.contactWaId,
+      },
+      messages: conversationDetailRows
+        .filter((row) => row.messageId && row.messageDirection && row.messageCreatedAt && row.messageStatus)
+        .map((row) => ({
+          id: row.messageId!,
+          content: row.messageContent,
+          direction: row.messageDirection!,
+          createdAt: new Date(row.messageCreatedAt!),
+          status: row.messageStatus!,
+          type: inferOfficialApiMessageType(row.messageRawPayload, row.messageMediaUrl, row.messageContent),
+          mediaUrl: row.messageMediaUrl,
+          rawPayload: row.messageRawPayload,
+        })),
+    };
+  }
+
+  const selectedConversationPromise =
+    includeSelectedConversation && requestedConversationId
+      ? fetchConversationDetail(requestedConversationId)
+      : null;
 
   const conversationRows = await prisma.$queryRaw<Array<{
     id: string;
@@ -153,83 +239,7 @@ export async function getOfficialApiChatsData(input: {
   const selectedConversationId = input.conversationId?.trim() || conversations[0]?.id || "";
 
   const selectedConversation = includeSelectedConversation && selectedConversationId
-    ? await (async () => {
-        const conversationDetailRows = await prisma.$queryRaw<Array<{
-          conversationId: string;
-          contactId: string;
-          contactName: string | null;
-          contactPhoneNumber: string | null;
-          contactWaId: string;
-          messageId: string | null;
-          messageContent: string | null;
-          messageDirection: "INBOUND" | "OUTBOUND" | null;
-          messageCreatedAt: Date | null;
-          messageStatus: "RECEIVED" | "SENT" | "DELIVERED" | "READ" | "FAILED" | null;
-          messageMediaUrl: string | null;
-          messageRawPayload: unknown;
-        }>>`
-          SELECT
-            c."id" AS "conversationId",
-            ct."id" AS "contactId",
-            ct."name" AS "contactName",
-            ct."phoneNumber" AS "contactPhoneNumber",
-            ct."waId" AS "contactWaId",
-            m."id" AS "messageId",
-            m."content" AS "messageContent",
-            m."direction"::text AS "messageDirection",
-            m."createdAt" AS "messageCreatedAt",
-            m."status"::text AS "messageStatus",
-            m."mediaUrl" AS "messageMediaUrl",
-            m."rawPayload" AS "messageRawPayload"
-          FROM "OfficialApiConversation" c
-          INNER JOIN "OfficialApiContact" ct
-            ON ct."id" = c."contactId"
-          LEFT JOIN LATERAL (
-            SELECT
-              msg."id",
-              msg."content",
-              msg."direction",
-              msg."createdAt",
-              msg."status",
-              msg."mediaUrl",
-              msg."rawPayload"
-            FROM "OfficialApiMessage" msg
-            WHERE msg."conversationId" = c."id"
-            ORDER BY msg."createdAt" DESC
-            LIMIT 120
-          ) m ON true
-          WHERE c."id" = ${selectedConversationId}
-            AND c."configId" = ${activeConfig.id}
-          ORDER BY m."createdAt" ASC NULLS FIRST
-        `;
-
-        if (conversationDetailRows.length === 0) {
-          return null;
-        }
-
-        const firstRow = conversationDetailRows[0];
-        return {
-          id: firstRow.conversationId,
-          contact: {
-            id: firstRow.contactId,
-            name: firstRow.contactName,
-            phoneNumber: firstRow.contactPhoneNumber,
-            waId: firstRow.contactWaId,
-          },
-          messages: conversationDetailRows
-            .filter((row) => row.messageId && row.messageDirection && row.messageCreatedAt && row.messageStatus)
-            .map((row) => ({
-              id: row.messageId!,
-              content: row.messageContent,
-              direction: row.messageDirection!,
-              createdAt: new Date(row.messageCreatedAt!),
-              status: row.messageStatus!,
-              type: inferOfficialApiMessageType(row.messageRawPayload, row.messageMediaUrl, row.messageContent),
-              mediaUrl: row.messageMediaUrl,
-              rawPayload: row.messageRawPayload,
-            })),
-        };
-      })()
+    ? await (selectedConversationPromise ?? fetchConversationDetail(selectedConversationId))
     : null;
 
   return {

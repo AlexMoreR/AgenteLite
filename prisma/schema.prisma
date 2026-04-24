@@ -311,6 +311,7 @@ model Conversation {
 
   @@index([workspaceId, status])
   @@index([workspaceId, lastMessageAt])
+  @@index([workspaceId, lastMessageAt, updatedAt])
   @@index([contactId, lastMessageAt])
   @@index([channelId, lastMessageAt])
 }
@@ -560,6 +561,7 @@ model OfficialApiConversation {
 
   @@unique([configId, externalThreadId])
   @@index([configId, status, lastMessageAt])
+  @@index([configId, lastMessageAt, updatedAt])
   @@index([contactId, lastMessageAt])
 }
 

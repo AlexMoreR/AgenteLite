@@ -144,6 +144,11 @@ export async function ensureOfficialApiConfigTable(): Promise<void> {
   `);
 
     await prisma.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS "OfficialApiConversation_configId_lastMessageAt_updatedAt_idx"
+    ON "OfficialApiConversation" ("configId", "lastMessageAt", "updatedAt");
+  `);
+
+    await prisma.$executeRawUnsafe(`
     CREATE INDEX IF NOT EXISTS "OfficialApiConversation_contactId_lastMessageAt_idx"
     ON "OfficialApiConversation" ("contactId", "lastMessageAt");
   `);

@@ -73,6 +73,41 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   const selectedChatRef = parseChatKey(selectedChatKeyParam);
 
   const canUseOfficialApi = await canAccessOfficialApiModule(session.user.id, session.user.role);
+  const selectedAgentConversationId = selectedChatRef?.source === "agent" ? selectedChatRef.conversationId : "";
+  const selectedAgentConversationPromise =
+    selectedAgentConversationId
+      ? prisma.conversation.findFirst({
+          where: {
+            id: selectedAgentConversationId,
+            workspaceId: membership.workspace.id,
+          },
+          select: {
+            id: true,
+            agentId: true,
+            automationPaused: true,
+            channel: {
+              select: {
+                evolutionInstanceName: true,
+              },
+            },
+            contact: { select: { id: true, name: true, phoneNumber: true, avatarUrl: true } },
+            messages: {
+              orderBy: { createdAt: "desc" },
+              take: 120,
+              select: { id: true, content: true, direction: true, createdAt: true, rawPayload: true, type: true, mediaUrl: true },
+            },
+          },
+        })
+      : null;
+  const officialDataPromise =
+    canUseOfficialApi
+      ? getOfficialApiChatsData({
+          workspaceId: membership.workspace.id,
+          conversationId: selectedChatRef?.source === "official" ? selectedChatRef.conversationId : "",
+          q: searchQuery,
+          includeSelectedConversation: selectedChatRef?.source === "official",
+        })
+      : null;
 
   const [channels, agentConversations] = await Promise.all([
     prisma.whatsAppChannel.findMany({
@@ -188,14 +223,9 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   const officialChannel = channels.find((channel) => channel.provider === "OFFICIAL_API") ?? null;
 
   if (canUseOfficialApi) {
-    officialData = await getOfficialApiChatsData({
-      workspaceId: membership.workspace.id,
-      conversationId: selectedChatRef?.source === "official" ? selectedChatRef.conversationId : "",
-      q: searchQuery,
-      includeSelectedConversation: selectedChatRef?.source === "official",
-    });
+    officialData = officialDataPromise ? await officialDataPromise : null;
 
-    if (officialData.isConnected) {
+    if (officialData && officialData.isConnected) {
       officialRows = officialData.conversations.map((conversation) => ({
         key: `official:${conversation.id}`,
         source: "official",
@@ -284,28 +314,10 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   } | null = null;
 
   if (selectedUnified?.source === "agent") {
-    const detail = await prisma.conversation.findFirst({
-      where: {
-        id: selectedUnified.conversationId,
-        workspaceId: membership.workspace.id,
-      },
-      select: {
-        id: true,
-        agentId: true,
-        automationPaused: true,
-        channel: {
-          select: {
-            evolutionInstanceName: true,
-          },
-        },
-        contact: { select: { id: true, name: true, phoneNumber: true, avatarUrl: true } },
-        messages: {
-          orderBy: { createdAt: "desc" },
-          take: 120,
-          select: { id: true, content: true, direction: true, createdAt: true, rawPayload: true, type: true, mediaUrl: true },
-        },
-      },
-    });
+    const detail =
+      selectedAgentConversation?.id === selectedUnified.conversationId
+        ? selectedAgentConversation
+        : await selectedAgentConversationPromise;
 
     if (detail) {
       const resolvedMessages = detail.messages.slice().reverse().map((message) => {
