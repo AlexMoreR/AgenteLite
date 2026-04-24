@@ -253,14 +253,14 @@ export async function POST(request: Request) {
       workspaceId: channel.workspaceId,
       channelId: channel.id,
       contactId: contact.id,
-      status: {
-        in: ["OPEN", "PENDING"],
-      },
     },
     orderBy: {
       updatedAt: "desc",
     },
-    select: { id: true },
+    select: {
+      id: true,
+      status: true,
+    },
   });
 
   const conversation = existingConversation
@@ -276,6 +276,16 @@ export async function POST(request: Request) {
         },
         select: { id: true },
       });
+
+  if (existingConversation && !["OPEN", "PENDING"].includes(existingConversation.status)) {
+    await prisma.conversation.update({
+      where: { id: conversation.id },
+      data: {
+        status: "OPEN",
+        lastMessageAt: new Date(),
+      },
+    });
+  }
   const conversationAutomationPaused = await getConversationAutomationPaused({
     conversationId: conversation.id,
     workspaceId: channel.workspaceId,
