@@ -59,6 +59,18 @@ body:has(.chat-app-layout) {
   height: 100%;
 }
 
+@media (max-width: 767px) {
+  body:has(.chat-inbox-grid) .chat-app-frame,
+  body:has(.chat-inbox-grid) .chat-app-shell,
+  body:has(.chat-inbox-grid) .chat-app-main,
+  body:has(.chat-inbox-grid) .chat-app-layout,
+  body:has(.chat-inbox-grid) .chat-inbox-grid,
+  body:has(.chat-inbox-grid) .chat-inbox-panel {
+    height: 100dvh;
+    max-height: 100dvh;
+  }
+}
+
 .chat-inbox-grid {
   flex: 1 1 auto;
 }

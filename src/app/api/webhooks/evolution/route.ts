@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { generateAgentReply } from "@/lib/agent-ai";
+import { composeAgentWelcomeReply } from "@/lib/agent-reply-composer";
 import { getConversationAutomationPaused } from "@/lib/conversation-automation";
 import { prisma } from "@/lib/prisma";
 import {
@@ -417,46 +418,43 @@ export async function POST(request: Request) {
 
         let replyText: string | null = null;
 
+      const recentMessages = await prisma.message.findMany({
+        where: {
+          conversationId: conversation.id,
+        },
+        orderBy: {
+          createdAt: "asc",
+        },
+        take: 8,
+        select: {
+          direction: true,
+          content: true,
+        },
+      });
+
+      replyText = await generateAgentReply({
+        model: agent.model,
+        systemPrompt: agent.systemPrompt,
+        fallbackMessage: agent.fallbackMessage,
+        history: recentMessages,
+        latestUserMessage: messageText,
+      });
+
       if (!existingOutbound) {
-        replyText = agent.welcomeMessage?.trim() || agent.fallbackMessage?.trim() || null;
-        console.log("[EVOLUTION] auto_reply_mode", {
-          conversationId: conversation.id,
-          agentId: agent.id,
-          mode: "welcome",
-          usedFallback: !agent.welcomeMessage?.trim(),
-        });
-      } else {
-        const recentMessages = await prisma.message.findMany({
-          where: {
-            conversationId: conversation.id,
-          },
-          orderBy: {
-            createdAt: "asc",
-          },
-          take: 8,
-          select: {
-            direction: true,
-            content: true,
-          },
-        });
-
-        replyText = await generateAgentReply({
-          model: agent.model,
-          systemPrompt: agent.systemPrompt,
-          fallbackMessage: agent.fallbackMessage,
-          history: recentMessages,
-          latestUserMessage: messageText,
-        });
-
-        console.log("[EVOLUTION] auto_reply_mode", {
-          conversationId: conversation.id,
-          agentId: agent.id,
-          mode: "ai",
-          usedFallback:
-            replyText?.trim() === (agent.fallbackMessage?.trim() || "").trim(),
-          historyCount: recentMessages.length,
+        replyText = composeAgentWelcomeReply({
+          welcomeMessage: agent.welcomeMessage,
+          reply: replyText,
         });
       }
+
+      console.log("[EVOLUTION] auto_reply_mode", {
+        conversationId: conversation.id,
+        agentId: agent.id,
+        mode: !existingOutbound ? "first_turn_ai" : "ai",
+        usedFallback:
+          replyText?.trim() === (agent.fallbackMessage?.trim() || "").trim(),
+        historyCount: recentMessages.length,
+      });
 
       const knowledgeImageReply = await resolveAgentKnowledgeImageReply({
         agentId: agent.id,

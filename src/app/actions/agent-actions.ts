@@ -27,6 +27,7 @@ import {
   type TargetAudience,
 } from "@/lib/agent-training";
 import { generateAgentReply } from "@/lib/agent-ai";
+import { composeAgentWelcomeReply } from "@/lib/agent-reply-composer";
 import {
   deleteEvolutionInstance,
   sendEvolutionPresence,
@@ -534,6 +535,95 @@ function buildAgentCopilotFallbackReply(training: ReturnType<typeof buildAgentTr
   const extraNote = remainingCount > 0 ? ` y ${remainingCount} punto(s) mas` : "";
 
   return `⚠️ Le faltan ajustes importantes: ${topWeaknesses}${extraNote}. 💡 El copiloto deberia proponerte esos cambios en vez de quedarse en una respuesta generica.`;
+}
+
+function normalizeCopilotIntent(message: string) {
+  return message
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function buildBaselineCustomRules(training: ReturnType<typeof buildAgentTrainingConfig>) {
+  const rules = [
+    "Si no tienes un dato confirmado del negocio, dilo con claridad y ofrece verificarlo antes de prometer algo.",
+    training.askForOrder
+      ? "Cuando detectes intencion de compra, cierra con un siguiente paso concreto como reservar, cotizar o confirmar el pedido."
+      : "Cuando detectes interes real, guia al cliente al siguiente paso sin forzar un cierre agresivo.",
+    training.handoffToHuman
+      ? "Si el cliente pide algo fuera de catalogo, un descuento especial o una excepcion, ofrece pasar con una persona del equipo."
+      : "Si el caso se sale de lo permitido, explica el limite con claridad y evita improvisar soluciones.",
+  ];
+
+  return rules.join("\n");
+}
+
+function buildAgentCopilotFallbackSuggestion(input: {
+  businessName: string;
+  training: ReturnType<typeof buildAgentTrainingConfig>;
+  userMessage: string;
+}) {
+  const genericReply = buildAgentCopilotFallbackReply(input.training);
+  const normalizedIntent = normalizeCopilotIntent(input.userMessage);
+  const missingFields: string[] = [];
+  const changes: AgentCopilotPatch = {};
+
+  if (!input.training.businessDescription || input.training.businessDescription.trim().length < 40) {
+    missingFields.push("descripcion comercial");
+  }
+  if (!input.training.priceRangeMin && !input.training.priceRangeMax) {
+    missingFields.push("rango de precios");
+  }
+  if (!input.training.instagram && !input.training.facebook && !input.training.tiktok && !input.training.youtube) {
+    missingFields.push("redes sociales");
+  }
+  if (!input.training.location && !input.training.website && !input.training.contactPhone && !input.training.contactEmail) {
+    missingFields.push("datos de contacto");
+  }
+
+  if (!input.training.handlePriceObjections) {
+    changes.handlePriceObjections = true;
+  }
+  if (!input.training.askForOrder) {
+    changes.askForOrder = true;
+  }
+  if (!input.training.offerBestSeller) {
+    changes.offerBestSeller = true;
+  }
+  if (!input.training.handoffToHuman) {
+    changes.handoffToHuman = true;
+  }
+  if (!input.training.customRules.trim()) {
+    changes.customRules = buildBaselineCustomRules(input.training);
+  }
+
+  if (
+    normalizedIntent.includes("bienvenida") ||
+    normalizedIntent.includes("saludo") ||
+    normalizedIntent.includes("nuevo cliente")
+  ) {
+    changes.greetNewCustomers = true;
+    changes.customWelcomeMessage = `Hola, soy el asistente de ${input.businessName}. Cuéntame qué estás buscando y te ayudo a elegir la mejor opción.`;
+  }
+
+  const appliedChanges = Object.keys(changes).length;
+  const missingSummary = missingFields.length
+    ? `Completa manualmente ${missingFields.join(", ")} porque no debo inventarlos.`
+    : "La base del negocio ya tiene suficiente contexto para seguir afinando.";
+  const appliedSummary =
+    appliedChanges > 0
+      ? `Mientras tanto, te deje ${appliedChanges} ajuste(s) seguros para que el agente venda mejor desde ya.`
+      : "No aplique cambios automaticos porque no vi ajustes seguros para tocar sin inventar datos.";
+  const reply =
+    missingFields.length === 0 && appliedChanges === 0
+      ? genericReply
+      : `${missingSummary} ${appliedSummary}`;
+
+  return {
+    reply,
+    changes,
+  };
 }
 
 function replyHasEmoji(value: string) {
@@ -1270,7 +1360,11 @@ export async function runAgentPromptCopilotAction(input: {
     training: currentTraining,
   });
 
-  const fallbackReply = buildAgentCopilotFallbackReply(currentTraining);
+  const fallbackSuggestion = buildAgentCopilotFallbackSuggestion({
+    businessName: agent.workspace.name,
+    training: currentTraining,
+    userMessage: parsed.data.message,
+  });
 
   const historyForModel = trimAgentCopilotHistory(
     persistedHistory.map((item) => ({
@@ -1283,7 +1377,7 @@ export async function runAgentPromptCopilotAction(input: {
   const rawResponse = await generateAgentReply({
     model: agent.model,
     systemPrompt: instructions,
-    fallbackMessage: JSON.stringify({ reply: fallbackReply, changes: {} }),
+    fallbackMessage: JSON.stringify(fallbackSuggestion),
     history: historyForModel.map((item) => ({
       direction: item.role === "assistant" ? "OUTBOUND" : "INBOUND",
       content: item.content,
@@ -1307,7 +1401,8 @@ export async function runAgentPromptCopilotAction(input: {
     })
     .safeParse(decodedJson);
 
-  const replyToPersist = formatAgentCopilotReply(parsedJson.success ? parsedJson.data.reply : fallbackReply);
+  const resolvedResult = parsedJson.success ? parsedJson.data : fallbackSuggestion;
+  const replyToPersist = formatAgentCopilotReply(resolvedResult.reply);
 
   await insertAgentCopilotMessages(workspaceId, agent.id, [
     {
@@ -1321,12 +1416,22 @@ export async function runAgentPromptCopilotAction(input: {
   ]);
 
   if (!parsedJson.success) {
+    const fallbackChanges = sanitizeAgentCopilotPatch(fallbackSuggestion.changes);
+    const fallbackPromptPreview =
+      Object.keys(fallbackChanges).length > 0
+        ? buildAgentSystemPrompt({
+            agentName: agent.name,
+            businessName: agent.workspace.name,
+            training: mergeAgentCopilotPatchIntoTraining(currentTraining, fallbackChanges),
+          })
+        : null;
+
     return {
       ok: true,
       reply: replyToPersist,
-      changes: {},
-      changeSummary: [],
-      promptPreview: null,
+      changes: fallbackChanges,
+      changeSummary: summarizeAgentCopilotChanges(fallbackChanges),
+      promptPreview: fallbackPromptPreview,
     };
   }
 
@@ -2104,7 +2209,13 @@ export async function simulateAgentReplyAction(input: {
   });
 
   if (!hasOutboundHistory && agent.welcomeMessage?.trim()) {
-    return { ok: true, reply: `${agent.welcomeMessage.trim()}\n\n${reply}` };
+    return {
+      ok: true,
+      reply: composeAgentWelcomeReply({
+        welcomeMessage: agent.welcomeMessage,
+        reply,
+      }),
+    };
   }
 
   return { ok: true, reply };
