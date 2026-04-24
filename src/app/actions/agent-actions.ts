@@ -2416,7 +2416,7 @@ export async function simulateAgentReplyAction(input: {
       welcomeMessage: agent.welcomeMessage,
       reply,
       // Solo consideramos que ya hubo bienvenida si el bot respondió antes.
-      hasConversationHistory: hasOutboundHistory,
+      hasConversationHistory: trimmedHistory.filter((item) => item.direction === "INBOUND").length > 1,
     }),
   };
 }

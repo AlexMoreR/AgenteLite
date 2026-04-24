@@ -345,6 +345,14 @@ export async function POST(request: Request) {
     },
   });
 
+  const inboundMessageCountRows = await prisma.$queryRaw<Array<{ total: bigint | number }>>`
+    SELECT COUNT(*)::bigint AS "total"
+    FROM "Message"
+    WHERE "conversationId" = ${conversation.id}
+      AND "direction" = 'INBOUND'::"MessageDirection"
+  `;
+  const inboundMessageCount = Number(inboundMessageCountRows[0]?.total ?? 0);
+
   console.log("[EVOLUTION] inbound_saved", {
     conversationId: conversation.id,
     contactId: contact.id,
@@ -464,7 +472,7 @@ export async function POST(request: Request) {
         reply: replyText,
         // Usamos el historial saliente real como señal de primer contacto.
         // Eso evita volver a anteponer el saludo si la conversación ya tuvo una respuesta del bot.
-        hasConversationHistory: Boolean(existingOutbound),
+        hasConversationHistory: inboundMessageCount > 1,
       });
 
       console.log("[EVOLUTION] auto_reply_mode", {
