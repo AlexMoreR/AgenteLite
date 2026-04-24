@@ -459,12 +459,11 @@ export async function POST(request: Request) {
         latestUserMessage: messageText,
       });
 
-      if (!existingOutbound) {
-        replyText = composeAgentWelcomeReply({
-          welcomeMessage: agent.welcomeMessage,
-          reply: replyText,
-        });
-      }
+      replyText = composeAgentWelcomeReply({
+        welcomeMessage: agent.welcomeMessage,
+        reply: replyText,
+        hasConversationHistory: recentMessages.length > 1,
+      });
 
       console.log("[EVOLUTION] auto_reply_mode", {
         conversationId: conversation.id,

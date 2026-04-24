@@ -2410,15 +2410,12 @@ export async function simulateAgentReplyAction(input: {
     latestUserMessage: parsed.data.latestUserMessage,
   });
 
-  if (!hasOutboundHistory && agent.welcomeMessage?.trim()) {
-    return {
-      ok: true,
-      reply: composeAgentWelcomeReply({
-        welcomeMessage: agent.welcomeMessage,
-        reply,
-      }),
-    };
-  }
-
-  return { ok: true, reply };
+  return {
+    ok: true,
+    reply: composeAgentWelcomeReply({
+      welcomeMessage: agent.welcomeMessage,
+      reply,
+      hasConversationHistory: trimmedHistory.length > 0,
+    }),
+  };
 }
