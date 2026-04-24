@@ -393,7 +393,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           const shouldResolveMedia =
             Boolean(detailChannel?.evolutionInstanceName) &&
             ["IMAGE", "AUDIO", "VIDEO", "DOCUMENT"].includes(message.type || "") &&
-            shouldResolveEvolutionMedia(message.mediaUrl);
+            (message.type === "AUDIO" || shouldResolveEvolutionMedia(message.mediaUrl));
 
           const resolvedMediaUrl =
             shouldResolveMedia && detailChannel?.evolutionInstanceName

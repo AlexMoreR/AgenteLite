@@ -660,7 +660,7 @@ export function SharedInbox({
                             ) : isVideoMessage(message) ? (
                               <div className="space-y-2">
                                 {(() => {
-                                  const videoUrl = extractMediaUrlFromPayload(message, "VIDEO");
+                                  const videoUrl = message.mediaUrl || extractMediaUrlFromPayload(message, "VIDEO");
                                   return videoUrl ? (
                                     <video
                                       src={videoUrl}
@@ -681,9 +681,9 @@ export function SharedInbox({
                                 {message.content?.trim() ? <p>{message.content}</p> : null}
                               </div>
                             ) : isAudioMessage(message) ? (
-                              extractMediaUrlFromPayload(message, "AUDIO") ? (
+                              message.mediaUrl || extractMediaUrlFromPayload(message, "AUDIO") ? (
                                 <AudioMessageCard
-                                  mediaUrl={extractMediaUrlFromPayload(message, "AUDIO") || ""}
+                                  mediaUrl={message.mediaUrl || extractMediaUrlFromPayload(message, "AUDIO") || ""}
                                   content={message.content}
                                   outbound={outbound}
                                 />
@@ -693,7 +693,7 @@ export function SharedInbox({
                             ) : isDocumentMessage(message) ? (
                               <div className="space-y-2">
                                 <a
-                                  href={extractMediaUrlFromPayload(message, "DOCUMENT") || "#"}
+                                  href={message.mediaUrl || extractMediaUrlFromPayload(message, "DOCUMENT") || "#"}
                                   target="_blank"
                                   rel="noreferrer"
                                   className={`inline-flex items-center rounded-xl px-3 py-2 text-sm font-medium underline-offset-2 transition hover:underline ${
