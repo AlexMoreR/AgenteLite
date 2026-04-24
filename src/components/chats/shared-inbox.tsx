@@ -1,6 +1,8 @@
+"use client";
+
 import Image from "next/image";
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   ArrowLeft,
   BadgeCheck,
@@ -15,6 +17,7 @@ import {
 } from "lucide-react";
 import { ChatScrollAnchor } from "@/components/agents/chat-scroll-anchor";
 import { ChatSelectionOverlay } from "@/components/chats/chat-selection-overlay";
+import { readConversationFromCache, saveConversationToCache } from "@/components/chats/chat-history-cache";
 import { ConversationList } from "@/components/chats/conversation-list";
 import { Card } from "@/components/ui/card";
 
@@ -176,13 +179,26 @@ function getNestedValue(value: unknown, key: string) {
 }
 
 function bytesLikeToBase64(value: unknown) {
+  const toBase64 = (bytes: number[]) => {
+    if (bytes.length === 0) {
+      return null;
+    }
+
+    let binary = "";
+    for (const byte of bytes) {
+      binary += String.fromCharCode(byte);
+    }
+
+    return window.btoa(binary);
+  };
+
   if (value instanceof Uint8Array) {
-    return Buffer.from(value).toString("base64");
+    return toBase64(Array.from(value));
   }
 
   if (Array.isArray(value)) {
     const bytes = value.filter((item): item is number => typeof item === "number");
-    return bytes.length > 0 ? Buffer.from(bytes).toString("base64") : null;
+    return toBase64(bytes);
   }
 
   if (!isObjectRecord(value)) {
@@ -194,7 +210,7 @@ function bytesLikeToBase64(value: unknown) {
     .sort((left, right) => Number(left[0]) - Number(right[0]))
     .map(([, entryValue]) => entryValue as number);
 
-  return numericEntries.length > 0 ? Buffer.from(numericEntries).toString("base64") : null;
+  return toBase64(numericEntries);
 }
 
 function extractImagePreviewUrl(message: SharedInboxMessageItem) {
@@ -259,11 +275,60 @@ export function SharedInbox({
   emptySelectionTitle,
   emptySelectionDescription,
 }: SharedInboxProps) {
-  const explicitSelectedConversation =
-    conversations.find((conversation) => conversation.id === selectedConversationId) || null;
-  const hasMobileSelection = Boolean(explicitSelectedConversation);
-  const selectedConversationScrollKey = selectedConversation
-    ? `${selectedConversation.id}:${selectedConversation.messages.length}:${selectedConversation.messages.at(-1)?.id ?? ""}`
+  const [optimisticConversation, setOptimisticConversation] = useState<SharedInboxSelectedConversation | null>(null);
+  const [pendingConversation, setPendingConversation] = useState<{
+    id: string;
+    label: string;
+    secondaryLabel: string;
+    avatarUrl?: string | null;
+    lastMessage?: string | null;
+    channelType?: SharedInboxConversationItem["channelType"];
+  } | null>(null);
+
+  useEffect(() => {
+    if (selectedConversation) {
+      saveConversationToCache(selectedConversation);
+    }
+  }, [selectedConversation]);
+
+  useEffect(() => {
+    function handlePendingSelection(event: Event) {
+      const customEvent = event as CustomEvent<{
+        id: string;
+        label: string;
+        secondaryLabel: string;
+        avatarUrl?: string | null;
+        lastMessage?: string | null;
+        channelType?: SharedInboxConversationItem["channelType"];
+      }>;
+      const nextConversation = customEvent.detail;
+      if (!nextConversation?.id) {
+        return;
+      }
+
+      setPendingConversation(nextConversation);
+      const cachedConversation = readConversationFromCache(nextConversation.id);
+      if (cachedConversation) {
+        setOptimisticConversation(cachedConversation);
+      } else {
+        setOptimisticConversation(null);
+      }
+    }
+
+    window.addEventListener("chat-selection-pending", handlePendingSelection as EventListener);
+    return () => window.removeEventListener("chat-selection-pending", handlePendingSelection as EventListener);
+  }, []);
+
+  const renderedConversation =
+    selectedConversation && pendingConversation?.id === selectedConversation.id
+      ? selectedConversation
+      : optimisticConversation && pendingConversation?.id === optimisticConversation.id
+        ? optimisticConversation
+        : selectedConversation;
+  const hasSettledConversation = Boolean(renderedConversation && selectedConversation && renderedConversation.id === selectedConversation.id);
+  const hasMobileSelection = Boolean(renderedConversation || pendingConversation || selectedConversationId);
+  const selectedConversationScrollKey = renderedConversation
+    ? `${renderedConversation.id}:${renderedConversation.messages.length}:${renderedConversation.messages.at(-1)?.id ?? ""}`
     : "empty";
   const hasSidebar = sidebarItems.length > 0;
 
@@ -372,7 +437,7 @@ export function SharedInbox({
       <Card
         className={`${hasMobileSelection || conversations.length === 0 ? "flex" : "hidden md:flex"} chat-inbox-panel min-h-0 flex-1 overflow-hidden border border-[rgba(148,163,184,0.14)] bg-white p-0 shadow-none md:h-full md:shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)]`}
       >
-        {selectedConversation ? (
+        {renderedConversation ? (
           <div className="flex min-h-0 h-full w-full flex-1 flex-col">
             <div className="shrink-0 border-b border-[rgba(148,163,184,0.12)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcff_100%)] px-3 pb-2.5 pt-[calc(env(safe-area-inset-top)+0.625rem)] md:px-[10px] md:py-[10px]">
               <div className="flex min-w-0 items-center justify-between gap-3">
@@ -381,13 +446,13 @@ export function SharedInbox({
                     href={backHref}
                     className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[rgba(148,163,184,0.14)] bg-white text-slate-500 transition hover:bg-slate-50 md:hidden"
                     aria-label="Volver a chats"
-                  >
-                    <ArrowLeft className="h-4 w-4" />
+                    >
+                      <ArrowLeft className="h-4 w-4" />
                   </Link>
-                  {selectedConversation.avatarUrl ? (
+                  {renderedConversation.avatarUrl ? (
                     <Image
-                      src={selectedConversation.avatarUrl}
-                      alt={selectedConversation.label}
+                      src={renderedConversation.avatarUrl}
+                      alt={renderedConversation.label}
                       width={40}
                       height={40}
                       unoptimized
@@ -395,18 +460,18 @@ export function SharedInbox({
                     />
                   ) : (
                     <div className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-sm font-semibold text-slate-700">
-                      {getInitials(selectedConversation.label)}
+                      {getInitials(renderedConversation.label)}
                     </div>
                   )}
                   <div className="min-w-0">
                     <h2 className="truncate text-[13px] font-semibold text-slate-950 md:text-sm">
-                      {selectedConversation.label}
+                      {renderedConversation.label}
                     </h2>
-                    <p className="truncate text-xs text-slate-500">{selectedConversation.secondaryLabel}</p>
+                    <p className="truncate text-xs text-slate-500">{renderedConversation.secondaryLabel}</p>
                   </div>
                 </div>
 
-                {headerActions || headerBadge ? (
+                {hasSettledConversation && (headerActions || headerBadge) ? (
                   <div className="flex shrink-0 items-center justify-end gap-2">
                     {headerActions}
                     {headerBadge}
@@ -428,9 +493,9 @@ export function SharedInbox({
                 }}
               >
                 <div className="space-y-2.5 md:space-y-3">
-                  {selectedConversation.messages.map((message, index) => {
+                  {renderedConversation.messages.map((message, index) => {
                     const outbound = message.direction === "OUTBOUND";
-                    const previousMessage = selectedConversation.messages[index - 1];
+                    const previousMessage = renderedConversation.messages[index - 1];
                     const currentDateKey = new Intl.DateTimeFormat("en-CA").format(message.createdAt);
                     const previousDateKey = previousMessage
                       ? new Intl.DateTimeFormat("en-CA").format(previousMessage.createdAt)
@@ -590,7 +655,7 @@ export function SharedInbox({
                 </div>
               </div>
 
-              {composer ? (
+              {composer && hasSettledConversation ? (
                 <div className="chat-composer z-20 shrink-0 border-t border-[rgba(148,163,184,0.12)] bg-white/96 px-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 shadow-[0_-12px_28px_-24px_rgba(15,23,42,0.2)] backdrop-blur md:border-t md:bg-white md:px-2 md:py-2 md:shadow-none md:backdrop-blur-0">
                   <form action={composer.action} className="mx-auto w-full max-w-5xl">
                     {composer.hiddenFields.map((field) => (
