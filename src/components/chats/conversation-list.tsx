@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import { BadgeCheck, Facebook, Instagram, MessageCircle, Mic, UserRound } from "lucide-react";
@@ -44,12 +45,9 @@ export function ConversationList({
   selectedConversationId: string;
 }) {
   const [pendingId, setPendingId] = useState<string | null>(null);
-
-  useEffect(() => {
-    setPendingId(null);
-  }, [selectedConversationId]);
-
-  const effectiveSelectedId = pendingId ?? selectedConversationId;
+  const [isPending, startTransition] = useTransition();
+  const router = useRouter();
+  const effectiveSelectedId = isPending && pendingId ? pendingId : selectedConversationId;
 
   return (
     <>
@@ -60,8 +58,19 @@ export function ConversationList({
           <Link
             key={conversation.id}
             href={conversation.href}
-            prefetch={false}
-            onClick={() => setPendingId(conversation.id)}
+            onClick={(event) => {
+              if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) {
+                return;
+              }
+
+              event.preventDefault();
+              setPendingId(conversation.id);
+              startTransition(() => {
+                router.push(conversation.href);
+              });
+            }}
+            onMouseEnter={() => router.prefetch(conversation.href)}
+            onFocus={() => router.prefetch(conversation.href)}
             className={`group relative grid w-full grid-cols-[40px_minmax(0,1fr)] items-start gap-3 overflow-hidden px-3 py-2.5 transition-[background-color,box-shadow,transform] duration-200 md:grid-cols-[44px_minmax(0,1fr)] md:px-3 md:py-3 ${
               isSelected
                 ? "bg-[color-mix(in_srgb,var(--primary)_6%,white)]"
