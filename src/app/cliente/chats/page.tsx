@@ -8,7 +8,7 @@ import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { Card } from "@/components/ui/card";
 import { OfficialApiLockedState, getOfficialApiChatsData } from "@/features/official-api";
 import { canAccessOfficialApiModule } from "@/lib/admin-module-access";
-import { fetchEvolutionProfilePictureUrl } from "@/lib/evolution";
+import { fetchEvolutionMediaDataUrl, fetchEvolutionProfilePictureUrl } from "@/lib/evolution";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
@@ -50,6 +50,22 @@ function parseChatKey(input: string): { source: "agent" | "official"; conversati
     return { source, conversationId };
   }
   return null;
+}
+
+function shouldResolveEvolutionMedia(mediaUrl?: string | null) {
+  if (!mediaUrl) {
+    return true;
+  }
+
+  const normalized = mediaUrl.toLowerCase();
+  return normalized.includes("mmg.whatsapp.net") || normalized.includes(".enc");
+}
+
+function getEvolutionMediaTypeForMessage(input: { type?: string | null }) {
+  if (input.type === "AUDIO") return "AUDIO" as const;
+  if (input.type === "VIDEO") return "VIDEO" as const;
+  if (input.type === "DOCUMENT") return "DOCUMENT" as const;
+  return "IMAGE" as const;
 }
 
 export default async function ClienteChatsPage({ searchParams }: PageProps) {
@@ -322,40 +338,60 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   } | null = null;
 
   if (selectedUnified?.source === "agent") {
-    const detail =
-      selectedAgentConversation?.id === selectedUnified.conversationId
-        ? selectedAgentConversation
-        : await selectedAgentConversationPromise;
+    const detail = selectedAgentConversationPromise ? await selectedAgentConversationPromise : null;
 
     if (detail) {
-      const resolvedMessages = detail.messages.slice().reverse().map((message) => {
-        const outbound = message.direction === "OUTBOUND";
-        const isManualOutbound =
-          outbound &&
-          typeof message.rawPayload === "object" &&
-          message.rawPayload !== null &&
-          "source" in message.rawPayload &&
-          (message.rawPayload.source === "manual" || message.rawPayload.source === "instance");
+      const detailChannel = detail.channel?.evolutionInstanceName
+        ? { evolutionInstanceName: detail.channel.evolutionInstanceName }
+        : selectedUnified.channelId
+          ? channelsById.get(selectedUnified.channelId) || null
+          : null;
 
-        return {
-          id: message.id,
-          content: message.content,
-          direction: message.direction,
-          createdAt: message.createdAt,
-          authorType: (outbound ? (isManualOutbound ? "user" : "bot") : "user") as "user" | "bot",
-          outboundStatusLabel: outbound ? "entregado" : null,
-          type: message.type,
-          mediaUrl: message.mediaUrl,
-          rawPayload: message.rawPayload,
-        };
-      });
+      const resolvedMessages = await Promise.all(
+        detail.messages.slice().reverse().map(async (message) => {
+          const outbound = message.direction === "OUTBOUND";
+          const isManualOutbound =
+            outbound &&
+            typeof message.rawPayload === "object" &&
+            message.rawPayload !== null &&
+            "source" in message.rawPayload &&
+            (message.rawPayload.source === "manual" || message.rawPayload.source === "instance");
 
-      const detailChannel =
-        selectedAgentConversation?.channelId
-          ? channelsById.get(selectedAgentConversation.channelId) || null
-          : selectedUnified.channelId
-            ? channelsById.get(selectedUnified.channelId) || null
-            : null;
+          const shouldResolveMedia =
+            Boolean(detailChannel?.evolutionInstanceName) &&
+            ["IMAGE", "AUDIO", "VIDEO", "DOCUMENT"].includes(message.type || "") &&
+            shouldResolveEvolutionMedia(message.mediaUrl);
+
+          const resolvedMediaUrl =
+            shouldResolveMedia && detailChannel?.evolutionInstanceName
+              ? (await fetchEvolutionMediaDataUrl({
+                  instanceName: detailChannel.evolutionInstanceName,
+                  messageId: message.id,
+                  mediaType: getEvolutionMediaTypeForMessage({ type: message.type }),
+                  mimeType:
+                    message.type === "AUDIO"
+                      ? "audio/ogg"
+                      : message.type === "VIDEO"
+                        ? "video/mp4"
+                        : message.type === "DOCUMENT"
+                          ? "application/octet-stream"
+                          : "image/jpeg",
+                })) || message.mediaUrl
+              : message.mediaUrl;
+
+          return {
+            id: message.id,
+            content: message.content,
+            direction: message.direction,
+            createdAt: message.createdAt,
+            authorType: (outbound ? (isManualOutbound ? "user" : "bot") : "user") as "user" | "bot",
+            outboundStatusLabel: outbound ? "entregado" : null,
+            type: message.type,
+            mediaUrl: resolvedMediaUrl,
+            rawPayload: message.rawPayload,
+          };
+        }),
+      );
 
       const avatarUrl = detail.contact.avatarUrl ?? selectedUnified.avatarUrl ?? null;
       if (!detail.contact.avatarUrl && detailChannel?.evolutionInstanceName && detail.contact.phoneNumber) {
