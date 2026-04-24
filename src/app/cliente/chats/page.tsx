@@ -59,7 +59,7 @@ function shouldResolveEvolutionMedia(mediaUrl?: string | null) {
   }
 
   const normalized = mediaUrl.toLowerCase();
-  return normalized.startsWith("http") || normalized.includes("mmg.whatsapp.net") || normalized.includes(".enc");
+  return normalized.includes("mmg.whatsapp.net") || normalized.includes(".enc");
 }
 
 function getEvolutionMediaTypeForMessage(input: { type?: string | null }) {

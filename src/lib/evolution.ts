@@ -210,7 +210,17 @@ function normalizeBase64DataUrl(base64Like: string, mimeType: string) {
     return trimmed;
   }
 
-  return `data:${mimeType};base64,${trimmed}`;
+  const compact = trimmed.replace(/\s+/g, "");
+  const looksLikeBase64 =
+    compact.length > 32 &&
+    compact.length % 4 === 0 &&
+    /^[A-Za-z0-9+/=]+$/.test(compact);
+
+  if (!looksLikeBase64) {
+    return null;
+  }
+
+  return `data:${mimeType};base64,${compact}`;
 }
 
 function extractBase64Candidate(value: unknown): string | null {

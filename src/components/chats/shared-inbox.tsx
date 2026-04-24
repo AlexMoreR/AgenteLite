@@ -102,19 +102,19 @@ function formatDateDivider(date: Date) {
 }
 
 function isVisualMessage(message: SharedInboxMessageItem) {
-  return Boolean(extractMediaUrlFromPayload(message, "IMAGE")) && (message.type === "IMAGE" || (!message.type && message.mediaUrl));
+  return Boolean(message.mediaUrl || extractMediaUrlFromPayload(message, "IMAGE")) && (message.type === "IMAGE" || (!message.type && message.mediaUrl));
 }
 
 function isAudioMessage(message: SharedInboxMessageItem) {
-  return Boolean(extractMediaUrlFromPayload(message, "AUDIO")) && message.type === "AUDIO";
+  return Boolean(message.mediaUrl || extractMediaUrlFromPayload(message, "AUDIO")) && message.type === "AUDIO";
 }
 
 function isVideoMessage(message: SharedInboxMessageItem) {
-  return Boolean(extractMediaUrlFromPayload(message, "VIDEO")) && message.type === "VIDEO";
+  return Boolean(message.mediaUrl || extractMediaUrlFromPayload(message, "VIDEO")) && message.type === "VIDEO";
 }
 
 function isDocumentMessage(message: SharedInboxMessageItem) {
-  return Boolean(extractMediaUrlFromPayload(message, "DOCUMENT")) && message.type === "DOCUMENT";
+  return Boolean(message.mediaUrl || extractMediaUrlFromPayload(message, "DOCUMENT")) && message.type === "DOCUMENT";
 }
 
 function extractMediaUrlFromPayload(message: SharedInboxMessageItem, type: "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT") {
@@ -632,22 +632,30 @@ export function SharedInbox({
                             ) : isVideoMessage(message) ? (
                               <div className="space-y-2">
                                 {(() => {
-                                  const videoUrl = extractMediaUrlFromPayload(message, "VIDEO");
-                                  return (
-                                <video
-                                  src={videoUrl || ""}
-                                  controls
-                                  preload="metadata"
-                                  className="max-h-[320px] w-full rounded-xl bg-black"
-                                />
+                                  const videoUrl = message.mediaUrl || extractMediaUrlFromPayload(message, "VIDEO");
+                                  return videoUrl ? (
+                                    <video
+                                      src={videoUrl}
+                                      controls
+                                      preload="metadata"
+                                      className="max-h-[320px] w-full rounded-xl bg-black"
+                                    />
+                                  ) : (
+                                    <div
+                                      className={`flex min-h-[140px] items-center justify-center rounded-xl border border-dashed text-sm ${
+                                        outbound ? "border-white/20 text-white/80" : "border-slate-200 text-slate-500"
+                                      }`}
+                                    >
+                                      Video no disponible
+                                    </div>
                                   );
                                 })()}
                                 {message.content?.trim() ? <p>{message.content}</p> : null}
                               </div>
                             ) : isAudioMessage(message) ? (
-                              extractMediaUrlFromPayload(message, "AUDIO") ? (
+                              message.mediaUrl || extractMediaUrlFromPayload(message, "AUDIO") ? (
                                 <AudioMessageCard
-                                  mediaUrl={extractMediaUrlFromPayload(message, "AUDIO") || ""}
+                                  mediaUrl={message.mediaUrl || extractMediaUrlFromPayload(message, "AUDIO") || ""}
                                   content={message.content}
                                   outbound={outbound}
                                 />
@@ -657,7 +665,7 @@ export function SharedInbox({
                             ) : isDocumentMessage(message) ? (
                               <div className="space-y-2">
                                 <a
-                                  href={extractMediaUrlFromPayload(message, "DOCUMENT") || "#"}
+                                  href={message.mediaUrl || extractMediaUrlFromPayload(message, "DOCUMENT") || "#"}
                                   target="_blank"
                                   rel="noreferrer"
                                   className={`inline-flex items-center rounded-xl px-3 py-2 text-sm font-medium underline-offset-2 transition hover:underline ${
