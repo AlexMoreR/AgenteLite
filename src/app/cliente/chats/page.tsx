@@ -374,7 +374,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         label: getAgentContactLabel(detail.contact),
         secondaryLabel: detail.contact.phoneNumber,
         avatarUrl,
-        automationPaused: detail.automationPaused,
+        automationPaused: "automationPaused" in detail ? detail.automationPaused : false,
         messages: resolvedMessages,
       };
     }
