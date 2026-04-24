@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, MessageSquareText, UserRound } from "lucide-react";
+import { Loader2, UserRound } from "lucide-react";
 
 type PendingConversationSelection = {
   id: string;
