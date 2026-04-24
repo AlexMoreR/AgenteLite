@@ -347,6 +347,7 @@ export function SharedInbox({
                     <Link
                       key={item.id}
                       href={item.href}
+                      prefetch={false}
                       className={`group flex items-center gap-3 rounded-2xl px-3 py-2.5 transition ${
                         isActive ? "bg-white/8 text-white" : "text-white/72 hover:bg-white/5 hover:text-white"
                       }`}
@@ -409,6 +410,7 @@ export function SharedInbox({
                   <Link
                     key={conversation.id}
                     href={conversation.href}
+                    prefetch={false}
                     className={`group relative grid w-full grid-cols-[40px_minmax(0,1fr)] items-start gap-3 overflow-hidden px-3 py-2.5 transition-[background-color,box-shadow,transform] duration-200 md:grid-cols-[44px_minmax(0,1fr)] md:px-3 md:py-3 ${
                       isSelected
                         ? "bg-[color-mix(in_srgb,var(--primary)_6%,white)]"

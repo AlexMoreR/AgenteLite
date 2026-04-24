@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { generateAgentReply } from "@/lib/agent-ai";
+import { resolveAgentProductFlowReply } from "@/lib/agent-product-flow";
 import { composeAgentWelcomeReply } from "@/lib/agent-reply-composer";
 import { getConversationAutomationPaused } from "@/lib/conversation-automation";
 import { prisma } from "@/lib/prisma";
@@ -432,7 +433,15 @@ export async function POST(request: Request) {
         },
       });
 
-      replyText = await generateAgentReply({
+      const hardFlowReply = await resolveAgentProductFlowReply({
+        agentId: agent.id,
+        workspaceId: channel.workspaceId,
+        latestUserMessage: messageText,
+        history: recentMessages,
+        includeOfficialApi: false,
+      });
+
+      replyText = hardFlowReply?.reply ?? await generateAgentReply({
         model: agent.model,
         systemPrompt: agent.systemPrompt,
         fallbackMessage: agent.fallbackMessage,
@@ -451,6 +460,7 @@ export async function POST(request: Request) {
         conversationId: conversation.id,
         agentId: agent.id,
         mode: !existingOutbound ? "first_turn_ai" : "ai",
+        hardFlow: hardFlowReply?.flowTitle ?? null,
         usedFallback:
           replyText?.trim() === (agent.fallbackMessage?.trim() || "").trim(),
         historyCount: recentMessages.length,
@@ -465,7 +475,9 @@ export async function POST(request: Request) {
         replyText = buildKnowledgeImageReplyText(knowledgeImageReply.productName);
       }
 
-      if (replyText || knowledgeImageReply) {
+      const hardFlowImageReply = hardFlowReply?.image ?? null;
+
+      if (replyText || knowledgeImageReply || hardFlowImageReply) {
         try {
           console.log("[EVOLUTION] auto_reply_sending", {
             conversationId: conversation.id,
@@ -473,7 +485,7 @@ export async function POST(request: Request) {
             phoneNumber,
             instanceName: channel.evolutionInstanceName,
             preview: replyText?.slice(0, 80) ?? "",
-            withImage: Boolean(knowledgeImageReply),
+            withImage: Boolean(knowledgeImageReply || hardFlowImageReply),
           });
 
             try {
@@ -519,12 +531,17 @@ export async function POST(request: Request) {
               });
             }
 
-            if (knowledgeImageReply) {
-              const imageCaption = replyText ? null : `Te comparto la foto de ${knowledgeImageReply.productName}.`;
+            if (knowledgeImageReply || hardFlowImageReply) {
+              const imageUrl = hardFlowImageReply?.url ?? knowledgeImageReply?.url ?? "";
+              const imageCaption = hardFlowImageReply
+                ? hardFlowImageReply.caption
+                : replyText
+                  ? null
+                  : `Te comparto la foto de ${knowledgeImageReply?.productName}.`;
               const imageOutbound = await sendEvolutionImageMessage({
                 instanceName: channel.evolutionInstanceName,
                 phoneNumber,
-                imageUrl: knowledgeImageReply.url,
+                imageUrl,
                 caption: imageCaption,
                 delayMs: 0,
               });
@@ -541,7 +558,7 @@ export async function POST(request: Request) {
                   type: "IMAGE",
                   status: "SENT",
                   content: imageCaption,
-                  mediaUrl: knowledgeImageReply.url,
+                  mediaUrl: imageUrl,
                   sentAt: new Date(),
                   rawPayload: imageOutbound.raw as never,
                 },
@@ -561,7 +578,7 @@ export async function POST(request: Request) {
             agentId: agent.id,
             phoneNumber,
             sentText: Boolean(replyText),
-            sentImage: Boolean(knowledgeImageReply),
+            sentImage: Boolean(knowledgeImageReply || hardFlowImageReply),
           });
         } catch (error) {
           const errorMessage =
@@ -593,10 +610,10 @@ export async function POST(request: Request) {
               contactId: contact.id,
               agentId: agent.id,
               direction: "OUTBOUND",
-              type: knowledgeImageReply ? "IMAGE" : "TEXT",
+              type: knowledgeImageReply || hardFlowImageReply ? "IMAGE" : "TEXT",
               status: "FAILED",
-              content: replyText || (knowledgeImageReply ? `Foto solicitada: ${knowledgeImageReply.productName}` : null),
-              mediaUrl: knowledgeImageReply?.url ?? null,
+              content: replyText || (knowledgeImageReply ? `Foto solicitada: ${knowledgeImageReply.productName}` : hardFlowImageReply?.caption ?? null),
+              mediaUrl: knowledgeImageReply?.url ?? hardFlowImageReply?.url ?? null,
               failedAt: new Date(),
             },
           });

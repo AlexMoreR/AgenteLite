@@ -4,6 +4,8 @@ import { BookOpenText, Boxes, Eye, Workflow, Zap } from "lucide-react";
 import { auth } from "@/auth";
 import { saveAgentKnowledgeProductsAction } from "@/app/actions/agent-actions";
 import { AgentPanelShell } from "@/components/agents/agent-panel-shell";
+import { KnowledgeProductInstructionModal } from "@/components/agents/knowledge-product-instruction-modal";
+import { KnowledgeSelectionCheckbox } from "@/components/agents/knowledge-selection-checkbox";
 import { Card } from "@/components/ui/card";
 import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowItems";
 import { formatMoney } from "@/lib/currency";
@@ -27,6 +29,15 @@ function isMissingAgentKnowledgeTableError(error: unknown) {
     message.includes('relation "AgentKnowledgeProduct" does not exist') ||
     message.includes('tabla "AgentKnowledgeProduct" no existe') ||
     message.includes('Table "public.AgentKnowledgeProduct" does not exist')
+  );
+}
+
+function isMissingAgentKnowledgeInstructionsColumnError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes('column "instructions" does not exist') ||
+    message.includes('columna "instructions" no existe') ||
+    message.includes("42703")
   );
 }
 
@@ -91,16 +102,26 @@ export default async function AgentKnowledgePage({ params, searchParams }: PageP
   ]);
 
   let selectedProductIds = new Set<string>();
+  let productInstructionById = new Map<string, string>();
   try {
-    const selectedRows = await prisma.$queryRaw<Array<{ productId: string }>>`
-      SELECT "productId"
+    const selectedRows = await prisma.$queryRaw<Array<{ productId: string; instructions: string | null }>>`
+      SELECT "productId", "instructions"
       FROM "AgentKnowledgeProduct"
       WHERE "agentId" = ${agent.id}
       ORDER BY "createdAt" ASC
     `;
     selectedProductIds = new Set(selectedRows.map((row) => row.productId));
+    productInstructionById = new Map(selectedRows.map((row) => [row.productId, row.instructions ?? ""]));
   } catch (error) {
-    if (!isMissingAgentKnowledgeTableError(error)) {
+    if (isMissingAgentKnowledgeInstructionsColumnError(error)) {
+      const selectedRows = await prisma.$queryRaw<Array<{ productId: string }>>`
+        SELECT "productId"
+        FROM "AgentKnowledgeProduct"
+        WHERE "agentId" = ${agent.id}
+        ORDER BY "createdAt" ASC
+      `;
+      selectedProductIds = new Set(selectedRows.map((row) => row.productId));
+    } else if (!isMissingAgentKnowledgeTableError(error)) {
       throw error;
     }
   }
@@ -193,28 +214,28 @@ export default async function AgentKnowledgePage({ params, searchParams }: PageP
                       key={product.id}
                       className="flex items-center gap-3 rounded-[12px] border border-[rgba(148,163,184,0.14)] bg-white px-3 py-2.5 transition hover:border-[color-mix(in_srgb,var(--primary)_26%,white)]"
                     >
-                      <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3">
-                        <input
-                          type="checkbox"
+                      <div className="flex min-w-0 flex-1 items-center gap-3">
+                        <KnowledgeSelectionCheckbox
                           name="productIds"
                           value={product.id}
                           defaultChecked={selectedProductIds.has(product.id)}
-                          className="h-4 w-4 rounded border-slate-300 text-[var(--primary)] focus:ring-[var(--primary)]"
+                          ariaLabel={`Seleccionar ${product.name} como conocimiento del agente`}
                         />
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <p className="text-[15px] font-semibold text-slate-900">{product.name}</p>
-                            <span className="rounded-full bg-slate-50 px-2 py-0.5 text-[10px] text-slate-500 ring-1 ring-slate-200">
-                              {product.category?.name ?? "Sin categoria"}
-                            </span>
-                            {selectedProductIds.has(product.id) ? (
-                              <span className="rounded-full bg-[color-mix(in_srgb,var(--primary)_8%,white)] px-2 py-0.5 text-[10px] font-medium text-[var(--primary)]">
-                                Seleccionado
-                              </span>
-                            ) : null}
-                          </div>
-                        </div>
-                      </label>
+                        <KnowledgeProductInstructionModal
+                          agentId={agent.id}
+                          productId={product.id}
+                          productName={product.name}
+                          categoryName={product.category?.name ?? "Sin categoria"}
+                          instructions={productInstructionById.get(product.id) ?? ""}
+                          isSelected={selectedProductIds.has(product.id)}
+                          flows={flowTargets.map((flow) => ({
+                            id: flow.id,
+                            title: flow.title,
+                            badge: flow.badge,
+                            description: flow.description,
+                          }))}
+                        />
+                      </div>
                       <p className="shrink-0 text-sm font-semibold text-slate-900">
                         {formatMoney(String(product.price), "COP")}
                       </p>
@@ -251,13 +272,13 @@ export default async function AgentKnowledgePage({ params, searchParams }: PageP
                       key={flow.id}
                       className="flex items-start gap-3 rounded-[12px] border border-[rgba(148,163,184,0.14)] bg-white px-4 py-3 transition hover:border-[color-mix(in_srgb,var(--primary)_26%,white)]"
                     >
-                      <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-3">
-                        <input
-                          type="checkbox"
+                      <div className="flex min-w-0 flex-1 items-start gap-3">
+                        <KnowledgeSelectionCheckbox
                           name="flowIds"
                           value={flow.id}
                           defaultChecked={selectedFlowIds.has(flow.id)}
-                          className="mt-0.5 h-4 w-4 rounded border-slate-300 text-[var(--primary)] focus:ring-[var(--primary)]"
+                          ariaLabel={`Seleccionar ${flow.title} como flujo del agente`}
+                          className="mt-0.5"
                         />
                         <div className="min-w-0 flex-1 space-y-2">
                           <div className="flex flex-wrap items-center gap-1.5">
@@ -273,7 +294,7 @@ export default async function AgentKnowledgePage({ params, searchParams }: PageP
                           </div>
                           <p className="max-w-2xl text-sm leading-6 text-slate-500">{flow.description}</p>
                         </div>
-                      </label>
+                      </div>
                       <Link
                         href={flow.href}
                         className="inline-flex h-8 shrink-0 items-center justify-center rounded-xl border border-[rgba(148,163,184,0.18)] bg-white px-3 text-xs font-medium text-slate-700 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"

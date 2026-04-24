@@ -8,8 +8,7 @@ import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { Card } from "@/components/ui/card";
 import { OfficialApiLockedState, getOfficialApiChatsData } from "@/features/official-api";
 import { canAccessOfficialApiModule } from "@/lib/admin-module-access";
-import { getConversationAutomationPaused } from "@/lib/conversation-automation";
-import { fetchEvolutionMediaDataUrl, fetchEvolutionProfilePictureUrl } from "@/lib/evolution";
+import { fetchEvolutionProfilePictureUrl } from "@/lib/evolution";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
@@ -51,65 +50,6 @@ function parseChatKey(input: string): { source: "agent" | "official"; conversati
     return { source, conversationId };
   }
   return null;
-}
-
-function getEvolutionPayloadRecord(rawPayload: unknown) {
-  if (!rawPayload || typeof rawPayload !== "object") {
-    return null;
-  }
-
-  const record = rawPayload as Record<string, unknown>;
-  const evolution = record.evolution;
-  return evolution && typeof evolution === "object" ? (evolution as Record<string, unknown>) : record;
-}
-
-function getEvolutionMessageId(rawPayload: unknown) {
-  const evolution = getEvolutionPayloadRecord(rawPayload);
-  const data = evolution?.data;
-  if (!data || typeof data !== "object") {
-    return null;
-  }
-
-  const key = (data as Record<string, unknown>).key;
-  if (!key || typeof key !== "object") {
-    return null;
-  }
-
-  const id = (key as Record<string, unknown>).id;
-  return typeof id === "string" && id.trim() ? id.trim() : null;
-}
-
-function getEvolutionMediaMimeType(rawPayload: unknown) {
-  const evolution = getEvolutionPayloadRecord(rawPayload);
-  const data = evolution?.data;
-  if (!data || typeof data !== "object") {
-    return null;
-  }
-
-  const message = (data as Record<string, unknown>).message;
-  if (!message || typeof message !== "object") {
-    return null;
-  }
-
-  for (const key of ["imageMessage", "audioMessage", "videoMessage", "documentMessage"] as const) {
-    const mediaRecord = (message as Record<string, unknown>)[key];
-    if (mediaRecord && typeof mediaRecord === "object") {
-      const mimeType = (mediaRecord as Record<string, unknown>).mimetype;
-      if (typeof mimeType === "string" && mimeType.trim()) {
-        return mimeType.trim();
-      }
-    }
-  }
-
-  return null;
-}
-
-function shouldResolveEvolutionMediaUrl(mediaUrl?: string | null) {
-  if (!mediaUrl) {
-    return true;
-  }
-
-  return mediaUrl.includes("mmg.whatsapp.net") || mediaUrl.includes(".enc") || mediaUrl.startsWith("/");
 }
 
 export default async function ClienteChatsPage({ searchParams }: PageProps) {
@@ -169,7 +109,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           },
         ],
       },
-      orderBy: { updatedAt: "desc" },
+      orderBy: [{ lastMessageAt: "desc" }, { updatedAt: "desc" }],
       take: 120,
       select: {
         id: true,
@@ -212,22 +152,20 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         : [];
     });
 
-  const freshAvatarMap = new Map<string, string>();
   if (uncachedAvatarLookups.length > 0) {
-    await Promise.all(
+    void Promise.all(
       uncachedAvatarLookups.map(async ({ contactId, instanceName, phoneNumber }) => {
         const url = await fetchEvolutionProfilePictureUrl({ instanceName, phoneNumber });
         if (url) {
-          freshAvatarMap.set(contactId, url);
-          void prisma.contact.update({ where: { id: contactId }, data: { avatarUrl: url } });
+          await prisma.contact.update({ where: { id: contactId }, data: { avatarUrl: url } });
         }
       }),
-    );
+    ).catch(() => null);
   }
 
   const agentRows: UnifiedConversation[] = agentConversations.map((conversation) => {
     const linkedChannel = conversation.channelId ? channelsById.get(conversation.channelId) || null : null;
-    const avatarUrl = conversation.contact.avatarUrl ?? freshAvatarMap.get(conversation.contact.id) ?? null;
+    const avatarUrl = conversation.contact.avatarUrl ?? null;
 
     return {
       key: `agent:${conversation.id}`,
@@ -254,6 +192,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       workspaceId: membership.workspace.id,
       conversationId: selectedChatRef?.source === "official" ? selectedChatRef.conversationId : "",
       q: searchQuery,
+      includeSelectedConversation: selectedChatRef?.source === "official",
     });
 
     if (officialData.isConnected) {
@@ -353,6 +292,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       select: {
         id: true,
         agentId: true,
+        automationPaused: true,
         channel: {
           select: {
             evolutionInstanceName: true,
@@ -360,20 +300,15 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         },
         contact: { select: { id: true, name: true, phoneNumber: true, avatarUrl: true } },
         messages: {
-          orderBy: { createdAt: "asc" },
+          orderBy: { createdAt: "desc" },
+          take: 120,
           select: { id: true, content: true, direction: true, createdAt: true, rawPayload: true, type: true, mediaUrl: true },
         },
       },
     });
 
     if (detail) {
-      const automationPaused = await getConversationAutomationPaused({
-        conversationId: detail.id,
-        workspaceId: membership.workspace.id,
-      });
-
-      // Resolve media URLs and cache them back to DB (fire-and-forget)
-      const resolvedMessages = await Promise.all(detail.messages.map(async (message) => {
+      const resolvedMessages = detail.messages.slice().reverse().map((message) => {
         const outbound = message.direction === "OUTBOUND";
         const isManualOutbound =
           outbound &&
@@ -381,28 +316,6 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           message.rawPayload !== null &&
           "source" in message.rawPayload &&
           (message.rawPayload.source === "manual" || message.rawPayload.source === "instance");
-        const resolvableMediaType =
-          message.type === "IMAGE" || message.type === "AUDIO" || message.type === "VIDEO" || message.type === "DOCUMENT"
-            ? message.type
-            : null;
-        const shouldResolveMedia =
-          Boolean(resolvableMediaType) &&
-          shouldResolveEvolutionMediaUrl(message.mediaUrl);
-        const evolutionMessageId = getEvolutionMessageId(message.rawPayload);
-        const resolvedMediaUrl =
-          shouldResolveMedia && detail.channel?.evolutionInstanceName && evolutionMessageId && resolvableMediaType
-            ? await fetchEvolutionMediaDataUrl({
-                instanceName: detail.channel.evolutionInstanceName,
-                messageId: evolutionMessageId,
-                mediaType: resolvableMediaType,
-                mimeType: getEvolutionMediaMimeType(message.rawPayload),
-              })
-            : null;
-
-        // Cache resolved URL back to DB so next load is instant
-        if (resolvedMediaUrl && resolvedMediaUrl !== message.mediaUrl) {
-          void prisma.message.update({ where: { id: message.id }, data: { mediaUrl: resolvedMediaUrl } });
-        }
 
         return {
           id: message.id,
@@ -412,22 +325,21 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           authorType: (outbound ? (isManualOutbound ? "user" : "bot") : "user") as "user" | "bot",
           outboundStatusLabel: outbound ? "entregado" : null,
           type: message.type,
-          mediaUrl: resolvedMediaUrl || message.mediaUrl,
+          mediaUrl: message.mediaUrl,
           rawPayload: message.rawPayload,
         };
-      }));
+      });
 
-      // Cache avatar URL for contact if not already stored
-      let avatarUrl = detail.contact.avatarUrl ?? selectedUnified.avatarUrl ?? null;
+      const avatarUrl = detail.contact.avatarUrl ?? selectedUnified.avatarUrl ?? null;
       if (!detail.contact.avatarUrl && detail.channel?.evolutionInstanceName && detail.contact.phoneNumber) {
-        const fetchedAvatar = await fetchEvolutionProfilePictureUrl({
+        void fetchEvolutionProfilePictureUrl({
           instanceName: detail.channel.evolutionInstanceName,
           phoneNumber: detail.contact.phoneNumber,
-        });
-        if (fetchedAvatar) {
-          avatarUrl = fetchedAvatar;
-          void prisma.contact.update({ where: { id: detail.contact.id }, data: { avatarUrl: fetchedAvatar } });
-        }
+        }).then((fetchedAvatar) => {
+          if (fetchedAvatar) {
+            void prisma.contact.update({ where: { id: detail.contact.id }, data: { avatarUrl: fetchedAvatar } });
+          }
+        }).catch(() => null);
       }
 
       selectedConversation = {
@@ -435,7 +347,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         label: getAgentContactLabel(detail.contact),
         secondaryLabel: detail.contact.phoneNumber,
         avatarUrl,
-        automationPaused,
+        automationPaused: detail.automationPaused,
         messages: resolvedMessages,
       };
     }

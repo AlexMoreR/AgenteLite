@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
+import { resolveAgentProductFlowReply } from "@/lib/agent-product-flow";
 import { resolveOfficialApiAutomationReply } from "@/lib/official-api-chatbot";
 import {
   sendOfficialApiImageMessage,
@@ -596,16 +597,37 @@ export async function POST(request: Request) {
           })
         : null;
 
+      const recentMessages = linkedAgentChannel?.agent?.id
+        ? await prisma.$queryRaw<Array<{ direction: "INBOUND" | "OUTBOUND"; content: string | null }>>`
+            SELECT "direction"::text AS "direction", "content"
+            FROM "OfficialApiMessage"
+            WHERE "conversationId" = ${message.conversationId}
+            ORDER BY "createdAt" ASC
+            LIMIT 8
+          `
+        : [];
+      const agentProductFlowReply = linkedAgentChannel?.agent?.id
+        ? await resolveAgentProductFlowReply({
+            agentId: linkedAgentChannel.agent.id,
+            workspaceId: config.workspaceId,
+            latestUserMessage: message.content,
+            history: recentMessages,
+            includeOfficialApi: true,
+          })
+        : null;
+
       const chatbotReply = await resolveOfficialApiAutomationReply({
         configId: config.id,
         conversationId: message.conversationId,
         inboundText: message.content,
       });
       const reply =
-        chatbotReply || agentKnowledgeImageReply
+        agentProductFlowReply || chatbotReply || agentKnowledgeImageReply
           ? {
-              text: agentKnowledgeImageReply ? buildKnowledgeImageReplyText(agentKnowledgeImageReply.productName) : chatbotReply?.text?.trim() || null,
+              text: agentProductFlowReply?.reply?.trim() ||
+                (agentKnowledgeImageReply ? buildKnowledgeImageReplyText(agentKnowledgeImageReply.productName) : chatbotReply?.text?.trim() || null),
               image:
+                agentProductFlowReply?.image ||
                 chatbotReply?.image ||
                 (agentKnowledgeImageReply
                   ? {

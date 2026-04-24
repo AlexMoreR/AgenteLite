@@ -27,6 +27,7 @@ import {
   type TargetAudience,
 } from "@/lib/agent-training";
 import { generateAgentReply } from "@/lib/agent-ai";
+import { resolveAgentProductFlowReply } from "@/lib/agent-product-flow";
 import { composeAgentWelcomeReply } from "@/lib/agent-reply-composer";
 import {
   deleteEvolutionInstance,
@@ -148,6 +149,12 @@ const saveAgentKnowledgeProductsSchema = z.object({
   agentId: z.string().trim().min(1, "Agente invalido"),
   productIds: z.array(z.string().trim().min(1)).max(60, "Demasiados productos seleccionados"),
   flowIds: z.array(z.string().trim().min(1)).max(20, "Demasiados flujos seleccionados"),
+});
+
+const saveAgentKnowledgeProductInstructionSchema = z.object({
+  agentId: z.string().trim().min(1, "Agente invalido"),
+  productId: z.string().trim().min(1, "Producto invalido"),
+  instructions: z.string().trim().max(5000, "La instruccion es demasiado larga"),
 });
 
 export type AgentTrainingAutosaveState = {
@@ -310,6 +317,15 @@ function isMissingAgentKnowledgeTableError(error: unknown) {
   );
 }
 
+function isMissingAgentKnowledgeInstructionsColumnError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes('column "instructions" does not exist') ||
+    message.includes('columna "instructions" no existe') ||
+    message.includes("42703")
+  );
+}
+
 async function getAgentKnowledgePromptProducts(agentId: string) {
   try {
     return await prisma.$queryRaw<Array<AgentKnowledgePromptProduct>>`
@@ -317,7 +333,8 @@ async function getAgentKnowledgePromptProducts(agentId: string) {
         p."name",
         p."description",
         p."thumbnailUrl",
-        p."price"::text AS "price"
+        p."price"::text AS "price",
+        akp."instructions"
       FROM "AgentKnowledgeProduct" akp
       INNER JOIN "Product" p ON p."id" = akp."productId"
       WHERE akp."agentId" = ${agentId}
@@ -325,6 +342,21 @@ async function getAgentKnowledgePromptProducts(agentId: string) {
       LIMIT 30
     `;
   } catch (error) {
+    if (isMissingAgentKnowledgeInstructionsColumnError(error)) {
+      return await prisma.$queryRaw<Array<AgentKnowledgePromptProduct>>`
+        SELECT
+          p."name",
+          p."description",
+          p."thumbnailUrl",
+          p."price"::text AS "price"
+        FROM "AgentKnowledgeProduct" akp
+        INNER JOIN "Product" p ON p."id" = akp."productId"
+        WHERE akp."agentId" = ${agentId}
+        ORDER BY akp."createdAt" ASC, p."name" ASC
+        LIMIT 30
+      `;
+    }
+
     if (isMissingAgentKnowledgeTableError(error)) {
       return [];
     }
@@ -1710,24 +1742,50 @@ export async function saveAgentKnowledgeProductsAction(formData: FormData): Prom
 
   try {
     await prisma.$transaction(async (tx) => {
+      const existingRows = await tx.$queryRaw<Array<{ productId: string; instructions: string | null }>>`
+        SELECT "productId", "instructions"
+        FROM "AgentKnowledgeProduct"
+        WHERE "agentId" = ${agent.id}
+      `;
+      const instructionByProductId = new Map(
+        existingRows.map((row) => [row.productId, row.instructions]),
+      );
+
       await tx.$executeRaw`
         DELETE FROM "AgentKnowledgeProduct"
         WHERE "agentId" = ${agent.id}
       `;
 
       for (const productId of uniqueProductIds) {
+        const instructions = instructionByProductId.get(productId) ?? null;
         await tx.$executeRaw`
-          INSERT INTO "AgentKnowledgeProduct" ("agentId", "productId")
-          VALUES (${agent.id}, ${productId})
+          INSERT INTO "AgentKnowledgeProduct" ("agentId", "productId", "instructions")
+          VALUES (${agent.id}, ${productId}, ${instructions})
         `;
       }
     });
   } catch (error) {
-    if (!isMissingAgentKnowledgeTableError(error)) {
-      throw error;
-    }
+    if (isMissingAgentKnowledgeInstructionsColumnError(error)) {
+      await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`
+          DELETE FROM "AgentKnowledgeProduct"
+          WHERE "agentId" = ${agent.id}
+        `;
 
-    redirect(`/cliente/agentes/${agent.id}/conocimiento?error=Debes+aplicar+la+migracion+de+conocimiento`);
+        for (const productId of uniqueProductIds) {
+          await tx.$executeRaw`
+            INSERT INTO "AgentKnowledgeProduct" ("agentId", "productId")
+            VALUES (${agent.id}, ${productId})
+          `;
+        }
+      });
+    } else {
+      if (!isMissingAgentKnowledgeTableError(error)) {
+        throw error;
+      }
+
+      redirect(`/cliente/agentes/${agent.id}/conocimiento?error=Debes+aplicar+la+migracion+de+conocimiento`);
+    }
   }
 
   const training = parseAgentTrainingConfig(agent.trainingConfig) ?? defaultAgentTrainingConfig;
@@ -1757,6 +1815,115 @@ export async function saveAgentKnowledgeProductsAction(formData: FormData): Prom
   revalidatePath(`/cliente/agentes/${agent.id}/entrenamiento`);
   revalidatePath(`/cliente/agentes/${agent.id}/probar`);
   redirect(`/cliente/agentes/${agent.id}/conocimiento?ok=Conocimiento+actualizado`);
+}
+
+export async function saveAgentKnowledgeProductInstructionAction(formData: FormData): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+    redirect("/unauthorized");
+  }
+
+  const parsed = saveAgentKnowledgeProductInstructionSchema.safeParse({
+    agentId: formData.get("agentId"),
+    productId: formData.get("productId"),
+    instructions: formData.get("instructions"),
+  });
+
+  const fallbackAgentId = String(formData.get("agentId") || "");
+  if (!parsed.success) {
+    redirect(`/cliente/agentes/${fallbackAgentId}/conocimiento?error=No+se+pudo+guardar+la+instruccion`);
+  }
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    redirect("/cliente/agentes?error=Debes+configurar+tu+negocio+primero");
+  }
+
+  const agent = await prisma.agent.findFirst({
+    where: {
+      id: parsed.data.agentId,
+      workspaceId: membership.workspace.id,
+    },
+    select: {
+      id: true,
+      name: true,
+      trainingConfig: true,
+      workspace: {
+        select: {
+          name: true,
+        },
+      },
+    },
+  });
+
+  if (!agent) {
+    redirect("/cliente/agentes?error=Agente+no+encontrado");
+  }
+
+  const product = await prisma.product.findUnique({
+    where: { id: parsed.data.productId },
+    select: { id: true },
+  });
+
+  if (!product) {
+    redirect(`/cliente/agentes/${agent.id}/conocimiento?error=Producto+no+encontrado`);
+  }
+
+  try {
+    await prisma.$executeRaw`
+      INSERT INTO "AgentKnowledgeProduct" ("agentId", "productId", "instructions")
+      VALUES (${agent.id}, ${product.id}, ${parsed.data.instructions || null})
+      ON CONFLICT ("agentId", "productId")
+      DO UPDATE SET
+        "instructions" = EXCLUDED."instructions",
+        "updatedAt" = CURRENT_TIMESTAMP
+    `;
+  } catch (error) {
+    if (isMissingAgentKnowledgeInstructionsColumnError(error)) {
+      redirect(`/cliente/agentes/${agent.id}/conocimiento?error=Debes+aplicar+la+migracion+de+instrucciones`);
+    }
+
+    if (!isMissingAgentKnowledgeTableError(error)) {
+      throw error;
+    }
+
+    redirect(`/cliente/agentes/${agent.id}/conocimiento?error=Debes+aplicar+la+migracion+de+conocimiento`);
+  }
+
+  const training = parseAgentTrainingConfig(agent.trainingConfig) ?? defaultAgentTrainingConfig;
+  const canUseOfficialApi = await canAccessOfficialApiModule(session.user.id, session.user.role);
+  const availableFlowTargets = await getCreatedFlowItems({
+    workspaceId: membership.workspace.id,
+    includeOfficialApi: canUseOfficialApi,
+  });
+  const mentionedFlowIds = availableFlowTargets
+    .filter((flow) => parsed.data.instructions.toLowerCase().includes(`/${flow.title.toLowerCase()}`))
+    .map((flow) => flow.id);
+  const nextTraining = buildAgentTrainingConfig({
+    ...training,
+    knowledgeFlowIds: Array.from(new Set([...training.knowledgeFlowIds, ...mentionedFlowIds])),
+  });
+  const knowledgeProducts = await getAgentKnowledgePromptProducts(agent.id);
+  const knowledgeFlows = await getAgentKnowledgePromptFlows(canUseOfficialApi, membership.workspace.id, nextTraining.knowledgeFlowIds);
+
+  await prisma.agent.update({
+    where: { id: agent.id },
+    data: {
+      trainingConfig: nextTraining,
+      systemPrompt: buildAgentSystemPrompt({
+        agentName: agent.name,
+        businessName: agent.workspace.name,
+        training: nextTraining,
+        knowledgeProducts,
+        knowledgeFlows,
+      }),
+    },
+  });
+
+  revalidatePath(`/cliente/agentes/${agent.id}`);
+  revalidatePath(`/cliente/agentes/${agent.id}/conocimiento`);
+  revalidatePath(`/cliente/agentes/${agent.id}/probar`);
+  redirect(`/cliente/agentes/${agent.id}/conocimiento?ok=Instruccion+del+producto+actualizada`);
 }
 
 export async function deleteAgentAction(formData: FormData): Promise<void> {
@@ -2155,7 +2322,18 @@ export async function simulateAgentReplyAction(input: {
   agentId: string;
   latestUserMessage: string;
   history: Array<{ direction: "INBOUND" | "OUTBOUND"; content: string }>;
-}): Promise<{ ok: true; reply: string } | { ok: false; error: string }> {
+}): Promise<
+  | {
+      ok: true;
+      reply: string;
+      media?: Array<{
+        type: "IMAGE";
+        url: string;
+        caption: string | null;
+      }>;
+    }
+  | { ok: false; error: string }
+> {
   const session = await auth();
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
     return { ok: false, error: "No autorizado" };
@@ -2197,6 +2375,30 @@ export async function simulateAgentReplyAction(input: {
     return {
       ok: true,
       reply: agent.welcomeMessage?.trim() || agent.fallbackMessage?.trim() || "",
+    };
+  }
+
+  const hardFlowReply = await resolveAgentProductFlowReply({
+    agentId: agent.id,
+    workspaceId: membership.workspace.id,
+    latestUserMessage: parsed.data.latestUserMessage,
+    history: trimmedHistory,
+    includeOfficialApi: await canAccessOfficialApiModule(session.user.id, session.user.role),
+  });
+
+  if (hardFlowReply) {
+    return {
+      ok: true,
+      reply: hardFlowReply.reply,
+      media: hardFlowReply.image
+        ? [
+            {
+              type: "IMAGE",
+              url: hardFlowReply.image.url,
+              caption: hardFlowReply.image.caption,
+            },
+          ]
+        : undefined,
     };
   }
 

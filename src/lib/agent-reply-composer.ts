@@ -25,8 +25,14 @@ export function composeAgentWelcomeReply(input: {
 
   const normalizedWelcome = normalizeReplyText(welcomeMessage);
   const normalizedReply = normalizeReplyText(reply);
+  const welcomeSnippet = normalizedWelcome.split(" ").slice(0, 10).join(" ");
 
-  if (normalizedWelcome && normalizedReply.startsWith(normalizedWelcome)) {
+  if (
+    normalizedWelcome &&
+    (normalizedReply.startsWith(normalizedWelcome) ||
+      normalizedReply.includes(normalizedWelcome) ||
+      (welcomeSnippet.length >= 24 && normalizedReply.includes(welcomeSnippet)))
+  ) {
     return reply;
   }
 

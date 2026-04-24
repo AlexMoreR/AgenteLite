@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getOfficialApiConfigByWorkspaceId, hasOfficialApiBaseCredentials } from "@/lib/official-api-config";
 import type { OfficialApiChatsData } from "@/features/official-api/types/official-api";
@@ -51,6 +52,7 @@ export async function getOfficialApiChatsData(input: {
   workspaceId: string;
   conversationId?: string;
   q?: string;
+  includeSelectedConversation?: boolean;
 }): Promise<OfficialApiChatsData> {
   const config = await getOfficialApiConfigByWorkspaceId(input.workspaceId);
   const searchQuery = normalizeSearch(input.q);
@@ -66,6 +68,17 @@ export async function getOfficialApiChatsData(input: {
     };
   }
   const activeConfig = config;
+  const includeSelectedConversation = input.includeSelectedConversation ?? true;
+  const officialSearchFilter = searchQuery
+    ? Prisma.sql`
+      AND (
+        ct."name" ILIKE ${`%${searchQuery}%`}
+        OR ct."phoneNumber" ILIKE ${`%${searchQuery}%`}
+        OR ct."waId" ILIKE ${`%${searchQuery}%`}
+        OR lm."content" ILIKE ${`%${searchQuery}%`}
+      )
+    `
+    : Prisma.empty;
 
   const conversationRows = await prisma.$queryRaw<Array<{
     id: string;
@@ -112,22 +125,12 @@ export async function getOfficialApiChatsData(input: {
       LIMIT 1
     ) lm ON true
     WHERE c."configId" = ${activeConfig.id}
+      ${officialSearchFilter}
     ORDER BY c."lastMessageAt" DESC NULLS LAST, c."updatedAt" DESC
+    LIMIT 80
   `;
 
-  const filteredRows = searchQuery
-    ? conversationRows.filter((row) => {
-        const query = searchQuery.toLowerCase();
-        return [
-          row.contactName ?? "",
-          row.contactPhoneNumber ?? "",
-          row.contactWaId ?? "",
-          row.lastMessageContent ?? "",
-        ].some((value) => value.toLowerCase().includes(query));
-      })
-    : conversationRows;
-
-  const conversations = filteredRows.slice(0, 50).map((row) => ({
+  const conversations = conversationRows.slice(0, 50).map((row) => ({
     id: row.id,
     contact: {
       id: row.contactId,
@@ -149,7 +152,7 @@ export async function getOfficialApiChatsData(input: {
 
   const selectedConversationId = input.conversationId?.trim() || conversations[0]?.id || "";
 
-  const selectedConversation = selectedConversationId
+  const selectedConversation = includeSelectedConversation && selectedConversationId
     ? await (async () => {
         const conversationDetailRows = await prisma.$queryRaw<Array<{
           conversationId: string;
@@ -181,8 +184,20 @@ export async function getOfficialApiChatsData(input: {
           FROM "OfficialApiConversation" c
           INNER JOIN "OfficialApiContact" ct
             ON ct."id" = c."contactId"
-          LEFT JOIN "OfficialApiMessage" m
-            ON m."conversationId" = c."id"
+          LEFT JOIN LATERAL (
+            SELECT
+              msg."id",
+              msg."content",
+              msg."direction",
+              msg."createdAt",
+              msg."status",
+              msg."mediaUrl",
+              msg."rawPayload"
+            FROM "OfficialApiMessage" msg
+            WHERE msg."conversationId" = c."id"
+            ORDER BY msg."createdAt" DESC
+            LIMIT 120
+          ) m ON true
           WHERE c."id" = ${selectedConversationId}
             AND c."configId" = ${activeConfig.id}
           ORDER BY m."createdAt" ASC NULLS FIRST

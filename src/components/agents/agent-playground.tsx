@@ -9,12 +9,33 @@ type PlaygroundMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
+  media?: Array<{
+    type: "IMAGE";
+    url: string;
+    caption: string | null;
+  }>;
 };
 
 type AgentPlaygroundProps = {
   agentId: string;
   agentName: string;
 };
+
+function renderWhatsAppText(content: string) {
+  const parts = content.split(/(\*[^*\n]+\*)/g);
+
+  return parts.map((part, index) => {
+    if (part.startsWith("*") && part.endsWith("*") && part.length > 2) {
+      return (
+        <strong key={`${part}-${index}`} className="font-semibold">
+          {part.slice(1, -1)}
+        </strong>
+      );
+    }
+
+    return <span key={`${part}-${index}`}>{part}</span>;
+  });
+}
 
 export function AgentPlayground({ agentId, agentName }: AgentPlaygroundProps) {
   const [messages, setMessages] = useState<PlaygroundMessage[]>([]);
@@ -64,7 +85,7 @@ export function AgentPlayground({ agentId, agentName }: AgentPlaygroundProps) {
 
       setMessages((current) => [
         ...current,
-        { id: `assistant-${Date.now()}`, role: "assistant", content: result.reply },
+        { id: `assistant-${Date.now()}`, role: "assistant", content: result.reply, media: result.media },
       ]);
       setIsPending(false);
     });
@@ -129,7 +150,23 @@ export function AgentPlayground({ agentId, agentName }: AgentPlaygroundProps) {
                     >
                       <div className="flex items-start gap-2">
                         {outbound ? <Bot className="mt-0.5 h-4 w-4 shrink-0" /> : <UserRound className="mt-0.5 h-4 w-4 shrink-0" />}
-                        <p>{message.content}</p>
+                        <div className="space-y-2">
+                          {message.media?.map((media, index) => (
+                            <div key={`${media.url}-${index}`} className="overflow-hidden rounded-xl bg-white/10">
+                              <img
+                                src={media.url}
+                                alt={media.caption?.trim() || "Imagen enviada por el agente"}
+                                className="max-h-72 w-full rounded-xl object-cover"
+                              />
+                              {media.caption?.trim() && media.caption.trim() !== message.content.trim() ? (
+                                <p className="px-1 pt-2 whitespace-pre-line">{renderWhatsAppText(media.caption)}</p>
+                              ) : null}
+                            </div>
+                          ))}
+                          {message.content.trim() ? (
+                            <p className="whitespace-pre-line">{renderWhatsAppText(message.content)}</p>
+                          ) : null}
+                        </div>
                       </div>
                     </div>
                   </div>

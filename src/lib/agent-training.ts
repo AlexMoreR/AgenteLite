@@ -102,6 +102,7 @@ export type AgentKnowledgePromptProduct = {
   description?: string | null;
   price?: string | null;
   thumbnailUrl?: string | null;
+  instructions?: string | null;
 };
 
 export type AgentKnowledgePromptFlow = {
@@ -313,6 +314,9 @@ export function buildAgentSystemPrompt(input: {
       if (product.thumbnailUrl?.trim()) {
         summary.push(`Imagen de referencia: ${product.thumbnailUrl.trim()}`);
       }
+      if (product.instructions?.trim()) {
+        summary.push(`Instrucciones comerciales: ${product.instructions.trim()}`);
+      }
 
       return summary.join(" | ");
     })
@@ -354,6 +358,7 @@ export function buildAgentSystemPrompt(input: {
     `COMPORTAMIENTO DE VENTA\n- ${salesBehaviors.join("\n- ")}`,
     knowledgeSection,
     flowKnowledgeSection,
+    `REFERENCIAS A FLUJOS\n- Si una instruccion de producto menciona un flujo con formato /nombre del flujo, interpretalo como una orden de aplicar ese flujo cuando la conversacion coincida.\n- Usa solo flujos que existan en CONOCIMIENTO DE FLUJOS. Si el flujo mencionado no esta disponible, no lo inventes y continua con una pregunta concreta para avanzar.`,
     `COSAS QUE NUNCA DEBES HACER\n- ${strictRules.join("\n- ")}`,
     `FORMA DE RESPONDER\n- Responde en texto plano para WhatsApp.\n- Prioriza mensajes claros, utiles y faciles de leer.\n- No des listas largas salvo que ayuden a vender o aclarar opciones.\n- Cuando puedas, termina con un siguiente paso concreto.`,
   ].filter(Boolean) as string[];

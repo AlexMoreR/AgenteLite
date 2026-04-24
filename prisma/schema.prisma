@@ -310,6 +310,7 @@ model Conversation {
   messages        Message[]
 
   @@index([workspaceId, status])
+  @@index([workspaceId, lastMessageAt])
   @@index([contactId, lastMessageAt])
   @@index([channelId, lastMessageAt])
 }
@@ -338,11 +339,13 @@ model Product {
 }
 
 model AgentKnowledgeProduct {
-  agentId    String
-  productId  String
-  createdAt  DateTime @default(now())
-  agent      Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
-  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  agentId      String
+  productId    String
+  instructions String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  agent        Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  product      Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@id([agentId, productId])
   @@index([productId])
