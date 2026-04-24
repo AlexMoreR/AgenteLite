@@ -164,7 +164,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         messages: {
           orderBy: { createdAt: "desc" },
           take: 1,
-          select: { id: true, content: true, direction: true, createdAt: true, type: true, rawPayload: true },
+          select: { id: true, content: true, direction: true, createdAt: true, type: true, rawPayload: true, mediaUrl: true },
         },
       },
     }),
