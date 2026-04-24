@@ -59,7 +59,20 @@ function shouldResolveEvolutionMedia(mediaUrl?: string | null) {
   }
 
   const normalized = mediaUrl.toLowerCase();
+  if (
+    normalized.startsWith("data:") ||
+    normalized.startsWith("blob:") ||
+    normalized.startsWith("http://") ||
+    normalized.startsWith("https://")
+  ) {
+    return normalized.includes("mmg.whatsapp.net") || normalized.includes(".enc");
+  }
+
   return normalized.includes("mmg.whatsapp.net") || normalized.includes(".enc");
+}
+
+function getRenderableEvolutionMessageId(input: { externalId?: string | null; id: string }) {
+  return input.externalId?.trim() || input.id;
 }
 
 function getEvolutionMediaTypeForMessage(input: { type?: string | null }) {
@@ -113,6 +126,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
               take: INITIAL_CHAT_MESSAGE_LIMIT,
               select: {
                 id: true,
+                externalId: true,
                 content: true,
                 direction: true,
                 createdAt: true,
@@ -181,7 +195,16 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         messages: {
           orderBy: { createdAt: "desc" },
           take: 1,
-          select: { id: true, content: true, direction: true, createdAt: true, type: true, rawPayload: true, mediaUrl: true },
+          select: {
+            id: true,
+            externalId: true,
+            content: true,
+            direction: true,
+            createdAt: true,
+            type: true,
+            rawPayload: true,
+            mediaUrl: true,
+          },
         },
       },
     }),
@@ -367,7 +390,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
             shouldResolveMedia && detailChannel?.evolutionInstanceName
               ? (await fetchEvolutionMediaDataUrl({
                   instanceName: detailChannel.evolutionInstanceName,
-                  messageId: message.id,
+                  messageId: getRenderableEvolutionMessageId(message),
                   mediaType: getEvolutionMediaTypeForMessage({ type: message.type }),
                   mimeType:
                     message.type === "AUDIO"

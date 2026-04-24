@@ -101,20 +101,34 @@ function formatDateDivider(date: Date) {
   }).format(date);
 }
 
+function isRenderableMediaUrl(url?: string | null) {
+  if (!url) {
+    return false;
+  }
+
+  const normalized = url.trim().toLowerCase();
+  return (
+    normalized.startsWith("data:") ||
+    normalized.startsWith("blob:") ||
+    normalized.startsWith("http://") ||
+    normalized.startsWith("https://")
+  );
+}
+
 function isVisualMessage(message: SharedInboxMessageItem) {
-  return Boolean(message.mediaUrl || extractMediaUrlFromPayload(message, "IMAGE")) && (message.type === "IMAGE" || (!message.type && message.mediaUrl));
+  return Boolean(extractImagePreviewUrl(message)) && (message.type === "IMAGE" || (!message.type && message.mediaUrl));
 }
 
 function isAudioMessage(message: SharedInboxMessageItem) {
-  return Boolean(message.mediaUrl || extractMediaUrlFromPayload(message, "AUDIO")) && message.type === "AUDIO";
+  return Boolean(extractMediaUrlFromPayload(message, "AUDIO")) && message.type === "AUDIO";
 }
 
 function isVideoMessage(message: SharedInboxMessageItem) {
-  return Boolean(message.mediaUrl || extractMediaUrlFromPayload(message, "VIDEO")) && message.type === "VIDEO";
+  return Boolean(extractMediaUrlFromPayload(message, "VIDEO")) && message.type === "VIDEO";
 }
 
 function isDocumentMessage(message: SharedInboxMessageItem) {
-  return Boolean(message.mediaUrl || extractMediaUrlFromPayload(message, "DOCUMENT")) && message.type === "DOCUMENT";
+  return Boolean(extractMediaUrlFromPayload(message, "DOCUMENT")) && message.type === "DOCUMENT";
 }
 
 function extractMediaUrlFromPayload(message: SharedInboxMessageItem, type: "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT") {
@@ -130,15 +144,16 @@ function extractMediaUrlFromPayload(message: SharedInboxMessageItem, type: "IMAG
           ? getNestedRecord(messageData, "videoMessage")
           : getNestedRecord(messageData, "documentMessage");
 
-  return (
+  const candidate =
     getNestedString(nestedMessage, "url") ||
     getNestedString(nestedMessage, "directPath") ||
     getNestedString(data, "mediaUrl") ||
     getNestedString(data, "media") ||
     getNestedString(data, "url") ||
     message.mediaUrl ||
-    null
-  );
+    null;
+
+  return isRenderableMediaUrl(candidate) ? candidate : null;
 }
 
 function AudioMessageCard({
@@ -238,7 +253,7 @@ function bytesLikeToBase64(value: unknown) {
 }
 
 function extractImagePreviewUrl(message: SharedInboxMessageItem) {
-  if (message.mediaUrl && !message.mediaUrl.includes("mmg.whatsapp.net") && !message.mediaUrl.includes(".enc")) {
+  if (isRenderableMediaUrl(message.mediaUrl)) {
     return message.mediaUrl;
   }
 
@@ -253,7 +268,7 @@ function extractImagePreviewUrl(message: SharedInboxMessageItem) {
     getNestedString(data, "media") ||
     getNestedString(data, "url");
 
-  if (directImageUrl) {
+  if (isRenderableMediaUrl(directImageUrl)) {
     return directImageUrl;
   }
 
@@ -264,7 +279,7 @@ function extractImagePreviewUrl(message: SharedInboxMessageItem) {
 
   const base64 = bytesLikeToBase64(thumbnailBytes);
 
-  return base64 ? `data:image/jpeg;base64,${base64}` : message.mediaUrl || null;
+  return base64 ? `data:image/jpeg;base64,${base64}` : isRenderableMediaUrl(message.mediaUrl) ? message.mediaUrl : null;
 }
 
 function extractChatAdPreview(rawPayload: unknown): ChatAdPreview | null {
@@ -352,6 +367,19 @@ export function SharedInbox({
     window.addEventListener("chat-selection-pending", handlePendingSelection as EventListener);
     return () => window.removeEventListener("chat-selection-pending", handlePendingSelection as EventListener);
   }, []);
+
+  useEffect(() => {
+    if (!pendingConversation?.id || pendingConversation.id === selectedConversationId) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setPendingConversation(null);
+      setOptimisticConversation(null);
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [pendingConversation?.id, selectedConversationId]);
 
   const renderedConversation =
     selectedConversation && pendingConversation?.id === selectedConversation.id
@@ -632,7 +660,7 @@ export function SharedInbox({
                             ) : isVideoMessage(message) ? (
                               <div className="space-y-2">
                                 {(() => {
-                                  const videoUrl = message.mediaUrl || extractMediaUrlFromPayload(message, "VIDEO");
+                                  const videoUrl = extractMediaUrlFromPayload(message, "VIDEO");
                                   return videoUrl ? (
                                     <video
                                       src={videoUrl}
@@ -653,9 +681,9 @@ export function SharedInbox({
                                 {message.content?.trim() ? <p>{message.content}</p> : null}
                               </div>
                             ) : isAudioMessage(message) ? (
-                              message.mediaUrl || extractMediaUrlFromPayload(message, "AUDIO") ? (
+                              extractMediaUrlFromPayload(message, "AUDIO") ? (
                                 <AudioMessageCard
-                                  mediaUrl={message.mediaUrl || extractMediaUrlFromPayload(message, "AUDIO") || ""}
+                                  mediaUrl={extractMediaUrlFromPayload(message, "AUDIO") || ""}
                                   content={message.content}
                                   outbound={outbound}
                                 />
@@ -665,7 +693,7 @@ export function SharedInbox({
                             ) : isDocumentMessage(message) ? (
                               <div className="space-y-2">
                                 <a
-                                  href={message.mediaUrl || extractMediaUrlFromPayload(message, "DOCUMENT") || "#"}
+                                  href={extractMediaUrlFromPayload(message, "DOCUMENT") || "#"}
                                   target="_blank"
                                   rel="noreferrer"
                                   className={`inline-flex items-center rounded-xl px-3 py-2 text-sm font-medium underline-offset-2 transition hover:underline ${
