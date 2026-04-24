@@ -350,10 +350,17 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         };
       });
 
+      const detailChannel =
+        selectedAgentConversation?.channelId
+          ? channelsById.get(selectedAgentConversation.channelId) || null
+          : selectedUnified.channelId
+            ? channelsById.get(selectedUnified.channelId) || null
+            : null;
+
       const avatarUrl = detail.contact.avatarUrl ?? selectedUnified.avatarUrl ?? null;
-      if (!detail.contact.avatarUrl && detail.channel?.evolutionInstanceName && detail.contact.phoneNumber) {
+      if (!detail.contact.avatarUrl && detailChannel?.evolutionInstanceName && detail.contact.phoneNumber) {
         void fetchEvolutionProfilePictureUrl({
-          instanceName: detail.channel.evolutionInstanceName,
+          instanceName: detailChannel.evolutionInstanceName,
           phoneNumber: detail.contact.phoneNumber,
         }).then((fetchedAvatar) => {
           if (fetchedAvatar) {
