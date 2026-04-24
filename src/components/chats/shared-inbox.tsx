@@ -102,19 +102,43 @@ function formatDateDivider(date: Date) {
 }
 
 function isVisualMessage(message: SharedInboxMessageItem) {
-  return Boolean(message.mediaUrl) && (message.type === "IMAGE" || (!message.type && message.mediaUrl));
+  return Boolean(extractMediaUrlFromPayload(message, "IMAGE")) && (message.type === "IMAGE" || (!message.type && message.mediaUrl));
 }
 
 function isAudioMessage(message: SharedInboxMessageItem) {
-  return Boolean(message.mediaUrl) && message.type === "AUDIO";
+  return Boolean(extractMediaUrlFromPayload(message, "AUDIO")) && message.type === "AUDIO";
 }
 
 function isVideoMessage(message: SharedInboxMessageItem) {
-  return Boolean(message.mediaUrl) && message.type === "VIDEO";
+  return Boolean(extractMediaUrlFromPayload(message, "VIDEO")) && message.type === "VIDEO";
 }
 
 function isDocumentMessage(message: SharedInboxMessageItem) {
-  return Boolean(message.mediaUrl) && message.type === "DOCUMENT";
+  return Boolean(extractMediaUrlFromPayload(message, "DOCUMENT")) && message.type === "DOCUMENT";
+}
+
+function extractMediaUrlFromPayload(message: SharedInboxMessageItem, type: "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT") {
+  const rootPayload = getNestedRecord(message.rawPayload, "evolution") ?? (isObjectRecord(message.rawPayload) ? message.rawPayload : null);
+  const data = getNestedRecord(rootPayload, "data");
+  const messageData = getNestedRecord(data, "message") ?? getNestedRecord(rootPayload, "message");
+  const nestedMessage =
+    type === "IMAGE"
+      ? getNestedRecord(messageData, "imageMessage")
+      : type === "AUDIO"
+        ? getNestedRecord(messageData, "audioMessage")
+        : type === "VIDEO"
+          ? getNestedRecord(messageData, "videoMessage")
+          : getNestedRecord(messageData, "documentMessage");
+
+  return (
+    getNestedString(nestedMessage, "url") ||
+    getNestedString(nestedMessage, "directPath") ||
+    getNestedString(data, "mediaUrl") ||
+    getNestedString(data, "media") ||
+    getNestedString(data, "url") ||
+    message.mediaUrl ||
+    null
+  );
 }
 
 function AudioMessageCard({
@@ -222,6 +246,16 @@ function extractImagePreviewUrl(message: SharedInboxMessageItem) {
   const data = getNestedRecord(rootPayload, "data");
   const messageData = getNestedRecord(data, "message") ?? getNestedRecord(rootPayload, "message");
   const imageMessage = getNestedRecord(messageData, "imageMessage");
+  const directImageUrl =
+    getNestedString(imageMessage, "url") ||
+    getNestedString(imageMessage, "directPath") ||
+    getNestedString(data, "mediaUrl") ||
+    getNestedString(data, "media") ||
+    getNestedString(data, "url");
+
+  if (directImageUrl) {
+    return directImageUrl;
+  }
 
   const thumbnailBytes =
     getNestedValue(imageMessage, "jpegThumbnail") ??
@@ -597,18 +631,23 @@ export function SharedInbox({
                               </div>
                             ) : isVideoMessage(message) ? (
                               <div className="space-y-2">
+                                {(() => {
+                                  const videoUrl = extractMediaUrlFromPayload(message, "VIDEO");
+                                  return (
                                 <video
-                                  src={message.mediaUrl || ""}
+                                  src={videoUrl || ""}
                                   controls
                                   preload="metadata"
                                   className="max-h-[320px] w-full rounded-xl bg-black"
                                 />
+                                  );
+                                })()}
                                 {message.content?.trim() ? <p>{message.content}</p> : null}
                               </div>
                             ) : isAudioMessage(message) ? (
-                              message.mediaUrl ? (
+                              extractMediaUrlFromPayload(message, "AUDIO") ? (
                                 <AudioMessageCard
-                                  mediaUrl={message.mediaUrl}
+                                  mediaUrl={extractMediaUrlFromPayload(message, "AUDIO") || ""}
                                   content={message.content}
                                   outbound={outbound}
                                 />
@@ -618,7 +657,7 @@ export function SharedInbox({
                             ) : isDocumentMessage(message) ? (
                               <div className="space-y-2">
                                 <a
-                                  href={message.mediaUrl || "#"}
+                                  href={extractMediaUrlFromPayload(message, "DOCUMENT") || "#"}
                                   target="_blank"
                                   rel="noreferrer"
                                   className={`inline-flex items-center rounded-xl px-3 py-2 text-sm font-medium underline-offset-2 transition hover:underline ${
