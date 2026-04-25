@@ -8,7 +8,7 @@ import {
   sendOfficialApiTextMessage,
   sendOfficialApiTypingIndicator,
 } from "@/lib/official-api-messaging";
-import { buildKnowledgeImageReplyText, resolveAgentKnowledgeImageReply } from "@/lib/agent-knowledge-media";
+import { resolveAgentKnowledgeBaseReply } from "@/lib/agent-knowledge-media";
 import { prisma } from "@/lib/prisma";
 import { ensureOfficialApiConfigTable } from "@/lib/official-api-config";
 
@@ -590,10 +590,11 @@ export async function POST(request: Request) {
     const linkedAgentChannel = await findOfficialApiLinkedAgent(config.workspaceId);
 
     for (const message of insertedMessages) {
-      const agentKnowledgeImageReply = linkedAgentChannel?.agent?.id
-        ? await resolveAgentKnowledgeImageReply({
+      const agentKnowledgeBaseReply = linkedAgentChannel?.agent?.id
+        ? await resolveAgentKnowledgeBaseReply({
             agentId: linkedAgentChannel.agent.id,
             latestUserMessage: message.content,
+            history: recentMessages,
           })
         : null;
 
@@ -621,24 +622,19 @@ export async function POST(request: Request) {
         conversationId: message.conversationId,
         inboundText: message.content,
       });
-      const reply =
-        agentProductFlowReply || chatbotReply || agentKnowledgeImageReply
-          ? {
-              text: agentProductFlowReply?.reply?.trim() ||
-                (agentKnowledgeImageReply ? buildKnowledgeImageReplyText(agentKnowledgeImageReply.productName) : chatbotReply?.text?.trim() || null),
-              image:
-                agentProductFlowReply?.image ||
-                chatbotReply?.image ||
-                (agentKnowledgeImageReply
-                  ? {
-                      url: agentKnowledgeImageReply.url,
-                      caption: chatbotReply?.text?.trim()
-                        ? null
-                        : `Te comparto la foto de ${agentKnowledgeImageReply.productName}.`,
-                    }
-                  : null),
-            }
-          : null;
+      const reply = agentProductFlowReply
+        ? {
+            text: agentProductFlowReply.reply?.trim() || null,
+            image: agentProductFlowReply.image,
+          }
+        : agentKnowledgeBaseReply
+          ? agentKnowledgeBaseReply
+          : chatbotReply
+            ? {
+                text: chatbotReply.text?.trim() || null,
+                image: chatbotReply.image,
+              }
+            : null;
 
       if (!reply || (!reply.image && !reply.text?.trim())) {
         continue;

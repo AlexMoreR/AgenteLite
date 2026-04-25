@@ -28,8 +28,7 @@ import {
   sendEvolutionPresence,
   sendEvolutionTextMessageWithReconnect,
 } from "@/lib/evolution";
-import { resolveAgentKnowledgeImageReply } from "@/lib/agent-knowledge-media";
-import { buildKnowledgeImageReplyText } from "@/lib/agent-knowledge-media";
+import { resolveAgentKnowledgeBaseReply } from "@/lib/agent-knowledge-media";
 import { enforceWorkspacePlanAccess } from "@/lib/workspace-plan-access";
 import { getEvolutionSettings } from "@/lib/system-settings";
 
@@ -459,21 +458,40 @@ export async function POST(request: Request) {
         includeOfficialApi: false,
       });
 
-      replyText = hardFlowReply?.reply ?? await generateAgentReply({
-        model: agent.model,
-        systemPrompt: agent.systemPrompt,
-        fallbackMessage: agent.fallbackMessage,
-        history: recentMessages,
-        latestUserMessage: messageText,
-      });
+      const knowledgeBaseReply = hardFlowReply
+        ? null
+        : await resolveAgentKnowledgeBaseReply({
+            agentId: agent.id,
+            latestUserMessage: messageText,
+            history: recentMessages,
+          });
 
-      replyText = composeAgentWelcomeReply({
-        welcomeMessage: agent.welcomeMessage,
-        reply: replyText,
-        // Usamos el historial saliente real como señal de primer contacto.
-        // Eso evita volver a anteponer el saludo si la conversación ya tuvo una respuesta del bot.
-        hasConversationHistory: inboundMessageCount > 1,
-      });
+      let shouldComposeWelcome = true;
+
+      if (hardFlowReply) {
+        replyText = hardFlowReply.reply ?? "";
+      } else if (knowledgeBaseReply) {
+        replyText = knowledgeBaseReply.text ?? null;
+        shouldComposeWelcome = Boolean(replyText);
+      } else {
+        replyText = await generateAgentReply({
+          model: agent.model,
+          systemPrompt: agent.systemPrompt,
+          fallbackMessage: agent.fallbackMessage,
+          history: recentMessages,
+          latestUserMessage: messageText,
+        });
+      }
+
+      if (shouldComposeWelcome) {
+        replyText = composeAgentWelcomeReply({
+          welcomeMessage: agent.welcomeMessage,
+          reply: replyText,
+          // Usamos el historial saliente real como señal de primer contacto.
+          // Eso evita volver a anteponer el saludo si la conversación ya tuvo una respuesta del bot.
+          hasConversationHistory: inboundMessageCount > 1,
+        });
+      }
 
       console.log("[EVOLUTION] auto_reply_mode", {
         conversationId: conversation.id,
@@ -485,16 +503,8 @@ export async function POST(request: Request) {
         historyCount: recentMessages.length,
       });
 
-      const knowledgeImageReply = await resolveAgentKnowledgeImageReply({
-        agentId: agent.id,
-        latestUserMessage: messageText,
-      });
-
-      if (knowledgeImageReply) {
-        replyText = buildKnowledgeImageReplyText(knowledgeImageReply.productName);
-      }
-
       const hardFlowImageReply = hardFlowReply?.image ?? null;
+      const knowledgeImageReply = knowledgeBaseReply?.image ?? null;
 
       if (replyText || knowledgeImageReply || hardFlowImageReply) {
         try {
@@ -554,9 +564,7 @@ export async function POST(request: Request) {
               const imageUrl = hardFlowImageReply?.url ?? knowledgeImageReply?.url ?? "";
               const imageCaption = hardFlowImageReply
                 ? hardFlowImageReply.caption
-                : replyText
-                  ? null
-                  : `Te comparto la foto de ${knowledgeImageReply?.productName}.`;
+                : knowledgeImageReply?.caption ?? null;
               const imageOutbound = await sendEvolutionImageMessage({
                 instanceName: channel.evolutionInstanceName,
                 phoneNumber,

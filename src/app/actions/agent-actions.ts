@@ -27,6 +27,7 @@ import {
   type TargetAudience,
 } from "@/lib/agent-training";
 import { generateAgentReply } from "@/lib/agent-ai";
+import { resolveAgentKnowledgeBaseReply } from "@/lib/agent-knowledge-media";
 import { resolveAgentProductFlowReply } from "@/lib/agent-product-flow";
 import { composeAgentWelcomeReply } from "@/lib/agent-reply-composer";
 import {
@@ -2386,6 +2387,14 @@ export async function simulateAgentReplyAction(input: {
     includeOfficialApi: await canAccessOfficialApiModule(session.user.id, session.user.role),
   });
 
+  const knowledgeBaseReply = hardFlowReply
+    ? null
+    : await resolveAgentKnowledgeBaseReply({
+        agentId: agent.id,
+        latestUserMessage: parsed.data.latestUserMessage,
+        history: trimmedHistory,
+      });
+
   if (hardFlowReply) {
     return {
       ok: true,
@@ -2396,6 +2405,29 @@ export async function simulateAgentReplyAction(input: {
               type: "IMAGE",
               url: hardFlowReply.image.url,
               caption: hardFlowReply.image.caption,
+            },
+          ]
+        : undefined,
+    };
+  }
+
+  if (knowledgeBaseReply) {
+    const knowledgeReplyText = knowledgeBaseReply.text?.trim() || "";
+    return {
+      ok: true,
+      reply: knowledgeReplyText
+        ? composeAgentWelcomeReply({
+            welcomeMessage: agent.welcomeMessage,
+            reply: knowledgeReplyText,
+            hasConversationHistory: trimmedHistory.filter((item) => item.direction === "INBOUND").length > 1,
+          })
+        : "",
+      media: knowledgeBaseReply.image
+        ? [
+            {
+              type: "IMAGE",
+              url: knowledgeBaseReply.image.url,
+              caption: knowledgeBaseReply.image.caption,
             },
           ]
         : undefined,

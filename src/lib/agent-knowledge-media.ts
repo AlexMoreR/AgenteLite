@@ -1,14 +1,30 @@
 import { prisma } from "@/lib/prisma";
 import { getSiteUrl } from "@/lib/site";
 
+type ConversationLine = {
+  direction: "INBOUND" | "OUTBOUND";
+  content: string | null;
+};
+
 type AgentKnowledgeMediaProduct = {
   id: string;
   name: string;
+  description: string | null;
   thumbnailUrl: string | null;
+  instructions: string | null;
 };
 
 type AgentKnowledgeImageReply = {
   url: string;
+  productName: string;
+};
+
+type AgentKnowledgeBaseReply = {
+  text: string | null;
+  image: {
+    url: string;
+    caption: string | null;
+  } | null;
   productName: string;
 };
 
@@ -73,9 +89,48 @@ function isImageRequest(messageText: string) {
   return IMAGE_REQUEST_PATTERNS.some((pattern) => pattern.test(normalizeText(messageText)));
 }
 
-function scoreProductMatch(messageText: string, productName: string) {
+const KNOWLEDGE_REQUEST_PATTERNS = [
+  /\bdetalle(?:s)?\b/i,
+  /\binformacion\b/i,
+  /\binfo\b/i,
+  /\bdescripcion\b/i,
+  /\bcaracteristicas?\b/i,
+  /\bespecificaciones?\b/i,
+  /\bmedidas?\b/i,
+  /\bprecio\b/i,
+  /\bcosto\b/i,
+  /\bvalor\b/i,
+  /\bcuanto vale\b/i,
+  /\bmas detalles\b/i,
+  /\bmas info\b/i,
+];
+
+function isKnowledgeFollowUpRequest(messageText: string) {
+  return KNOWLEDGE_REQUEST_PATTERNS.some((pattern) => pattern.test(normalizeText(messageText)));
+}
+
+async function listAgentKnowledgeMediaProducts(agentId: string): Promise<AgentKnowledgeMediaProduct[]> {
+  return prisma.$queryRaw<AgentKnowledgeMediaProduct[]>`
+    SELECT
+      p."id",
+      p."name",
+      p."description",
+      p."thumbnailUrl",
+      akp."instructions"
+    FROM "AgentKnowledgeProduct" akp
+    INNER JOIN "Product" p ON p."id" = akp."productId"
+    WHERE akp."agentId" = ${agentId}
+    ORDER BY akp."createdAt" ASC, p."name" ASC
+    LIMIT 30
+  `;
+}
+
+function scoreProductMatch(
+  messageText: string,
+  product: Pick<AgentKnowledgeMediaProduct, "name" | "description">,
+) {
   const normalizedMessage = normalizeText(messageText);
-  const normalizedProductName = normalizeText(productName);
+  const normalizedProductName = normalizeText(product.name);
 
   if (!normalizedMessage || !normalizedProductName) {
     return 0;
@@ -85,7 +140,7 @@ function scoreProductMatch(messageText: string, productName: string) {
     return normalizedProductName.length + 100;
   }
 
-  const tokens = normalizedProductName
+  const tokens = normalizeText(`${product.name} ${product.description ?? ""}`)
     .split(" ")
     .map((token) => token.trim())
     .filter((token) => token.length >= 3 && !PRODUCT_STOP_WORDS.has(token));
@@ -99,18 +154,108 @@ function scoreProductMatch(messageText: string, productName: string) {
   }, 0);
 }
 
-async function listAgentKnowledgeMediaProducts(agentId: string): Promise<AgentKnowledgeMediaProduct[]> {
-  return prisma.$queryRaw<AgentKnowledgeMediaProduct[]>`
-    SELECT
-      p."id",
-      p."name",
-      p."thumbnailUrl"
-    FROM "AgentKnowledgeProduct" akp
-    INNER JOIN "Product" p ON p."id" = akp."productId"
-    WHERE akp."agentId" = ${agentId}
-    ORDER BY akp."createdAt" ASC, p."name" ASC
-    LIMIT 30
-  `;
+function selectBestKnowledgeProduct(latestUserMessage: string, products: AgentKnowledgeMediaProduct[]) {
+  const scoredProducts = products
+    .map((product) => ({
+      product,
+      score: scoreProductMatch(latestUserMessage, product),
+    }))
+    .sort((left, right) => right.score - left.score);
+
+  const bestMatch = scoredProducts[0];
+  return bestMatch && bestMatch.score > 0 ? bestMatch.product : null;
+}
+
+function selectProductFromHistory(history: ConversationLine[], products: AgentKnowledgeMediaProduct[]) {
+  const historyMessages = [...history]
+    .map((item) => item.content?.trim() || "")
+    .filter((message) => message.length > 0)
+    .reverse();
+
+  for (const message of historyMessages) {
+    const selectedProduct = selectBestKnowledgeProduct(message, products);
+    if (selectedProduct) {
+      return selectedProduct;
+    }
+  }
+
+  return null;
+}
+
+function buildKnowledgeImageCaption(productName: string) {
+  const normalizedName = productName.trim() || "este producto";
+  return `Te comparto la foto de ${normalizedName}.`;
+}
+
+export async function resolveAgentKnowledgeBaseReply(input: {
+  agentId: string;
+  latestUserMessage: string | null | undefined;
+  history?: ConversationLine[];
+}): Promise<AgentKnowledgeBaseReply | null> {
+  const latestUserMessage = input.latestUserMessage?.trim() || "";
+  if (!latestUserMessage) {
+    return null;
+  }
+
+  const products = (await listAgentKnowledgeMediaProducts(input.agentId))
+    .map((product) => {
+      const resolvedUrl = resolveKnowledgeImageUrl(product.thumbnailUrl);
+      return {
+        ...product,
+        thumbnailUrl: resolvedUrl,
+      };
+    });
+
+  if (!products.length) {
+    return null;
+  }
+
+  const selectedProduct =
+    selectBestKnowledgeProduct(latestUserMessage, products) ??
+    (isKnowledgeFollowUpRequest(latestUserMessage) && input.history?.length
+      ? selectProductFromHistory(input.history, products)
+      : isKnowledgeFollowUpRequest(latestUserMessage) && products.length === 1
+        ? products[0]
+      : null);
+  if (!selectedProduct) {
+    return null;
+  }
+
+  const normalizedDescription = selectedProduct.description?.trim() || "";
+  const isPhotoRequest = isImageRequest(latestUserMessage);
+  const imageUrl = selectedProduct.thumbnailUrl;
+
+  if (isPhotoRequest && imageUrl) {
+    return {
+      text: null,
+      image: {
+        url: imageUrl,
+        caption: buildKnowledgeImageCaption(selectedProduct.name),
+      },
+      productName: selectedProduct.name,
+    };
+  }
+
+  if (normalizedDescription) {
+    return {
+      text: normalizedDescription,
+      image: null,
+      productName: selectedProduct.name,
+    };
+  }
+
+  if (imageUrl) {
+    return {
+      text: null,
+      image: {
+        url: imageUrl,
+        caption: buildKnowledgeImageCaption(selectedProduct.name),
+      },
+      productName: selectedProduct.name,
+    };
+  }
+
+  return null;
 }
 
 export async function resolveAgentKnowledgeImageReply(input: {
@@ -138,20 +283,7 @@ export async function resolveAgentKnowledgeImageReply(input: {
     return null;
   }
 
-  const scoredProducts = products
-    .map((product) => ({
-      product,
-      score: scoreProductMatch(latestUserMessage, product.name),
-    }))
-    .sort((left, right) => right.score - left.score);
-
-  const bestMatch = scoredProducts[0];
-  const selectedProduct =
-    bestMatch && bestMatch.score > 0
-      ? bestMatch.product
-      : products.length === 1
-        ? products[0]
-        : null;
+  const selectedProduct = selectBestKnowledgeProduct(latestUserMessage, products) ?? (products.length === 1 ? products[0] : null);
 
   if (!selectedProduct?.thumbnailUrl) {
     return null;
