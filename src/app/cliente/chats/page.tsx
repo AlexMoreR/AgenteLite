@@ -405,6 +405,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     avatarUrl?: string | null;
     automationPaused?: boolean;
     loadMoreHref?: string | null;
+    cacheKey?: string | null;
     messages: Array<{
         id: string;
         content: string | null;
@@ -498,6 +499,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         secondaryLabel: detail.contact.phoneNumber,
         avatarUrl,
         automationPaused: "automationPaused" in detail ? detail.automationPaused : false,
+        cacheKey: selectedUnified.key,
         messages: resolvedMessages,
         loadMoreHref: hasMoreMessages
           ? `/cliente/chats?${new URLSearchParams([
@@ -519,6 +521,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       secondaryLabel:
         officialData.selectedConversation.contact.phoneNumber || officialData.selectedConversation.contact.waId,
       avatarUrl: null,
+      cacheKey: selectedUnified.key,
       messages: officialData.selectedConversation.messages.map((message) => ({
         id: message.id,
         content: message.content,
@@ -578,6 +581,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         headerActions={
           selectedUnified?.source === "agent" && selectedConversation ? (
             <FormActionSwitch
+              key={`automation-switch:${selectedConversation.id}`}
               action={toggleConversationAutomationAction}
               checked={!selectedConversation.automationPaused}
               ariaLabel={selectedConversation.automationPaused ? "Reactivar IA" : "Pausar IA"}

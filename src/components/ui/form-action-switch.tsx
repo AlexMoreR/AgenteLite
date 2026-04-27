@@ -33,8 +33,8 @@ export function FormActionSwitch({
 
   return (
     <form ref={formRef} action={action} className={cn("inline-flex", wrapperClassName)}>
-      {hiddenFields.map((field) => (
-        <input key={`${field.name}-${field.value}`} type="hidden" name={field.name} value={field.value} />
+      {hiddenFields.map((field, index) => (
+        <input key={`${field.name}-${index}`} type="hidden" name={field.name} value={field.value} />
       ))}
       <Switch
         checked={optimisticChecked}

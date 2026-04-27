@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import { BadgeCheck, Facebook, Instagram, MessageCircle, Mic, UserRound } from "lucide-react";
+import { readConversationFromCache } from "./chat-history-cache";
 import type { SharedInboxConversationItem } from "./shared-inbox";
 
 function renderChannelIcon(channelType?: SharedInboxConversationItem["channelType"]) {
@@ -149,6 +150,8 @@ export function ConversationList({
           avatarUrl: conversation.avatarUrl ?? null,
           lastMessage: conversation.lastMessage,
           channelType: conversation.channelType,
+          cacheKey: conversation.id,
+          hasCache: Boolean(readConversationFromCache(conversation.id)),
         },
       }),
     );
@@ -156,7 +159,10 @@ export function ConversationList({
 
   const handleSelect = useCallback((conversation: SharedInboxConversationItem) => {
     setPendingId(conversation.id);
-    emitPendingSelection(conversation);
+    const cachedConversation = readConversationFromCache(conversation.id);
+    if (!cachedConversation) {
+      emitPendingSelection(conversation);
+    }
     startTransition(() => {
       router.push(conversation.href);
     });

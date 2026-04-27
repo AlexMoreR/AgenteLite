@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Loader2, UserRound } from "lucide-react";
+import { readConversationFromCache } from "./chat-history-cache";
 
 type PendingConversationSelection = {
   id: string;
@@ -10,6 +11,8 @@ type PendingConversationSelection = {
   avatarUrl?: string | null;
   lastMessage?: string | null;
   channelType?: "whatsapp" | "whatsapp_official" | "instagram" | "facebook";
+  cacheKey?: string | null;
+  hasCache?: boolean;
 };
 
 type ChatSelectionOverlayProps = {
@@ -20,6 +23,10 @@ const EVENT_NAME = "chat-selection-pending";
 
 export function ChatSelectionOverlay({ selectedConversationId }: ChatSelectionOverlayProps) {
   const [pendingConversation, setPendingConversation] = useState<PendingConversationSelection | null>(null);
+  const cachedConversation =
+    pendingConversation &&
+    (pendingConversation.hasCache ||
+      Boolean(readConversationFromCache(pendingConversation.cacheKey || pendingConversation.id)));
 
   useEffect(() => {
     function handlePendingSelection(event: Event) {
@@ -34,7 +41,7 @@ export function ChatSelectionOverlay({ selectedConversationId }: ChatSelectionOv
     return () => window.removeEventListener(EVENT_NAME, handlePendingSelection as EventListener);
   }, []);
 
-  if (!pendingConversation || pendingConversation.id === selectedConversationId) {
+  if (!pendingConversation || pendingConversation.id === selectedConversationId || cachedConversation) {
     return null;
   }
 

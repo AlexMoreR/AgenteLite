@@ -69,6 +69,7 @@ export type SharedInboxSelectedConversation = {
   messages: SharedInboxMessageItem[];
   automationPaused?: boolean;
   loadMoreHref?: string | null;
+  cacheKey?: string | null;
 };
 
 type OptimisticDraftMessage = SharedInboxMessageItem & {
@@ -395,6 +396,8 @@ export function SharedInbox({
     avatarUrl?: string | null;
     lastMessage?: string | null;
     channelType?: SharedInboxConversationItem["channelType"];
+    cacheKey?: string | null;
+    hasCache?: boolean;
   } | null>(null);
 
   useEffect(() => {
@@ -424,6 +427,8 @@ export function SharedInbox({
         avatarUrl?: string | null;
         lastMessage?: string | null;
         channelType?: SharedInboxConversationItem["channelType"];
+        cacheKey?: string | null;
+        hasCache?: boolean;
       }>;
       const nextConversation = customEvent.detail;
       if (!nextConversation?.id) {

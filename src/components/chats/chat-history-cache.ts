@@ -97,7 +97,12 @@ function hydrateConversation(conversation: CachedConversation): SharedInboxSelec
 
 export function saveConversationToCache(conversation: SharedInboxSelectedConversation) {
   const store = readStore();
-  store.conversations[conversation.id] = serializeConversation(conversation);
+  const cachedConversation = serializeConversation(conversation);
+  store.conversations[conversation.id] = cachedConversation;
+
+  if (conversation.cacheKey && conversation.cacheKey !== conversation.id) {
+    store.conversations[conversation.cacheKey] = cachedConversation;
+  }
   writeStore(trimStore(store));
 }
 
@@ -107,7 +112,7 @@ export function readConversationFromCache(conversationId: string) {
   }
 
   const store = readStore();
-  const cached = store.conversations[conversationId];
+  const cached = store.conversations[conversationId] ?? store.conversations[conversationId.split(":").slice(1).join(":")] ?? null;
   return cached ? hydrateConversation(cached) : null;
 }
 
