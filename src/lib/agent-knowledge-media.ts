@@ -1,5 +1,4 @@
 import { prisma } from "@/lib/prisma";
-import { DEFAULT_SYSTEM_CURRENCY, formatMoney } from "@/lib/currency";
 import { getSiteUrl } from "@/lib/site";
 
 type ConversationLine = {
@@ -218,42 +217,6 @@ function buildKnowledgeImageCaption(productName: string) {
   return `Te comparto la foto de ${normalizedName}.`;
 }
 
-function isMeaningfulDescription(name: string, description: string | null) {
-  const normalizedDescription = description?.trim() || "";
-  if (!normalizedDescription) {
-    return false;
-  }
-
-  const normalizedName = normalizeText(name);
-  const normalizedDescriptionText = normalizeText(normalizedDescription);
-  if (!normalizedDescriptionText || normalizedDescriptionText === normalizedName) {
-    return false;
-  }
-
-  return normalizedDescription.length >= 20 || /[.!?]/.test(normalizedDescription);
-}
-
-function buildKnowledgeTextReply(product: AgentKnowledgeMediaProduct) {
-  const lines: string[] = [];
-  const productName = product.name.trim() || "este producto";
-
-  if (isMeaningfulDescription(productName, product.description)) {
-    lines.push(product.description!.trim());
-  } else {
-    lines.push(`Te comparto información básica de ${productName}.`);
-  }
-
-  if (product.price?.trim()) {
-    lines.push(`Precio de referencia: ${formatMoney(product.price, DEFAULT_SYSTEM_CURRENCY)}.`);
-  }
-
-  if (product.thumbnailUrl) {
-    lines.push("Si quieres, también te puedo enviar una foto.");
-  }
-
-  return lines.join(" ");
-}
-
 export async function resolveAgentKnowledgeBaseReply(input: {
   agentId: string;
   latestUserMessage: string | null | undefined;
@@ -305,21 +268,10 @@ export async function resolveAgentKnowledgeBaseReply(input: {
     };
   }
 
-  if (normalizedDescription || selectedProduct.price?.trim()) {
+  if (normalizedDescription) {
     return {
-      text: buildKnowledgeTextReply(selectedProduct),
+      text: normalizedDescription,
       image: null,
-      productName: selectedProduct.name,
-    };
-  }
-
-  if (imageUrl) {
-    return {
-      text: null,
-      image: {
-        url: imageUrl,
-        caption: buildKnowledgeImageCaption(selectedProduct.name),
-      },
       productName: selectedProduct.name,
     };
   }
