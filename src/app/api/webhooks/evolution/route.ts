@@ -456,8 +456,6 @@ export async function POST(request: Request) {
         select: {
           direction: true,
           content: true,
-          type: true,
-          mediaUrl: true,
         },
       });
 

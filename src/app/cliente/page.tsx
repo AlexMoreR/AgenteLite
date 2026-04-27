@@ -84,6 +84,13 @@ export default async function ClientePage({ searchParams }: PageProps) {
           cta={hasWorkspace ? "Administrar atencion" : "Comenzar"}
         />
         <DashboardModuleCard
+          title="Contactos"
+          description="Centraliza los contactos del workspace, revisa su actividad y entra al chat cuando quieras retomar el hilo."
+          metric={hasWorkspace ? "Base comercial" : "Requiere negocio configurado"}
+          href={hasWorkspace ? "/cliente/contactos" : "/cliente/onboarding?returnTo=/cliente/contactos"}
+          cta={hasWorkspace ? "Abrir modulo" : "Comenzar"}
+        />
+        <DashboardModuleCard
           title="Conexion"
           description="Agrupa WhatsApp Business por Evolution API y la API oficial en un modulo separado del trabajo de agentes."
           metric={

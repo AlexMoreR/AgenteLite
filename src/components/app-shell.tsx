@@ -99,6 +99,8 @@ export function AppShell({
       ? "Cotizaciones"
     : pathname.startsWith("/cliente/chats")
       ? "Chats"
+    : pathname.startsWith("/cliente/contactos")
+      ? "Contactos"
     : pathname.startsWith("/cliente/flujos")
       ? "Flujos"
     : pathname.startsWith("/cliente/conexion")
@@ -162,6 +164,10 @@ export function AppShell({
 
     if (pathname.startsWith("/cliente/chats")) {
       return [{ label: "Chats", href: "", isCurrent: true }];
+    }
+
+    if (pathname.startsWith("/cliente/contactos")) {
+      return [{ label: "Contactos", href: "", isCurrent: true }];
     }
 
     if (pathname.startsWith("/cliente/flujos")) {

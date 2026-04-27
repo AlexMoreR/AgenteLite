@@ -11,6 +11,7 @@ import {
   Settings,
   Tag,
   Truck,
+  Users2,
   Wallet,
 } from "lucide-react";
 import type { Role } from "@prisma/client";
@@ -58,6 +59,7 @@ export function AppSidebar({ pathname, brandName, adminModuleAccess, chatSidebar
   const isAdminSuppliersRoute = pathname.startsWith("/admin/proveedores");
   const isClientAgentsRoute = pathname.startsWith("/cliente/agentes");
   const isClientChatsRoute = pathname.startsWith("/cliente/chats");
+  const isClientContactsRoute = pathname.startsWith("/cliente/contactos");
   const isClientFlowsRoute = pathname.startsWith("/cliente/flujos");
   const isClientMarketingRoute = pathname.startsWith("/cliente/marketing-ia");
   const isClientFinanzasRoute = pathname.startsWith("/cliente/finanzas");
@@ -78,6 +80,7 @@ export function AppSidebar({ pathname, brandName, adminModuleAccess, chatSidebar
           !isAdminSuppliersRoute &&
           !isClientAgentsRoute &&
           !isClientChatsRoute &&
+          !isClientContactsRoute &&
           !isClientFlowsRoute &&
           !isClientMarketingRoute &&
           !isClientFinanzasRoute &&
@@ -157,6 +160,14 @@ export function AppSidebar({ pathname, brandName, adminModuleAccess, chatSidebar
         { title: "Bandeja", url: "/cliente/chats", helper: "General", kind: "general" },
         ...chatSidebarItems,
       ],
+    });
+
+    navMain.push({
+      title: "Contactos",
+      url: "/cliente/contactos",
+      icon: Users2,
+      isActive: pathname.startsWith("/cliente/contactos"),
+      items: [{ title: "Base", url: "/cliente/contactos" }],
     });
 
     navMain.push({
