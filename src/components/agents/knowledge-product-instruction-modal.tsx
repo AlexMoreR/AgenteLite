@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { FileText, X } from "lucide-react";
+import { Eye, FileText, Pencil, X } from "lucide-react";
 import { saveAgentKnowledgeProductInstructionAction } from "@/app/actions/agent-actions";
 
 type FlowOption = {
@@ -17,6 +17,9 @@ type KnowledgeProductInstructionModalProps = {
   productId: string;
   productName: string;
   categoryName: string;
+  description: string | null;
+  price: string;
+  thumbnailUrl: string | null;
   instructions: string;
   isSelected: boolean;
   flows: FlowOption[];
@@ -38,11 +41,15 @@ export function KnowledgeProductInstructionModal({
   productId,
   productName,
   categoryName,
+  description,
+  price,
+  thumbnailUrl,
   instructions,
   isSelected,
   flows,
 }: KnowledgeProductInstructionModalProps) {
   const [open, setOpen] = useState(false);
+  const [view, setView] = useState<"edit" | "preview">("edit");
   const [instructionValue, setInstructionValue] = useState(instructions);
   const [slashSearch, setSlashSearch] = useState<{
     start: number;
@@ -131,6 +138,40 @@ export function KnowledgeProductInstructionModal({
     });
   };
 
+  const flowTitleSet = useMemo(() => new Set(flows.map((f) => f.title)), [flows]);
+
+  const renderPreview = (text: string) => {
+    if (!text.trim()) {
+      return (
+        <p className="text-sm text-slate-400">Sin instruccion guardada. El agente usara solo la informacion base del producto.</p>
+      );
+    }
+    const parts = text.split(/(\/\S+)/g);
+    return (
+      <p className="text-sm leading-7 text-slate-700 whitespace-pre-wrap">
+        {parts.map((part, i) => {
+          if (part.startsWith("/")) {
+            const title = part.slice(1);
+            const known = flowTitleSet.has(title);
+            return (
+              <span
+                key={i}
+                className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
+                  known
+                    ? "bg-[color-mix(in_srgb,var(--primary)_10%,white)] text-[var(--primary)]"
+                    : "bg-amber-50 text-amber-700 ring-1 ring-amber-200"
+                }`}
+              >
+                {part}
+              </span>
+            );
+          }
+          return part;
+        })}
+      </p>
+    );
+  };
+
   return (
     <>
       <button
@@ -138,6 +179,7 @@ export function KnowledgeProductInstructionModal({
         onClick={() => {
           setInstructionValue(instructions);
           setSlashSearch(null);
+          setView("edit");
           setOpen(true);
         }}
         className="min-w-0 flex-1 rounded-lg px-1 py-1 text-left transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[color-mix(in_srgb,var(--primary)_14%,white)]"
@@ -196,50 +238,117 @@ export function KnowledgeProductInstructionModal({
                   <input type="hidden" name="agentId" value={agentId} />
                   <input type="hidden" name="productId" value={productId} />
 
-                  <label className="block">
-                    <span className="text-sm font-semibold text-slate-900">Instruccion:</span>
-                    {slashSearch ? (
-                      <div className="mt-2 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_18px_40px_-28px_rgba(15,23,42,0.35)]">
-                        {flows.length === 0 ? (
-                          <div className="px-3 py-3 text-sm text-slate-500">Todavia no hay flujos creados.</div>
-                        ) : filteredFlows.length > 0 ? (
-                          filteredFlows.map((flow) => (
-                            <button
-                              key={flow.id}
-                              type="button"
-                              onClick={() => insertFlowReference(flow)}
-                              className="flex w-full items-start gap-3 border-b border-slate-100 px-3 py-2.5 text-left transition last:border-b-0 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[color-mix(in_srgb,var(--primary)_12%,white)]"
-                            >
-                              <span className="mt-0.5 rounded-full bg-[color-mix(in_srgb,var(--primary)_8%,white)] px-2 py-0.5 text-[10px] font-semibold text-[var(--primary)]">
-                                {flow.badge}
-                              </span>
-                              <span className="min-w-0">
-                                <span className="block text-sm font-semibold text-slate-900">/{flow.title}</span>
-                                <span className="line-clamp-1 block text-xs text-slate-500">{flow.description}</span>
-                              </span>
-                            </button>
-                          ))
-                        ) : (
-                          <div className="px-3 py-3 text-sm text-slate-500">No hay flujos con ese nombre.</div>
-                        )}
+                  <div className="flex items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1 w-fit mb-4">
+                    <button
+                      type="button"
+                      onClick={() => setView("edit")}
+                      className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition ${
+                        view === "edit"
+                          ? "bg-white text-slate-900 shadow-sm"
+                          : "text-slate-500 hover:text-slate-700"
+                      }`}
+                    >
+                      <Pencil className="h-3 w-3" />
+                      Instruccion
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setView("preview")}
+                      className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition ${
+                        view === "preview"
+                          ? "bg-white text-slate-900 shadow-sm"
+                          : "text-slate-500 hover:text-slate-700"
+                      }`}
+                    >
+                      <Eye className="h-3 w-3" />
+                      Preview
+                    </button>
+                  </div>
+
+                  {view === "edit" ? (
+                    <label className="block">
+                      <span className="text-sm font-semibold text-slate-900">Instruccion:</span>
+                      {slashSearch ? (
+                        <div className="mt-2 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_18px_40px_-28px_rgba(15,23,42,0.35)]">
+                          {flows.length === 0 ? (
+                            <div className="px-3 py-3 text-sm text-slate-500">Todavia no hay flujos creados.</div>
+                          ) : filteredFlows.length > 0 ? (
+                            filteredFlows.map((flow) => (
+                              <button
+                                key={flow.id}
+                                type="button"
+                                onClick={() => insertFlowReference(flow)}
+                                className="flex w-full items-start gap-3 border-b border-slate-100 px-3 py-2.5 text-left transition last:border-b-0 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[color-mix(in_srgb,var(--primary)_12%,white)]"
+                              >
+                                <span className="mt-0.5 rounded-full bg-[color-mix(in_srgb,var(--primary)_8%,white)] px-2 py-0.5 text-[10px] font-semibold text-[var(--primary)]">
+                                  {flow.badge}
+                                </span>
+                                <span className="min-w-0">
+                                  <span className="block text-sm font-semibold text-slate-900">/{flow.title}</span>
+                                  <span className="line-clamp-1 block text-xs text-slate-500">{flow.description}</span>
+                                </span>
+                              </button>
+                            ))
+                          ) : (
+                            <div className="px-3 py-3 text-sm text-slate-500">No hay flujos con ese nombre.</div>
+                          )}
+                        </div>
+                      ) : null}
+                      <textarea
+                        ref={textareaRef}
+                        name="instructions"
+                        value={instructionValue}
+                        onChange={(event) => {
+                          const nextValue = event.target.value;
+                          setInstructionValue(nextValue);
+                          updateSlashSearch(nextValue, event.target.selectionStart);
+                        }}
+                        onClick={(event) => updateSlashSearch(instructionValue, event.currentTarget.selectionStart)}
+                        onKeyUp={(event) => updateSlashSearch(instructionValue, event.currentTarget.selectionStart)}
+                        rows={10}
+                        placeholder="Entrena tu agente con la informacion de tu producto"
+                        className="mt-2 min-h-56 w-full resize-y rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm leading-6 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-[var(--primary)] focus:ring-4 focus:ring-[color-mix(in_srgb,var(--primary)_12%,white)]"
+                      />
+                    </label>
+                  ) : (
+                    <div className="space-y-3">
+                      <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-400">
+                        Conocimiento que recibira el agente sobre este producto
+                      </p>
+                      <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+                        <div className="flex items-start gap-4 px-4 py-4">
+                          <div className="h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+                            {thumbnailUrl ? (
+                              <img src={thumbnailUrl} alt={productName} className="h-full w-full object-cover" />
+                            ) : (
+                              <div className="flex h-full w-full items-center justify-center text-slate-300">
+                                <FileText className="h-6 w-6" />
+                              </div>
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1 space-y-1">
+                            <p className="text-sm font-semibold text-slate-950">{productName}</p>
+                            <p className="text-xs text-slate-500">{categoryName}</p>
+                            <p className="text-sm font-medium text-slate-700">{price}</p>
+                          </div>
+                        </div>
+                        {description?.trim() ? (
+                          <div className="border-t border-slate-100 px-4 py-3">
+                            <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">Descripcion</p>
+                            <p className="text-sm leading-6 text-slate-600">{description}</p>
+                          </div>
+                        ) : null}
+                        <div className="border-t border-slate-100 px-4 py-3">
+                          <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">Instruccion para el agente</p>
+                          {instructionValue.trim() ? (
+                            renderPreview(instructionValue)
+                          ) : (
+                            <p className="text-sm text-slate-400">Sin instruccion — el agente usara solo los datos del producto.</p>
+                          )}
+                        </div>
                       </div>
-                    ) : null}
-                    <textarea
-                      ref={textareaRef}
-                      name="instructions"
-                      value={instructionValue}
-                      onChange={(event) => {
-                        const nextValue = event.target.value;
-                        setInstructionValue(nextValue);
-                        updateSlashSearch(nextValue, event.target.selectionStart);
-                      }}
-                      onClick={(event) => updateSlashSearch(instructionValue, event.currentTarget.selectionStart)}
-                      onKeyUp={(event) => updateSlashSearch(instructionValue, event.currentTarget.selectionStart)}
-                      rows={10}
-                      placeholder="Entrena tu agente con la informacion de tu producto"
-                      className="mt-2 min-h-56 w-full resize-y rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm leading-6 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-[var(--primary)] focus:ring-4 focus:ring-[color-mix(in_srgb,var(--primary)_12%,white)]"
-                    />
-                  </label>
+                    </div>
+                  )}
 
                   <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
                     <button

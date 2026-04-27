@@ -226,6 +226,9 @@ export default async function AgentKnowledgePage({ params, searchParams }: PageP
                           productId={product.id}
                           productName={product.name}
                           categoryName={product.category?.name ?? "Sin categoria"}
+                          description={product.description}
+                          price={formatMoney(String(product.price), "COP")}
+                          thumbnailUrl={product.thumbnailUrl}
                           instructions={productInstructionById.get(product.id) ?? ""}
                           isSelected={selectedProductIds.has(product.id)}
                           flows={flowTargets.map((flow) => ({

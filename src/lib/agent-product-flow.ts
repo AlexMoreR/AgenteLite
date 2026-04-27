@@ -322,6 +322,10 @@ export async function resolveAgentProductFlowReply(input: {
   `;
 
   const normalizedLatest = normalizeText(latestText);
+  const recentContext = (input.history ?? [])
+    .slice(-6)
+    .map((line) => normalizeText(line.content ?? ""))
+    .join(" ");
   const flowTitleByNormalized = new Map(flowTargets.map((flow) => [normalizeText(flow.title), flow]));
 
   for (const row of knowledgeRows) {
@@ -332,7 +336,9 @@ export async function resolveAgentProductFlowReply(input: {
     }
 
     const productTokens = tokenize(`${row.productName} ${row.productDescription ?? ""}`);
-    const latestMentionsProduct = productTokens.some((token) => normalizedLatest.includes(token));
+    const latestMentionsProduct =
+      productTokens.some((token) => normalizedLatest.includes(token)) ||
+      productTokens.some((token) => textMatchesToken(recentContext, token));
 
     for (const reference of references) {
       const triggerTokens = buildTriggerTokens(reference.beforeText, productTokens, reference.title);
