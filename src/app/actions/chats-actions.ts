@@ -16,6 +16,7 @@ const sendUnifiedChatReplySchema = z.object({
   conversationId: z.string().trim().min(1),
   message: z.string().trim().min(1).max(4096),
   agentId: z.string().trim().optional(),
+  returnTo: z.string().trim().min(1).max(500).optional(),
 });
 
 const toggleConversationAutomationSchema = z.object({
@@ -29,6 +30,7 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<vo
     conversationId: formData.get("conversationId"),
     message: formData.get("message"),
     agentId: formData.get("agentId"),
+    returnTo: formData.get("returnTo"),
   });
 
   if (!parsed.success) {
@@ -39,6 +41,9 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<vo
     const nextData = new FormData();
     nextData.set("conversationId", parsed.data.conversationId);
     nextData.set("message", parsed.data.message);
+    if (parsed.data.returnTo) {
+      nextData.set("returnTo", parsed.data.returnTo);
+    }
     return sendOfficialApiReplyAction(nextData);
   }
 
@@ -50,7 +55,7 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<vo
   nextData.set("agentId", parsed.data.agentId);
   nextData.set("conversationId", parsed.data.conversationId);
   nextData.set("message", parsed.data.message);
-  nextData.set("returnTo", `/cliente/chats?chatKey=agent:${parsed.data.conversationId}`);
+  nextData.set("returnTo", parsed.data.returnTo || `/cliente/chats?chatKey=agent:${parsed.data.conversationId}`);
   return sendManualAgentReplyAction(nextData);
 }
 
@@ -175,4 +180,3 @@ export async function toggleConversationAutomationAction(formData: FormData): Pr
     }`,
   );
 }
-

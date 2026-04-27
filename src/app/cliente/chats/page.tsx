@@ -15,7 +15,9 @@ import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-const INITIAL_CHAT_MESSAGE_LIMIT = 20;
+const CHAT_MESSAGE_BATCH_SIZE = 20;
+const CHAT_MESSAGE_MAX_BATCHES = 5;
+const CHAT_MESSAGE_MAX_MESSAGES = CHAT_MESSAGE_BATCH_SIZE * CHAT_MESSAGE_MAX_BATCHES;
 
 type PageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -52,6 +54,19 @@ function parseChatKey(input: string): { source: "agent" | "official"; conversati
     return { source, conversationId };
   }
   return null;
+}
+
+function parsePositiveInteger(value: string | undefined, fallback = 1) {
+  if (!value) {
+    return fallback;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function clampMessagePage(value: number) {
+  return Math.min(value, CHAT_MESSAGE_MAX_BATCHES);
 }
 
 function isRenderableMediaUrl(mediaUrl?: string | null) {
@@ -107,6 +122,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   const selectedChatKeyParam = typeof params.chatKey === "string" ? params.chatKey : "";
   const selectedConnectionParam = typeof params.connection === "string" ? params.connection : "";
   const searchQuery = typeof params.q === "string" ? params.q.trim() : "";
+  const messagePage = clampMessagePage(parsePositiveInteger(typeof params.messagePage === "string" ? params.messagePage : undefined, 1));
   const okMessage = typeof params.ok === "string" ? params.ok : "";
   const errorMessage = typeof params.error === "string" ? params.error : "";
 
@@ -133,7 +149,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
             contact: { select: { id: true, name: true, phoneNumber: true, avatarUrl: true } },
             messages: {
               orderBy: { createdAt: "desc" },
-              take: INITIAL_CHAT_MESSAGE_LIMIT,
+              take: CHAT_MESSAGE_BATCH_SIZE * messagePage + 1,
               select: {
                 id: true,
                 externalId: true,
@@ -366,6 +382,14 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     Boolean(selectedConnectionKey) &&
     officialChannel !== null &&
     selectedConnectionKey === `channel:${officialChannel.id}`;
+  const selectedChatHref = selectedUnified
+    ? `/cliente/chats?${new URLSearchParams([
+        ["chatKey", selectedUnified.key],
+        ...(selectedConnectionKey ? [["connection", selectedConnectionKey]] : []),
+        ...(searchQuery ? [["q", searchQuery]] : []),
+        ...(messagePage > 1 ? [["messagePage", String(messagePage)]] : []),
+      ]).toString()}`
+    : "";
 
   let selectedConversation: {
     id: string;
@@ -373,7 +397,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     secondaryLabel: string;
     avatarUrl?: string | null;
     automationPaused?: boolean;
-      messages: Array<{
+    loadMoreHref?: string | null;
+    messages: Array<{
         id: string;
         content: string | null;
         direction: "INBOUND" | "OUTBOUND";
@@ -395,9 +420,13 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         : selectedUnified.channelId
           ? channelsById.get(selectedUnified.channelId) || null
           : null;
+      const loadedMessageCount = Math.min(CHAT_MESSAGE_BATCH_SIZE * messagePage, CHAT_MESSAGE_MAX_MESSAGES);
+      const detailMessages = detail.messages.slice(0, loadedMessageCount + 1);
+      const hasMoreMessages = detailMessages.length > loadedMessageCount && messagePage < CHAT_MESSAGE_MAX_BATCHES;
+      const renderableMessages = detailMessages.slice(0, loadedMessageCount).reverse();
 
       const resolvedMessages = await Promise.all(
-        detail.messages.slice().reverse().map(async (message) => {
+        renderableMessages.map(async (message) => {
           const outbound = message.direction === "OUTBOUND";
           const isManualOutbound =
             outbound &&
@@ -461,6 +490,14 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         avatarUrl,
         automationPaused: "automationPaused" in detail ? detail.automationPaused : false,
         messages: resolvedMessages,
+        loadMoreHref: hasMoreMessages
+          ? `/cliente/chats?${new URLSearchParams([
+              ["chatKey", selectedUnified.key],
+              ...(selectedConnectionKey ? [["connection", selectedConnectionKey]] : []),
+              ...(searchQuery ? [["q", searchQuery]] : []),
+              ["messagePage", String(Math.min(messagePage + 1, CHAT_MESSAGE_MAX_BATCHES))],
+            ]).toString()}`
+          : null,
       };
     }
   }
@@ -534,7 +571,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
               ariaLabel={selectedConversation.automationPaused ? "Reactivar IA" : "Pausar IA"}
               hiddenFields={[
                 { name: "conversationId", value: selectedConversation.id },
-                { name: "returnTo", value: `/cliente/chats?chatKey=${encodeURIComponent(selectedUnified.key)}` },
+                { name: "returnTo", value: selectedChatHref },
               ]}
             />
           ) : null
@@ -547,6 +584,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
                   { name: "source", value: selectedUnified.source },
                   { name: "conversationId", value: selectedUnified.conversationId },
                   { name: "agentId", value: selectedUnified.agentId ?? "" },
+                  ...(selectedChatHref ? [{ name: "returnTo", value: selectedChatHref }] : []),
                 ],
               }
             : undefined

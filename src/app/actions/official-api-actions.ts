@@ -13,6 +13,7 @@ import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 const sendOfficialApiReplySchema = z.object({
   conversationId: z.string().trim().min(1),
   message: z.string().trim().min(1).max(4096),
+  returnTo: z.string().trim().min(1).max(500).optional(),
 });
 
 export async function sendOfficialApiReplyAction(formData: FormData): Promise<void> {
@@ -27,11 +28,16 @@ export async function sendOfficialApiReplyAction(formData: FormData): Promise<vo
   const parsed = sendOfficialApiReplySchema.safeParse({
     conversationId: formData.get("conversationId"),
     message: formData.get("message"),
+    returnTo: formData.get("returnTo"),
   });
 
   const fallbackConversationId = String(formData.get("conversationId") || "");
 
   if (!parsed.success) {
+    const fallbackReturnTo = typeof formData.get("returnTo") === "string" ? String(formData.get("returnTo")) : "";
+    if (fallbackReturnTo) {
+      redirect(`${fallbackReturnTo}${fallbackReturnTo.includes("?") ? "&" : "?"}error=No+se+pudo+enviar+el+mensaje`);
+    }
     redirect(`/cliente/api-oficial/chats?conversationId=${fallbackConversationId}&error=No+se+pudo+enviar+el+mensaje`);
   }
 
@@ -67,6 +73,9 @@ export async function sendOfficialApiReplyAction(formData: FormData): Promise<vo
   const conversation = conversationRows[0] ?? null;
 
   if (!conversation?.contactWaId) {
+    if (parsed.data.returnTo) {
+      redirect(`${parsed.data.returnTo}${parsed.data.returnTo.includes("?") ? "&" : "?"}error=No+se+encontro+el+contacto`);
+    }
     redirect(`/cliente/api-oficial/chats?conversationId=${fallbackConversationId}&error=No+se+encontro+el+contacto`);
   }
 
@@ -82,10 +91,16 @@ export async function sendOfficialApiReplyAction(formData: FormData): Promise<vo
   if (!result.ok) {
     revalidatePath("/cliente/api-oficial");
     revalidatePath("/cliente/api-oficial/chats");
+    if (parsed.data.returnTo) {
+      redirect(`${parsed.data.returnTo}${parsed.data.returnTo.includes("?") ? "&" : "?"}error=${encodeURIComponent(result.error)}`);
+    }
     redirect(`/cliente/api-oficial/chats?conversationId=${conversation.id}&error=${encodeURIComponent(result.error)}`);
   }
 
   revalidatePath("/cliente/api-oficial");
   revalidatePath("/cliente/api-oficial/chats");
+  if (parsed.data.returnTo) {
+    redirect(`${parsed.data.returnTo}${parsed.data.returnTo.includes("?") ? "&" : "?"}ok=Mensaje+enviado`);
+  }
   redirect(`/cliente/api-oficial/chats?conversationId=${conversation.id}&ok=Mensaje+enviado`);
 }

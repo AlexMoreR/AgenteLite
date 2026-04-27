@@ -54,6 +54,7 @@ export type SharedInboxSelectedConversation = {
   avatarUrl?: string | null;
   messages: SharedInboxMessageItem[];
   automationPaused?: boolean;
+  loadMoreHref?: string | null;
 };
 
 export type SharedInboxSidebarItem = {
@@ -567,7 +568,7 @@ export function SharedInbox({
               </div>
             </div>
 
-            <div className="relative flex min-h-0 flex-1 flex-col bg-[#f3f4f6]">
+              <div className="relative flex min-h-0 flex-1 flex-col bg-[#f3f4f6]">
               <ChatSelectionOverlay selectedConversationId={selectedConversationId} />
               <div
                 className="chat-messages-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-2.5 py-2.5 pb-3 [-webkit-overflow-scrolling:touch] md:px-5 md:py-5 md:pb-5"
@@ -580,6 +581,16 @@ export function SharedInbox({
                 }}
               >
                 <div className="space-y-2.5 md:space-y-3">
+                  {renderedConversation.loadMoreHref ? (
+                    <div className="flex justify-center pb-1">
+                      <Link
+                        href={renderedConversation.loadMoreHref}
+                        className="inline-flex items-center rounded-full border border-[rgba(148,163,184,0.16)] bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-800"
+                      >
+                        Cargar mensajes anteriores
+                      </Link>
+                    </div>
+                  ) : null}
                   {renderedConversation.messages.map((message, index) => {
                     const outbound = message.direction === "OUTBOUND";
                     const previousMessage = renderedConversation.messages[index - 1];
