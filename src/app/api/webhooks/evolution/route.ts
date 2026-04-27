@@ -639,7 +639,11 @@ export async function POST(request: Request) {
               direction: "OUTBOUND",
               type: knowledgeImageReply || hardFlowImageReply ? "IMAGE" : "TEXT",
               status: "FAILED",
-              content: replyText || (knowledgeImageReply ? `Foto solicitada: ${knowledgeImageReply.productName}` : hardFlowImageReply?.caption ?? null),
+              content:
+                replyText ||
+                knowledgeImageReply?.caption ||
+                hardFlowImageReply?.caption ||
+                null,
               mediaUrl: knowledgeImageReply?.url ?? hardFlowImageReply?.url ?? null,
               failedAt: new Date(),
             },

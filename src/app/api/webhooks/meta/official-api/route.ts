@@ -590,14 +590,6 @@ export async function POST(request: Request) {
     const linkedAgentChannel = await findOfficialApiLinkedAgent(config.workspaceId);
 
     for (const message of insertedMessages) {
-      const agentKnowledgeBaseReply = linkedAgentChannel?.agent?.id
-        ? await resolveAgentKnowledgeBaseReply({
-            agentId: linkedAgentChannel.agent.id,
-            latestUserMessage: message.content,
-            history: recentMessages,
-          })
-        : null;
-
       const recentMessages = linkedAgentChannel?.agent?.id
         ? await prisma.$queryRaw<Array<{ direction: "INBOUND" | "OUTBOUND"; content: string | null }>>`
             SELECT "direction"::text AS "direction", "content"
@@ -607,6 +599,13 @@ export async function POST(request: Request) {
             LIMIT 8
           `
         : [];
+      const agentKnowledgeBaseReply = linkedAgentChannel?.agent?.id
+        ? await resolveAgentKnowledgeBaseReply({
+            agentId: linkedAgentChannel.agent.id,
+            latestUserMessage: message.content,
+            history: recentMessages,
+          })
+        : null;
       const agentProductFlowReply = linkedAgentChannel?.agent?.id
         ? await resolveAgentProductFlowReply({
             agentId: linkedAgentChannel.agent.id,
