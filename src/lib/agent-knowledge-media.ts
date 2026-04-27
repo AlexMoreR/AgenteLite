@@ -37,6 +37,23 @@ function buildKnowledgeImageCaption(productName: string) {
   return `Te comparto la foto de ${normalizedName}.`;
 }
 
+function buildImageClarificationText(products: AgentKnowledgeMediaProduct[]) {
+  const productNames = products
+    .map((product) => product.name.trim())
+    .filter(Boolean)
+    .slice(0, 3);
+
+  if (productNames.length === 0) {
+    return "Claro. ¿De cuál producto quieres la foto?";
+  }
+
+  if (productNames.length === 1) {
+    return `Claro. ¿Quieres la foto de ${productNames[0]}?`;
+  }
+
+  return `Claro. ¿De cuál producto quieres la foto? Tengo ${productNames.join(", ")}.`;
+}
+
 const IMAGE_REQUEST_PATTERNS = [
   /\bfoto\b/i,
   /\bfotos\b/i,
@@ -255,19 +272,30 @@ export async function resolveAgentKnowledgeBaseReply(input: {
   }
 
   const selectedProduct =
-    selectBestKnowledgeProduct(latestUserMessage, products) ??
+    selectBestKnowledgeProduct(latestUserMessage, products) ?? 
     (isKnowledgeFollowUpRequest(latestUserMessage) && input.history?.length
       ? selectProductFromHistory(input.history, products)
       : isKnowledgeFollowUpRequest(latestUserMessage) && products.length === 1
         ? products[0]
+      : isImageRequest(latestUserMessage) && products.length === 1
+        ? products[0]
       : null);
-  if (!selectedProduct) {
-    return null;
-  }
 
   const isPhotoRequest =
     isImageRequest(latestUserMessage) ||
     (isAffirmativeResponse(latestUserMessage) && input.history?.length ? historyRequestsImage(input.history) : false);
+  if (isPhotoRequest && !selectedProduct) {
+    return {
+      text: buildImageClarificationText(products),
+      image: null,
+      productName: "",
+    };
+  }
+
+  if (!selectedProduct) {
+    return null;
+  }
+
   const imageUrl = selectedProduct.thumbnailUrl;
 
   if (isPhotoRequest && imageUrl) {
@@ -277,6 +305,14 @@ export async function resolveAgentKnowledgeBaseReply(input: {
         url: imageUrl,
         caption: buildKnowledgeImageCaption(selectedProduct.name),
       },
+      productName: selectedProduct.name,
+    };
+  }
+
+  if (isPhotoRequest) {
+    return {
+      text: buildImageClarificationText([selectedProduct]),
+      image: null,
       productName: selectedProduct.name,
     };
   }
