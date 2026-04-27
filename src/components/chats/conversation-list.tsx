@@ -9,14 +9,6 @@ import { WhatsAppGlyph } from "@/components/icons/whatsapp-glyph";
 import { readConversationFromCache } from "./chat-history-cache";
 import type { SharedInboxConversationItem } from "./shared-inbox";
 
-function renderChannelIcon(channelType?: SharedInboxConversationItem["channelType"]) {
-  if (channelType === "whatsapp_official") return <BadgeCheck className="h-3.5 w-3.5 shrink-0 text-emerald-600" />;
-  if (channelType === "instagram") return <Instagram className="h-3.5 w-3.5 shrink-0 text-pink-600" />;
-  if (channelType === "facebook") return <Facebook className="h-3.5 w-3.5 shrink-0 text-blue-600" />;
-  if (channelType === "whatsapp") return <WhatsAppGlyph className="h-3.5 w-3.5 shrink-0 text-emerald-600" />;
-  return null;
-}
-
 function renderChannelBadgeIcon(channelType?: SharedInboxConversationItem["channelType"]) {
   if (channelType === "whatsapp_official") return <BadgeCheck className="h-3 w-3 shrink-0 text-white" />;
   if (channelType === "instagram") return <Instagram className="h-3 w-3 shrink-0 text-white" />;
