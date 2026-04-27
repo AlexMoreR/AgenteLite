@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import { generateAgentReply } from "@/lib/agent-ai";
 import { resolveAgentProductFlowReply } from "@/lib/agent-product-flow";
 import { composeAgentWelcomeReply } from "@/lib/agent-reply-composer";
-import { getConversationAutomationPaused } from "@/lib/conversation-automation";
+import { getConversationAutomationPaused, setConversationAutomationPaused } from "@/lib/conversation-automation";
 import { prisma } from "@/lib/prisma";
 import {
   extractEvolutionConnectionState,
@@ -359,6 +359,15 @@ export async function POST(request: Request) {
     phoneNumber,
     direction: fromMe ? "OUTBOUND" : "INBOUND",
   });
+
+  if (fromMe && channel.agentId) {
+    await setConversationAutomationPaused({ conversationId: conversation.id, paused: true });
+    console.log("[EVOLUTION] automation_paused_by_owner", {
+      conversationId: conversation.id,
+      agentId: channel.agentId,
+      phoneNumber,
+    });
+  }
 
   if (!fromMe && channel.agentId) {
     const workspaceAccess = await enforceWorkspacePlanAccess(channel.workspaceId);
