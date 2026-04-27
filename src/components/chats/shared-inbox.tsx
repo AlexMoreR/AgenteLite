@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useFormStatus } from "react-dom";
 import {
   ArrowLeft,
@@ -104,6 +104,7 @@ type SharedInboxProps = {
   emptyListDescription: string;
   emptySelectionTitle: string;
   emptySelectionDescription: string;
+  messageScrollBehavior?: "bottom" | "preserve";
 };
 
 function getInitials(value: string) {
@@ -377,9 +378,11 @@ export function SharedInbox({
   emptyListDescription,
   emptySelectionTitle,
   emptySelectionDescription,
+  messageScrollBehavior = "bottom",
 }: SharedInboxProps) {
   const [optimisticConversation, setOptimisticConversation] = useState<SharedInboxSelectedConversation | null>(null);
   const [optimisticOutgoingMessage, setOptimisticOutgoingMessage] = useState<OptimisticDraftMessage | null>(null);
+  const conversationListScrollRef = useRef<HTMLDivElement | null>(null);
   const [pendingConversation, setPendingConversation] = useState<{
     id: string;
     label: string;
@@ -558,9 +561,16 @@ export function SharedInbox({
               />
             </form>
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain divide-y divide-[rgba(148,163,184,0.12)] [-webkit-overflow-scrolling:touch]">
+          <div
+            ref={conversationListScrollRef}
+            className="min-h-0 flex-1 overflow-y-auto overscroll-contain divide-y divide-[rgba(148,163,184,0.12)] [-webkit-overflow-scrolling:touch]"
+          >
             {conversations.length > 0 ? (
-              <ConversationList conversations={conversations} selectedConversationId={selectedConversationId} />
+              <ConversationList
+                conversations={conversations}
+                selectedConversationId={selectedConversationId}
+                scrollContainerRef={conversationListScrollRef}
+              />
             ) : (
               <div className="px-5 py-12 text-center">
                 <div className="mx-auto flex max-w-sm flex-col items-center gap-3">
@@ -641,6 +651,7 @@ export function SharedInbox({
                     <div className="flex justify-center pb-1">
                       <Link
                         href={renderedConversation.loadMoreHref}
+                        scroll={false}
                         className="inline-flex items-center rounded-full border border-[rgba(148,163,184,0.16)] bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-800"
                       >
                         Cargar mensajes anteriores
@@ -826,7 +837,7 @@ export function SharedInbox({
                       </div>
                     );
                   })}
-                  <ChatScrollAnchor dependencyKey={selectedConversationScrollKey} />
+                  <ChatScrollAnchor dependencyKey={selectedConversationScrollKey} behavior={messageScrollBehavior} />
                 </div>
               </div>
 

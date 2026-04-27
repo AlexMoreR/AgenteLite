@@ -18,6 +18,8 @@ export const revalidate = 0;
 const CHAT_MESSAGE_BATCH_SIZE = 20;
 const CHAT_MESSAGE_MAX_BATCHES = 5;
 const CHAT_MESSAGE_MAX_MESSAGES = CHAT_MESSAGE_BATCH_SIZE * CHAT_MESSAGE_MAX_BATCHES;
+const CHAT_MESSAGE_MEDIA_RESOLUTION_LIMIT = 16;
+const CHAT_MESSAGE_SCROLL_PRESERVE_QUERY = "preserve";
 
 type PageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -125,6 +127,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   const messagePage = clampMessagePage(parsePositiveInteger(typeof params.messagePage === "string" ? params.messagePage : undefined, 1));
   const okMessage = typeof params.ok === "string" ? params.ok : "";
   const errorMessage = typeof params.error === "string" ? params.error : "";
+  const scrollMode = typeof params.scroll === "string" ? params.scroll : "";
 
   const selectedChatRef = parseChatKey(selectedChatKeyParam);
 
@@ -428,9 +431,10 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       const detailMessages = detail.messages.slice(0, loadedMessageCount + 1);
       const hasMoreMessages = detailMessages.length > loadedMessageCount && messagePage < CHAT_MESSAGE_MAX_BATCHES;
       const renderableMessages = detailMessages.slice(0, loadedMessageCount).reverse();
+      const mediaResolutionStartIndex = Math.max(0, renderableMessages.length - CHAT_MESSAGE_MEDIA_RESOLUTION_LIMIT);
 
       const resolvedMessages = await Promise.all(
-        renderableMessages.map(async (message) => {
+        renderableMessages.map(async (message, index) => {
           const outbound = message.direction === "OUTBOUND";
           const isManualOutbound =
             outbound &&
@@ -442,7 +446,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           const shouldResolveMedia =
             Boolean(detailChannel?.evolutionInstanceName) &&
             ["IMAGE", "AUDIO", "VIDEO", "DOCUMENT"].includes(message.type || "") &&
-            (message.type === "AUDIO" || shouldResolveEvolutionMedia(message.mediaUrl));
+            (message.type === "AUDIO" || shouldResolveEvolutionMedia(message.mediaUrl)) &&
+            index >= mediaResolutionStartIndex;
 
           const resolvedMediaUrl =
             shouldResolveMedia && detailChannel?.evolutionInstanceName
@@ -500,6 +505,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
               ...(selectedConnectionKey ? [["connection", selectedConnectionKey]] : []),
               ...(searchQuery ? [["q", searchQuery]] : []),
               ["messagePage", String(Math.min(messagePage + 1, CHAT_MESSAGE_MAX_BATCHES))],
+              ["scroll", CHAT_MESSAGE_SCROLL_PRESERVE_QUERY],
             ]).toString()}`
           : null,
       };
@@ -553,6 +559,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         selectedConversationId={selectedUnified?.key ?? ""}
         selectedConnectionKey={selectedConnectionKey}
         searchQuery={searchQuery}
+        messageScrollBehavior={scrollMode === CHAT_MESSAGE_SCROLL_PRESERVE_QUERY ? "preserve" : "bottom"}
         conversations={merged.map((item) => ({
           id: item.key,
           label: item.label,

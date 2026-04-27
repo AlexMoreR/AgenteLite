@@ -4,12 +4,17 @@ import { useEffect, useRef } from "react";
 
 type ChatScrollAnchorProps = {
   dependencyKey: string;
+  behavior?: "bottom" | "preserve";
 };
 
-export function ChatScrollAnchor({ dependencyKey }: ChatScrollAnchorProps) {
+export function ChatScrollAnchor({ dependencyKey, behavior = "bottom" }: ChatScrollAnchorProps) {
   const anchorRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
+    if (behavior === "preserve") {
+      return;
+    }
+
     const anchor = anchorRef.current;
     const messagesScroll = anchor?.closest(".chat-messages-scroll");
 
@@ -19,7 +24,7 @@ export function ChatScrollAnchor({ dependencyKey }: ChatScrollAnchorProps) {
     }
 
     anchor?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [dependencyKey]);
+  }, [behavior, dependencyKey]);
 
   return <div ref={anchorRef} aria-hidden="true" />;
 }

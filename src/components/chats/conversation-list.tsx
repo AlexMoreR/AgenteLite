@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useState, useTransition } from "react";
+import { memo, useCallback, useEffect, useMemo, useState, useTransition, type RefObject } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
@@ -119,15 +119,23 @@ const ConversationListItem = memo(function ConversationListItem({
   );
 });
 
+const ESTIMATED_ROW_HEIGHT = 84;
+const VIRTUALIZATION_THRESHOLD = 36;
+const OVERSCAN_ROWS = 6;
+
 export function ConversationList({
   conversations,
   selectedConversationId,
+  scrollContainerRef,
 }: {
   conversations: SharedInboxConversationItem[];
   selectedConversationId: string;
+  scrollContainerRef?: RefObject<HTMLDivElement | null>;
 }) {
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const [viewportHeight, setViewportHeight] = useState(0);
+  const [scrollTop, setScrollTop] = useState(0);
   const router = useRouter();
   const effectiveSelectedId = isPending && pendingId ? pendingId : selectedConversationId;
 
@@ -158,9 +166,75 @@ export function ConversationList({
     router.prefetch(conversation.href);
   }, [router]);
 
+  useEffect(() => {
+    const container = scrollContainerRef?.current;
+    if (!container) {
+      return;
+    }
+
+    function updateViewportMetrics() {
+      setViewportHeight(container.clientHeight);
+      setScrollTop(container.scrollTop);
+    }
+
+    updateViewportMetrics();
+    container.addEventListener("scroll", updateViewportMetrics, { passive: true });
+
+    const resizeObserver = new ResizeObserver(updateViewportMetrics);
+    resizeObserver.observe(container);
+
+    return () => {
+      container.removeEventListener("scroll", updateViewportMetrics);
+      resizeObserver.disconnect();
+    };
+  }, [scrollContainerRef]);
+
+  const virtualizedWindow = useMemo(() => {
+    if (conversations.length <= VIRTUALIZATION_THRESHOLD || viewportHeight <= 0) {
+      return {
+        start: 0,
+        end: conversations.length,
+        topSpacer: 0,
+        bottomSpacer: 0,
+      };
+    }
+
+    const visibleCount = Math.ceil(viewportHeight / ESTIMATED_ROW_HEIGHT);
+    const baseStart = Math.max(0, Math.floor(scrollTop / ESTIMATED_ROW_HEIGHT) - OVERSCAN_ROWS);
+    const baseEnd = Math.min(conversations.length, baseStart + visibleCount + OVERSCAN_ROWS * 2);
+    const selectedIndex = conversations.findIndex((conversation) => conversation.id === effectiveSelectedId);
+
+    if (selectedIndex >= 0 && (selectedIndex < baseStart || selectedIndex >= baseEnd)) {
+      const selectedStart = Math.max(0, selectedIndex - Math.floor(visibleCount / 2));
+      const selectedEnd = Math.min(conversations.length, selectedStart + visibleCount + OVERSCAN_ROWS * 2);
+      return {
+        start: selectedStart,
+        end: selectedEnd,
+        topSpacer: selectedStart * ESTIMATED_ROW_HEIGHT,
+        bottomSpacer: Math.max(0, (conversations.length - selectedEnd) * ESTIMATED_ROW_HEIGHT),
+      };
+    }
+
+    return {
+      start: baseStart,
+      end: baseEnd,
+      topSpacer: baseStart * ESTIMATED_ROW_HEIGHT,
+      bottomSpacer: Math.max(0, (conversations.length - baseEnd) * ESTIMATED_ROW_HEIGHT),
+    };
+  }, [conversations, effectiveSelectedId, scrollTop, viewportHeight]);
+
+  const visibleConversations = useMemo(
+    () => conversations.slice(virtualizedWindow.start, virtualizedWindow.end),
+    [conversations, virtualizedWindow.end, virtualizedWindow.start],
+  );
+
   return (
     <>
-      {conversations.map((conversation) => (
+      {virtualizedWindow.topSpacer > 0 ? (
+        <div aria-hidden="true" style={{ height: virtualizedWindow.topSpacer }} />
+      ) : null}
+
+      {(conversations.length > VIRTUALIZATION_THRESHOLD ? visibleConversations : conversations).map((conversation) => (
         <ConversationListItem
           key={conversation.id}
           conversation={conversation}
@@ -169,6 +243,10 @@ export function ConversationList({
           onPrefetch={handlePrefetch}
         />
       ))}
+
+      {virtualizedWindow.bottomSpacer > 0 ? (
+        <div aria-hidden="true" style={{ height: virtualizedWindow.bottomSpacer }} />
+      ) : null}
     </>
   );
 }
