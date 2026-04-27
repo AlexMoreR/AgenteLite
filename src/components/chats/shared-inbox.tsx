@@ -2,7 +2,8 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useFormStatus } from "react-dom";
 import {
   ArrowLeft,
   BadgeCheck,
@@ -21,6 +22,18 @@ import { ChatSelectionOverlay } from "@/components/chats/chat-selection-overlay"
 import { readConversationFromCache, saveConversationToCache } from "@/components/chats/chat-history-cache";
 import { ConversationList } from "@/components/chats/conversation-list";
 import { Card } from "@/components/ui/card";
+
+const chatDateFormatter = new Intl.DateTimeFormat("en-CA");
+const chatDateLabelFormatter = new Intl.DateTimeFormat("es-CO", {
+  weekday: "long",
+  day: "numeric",
+  month: "long",
+  year: "numeric",
+});
+const chatTimeFormatter = new Intl.DateTimeFormat("es-CO", {
+  hour: "numeric",
+  minute: "2-digit",
+});
 
 export type SharedInboxConversationItem = {
   id: string;
@@ -55,6 +68,11 @@ export type SharedInboxSelectedConversation = {
   messages: SharedInboxMessageItem[];
   automationPaused?: boolean;
   loadMoreHref?: string | null;
+};
+
+type OptimisticDraftMessage = SharedInboxMessageItem & {
+  conversationId: string;
+  isOptimistic: true;
 };
 
 export type SharedInboxSidebarItem = {
@@ -119,12 +137,7 @@ function renderMessageText(content?: string | null, className = "") {
 }
 
 function formatDateDivider(date: Date) {
-  return new Intl.DateTimeFormat("es-CO", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  }).format(date);
+  return chatDateLabelFormatter.format(date);
 }
 
 function isRenderableMediaUrl(url?: string | null) {
@@ -202,6 +215,21 @@ function AudioMessageCard({
 
       {renderMessageText(content)}
     </div>
+  );
+}
+
+function ComposerSendButton() {
+  const { pending } = useFormStatus();
+
+  return (
+    <button
+      type="submit"
+      disabled={pending}
+      className="inline-flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-2xl bg-[var(--primary)] text-white transition hover:bg-[var(--primary-strong)] disabled:cursor-not-allowed disabled:opacity-70 md:h-10 md:w-10"
+      aria-label={pending ? "Enviando mensaje" : "Enviar mensaje"}
+    >
+      <SendHorizonal className={`h-5 w-5 ${pending ? "animate-pulse" : ""}`} />
+    </button>
   );
 }
 
@@ -351,6 +379,7 @@ export function SharedInbox({
   emptySelectionDescription,
 }: SharedInboxProps) {
   const [optimisticConversation, setOptimisticConversation] = useState<SharedInboxSelectedConversation | null>(null);
+  const [optimisticOutgoingMessage, setOptimisticOutgoingMessage] = useState<OptimisticDraftMessage | null>(null);
   const [pendingConversation, setPendingConversation] = useState<{
     id: string;
     label: string;
@@ -365,6 +394,18 @@ export function SharedInbox({
       saveConversationToCache(selectedConversation);
     }
   }, [selectedConversation]);
+
+  useEffect(() => {
+    if (!optimisticOutgoingMessage) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setOptimisticOutgoingMessage(null);
+    }, 12000);
+
+    return () => window.clearTimeout(timer);
+  }, [optimisticOutgoingMessage]);
 
   useEffect(() => {
     function handlePendingSelection(event: Event) {
@@ -413,10 +454,25 @@ export function SharedInbox({
       : optimisticConversation && pendingConversation?.id === optimisticConversation.id
         ? optimisticConversation
         : selectedConversation;
+  const optimisticDraftMatchesLatestMessage =
+    Boolean(
+      optimisticOutgoingMessage &&
+        renderedConversation &&
+        renderedConversation.id === optimisticOutgoingMessage.conversationId &&
+        renderedConversation.messages.at(-1)?.direction === "OUTBOUND" &&
+        renderedConversation.messages.at(-1)?.content?.trim() === optimisticOutgoingMessage.content?.trim(),
+    );
+  const renderedMessages =
+    renderedConversation &&
+    optimisticOutgoingMessage &&
+    renderedConversation.id === optimisticOutgoingMessage.conversationId &&
+    !optimisticDraftMatchesLatestMessage
+      ? [...renderedConversation.messages, optimisticOutgoingMessage]
+      : renderedConversation?.messages ?? [];
   const hasSettledConversation = Boolean(renderedConversation && selectedConversation && renderedConversation.id === selectedConversation.id);
   const hasMobileSelection = Boolean(renderedConversation || pendingConversation || selectedConversationId);
   const selectedConversationScrollKey = renderedConversation
-    ? `${renderedConversation.id}:${renderedConversation.messages.length}:${renderedConversation.messages.at(-1)?.id ?? ""}`
+    ? `${renderedConversation.id}:${renderedMessages.length}:${renderedMessages.at(-1)?.id ?? ""}`
     : "empty";
   const hasSidebar = sidebarItems.length > 0;
 
@@ -591,17 +647,22 @@ export function SharedInbox({
                       </Link>
                     </div>
                   ) : null}
-                  {renderedConversation.messages.map((message, index) => {
+                  {renderedMessages.map((message, index) => {
                     const outbound = message.direction === "OUTBOUND";
-                    const previousMessage = renderedConversation.messages[index - 1];
-                    const currentDateKey = new Intl.DateTimeFormat("en-CA").format(message.createdAt);
+                    const previousMessage = renderedMessages[index - 1];
+                    const currentDateKey = chatDateFormatter.format(message.createdAt);
                     const previousDateKey = previousMessage
-                      ? new Intl.DateTimeFormat("en-CA").format(previousMessage.createdAt)
+                      ? chatDateFormatter.format(previousMessage.createdAt)
                       : null;
                     const showDateDivider = currentDateKey !== previousDateKey;
                     const adPreview = extractChatAdPreview(message.rawPayload);
+                    const isOptimistic = "isOptimistic" in message && Boolean((message as OptimisticDraftMessage).isOptimistic);
                     return (
-                      <div key={message.id} className="space-y-2.5 md:space-y-3">
+                      <div
+                        key={message.id}
+                        className="space-y-2.5 md:space-y-3"
+                        style={{ contentVisibility: "auto", containIntrinsicSize: "160px" }}
+                      >
                         {showDateDivider ? (
                           <div className="flex justify-center">
                             <span className="rounded-full border border-white/70 bg-white/80 px-3 py-1 text-[11px] font-medium capitalize text-slate-500 shadow-sm backdrop-blur">
@@ -616,7 +677,7 @@ export function SharedInbox({
                               outbound
                                 ? "bg-[var(--primary)] text-white"
                                 : "border border-[rgba(148,163,184,0.12)] bg-white text-slate-800"
-                            }`}
+                            } ${isOptimistic ? "opacity-85" : ""}`}
                           >
                             {adPreview ? (
                               <div className="space-y-3">
@@ -750,10 +811,7 @@ export function SharedInbox({
                                 <UserRound className="h-3 w-3" />
                               )}
                               <span>
-                                {new Intl.DateTimeFormat("es-CO", {
-                                  hour: "numeric",
-                                  minute: "2-digit",
-                                }).format(message.createdAt)}
+                                {chatTimeFormatter.format(message.createdAt)}
                               </span>
                               {outbound && message.outboundStatusLabel ? (
                                 message.outboundStatusLabel === "entregado" ? (
@@ -774,7 +832,33 @@ export function SharedInbox({
 
               {composer && hasSettledConversation ? (
                 <div className="chat-composer z-20 shrink-0 border-t border-[rgba(148,163,184,0.12)] bg-white/96 px-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 shadow-[0_-12px_28px_-24px_rgba(15,23,42,0.2)] backdrop-blur md:border-t md:bg-white md:px-2 md:py-2 md:shadow-none md:backdrop-blur-0">
-                  <form action={composer.action} className="mx-auto w-full max-w-5xl">
+                  <form
+                    action={composer.action}
+                    className="mx-auto w-full max-w-5xl"
+                    onSubmit={(event: FormEvent<HTMLFormElement>) => {
+                      const form = event.currentTarget;
+                      const formData = new FormData(form);
+                      const message = String(formData.get("message") || "").trim();
+
+                      if (!message || !renderedConversation) {
+                        return;
+                      }
+
+                      setOptimisticOutgoingMessage({
+                        id: `optimistic:${renderedConversation.id}:${Date.now()}`,
+                        conversationId: renderedConversation.id,
+                        content: message,
+                        direction: "OUTBOUND",
+                        createdAt: new Date(),
+                        authorType: "user",
+                        outboundStatusLabel: "enviando",
+                        type: "TEXT",
+                        mediaUrl: null,
+                        rawPayload: { optimistic: true },
+                        isOptimistic: true,
+                      });
+                    }}
+                  >
                     {composer.hiddenFields.map((field) => (
                       <input key={`${field.name}-${field.value}`} type="hidden" name={field.name} value={field.value} />
                     ))}
@@ -786,13 +870,7 @@ export function SharedInbox({
                         placeholder={composer.placeholder || "Escribe un mensaje..."}
                         className="flex min-h-[44px] flex-1 resize-none rounded-2xl border border-[rgba(148,163,184,0.14)] bg-slate-50/80 px-3 py-2.5 text-[14px] text-slate-800 placeholder:text-slate-400 outline-none transition focus:border-[var(--primary)] focus:bg-white focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_18%,white)] md:min-h-[40px] md:py-2 md:text-sm"
                       />
-                      <button
-                        type="submit"
-                        className="inline-flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-2xl bg-[var(--primary)] text-white transition hover:bg-[var(--primary-strong)] md:h-10 md:w-10"
-                        aria-label="Enviar mensaje"
-                      >
-                        <SendHorizonal className="h-5 w-5" />
-                      </button>
+                      <ComposerSendButton />
                     </div>
                   </form>
                 </div>

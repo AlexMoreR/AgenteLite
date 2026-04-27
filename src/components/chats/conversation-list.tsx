@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { memo, useCallback, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
@@ -37,6 +37,88 @@ function renderConversationPreview(conversation: SharedInboxConversationItem) {
   return getConversationPreview(conversation);
 }
 
+const ConversationListItem = memo(function ConversationListItem({
+  conversation,
+  isSelected,
+  onSelect,
+  onPrefetch,
+}: {
+  conversation: SharedInboxConversationItem;
+  isSelected: boolean;
+  onSelect: (conversation: SharedInboxConversationItem) => void;
+  onPrefetch: (conversation: SharedInboxConversationItem) => void;
+}) {
+  const isInbound = conversation.lastMessageDirection === "INBOUND";
+
+  return (
+    <Link
+      href={conversation.href}
+      onClick={(event) => {
+        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) {
+          return;
+        }
+
+        event.preventDefault();
+        onSelect(conversation);
+      }}
+      onMouseEnter={() => onPrefetch(conversation)}
+      onFocus={() => onPrefetch(conversation)}
+      className={`group relative grid w-full grid-cols-[40px_minmax(0,1fr)] items-start gap-3 overflow-hidden px-3 py-2.5 transition-[background-color,box-shadow,transform] duration-200 md:grid-cols-[44px_minmax(0,1fr)] md:px-3 md:py-3 ${
+        isSelected
+          ? "bg-[color-mix(in_srgb,var(--primary)_6%,white)]"
+          : "hover:bg-[color-mix(in_srgb,var(--primary)_4%,white)] hover:shadow-[inset_0_0_0_1px_rgba(16,185,129,0.08)]"
+      }`}
+      style={{ contentVisibility: "auto", containIntrinsicSize: "84px" }}
+    >
+      <span
+        className={`absolute inset-y-3 left-0 w-1 rounded-r-full ${
+          isSelected ? "bg-[var(--primary)]" : "bg-transparent group-hover:bg-emerald-400/70"
+        }`}
+      />
+
+      {conversation.avatarUrl ? (
+        <Image
+          src={conversation.avatarUrl}
+          alt={conversation.label}
+          width={40}
+          height={40}
+          unoptimized
+          className="h-10 w-10 shrink-0 rounded-2xl object-cover md:h-11 md:w-11"
+        />
+      ) : (
+        <div className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-slate-500 md:h-11 md:w-11">
+          <UserRound className="h-4.5 w-4.5 md:h-5 md:w-5" />
+        </div>
+      )}
+
+      <div className="space-y-0.5 overflow-hidden min-w-0">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0 flex flex-1 items-center gap-1.5">
+            <p className="min-w-0 flex-1 truncate text-[13px] font-semibold text-slate-950 md:text-[13px]">
+              {conversation.label}
+            </p>
+            {renderChannelIcon(conversation.channelType)}
+          </div>
+          <span className="shrink-0 text-[10px] text-slate-500 md:text-[10px]">
+            {conversation.lastMessageAt
+              ? new Intl.DateTimeFormat("es-CO", { hour: "2-digit", minute: "2-digit" }).format(
+                  conversation.lastMessageAt,
+                )
+              : ""}
+          </span>
+        </div>
+
+        <div className="flex min-w-0 max-w-full items-center gap-2 overflow-hidden">
+          {isInbound ? <span className="h-2 w-2 rounded-full bg-emerald-500" /> : null}
+          <p className="block min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[12px] text-slate-600 md:text-[13px]">
+            {renderConversationPreview(conversation)}
+          </p>
+        </div>
+      </div>
+    </Link>
+  );
+});
+
 export function ConversationList({
   conversations,
   selectedConversationId,
@@ -64,83 +146,29 @@ export function ConversationList({
     );
   }
 
+  const handleSelect = useCallback((conversation: SharedInboxConversationItem) => {
+    setPendingId(conversation.id);
+    emitPendingSelection(conversation);
+    startTransition(() => {
+      router.push(conversation.href);
+    });
+  }, [router, startTransition]);
+
+  const handlePrefetch = useCallback((conversation: SharedInboxConversationItem) => {
+    router.prefetch(conversation.href);
+  }, [router]);
+
   return (
     <>
-      {conversations.map((conversation) => {
-        const isSelected = effectiveSelectedId === conversation.id;
-        const isInbound = conversation.lastMessageDirection === "INBOUND";
-        return (
-          <Link
-            key={conversation.id}
-            href={conversation.href}
-            onClick={(event) => {
-              if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) {
-                return;
-              }
-
-              event.preventDefault();
-              setPendingId(conversation.id);
-              emitPendingSelection(conversation);
-              startTransition(() => {
-                router.push(conversation.href);
-              });
-            }}
-            onMouseEnter={() => router.prefetch(conversation.href)}
-            onFocus={() => router.prefetch(conversation.href)}
-            className={`group relative grid w-full grid-cols-[40px_minmax(0,1fr)] items-start gap-3 overflow-hidden px-3 py-2.5 transition-[background-color,box-shadow,transform] duration-200 md:grid-cols-[44px_minmax(0,1fr)] md:px-3 md:py-3 ${
-              isSelected
-                ? "bg-[color-mix(in_srgb,var(--primary)_6%,white)]"
-                : "hover:bg-[color-mix(in_srgb,var(--primary)_4%,white)] hover:shadow-[inset_0_0_0_1px_rgba(16,185,129,0.08)]"
-            }`}
-          >
-            <span
-              className={`absolute inset-y-3 left-0 w-1 rounded-r-full ${
-                isSelected ? "bg-[var(--primary)]" : "bg-transparent group-hover:bg-emerald-400/70"
-              }`}
-            />
-
-            {conversation.avatarUrl ? (
-              <Image
-                src={conversation.avatarUrl}
-                alt={conversation.label}
-                width={40}
-                height={40}
-                unoptimized
-                className="h-10 w-10 shrink-0 rounded-2xl object-cover md:h-11 md:w-11"
-              />
-            ) : (
-              <div className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-slate-500 md:h-11 md:w-11">
-                <UserRound className="h-4.5 w-4.5 md:h-5 md:w-5" />
-              </div>
-            )}
-
-            <div className="min-w-0 overflow-hidden space-y-0.5">
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0 flex flex-1 items-center gap-1.5">
-                  <p className="min-w-0 flex-1 truncate text-[13px] font-semibold text-slate-950 md:text-[13px]">
-                    {conversation.label}
-                  </p>
-                  {renderChannelIcon(conversation.channelType)}
-                </div>
-                <span className="shrink-0 text-[10px] text-slate-500 md:text-[10px]">
-                  {conversation.lastMessageAt
-                    ? new Intl.DateTimeFormat("es-CO", { hour: "2-digit", minute: "2-digit" }).format(
-                        conversation.lastMessageAt,
-                      )
-                    : ""}
-                </span>
-              </div>
-
-              <div className="flex min-w-0 max-w-full items-center gap-2 overflow-hidden">
-                {isInbound ? <span className="h-2 w-2 rounded-full bg-emerald-500" /> : null}
-                <p className="block min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[12px] text-slate-600 md:text-[13px]">
-                  {renderConversationPreview(conversation)}
-                </p>
-              </div>
-            </div>
-          </Link>
-        );
-      })}
+      {conversations.map((conversation) => (
+        <ConversationListItem
+          key={conversation.id}
+          conversation={conversation}
+          isSelected={effectiveSelectedId === conversation.id}
+          onSelect={handleSelect}
+          onPrefetch={handlePrefetch}
+        />
+      ))}
     </>
   );
 }
