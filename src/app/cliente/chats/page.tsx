@@ -369,6 +369,10 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     });
 
   const selectedUnified = merged.find((item) => item.key === selectedChatKeyParam) || merged[0] || null;
+  const selectedEvolutionInstanceName =
+    selectedUnified?.source === "agent" && selectedUnified.channelId
+      ? channelsById.get(selectedUnified.channelId)?.evolutionInstanceName?.trim() || null
+      : null;
   const chatListHref = `/cliente/chats${
     selectedConnectionKey || searchQuery
       ? `?${new URLSearchParams([
@@ -534,6 +538,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         enabled={Boolean(selectedUnified)}
         apiBaseUrl={evolutionSettings.apiBaseUrl}
         instanceNames={evolutionInstanceNames}
+        activeInstanceName={selectedEvolutionInstanceName}
         fallbackIntervalMs={15000}
       />
       <QueryFeedbackToast

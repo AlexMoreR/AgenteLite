@@ -7,6 +7,7 @@ import { io, type Socket } from "socket.io-client";
 type ChatsRealtimeSyncProps = {
   apiBaseUrl?: string;
   instanceNames?: string[];
+  activeInstanceName?: string | null;
   enabled?: boolean;
   fallbackIntervalMs?: number;
 };
@@ -43,6 +44,7 @@ function shouldTriggerRefresh(eventName: string) {
 export function ChatsRealtimeSync({
   apiBaseUrl,
   instanceNames = [],
+  activeInstanceName = null,
   enabled = true,
   fallbackIntervalMs = 15000,
 }: ChatsRealtimeSyncProps) {
@@ -51,7 +53,8 @@ export function ChatsRealtimeSync({
   const [isVisible, setIsVisible] = useState(() => (typeof document === "undefined" ? true : document.visibilityState === "visible"));
   const [isSocketReady, setIsSocketReady] = useState(false);
   const normalizedInstanceNames = useMemo(() => normalizeInstanceNames(instanceNames), [instanceNames]);
-  const refreshTimerRef = useRef<number | null>(null);
+  const activeRefreshTimerRef = useRef<number | null>(null);
+  const backgroundRefreshTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     function handleVisibilityChange() {
@@ -72,17 +75,30 @@ export function ChatsRealtimeSync({
 
     const connectedInstances = new Set<string>();
     const sockets: Socket[] = [];
+    const normalizedActiveInstanceName = activeInstanceName?.trim() || "";
 
-    const scheduleRefresh = () => {
-      if (refreshTimerRef.current) {
-        window.clearTimeout(refreshTimerRef.current);
+    function clearTimer(timerRef: { current: number | null }) {
+      if (timerRef.current) {
+        window.clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+    }
+
+    const scheduleRefresh = (priority: "active" | "background") => {
+      const timerRef = priority === "active" ? activeRefreshTimerRef : backgroundRefreshTimerRef;
+      const delay = priority === "active" ? 180 : 1200;
+
+      if (priority === "active") {
+        clearTimer(backgroundRefreshTimerRef);
       }
 
-      refreshTimerRef.current = window.setTimeout(() => {
+      clearTimer(timerRef);
+
+      timerRef.current = window.setTimeout(() => {
         startTransition(() => {
           router.refresh();
         });
-      }, 250);
+      }, delay);
     };
 
     function updateSocketReadyState() {
@@ -105,9 +121,27 @@ export function ChatsRealtimeSync({
         updateSocketReadyState();
       });
 
-      socket.onAny((eventName) => {
+      socket.onAny((eventName, ...args) => {
         if (typeof eventName === "string" && shouldTriggerRefresh(eventName)) {
-          scheduleRefresh();
+          const isActiveInstance = normalizedActiveInstanceName && instanceName === normalizedActiveInstanceName;
+
+          if (isActiveInstance) {
+            scheduleRefresh("active");
+            return;
+          }
+
+          const payload = args[0];
+          const payloadInstanceName =
+            payload && typeof payload === "object" && !Array.isArray(payload) && "instanceName" in payload
+              ? String((payload as { instanceName?: unknown }).instanceName || "").trim()
+              : "";
+
+          if (payloadInstanceName && payloadInstanceName === normalizedActiveInstanceName) {
+            scheduleRefresh("active");
+            return;
+          }
+
+          scheduleRefresh("background");
         }
       });
 
@@ -115,17 +149,15 @@ export function ChatsRealtimeSync({
     }
 
     return () => {
-      if (refreshTimerRef.current) {
-        window.clearTimeout(refreshTimerRef.current);
-        refreshTimerRef.current = null;
-      }
+      clearTimer(activeRefreshTimerRef);
+      clearTimer(backgroundRefreshTimerRef);
 
       for (const socket of sockets) {
         socket.removeAllListeners();
         socket.disconnect();
       }
     };
-  }, [apiBaseUrl, enabled, instanceNames, isVisible, normalizedInstanceNames, router, startTransition]);
+  }, [activeInstanceName, apiBaseUrl, enabled, instanceNames, isVisible, normalizedInstanceNames, router, startTransition]);
 
   useEffect(() => {
     if (!enabled || !isVisible || isSocketReady) {
