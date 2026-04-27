@@ -178,19 +178,21 @@ export function ConversationList({
       return;
     }
 
+    const scrollContainer = container;
+
     function updateViewportMetrics() {
-      setViewportHeight(container.clientHeight);
-      setScrollTop(container.scrollTop);
+      setViewportHeight(scrollContainer.clientHeight);
+      setScrollTop(scrollContainer.scrollTop);
     }
 
     updateViewportMetrics();
-    container.addEventListener("scroll", updateViewportMetrics, { passive: true });
+    scrollContainer.addEventListener("scroll", updateViewportMetrics, { passive: true });
 
     const resizeObserver = new ResizeObserver(updateViewportMetrics);
-    resizeObserver.observe(container);
+    resizeObserver.observe(scrollContainer);
 
     return () => {
-      container.removeEventListener("scroll", updateViewportMetrics);
+      scrollContainer.removeEventListener("scroll", updateViewportMetrics);
       resizeObserver.disconnect();
     };
   }, [scrollContainerRef]);
