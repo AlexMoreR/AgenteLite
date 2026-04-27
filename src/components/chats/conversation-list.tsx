@@ -17,6 +17,14 @@ function renderChannelIcon(channelType?: SharedInboxConversationItem["channelTyp
   return null;
 }
 
+function renderChannelBadgeIcon(channelType?: SharedInboxConversationItem["channelType"]) {
+  if (channelType === "whatsapp_official") return <BadgeCheck className="h-3 w-3 shrink-0 text-white" />;
+  if (channelType === "instagram") return <Instagram className="h-3 w-3 shrink-0 text-white" />;
+  if (channelType === "facebook") return <Facebook className="h-3 w-3 shrink-0 text-white" />;
+  if (channelType === "whatsapp") return <WhatsAppGlyph className="h-3 w-3 shrink-0 text-white" />;
+  return null;
+}
+
 function getConversationPreview(conversation: SharedInboxConversationItem) {
   const content = conversation.lastMessage?.trim();
   if (content) return content;
@@ -95,8 +103,8 @@ const ConversationListItem = memo(function ConversationListItem({
         )}
 
         {conversation.channelType ? (
-          <span className="absolute -bottom-1 -right-1 inline-flex h-4.5 w-4.5 items-center justify-center rounded-full bg-white text-[10px] shadow-[0_1px_4px_rgba(15,23,42,0.16)] ring-1 ring-slate-100">
-            {renderChannelIcon(conversation.channelType)}
+          <span className="absolute -bottom-1 -right-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#25D366] text-white shadow-[0_1px_4px_rgba(15,23,42,0.18)]">
+            {renderChannelBadgeIcon(conversation.channelType)}
           </span>
         ) : null}
       </div>
