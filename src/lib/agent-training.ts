@@ -326,6 +326,10 @@ export function buildAgentSystemPrompt(input: {
     ? `CONOCIMIENTO DE PRODUCTOS\n- ${knowledgeProducts.join("\n- ")}\n- Usa esta base para responder con precision sobre esos productos.\n- Nunca respondas solo con el nombre del producto si tienes descripcion, precio o imagen de referencia.\n- Cuando hables de un producto, menciona la informacion util disponible y agrega un siguiente paso claro si ayuda a vender.\n- Si te preguntan por algo fuera de esta base, no lo inventes y aclara que debes confirmarlo.`
     : null;
 
+  const productResponseRule = knowledgeProducts.length
+    ? "Si el cliente pregunta por un producto, no repitas solo el nombre. Responde con la informacion util disponible de la ficha del producto: descripcion, precio de referencia o imagen si aplica. Si la ficha es demasiado breve, haz una pregunta de aclaracion o ofrece el siguiente dato util en vez de devolver solo el nombre."
+    : "Si el cliente pregunta por un producto, responde con la informacion que tengas en el contexto sin repetir solo el nombre.";
+
   const knowledgeFlows = (input.knowledgeFlows ?? [])
     .map((flow) => {
       const title = flow.title.trim();
@@ -358,6 +362,7 @@ export function buildAgentSystemPrompt(input: {
     `COMPORTAMIENTO DE VENTA\n- ${salesBehaviors.join("\n- ")}`,
     knowledgeSection,
     flowKnowledgeSection,
+    `REGLA DE RESPUESTA DE PRODUCTO\n- ${productResponseRule}`,
     `REFERENCIAS A FLUJOS\n- Si una instruccion de producto menciona un flujo con formato /nombre del flujo, interpretalo como una orden de aplicar ese flujo cuando la conversacion coincida.\n- Usa solo flujos que existan en CONOCIMIENTO DE FLUJOS. Si el flujo mencionado no esta disponible, no lo inventes y continua con una pregunta concreta para avanzar.`,
     `COSAS QUE NUNCA DEBES HACER\n- ${strictRules.join("\n- ")}`,
     `FORMA DE RESPONDER\n- Responde en texto plano para WhatsApp.\n- Prioriza mensajes claros, utiles y faciles de leer.\n- No des listas largas salvo que ayuden a vender o aclarar opciones.\n- Cuando puedas, termina con un siguiente paso concreto.`,
