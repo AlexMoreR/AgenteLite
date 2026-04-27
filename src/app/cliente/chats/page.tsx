@@ -1,7 +1,7 @@
 ﻿import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { sendUnifiedChatReplyAction, toggleConversationAutomationAction } from "@/app/actions/chats-actions";
-import { ChatsAutoRefresh } from "@/components/agents/chats-auto-refresh";
+import { ChatsRealtimeSync } from "@/components/chats/chats-realtime-sync";
 import { SharedInbox } from "@/components/chats/shared-inbox";
 import { FormActionSwitch } from "@/components/ui/form-action-switch";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/card";
 import { OfficialApiLockedState, getOfficialApiChatsData } from "@/features/official-api";
 import { canAccessOfficialApiModule } from "@/lib/admin-module-access";
 import { fetchEvolutionMediaDataUrl, fetchEvolutionProfilePictureUrl } from "@/lib/evolution";
+import { getEvolutionSettings } from "@/lib/system-settings";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
@@ -157,7 +158,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         })
       : null;
 
-  const [channels, agentConversations] = await Promise.all([
+  const [evolutionSettings, channels, agentConversations] = await Promise.all([
+    getEvolutionSettings(),
     prisma.whatsAppChannel.findMany({
       where: { workspaceId: membership.workspace.id },
       select: {
@@ -220,6 +222,13 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   ]);
 
   const channelsById = new Map(channels.map((channel) => [channel.id, channel]));
+  const evolutionInstanceNames = Array.from(
+    new Set(
+      channels
+        .filter((channel) => channel.provider === "EVOLUTION" && channel.evolutionInstanceName?.trim())
+        .map((channel) => channel.evolutionInstanceName!.trim()),
+    ),
+  );
 
   // Excluir conversaciones cuyo canal fue eliminado
   const activeAgentConversations = agentConversations.filter((conv) => {
@@ -484,7 +493,12 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
 
   return (
     <section className="chat-app-layout flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
-      <ChatsAutoRefresh intervalMs={15000} enabled={Boolean(selectedUnified)} />
+      <ChatsRealtimeSync
+        enabled={Boolean(selectedUnified)}
+        apiBaseUrl={evolutionSettings.apiBaseUrl}
+        instanceNames={evolutionInstanceNames}
+        fallbackIntervalMs={15000}
+      />
       <QueryFeedbackToast
         okMessage={okMessage}
         errorMessage={errorMessage}
