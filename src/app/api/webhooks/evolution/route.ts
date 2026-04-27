@@ -467,12 +467,33 @@ export async function POST(request: Request) {
           });
 
       let shouldComposeWelcome = true;
+      let followUpText: string | null = null;
 
       if (hardFlowReply) {
         replyText = hardFlowReply.reply ?? "";
+        if (hardFlowReply.image) {
+          followUpText = await generateAgentReply({
+            model: agent.model,
+            systemPrompt: `${agent.systemPrompt ?? ""}\n\nACCION: Acabas de enviarle al cliente una imagen con informacion del producto "${hardFlowReply.productName}". Genera una sola pregunta comercial concreta que lo lleve al siguiente paso (compra, reserva, consulta de precio, etc). Sin repetir la informacion de la imagen. Maximo 1-2 lineas.`,
+            rawSystemPrompt: true,
+            fallbackMessage: null,
+            history: [...recentMessages, { direction: "OUTBOUND", content: replyText }],
+            latestUserMessage: messageText,
+          }).then((t) => t?.trim() || null).catch(() => null);
+        }
       } else if (knowledgeBaseReply) {
         replyText = knowledgeBaseReply.text ?? null;
         shouldComposeWelcome = Boolean(replyText);
+        if (knowledgeBaseReply.image) {
+          followUpText = await generateAgentReply({
+            model: agent.model,
+            systemPrompt: `${agent.systemPrompt ?? ""}\n\nACCION: Acabas de enviarle al cliente una imagen de producto. Genera una sola pregunta comercial concreta que lo lleve al siguiente paso (compra, reserva, consulta de precio, etc). Sin repetir la informacion de la imagen. Maximo 1-2 lineas.`,
+            rawSystemPrompt: true,
+            fallbackMessage: null,
+            history: [...recentMessages, { direction: "OUTBOUND", content: replyText ?? "" }],
+            latestUserMessage: messageText,
+          }).then((t) => t?.trim() || null).catch(() => null);
+        }
       } else {
         replyText = await generateAgentReply({
           model: agent.model,
@@ -601,6 +622,31 @@ export async function POST(request: Request) {
 
             if (imageFirst) {
               await sendText();
+            }
+
+            if (followUpText && channel.evolutionInstanceName) {
+              const followOutbound = await sendEvolutionTextMessageWithReconnect({
+                instanceName: channel.evolutionInstanceName,
+                phoneNumber,
+                text: followUpText,
+                delayMs: 600,
+              });
+              await prisma.message.create({
+                data: {
+                  workspaceId: channel.workspaceId,
+                  conversationId: conversation.id,
+                  channelId: channel.id,
+                  contactId: contact.id,
+                  agentId: agent.id,
+                  externalId: followOutbound.externalId,
+                  direction: "OUTBOUND",
+                  type: "TEXT",
+                  status: "SENT",
+                  content: followUpText,
+                  sentAt: new Date(),
+                  rawPayload: followOutbound.raw as never,
+                },
+              });
             }
 
             await prisma.conversation.update({
