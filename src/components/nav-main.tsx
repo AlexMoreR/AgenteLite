@@ -3,8 +3,9 @@
 import type { ComponentType } from "react";
 import { useState } from "react";
 import Link from "next/link";
-import { BadgeCheck, ChevronDown, MessageCircle, MessageSquareText } from "lucide-react";
+import { BadgeCheck, ChevronDown, MessageSquareText } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { WhatsAppGlyph } from "@/components/icons/whatsapp-glyph";
 import {
   SidebarGroup,
   SidebarMenu,
@@ -28,7 +29,7 @@ export type NavMainItem = {
     title: string;
     url: string;
     helper?: string;
-    kind?: "general" | "whatsapp" | "official";
+    kind?: "general" | "evolution" | "official";
   }[];
 };
 
@@ -91,11 +92,19 @@ function NavMainMenuItem({ item }: { item: NavMainItem }) {
                 <SidebarMenuSubItem key={`${item.title}-${subitem.title}`}>
                   <SidebarMenuSubButton asChild className="h-auto rounded-lg px-2.5 py-2 hover:bg-slate-50">
                     <Link href={subitem.url} className="flex min-h-8 items-center gap-2.5">
-                      <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-slate-500">
+                      <span
+                        className={`inline-flex h-4 w-4 shrink-0 items-center justify-center ${
+                          subitem.kind === "evolution"
+                            ? "text-emerald-600"
+                            : subitem.kind === "official"
+                              ? "text-sky-600"
+                              : "text-slate-500"
+                        }`}
+                      >
                         {subitem.kind === "official" ? (
                           <BadgeCheck className="h-4 w-4" />
-                        ) : subitem.kind === "whatsapp" ? (
-                          <MessageCircle className="h-4 w-4" />
+                        ) : subitem.kind === "evolution" ? (
+                          <WhatsAppGlyph className="h-4 w-4" />
                         ) : (
                           <MessageSquareText className="h-4 w-4" />
                         )}

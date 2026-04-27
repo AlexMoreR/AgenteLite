@@ -37,7 +37,7 @@ type AppShellProps = {
     title: string;
     url: string;
     helper?: string;
-    kind?: "general" | "whatsapp" | "official";
+    kind?: "general" | "evolution" | "official";
   }>;
   clientPlanAlert: {
     daysRemaining: number;
