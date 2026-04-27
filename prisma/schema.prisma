@@ -173,11 +173,12 @@ enum MessageStatus {
 }
 
 model Workspace {
-  id            String            @id @default(cuid())
-  name          String
-  slug          String            @unique
-  ownerId       String?
-  isActive      Boolean           @default(true)
+  id             String            @id @default(cuid())
+  name           String
+  slug           String            @unique
+  ownerId        String?
+  isActive       Boolean           @default(true)
+  businessConfig Json?
   planTier      WorkspacePlanTier?
   planStartedAt DateTime?
   planExpiresAt DateTime?

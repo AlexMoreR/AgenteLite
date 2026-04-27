@@ -964,17 +964,30 @@ async function persistAgentTraining(
     },
   });
 
-  if (membership.workspace.name !== input.businessName) {
-    await prisma.workspace.update({
-      where: { id: membership.workspace.id },
-      data: {
-        name: input.businessName,
+  await prisma.workspace.update({
+    where: { id: membership.workspace.id },
+    data: {
+      name: input.businessName,
+      businessConfig: {
+        businessDescription: input.businessDescription,
+        targetAudiences: input.targetAudiences,
+        priceRangeMin: input.priceRangeMin,
+        priceRangeMax: input.priceRangeMax,
+        location: input.location,
+        website: input.website,
+        contactPhone: input.contactPhone,
+        contactEmail: input.contactEmail,
+        instagram: input.instagram,
+        facebook: input.facebook,
+        tiktok: input.tiktok,
+        youtube: input.youtube,
       },
-    });
-  }
+    },
+  });
 
   revalidatePath("/cliente");
   revalidatePath("/cliente/agentes");
+  revalidatePath("/cliente/negocio");
   revalidatePath(`/cliente/agentes/${agent.id}`);
   revalidatePath(`/cliente/agentes/${agent.id}/entrenamiento`);
 
@@ -1320,14 +1333,23 @@ export async function saveAgentBusinessProfileAction(input: {
     },
   });
 
-  if (membership.workspace.name !== parsed.data.businessName) {
-    await prisma.workspace.update({
-      where: { id: membership.workspace.id },
-      data: {
-        name: parsed.data.businessName,
+  await prisma.workspace.update({
+    where: { id: membership.workspace.id },
+    data: {
+      name: parsed.data.businessName,
+      businessConfig: {
+        businessDescription: parsed.data.businessSummary.trim(),
+        location: parsed.data.location,
+        website: parsed.data.website,
+        contactPhone: parsed.data.contactPhone,
+        contactEmail: parsed.data.contactEmail,
+        instagram: parsed.data.instagram,
+        facebook: parsed.data.facebook,
+        tiktok: parsed.data.tiktok,
+        youtube: parsed.data.youtube,
       },
-    });
-  }
+    },
+  });
 
   revalidatePath("/cliente");
   revalidatePath("/cliente/agentes");

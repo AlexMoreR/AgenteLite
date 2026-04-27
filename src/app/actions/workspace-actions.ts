@@ -7,6 +7,7 @@ import { auth } from "@/auth";
 import { buildDefaultWorkspacePlan } from "@/lib/plans";
 import { prisma } from "@/lib/prisma";
 import { generateUniqueWorkspaceSlug } from "@/lib/workspace";
+import { targetAudienceOptions } from "@/lib/agent-training";
 
 const workspaceOnboardingSchema = z.object({
   businessName: z.string().trim().min(2, "Nombre del negocio invalido").max(120, "Nombre demasiado largo"),
@@ -90,6 +91,56 @@ export async function completeWorkspaceOnboardingAction(formData: FormData): Pro
   }
 
   redirect("/cliente?ok=Negocio+configurado");
+}
+
+export async function saveWorkspaceBusinessConfigAction(formData: FormData): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+    redirect("/unauthorized");
+  }
+
+  const membership = await prisma.workspaceMember.findFirst({
+    where: { userId: session.user.id },
+    orderBy: { createdAt: "asc" },
+    select: { workspace: { select: { id: true } } },
+  });
+
+  if (!membership?.workspace.id) {
+    redirect("/cliente/negocio?error=Workspace+no+encontrado");
+  }
+
+  const name = (formData.get("businessName") as string | null)?.trim() ?? "";
+  if (name.length < 2) {
+    redirect("/cliente/negocio?error=Nombre+del+negocio+invalido");
+  }
+
+  const targetAudiences = formData.getAll("targetAudiences").filter(
+    (v): v is string => typeof v === "string" && (targetAudienceOptions as readonly string[]).includes(v),
+  );
+
+  const config = {
+    businessDescription: (formData.get("businessDescription") as string | null)?.trim() ?? "",
+    targetAudiences,
+    priceRangeMin: (formData.get("priceRangeMin") as string | null)?.trim() ?? "",
+    priceRangeMax: (formData.get("priceRangeMax") as string | null)?.trim() ?? "",
+    location: (formData.get("location") as string | null)?.trim() ?? "",
+    website: (formData.get("website") as string | null)?.trim() ?? "",
+    contactPhone: (formData.get("contactPhone") as string | null)?.trim() ?? "",
+    contactEmail: (formData.get("contactEmail") as string | null)?.trim() ?? "",
+    instagram: (formData.get("instagram") as string | null)?.trim() ?? "",
+    facebook: (formData.get("facebook") as string | null)?.trim() ?? "",
+    tiktok: (formData.get("tiktok") as string | null)?.trim() ?? "",
+    youtube: (formData.get("youtube") as string | null)?.trim() ?? "",
+  };
+
+  await prisma.workspace.update({
+    where: { id: membership.workspace.id },
+    data: { name, businessConfig: config },
+  });
+
+  revalidatePath("/cliente/negocio");
+  revalidatePath("/cliente/agentes");
+  redirect("/cliente/negocio?ok=Datos+del+negocio+guardados");
 }
 
 export async function resetWorkspaceAction(formData: FormData): Promise<void> {

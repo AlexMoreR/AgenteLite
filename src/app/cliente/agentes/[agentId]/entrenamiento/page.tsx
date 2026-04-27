@@ -20,6 +20,7 @@ import {
 } from "@/lib/agent-training";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
+import { parseWorkspaceBusinessConfig } from "@/lib/workspace-business-config";
 
 type PageProps = {
   params: Promise<{ agentId: string }>;
@@ -100,6 +101,7 @@ export default async function AgentTrainingPage({ params }: PageProps) {
       workspace: {
         select: {
           name: true,
+          businessConfig: true,
         },
       },
     },
@@ -110,6 +112,21 @@ export default async function AgentTrainingPage({ params }: PageProps) {
   }
 
   const training = parseAgentTrainingConfig(agent.trainingConfig) ?? defaultAgentTrainingConfig;
+  const workspaceBusiness = parseWorkspaceBusinessConfig(agent.workspace.businessConfig);
+
+  // Campos de negocio: workspace.businessConfig es la fuente de verdad
+  const businessDescription = workspaceBusiness.businessDescription || training.businessDescription;
+  const targetAudiences = workspaceBusiness.targetAudiences.length > 0 ? workspaceBusiness.targetAudiences : training.targetAudiences;
+  const priceRangeMin = workspaceBusiness.priceRangeMin || training.priceRangeMin;
+  const priceRangeMax = workspaceBusiness.priceRangeMax || training.priceRangeMax;
+  const location = workspaceBusiness.location || training.location;
+  const website = workspaceBusiness.website || training.website;
+  const contactPhone = workspaceBusiness.contactPhone || training.contactPhone;
+  const contactEmail = workspaceBusiness.contactEmail || training.contactEmail;
+  const instagram = workspaceBusiness.instagram || training.instagram;
+  const facebook = workspaceBusiness.facebook || training.facebook;
+  const tiktok = workspaceBusiness.tiktok || training.tiktok;
+  const youtube = workspaceBusiness.youtube || training.youtube;
 
   return (
     <AgentPanelShell agentId={agent.id}>
@@ -122,15 +139,15 @@ export default async function AgentTrainingPage({ params }: PageProps) {
               <BusinessNameHeader
                 agentId={agent.id}
                 businessName={agent.workspace.name}
-                businessSummary={agent.description ?? training.businessDescription}
-                location={training.location}
-                website={training.website}
-                contactPhone={training.contactPhone}
-                contactEmail={training.contactEmail}
-                instagram={training.instagram}
-                facebook={training.facebook}
-                tiktok={training.tiktok}
-                youtube={training.youtube}
+                businessSummary={workspaceBusiness.businessDescription || agent.description || ""}
+                location={location}
+                website={website}
+                contactPhone={contactPhone}
+                contactEmail={contactEmail}
+                instagram={instagram}
+                facebook={facebook}
+                tiktok={tiktok}
+                youtube={youtube}
               />
 
               <div className="space-y-3.5">
@@ -151,7 +168,7 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                   <TrainingTextareaField
                     name="businessDescription"
                     rows={4}
-                    defaultValue={training.businessDescription}
+                    defaultValue={businessDescription}
                     placeholder="Escribe como se lo explicarias a un cliente por WhatsApp: que vendes, para quien y por que deberia interesarle."
                     minLength={12}
                     className="flex min-h-[138px] w-full rounded-[20px] border border-[rgba(148,163,184,0.14)] bg-white px-3.5 py-3 text-[13px] leading-6 text-slate-800 shadow-[0_18px_32px_-34px_rgba(15,23,42,0.18)] outline-none transition placeholder:text-slate-400 focus:border-[var(--primary)]"
@@ -175,7 +192,7 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                           type="checkbox"
                           name="targetAudiences"
                           value={option}
-                          defaultChecked={training.targetAudiences.includes(option)}
+                          defaultChecked={targetAudiences.includes(option)}
                           className="peer sr-only"
                         />
                         <span className="inline-flex min-h-9 items-center justify-center rounded-full border border-[rgba(148,163,184,0.14)] bg-white px-3 py-1.5 text-[12px] font-medium text-slate-700 shadow-[0_10px_18px_-26px_rgba(15,23,42,0.22)] transition hover:border-[color-mix(in_srgb,var(--primary)_30%,white)] peer-checked:border-[color-mix(in_srgb,var(--primary)_88%,white)] peer-checked:bg-[color-mix(in_srgb,var(--primary)_8%,white)] peer-checked:text-[var(--primary)]">
@@ -211,7 +228,7 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                         </span>
                         <input
                           name="priceRangeMin"
-                          defaultValue={training.priceRangeMin}
+                          defaultValue={priceRangeMin}
                           placeholder="Ej. 80.000 COP"
                           className="field-select h-10 rounded-[16px] border-[rgba(148,163,184,0.14)] bg-slate-50 text-[13px] focus:border-[var(--primary)]"
                         />
@@ -226,7 +243,7 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                         </span>
                         <input
                           name="priceRangeMax"
-                          defaultValue={training.priceRangeMax}
+                          defaultValue={priceRangeMax}
                           placeholder="Ej. 220.000 COP"
                           className="field-select h-10 rounded-[16px] border-[rgba(148,163,184,0.14)] bg-slate-50 text-[13px] focus:border-[var(--primary)]"
                         />

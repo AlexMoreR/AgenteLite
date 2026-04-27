@@ -4,6 +4,7 @@ import Link from "next/link";
 import type { Role } from "@prisma/client";
 import { signOut } from "next-auth/react";
 import {
+  Building2,
   ChevronsUpDown,
   LogOut,
   Settings,
@@ -95,6 +96,12 @@ export function NavUser({
                 <Link href="/profile" className="flex items-center gap-2">
                   <User className="h-4 w-4" />
                   Mi perfil
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href="/cliente/negocio" className="flex items-center gap-2">
+                  <Building2 className="h-4 w-4" />
+                  Mi negocio
                 </Link>
               </DropdownMenuItem>
               {user.role === "ADMIN" && canAccessConfig ? (
