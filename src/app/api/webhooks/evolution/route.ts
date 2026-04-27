@@ -535,7 +535,7 @@ export async function POST(request: Request) {
             }
 
             const sendText = async () => {
-              if (!replyText) return;
+              if (!replyText || !channel.evolutionInstanceName) return;
               const outbound = await sendEvolutionTextMessageWithReconnect({
                 instanceName: channel.evolutionInstanceName,
                 phoneNumber,
