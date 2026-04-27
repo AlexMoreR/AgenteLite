@@ -4,7 +4,8 @@ import { memo, useCallback, useEffect, useMemo, useState, useTransition, type Re
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
-import { BadgeCheck, Facebook, Instagram, MessageCircle, Mic, UserRound } from "lucide-react";
+import { BadgeCheck, Facebook, Instagram, Mic, UserRound } from "lucide-react";
+import { WhatsAppGlyph } from "@/components/icons/whatsapp-glyph";
 import { readConversationFromCache } from "./chat-history-cache";
 import type { SharedInboxConversationItem } from "./shared-inbox";
 
@@ -12,7 +13,7 @@ function renderChannelIcon(channelType?: SharedInboxConversationItem["channelTyp
   if (channelType === "whatsapp_official") return <BadgeCheck className="h-3.5 w-3.5 shrink-0 text-emerald-600" />;
   if (channelType === "instagram") return <Instagram className="h-3.5 w-3.5 shrink-0 text-pink-600" />;
   if (channelType === "facebook") return <Facebook className="h-3.5 w-3.5 shrink-0 text-blue-600" />;
-  if (channelType === "whatsapp") return <MessageCircle className="h-3.5 w-3.5 shrink-0 text-emerald-600" />;
+  if (channelType === "whatsapp") return <WhatsAppGlyph className="h-3.5 w-3.5 shrink-0 text-emerald-600" />;
   return null;
 }
 
@@ -77,20 +78,28 @@ const ConversationListItem = memo(function ConversationListItem({
         }`}
       />
 
-      {conversation.avatarUrl ? (
-        <Image
-          src={conversation.avatarUrl}
-          alt={conversation.label}
-          width={40}
-          height={40}
-          unoptimized
-          className="h-10 w-10 shrink-0 rounded-2xl object-cover md:h-11 md:w-11"
-        />
-      ) : (
-        <div className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-slate-500 md:h-11 md:w-11">
-          <UserRound className="h-4.5 w-4.5 md:h-5 md:w-5" />
-        </div>
-      )}
+      <div className="relative h-10 w-10 shrink-0 md:h-11 md:w-11">
+        {conversation.avatarUrl ? (
+          <Image
+            src={conversation.avatarUrl}
+            alt={conversation.label}
+            width={40}
+            height={40}
+            unoptimized
+            className="h-10 w-10 rounded-2xl object-cover md:h-11 md:w-11"
+          />
+        ) : (
+          <div className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-100 text-slate-500 md:h-11 md:w-11">
+            <UserRound className="h-4.5 w-4.5 md:h-5 md:w-5" />
+          </div>
+        )}
+
+        {conversation.channelType ? (
+          <span className="absolute -bottom-1 -right-1 inline-flex h-4.5 w-4.5 items-center justify-center rounded-full bg-white text-[10px] shadow-[0_1px_4px_rgba(15,23,42,0.16)] ring-1 ring-slate-100">
+            {renderChannelIcon(conversation.channelType)}
+          </span>
+        ) : null}
+      </div>
 
       <div className="space-y-0.5 overflow-hidden min-w-0">
         <div className="flex items-center justify-between gap-3">
@@ -98,7 +107,6 @@ const ConversationListItem = memo(function ConversationListItem({
             <p className="min-w-0 flex-1 truncate text-[13px] font-semibold text-slate-950 md:text-[13px]">
               {conversation.label}
             </p>
-            {renderChannelIcon(conversation.channelType)}
           </div>
           <span className="shrink-0 text-[10px] text-slate-500 md:text-[10px]">
             {conversation.lastMessageAt
