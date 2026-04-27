@@ -220,14 +220,21 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   ]);
 
   const channelsById = new Map(channels.map((channel) => [channel.id, channel]));
+
+  // Excluir conversaciones cuyo canal fue eliminado
+  const activeAgentConversations = agentConversations.filter((conv) => {
+    if (!conv.channelId) return true;
+    return channelsById.has(conv.channelId);
+  });
+
   const selectedAgentConversation =
     selectedChatRef?.source === "agent"
-      ? agentConversations.find((item) => item.id === selectedChatRef.conversationId) || null
+      ? activeAgentConversations.find((item) => item.id === selectedChatRef.conversationId) || null
       : null;
 
   // Fetch avatars only for contacts without cached avatarUrl (max 10 per load)
   // Selected conversation contact gets priority so it always appears in the list
-  const uncachedConversations = agentConversations.filter((c) => !c.contact.avatarUrl);
+  const uncachedConversations = activeAgentConversations.filter((c) => !c.contact.avatarUrl);
   const selectedUncached = selectedAgentConversation && !selectedAgentConversation.contact.avatarUrl
     ? [selectedAgentConversation]
     : [];
@@ -255,7 +262,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     ).catch(() => null);
   }
 
-  const agentRows: UnifiedConversation[] = agentConversations.map((conversation) => {
+  const agentRows: UnifiedConversation[] = activeAgentConversations.map((conversation) => {
     const linkedChannel = conversation.channelId ? channelsById.get(conversation.channelId) || null : null;
     const avatarUrl = conversation.contact.avatarUrl ?? null;
 
