@@ -456,6 +456,8 @@ export async function POST(request: Request) {
         select: {
           direction: true,
           content: true,
+          type: true,
+          mediaUrl: true,
         },
       });
 
@@ -476,33 +478,12 @@ export async function POST(request: Request) {
           });
 
       let shouldComposeWelcome = true;
-      let followUpText: string | null = null;
 
       if (hardFlowReply) {
         replyText = hardFlowReply.reply ?? "";
-        if (hardFlowReply.image) {
-          followUpText = await generateAgentReply({
-            model: agent.model,
-            systemPrompt: `${agent.systemPrompt ?? ""}\n\nACCION: Acabas de enviarle al cliente una imagen con informacion del producto "${hardFlowReply.productName}". Genera una sola pregunta comercial concreta que lo lleve al siguiente paso (compra, reserva, consulta de precio, etc). Sin repetir la informacion de la imagen. Maximo 1-2 lineas.`,
-            rawSystemPrompt: true,
-            fallbackMessage: null,
-            history: [...recentMessages, { direction: "OUTBOUND", content: replyText }],
-            latestUserMessage: messageText,
-          }).then((t) => t?.trim() || null).catch(() => null);
-        }
       } else if (knowledgeBaseReply) {
         replyText = knowledgeBaseReply.text ?? null;
         shouldComposeWelcome = Boolean(replyText);
-        if (knowledgeBaseReply.image) {
-          followUpText = await generateAgentReply({
-            model: agent.model,
-            systemPrompt: `${agent.systemPrompt ?? ""}\n\nACCION: Acabas de enviarle al cliente una imagen de producto. Genera una sola pregunta comercial concreta que lo lleve al siguiente paso (compra, reserva, consulta de precio, etc). Sin repetir la informacion de la imagen. Maximo 1-2 lineas.`,
-            rawSystemPrompt: true,
-            fallbackMessage: null,
-            history: [...recentMessages, { direction: "OUTBOUND", content: replyText ?? "" }],
-            latestUserMessage: messageText,
-          }).then((t) => t?.trim() || null).catch(() => null);
-        }
       } else {
         replyText = await generateAgentReply({
           model: agent.model,
@@ -535,6 +516,10 @@ export async function POST(request: Request) {
 
       const hardFlowImageReply = hardFlowReply?.image ?? null;
       const knowledgeImageReply = knowledgeBaseReply?.image ?? null;
+      const imageReply = hardFlowImageReply ?? knowledgeImageReply;
+      const imageReplyProductName = hardFlowReply?.productName || knowledgeBaseReply?.productName || "";
+      const imageReplyReason = hardFlowReply ? "flow" : knowledgeBaseReply ? "knowledge" : null;
+      let followUpText: string | null = null;
 
       if (replyText || knowledgeImageReply || hardFlowImageReply) {
         try {
@@ -590,23 +575,12 @@ export async function POST(request: Request) {
               });
             };
 
-            const imageFirst = hardFlowReply?.imageFirst ?? false;
-            if (imageFirst) {
-              // imagen primero (orden del flujo builder)
-            } else {
-              await sendText();
-            }
-
-            if (knowledgeImageReply || hardFlowImageReply) {
-              const imageUrl = hardFlowImageReply?.url ?? knowledgeImageReply?.url ?? "";
-              const imageCaption = hardFlowImageReply
-                ? hardFlowImageReply.caption
-                : knowledgeImageReply?.caption ?? null;
+            if (imageReply) {
               const imageOutbound = await sendEvolutionImageMessage({
                 instanceName: channel.evolutionInstanceName,
                 phoneNumber,
-                imageUrl,
-                caption: imageCaption,
+                imageUrl: imageReply.url,
+                caption: imageReply.caption,
                 delayMs: 0,
               });
 
@@ -621,15 +595,41 @@ export async function POST(request: Request) {
                   direction: "OUTBOUND",
                   type: "IMAGE",
                   status: "SENT",
-                  content: imageCaption,
-                  mediaUrl: imageUrl,
+                  content: imageReply.caption,
+                  mediaUrl: imageReply.url,
                   sentAt: new Date(),
                   rawPayload: imageOutbound.raw as never,
                 },
               });
-            }
+              if (imageReplyReason) {
+                const imageContext =
+                  imageReplyReason === "flow"
+                    ? `La imagen del flujo ya fue enviada para "${imageReplyProductName || "el producto"}".`
+                    : `La imagen del producto ya fue enviada para "${imageReplyProductName || "el producto"}".`;
+                followUpText = await generateAgentReply({
+                  model: agent.model,
+                  systemPrompt: `${agent.systemPrompt ?? ""}\n\nACCION: ${imageContext} Genera una sola pregunta comercial concreta que asuma que la imagen ya salio y lleve al siguiente paso (compra, reserva, consulta de precio, etc). Sin repetir la informacion de la imagen. Maximo 1-2 lineas.`,
+                  rawSystemPrompt: true,
+                  fallbackMessage: null,
+                  history: [
+                    ...recentMessages,
+                    {
+                      direction: "OUTBOUND",
+                      type: "IMAGE",
+                      mediaUrl: imageReply.url,
+                      content: imageReply.caption || `Imagen enviada de ${imageReplyProductName || "producto"}`,
+                    },
+                  ],
+                  latestUserMessage: messageText,
+                })
+                  .then((t) => t?.trim() || null)
+                  .catch(() => null);
+              }
 
-            if (imageFirst) {
+              if (replyText) {
+                await sendText();
+              }
+            } else {
               await sendText();
             }
 

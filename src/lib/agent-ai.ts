@@ -1,6 +1,8 @@
 type ConversationTurn = {
   direction: "INBOUND" | "OUTBOUND";
   content: string | null;
+  type?: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT" | "TEMPLATE" | "INTERACTIVE" | "SYSTEM";
+  mediaUrl?: string | null;
 };
 
 type GenerateAgentReplyInput = {
@@ -40,12 +42,28 @@ function buildInstructions(input: GenerateAgentReplyInput) {
 
 function buildMessages(input: GenerateAgentReplyInput) {
   const messages = input.history
-    .filter((item) => item.content?.trim())
     .slice(-12)
-    .map((item) => ({
-      role: item.direction === "OUTBOUND" ? "assistant" : "user",
-      content: item.content!.trim(),
-    }));
+    .map((item) => {
+      const content = item.content?.trim() || "";
+      if (content) {
+        return {
+          role: item.direction === "OUTBOUND" ? "assistant" : "user",
+          content,
+        };
+      }
+
+      if (item.type === "IMAGE" || item.mediaUrl) {
+        return {
+          role: item.direction === "OUTBOUND" ? "assistant" : "user",
+          content: item.direction === "OUTBOUND"
+            ? "Imagen enviada al cliente."
+            : "Imagen recibida del cliente.",
+        };
+      }
+
+      return null;
+    })
+    .filter((item): item is { role: "assistant" | "user"; content: string } => Boolean(item));
 
   const latestTrimmed = input.latestUserMessage.trim();
   const lastMessage = messages[messages.length - 1];
