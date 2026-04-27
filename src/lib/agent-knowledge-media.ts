@@ -37,6 +37,14 @@ const IMAGE_REQUEST_PATTERNS = [
   /\bensena(?:me)?\b/i,
 ];
 
+const AFFIRMATIVE_RESPONSE_PATTERNS = [
+  /^\s*si\s*[!.]?\s*$/i,
+  /^\s*si,\s*$/i,
+  /^\s*claro\s*[!.]?\s*$/i,
+  /^\s*dale\s*[!.]?\s*$/i,
+  /^\s*por favor\s*[!.]?\s*$/i,
+];
+
 const PRODUCT_STOP_WORDS = new Set([
   "de",
   "del",
@@ -89,6 +97,11 @@ function isImageRequest(messageText: string) {
   return IMAGE_REQUEST_PATTERNS.some((pattern) => pattern.test(normalizeText(messageText)));
 }
 
+function isAffirmativeResponse(messageText: string) {
+  const trimmed = messageText.trim();
+  return AFFIRMATIVE_RESPONSE_PATTERNS.some((pattern) => pattern.test(trimmed));
+}
+
 const KNOWLEDGE_REQUEST_PATTERNS = [
   /\bdetalle(?:s)?\b/i,
   /\binformacion\b/i,
@@ -107,6 +120,21 @@ const KNOWLEDGE_REQUEST_PATTERNS = [
 
 function isKnowledgeFollowUpRequest(messageText: string) {
   return KNOWLEDGE_REQUEST_PATTERNS.some((pattern) => pattern.test(normalizeText(messageText)));
+}
+
+function historyRequestsImage(history: ConversationLine[]) {
+  const recentMessages = [...history]
+    .map((item) => ({ direction: item.direction, content: item.content?.trim() || "" }))
+    .filter((item) => item.content.length > 0)
+    .reverse()
+    .slice(0, 6);
+
+  const latestOutbound = recentMessages.find((item) => item.direction === "OUTBOUND");
+  if (!latestOutbound) {
+    return false;
+  }
+
+  return IMAGE_REQUEST_PATTERNS.some((pattern) => pattern.test(normalizeText(latestOutbound.content)));
 }
 
 async function listAgentKnowledgeMediaProducts(agentId: string): Promise<AgentKnowledgeMediaProduct[]> {
@@ -222,7 +250,9 @@ export async function resolveAgentKnowledgeBaseReply(input: {
   }
 
   const normalizedDescription = selectedProduct.description?.trim() || "";
-  const isPhotoRequest = isImageRequest(latestUserMessage);
+  const isPhotoRequest =
+    isImageRequest(latestUserMessage) ||
+    (isAffirmativeResponse(latestUserMessage) && input.history?.length ? historyRequestsImage(input.history) : false);
   const imageUrl = selectedProduct.thumbnailUrl;
 
   if (isPhotoRequest && imageUrl) {
