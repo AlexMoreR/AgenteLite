@@ -156,11 +156,18 @@ async function listAgentKnowledgeMediaProducts(agentId: string): Promise<AgentKn
       p."description",
       p."price"::text AS "price",
       c."name" AS "categoryName",
-      p."thumbnailUrl",
+      COALESCE(NULLIF(TRIM(p."thumbnailUrl"), ''), pi."url") AS "thumbnailUrl",
       akp."instructions"
     FROM "AgentKnowledgeProduct" akp
     INNER JOIN "Product" p ON p."id" = akp."productId"
     LEFT JOIN "Category" c ON c."id" = p."categoryId"
+    LEFT JOIN LATERAL (
+      SELECT "url"
+      FROM "ProductImage" pimage
+      WHERE pimage."productId" = p."id"
+      ORDER BY pimage."order" ASC, pimage."createdAt" ASC
+      LIMIT 1
+    ) pi ON TRUE
     WHERE akp."agentId" = ${agentId}
     ORDER BY akp."createdAt" ASC, p."name" ASC
     LIMIT 30
