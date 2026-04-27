@@ -22,6 +22,7 @@ type FlowReplyPayload = {
     url: string;
     caption: string | null;
   } | null;
+  imageFirst: boolean;
 };
 
 function normalizeText(value: string) {
@@ -221,9 +222,14 @@ function getScenarioReplyFromState(input: {
     return null;
   }
 
+  const imageIndex = imageNode ? candidateNodes.indexOf(imageNode) : -1;
+  const replyIndex = replyNode ? candidateNodes.indexOf(replyNode) : -1;
+  const imageFirst = imageNode !== undefined && (replyIndex === -1 || imageIndex < replyIndex);
+
   return {
     text,
     image,
+    imageFirst,
   };
 }
 
@@ -366,6 +372,7 @@ export async function resolveAgentProductFlowReply(input: {
         return {
           reply: reply.text ?? "",
           image: reply.image,
+          imageFirst: reply.imageFirst,
           flowTitle: flow.title,
           productName: row.productName,
         };

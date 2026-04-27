@@ -534,14 +534,14 @@ export async function POST(request: Request) {
               });
             }
 
-            if (replyText) {
+            const sendText = async () => {
+              if (!replyText) return;
               const outbound = await sendEvolutionTextMessageWithReconnect({
                 instanceName: channel.evolutionInstanceName,
                 phoneNumber,
                 text: replyText,
                 delayMs: 0,
               });
-
               await prisma.message.create({
                 data: {
                   workspaceId: channel.workspaceId,
@@ -558,6 +558,13 @@ export async function POST(request: Request) {
                   rawPayload: outbound.raw as never,
                 },
               });
+            };
+
+            const imageFirst = hardFlowReply?.imageFirst ?? false;
+            if (imageFirst) {
+              // imagen primero (orden del flujo builder)
+            } else {
+              await sendText();
             }
 
             if (knowledgeImageReply || hardFlowImageReply) {
@@ -590,6 +597,10 @@ export async function POST(request: Request) {
                   rawPayload: imageOutbound.raw as never,
                 },
               });
+            }
+
+            if (imageFirst) {
+              await sendText();
             }
 
             await prisma.conversation.update({
