@@ -323,7 +323,7 @@ export function buildAgentSystemPrompt(input: {
     .filter((item): item is string => Boolean(item));
 
   const knowledgeSection = knowledgeProducts.length
-    ? `CONOCIMIENTO DE PRODUCTOS\n- ${knowledgeProducts.join("\n- ")}\n- Usa esta base para responder con precision sobre esos productos.\n- Si te preguntan por algo fuera de esta base, no lo inventes y aclara que debes confirmarlo.`
+    ? `CONOCIMIENTO DE PRODUCTOS\n- ${knowledgeProducts.join("\n- ")}\n- Usa esta base para responder con precision sobre esos productos.\n- Nunca respondas solo con el nombre del producto si tienes descripcion, precio o imagen de referencia.\n- Cuando hables de un producto, menciona la informacion util disponible y agrega un siguiente paso claro si ayuda a vender.\n- Si te preguntan por algo fuera de esta base, no lo inventes y aclara que debes confirmarlo.`
     : null;
 
   const knowledgeFlows = (input.knowledgeFlows ?? [])
