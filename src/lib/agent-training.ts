@@ -1,5 +1,3 @@
-import { formatProductKnowledgePromptItem } from "@/features/products/services/product-knowledge";
-
 export const targetAudienceOptions = [
   "Mujer",
   "Hombre",
@@ -309,16 +307,21 @@ export function buildAgentSystemPrompt(input: {
         return null;
       }
 
-      return formatProductKnowledgePromptItem({
-        code: product.code?.trim() || null,
-        slug: product.slug?.trim() || null,
-        name,
-        description: product.description?.trim() || null,
-        price: product.price?.trim() || null,
-        categoryName: product.categoryName?.trim() || null,
-        thumbnailUrl: product.thumbnailUrl?.trim() || null,
-        instructions: product.instructions?.trim() || null,
-      });
+      const summary = [`Producto: ${name}`];
+      if (product.description?.trim()) {
+        summary.push(`Descripcion: ${product.description.trim()}`);
+      }
+      if (product.price?.trim()) {
+        summary.push(`Precio de referencia: ${product.price.trim()}`);
+      }
+      if (product.thumbnailUrl?.trim()) {
+        summary.push(`Imagen de referencia: ${product.thumbnailUrl.trim()}`);
+      }
+      if (product.instructions?.trim()) {
+        summary.push(`Instrucciones comerciales: ${product.instructions.trim()}`);
+      }
+
+      return summary.join(" | ");
     })
     .filter((item): item is string => Boolean(item));
 
@@ -515,4 +518,3 @@ function formatPriceRange(min: string, max: string) {
 
   return "No definido";
 }
-import { formatProductKnowledgePromptItem } from "@/features/products/services/product-knowledge";

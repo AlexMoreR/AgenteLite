@@ -1,9 +1,5 @@
 import { prisma } from "@/lib/prisma";
 import { getSiteUrl } from "@/lib/site";
-import {
-  buildProductKnowledgeImageCaption,
-  buildProductKnowledgeReplyText,
-} from "@/features/products/services/product-knowledge";
 
 type ConversationLine = {
   direction: "INBOUND" | "OUTBOUND";
@@ -35,6 +31,11 @@ type AgentKnowledgeBaseReply = {
   } | null;
   productName: string;
 };
+
+function buildKnowledgeImageCaption(productName: string) {
+  const normalizedName = productName.trim() || "este producto";
+  return `Te comparto la foto de ${normalizedName}.`;
+}
 
 const IMAGE_REQUEST_PATTERNS = [
   /\bfoto\b/i,
@@ -257,7 +258,6 @@ export async function resolveAgentKnowledgeBaseReply(input: {
     return null;
   }
 
-  const normalizedDescription = selectedProduct.description?.trim() || "";
   const isPhotoRequest =
     isImageRequest(latestUserMessage) ||
     (isAffirmativeResponse(latestUserMessage) && input.history?.length ? historyRequestsImage(input.history) : false);
@@ -268,16 +268,8 @@ export async function resolveAgentKnowledgeBaseReply(input: {
       text: null,
       image: {
         url: imageUrl,
-        caption: buildProductKnowledgeImageCaption(selectedProduct),
+        caption: buildKnowledgeImageCaption(selectedProduct.name),
       },
-      productName: selectedProduct.name,
-    };
-  }
-
-  if (normalizedDescription || selectedProduct.price || selectedProduct.categoryName || selectedProduct.code || selectedProduct.slug) {
-    return {
-      text: buildProductKnowledgeReplyText(selectedProduct),
-      image: null,
       productName: selectedProduct.name,
     };
   }
