@@ -10,6 +10,7 @@ import { z } from "zod";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { slugifyProductSegment } from "@/lib/product-slugs";
+import { getSiteUrl } from "@/lib/site";
 import { calculateMarginPctFromPrice, calculateRetailPrice, calculateWholesalePrice } from "@/lib/pricing";
 
 const baseProductSchema = z.object({
@@ -53,6 +54,23 @@ function parseImageList(raw: string): string[] {
     .split(/[\n,]/g)
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function resolvePublicProductImageUrl(value: string): string {
+  const normalized = value.trim();
+  if (!normalized) {
+    return normalized;
+  }
+
+  if (/^https?:\/\//i.test(normalized)) {
+    return normalized;
+  }
+
+  if (normalized.startsWith("/")) {
+    return getSiteUrl(normalized);
+  }
+
+  return normalized;
 }
 
 async function generateUniqueProductSlug(
@@ -199,7 +217,7 @@ async function saveUploadedImages(files: File[]): Promise<string[]> {
     const filePath = path.join(uploadDir, fileName);
 
     await writeFile(filePath, buffer);
-    savedUrls.push(`/uploads/products/${fileName}`);
+    savedUrls.push(getSiteUrl(`/uploads/products/${fileName}`));
   }
 
   return savedUrls;
@@ -510,7 +528,7 @@ export async function adminImportProductsCsvAction(formData: FormData): Promise<
       parseNumber(getCell(row, "%mayor", "margenmayor", "wholesalemarginpct"), 20),
     );
     const minWholesaleQty = Math.max(1, Math.floor(parseNumber(getCell(row, "minmayor", "minwholesaleqty"), 6)));
-    const thumbnailUrl = getCell(row, "imagen", "thumbnailurl") || "/file.svg";
+    const thumbnailUrl = resolvePublicProductImageUrl(getCell(row, "imagen", "thumbnailurl") || "/file.svg");
     const categoryName = getCell(row, "categoria", "category").toLowerCase();
     const supplierName = getCell(row, "proveedor", "supplier").toLowerCase();
 
