@@ -331,13 +331,17 @@ async function getAgentKnowledgePromptProducts(agentId: string) {
   try {
     return await prisma.$queryRaw<Array<AgentKnowledgePromptProduct>>`
       SELECT
+        p."code",
+        p."slug",
         p."name",
         p."description",
         p."thumbnailUrl",
         p."price"::text AS "price",
+        c."name" AS "categoryName",
         akp."instructions"
       FROM "AgentKnowledgeProduct" akp
       INNER JOIN "Product" p ON p."id" = akp."productId"
+      LEFT JOIN "Category" c ON c."id" = p."categoryId"
       WHERE akp."agentId" = ${agentId}
       ORDER BY akp."createdAt" ASC, p."name" ASC
       LIMIT 30
@@ -346,12 +350,16 @@ async function getAgentKnowledgePromptProducts(agentId: string) {
     if (isMissingAgentKnowledgeInstructionsColumnError(error)) {
       return await prisma.$queryRaw<Array<AgentKnowledgePromptProduct>>`
         SELECT
+          p."code",
+          p."slug",
           p."name",
           p."description",
           p."thumbnailUrl",
-          p."price"::text AS "price"
+          p."price"::text AS "price",
+          c."name" AS "categoryName"
         FROM "AgentKnowledgeProduct" akp
         INNER JOIN "Product" p ON p."id" = akp."productId"
+        LEFT JOIN "Category" c ON c."id" = p."categoryId"
         WHERE akp."agentId" = ${agentId}
         ORDER BY akp."createdAt" ASC, p."name" ASC
         LIMIT 30

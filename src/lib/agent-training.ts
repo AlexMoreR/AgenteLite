@@ -1,3 +1,5 @@
+import { formatProductKnowledgePromptItem } from "@/features/products/services/product-knowledge";
+
 export const targetAudienceOptions = [
   "Mujer",
   "Hombre",
@@ -98,9 +100,12 @@ export type AgentTrainingConfig = {
 };
 
 export type AgentKnowledgePromptProduct = {
+  code?: string | null;
+  slug?: string | null;
   name: string;
   description?: string | null;
   price?: string | null;
+  categoryName?: string | null;
   thumbnailUrl?: string | null;
   instructions?: string | null;
 };
@@ -304,21 +309,16 @@ export function buildAgentSystemPrompt(input: {
         return null;
       }
 
-      const summary = [`Producto: ${name}`];
-      if (product.description?.trim()) {
-        summary.push(`Descripcion: ${product.description.trim()}`);
-      }
-      if (product.price?.trim()) {
-        summary.push(`Precio de referencia: ${product.price.trim()}`);
-      }
-      if (product.thumbnailUrl?.trim()) {
-        summary.push(`Imagen de referencia: ${product.thumbnailUrl.trim()}`);
-      }
-      if (product.instructions?.trim()) {
-        summary.push(`Instrucciones comerciales: ${product.instructions.trim()}`);
-      }
-
-      return summary.join(" | ");
+      return formatProductKnowledgePromptItem({
+        code: product.code?.trim() || null,
+        slug: product.slug?.trim() || null,
+        name,
+        description: product.description?.trim() || null,
+        price: product.price?.trim() || null,
+        categoryName: product.categoryName?.trim() || null,
+        thumbnailUrl: product.thumbnailUrl?.trim() || null,
+        instructions: product.instructions?.trim() || null,
+      });
     })
     .filter((item): item is string => Boolean(item));
 
@@ -327,7 +327,7 @@ export function buildAgentSystemPrompt(input: {
     : null;
 
   const productResponseRule = knowledgeProducts.length
-    ? "Si el cliente pregunta por un producto, no repitas solo el nombre. Responde con la informacion util disponible de la ficha del producto: descripcion, precio de referencia o imagen si aplica. Si la ficha es demasiado breve, haz una pregunta de aclaracion o ofrece el siguiente dato util en vez de devolver solo el nombre."
+    ? "Si el cliente pregunta por un producto, usa la ficha completa del producto: codigo, slug, nombre, descripcion, precio, categoria, imagen e instrucciones. Nunca repitas solo el nombre; responde con una sintesis util, comercial y clara. Si la ficha esta incompleta, menciona los datos disponibles y agrega una pregunta o siguiente paso concreto."
     : "Si el cliente pregunta por un producto, responde con la informacion que tengas en el contexto sin repetir solo el nombre.";
 
   const knowledgeFlows = (input.knowledgeFlows ?? [])
@@ -515,3 +515,4 @@ function formatPriceRange(min: string, max: string) {
 
   return "No definido";
 }
+import { formatProductKnowledgePromptItem } from "@/features/products/services/product-knowledge";

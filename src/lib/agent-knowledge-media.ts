@@ -1,5 +1,9 @@
 import { prisma } from "@/lib/prisma";
 import { getSiteUrl } from "@/lib/site";
+import {
+  buildProductKnowledgeImageCaption,
+  buildProductKnowledgeReplyText,
+} from "@/features/products/services/product-knowledge";
 
 type ConversationLine = {
   direction: "INBOUND" | "OUTBOUND";
@@ -7,10 +11,13 @@ type ConversationLine = {
 };
 
 type AgentKnowledgeMediaProduct = {
+  code: string | null;
+  slug: string;
   id: string;
   name: string;
   description: string | null;
   price: string | null;
+  categoryName: string | null;
   thumbnailUrl: string | null;
   instructions: string | null;
 };
@@ -141,14 +148,18 @@ function historyRequestsImage(history: ConversationLine[]) {
 async function listAgentKnowledgeMediaProducts(agentId: string): Promise<AgentKnowledgeMediaProduct[]> {
   return prisma.$queryRaw<AgentKnowledgeMediaProduct[]>`
     SELECT
+      p."code",
+      p."slug",
       p."id",
       p."name",
       p."description",
       p."price"::text AS "price",
+      c."name" AS "categoryName",
       p."thumbnailUrl",
       akp."instructions"
     FROM "AgentKnowledgeProduct" akp
     INNER JOIN "Product" p ON p."id" = akp."productId"
+    LEFT JOIN "Category" c ON c."id" = p."categoryId"
     WHERE akp."agentId" = ${agentId}
     ORDER BY akp."createdAt" ASC, p."name" ASC
     LIMIT 30
@@ -212,11 +223,6 @@ function selectProductFromHistory(history: ConversationLine[], products: AgentKn
   return null;
 }
 
-function buildKnowledgeImageCaption(productName: string) {
-  const normalizedName = productName.trim() || "este producto";
-  return `Te comparto la foto de ${normalizedName}.`;
-}
-
 export async function resolveAgentKnowledgeBaseReply(input: {
   agentId: string;
   latestUserMessage: string | null | undefined;
@@ -262,15 +268,15 @@ export async function resolveAgentKnowledgeBaseReply(input: {
       text: null,
       image: {
         url: imageUrl,
-        caption: buildKnowledgeImageCaption(selectedProduct.name),
+        caption: buildProductKnowledgeImageCaption(selectedProduct),
       },
       productName: selectedProduct.name,
     };
   }
 
-  if (normalizedDescription) {
+  if (normalizedDescription || selectedProduct.price || selectedProduct.categoryName || selectedProduct.code || selectedProduct.slug) {
     return {
-      text: normalizedDescription,
+      text: buildProductKnowledgeReplyText(selectedProduct),
       image: null,
       productName: selectedProduct.name,
     };
