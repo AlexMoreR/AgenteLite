@@ -11,6 +11,7 @@ import { canAccessOfficialApiModule } from "@/lib/admin-module-access";
 import { fetchEvolutionMediaDataUrl, fetchEvolutionProfilePictureUrl } from "@/lib/evolution";
 import { getEvolutionSettings } from "@/lib/system-settings";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
@@ -34,6 +35,7 @@ type UnifiedConversation = {
   label: string;
   secondaryLabel: string;
   avatarUrl?: string | null;
+  incomingCount?: number | null;
   lastMessage: string | null;
   lastMessageType?: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
   lastMessageDirection?: "INBOUND" | "OUTBOUND" | null;
@@ -255,6 +257,35 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     return channelsById.has(conv.channelId);
   });
 
+  const activeAgentConversationIds = activeAgentConversations.map((conversation) => conversation.id);
+  const agentIncomingCountRows = activeAgentConversationIds.length
+    ? await prisma.$queryRaw<Array<{
+        conversationId: string;
+        incomingCount: number;
+      }>>`
+        SELECT
+          c."id" AS "conversationId",
+          COALESCE(incoming."incomingCount", 0)::int AS "incomingCount"
+        FROM "Conversation" c
+        LEFT JOIN LATERAL (
+          SELECT MAX(mo."createdAt") AS "lastOutboundAt"
+          FROM "Message" mo
+          WHERE mo."conversationId" = c."id"
+            AND mo."direction" = 'OUTBOUND'
+        ) lo ON true
+        LEFT JOIN LATERAL (
+          SELECT COUNT(*)::int AS "incomingCount"
+          FROM "Message" mi
+          WHERE mi."conversationId" = c."id"
+            AND mi."direction" = 'INBOUND'
+            AND mi."createdAt" > COALESCE(lo."lastOutboundAt", TIMESTAMP '1970-01-01')
+        ) incoming ON true
+        WHERE c."workspaceId" = ${membership.workspace.id}
+          AND c."id" IN (${Prisma.join(activeAgentConversationIds)})
+      `
+    : [];
+  const agentIncomingCountById = new Map(agentIncomingCountRows.map((row) => [row.conversationId, row.incomingCount]));
+
   const selectedAgentConversation =
     selectedChatRef?.source === "agent"
       ? activeAgentConversations.find((item) => item.id === selectedChatRef.conversationId) || null
@@ -303,6 +334,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       label: getAgentContactLabel(conversation.contact),
       secondaryLabel: conversation.contact.phoneNumber,
       avatarUrl,
+      incomingCount: agentIncomingCountById.get(conversation.id) ?? 0,
       lastMessage: conversation.messages[0]?.content ?? null,
       lastMessageType: conversation.messages[0]?.type ?? null,
       lastMessageDirection: conversation.messages[0]?.direction ?? null,
@@ -326,6 +358,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         label: getOfficialContactLabel(conversation.contact),
         secondaryLabel: conversation.contact.phoneNumber || conversation.contact.waId,
         avatarUrl: null,
+        incomingCount: conversation.incomingCount ?? 0,
         lastMessage: conversation.lastMessage?.content ?? null,
         lastMessageType: conversation.lastMessage?.type ?? null,
         lastMessageDirection: conversation.lastMessage?.direction ?? null,
@@ -568,6 +601,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           label: item.label,
           secondaryLabel: item.secondaryLabel,
           channelType: item.source === "official" ? "whatsapp_official" : "whatsapp",
+          incomingCount: item.incomingCount ?? 0,
           avatarUrl: item.avatarUrl ?? null,
           lastMessage: item.lastMessage,
           lastMessageType: item.lastMessageType ?? null,

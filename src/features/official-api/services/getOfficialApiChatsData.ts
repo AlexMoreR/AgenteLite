@@ -173,6 +173,7 @@ export async function getOfficialApiChatsData(input: {
     contactName: string | null;
     contactPhoneNumber: string | null;
     contactWaId: string;
+    incomingCount: number;
     lastMessageId: string | null;
     lastMessageContent: string | null;
     lastMessageDirection: "INBOUND" | "OUTBOUND" | null;
@@ -187,6 +188,7 @@ export async function getOfficialApiChatsData(input: {
       ct."name" AS "contactName",
       ct."phoneNumber" AS "contactPhoneNumber",
       ct."waId" AS "contactWaId",
+      COALESCE(incoming."incomingCount", 0)::int AS "incomingCount",
       lm."id" AS "lastMessageId",
       lm."content" AS "lastMessageContent",
       lm."direction"::text AS "lastMessageDirection",
@@ -197,6 +199,19 @@ export async function getOfficialApiChatsData(input: {
     FROM "OfficialApiConversation" c
     INNER JOIN "OfficialApiContact" ct
       ON ct."id" = c."contactId"
+    LEFT JOIN LATERAL (
+      SELECT MAX(mo."createdAt") AS "lastOutboundAt"
+      FROM "OfficialApiMessage" mo
+      WHERE mo."conversationId" = c."id"
+        AND mo."direction" = 'OUTBOUND'
+    ) lo ON true
+    LEFT JOIN LATERAL (
+      SELECT COUNT(*)::int AS "incomingCount"
+      FROM "OfficialApiMessage" mi
+      WHERE mi."conversationId" = c."id"
+        AND mi."direction" = 'INBOUND'
+        AND mi."createdAt" > COALESCE(lo."lastOutboundAt", TIMESTAMP '1970-01-01')
+    ) incoming ON true
     LEFT JOIN LATERAL (
       SELECT
         m."id",
@@ -225,6 +240,7 @@ export async function getOfficialApiChatsData(input: {
       phoneNumber: row.contactPhoneNumber,
       waId: row.contactWaId,
     },
+    incomingCount: row.incomingCount,
     lastMessage: row.lastMessageId && row.lastMessageDirection && row.lastMessageCreatedAt && row.lastMessageStatus
       ? {
           id: row.lastMessageId,
@@ -249,6 +265,7 @@ export async function getOfficialApiChatsData(input: {
     conversations: conversations.map((conversation) => ({
       id: conversation.id,
       contact: conversation.contact,
+      incomingCount: conversation.incomingCount,
       lastMessage: conversation.lastMessage ?? null,
     })),
     selectedConversation,

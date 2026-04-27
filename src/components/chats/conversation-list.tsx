@@ -10,11 +10,19 @@ import { readConversationFromCache } from "./chat-history-cache";
 import type { SharedInboxConversationItem } from "./shared-inbox";
 
 function renderChannelBadgeIcon(channelType?: SharedInboxConversationItem["channelType"]) {
-  if (channelType === "whatsapp_official") return <BadgeCheck className="h-3 w-3 shrink-0 text-white" />;
-  if (channelType === "instagram") return <Instagram className="h-3 w-3 shrink-0 text-white" />;
-  if (channelType === "facebook") return <Facebook className="h-3 w-3 shrink-0 text-white" />;
-  if (channelType === "whatsapp") return <WhatsAppGlyph className="h-3 w-3 shrink-0 text-white" />;
+  if (channelType === "whatsapp_official") return <BadgeCheck className="h-3.5 w-3.5 shrink-0 text-white" />;
+  if (channelType === "instagram") return <Instagram className="h-3.5 w-3.5 shrink-0 text-white" />;
+  if (channelType === "facebook") return <Facebook className="h-3.5 w-3.5 shrink-0 text-white" />;
+  if (channelType === "whatsapp") return <WhatsAppGlyph className="h-3.5 w-3.5 shrink-0 text-white" />;
   return null;
+}
+
+function renderIncomingCountLabel(count?: number | null) {
+  if (!count || count <= 0) {
+    return null;
+  }
+
+  return count > 99 ? "99+" : String(count);
 }
 
 function getConversationPreview(conversation: SharedInboxConversationItem) {
@@ -50,8 +58,6 @@ const ConversationListItem = memo(function ConversationListItem({
   onSelect: (conversation: SharedInboxConversationItem) => void;
   onPrefetch: (conversation: SharedInboxConversationItem) => void;
 }) {
-  const isInbound = conversation.lastMessageDirection === "INBOUND";
-
   return (
     <Link
       href={conversation.href}
@@ -94,8 +100,16 @@ const ConversationListItem = memo(function ConversationListItem({
           </div>
         )}
 
+        {renderIncomingCountLabel(conversation.incomingCount) ? (
+          <span className="absolute -top-1 -right-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#2563eb] px-1 shadow-[0_1px_4px_rgba(15,23,42,0.18)]">
+            <span className="text-[10px] font-semibold leading-none text-white">
+              {renderIncomingCountLabel(conversation.incomingCount)}
+            </span>
+          </span>
+        ) : null}
+
         {conversation.channelType ? (
-          <span className="absolute -bottom-1 -right-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#25D366] text-white shadow-[0_1px_4px_rgba(15,23,42,0.18)]">
+          <span className="absolute -bottom-1 -right-1 inline-flex h-[18px] w-[18px] items-center justify-center rounded-full bg-[#25D366] text-white shadow-[0_1px_4px_rgba(15,23,42,0.18)]">
             {renderChannelBadgeIcon(conversation.channelType)}
           </span>
         ) : null}
@@ -118,7 +132,6 @@ const ConversationListItem = memo(function ConversationListItem({
         </div>
 
         <div className="flex min-w-0 max-w-full items-center gap-2 overflow-hidden">
-          {isInbound ? <span className="h-2 w-2 rounded-full bg-emerald-500" /> : null}
           <p className="block min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[12px] text-slate-600 md:text-[13px]">
             {renderConversationPreview(conversation)}
           </p>

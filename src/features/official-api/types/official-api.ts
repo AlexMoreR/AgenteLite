@@ -34,6 +34,7 @@ export type OfficialApiChatConversationSummary = {
     phoneNumber: string | null;
     waId: string;
   };
+  incomingCount: number;
   lastMessage: {
     id: string;
     content: string | null;

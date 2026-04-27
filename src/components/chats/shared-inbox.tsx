@@ -41,6 +41,7 @@ export type SharedInboxConversationItem = {
   label: string;
   secondaryLabel: string;
   channelType?: "whatsapp" | "whatsapp_official" | "instagram" | "facebook";
+  incomingCount?: number | null;
   avatarUrl?: string | null;
   lastMessage: string | null;
   lastMessageType?: SharedInboxMessageItem["type"] | null;
