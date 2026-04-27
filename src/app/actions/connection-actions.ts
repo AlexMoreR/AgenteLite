@@ -176,6 +176,8 @@ export async function deleteConnectionChannelAction(formData: FormData): Promise
     }
   }
 
+  await prisma.conversation.deleteMany({ where: { channelId: channel.id } });
+
   await prisma.whatsAppChannel.delete({
     where: { id: channel.id },
   });
