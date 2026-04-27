@@ -8,6 +8,7 @@ import {
   BadgeCheck,
   Bot,
   ChevronRight,
+  CheckCheck,
   Facebook,
   MessageCircle,
   MessageSquareText,
@@ -92,6 +93,30 @@ function getInitials(value: string) {
   return initials || "CT";
 }
 
+function renderWhatsAppText(content: string) {
+  const parts = content.split(/(\*[^*\n]+\*)/g);
+
+  return parts.map((part, index) => {
+    if (part.startsWith("*") && part.endsWith("*") && part.length > 2) {
+      return (
+        <strong key={`${part}-${index}`} className="font-semibold">
+          {part.slice(1, -1)}
+        </strong>
+      );
+    }
+
+    return <span key={`${part}-${index}`}>{part}</span>;
+  });
+}
+
+function renderMessageText(content?: string | null, className = "") {
+  if (!content?.trim()) {
+    return null;
+  }
+
+  return <p className={`whitespace-pre-wrap break-words ${className}`}>{renderWhatsAppText(content)}</p>;
+}
+
 function formatDateDivider(date: Date) {
   return new Intl.DateTimeFormat("es-CO", {
     weekday: "long",
@@ -174,7 +199,7 @@ function AudioMessageCard({
         className={`block w-full min-w-0 rounded-xl ${outbound ? "[color-scheme:dark]" : ""}`}
       />
 
-      {content?.trim() ? <p>{content}</p> : null}
+      {renderMessageText(content)}
     </div>
   );
 }
@@ -632,7 +657,7 @@ export function SharedInbox({
                                     ) : null}
                                   </div>
                                 </div>
-                                {message.content?.trim() ? <p>{message.content}</p> : null}
+                                {renderMessageText(message.content)}
                               </div>
                             ) : isVisualMessage(message) ? (
                               <div className="space-y-2">
@@ -655,7 +680,7 @@ export function SharedInbox({
                                     </div>
                                   );
                                 })()}
-                                {message.content?.trim() ? <p>{message.content}</p> : null}
+                                {renderMessageText(message.content)}
                               </div>
                             ) : isVideoMessage(message) ? (
                               <div className="space-y-2">
@@ -678,17 +703,17 @@ export function SharedInbox({
                                     </div>
                                   );
                                 })()}
-                                {message.content?.trim() ? <p>{message.content}</p> : null}
+                                {renderMessageText(message.content)}
                               </div>
                             ) : isAudioMessage(message) ? (
                               message.mediaUrl || extractMediaUrlFromPayload(message, "AUDIO") ? (
-                                <AudioMessageCard
+                              <AudioMessageCard
                                   mediaUrl={message.mediaUrl || extractMediaUrlFromPayload(message, "AUDIO") || ""}
                                   content={message.content}
                                   outbound={outbound}
                                 />
                               ) : (
-                                <p>{message.content || "Audio no disponible"}</p>
+                                renderMessageText(message.content) || <p>Audio no disponible</p>
                               )
                             ) : isDocumentMessage(message) ? (
                               <div className="space-y-2">
@@ -702,10 +727,10 @@ export function SharedInbox({
                                 >
                                   Abrir documento
                                 </a>
-                                {message.content?.trim() ? <p>{message.content}</p> : null}
+                                {renderMessageText(message.content)}
                               </div>
                             ) : (
-                              <p>{message.content || "-"}</p>
+                              renderMessageText(message.content) || <p>-</p>
                             )}
                             <div className={`mt-1.5 flex items-center justify-end gap-1 text-[10px] ${outbound ? "text-white/80" : "text-slate-400"}`}>
                               {message.authorType === "bot" ? (
@@ -719,7 +744,13 @@ export function SharedInbox({
                                   minute: "2-digit",
                                 }).format(message.createdAt)}
                               </span>
-                              {outbound && message.outboundStatusLabel ? <span className="ml-1">{message.outboundStatusLabel}</span> : null}
+                              {outbound && message.outboundStatusLabel ? (
+                                message.outboundStatusLabel === "entregado" ? (
+                                  <CheckCheck className="ml-1 h-3 w-3 shrink-0" aria-hidden="true" />
+                                ) : (
+                                  <span className="ml-1">{message.outboundStatusLabel}</span>
+                                )
+                              ) : null}
                             </div>
                           </div>
                         </div>
