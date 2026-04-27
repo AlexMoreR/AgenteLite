@@ -1,8 +1,9 @@
 "use client";
 
+import type { ComponentType } from "react";
 import { useState } from "react";
 import Link from "next/link";
-import { BadgeCheck, ChevronDown, MessageCircle, MessageSquareText, type LucideIcon } from "lucide-react";
+import { BadgeCheck, ChevronDown, MessageCircle, MessageSquareText } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   SidebarGroup,
@@ -15,10 +16,12 @@ import {
   SidebarMenuSubItem,
 } from "@/components/ui/sidebar";
 
+type NavMainIcon = ComponentType<{ className?: string }>;
+
 export type NavMainItem = {
   title: string;
   url: string;
-  icon?: LucideIcon;
+  icon?: NavMainIcon;
   isActive?: boolean;
   expandable?: boolean;
   items?: {
@@ -70,8 +73,12 @@ function NavMainMenuItem({ item }: { item: NavMainItem }) {
           </SidebarMenuButton>
 
           <CollapsibleTrigger asChild>
-            <SidebarMenuAction className="group-data-[collapsible=icon]/sidebar:hidden">
-              <ChevronDown className="h-4 w-4 transition" />
+            <SidebarMenuAction
+              className={`group-data-[collapsible=icon]/sidebar:hidden ${
+                open ? "text-white/90 hover:bg-white/15 hover:text-white" : ""
+              }`}
+            >
+              <ChevronDown className={`h-4 w-4 transition ${open ? "rotate-180" : ""}`} />
               <span className="sr-only">Abrir submenu de {item.title}</span>
             </SidebarMenuAction>
           </CollapsibleTrigger>
@@ -87,16 +94,16 @@ function NavMainMenuItem({ item }: { item: NavMainItem }) {
                       <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-slate-500">
                         {subitem.kind === "official" ? (
                           <BadgeCheck className="h-4 w-4" />
-                            ) : subitem.kind === "whatsapp" ? (
-                              <MessageCircle className="h-4 w-4" />
-                            ) : (
-                              <MessageSquareText className="h-4 w-4" />
-                            )}
-                          </span>
-                          <span className="block flex-1 truncate text-[13px] font-medium text-slate-700">{subitem.title}</span>
-                        </Link>
-                      </SidebarMenuSubButton>
-                    </SidebarMenuSubItem>
+                        ) : subitem.kind === "whatsapp" ? (
+                          <MessageCircle className="h-4 w-4" />
+                        ) : (
+                          <MessageSquareText className="h-4 w-4" />
+                        )}
+                      </span>
+                      <span className="block flex-1 truncate text-[13px] font-medium text-slate-700">{subitem.title}</span>
+                    </Link>
+                  </SidebarMenuSubButton>
+                </SidebarMenuSubItem>
               ))}
             </SidebarMenuSub>
           </div>

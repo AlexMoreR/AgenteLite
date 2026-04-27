@@ -110,3 +110,15 @@ export function readConversationFromCache(conversationId: string) {
   const cached = store.conversations[conversationId];
   return cached ? hydrateConversation(cached) : null;
 }
+
+export function clearConversationCache() {
+  if (!isBrowser()) {
+    return;
+  }
+
+  try {
+    window.localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // Ignore storage failures so cache cleanup never breaks the UI.
+  }
+}

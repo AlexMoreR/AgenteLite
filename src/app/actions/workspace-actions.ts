@@ -21,6 +21,10 @@ const resetWorkspaceSchema = z.object({
   confirm: z.literal("RESET"),
 });
 
+const clearWorkspaceChatsSchema = z.object({
+  confirm: z.literal("CLEAR_CHATS"),
+});
+
 export async function completeWorkspaceOnboardingAction(formData: FormData): Promise<void> {
   const session = await auth();
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
@@ -190,4 +194,79 @@ export async function resetWorkspaceAction(formData: FormData): Promise<void> {
   revalidatePath("/cliente");
   revalidatePath("/cliente/agentes");
   redirect("/cliente/agentes?ok=Negocio+reiniciado.+Ahora+puedes+crear+todo+desde+cero");
+}
+
+export async function clearWorkspaceChatsAction(formData: FormData): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+    redirect("/unauthorized");
+  }
+
+  const parsed = clearWorkspaceChatsSchema.safeParse({
+    confirm: formData.get("confirm"),
+  });
+
+  if (!parsed.success) {
+    redirect("/cliente/negocio?error=No+se+pudieron+limpiar+los+chats");
+  }
+
+  const membership = await prisma.workspaceMember.findFirst({
+    where: { userId: session.user.id },
+    orderBy: { createdAt: "asc" },
+    select: {
+      workspace: {
+        select: {
+          id: true,
+        },
+      },
+    },
+  });
+
+  if (!membership?.workspace.id) {
+    redirect("/cliente/negocio?error=No+hay+negocio+configurado");
+  }
+
+  const workspaceId = membership.workspace.id;
+  const officialApiConfig = await prisma.officialApiClientConfig.findUnique({
+    where: { workspaceId },
+    select: { id: true },
+  });
+
+  const cleanupOperations = [
+    prisma.message.deleteMany({
+      where: {
+        workspaceId,
+      },
+    }),
+    prisma.conversation.deleteMany({
+      where: {
+        workspaceId,
+      },
+    }),
+  ];
+
+  if (officialApiConfig?.id) {
+    cleanupOperations.push(
+      prisma.officialApiMessage.deleteMany({
+        where: {
+          configId: officialApiConfig.id,
+        },
+      }),
+      prisma.officialApiConversation.deleteMany({
+        where: {
+          configId: officialApiConfig.id,
+        },
+      }),
+    );
+  }
+
+  await prisma.$transaction(cleanupOperations);
+
+  revalidatePath("/cliente/negocio");
+  revalidatePath("/cliente/chats");
+  revalidatePath("/cliente/conexion");
+  revalidatePath("/cliente/api-oficial/chats");
+  revalidatePath("/cliente/agentes");
+
+  redirect("/cliente/negocio?ok=Chats+limpiados+correctamente");
 }

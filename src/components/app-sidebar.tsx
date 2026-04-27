@@ -6,7 +6,6 @@ import {
   FileText,
   LayoutDashboard,
   Megaphone,
-  MessageSquareText,
   Package,
   Settings,
   Tag,
@@ -15,6 +14,7 @@ import {
 } from "lucide-react";
 import type { Role } from "@prisma/client";
 import { NavMain, type NavMainItem } from "@/components/nav-main";
+import { WhatsAppGlyph } from "@/components/icons/whatsapp-glyph";
 import { NavUser } from "@/components/nav-user";
 import { TeamSwitcher } from "@/components/team-switcher";
 import type { AdminModuleKey } from "@/lib/admin-module-access";
@@ -150,7 +150,7 @@ export function AppSidebar({ pathname, brandName, adminModuleAccess, chatSidebar
     navMain.push({
       title: "Chats",
       url: "/cliente/chats",
-      icon: MessageSquareText,
+      icon: WhatsAppGlyph,
       isActive: pathname.startsWith("/cliente/chats"),
       expandable: true,
       items: [

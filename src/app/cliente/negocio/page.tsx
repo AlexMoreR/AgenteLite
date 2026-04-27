@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { Building2, Globe, Instagram, Mail, MapPin, Phone, Save, Youtube } from "lucide-react";
 import { auth } from "@/auth";
 import { saveWorkspaceBusinessConfigAction } from "@/app/actions/workspace-actions";
+import { BusinessChatsCleanupMenu } from "./BusinessChatsCleanupMenu";
 import { Card } from "@/components/ui/card";
 import { targetAudienceOptions } from "@/lib/agent-training";
 import { prisma } from "@/lib/prisma";
@@ -184,14 +185,20 @@ export default async function MiNegocioPage({ searchParams }: PageProps) {
           </div>
         </Card>
 
-        <div className="flex justify-end">
-          <button
-            type="submit"
-            className="inline-flex h-11 items-center justify-center gap-2 rounded-[16px] bg-[var(--primary)] px-5 text-[13px] font-semibold text-white shadow-[0_18px_32px_-20px_color-mix(in_srgb,var(--primary)_58%,black)] transition hover:bg-[var(--primary-strong)]"
-          >
-            <Save className="h-4 w-4" />
-            Guardar
-          </button>
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[12px] leading-5 text-slate-500">
+            El menu de acciones del negocio queda disponible aqui abajo para tareas sensibles.
+          </p>
+          <div className="flex items-center gap-2">
+            <BusinessChatsCleanupMenu />
+            <button
+              type="submit"
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-[16px] bg-[var(--primary)] px-5 text-[13px] font-semibold text-white shadow-[0_18px_32px_-20px_color-mix(in_srgb,var(--primary)_58%,black)] transition hover:bg-[var(--primary-strong)]"
+            >
+              <Save className="h-4 w-4" />
+              Guardar
+            </button>
+          </div>
         </div>
       </form>
     </div>
