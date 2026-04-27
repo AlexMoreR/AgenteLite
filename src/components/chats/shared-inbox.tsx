@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, useCallback, type FormEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useFormStatus } from "react-dom";
 import {
@@ -14,6 +14,7 @@ import {
   Facebook,
   MessageCircle,
   MessageSquareText,
+  Pencil,
   Search,
   SendHorizonal,
   UserRound,
@@ -22,6 +23,7 @@ import { ChatScrollAnchor } from "@/components/agents/chat-scroll-anchor";
 import { ChatSelectionOverlay } from "@/components/chats/chat-selection-overlay";
 import { readConversationFromCache, saveConversationToCache } from "@/components/chats/chat-history-cache";
 import { ConversationList } from "@/components/chats/conversation-list";
+import { EditContactModal } from "@/components/chats/edit-contact-modal";
 import { Card } from "@/components/ui/card";
 
 const chatDateFormatter = new Intl.DateTimeFormat("en-CA");
@@ -67,6 +69,8 @@ export type SharedInboxSelectedConversation = {
   label: string;
   secondaryLabel: string;
   avatarUrl?: string | null;
+  contactId?: string | null;
+  contactName?: string | null;
   messages: SharedInboxMessageItem[];
   automationPaused?: boolean;
   loadMoreHref?: string | null;
@@ -385,6 +389,8 @@ export function SharedInbox({
 }: SharedInboxProps) {
   const [optimisticConversation, setOptimisticConversation] = useState<SharedInboxSelectedConversation | null>(null);
   const [optimisticOutgoingMessage, setOptimisticOutgoingMessage] = useState<OptimisticDraftMessage | null>(null);
+  const [editContactOpen, setEditContactOpen] = useState(false);
+  const handleCloseEditContact = useCallback(() => setEditContactOpen(false), []);
   const conversationListScrollRef = useRef<HTMLDivElement | null>(null);
   const messagesScrollRef = useRef<HTMLDivElement | null>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
@@ -535,6 +541,7 @@ export function SharedInbox({
   }, [messageScrollBehavior, renderedConversation?.id, renderedConversation?.loadMoreHref, router]);
 
   return (
+    <>
     <div
       className={`chat-inbox-grid flex h-full min-h-0 flex-1 flex-col gap-0 overflow-hidden md:grid ${
         hasSidebar ? "md:grid-cols-[250px_360px_minmax(0,1fr)]" : "md:grid-cols-[380px_minmax(0,1fr)]"
@@ -672,10 +679,22 @@ export function SharedInbox({
                       {getInitials(renderedConversation.label)}
                     </div>
                   )}
-                  <div className="min-w-0">
-                    <h2 className="truncate text-[13px] font-semibold text-slate-950 md:text-sm">
-                      {renderedConversation.label}
-                    </h2>
+                  <div className="min-w-0 space-y-0.5">
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <h2 className="truncate text-[13px] font-semibold text-slate-950 md:text-sm">
+                        {renderedConversation.label}
+                      </h2>
+                      {renderedConversation.contactId ? (
+                        <button
+                          type="button"
+                          onClick={() => setEditContactOpen(true)}
+                          className="shrink-0 inline-flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                          aria-label="Editar contacto"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                      ) : null}
+                    </div>
                     <p className="truncate text-xs text-slate-500">{renderedConversation.secondaryLabel}</p>
                   </div>
                 </div>
@@ -964,5 +983,15 @@ export function SharedInbox({
         )}
       </Card>
     </div>
+
+    {renderedConversation?.contactId ? (
+      <EditContactModal
+        open={editContactOpen}
+        onClose={handleCloseEditContact}
+        contactId={renderedConversation.contactId}
+        contactName={renderedConversation.contactName ?? renderedConversation.label}
+      />
+    ) : null}
+    </>
   );
 }

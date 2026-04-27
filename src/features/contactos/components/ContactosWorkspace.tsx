@@ -8,12 +8,12 @@ import {
   Copy,
   Mail,
   MessageCircle,
+  MessagesSquare,
   Phone,
   Search,
   Sparkles,
   Users2,
   Clock3,
-  MessagesSquare,
 } from "lucide-react";
 import type { ContactosContact, ContactosData } from "../types";
 import { cn } from "@/lib/utils";
@@ -183,63 +183,43 @@ export function ContactosWorkspace({ data }: { data: ContactosData }) {
   const selectedHref = selectedContact ? getConversationHref(selectedContact) : "";
 
   return (
-    <section className="app-page space-y-5">
-      <div className="relative overflow-hidden rounded-[30px] border border-[var(--line)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(247,250,252,0.96))] p-5 shadow-[0_24px_54px_-42px_rgba(15,23,42,0.16)] sm:p-6">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(37,99,235,0.08),transparent_26%),radial-gradient(circle_at_bottom_left,rgba(14,165,233,0.06),transparent_30%)]" />
-        <div className="relative flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div className="max-w-3xl space-y-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-2 rounded-full border border-[color:color-mix(in_srgb,var(--primary)_18%,white)] bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--primary)]">
-                <Users2 className="h-3.5 w-3.5" />
-                Contactos
-              </span>
-              {data.agentFilterName ? (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] text-slate-600">
-                  Filtrado por {data.agentFilterName}
-                </span>
-              ) : null}
-            </div>
-            <h1 className="text-[1.8rem] font-semibold tracking-[-0.06em] text-slate-950 sm:text-[2.4rem]">
-              Base de contactos del workspace
-            </h1>
-            <p className="max-w-2xl text-sm leading-6 text-slate-600 sm:text-[15px]">
-              Organiza los contactos que ya interactuaron con tu negocio, revisa su actividad reciente y salta al chat cuando necesites retomar la conversación.
-            </p>
-          </div>
-
-          <Link
-            href="/cliente/chats"
-            className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-5 text-sm font-medium text-white shadow-[0_16px_30px_-18px_rgba(37,99,235,0.45)] transition hover:translate-y-[-1px] hover:bg-[var(--primary-strong)]"
-          >
-            Ir a chats
-            <MessageCircle className="h-4 w-4" />
-          </Link>
+    <section className="space-y-2">
+      <div className="space-y-1">
+        <div className="flex items-start gap-3">
+          <Users2 className="mt-1 h-5 w-5 shrink-0 text-[var(--primary)]" />
+          <h1 className="text-2xl font-semibold tracking-[-0.05em] text-slate-950">Contactos</h1>
         </div>
+        <p className="max-w-3xl text-sm text-slate-600">
+          Organiza los contactos.
+        </p>
+        {data.agentFilterName ? (
+          <p className="text-xs font-medium text-slate-500">Filtrado por {data.agentFilterName}</p>
+        ) : null}
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <ContactMetric
           label="Total"
           value={String(data.stats.total)}
-          helper="Contactos visibles en el módulo."
+          helper="Contactos visibles en el modulo."
           icon={<Users2 className="h-5 w-5" />}
         />
         <ContactMetric
           label="Con chats"
           value={String(data.stats.withConversations)}
-          helper="Contactos que ya abrieron conversación."
+          helper="Contactos que ya abrieron conversacion."
           icon={<MessagesSquare className="h-5 w-5" />}
         />
         <ContactMetric
           label="Sin chat"
           value={String(data.stats.withoutConversations)}
-          helper="Útiles para campañas y seguimiento."
+          helper="Utiles para campanas y seguimiento."
           icon={<Sparkles className="h-5 w-5" />}
         />
         <ContactMetric
           label="Con email"
           value={String(data.stats.withEmail)}
-          helper="Listos para segmentación multicanal."
+          helper="Listos para segmentacion multicanal."
           icon={<Mail className="h-5 w-5" />}
         />
       </div>
@@ -249,15 +229,12 @@ export function ContactosWorkspace({ data }: { data: ContactosData }) {
           <div className="border-b border-slate-100 p-4 sm:p-5">
             <form method="get" className="space-y-3">
               {data.agentFilterId ? <input type="hidden" name="agentId" value={data.agentFilterId} /> : null}
-              <label className="block text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                Buscar
-              </label>
               <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5">
                 <Search className="h-4 w-4 shrink-0 text-slate-400" />
                 <input
                   name="q"
                   defaultValue={data.searchQuery}
-                  placeholder="Nombre, teléfono, email o nota"
+                  placeholder="Nombre, telefono, email o nota"
                   className="w-full bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
                 />
               </div>
@@ -364,12 +341,12 @@ export function ContactosWorkspace({ data }: { data: ContactosData }) {
                       <span className="font-medium text-slate-900">{selectedContact.totalMessages}</span> mensajes relacionados
                     </p>
                     <p>Creado: {formatDateLabel(selectedContact.createdAt)}</p>
-                    <p>Última actividad: {formatDateLabel(selectedContact.lastActivityAt)}</p>
+                    <p>Ultima actividad: {formatDateLabel(selectedContact.lastActivityAt)}</p>
                   </div>
                 </div>
 
                 <div className="rounded-[24px] border border-slate-100 bg-slate-50 p-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Acciones rápidas</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Acciones rapidas</p>
                   <div className="mt-3 space-y-2">
                     <button
                       type="button"
@@ -441,7 +418,7 @@ export function ContactosWorkspace({ data }: { data: ContactosData }) {
                               href={`/cliente/chats?chatKey=agent:${conversation.id}`}
                               className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-[11px] font-medium text-[var(--primary)] ring-1 ring-[color:color-mix(in_srgb,var(--primary)_14%,white)] transition hover:bg-[color:color-mix(in_srgb,var(--primary)_5%,white)]"
                             >
-                              Abrir conversación
+                              Abrir conversacion
                               <ArrowRight className="h-3.5 w-3.5" />
                             </Link>
                             {conversation.automationPaused ? (
@@ -454,9 +431,9 @@ export function ContactosWorkspace({ data }: { data: ContactosData }) {
                       ))
                     ) : (
                       <div className="rounded-[20px] border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center">
-                        <p className="text-sm font-medium text-slate-950">Todavía no hay conversaciones</p>
+                        <p className="text-sm font-medium text-slate-950">Todavia no hay conversaciones</p>
                         <p className="mt-1 text-sm leading-6 text-slate-500">
-                          Este contacto todavía no ha entrado al flujo de chats.
+                          Este contacto todavia no ha entrado al flujo de chats.
                         </p>
                       </div>
                     )}
@@ -482,7 +459,7 @@ export function ContactosWorkspace({ data }: { data: ContactosData }) {
                 <div className="space-y-1">
                   <h3 className="text-base font-semibold text-slate-950">Selecciona un contacto</h3>
                   <p className="text-sm leading-6 text-slate-600">
-                    Aquí verás su información, las conversaciones recientes y el acceso directo al chat.
+                    Aqui veras su informacion, las conversaciones recientes y el acceso directo al chat.
                   </p>
                 </div>
               </div>

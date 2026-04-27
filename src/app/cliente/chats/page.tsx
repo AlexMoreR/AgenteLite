@@ -436,6 +436,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     label: string;
     secondaryLabel: string;
     avatarUrl?: string | null;
+    contactId?: string | null;
+    contactName?: string | null;
     automationPaused?: boolean;
     loadMoreHref?: string | null;
     cacheKey?: string | null;
@@ -531,6 +533,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         label: getAgentContactLabel(detail.contact),
         secondaryLabel: detail.contact.phoneNumber,
         avatarUrl,
+        contactId: detail.contact.id,
+        contactName: detail.contact.name ?? null,
         automationPaused: "automationPaused" in detail ? detail.automationPaused : false,
         cacheKey: selectedUnified.key,
         messages: resolvedMessages,

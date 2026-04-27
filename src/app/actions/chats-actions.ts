@@ -11,6 +11,52 @@ import { sendEvolutionTextMessage } from "@/lib/evolution";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
+const updateContactSchema = z.object({
+  contactId: z.string().trim().min(1),
+  name: z.string().trim().max(120),
+});
+
+export async function updateContactAction(
+  _prevState: { error?: string; success?: boolean },
+  formData: FormData,
+): Promise<{ error?: string; success?: boolean }> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+    return { error: "No autorizado" };
+  }
+
+  const parsed = updateContactSchema.safeParse({
+    contactId: formData.get("contactId"),
+    name: formData.get("name"),
+  });
+
+  if (!parsed.success) {
+    return { error: "Datos invalidos" };
+  }
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    return { error: "Workspace no encontrado" };
+  }
+
+  const contact = await prisma.contact.findFirst({
+    where: { id: parsed.data.contactId, workspaceId: membership.workspace.id },
+    select: { id: true },
+  });
+
+  if (!contact) {
+    return { error: "Contacto no encontrado" };
+  }
+
+  await prisma.contact.update({
+    where: { id: contact.id },
+    data: { name: parsed.data.name || null },
+  });
+
+  revalidatePath("/cliente/chats");
+  return { success: true };
+}
+
 const sendUnifiedChatReplySchema = z.object({
   source: z.enum(["agent", "official"]),
   conversationId: z.string().trim().min(1),
