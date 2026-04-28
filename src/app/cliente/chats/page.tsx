@@ -55,16 +55,16 @@ function getOfficialContactLabel(input: { name: string | null; phoneNumber: stri
 }
 
 function getContactTags(input: {
-  contactTags?: Array<{
-    tag: {
+  ContactTag?: Array<{
+    Tag: {
       name: string;
       color: string;
     };
   }>;
 }) {
   return (
-    input.contactTags
-      ?.map((item) => item.tag)
+    input.ContactTag
+      ?.map((item) => item.Tag)
       .filter((tag): tag is { name: string; color: string } => Boolean(tag?.name?.trim())) ?? []
   ).map((tag) => ({
     label: tag.name,
@@ -179,10 +179,10 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
                 name: true,
                 phoneNumber: true,
                 avatarUrl: true,
-                contactTags: {
+                ContactTag: {
                   orderBy: { createdAt: "asc" },
                   select: {
-                    tag: {
+                    Tag: {
                       select: {
                         name: true,
                         color: true,
@@ -267,10 +267,10 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
             name: true,
             phoneNumber: true,
             avatarUrl: true,
-            contactTags: {
+            ContactTag: {
               orderBy: { createdAt: "asc" },
               select: {
-                tag: {
+                Tag: {
                   select: {
                     name: true,
                     color: true,
