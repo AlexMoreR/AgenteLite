@@ -363,6 +363,98 @@ export async function POST(request: Request) {
     direction: fromMe ? "OUTBOUND" : "INBOUND",
   });
 
+  if (fromMe && channel.agentId && channel.isActive && channel.evolutionInstanceName && messageText) {
+    const ownerTriggeredFlow = await resolveEvolutionQuickResponseFlow({
+      workspaceId: channel.workspaceId,
+      channelId: channel.id,
+      manualMessage: messageText,
+    });
+
+    if (ownerTriggeredFlow) {
+      console.log("[EVOLUTION] owner_triggered_flow", {
+        conversationId: conversation.id,
+        agentId: channel.agentId,
+        keyword: ownerTriggeredFlow.keyword,
+        scenarioTitle: ownerTriggeredFlow.scenarioTitle,
+        phoneNumber,
+      });
+
+      try {
+        await sendEvolutionPresence({
+          instanceName: channel.evolutionInstanceName,
+          phoneNumber,
+          presence: "composing",
+          delay: 800,
+        }).catch(() => null);
+
+        if (ownerTriggeredFlow.reply.image) {
+          const imageOutbound = await sendEvolutionImageMessage({
+            instanceName: channel.evolutionInstanceName,
+            phoneNumber,
+            imageUrl: ownerTriggeredFlow.reply.image.url,
+            caption: ownerTriggeredFlow.reply.image.caption,
+            delayMs: 0,
+          });
+          await prisma.message.create({
+            data: {
+              workspaceId: channel.workspaceId,
+              conversationId: conversation.id,
+              channelId: channel.id,
+              contactId: contact.id,
+              agentId: channel.agentId,
+              externalId: imageOutbound.externalId,
+              direction: "OUTBOUND",
+              type: "IMAGE",
+              status: "SENT",
+              content: ownerTriggeredFlow.reply.image.caption,
+              mediaUrl: ownerTriggeredFlow.reply.image.url,
+              sentAt: new Date(),
+              rawPayload: imageOutbound.raw as never,
+            },
+          });
+        }
+
+        if (ownerTriggeredFlow.reply.text) {
+          const textOutbound = await sendEvolutionTextMessageWithReconnect({
+            instanceName: channel.evolutionInstanceName,
+            phoneNumber,
+            text: ownerTriggeredFlow.reply.text,
+            delayMs: 0,
+          });
+          await prisma.message.create({
+            data: {
+              workspaceId: channel.workspaceId,
+              conversationId: conversation.id,
+              channelId: channel.id,
+              contactId: contact.id,
+              agentId: channel.agentId,
+              externalId: textOutbound.externalId,
+              direction: "OUTBOUND",
+              type: "TEXT",
+              status: "SENT",
+              content: ownerTriggeredFlow.reply.text,
+              sentAt: new Date(),
+              rawPayload: textOutbound.raw as never,
+            },
+          });
+        }
+      } catch (error) {
+        console.error("[EVOLUTION] owner_triggered_flow_failed", {
+          conversationId: conversation.id,
+          keyword: ownerTriggeredFlow.keyword,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+
+      return NextResponse.json({
+        ok: true,
+        message: "Owner-triggered flow executed",
+        instanceName,
+        event: eventName,
+      });
+    }
+  }
+
   if (fromMe && channel.agentId) {
     await setConversationAutomationPaused({ conversationId: conversation.id, paused: true });
     console.log("[EVOLUTION] automation_paused_by_owner", {
