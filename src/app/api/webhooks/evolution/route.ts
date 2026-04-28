@@ -406,8 +406,21 @@ export async function POST(request: Request) {
       },
     });
 
+    if (!agent) {
+      console.warn("[EVOLUTION] agent_not_found", {
+        channelId: channel.id,
+        agentId: channel.agentId,
+      });
+      return NextResponse.json({
+        ok: true,
+        message: "Inbound message logged but no matching agent was found",
+        instanceName,
+        event: eventName,
+      });
+    }
+
     const responseDelaySeconds =
-      agent?.trainingConfig &&
+      agent.trainingConfig &&
       typeof agent.trainingConfig === "object" &&
       !Array.isArray(agent.trainingConfig) &&
       typeof (agent.trainingConfig as { responseDelaySeconds?: unknown }).responseDelaySeconds === "number" &&
@@ -421,7 +434,7 @@ export async function POST(request: Request) {
 
     console.log("[EVOLUTION] agent_loaded", {
       agentId: channel.agentId,
-      exists: Boolean(agent),
+      exists: true,
       status: agent?.status,
       isActive: agent?.isActive,
       hasWelcomeMessage: Boolean(agent?.welcomeMessage),
