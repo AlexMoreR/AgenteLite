@@ -215,6 +215,49 @@ function normalizeLiveConversationListSnapshot(value: unknown): LiveConversation
   };
 }
 
+function extractConversationIdFromKey(value: string) {
+  const normalized = value.trim();
+  if (!normalized) {
+    return "";
+  }
+
+  const separatorIndex = normalized.indexOf(":");
+  return separatorIndex >= 0 ? normalized.slice(separatorIndex + 1) : normalized;
+}
+
+function conversationIdMatchesKey(key: string, conversationId: string) {
+  const normalizedKey = key.trim();
+  const normalizedConversationId = conversationId.trim();
+
+  if (!normalizedKey || !normalizedConversationId) {
+    return false;
+  }
+
+  if (normalizedKey === normalizedConversationId) {
+    return true;
+  }
+
+  return extractConversationIdFromKey(normalizedKey) === normalizedConversationId;
+}
+
+function findConversationItemBySnapshotId(
+  items: SharedInboxConversationItem[],
+  snapshotId: string,
+  source?: SharedInboxConversationItem["channelType"],
+) {
+  const normalizedSnapshotId = snapshotId.trim();
+  if (!normalizedSnapshotId) {
+    return null;
+  }
+
+  return (
+    items.find((item) => conversationIdMatchesKey(item.id, normalizedSnapshotId)) ??
+    (source === "whatsapp_official"
+      ? items.find((item) => item.id === normalizedSnapshotId)
+      : null)
+  );
+}
+
 function buildConversationItemFromSnapshot(
   snapshot: LiveConversationSnapshot,
   existing?: SharedInboxConversationItem,
@@ -633,15 +676,17 @@ export function SharedInbox({
     function handleLiveUpdate(event: Event) {
       const customEvent = event as CustomEvent<{ conversation?: unknown }>;
       const snapshot = normalizeLiveConversationSnapshot(customEvent.detail?.conversation);
-      if (!snapshot || snapshot.id !== selectedConversationId) {
+      if (!snapshot || !conversationIdMatchesKey(selectedConversationId, snapshot.id)) {
         return;
       }
 
       setLiveConversation((current) => mergeConversationSnapshots(current ?? selectedConversation ?? null, snapshot));
       setConversationItems((current) => {
-        const currentItem = current.find((item) => item.id === snapshot.id);
+        const currentItem = findConversationItemBySnapshotId(current, snapshot.id);
         const updatedItem = buildConversationItemFromSnapshot(snapshot, currentItem);
-        const nextItems = current.map((item) => (item.id === snapshot.id ? { ...item, ...updatedItem } : item));
+        const nextItems = current.map((item) =>
+          conversationIdMatchesKey(item.id, snapshot.id) ? { ...item, ...updatedItem } : item,
+        );
 
         return nextItems.sort((left, right) => {
           const leftAt = left.lastMessageAt ? left.lastMessageAt.getTime() : 0;
@@ -664,9 +709,11 @@ export function SharedInbox({
       }
 
       setConversationItems((current) => {
-        const currentItem = current.find((item) => item.id === snapshot.id);
+        const currentItem = findConversationItemBySnapshotId(current, snapshot.id);
         const updatedItem = buildConversationItemFromListSnapshot(snapshot, currentItem);
-        const nextItems = current.map((item) => (item.id === snapshot.id ? { ...item, ...updatedItem } : item));
+        const nextItems = current.map((item) =>
+          conversationIdMatchesKey(item.id, snapshot.id) ? { ...item, ...updatedItem } : item,
+        );
 
         return sortConversationItems(nextItems);
       });
@@ -781,7 +828,7 @@ export function SharedInbox({
 
   const cachedSelectedConversation = selectedConversation ? readConversationFromCache(selectedConversation.id) : null;
   const effectiveLiveConversation =
-    liveConversation && liveConversation.id === selectedConversationId ? liveConversation : null;
+    liveConversation && conversationIdMatchesKey(selectedConversationId, liveConversation.id) ? liveConversation : null;
   const liveOrCachedConversation = mergeConversationSnapshots(selectedConversation ?? null, effectiveLiveConversation ?? cachedSelectedConversation);
 
   useEffect(() => {
