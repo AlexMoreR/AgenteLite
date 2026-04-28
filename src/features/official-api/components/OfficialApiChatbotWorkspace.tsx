@@ -618,8 +618,7 @@ function normalizeNodesByScenarioForSave(nodesByScenarioId: OfficialApiChatbotNo
 }
 
 function mergeKeywords(existingMeta: string, nextKeyword: string) {
-  const keywords = existingMeta
-    .split(/[,;\n]/)
+  const keywords = splitKeywords(existingMeta)
     .map((keyword) => keyword.trim())
     .filter(Boolean);
 
@@ -628,6 +627,13 @@ function mergeKeywords(existingMeta: string, nextKeyword: string) {
   }
 
   return keywords.join(", ");
+}
+
+function splitKeywords(existingMeta: string) {
+  return existingMeta
+    .split(/[,;\n]/)
+    .map((keyword) => keyword.trim())
+    .filter(Boolean);
 }
 
 export function OfficialApiChatbotWorkspace({
@@ -707,7 +713,7 @@ export function OfficialApiChatbotWorkspace({
   const quickResponses = useMemo(
     () =>
       quickResponsesScenario
-        ? (nodesByScenarioId[quickResponsesScenario.id] ?? []).filter((node) => node.kind === "trigger")
+        ? (nodesByScenarioId[quickResponsesScenario.id] ?? []).filter((node) => node.kind === "message")
         : [],
     [nodesByScenarioId, quickResponsesScenario],
   );
@@ -1164,6 +1170,26 @@ export function OfficialApiChatbotWorkspace({
     setQuickResponseKeywordDraft("");
     setIsQuickResponseKeywordFormOpen(false);
     toast.success("Palabra clave agregada");
+  }
+
+  function deleteQuickResponseKeyword(responseId: string, keywordToRemove: string) {
+    if (!quickResponsesScenario) {
+      return;
+    }
+
+    const response = quickResponses.find((item) => item.id === responseId);
+    if (!response) {
+      return;
+    }
+
+    const nextMeta = splitKeywords(response.meta)
+      .filter((keyword) => keyword !== keywordToRemove)
+      .join(", ");
+
+    updateNodeInScenario(quickResponsesScenario.id, responseId, { meta: nextMeta });
+    setIsQuickResponseKeywordFormOpen(false);
+    setQuickResponseKeywordDraft("");
+    toast.success("Palabra clave eliminada");
   }
 
   function confirmDeleteWorkflow() {
@@ -2054,34 +2080,65 @@ export function OfficialApiChatbotWorkspace({
                   {quickResponses.length > 0 ? (
                     quickResponses.map((response) => {
                       const isSelected = response.id === selectedQuickResponse?.id;
+                      const keywords = splitKeywords(response.meta);
                       return (
-                        <button
+                        <div
                           key={response.id}
-                          type="button"
                           onClick={() => {
                             setQuickResponseSelectedId(response.id);
                             setIsQuickResponseKeywordFormOpen(false);
                           }}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              setQuickResponseSelectedId(response.id);
+                              setIsQuickResponseKeywordFormOpen(false);
+                            }
+                          }}
                           className={cn(
-                            "w-full rounded-2xl border p-4 text-left transition",
+                            "flex w-full items-center justify-between gap-4 rounded-2xl border p-4 text-left transition",
                             isSelected
                               ? "border-[color-mix(in_srgb,var(--primary)_28%,white)] bg-[color-mix(in_srgb,var(--primary)_5%,white)]"
                               : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50",
                           )}
                         >
-                          <div className="flex items-start justify-between gap-4">
-                            <div className="min-w-0">
-                              <p className="truncate text-sm font-semibold text-slate-900">{response.title}</p>
-                              <p className="mt-1 line-clamp-2 text-sm leading-6 text-slate-600">{response.body}</p>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap gap-2">
+                              {keywords.length > 0 ? (
+                                keywords.map((keyword) => (
+                                  <div
+                                    key={keyword}
+                                    className="group inline-flex items-center gap-1.5 rounded-full bg-[color-mix(in_srgb,var(--primary)_10%,white)] px-3 py-1 text-sm font-semibold text-[var(--primary-strong)]"
+                                  >
+                                    {keyword}
+                                    <button
+                                      type="button"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        deleteQuickResponseKeyword(response.id, keyword);
+                                      }}
+                                      className="inline-flex h-4 w-4 items-center justify-center rounded-full text-[var(--primary-strong)] opacity-0 transition hover:bg-white/70 group-hover:opacity-100 group-focus-within:opacity-100"
+                                      aria-label={`Eliminar palabra clave ${keyword}`}
+                                    >
+                                      <X className="h-3 w-3" />
+                                    </button>
+                                  </div>
+                                ))
+                              ) : (
+                                <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-sm font-medium text-slate-500">
+                                  Sin palabra clave
+                                </span>
+                              )}
                             </div>
+                          </div>
+                          <div className="flex items-center gap-2">
                             <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
                               {isSelected ? "Seleccionada" : "Ver"}
                             </span>
                           </div>
-                          <p className="mt-3 text-xs leading-5 text-slate-500">
-                            {response.meta.trim() ? `Palabras clave: ${response.meta}` : "Sin palabra clave asociada."}
-                          </p>
-                        </button>
+                        </div>
                       );
                     })
                   ) : (
@@ -2091,39 +2148,30 @@ export function OfficialApiChatbotWorkspace({
                   )}
                 </div>
 
-                <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/70 p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-slate-900">Agregar</p>
-                      <p className="text-xs leading-5 text-slate-500">
-                        Agrega una palabra clave para ejecutar la respuesta rapida seleccionada.
-                      </p>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="rounded-lg"
-                      onClick={() => setIsQuickResponseKeywordFormOpen((current) => !current)}
+                <div className="flex justify-start">
+                  <Button
+                    type="button"
+                    className="rounded-lg bg-[var(--primary)] text-white hover:bg-[var(--primary-strong)]"
+                    onClick={() => setIsQuickResponseKeywordFormOpen((current) => !current)}
+                    disabled={!selectedQuickResponse}
+                  >
+                    Agregar
+                  </Button>
+                </div>
+
+                {isQuickResponseKeywordFormOpen ? (
+                  <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                    <Input
+                      value={quickResponseKeywordDraft}
+                      onChange={(event) => setQuickResponseKeywordDraft(event.target.value)}
+                      placeholder="Ej. precio, promo, asesor"
                       disabled={!selectedQuickResponse}
-                    >
-                      Agregar
+                    />
+                    <Button type="button" className="rounded-lg" onClick={saveQuickResponseKeyword} disabled={!selectedQuickResponse}>
+                      Guardar
                     </Button>
                   </div>
-
-                  {isQuickResponseKeywordFormOpen ? (
-                    <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-                      <Input
-                        value={quickResponseKeywordDraft}
-                        onChange={(event) => setQuickResponseKeywordDraft(event.target.value)}
-                        placeholder="Ej. precio, promo, asesor"
-                        disabled={!selectedQuickResponse}
-                      />
-                      <Button type="button" className="rounded-lg" onClick={saveQuickResponseKeyword} disabled={!selectedQuickResponse}>
-                        Guardar
-                      </Button>
-                    </div>
-                  ) : null}
-                </div>
+                ) : null}
               </div>
 
               <div className="flex items-center justify-end border-t border-slate-200 px-6 py-4">
