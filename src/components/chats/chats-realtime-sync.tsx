@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { io, type Socket } from "socket.io-client";
 
@@ -126,7 +126,9 @@ export function ChatsRealtimeSync({
 }: ChatsRealtimeSyncProps) {
   const router = useRouter();
   const [isVisible, setIsVisible] = useState(() => (typeof document === "undefined" ? true : document.visibilityState === "visible"));
-  const normalizedInstanceNames = useMemo(() => normalizeInstanceNames(instanceNames), [instanceNames]);
+  const normalizedInstanceNamesKey = Array.from(
+    new Set(instanceNames.map((name) => name.trim()).filter(Boolean)),
+  ).join("\u0000");
   const liveUpdateTimerRef = useRef<number | null>(null);
   const liveUpdateInFlightRef = useRef(false);
   const liveUpdateQueuedRef = useRef(false);
@@ -151,6 +153,8 @@ export function ChatsRealtimeSync({
 
   useEffect(() => {
     const normalizedBaseUrl = normalizeBaseUrl(apiBaseUrl);
+    const normalizedInstanceNames = normalizedInstanceNamesKey ? normalizedInstanceNamesKey.split("\u0000") : [];
+
     if (!enabled || !isVisible || !normalizedBaseUrl || normalizedInstanceNames.length === 0) {
       return;
     }
@@ -445,7 +449,7 @@ export function ChatsRealtimeSync({
         socket.disconnect();
       }
     };
-  }, [activeInstanceName, apiBaseUrl, enabled, instanceNames, isVisible, normalizedInstanceNames, selectedConversationKey]);
+  }, [activeInstanceName, apiBaseUrl, enabled, isVisible, normalizedInstanceNamesKey, selectedConversationKey]);
 
   return null;
 }
