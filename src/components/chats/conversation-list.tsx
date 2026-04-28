@@ -164,7 +164,7 @@ const ConversationListItem = memo(function ConversationListItem({
                 className="inline-flex max-w-full items-center rounded-[4px] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
                 style={{
                   ...getConversationTagBadgeStyle(tag.color),
-                  color: "#111827",
+                  color: "#ffffff",
                 }}
                 title={tag.label}
               >
