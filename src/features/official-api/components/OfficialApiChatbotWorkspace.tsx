@@ -617,6 +617,19 @@ function normalizeNodesByScenarioForSave(nodesByScenarioId: OfficialApiChatbotNo
   ) satisfies OfficialApiChatbotNodesByScenarioId;
 }
 
+function mergeKeywords(existingMeta: string, nextKeyword: string) {
+  const keywords = existingMeta
+    .split(/[,;\n]/)
+    .map((keyword) => keyword.trim())
+    .filter(Boolean);
+
+  if (!keywords.includes(nextKeyword)) {
+    keywords.push(nextKeyword);
+  }
+
+  return keywords.join(", ");
+}
+
 export function OfficialApiChatbotWorkspace({
   data,
   initialScenarioId,
@@ -657,6 +670,11 @@ export function OfficialApiChatbotWorkspace({
   const [nodeImageUploadError, setNodeImageUploadError] = useState("");
   const [openMenuScenarioId, setOpenMenuScenarioId] = useState("");
   const [scenarioPendingDelete, setScenarioPendingDelete] = useState<OfficialApiChatbotScenario | null>(null);
+  const [quickResponsesScenarioId, setQuickResponsesScenarioId] = useState("");
+  const [isQuickResponsesModalOpen, setIsQuickResponsesModalOpen] = useState(false);
+  const [quickResponseSelectedId, setQuickResponseSelectedId] = useState("");
+  const [isQuickResponseKeywordFormOpen, setIsQuickResponseKeywordFormOpen] = useState(false);
+  const [quickResponseKeywordDraft, setQuickResponseKeywordDraft] = useState("");
   const [isNodeEditorOpen, setIsNodeEditorOpen] = useState(false);
   const [nodePositionsByScenarioId, setNodePositionsByScenarioId] = useState<NodePositionsByScenarioId>(
     data.defaults.nodePositionsByScenarioId,
@@ -680,19 +698,43 @@ export function OfficialApiChatbotWorkspace({
 
   const hasWorkflows = scenarios.length > 0;
   const selectedScenario = scenarios.find((scenario) => scenario.id === selectedScenarioId);
+  const quickResponsesScenario = scenarios.find((scenario) => scenario.id === quickResponsesScenarioId) ?? null;
   const hasSelectedFlow = Boolean(selectedScenario);
   const nodes = useMemo(
     () => (selectedScenario ? (nodesByScenarioId[selectedScenario.id] ?? []) : []),
     [nodesByScenarioId, selectedScenario],
   );
+  const quickResponses = useMemo(
+    () =>
+      quickResponsesScenario
+        ? (nodesByScenarioId[quickResponsesScenario.id] ?? []).filter((node) => node.kind === "trigger")
+        : [],
+    [nodesByScenarioId, quickResponsesScenario],
+  );
   const selectedNode = useMemo(
     () => nodes.find((node) => node.id === selectedNodeId) ?? nodes[0] ?? null,
     [nodes, selectedNodeId],
+  );
+  const selectedQuickResponse = useMemo(
+    () => quickResponses.find((node) => node.id === quickResponseSelectedId) ?? quickResponses[0] ?? null,
+    [quickResponseSelectedId, quickResponses],
   );
   const selectedImageUrl = selectedNode?.kind === "image" ? selectedNode.meta.trim() : "";
   const hasInvalidImageUrl = selectedNode?.kind === "image" && selectedImageUrl.length > 0 && !isLikelyDirectImageUrl(selectedImageUrl);
   const selectedUploadNodeKind =
     selectedNode && isUploadableNodeKind(selectedNode.kind) ? selectedNode.kind : null;
+
+  useEffect(() => {
+    if (!isQuickResponsesModalOpen) {
+      setIsQuickResponseKeywordFormOpen(false);
+      setQuickResponseKeywordDraft("");
+      return;
+    }
+
+    const firstQuickResponseId = quickResponses[0]?.id ?? "";
+    setQuickResponseSelectedId((current) => (quickResponses.some((node) => node.id === current) ? current : firstQuickResponseId));
+  }, [isQuickResponsesModalOpen, quickResponses]);
+
   const openNodeEditor = useCallback((nodeId: string) => {
     setIsBlockLibraryOpen(false);
     setSelectedNodeId(nodeId);
@@ -788,14 +830,22 @@ export function OfficialApiChatbotWorkspace({
     }));
   }
 
+  function updateNodeInScenario(scenarioId: string, nodeId: string, patch: Partial<BuilderNode>) {
+    if (!scenarioId) {
+      return;
+    }
+
+    updateNodesForScenario(scenarioId, (current) =>
+      current.map((node) => (node.id === nodeId ? { ...node, ...patch } : node)),
+    );
+  }
+
   function updateNode(nodeId: string, patch: Partial<BuilderNode>) {
     if (!selectedScenario) {
       return;
     }
 
-    updateNodesForScenario(selectedScenario.id, (current) =>
-      current.map((node) => (node.id === nodeId ? { ...node, ...patch } : node)),
-    );
+    updateNodeInScenario(selectedScenario.id, nodeId, patch);
   }
 
   function addBlock(kind: BuilderNode["kind"]) {
@@ -1087,6 +1137,33 @@ export function OfficialApiChatbotWorkspace({
   function handleDeleteRequest(scenario: OfficialApiChatbotScenario) {
     setOpenMenuScenarioId("");
     setScenarioPendingDelete(scenario);
+  }
+
+  function openQuickResponsesModal(scenarioId: string) {
+    setOpenMenuScenarioId("");
+    setQuickResponsesScenarioId(scenarioId);
+    setQuickResponseSelectedId("");
+    setQuickResponseKeywordDraft("");
+    setIsQuickResponseKeywordFormOpen(false);
+    setIsQuickResponsesModalOpen(true);
+  }
+
+  function saveQuickResponseKeyword() {
+    if (!quickResponsesScenario || !selectedQuickResponse) {
+      return;
+    }
+
+    const keyword = quickResponseKeywordDraft.trim();
+    if (!keyword) {
+      toast.error("Escribe una palabra clave");
+      return;
+    }
+
+    const nextMeta = mergeKeywords(selectedQuickResponse.meta, keyword);
+    updateNodeInScenario(quickResponsesScenario.id, selectedQuickResponse.id, { meta: nextMeta });
+    setQuickResponseKeywordDraft("");
+    setIsQuickResponseKeywordFormOpen(false);
+    toast.success("Palabra clave agregada");
   }
 
   function confirmDeleteWorkflow() {
@@ -1481,13 +1558,13 @@ export function OfficialApiChatbotWorkspace({
                         type="button"
                         onClick={(event) => {
                           event.stopPropagation();
-                          setOpenMenuScenarioId("");
-                          toast.info("Respuesta rápidas estará disponible pronto.");
+                          openQuickResponsesModal(scenario.id);
+                          return;
                         }}
                         className="flex w-full items-center gap-2 whitespace-nowrap px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50"
                       >
                         <MessageSquarePlus className="h-4 w-4" />
-                        Respuesta rápidas
+                        Respuestas rápidas
                       </button>
                       <button
                         type="button"
@@ -1944,6 +2021,114 @@ export function OfficialApiChatbotWorkspace({
                 </Button>
                 <Button type="button" className="bg-rose-600 text-white hover:bg-rose-700" onClick={confirmDeleteWorkflow}>
                   Eliminar
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+        {isQuickResponsesModalOpen && quickResponsesScenario ? (
+          <div className="absolute inset-0 z-40 flex items-center justify-center bg-slate-950/25 p-6 backdrop-blur-[2px]">
+            <div className="w-full max-w-3xl overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_30px_80px_-48px_rgba(15,23,42,0.32)]">
+              <div className="relative border-b border-slate-200 px-6 py-5">
+                <button
+                  type="button"
+                  onClick={() => setIsQuickResponsesModalOpen(false)}
+                  className="absolute right-4 top-4 inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                  aria-label="Cerrar modal de respuestas rápidas"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
+                    <MessageSquarePlus className="h-4 w-4" />
+                  </span>
+                  <div>
+                    <p className="text-lg font-semibold text-slate-950">Respuestas rápidas</p>
+                    <p className="text-sm text-slate-500">{quickResponsesScenario.title}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-4 px-6 py-5">
+                <div className="space-y-3">
+                  {quickResponses.length > 0 ? (
+                    quickResponses.map((response) => {
+                      const isSelected = response.id === selectedQuickResponse?.id;
+                      return (
+                        <button
+                          key={response.id}
+                          type="button"
+                          onClick={() => {
+                            setQuickResponseSelectedId(response.id);
+                            setIsQuickResponseKeywordFormOpen(false);
+                          }}
+                          className={cn(
+                            "w-full rounded-2xl border p-4 text-left transition",
+                            isSelected
+                              ? "border-[color-mix(in_srgb,var(--primary)_28%,white)] bg-[color-mix(in_srgb,var(--primary)_5%,white)]"
+                              : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50",
+                          )}
+                        >
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-semibold text-slate-900">{response.title}</p>
+                              <p className="mt-1 line-clamp-2 text-sm leading-6 text-slate-600">{response.body}</p>
+                            </div>
+                            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
+                              {isSelected ? "Seleccionada" : "Ver"}
+                            </span>
+                          </div>
+                          <p className="mt-3 text-xs leading-5 text-slate-500">
+                            {response.meta.trim() ? `Palabras clave: ${response.meta}` : "Sin palabra clave asociada."}
+                          </p>
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/70 px-4 py-5 text-sm leading-6 text-slate-500">
+                      Este flujo todavia no tiene respuestas rapidas.
+                    </div>
+                  )}
+                </div>
+
+                <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/70 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">Agregar</p>
+                      <p className="text-xs leading-5 text-slate-500">
+                        Agrega una palabra clave para ejecutar la respuesta rapida seleccionada.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="rounded-lg"
+                      onClick={() => setIsQuickResponseKeywordFormOpen((current) => !current)}
+                      disabled={!selectedQuickResponse}
+                    >
+                      Agregar
+                    </Button>
+                  </div>
+
+                  {isQuickResponseKeywordFormOpen ? (
+                    <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                      <Input
+                        value={quickResponseKeywordDraft}
+                        onChange={(event) => setQuickResponseKeywordDraft(event.target.value)}
+                        placeholder="Ej. precio, promo, asesor"
+                        disabled={!selectedQuickResponse}
+                      />
+                      <Button type="button" className="rounded-lg" onClick={saveQuickResponseKeyword} disabled={!selectedQuickResponse}>
+                        Guardar
+                      </Button>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end border-t border-slate-200 px-6 py-4">
+                <Button type="button" onClick={() => setIsQuickResponsesModalOpen(false)}>
+                  Cerrar
                 </Button>
               </div>
             </div>
