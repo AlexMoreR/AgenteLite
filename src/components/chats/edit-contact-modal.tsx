@@ -65,7 +65,7 @@ export function EditContactModal({ open, onClose, contactId, contactName }: Prop
               className="h-10 w-full rounded-[14px] border border-slate-200 bg-white px-3 text-[13px] text-slate-800 outline-none transition focus:border-[var(--primary)]"
             />
           </div>
-          {state.error ? (
+          {"error" in state && state.error ? (
             <p className="text-xs text-rose-500">{state.error}</p>
           ) : null}
           <div className="flex justify-end gap-2 pt-1">
