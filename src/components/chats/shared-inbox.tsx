@@ -260,7 +260,7 @@ function findConversationItemBySnapshotId(
 
 function buildConversationItemFromSnapshot(
   snapshot: LiveConversationSnapshot,
-  existing?: SharedInboxConversationItem,
+  existing?: SharedInboxConversationItem | null,
 ): SharedInboxConversationItem {
   const latestMessage = snapshot.messages.at(-1) ?? null;
   const nextItem: SharedInboxConversationItem = {
@@ -284,7 +284,7 @@ function buildConversationItemFromSnapshot(
 
 function buildConversationItemFromListSnapshot(
   snapshot: LiveConversationListSnapshot,
-  existing?: SharedInboxConversationItem,
+  existing?: SharedInboxConversationItem | null,
 ): SharedInboxConversationItem {
   return {
     id: snapshot.id,
@@ -709,7 +709,7 @@ export function SharedInbox({
       }
 
       setConversationItems((current) => {
-        const currentItem = findConversationItemBySnapshotId(current, snapshot.id);
+        const currentItem = findConversationItemBySnapshotId(current, snapshot.id) ?? undefined;
         const updatedItem = buildConversationItemFromListSnapshot(snapshot, currentItem);
         const nextItems = current.map((item) =>
           conversationIdMatchesKey(item.id, snapshot.id) ? { ...item, ...updatedItem } : item,
