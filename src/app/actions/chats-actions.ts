@@ -226,3 +226,127 @@ export async function toggleConversationAutomationAction(formData: FormData): Pr
     }`,
   );
 }
+
+export type EtiquetaItem = { id: string; name: string; color: string };
+
+export async function getEtiquetasAction(): Promise<{ items?: EtiquetaItem[]; error?: string }> {
+  const session = await auth();
+  if (!session?.user?.id) return { error: "No autorizado" };
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) return { error: "Workspace no encontrado" };
+
+  const tags = await prisma.tag.findMany({
+    where: { workspaceId: membership.workspace.id },
+    select: { id: true, name: true, color: true },
+    orderBy: { createdAt: "asc" },
+  });
+
+  return { items: tags };
+}
+
+const createEtiquetaSchema = z.object({
+  name: z.string().trim().min(1).max(60),
+  color: z.string().trim().min(1).max(30),
+});
+
+export async function createEtiquetaAction(
+  _prevState: { error?: string; success?: boolean },
+  formData: FormData,
+): Promise<{ error?: string; success?: boolean }> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+    return { error: "No autorizado" };
+  }
+
+  const parsed = createEtiquetaSchema.safeParse({
+    name: formData.get("name"),
+    color: formData.get("color"),
+  });
+
+  if (!parsed.success) return { error: "Datos invalidos" };
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) return { error: "Workspace no encontrado" };
+
+  const slug = parsed.data.name
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+
+  const existing = await prisma.tag.findUnique({
+    where: { workspaceId_slug: { workspaceId: membership.workspace.id, slug } },
+    select: { id: true },
+  });
+  if (existing) return { error: "Ya existe una etiqueta con ese nombre" };
+
+  await prisma.tag.create({
+    data: {
+      id: crypto.randomUUID(),
+      workspaceId: membership.workspace.id,
+      name: parsed.data.name,
+      slug,
+      color: parsed.data.color,
+      updatedAt: new Date(),
+    },
+  });
+
+  return { success: true };
+}
+
+export async function getContactTagIdsAction(contactId: string): Promise<{ tagIds?: string[]; error?: string }> {
+  const session = await auth();
+  if (!session?.user?.id) return { error: "No autorizado" };
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) return { error: "Workspace no encontrado" };
+
+  const rows = await prisma.contactTag.findMany({
+    where: { contactId, workspaceId: membership.workspace.id },
+    select: { tagId: true },
+  });
+
+  return { tagIds: rows.map((r) => r.tagId) };
+}
+
+export async function toggleContactTagAction(
+  contactId: string,
+  tagId: string,
+): Promise<{ error?: string }> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+    return { error: "No autorizado" };
+  }
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) return { error: "Workspace no encontrado" };
+
+  const contact = await prisma.contact.findFirst({
+    where: { id: contactId, workspaceId: membership.workspace.id },
+    select: { id: true },
+  });
+  if (!contact) return { error: "Contacto no encontrado" };
+
+  const tag = await prisma.tag.findFirst({
+    where: { id: tagId, workspaceId: membership.workspace.id },
+    select: { id: true },
+  });
+  if (!tag) return { error: "Etiqueta no encontrada" };
+
+  const existing = await prisma.contactTag.findUnique({
+    where: { contactId_tagId: { contactId, tagId } },
+    select: { contactId: true },
+  });
+
+  if (existing) {
+    await prisma.contactTag.delete({ where: { contactId_tagId: { contactId, tagId } } });
+  } else {
+    await prisma.contactTag.create({
+      data: { contactId, tagId, workspaceId: membership.workspace.id },
+    });
+  }
+
+  return {};
+}

@@ -7,6 +7,587 @@ datasource db {
   provider = "postgresql"
 }
 
+model User {
+  id                   String            @id @default(cuid())
+  name                 String?
+  email                String            @unique
+  password             String
+  role                 Role              @default(CLIENTE)
+  image                String?
+  emailVerified        DateTime?
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  document             String?
+  phone                String?
+  address              String?
+  neighborhood         String?
+  department           String?
+  city                 String?
+  emailAuthTokens      EmailAuthToken[]
+  quotesAsClient       Quote[]           @relation("QuoteClient")
+  quotesCreated        Quote[]           @relation("QuoteCreatedBy")
+  ownedWorkspaces      Workspace[]       @relation("WorkspaceOwner")
+  workspaceMemberships WorkspaceMember[]
+}
+
+model EmailAuthToken {
+  id        String                @id @default(cuid())
+  userId    String
+  email     String
+  purpose   EmailAuthTokenPurpose
+  tokenHash String                @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime              @default(now())
+  user      User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose, createdAt])
+  @@index([purpose, expiresAt])
+}
+
+model Workspace {
+  id                   String                   @id @default(cuid())
+  name                 String
+  slug                 String                   @unique
+  ownerId              String?
+  isActive             Boolean                  @default(true)
+  createdAt            DateTime                 @default(now())
+  updatedAt            DateTime                 @updatedAt
+  planTier             WorkspacePlanTier?
+  planStartedAt        DateTime?
+  planExpiresAt        DateTime?
+  businessConfig       Json?
+  agents               Agent[]
+  agentCopilotMessages AgentCopilotMessage[]
+  contacts             Contact[]
+  ContactTag           ContactTag[]
+  conversations        Conversation[]
+  financeAgentConfig   FinanceAgentConfig?
+  financeChatMessages  FinanceChatMessage[]
+  financeGoogleSheet   FinanceGoogleSheet?
+  financeTransactions  FinanceTransaction[]
+  messages             Message[]
+  officialApiConfig    OfficialApiClientConfig?
+  Tag                  Tag[]
+  channels             WhatsAppChannel[]
+  owner                User?                    @relation("WorkspaceOwner", fields: [ownerId], references: [id])
+  memberships          WorkspaceMember[]
+
+  @@index([ownerId])
+}
+
+model WorkspaceMember {
+  id          String              @id @default(cuid())
+  workspaceId String
+  userId      String
+  role        WorkspaceMemberRole @default(ADMIN)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
+}
+
+model Agent {
+  id                  String                  @id @default(cuid())
+  workspaceId         String
+  name                String
+  slug                String
+  description         String?
+  systemPrompt        String?
+  welcomeMessage      String?
+  fallbackMessage     String?
+  handoffMessage      String?
+  model               String?
+  temperature         Decimal?                @db.Decimal(3, 2)
+  maxTokens           Int?
+  isActive            Boolean                 @default(true)
+  status              AgentStatus             @default(DRAFT)
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+  trainingConfig      Json?
+  reactivationMessage String?
+  workspace           Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  copilotMessages     AgentCopilotMessage[]
+  knowledgeProducts   AgentKnowledgeProduct[]
+  conversations       Conversation[]
+  messages            Message[]
+  channels            WhatsAppChannel[]
+
+  @@unique([workspaceId, slug])
+  @@index([workspaceId, status])
+}
+
+model WhatsAppChannel {
+  id                    String                @id @default(cuid())
+  workspaceId           String
+  agentId               String?
+  provider              ChannelProvider       @default(EVOLUTION)
+  name                  String
+  phoneNumber           String?
+  evolutionInstanceName String?               @unique
+  evolutionExternalKey  String?
+  status                WhatsAppChannelStatus @default(DISCONNECTED)
+  qrCode                String?
+  lastConnectionAt      DateTime?
+  lastDisconnectionAt   DateTime?
+  metadata              Json?
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+  isActive              Boolean               @default(true)
+  conversations         Conversation[]
+  messages              Message[]
+  agent                 Agent?                @relation(fields: [agentId], references: [id])
+  workspace             Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status])
+  @@index([agentId])
+}
+
+model Contact {
+  id            String         @id @default(cuid())
+  workspaceId   String
+  name          String?
+  phoneNumber   String
+  email         String?
+  notes         String?
+  metadata      Json?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  avatarUrl     String?
+  workspace     Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  ContactTag    ContactTag[]
+  conversations Conversation[]
+  messages      Message[]
+
+  @@unique([workspaceId, phoneNumber])
+  @@index([workspaceId, createdAt])
+}
+
+model Conversation {
+  id                 String             @id @default(cuid())
+  workspaceId        String
+  agentId            String?
+  channelId          String?
+  contactId          String
+  status             ConversationStatus @default(OPEN)
+  lastMessageAt      DateTime?
+  startedAt          DateTime           @default(now())
+  closedAt           DateTime?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  automationPaused   Boolean            @default(false)
+  automationPausedAt DateTime?
+  agent              Agent?             @relation(fields: [agentId], references: [id])
+  channel            WhatsAppChannel?   @relation(fields: [channelId], references: [id])
+  contact            Contact            @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  workspace          Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  messages           Message[]
+
+  @@index([workspaceId, status])
+  @@index([workspaceId, lastMessageAt])
+  @@index([workspaceId, lastMessageAt, updatedAt])
+  @@index([contactId, lastMessageAt])
+  @@index([channelId, lastMessageAt])
+}
+
+model Product {
+  id                 String                  @id @default(cuid())
+  name               String
+  description        String?
+  price              Decimal                 @db.Decimal(10, 2)
+  thumbnailUrl       String
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+  baseCost           Decimal                 @default(0) @db.Decimal(10, 2)
+  retailMarginPct    Decimal                 @default(0) @db.Decimal(6, 2)
+  wholesaleMarginPct Decimal                 @default(0) @db.Decimal(6, 2)
+  wholesalePrice     Decimal                 @default(0) @db.Decimal(10, 2)
+  minWholesaleQty    Int                     @default(6)
+  categoryId         String?
+  code               String?                 @unique
+  slug               String                  @unique
+  agentKnowledge     AgentKnowledgeProduct[]
+  category           Category?               @relation(fields: [categoryId], references: [id])
+  images             ProductImage[]
+  suppliers          ProductSupplier[]
+  quoteItems         QuoteItem[]
+}
+
+model AgentKnowledgeProduct {
+  agentId      String
+  productId    String
+  createdAt    DateTime @default(now())
+  instructions String?
+  updatedAt    DateTime @updatedAt
+  agent        Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  product      Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@id([agentId, productId])
+  @@index([productId])
+}
+
+model ProductImage {
+  id        String   @id @default(cuid())
+  productId String
+  url       String
+  order     Int
+  createdAt DateTime @default(now())
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+}
+
+model Category {
+  id        String    @id @default(cuid())
+  name      String    @unique
+  slug      String    @unique
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  logoUrl   String?
+  products  Product[]
+}
+
+model Supplier {
+  id         String            @id @default(cuid())
+  name       String            @unique
+  email      String?
+  phone      String?
+  isActive   Boolean           @default(true)
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+  products   ProductSupplier[]
+  quoteItems QuoteItem[]
+}
+
+model ProductSupplier {
+  productId    String
+  supplierId   String
+  supplierSku  String?
+  supplierCost Decimal? @db.Decimal(10, 2)
+  isPreferred  Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  product      Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  supplier     Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  @@id([productId, supplierId])
+  @@index([supplierId])
+}
+
+model AppSetting {
+  key       String   @id
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model WebhookEventLog {
+  id           String   @id @default(cuid())
+  provider     String
+  event        String?
+  instanceName String?
+  channelId    String?
+  workspaceId  String?
+  status       String?
+  payload      Json?
+  createdAt    DateTime @default(now())
+
+  @@index([provider, createdAt])
+  @@index([instanceName, createdAt])
+  @@index([workspaceId, createdAt])
+}
+
+model Quote {
+  id          String      @id @default(cuid())
+  code        String      @unique
+  clientId    String
+  createdById String
+  status      QuoteStatus @default(DRAFT)
+  notes       String?
+  validUntil  DateTime?
+  subtotal    Decimal     @default(0) @db.Decimal(12, 2)
+  total       Decimal     @default(0) @db.Decimal(12, 2)
+  shareToken  String      @unique
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  client      User        @relation("QuoteClient", fields: [clientId], references: [id])
+  createdBy   User        @relation("QuoteCreatedBy", fields: [createdById], references: [id])
+  items       QuoteItem[]
+
+  @@index([clientId, createdAt])
+  @@index([createdById, createdAt])
+}
+
+model QuoteItem {
+  id         String    @id @default(cuid())
+  quoteId    String
+  productId  String
+  supplierId String?
+  quantity   Int       @default(1)
+  unitPrice  Decimal   @db.Decimal(12, 2)
+  lineTotal  Decimal   @db.Decimal(12, 2)
+  notes      String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  product    Product   @relation(fields: [productId], references: [id])
+  quote      Quote     @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  supplier   Supplier? @relation(fields: [supplierId], references: [id])
+
+  @@index([quoteId])
+  @@index([productId])
+  @@index([supplierId])
+}
+
+model Message {
+  id             String           @id @default(cuid())
+  workspaceId    String
+  conversationId String
+  channelId      String?
+  contactId      String?
+  agentId        String?
+  externalId     String?
+  direction      MessageDirection
+  type           MessageType      @default(TEXT)
+  status         MessageStatus    @default(RECEIVED)
+  content        String?
+  mediaUrl       String?
+  rawPayload     Json?
+  sentAt         DateTime?
+  deliveredAt    DateTime?
+  readAt         DateTime?
+  failedAt       DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  agent          Agent?           @relation(fields: [agentId], references: [id])
+  channel        WhatsAppChannel? @relation(fields: [channelId], references: [id])
+  contact        Contact?         @relation(fields: [contactId], references: [id])
+  conversation   Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  workspace      Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([channelId, externalId])
+  @@index([workspaceId, createdAt])
+  @@index([conversationId, createdAt])
+  @@index([contactId, createdAt])
+}
+
+model OfficialApiClientConfig {
+  id                 String                      @id @default(cuid())
+  workspaceId        String                      @unique
+  accessToken        String?
+  phoneNumberId      String?
+  wabaId             String?
+  webhookVerifyToken String?
+  appSecret          String?
+  status             OfficialApiConnectionStatus @default(NOT_CONNECTED)
+  lastValidatedAt    DateTime?
+  createdAt          DateTime                    @default(now())
+  updatedAt          DateTime                    @updatedAt
+  automationRules    OfficialApiAutomationRule[]
+  workspace          Workspace                   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contacts           OfficialApiContact[]
+  conversations      OfficialApiConversation[]
+  messages           OfficialApiMessage[]
+  webhookEvents      OfficialApiWebhookEvent[]
+
+  @@index([status, updatedAt])
+}
+
+model OfficialApiContact {
+  id             String                    @id @default(cuid())
+  configId       String
+  externalUserId String?
+  waId           String
+  name           String?
+  phoneNumber    String?
+  metadata       Json?
+  lastMessageAt  DateTime?
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+  config         OfficialApiClientConfig   @relation(fields: [configId], references: [id], onDelete: Cascade)
+  conversations  OfficialApiConversation[]
+  messages       OfficialApiMessage[]
+
+  @@unique([configId, waId])
+  @@index([configId, lastMessageAt])
+}
+
+model OfficialApiConversation {
+  id               String                        @id @default(cuid())
+  configId         String
+  contactId        String
+  externalThreadId String?
+  status           OfficialApiConversationStatus @default(OPEN)
+  lastMessageAt    DateTime?
+  createdAt        DateTime                      @default(now())
+  updatedAt        DateTime                      @updatedAt
+  config           OfficialApiClientConfig       @relation(fields: [configId], references: [id], onDelete: Cascade)
+  contact          OfficialApiContact            @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  messages         OfficialApiMessage[]
+
+  @@unique([configId, externalThreadId])
+  @@index([configId, status, lastMessageAt])
+  @@index([configId, lastMessageAt, updatedAt])
+  @@index([contactId, lastMessageAt])
+}
+
+model OfficialApiMessage {
+  id                String                      @id @default(cuid())
+  configId          String
+  conversationId    String
+  contactId         String?
+  externalMessageId String?
+  direction         OfficialApiMessageDirection
+  type              OfficialApiMessageType      @default(TEXT)
+  status            OfficialApiMessageStatus    @default(RECEIVED)
+  content           String?
+  mediaUrl          String?
+  rawPayload        Json?
+  sentAt            DateTime?
+  deliveredAt       DateTime?
+  readAt            DateTime?
+  failedAt          DateTime?
+  createdAt         DateTime                    @default(now())
+  updatedAt         DateTime                    @updatedAt
+  config            OfficialApiClientConfig     @relation(fields: [configId], references: [id], onDelete: Cascade)
+  contact           OfficialApiContact?         @relation(fields: [contactId], references: [id])
+  conversation      OfficialApiConversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@unique([configId, externalMessageId])
+  @@index([configId, createdAt])
+  @@index([conversationId, createdAt])
+  @@index([contactId, createdAt])
+}
+
+model OfficialApiWebhookEvent {
+  id           String                   @id @default(cuid())
+  configId     String
+  eventType    String
+  deliveryId   String?
+  payload      Json?
+  status       OfficialApiWebhookStatus @default(RECEIVED)
+  processedAt  DateTime?
+  errorMessage String?
+  createdAt    DateTime                 @default(now())
+  updatedAt    DateTime                 @updatedAt
+  config       OfficialApiClientConfig  @relation(fields: [configId], references: [id], onDelete: Cascade)
+
+  @@index([configId, createdAt])
+  @@index([deliveryId])
+}
+
+model FinanceTransaction {
+  id          String                 @id @default(cuid())
+  workspaceId String
+  type        FinanceTransactionType
+  amount      Decimal                @db.Decimal(12, 2)
+  description String
+  category    String?
+  date        DateTime               @default(now())
+  source      String                 @default("manual")
+  createdAt   DateTime               @default(now())
+  updatedAt   DateTime               @updatedAt
+  workspace   Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, date])
+  @@index([workspaceId, type])
+}
+
+model FinanceGoogleSheet {
+  id          String    @id @default(cuid())
+  workspaceId String    @unique
+  sheetUrl    String
+  sheetId     String
+  lastSyncAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+model FinanceChatMessage {
+  id          String    @id @default(cuid())
+  workspaceId String
+  role        String
+  content     String
+  createdAt   DateTime  @default(now())
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+}
+
+model AgentCopilotMessage {
+  id          String    @id @default(cuid())
+  workspaceId String
+  agentId     String
+  role        String
+  content     String
+  createdAt   DateTime  @default(now())
+  agent       Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, agentId, createdAt])
+}
+
+model FinanceAgentConfig {
+  id           String    @id @default(cuid())
+  workspaceId  String    @unique
+  systemPrompt String
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+model OfficialApiAutomationRule {
+  id           String                          @id @default(cuid())
+  configId     String
+  name         String
+  description  String?
+  triggerText  String?
+  responseText String?
+  isFallback   Boolean                         @default(false)
+  priority     Int                             @default(100)
+  status       OfficialApiAutomationRuleStatus @default(DRAFT)
+  createdAt    DateTime                        @default(now())
+  updatedAt    DateTime                        @updatedAt
+  config       OfficialApiClientConfig         @relation(fields: [configId], references: [id], onDelete: Cascade)
+
+  @@index([configId, status, priority])
+}
+
+model ContactTag {
+  contactId   String
+  tagId       String
+  workspaceId String
+  createdAt   DateTime  @default(now())
+  Contact     Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  Tag         Tag       @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  Workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@id([contactId, tagId])
+  @@index([contactId])
+  @@index([tagId])
+  @@index([workspaceId])
+}
+
+model Tag {
+  id          String       @id
+  workspaceId String
+  name        String
+  slug        String
+  description String?
+  color       String       @default("slate")
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime
+  ContactTag  ContactTag[]
+  Workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, slug])
+  @@index([workspaceId, createdAt])
+}
+
 enum Role {
   ADMIN
   EMPLEADO
@@ -74,44 +655,6 @@ enum OfficialApiAutomationRuleStatus {
   PAUSED
 }
 
-model User {
-  id                 String            @id @default(cuid())
-  name               String?
-  email              String            @unique
-  document           String?
-  phone              String?
-  address            String?
-  neighborhood       String?
-  department         String?
-  city               String?
-  password           String
-  role               Role              @default(CLIENTE)
-  image              String?
-  emailVerified      DateTime?
-  createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @updatedAt
-  quotesAsClient     Quote[]           @relation("QuoteClient")
-  quotesCreated      Quote[]           @relation("QuoteCreatedBy")
-  ownedWorkspaces    Workspace[]       @relation("WorkspaceOwner")
-  workspaceMemberships WorkspaceMember[]
-  emailAuthTokens    EmailAuthToken[]
-}
-
-model EmailAuthToken {
-  id        String                @id @default(cuid())
-  userId    String
-  email     String
-  purpose   EmailAuthTokenPurpose
-  tokenHash String                @unique
-  expiresAt DateTime
-  usedAt    DateTime?
-  createdAt DateTime              @default(now())
-  user      User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId, purpose, createdAt])
-  @@index([purpose, expiresAt])
-}
-
 enum WorkspaceMemberRole {
   OWNER
   ADMIN
@@ -172,259 +715,6 @@ enum MessageStatus {
   FAILED
 }
 
-model Workspace {
-  id             String            @id @default(cuid())
-  name           String
-  slug           String            @unique
-  ownerId        String?
-  isActive       Boolean           @default(true)
-  businessConfig Json?
-  planTier      WorkspacePlanTier?
-  planStartedAt DateTime?
-  planExpiresAt DateTime?
-  createdAt     DateTime          @default(now())
-  updatedAt     DateTime          @updatedAt
-  owner         User?             @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: SetNull)
-  memberships   WorkspaceMember[]
-  agents        Agent[]
-  channels      WhatsAppChannel[]
-  contacts      Contact[]
-  conversations Conversation[]
-  messages      Message[]
-  officialApiConfig   OfficialApiClientConfig?
-  financeTransactions  FinanceTransaction[]
-  financeGoogleSheet   FinanceGoogleSheet?
-  financeAgentConfig   FinanceAgentConfig?
-  financeChatMessages  FinanceChatMessage[]
-  agentCopilotMessages AgentCopilotMessage[]
-
-  @@index([ownerId])
-}
-
-model WorkspaceMember {
-  id          String              @id @default(cuid())
-  workspaceId String
-  userId      String
-  role        WorkspaceMemberRole @default(ADMIN)
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime            @updatedAt
-  workspace   Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([workspaceId, userId])
-  @@index([userId])
-}
-
-model Agent {
-  id                  String            @id @default(cuid())
-  workspaceId         String
-  name                String
-  slug                String
-  description         String?
-  trainingConfig      Json?
-  systemPrompt        String?
-  welcomeMessage      String?
-  reactivationMessage String?
-  fallbackMessage     String?
-  handoffMessage      String?
-  model               String?
-  temperature         Decimal?          @db.Decimal(3, 2)
-  maxTokens           Int?
-  isActive            Boolean           @default(true)
-  status              AgentStatus       @default(DRAFT)
-  createdAt           DateTime          @default(now())
-  updatedAt           DateTime          @updatedAt
-  workspace           Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  channels            WhatsAppChannel[]
-  conversations       Conversation[]
-  messages            Message[]
-  copilotMessages     AgentCopilotMessage[]
-  knowledgeProducts   AgentKnowledgeProduct[]
-
-  @@unique([workspaceId, slug])
-  @@index([workspaceId, status])
-}
-
-model WhatsAppChannel {
-  id                      String                @id @default(cuid())
-  workspaceId             String
-  agentId                 String?
-  provider                ChannelProvider       @default(EVOLUTION)
-  name                    String
-  isActive                Boolean               @default(true)
-  phoneNumber             String?
-  evolutionInstanceName   String?               @unique
-  evolutionExternalKey    String?
-  status                  WhatsAppChannelStatus @default(DISCONNECTED)
-  qrCode                  String?
-  lastConnectionAt        DateTime?
-  lastDisconnectionAt     DateTime?
-  metadata                Json?
-  createdAt               DateTime              @default(now())
-  updatedAt               DateTime              @updatedAt
-  workspace               Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  agent                   Agent?                @relation(fields: [agentId], references: [id], onDelete: SetNull)
-  conversations           Conversation[]
-  messages                Message[]
-
-  @@index([workspaceId, status])
-  @@index([agentId])
-}
-
-model Contact {
-  id            String         @id @default(cuid())
-  workspaceId   String
-  name          String?
-  phoneNumber   String
-  email         String?
-  notes         String?
-  avatarUrl     String?
-  metadata      Json?
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  workspace     Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  conversations Conversation[]
-  messages      Message[]
-
-  @@unique([workspaceId, phoneNumber])
-  @@index([workspaceId, createdAt])
-}
-
-model Conversation {
-  id              String             @id @default(cuid())
-  workspaceId     String
-  agentId         String?
-  channelId       String?
-  contactId       String
-  status          ConversationStatus @default(OPEN)
-  automationPaused   Boolean            @default(false)
-  automationPausedAt DateTime?
-  lastMessageAt   DateTime?
-  startedAt       DateTime           @default(now())
-  closedAt        DateTime?
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
-  workspace       Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  agent           Agent?             @relation(fields: [agentId], references: [id], onDelete: SetNull)
-  channel         WhatsAppChannel?   @relation(fields: [channelId], references: [id], onDelete: SetNull)
-  contact         Contact            @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  messages        Message[]
-
-  @@index([workspaceId, status])
-  @@index([workspaceId, lastMessageAt])
-  @@index([workspaceId, lastMessageAt, updatedAt])
-  @@index([contactId, lastMessageAt])
-  @@index([channelId, lastMessageAt])
-}
-
-model Product {
-  id                 String            @id @default(cuid())
-  code               String?           @unique
-  slug               String            @unique
-  name               String
-  description        String?
-  price              Decimal           @db.Decimal(10, 2)
-  baseCost           Decimal           @default(0) @db.Decimal(10, 2)
-  retailMarginPct    Decimal           @default(0) @db.Decimal(6, 2)
-  wholesaleMarginPct Decimal           @default(0) @db.Decimal(6, 2)
-  wholesalePrice     Decimal           @default(0) @db.Decimal(10, 2)
-  minWholesaleQty    Int               @default(6)
-  categoryId         String?
-  thumbnailUrl       String
-  createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @updatedAt
-  category           Category?         @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  images             ProductImage[]
-  suppliers          ProductSupplier[]
-  quoteItems         QuoteItem[]
-  agentKnowledge     AgentKnowledgeProduct[]
-}
-
-model AgentKnowledgeProduct {
-  agentId      String
-  productId    String
-  instructions String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  agent        Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
-  product      Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
-
-  @@id([agentId, productId])
-  @@index([productId])
-}
-
-model ProductImage {
-  id        String   @id @default(cuid())
-  productId String
-  url       String
-  order     Int
-  createdAt DateTime @default(now())
-  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
-
-  @@index([productId])
-}
-
-model Category {
-  id        String    @id @default(cuid())
-  name      String    @unique
-  slug      String    @unique
-  logoUrl   String?
-  isActive  Boolean   @default(true)
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  products  Product[]
-}
-
-model Supplier {
-  id        String            @id @default(cuid())
-  name      String            @unique
-  email     String?
-  phone     String?
-  isActive  Boolean           @default(true)
-  createdAt DateTime          @default(now())
-  updatedAt DateTime          @updatedAt
-  products  ProductSupplier[]
-  quoteItems QuoteItem[]
-}
-
-model ProductSupplier {
-  productId    String
-  supplierId   String
-  supplierSku  String?
-  supplierCost Decimal?  @db.Decimal(10, 2)
-  isPreferred  Boolean   @default(false)
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  product      Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
-  supplier     Supplier  @relation(fields: [supplierId], references: [id], onDelete: Cascade)
-
-  @@id([productId, supplierId])
-  @@index([supplierId])
-}
-
-model AppSetting {
-  key       String   @id
-  value     String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model WebhookEventLog {
-  id            String   @id @default(cuid())
-  provider      String
-  event         String?
-  instanceName  String?
-  channelId     String?
-  workspaceId   String?
-  status        String?
-  payload       Json?
-  createdAt     DateTime @default(now())
-
-  @@index([provider, createdAt])
-  @@index([instanceName, createdAt])
-  @@index([workspaceId, createdAt])
-}
-
 enum QuoteStatus {
   DRAFT
   SENT
@@ -433,263 +723,7 @@ enum QuoteStatus {
   EXPIRED
 }
 
-model Quote {
-  id          String      @id @default(cuid())
-  code        String      @unique
-  clientId    String
-  createdById String
-  status      QuoteStatus @default(DRAFT)
-  notes       String?
-  validUntil  DateTime?
-  subtotal    Decimal     @default(0) @db.Decimal(12, 2)
-  total       Decimal     @default(0) @db.Decimal(12, 2)
-  shareToken  String      @unique
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
-  client      User        @relation("QuoteClient", fields: [clientId], references: [id], onDelete: Restrict)
-  createdBy   User        @relation("QuoteCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
-  items       QuoteItem[]
-
-  @@index([clientId, createdAt])
-  @@index([createdById, createdAt])
-}
-
-model QuoteItem {
-  id         String   @id @default(cuid())
-  quoteId    String
-  productId  String
-  supplierId String?
-  quantity   Int      @default(1)
-  unitPrice  Decimal  @db.Decimal(12, 2)
-  lineTotal  Decimal  @db.Decimal(12, 2)
-  notes      String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  quote      Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
-  product    Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
-  supplier   Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
-
-  @@index([quoteId])
-  @@index([productId])
-  @@index([supplierId])
-}
-
-model Message {
-  id             String           @id @default(cuid())
-  workspaceId    String
-  conversationId String
-  channelId      String?
-  contactId      String?
-  agentId        String?
-  externalId     String?
-  direction      MessageDirection
-  type           MessageType      @default(TEXT)
-  status         MessageStatus    @default(RECEIVED)
-  content        String?
-  mediaUrl       String?
-  rawPayload     Json?
-  sentAt         DateTime?
-  deliveredAt    DateTime?
-  readAt         DateTime?
-  failedAt       DateTime?
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
-  workspace      Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  conversation   Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  channel        WhatsAppChannel? @relation(fields: [channelId], references: [id], onDelete: SetNull)
-  contact        Contact?         @relation(fields: [contactId], references: [id], onDelete: SetNull)
-  agent          Agent?           @relation(fields: [agentId], references: [id], onDelete: SetNull)
-
-  @@unique([channelId, externalId])
-  @@index([workspaceId, createdAt])
-  @@index([conversationId, createdAt])
-  @@index([contactId, createdAt])
-}
-
-model OfficialApiClientConfig {
-  id                 String                      @id @default(cuid())
-  workspaceId        String                      @unique
-  accessToken        String?
-  phoneNumberId      String?
-  wabaId             String?
-  webhookVerifyToken String?
-  appSecret          String?
-  status             OfficialApiConnectionStatus @default(NOT_CONNECTED)
-  lastValidatedAt    DateTime?
-  createdAt          DateTime                    @default(now())
-  updatedAt          DateTime                    @updatedAt
-  workspace          Workspace                   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  contacts           OfficialApiContact[]
-  conversations      OfficialApiConversation[]
-  messages           OfficialApiMessage[]
-  webhookEvents      OfficialApiWebhookEvent[]
-  automationRules    OfficialApiAutomationRule[]
-
-  @@index([status, updatedAt])
-}
-
-model OfficialApiContact {
-  id             String                    @id @default(cuid())
-  configId       String
-  externalUserId String?
-  waId           String
-  name           String?
-  phoneNumber    String?
-  metadata       Json?
-  lastMessageAt  DateTime?
-  createdAt      DateTime                  @default(now())
-  updatedAt      DateTime                  @updatedAt
-  config         OfficialApiClientConfig   @relation(fields: [configId], references: [id], onDelete: Cascade)
-  conversations  OfficialApiConversation[]
-  messages       OfficialApiMessage[]
-
-  @@unique([configId, waId])
-  @@index([configId, lastMessageAt])
-}
-
-model OfficialApiConversation {
-  id               String                        @id @default(cuid())
-  configId         String
-  contactId        String
-  externalThreadId String?
-  status           OfficialApiConversationStatus @default(OPEN)
-  lastMessageAt    DateTime?
-  createdAt        DateTime                      @default(now())
-  updatedAt        DateTime                      @updatedAt
-  config           OfficialApiClientConfig       @relation(fields: [configId], references: [id], onDelete: Cascade)
-  contact          OfficialApiContact            @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  messages         OfficialApiMessage[]
-
-  @@unique([configId, externalThreadId])
-  @@index([configId, status, lastMessageAt])
-  @@index([configId, lastMessageAt, updatedAt])
-  @@index([contactId, lastMessageAt])
-}
-
-model OfficialApiMessage {
-  id                String                      @id @default(cuid())
-  configId          String
-  conversationId    String
-  contactId         String?
-  externalMessageId String?
-  direction         OfficialApiMessageDirection
-  type              OfficialApiMessageType      @default(TEXT)
-  status            OfficialApiMessageStatus    @default(RECEIVED)
-  content           String?
-  mediaUrl          String?
-  rawPayload        Json?
-  sentAt            DateTime?
-  deliveredAt       DateTime?
-  readAt            DateTime?
-  failedAt          DateTime?
-  createdAt         DateTime                    @default(now())
-  updatedAt         DateTime                    @updatedAt
-  config            OfficialApiClientConfig     @relation(fields: [configId], references: [id], onDelete: Cascade)
-  conversation      OfficialApiConversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  contact           OfficialApiContact?         @relation(fields: [contactId], references: [id], onDelete: SetNull)
-
-  @@unique([configId, externalMessageId])
-  @@index([configId, createdAt])
-  @@index([conversationId, createdAt])
-  @@index([contactId, createdAt])
-}
-
-model OfficialApiWebhookEvent {
-  id           String                   @id @default(cuid())
-  configId     String
-  eventType    String
-  deliveryId   String?
-  payload      Json?
-  status       OfficialApiWebhookStatus @default(RECEIVED)
-  processedAt  DateTime?
-  errorMessage String?
-  createdAt    DateTime                 @default(now())
-  updatedAt    DateTime                 @updatedAt
-  config       OfficialApiClientConfig  @relation(fields: [configId], references: [id], onDelete: Cascade)
-
-  @@index([configId, createdAt])
-  @@index([deliveryId])
-}
-
 enum FinanceTransactionType {
   INCOME
   EXPENSE
-}
-
-model FinanceTransaction {
-  id          String                @id @default(cuid())
-  workspaceId String
-  type        FinanceTransactionType
-  amount      Decimal               @db.Decimal(12, 2)
-  description String
-  category    String?
-  date        DateTime              @default(now())
-  source      String                @default("manual")
-  createdAt   DateTime              @default(now())
-  updatedAt   DateTime              @updatedAt
-  workspace   Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-
-  @@index([workspaceId, date])
-  @@index([workspaceId, type])
-}
-
-model FinanceGoogleSheet {
-  id          String    @id @default(cuid())
-  workspaceId String    @unique
-  sheetUrl    String
-  sheetId     String
-  lastSyncAt  DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-}
-
-model FinanceChatMessage {
-  id          String    @id @default(cuid())
-  workspaceId String
-  role        String
-  content     String    @db.Text
-  createdAt   DateTime  @default(now())
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-
-  @@index([workspaceId, createdAt])
-}
-
-model AgentCopilotMessage {
-  id          String    @id @default(cuid())
-  workspaceId String
-  agentId     String
-  role        String
-  content     String    @db.Text
-  createdAt   DateTime  @default(now())
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  agent       Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
-
-  @@index([workspaceId, agentId, createdAt])
-}
-
-model FinanceAgentConfig {
-  id           String    @id @default(cuid())
-  workspaceId  String    @unique
-  systemPrompt String    @db.Text
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-}
-
-model OfficialApiAutomationRule {
-  id           String                          @id @default(cuid())
-  configId     String
-  name         String
-  description  String?
-  triggerText  String?
-  responseText String?
-  isFallback   Boolean                         @default(false)
-  priority     Int                             @default(100)
-  status       OfficialApiAutomationRuleStatus @default(DRAFT)
-  createdAt    DateTime                        @default(now())
-  updatedAt    DateTime                        @updatedAt
-  config       OfficialApiClientConfig         @relation(fields: [configId], references: [id], onDelete: Cascade)
-
-  @@index([configId, status, priority])
 }

@@ -47,6 +47,25 @@ function renderConversationPreview(conversation: SharedInboxConversationItem) {
   return getConversationPreview(conversation);
 }
 
+function getConversationTagBadgeStyle(color?: string | null) {
+  const normalized = color?.trim();
+  if (!normalized) {
+    return {
+      backgroundColor: "var(--primary)",
+    };
+  }
+
+  if (/^(#|rgb\(|hsl\(|oklch\(|var\(|color\()/i.test(normalized)) {
+    return {
+      backgroundColor: normalized,
+    };
+  }
+
+  return {
+    backgroundColor: "var(--primary)",
+  };
+}
+
 const ConversationListItem = memo(function ConversationListItem({
   conversation,
   isSelected,
@@ -76,7 +95,7 @@ const ConversationListItem = memo(function ConversationListItem({
           ? "bg-[color-mix(in_srgb,var(--primary)_6%,white)]"
           : "hover:bg-[color-mix(in_srgb,var(--primary)_4%,white)] hover:shadow-[inset_0_0_0_1px_rgba(16,185,129,0.08)]"
       }`}
-      style={{ contentVisibility: "auto", containIntrinsicSize: "84px" }}
+      style={{ contentVisibility: "auto", containIntrinsicSize: "96px" }}
     >
       <span
         className={`absolute inset-y-3 left-0 w-1 rounded-r-full ${
@@ -115,10 +134,10 @@ const ConversationListItem = memo(function ConversationListItem({
         ) : null}
       </div>
 
-      <div className="space-y-0.5 overflow-hidden min-w-0">
-        <div className="flex items-center justify-between gap-3">
+      <div className="min-w-0 space-y-[1px] overflow-hidden">
+        <div className="flex items-center justify-between gap-2">
           <div className="min-w-0 flex flex-1 items-center gap-1.5">
-            <p className="min-w-0 flex-1 truncate text-[13px] font-semibold text-slate-950 md:text-[13px]">
+            <p className="min-w-0 flex-1 truncate text-[13px] font-semibold leading-[1.12] text-slate-950 md:text-[13px]">
               {conversation.label}
             </p>
           </div>
@@ -131,17 +150,35 @@ const ConversationListItem = memo(function ConversationListItem({
           </span>
         </div>
 
-        <div className="flex min-w-0 max-w-full items-center gap-2 overflow-hidden">
-          <p className="block min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[12px] text-slate-600 md:text-[13px]">
+        <div className="mt-0.5 flex min-w-0 max-w-full items-center gap-2 overflow-hidden">
+          <p className="block min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[12px] leading-[1.12] text-slate-600 md:text-[13px]">
             {renderConversationPreview(conversation)}
           </p>
         </div>
+
+        {conversation.tags?.length ? (
+          <div className="flex flex-wrap gap-1 pt-0.5">
+            {conversation.tags.map((tag) => (
+              <span
+                key={`${conversation.id}:${tag.label}`}
+                className="inline-flex max-w-full items-center rounded-[4px] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
+                style={{
+                  ...getConversationTagBadgeStyle(tag.color),
+                  color: "#111827",
+                }}
+                title={tag.label}
+              >
+                <span className="truncate">{tag.label.toUpperCase()}</span>
+              </span>
+            ))}
+          </div>
+        ) : null}
       </div>
     </Link>
   );
 });
 
-const ESTIMATED_ROW_HEIGHT = 84;
+const ESTIMATED_ROW_HEIGHT = 96;
 const VIRTUALIZATION_THRESHOLD = 36;
 const OVERSCAN_ROWS = 6;
 

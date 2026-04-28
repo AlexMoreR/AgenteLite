@@ -86,6 +86,7 @@ function hydrateConversation(conversation: CachedConversation): SharedInboxSelec
     id: conversation.id,
     label: conversation.label,
     secondaryLabel: conversation.secondaryLabel,
+    tags: conversation.tags,
     avatarUrl: conversation.avatarUrl ?? null,
     automationPaused: conversation.automationPaused,
     messages: conversation.messages.map((message) => ({

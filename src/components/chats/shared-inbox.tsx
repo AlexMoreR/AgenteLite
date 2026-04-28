@@ -17,6 +17,7 @@ import {
   Pencil,
   Search,
   SendHorizonal,
+  Tag,
   UserRound,
 } from "lucide-react";
 import { ChatScrollAnchor } from "@/components/agents/chat-scroll-anchor";
@@ -24,6 +25,7 @@ import { ChatSelectionOverlay } from "@/components/chats/chat-selection-overlay"
 import { readConversationFromCache, saveConversationToCache } from "@/components/chats/chat-history-cache";
 import { ConversationList } from "@/components/chats/conversation-list";
 import { EditContactModal } from "@/components/chats/edit-contact-modal";
+import { EtiquetaModal } from "@/components/chats/etiqueta-modal";
 import { Card } from "@/components/ui/card";
 
 const chatDateFormatter = new Intl.DateTimeFormat("en-CA");
@@ -42,6 +44,10 @@ export type SharedInboxConversationItem = {
   id: string;
   label: string;
   secondaryLabel: string;
+  tags?: Array<{
+    label: string;
+    color: string;
+  }>;
   channelType?: "whatsapp" | "whatsapp_official" | "instagram" | "facebook";
   incomingCount?: number | null;
   avatarUrl?: string | null;
@@ -68,6 +74,10 @@ export type SharedInboxSelectedConversation = {
   id: string;
   label: string;
   secondaryLabel: string;
+  tags?: Array<{
+    label: string;
+    color: string;
+  }>;
   avatarUrl?: string | null;
   contactId?: string | null;
   contactName?: string | null;
@@ -391,6 +401,8 @@ export function SharedInbox({
   const [optimisticOutgoingMessage, setOptimisticOutgoingMessage] = useState<OptimisticDraftMessage | null>(null);
   const [editContactOpen, setEditContactOpen] = useState(false);
   const handleCloseEditContact = useCallback(() => setEditContactOpen(false), []);
+  const [etiquetaModalOpen, setEtiquetaModalOpen] = useState(false);
+  const handleCloseEtiquetaModal = useCallback(() => setEtiquetaModalOpen(false), []);
   const conversationListScrollRef = useRef<HTMLDivElement | null>(null);
   const messagesScrollRef = useRef<HTMLDivElement | null>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
@@ -694,6 +706,14 @@ export function SharedInbox({
                           <Pencil className="h-3.5 w-3.5" />
                         </button>
                       ) : null}
+                      <button
+                        type="button"
+                        onClick={() => setEtiquetaModalOpen(true)}
+                        className="shrink-0 inline-flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                        aria-label="Etiquetas"
+                      >
+                        <Tag className="h-3.5 w-3.5" />
+                      </button>
                     </div>
                     <p className="truncate text-xs text-slate-500">{renderedConversation.secondaryLabel}</p>
                   </div>
@@ -992,6 +1012,11 @@ export function SharedInbox({
         contactName={renderedConversation.contactName ?? renderedConversation.label}
       />
     ) : null}
+    <EtiquetaModal
+      open={etiquetaModalOpen}
+      onClose={handleCloseEtiquetaModal}
+      contactId={renderedConversation?.contactId}
+    />
     </>
   );
 }

@@ -34,6 +34,10 @@ type UnifiedConversation = {
   channelId?: string;
   label: string;
   secondaryLabel: string;
+  tags?: Array<{
+    label: string;
+    color: string;
+  }>;
   avatarUrl?: string | null;
   incomingCount?: number | null;
   lastMessage: string | null;
@@ -48,6 +52,24 @@ function getAgentContactLabel(input: { name: string | null; phoneNumber: string 
 
 function getOfficialContactLabel(input: { name: string | null; phoneNumber: string | null; waId: string }) {
   return input.name?.trim() || input.phoneNumber?.trim() || input.waId;
+}
+
+function getContactTags(input: {
+  contactTags?: Array<{
+    tag: {
+      name: string;
+      color: string;
+    };
+  }>;
+}) {
+  return (
+    input.contactTags
+      ?.map((item) => item.tag)
+      .filter((tag): tag is { name: string; color: string } => Boolean(tag?.name?.trim())) ?? []
+  ).map((tag) => ({
+    label: tag.name,
+    color: tag.color,
+  }));
 }
 
 function parseChatKey(input: string): { source: "agent" | "official"; conversationId: string } | null {
@@ -151,7 +173,25 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
                 evolutionInstanceName: true,
               },
             },
-            contact: { select: { id: true, name: true, phoneNumber: true, avatarUrl: true } },
+            contact: {
+              select: {
+                id: true,
+                name: true,
+                phoneNumber: true,
+                avatarUrl: true,
+                contactTags: {
+                  orderBy: { createdAt: "asc" },
+                  select: {
+                    tag: {
+                      select: {
+                        name: true,
+                        color: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
             messages: {
               orderBy: { createdAt: "desc" },
               take: CHAT_MESSAGE_BATCH_SIZE * messagePage + 1,
@@ -222,7 +262,23 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         agentId: true,
         channelId: true,
         contact: {
-          select: { id: true, name: true, phoneNumber: true, avatarUrl: true },
+          select: {
+            id: true,
+            name: true,
+            phoneNumber: true,
+            avatarUrl: true,
+            contactTags: {
+              orderBy: { createdAt: "asc" },
+              select: {
+                tag: {
+                  select: {
+                    name: true,
+                    color: true,
+                  },
+                },
+              },
+            },
+          },
         },
         messages: {
           orderBy: { createdAt: "desc" },
@@ -324,6 +380,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   const agentRows: UnifiedConversation[] = activeAgentConversations.map((conversation) => {
     const linkedChannel = conversation.channelId ? channelsById.get(conversation.channelId) || null : null;
     const avatarUrl = conversation.contact.avatarUrl ?? null;
+    const tags = getContactTags(conversation.contact);
 
     return {
       key: `agent:${conversation.id}`,
@@ -333,6 +390,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       channelId: conversation.channelId || undefined,
       label: getAgentContactLabel(conversation.contact),
       secondaryLabel: conversation.contact.phoneNumber,
+      tags,
       avatarUrl,
       incomingCount: agentIncomingCountById.get(conversation.id) ?? 0,
       lastMessage: conversation.messages[0]?.content ?? null,
@@ -435,6 +493,10 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     id: string;
     label: string;
     secondaryLabel: string;
+    tags?: Array<{
+      label: string;
+      color: string;
+    }>;
     avatarUrl?: string | null;
     contactId?: string | null;
     contactName?: string | null;
@@ -517,6 +579,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       );
 
       const avatarUrl = detail.contact.avatarUrl ?? selectedUnified.avatarUrl ?? null;
+      const tags = getContactTags(detail.contact);
       if (!detail.contact.avatarUrl && detailChannel?.evolutionInstanceName && detail.contact.phoneNumber) {
         void fetchEvolutionProfilePictureUrl({
           instanceName: detailChannel.evolutionInstanceName,
@@ -532,6 +595,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         id: detail.id,
         label: getAgentContactLabel(detail.contact),
         secondaryLabel: detail.contact.phoneNumber,
+        tags,
         avatarUrl,
         contactId: detail.contact.id,
         contactName: detail.contact.name ?? null,
@@ -604,6 +668,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           id: item.key,
           label: item.label,
           secondaryLabel: item.secondaryLabel,
+          tags: item.tags ?? [],
           channelType: item.source === "official" ? "whatsapp_official" : "whatsapp",
           incomingCount: item.incomingCount ?? 0,
           avatarUrl: item.avatarUrl ?? null,
