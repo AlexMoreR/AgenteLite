@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { io, type Socket } from "socket.io-client";
 
 type ChatsRealtimeSyncProps = {
@@ -123,6 +124,7 @@ export function ChatsRealtimeSync({
   selectedConversationKey = null,
   enabled = true,
 }: ChatsRealtimeSyncProps) {
+  const router = useRouter();
   const [isVisible, setIsVisible] = useState(() => (typeof document === "undefined" ? true : document.visibilityState === "visible"));
   const normalizedInstanceNames = useMemo(() => normalizeInstanceNames(instanceNames), [instanceNames]);
   const liveUpdateTimerRef = useRef<number | null>(null);
