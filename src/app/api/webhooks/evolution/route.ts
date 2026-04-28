@@ -31,6 +31,7 @@ import {
 import { resolveAgentKnowledgeBaseReply } from "@/lib/agent-knowledge-media";
 import { enforceWorkspacePlanAccess } from "@/lib/workspace-plan-access";
 import { getEvolutionSettings } from "@/lib/system-settings";
+import { buildHandoffMessage } from "@/lib/agent-training";
 import { resolveNotifyHumanAction } from "@/features/agent-actions";
 
 function mapChannelStatus(eventName: string | null, rawState: string | null) {
@@ -486,26 +487,38 @@ export async function POST(request: Request) {
             return null;
           })
         : null;
+      const shouldHandoffToHuman = Boolean(notifyHumanAction);
 
-      const hardFlowReply = await resolveAgentProductFlowReply({
-        agentId: agent.id,
-        workspaceId: channel.workspaceId,
-        latestUserMessage: messageText,
-        history: recentMessages,
-        includeOfficialApi: false,
-      });
+      if (shouldHandoffToHuman) {
+        await setConversationAutomationPaused({ conversationId: conversation.id, paused: true });
+      }
+
+      const hardFlowReply = shouldHandoffToHuman
+        ? null
+        : await resolveAgentProductFlowReply({
+            agentId: agent.id,
+            workspaceId: channel.workspaceId,
+            latestUserMessage: messageText,
+            history: recentMessages,
+            includeOfficialApi: false,
+          });
 
       const knowledgeBaseReply = hardFlowReply
         ? null
-        : await resolveAgentKnowledgeBaseReply({
-            agentId: agent.id,
-            latestUserMessage: messageText,
-            history: recentMessages,
-          });
+        : shouldHandoffToHuman
+          ? null
+          : await resolveAgentKnowledgeBaseReply({
+              agentId: agent.id,
+              latestUserMessage: messageText,
+              history: recentMessages,
+            });
 
       let shouldComposeWelcome = true;
 
-      if (hardFlowReply) {
+      if (shouldHandoffToHuman) {
+        replyText = buildHandoffMessage();
+        shouldComposeWelcome = false;
+      } else if (hardFlowReply) {
         replyText = hardFlowReply.reply ?? "";
       } else if (knowledgeBaseReply) {
         replyText = knowledgeBaseReply.text ?? null;
@@ -533,18 +546,18 @@ export async function POST(request: Request) {
       console.log("[EVOLUTION] auto_reply_mode", {
         conversationId: conversation.id,
         agentId: agent.id,
-        mode: !existingOutbound ? "first_turn_ai" : "ai",
-        hardFlow: hardFlowReply?.flowTitle ?? null,
+        mode: shouldHandoffToHuman ? "handoff" : !existingOutbound ? "first_turn_ai" : "ai",
+        hardFlow: shouldHandoffToHuman ? null : hardFlowReply?.flowTitle ?? null,
         usedFallback:
           replyText?.trim() === (agent.fallbackMessage?.trim() || "").trim(),
         historyCount: recentMessages.length,
       });
 
-      const hardFlowImageReply = hardFlowReply?.image ?? null;
-      const knowledgeImageReply = knowledgeBaseReply?.image ?? null;
+      const hardFlowImageReply = shouldHandoffToHuman ? null : hardFlowReply?.image ?? null;
+      const knowledgeImageReply = shouldHandoffToHuman ? null : knowledgeBaseReply?.image ?? null;
       const imageReply = hardFlowImageReply ?? knowledgeImageReply;
       const imageReplyProductName = hardFlowReply?.productName || knowledgeBaseReply?.productName || "";
-      const imageReplyReason = hardFlowReply ? "flow" : knowledgeBaseReply ? "knowledge" : null;
+      const imageReplyReason = shouldHandoffToHuman ? null : hardFlowReply ? "flow" : knowledgeBaseReply ? "knowledge" : null;
       let followUpText: string | null = null;
 
       const generateContextualFollowUp = async (
@@ -567,9 +580,11 @@ export async function POST(request: Request) {
           .then((t) => t?.trim() || null)
           .catch(() => null);
 
-      const flowFollowUpContext = hardFlowReply
-        ? `El flujo "${hardFlowReply.flowTitle}" ya fue ejecutado para "${hardFlowReply.productName || "el producto"}".`
-        : null;
+      const flowFollowUpContext = shouldHandoffToHuman
+        ? null
+        : hardFlowReply
+          ? `El flujo "${hardFlowReply.flowTitle}" ya fue ejecutado para "${hardFlowReply.productName || "el producto"}".`
+          : null;
 
       if (replyText || knowledgeImageReply || hardFlowImageReply) {
         try {

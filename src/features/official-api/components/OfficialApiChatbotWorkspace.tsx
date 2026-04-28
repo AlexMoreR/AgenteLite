@@ -1481,6 +1481,18 @@ export function OfficialApiChatbotWorkspace({
                         type="button"
                         onClick={(event) => {
                           event.stopPropagation();
+                          setOpenMenuScenarioId("");
+                          toast.info("Respuesta rápidas estará disponible pronto.");
+                        }}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50"
+                      >
+                        <MessageSquarePlus className="h-4 w-4" />
+                        Respuesta rápidas
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
                           handleDeleteRequest(scenario);
                         }}
                         className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-rose-600 transition hover:bg-rose-50"

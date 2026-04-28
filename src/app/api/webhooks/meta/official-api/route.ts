@@ -12,6 +12,7 @@ import {
 import { resolveAgentKnowledgeBaseReply } from "@/lib/agent-knowledge-media";
 import { prisma } from "@/lib/prisma";
 import { ensureOfficialApiConfigTable } from "@/lib/official-api-config";
+import { buildHandoffMessage } from "@/lib/agent-training";
 import { resolveNotifyHumanAction } from "@/features/agent-actions";
 
 type MetaWebhookPayload = {
@@ -631,28 +632,31 @@ export async function POST(request: Request) {
             return null;
           })
         : null;
-      const agentKnowledgeBaseReply = linkedAgentChannel?.agent?.id
-        ? await resolveAgentKnowledgeBaseReply({
+      const shouldHandoffToHuman = Boolean(notifyHumanAction);
+      const agentKnowledgeBaseReply = shouldHandoffToHuman || !linkedAgentChannel?.agent?.id
+        ? null
+        : await resolveAgentKnowledgeBaseReply({
             agentId: linkedAgentChannel.agent.id,
             latestUserMessage: message.content,
             history: recentMessages,
-          })
-        : null;
-      const agentProductFlowReply = linkedAgentChannel?.agent?.id
-        ? await resolveAgentProductFlowReply({
+          });
+      const agentProductFlowReply = shouldHandoffToHuman || !linkedAgentChannel?.agent?.id
+        ? null
+        : await resolveAgentProductFlowReply({
             agentId: linkedAgentChannel.agent.id,
             workspaceId: config.workspaceId,
             latestUserMessage: message.content,
             history: recentMessages,
             includeOfficialApi: true,
-          })
-        : null;
+          });
 
-      const chatbotReply = await resolveOfficialApiAutomationReply({
-        configId: config.id,
-        conversationId: message.conversationId,
-        inboundText: message.content,
-      });
+      const chatbotReply = shouldHandoffToHuman
+        ? null
+        : await resolveOfficialApiAutomationReply({
+            configId: config.id,
+            conversationId: message.conversationId,
+            inboundText: message.content,
+          });
       const reply = agentProductFlowReply
         ? {
             text: agentProductFlowReply.reply?.trim() || null,
@@ -660,7 +664,12 @@ export async function POST(request: Request) {
           }
         : agentKnowledgeBaseReply
           ? agentKnowledgeBaseReply
-          : chatbotReply
+          : shouldHandoffToHuman
+            ? {
+                text: buildHandoffMessage(),
+                image: null,
+              }
+            : chatbotReply
             ? {
                 text: chatbotReply.text?.trim() || null,
                 image: chatbotReply.image,
