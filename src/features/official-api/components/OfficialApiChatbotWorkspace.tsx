@@ -702,6 +702,21 @@ export function OfficialApiChatbotWorkspace({
   const blockLibraryButtonRef = useRef<HTMLButtonElement | null>(null);
   const blockLibraryPanelRef = useRef<HTMLDivElement | null>(null);
 
+  function buildAutoSaveSnapshot(input: {
+    selectedScenarioId: string;
+    scenarios: OfficialApiChatbotScenario[];
+    nodesByScenarioId: OfficialApiChatbotNodesByScenarioId;
+    nodePositionsByScenarioId: NodePositionsByScenarioId;
+    edgesByScenarioId: EdgesByScenarioId;
+    businessHours: string;
+    captureLeadEnabled: boolean;
+    handoffEnabled: boolean;
+    fallbackEnabled: boolean;
+    replyEveryMessageEnabled: boolean;
+  }) {
+    return JSON.stringify(input);
+  }
+
   const hasWorkflows = scenarios.length > 0;
   const selectedScenario = scenarios.find((scenario) => scenario.id === selectedScenarioId);
   const quickResponsesScenario = scenarios.find((scenario) => scenario.id === quickResponsesScenarioId) ?? null;
@@ -1166,10 +1181,42 @@ export function OfficialApiChatbotWorkspace({
     }
 
     const nextMeta = mergeKeywords(selectedQuickResponse.meta, keyword);
-    updateNodeInScenario(quickResponsesScenario.id, selectedQuickResponse.id, { meta: nextMeta });
+    const nextNodesByScenarioId = {
+      ...nodesByScenarioId,
+      [quickResponsesScenario.id]: (nodesByScenarioId[quickResponsesScenario.id] ?? []).map((node) =>
+        node.id === selectedQuickResponse.id ? { ...node, meta: nextMeta } : node,
+      ),
+    };
+
+    setNodesByScenarioId(nextNodesByScenarioId);
     setQuickResponseKeywordDraft("");
     setIsQuickResponseKeywordFormOpen(false);
     toast.success("Palabra clave agregada");
+
+    void persistBuilderState({
+      selectedScenarioId,
+      scenarios,
+      nodesByScenarioId: nextNodesByScenarioId,
+      nodePositionsByScenarioId,
+      edgesByScenarioId,
+    }).then(() => {
+      lastAutoSavedSnapshotRef.current = buildAutoSaveSnapshot({
+        selectedScenarioId,
+        scenarios,
+        nodesByScenarioId: nextNodesByScenarioId,
+        nodePositionsByScenarioId,
+        edgesByScenarioId,
+        businessHours,
+        captureLeadEnabled,
+        handoffEnabled,
+        fallbackEnabled,
+        replyEveryMessageEnabled,
+      });
+    }).catch(() => {
+      toast.error("No se pudo guardar la palabra clave", {
+        description: "Revisa tu conexion e intenta nuevamente.",
+      });
+    });
   }
 
   function deleteQuickResponseKeyword(responseId: string, keywordToRemove: string) {
@@ -1186,10 +1233,42 @@ export function OfficialApiChatbotWorkspace({
       .filter((keyword) => keyword !== keywordToRemove)
       .join(", ");
 
-    updateNodeInScenario(quickResponsesScenario.id, responseId, { meta: nextMeta });
+    const nextNodesByScenarioId = {
+      ...nodesByScenarioId,
+      [quickResponsesScenario.id]: (nodesByScenarioId[quickResponsesScenario.id] ?? []).map((node) =>
+        node.id === responseId ? { ...node, meta: nextMeta } : node,
+      ),
+    };
+
+    setNodesByScenarioId(nextNodesByScenarioId);
     setIsQuickResponseKeywordFormOpen(false);
     setQuickResponseKeywordDraft("");
     toast.success("Palabra clave eliminada");
+
+    void persistBuilderState({
+      selectedScenarioId,
+      scenarios,
+      nodesByScenarioId: nextNodesByScenarioId,
+      nodePositionsByScenarioId,
+      edgesByScenarioId,
+    }).then(() => {
+      lastAutoSavedSnapshotRef.current = buildAutoSaveSnapshot({
+        selectedScenarioId,
+        scenarios,
+        nodesByScenarioId: nextNodesByScenarioId,
+        nodePositionsByScenarioId,
+        edgesByScenarioId,
+        businessHours,
+        captureLeadEnabled,
+        handoffEnabled,
+        fallbackEnabled,
+        replyEveryMessageEnabled,
+      });
+    }).catch(() => {
+      toast.error("No se pudo guardar la palabra clave", {
+        description: "Revisa tu conexion e intenta nuevamente.",
+      });
+    });
   }
 
   function confirmDeleteWorkflow() {
@@ -1441,7 +1520,7 @@ export function OfficialApiChatbotWorkspace({
       return;
     }
 
-    const snapshot = JSON.stringify({
+    const snapshot = buildAutoSaveSnapshot({
       selectedScenarioId,
       scenarios,
       nodesByScenarioId,

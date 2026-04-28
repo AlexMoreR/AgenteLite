@@ -6,6 +6,7 @@ import { resolveAgentProductFlowReply } from "@/lib/agent-product-flow";
 import { composeAgentWelcomeReply } from "@/lib/agent-reply-composer";
 import { getConversationAutomationPaused, setConversationAutomationPaused } from "@/lib/conversation-automation";
 import { prisma } from "@/lib/prisma";
+import { resolveEvolutionQuickResponseFlow } from "@/features/flows/services/resolveEvolutionQuickResponseFlow";
 import {
   extractEvolutionConnectionState,
   extractEvolutionEventName,
@@ -430,13 +431,20 @@ export async function POST(request: Request) {
       responseDelaySeconds,
     });
 
+      const quickResponseFlow = channel.isActive && !conversationAutomationPaused && channel.evolutionInstanceName && messageText
+        ? await resolveEvolutionQuickResponseFlow({
+            workspaceId: channel.workspaceId,
+            channelId: channel.id,
+            manualMessage: messageText,
+          })
+        : null;
+
       if (
         channel.isActive &&
-        agent?.isActive &&
-      agent.status === "ACTIVE" &&
-      !conversationAutomationPaused &&
-      channel.evolutionInstanceName &&
-      messageText
+        !conversationAutomationPaused &&
+        channel.evolutionInstanceName &&
+        messageText &&
+        (quickResponseFlow || (agent?.isActive && agent.status === "ACTIVE"))
       ) {
       const existingOutbound = await prisma.message.findFirst({
         where: {
@@ -493,7 +501,7 @@ export async function POST(request: Request) {
         await setConversationAutomationPaused({ conversationId: conversation.id, paused: true });
       }
 
-      const hardFlowReply = shouldHandoffToHuman
+      const hardFlowReply = shouldHandoffToHuman || quickResponseFlow
         ? null
         : await resolveAgentProductFlowReply({
             agentId: agent.id,
@@ -518,6 +526,9 @@ export async function POST(request: Request) {
       if (shouldHandoffToHuman) {
         replyText = buildHandoffMessage();
         shouldComposeWelcome = false;
+      } else if (quickResponseFlow) {
+        replyText = quickResponseFlow.reply.text ?? "";
+        shouldComposeWelcome = Boolean(replyText);
       } else if (hardFlowReply) {
         replyText = hardFlowReply.reply ?? "";
       } else if (knowledgeBaseReply) {
@@ -546,18 +557,27 @@ export async function POST(request: Request) {
       console.log("[EVOLUTION] auto_reply_mode", {
         conversationId: conversation.id,
         agentId: agent.id,
-        mode: shouldHandoffToHuman ? "handoff" : !existingOutbound ? "first_turn_ai" : "ai",
-        hardFlow: shouldHandoffToHuman ? null : hardFlowReply?.flowTitle ?? null,
+        mode: shouldHandoffToHuman ? "handoff" : quickResponseFlow ? "quick_flow" : !existingOutbound ? "first_turn_ai" : "ai",
+        hardFlow: shouldHandoffToHuman ? null : quickResponseFlow?.scenarioTitle ?? hardFlowReply?.flowTitle ?? null,
         usedFallback:
           replyText?.trim() === (agent.fallbackMessage?.trim() || "").trim(),
         historyCount: recentMessages.length,
       });
 
+      const quickResponseImageReply = shouldHandoffToHuman ? null : quickResponseFlow?.reply.image ?? null;
       const hardFlowImageReply = shouldHandoffToHuman ? null : hardFlowReply?.image ?? null;
       const knowledgeImageReply = shouldHandoffToHuman ? null : knowledgeBaseReply?.image ?? null;
-      const imageReply = hardFlowImageReply ?? knowledgeImageReply;
-      const imageReplyProductName = hardFlowReply?.productName || knowledgeBaseReply?.productName || "";
-      const imageReplyReason = shouldHandoffToHuman ? null : hardFlowReply ? "flow" : knowledgeBaseReply ? "knowledge" : null;
+      const imageReply = quickResponseImageReply ?? hardFlowImageReply ?? knowledgeImageReply;
+      const imageReplyProductName = quickResponseFlow?.scenarioTitle || hardFlowReply?.productName || knowledgeBaseReply?.productName || "";
+      const imageReplyReason = shouldHandoffToHuman
+        ? null
+        : quickResponseFlow
+          ? "flow"
+          : hardFlowReply
+            ? "flow"
+            : knowledgeBaseReply
+              ? "knowledge"
+              : null;
       let followUpText: string | null = null;
 
       const generateContextualFollowUp = async (
@@ -582,11 +602,13 @@ export async function POST(request: Request) {
 
       const flowFollowUpContext = shouldHandoffToHuman
         ? null
-        : hardFlowReply
+        : quickResponseFlow
+          ? `El flujo "${quickResponseFlow.scenarioTitle}" ya fue ejecutado para la palabra clave "${quickResponseFlow.keyword}".`
+          : hardFlowReply
           ? `El flujo "${hardFlowReply.flowTitle}" ya fue ejecutado para "${hardFlowReply.productName || "el producto"}".`
           : null;
 
-      if (replyText || knowledgeImageReply || hardFlowImageReply) {
+      if (replyText || quickResponseImageReply || knowledgeImageReply || hardFlowImageReply) {
         try {
           console.log("[EVOLUTION] auto_reply_sending", {
             conversationId: conversation.id,
@@ -594,7 +616,7 @@ export async function POST(request: Request) {
             phoneNumber,
             instanceName: channel.evolutionInstanceName,
             preview: replyText?.slice(0, 80) ?? "",
-            withImage: Boolean(knowledgeImageReply || hardFlowImageReply),
+            withImage: Boolean(quickResponseImageReply || knowledgeImageReply || hardFlowImageReply),
           });
 
             try {
@@ -689,13 +711,17 @@ export async function POST(request: Request) {
               await sendText();
             }
 
-            if (!followUpText && hardFlowReply && flowFollowUpContext) {
+            if (!followUpText && (quickResponseFlow || hardFlowReply) && flowFollowUpContext) {
               followUpText = await generateContextualFollowUp(flowFollowUpContext, [
                 ...recentMessages,
                 {
                   direction: "OUTBOUND",
                   type: "TEXT",
-                  content: replyText || hardFlowReply.reply || `Flujo ejecutado para ${hardFlowReply.productName || "el producto"}`,
+                  content:
+                    replyText ||
+                    quickResponseFlow?.reply.text ||
+                    hardFlowReply?.reply ||
+                    `Flujo ejecutado para ${quickResponseFlow?.scenarioTitle || hardFlowReply?.productName || "el producto"}`,
                 },
               ]);
             }
@@ -742,7 +768,7 @@ export async function POST(request: Request) {
             agentId: agent.id,
             phoneNumber,
             sentText: Boolean(replyText),
-            sentImage: Boolean(knowledgeImageReply || hardFlowImageReply),
+            sentImage: Boolean(knowledgeImageReply || hardFlowImageReply || quickResponseImageReply),
           });
         } catch (error) {
           const errorMessage =
