@@ -54,22 +54,21 @@ function getOfficialContactLabel(input: { name: string | null; phoneNumber: stri
   return input.name?.trim() || input.phoneNumber?.trim() || input.waId;
 }
 
-function getContactTags(input: {
-  ContactTag?: Array<{
+function getContactTags(
+  input: Array<{
     Tag: {
       name: string;
       color: string;
     };
-  }>;
-}) {
-  return (
-    input.ContactTag
-      ?.map((item) => item.Tag)
-      .filter((tag): tag is { name: string; color: string } => Boolean(tag?.name?.trim())) ?? []
-  ).map((tag) => ({
-    label: tag.name,
-    color: tag.color,
-  }));
+  }>,
+) {
+  return input
+    .map((item) => item.Tag)
+    .filter((tag): tag is { name: string; color: string } => Boolean(tag?.name?.trim()))
+    .map((tag) => ({
+      label: tag.name,
+      color: tag.color,
+    }));
 }
 
 function parseChatKey(input: string): { source: "agent" | "official"; conversationId: string } | null {
@@ -179,17 +178,6 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
                 name: true,
                 phoneNumber: true,
                 avatarUrl: true,
-                ContactTag: {
-                  orderBy: { createdAt: "asc" },
-                  select: {
-                    Tag: {
-                      select: {
-                        name: true,
-                        color: true,
-                      },
-                    },
-                  },
-                },
               },
             },
             messages: {
@@ -267,17 +255,6 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
             name: true,
             phoneNumber: true,
             avatarUrl: true,
-            ContactTag: {
-              orderBy: { createdAt: "asc" },
-              select: {
-                Tag: {
-                  select: {
-                    name: true,
-                    color: true,
-                  },
-                },
-              },
-            },
           },
         },
         messages: {
@@ -312,6 +289,32 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     if (!conv.channelId) return true;
     return channelsById.has(conv.channelId);
   });
+
+  const contactIds = Array.from(new Set(activeAgentConversations.map((conversation) => conversation.contact.id)));
+  const contactTagRows = contactIds.length
+    ? await prisma.contactTag.findMany({
+        where: {
+          workspaceId: membership.workspace.id,
+          contactId: { in: contactIds },
+        },
+        orderBy: { createdAt: "asc" },
+        select: {
+          contactId: true,
+          Tag: {
+            select: {
+              name: true,
+              color: true,
+            },
+          },
+        },
+      })
+    : [];
+  const contactTagsByContactId = new Map<string, Array<{ Tag: { name: string; color: string } }>>();
+  for (const row of contactTagRows) {
+    const current = contactTagsByContactId.get(row.contactId) || [];
+    current.push({ Tag: row.Tag });
+    contactTagsByContactId.set(row.contactId, current);
+  }
 
   const activeAgentConversationIds = activeAgentConversations.map((conversation) => conversation.id);
   const agentIncomingCountRows = activeAgentConversationIds.length
@@ -380,7 +383,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   const agentRows: UnifiedConversation[] = activeAgentConversations.map((conversation) => {
     const linkedChannel = conversation.channelId ? channelsById.get(conversation.channelId) || null : null;
     const avatarUrl = conversation.contact.avatarUrl ?? null;
-    const tags = getContactTags(conversation.contact);
+    const tags = getContactTags(contactTagsByContactId.get(conversation.contact.id) || []);
 
     return {
       key: `agent:${conversation.id}`,
@@ -579,7 +582,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       );
 
       const avatarUrl = detail.contact.avatarUrl ?? selectedUnified.avatarUrl ?? null;
-      const tags = getContactTags(detail.contact);
+      const tags = getContactTags(contactTagsByContactId.get(detail.contact.id) || []);
       if (!detail.contact.avatarUrl && detailChannel?.evolutionInstanceName && detail.contact.phoneNumber) {
         void fetchEvolutionProfilePictureUrl({
           instanceName: detailChannel.evolutionInstanceName,

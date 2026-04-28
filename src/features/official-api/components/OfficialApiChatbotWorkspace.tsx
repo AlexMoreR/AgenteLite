@@ -1476,7 +1476,7 @@ export function OfficialApiChatbotWorkspace({
                     <MoreVertical className="h-4 w-4" />
                   </Button>
                   {openMenuScenarioId === scenario.id ? (
-                    <div className="absolute right-0 top-11 z-20 w-40 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-[0_22px_48px_-30px_rgba(15,23,42,0.35)]">
+                    <div className="absolute right-0 top-11 z-20 w-48 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-[0_22px_48px_-30px_rgba(15,23,42,0.35)]">
                       <button
                         type="button"
                         onClick={(event) => {
@@ -1484,7 +1484,7 @@ export function OfficialApiChatbotWorkspace({
                           setOpenMenuScenarioId("");
                           toast.info("Respuesta rápidas estará disponible pronto.");
                         }}
-                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50"
+                        className="flex w-full items-center gap-2 whitespace-nowrap px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50"
                       >
                         <MessageSquarePlus className="h-4 w-4" />
                         Respuesta rápidas
