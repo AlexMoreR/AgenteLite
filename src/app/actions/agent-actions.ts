@@ -1819,8 +1819,8 @@ export async function saveAgentKnowledgeProductsAction(formData: FormData): Prom
       for (const productId of uniqueProductIds) {
         const instructions = instructionByProductId.get(productId) ?? null;
         await tx.$executeRaw`
-          INSERT INTO "AgentKnowledgeProduct" ("agentId", "productId", "instructions")
-          VALUES (${agent.id}, ${productId}, ${instructions})
+          INSERT INTO "AgentKnowledgeProduct" ("agentId", "productId", "instructions", "updatedAt")
+          VALUES (${agent.id}, ${productId}, ${instructions}, NOW())
         `;
       }
     });
@@ -1834,8 +1834,8 @@ export async function saveAgentKnowledgeProductsAction(formData: FormData): Prom
 
         for (const productId of uniqueProductIds) {
           await tx.$executeRaw`
-            INSERT INTO "AgentKnowledgeProduct" ("agentId", "productId")
-            VALUES (${agent.id}, ${productId})
+            INSERT INTO "AgentKnowledgeProduct" ("agentId", "productId", "updatedAt")
+            VALUES (${agent.id}, ${productId}, NOW())
           `;
         }
       });

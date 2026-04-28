@@ -672,6 +672,7 @@ export function OfficialApiChatbotWorkspace({
   const [blockLibrarySection, setBlockLibrarySection] = useState<"root" | "send">("root");
   const [isCreatingWorkflow, setIsCreatingWorkflow] = useState(false);
   const [newWorkflowTitle, setNewWorkflowTitle] = useState("");
+  const [newWorkflowSummary, setNewWorkflowSummary] = useState("");
   const [isUploadingNodeImage, setIsUploadingNodeImage] = useState(false);
   const [nodeImageUploadError, setNodeImageUploadError] = useState("");
   const [openMenuScenarioId, setOpenMenuScenarioId] = useState("");
@@ -701,6 +702,18 @@ export function OfficialApiChatbotWorkspace({
   const nodeImageInputRef = useRef<HTMLInputElement | null>(null);
   const blockLibraryButtonRef = useRef<HTMLButtonElement | null>(null);
   const blockLibraryPanelRef = useRef<HTMLDivElement | null>(null);
+
+  function openCreateWorkflowModal() {
+    setNewWorkflowTitle("");
+    setNewWorkflowSummary("");
+    setIsCreatingWorkflow(true);
+  }
+
+  function closeCreateWorkflowModal() {
+    setIsCreatingWorkflow(false);
+    setNewWorkflowTitle("");
+    setNewWorkflowSummary("");
+  }
 
   function buildAutoSaveSnapshot(input: {
     selectedScenarioId: string;
@@ -994,6 +1007,7 @@ export function OfficialApiChatbotWorkspace({
 
   function createWorkflow() {
     const title = newWorkflowTitle.trim();
+    const summary = newWorkflowSummary.trim();
     if (!title) {
       toast.error("Completa el flujo", {
         description: "Agrega el nombre antes de crear el flujo.",
@@ -1004,14 +1018,13 @@ export function OfficialApiChatbotWorkspace({
     const nextScenario: OfficialApiChatbotScenario = {
       id: createWorkflowId(),
       title,
-      summary: "Flujo personalizado creado desde el builder.",
+      summary: summary || "Flujo personalizado creado desde el builder.",
       messages: [],
     };
 
     setScenarios((current) => [...current, nextScenario]);
     setSelectedScenarioId(nextScenario.id);
-    setIsCreatingWorkflow(false);
-    setNewWorkflowTitle("");
+    closeCreateWorkflowModal();
     const nextNodes = createStarterNodes();
     const nextScenarios = [...scenarios, nextScenario];
     const nextNodesByScenarioId = {
@@ -1604,7 +1617,7 @@ export function OfficialApiChatbotWorkspace({
                 type="button"
                 size="sm"
                 className="h-9 rounded-lg px-4"
-                onClick={() => setIsCreatingWorkflow(true)}
+                onClick={openCreateWorkflowModal}
               >
                 <Plus className="h-3.5 w-3.5" />
                 Crear
@@ -1926,7 +1939,7 @@ export function OfficialApiChatbotWorkspace({
                     <Button
                       type="button"
                       className="mt-6 h-10 rounded-xl  px-5 text-sm  text-white hover:bg-[color-mix(in_srgb,var(--primary)_88%,black)]"
-                      onClick={() => setIsCreatingWorkflow(true)}
+                      onClick={openCreateWorkflowModal}
                     >
                       Crear
                     </Button>
@@ -2072,7 +2085,7 @@ export function OfficialApiChatbotWorkspace({
               <div className="relative border-b border-slate-200 px-6 py-7 text-center">
                 <button
                   type="button"
-                  onClick={() => setIsCreatingWorkflow(false)}
+                  onClick={closeCreateWorkflowModal}
                   className="absolute right-4 top-4 inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
                   aria-label="Cerrar modal"
                 >
@@ -2094,6 +2107,19 @@ export function OfficialApiChatbotWorkspace({
                     placeholder="Ej. Bienvenida principal"
                   />
                   <p className="text-xs leading-5 text-slate-500">Usa un nombre claro y facil de identificar.</p>
+                </label>
+
+                <label className="block space-y-2">
+                  <span className="text-sm font-medium text-slate-900">Resumen del flujo</span>
+                  <textarea
+                    value={newWorkflowSummary}
+                    onChange={(event) => setNewWorkflowSummary(event.target.value)}
+                    className="field-textarea min-h-24"
+                    placeholder="Ej. Se activa cuando el cliente pide precios, compara opciones o quiere avanzar a compra."
+                  />
+                  <p className="text-xs leading-5 text-slate-500">
+                    Describe cuándo debe activarse este flujo, qué dispara su uso y qué resultado debe conseguir. Si lo dejas vacío, se guardará un resumen base.
+                  </p>
                 </label>
 
                 <Button type="button" className="h-11 w-full rounded-xl" onClick={createWorkflow}>
