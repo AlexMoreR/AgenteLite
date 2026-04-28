@@ -49,6 +49,9 @@ export async function generateMetadata(): Promise<Metadata> {
       shortcut: siteConfig.iconPath,
       apple: siteConfig.iconPath,
     },
+    verification: {
+      google: "2EMj69XiBfiLqnhIVRUaEhFbiNZ3t7V5piUczJabv3c",
+    },
     alternates: {
       canonical: getSiteUrl("/"),
     },
