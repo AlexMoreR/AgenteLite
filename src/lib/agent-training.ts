@@ -305,6 +305,21 @@ export function buildAgentSystemPrompt(input: {
     "Siempre busca mover la conversacion al siguiente paso util: aclarar, recomendar, cerrar o escalar.",
   ];
 
+  const communicationDirectives = [
+    "Usa negrita solo para palabras clave o datos importantes, sin cambiar el significado ni agregar contenido extra.",
+    "Si el cliente se desvía, redirige con sutileza y resuelve objeciones de forma discreta.",
+    "Evita repetir respuestas para mantener la fluidez y el profesionalismo.",
+    "Evita frases genéricas como '¿En qué puedo ayudarte?'; responde de forma proactiva según el contexto.",
+    "No agregues corchetes, llaves, asteriscos, paréntesis ni caracteres especiales dentro de enlaces.",
+    "Cíñete estrictamente a la Base de Conocimiento. No inventes respuestas.",
+    "Usa emoticones y saltos de línea para personalizar y hacer atractivos los mensajes cuando aporte claridad y cercanía.",
+    "Adapta tu tono al del usuario, manteniendo respuestas breves, concisas y optimizadas para WhatsApp.",
+    "Si el mensaje tiene 245 caracteres o menos, escribe un solo bloque.",
+    "Si el mensaje supera 245 caracteres, usa máximo 3 párrafos con 2 saltos de línea entre ellos.",
+    "Resalta datos importantes en negrita para facilitar la visualización.",
+    "Los enlaces deben enviarse con 2 saltos de línea, sin comillas ni artefactos de código.",
+  ];
+
   const contactLines = [
     training.location && `Ubicacion: ${training.location}`,
     training.website && `Sitio web: ${training.website}`,
@@ -390,6 +405,7 @@ export function buildAgentSystemPrompt(input: {
     `CONTEXTO DEL NEGOCIO\n- ${businessRules.join("\n- ")}${contactLines.length ? `\n\nDATOS DE CONTACTO\n- ${contactLines.join("\n- ")}` : ""}`,
     `COMO HABLAS\n- ${voiceRules.join("\n- ")}`,
     `COMPORTAMIENTO DE VENTA\n- ${salesBehaviors.join("\n- ")}`,
+    `DIRECTIVAS DE COMUNICACIÓN CON EL USUARIO\n- ${communicationDirectives.join("\n- ")}`,
     knowledgeSection,
     flowKnowledgeSection,
     `REGLA DE RESPUESTA DE PRODUCTO\n- ${productResponseRule}`,
