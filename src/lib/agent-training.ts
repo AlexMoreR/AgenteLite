@@ -95,6 +95,17 @@ export type AgentTrainingConfig = {
   forbiddenRules: string[];
   customRules: string;
   knowledgeFlowIds: string[];
+  actions: AgentActionsConfig;
+};
+
+export type AgentNotifyActionConfig = {
+  enabled: boolean;
+  destinationPhoneNumber: string;
+  instruction: string;
+};
+
+export type AgentActionsConfig = {
+  notify: AgentNotifyActionConfig;
 };
 
 export type AgentKnowledgePromptProduct = {
@@ -144,6 +155,13 @@ export const defaultAgentTrainingConfig: AgentTrainingConfig = {
   forbiddenRules: [...forbiddenRuleOptions.slice(0, 4)],
   customRules: "",
   knowledgeFlowIds: [],
+  actions: {
+    notify: {
+      enabled: false,
+      destinationPhoneNumber: "",
+      instruction: "",
+    },
+  },
 };
 
 function getTonePrompt(value: SalesTone) {
@@ -187,6 +205,8 @@ export function getResponseLengthSliderValue(value: ResponseLength) {
 }
 
 export function buildAgentTrainingConfig(input: AgentTrainingConfig): AgentTrainingConfig {
+  const notify = input.actions.notify;
+
   return {
     ...input,
     targetAudiences: input.targetAudiences.filter((value, index, array) => array.indexOf(value) === index),
@@ -194,6 +214,13 @@ export function buildAgentTrainingConfig(input: AgentTrainingConfig): AgentTrain
     customWelcomeMessage: input.customWelcomeMessage.trim(),
     customRules: input.customRules.trim(),
     knowledgeFlowIds: input.knowledgeFlowIds.filter((value, index, array) => Boolean(value) && array.indexOf(value) === index),
+    actions: {
+      notify: {
+        enabled: Boolean(notify.enabled),
+        destinationPhoneNumber: notify.destinationPhoneNumber.trim(),
+        instruction: notify.instruction.trim(),
+      },
+    },
   };
 }
 
@@ -434,6 +461,7 @@ export function summarizeTraining(training: AgentTrainingConfig) {
       training.askForOrder ? "Pide el pedido directamente" : null,
       training.sendPaymentLink ? "Envia link de pago" : null,
       training.handoffToHuman ? "Escala a humano" : null,
+      training.actions.notify.enabled ? "Notifica a asesor humano" : null,
     ].filter(Boolean) as string[],
   };
 }
@@ -497,6 +525,22 @@ export function parseAgentTrainingConfig(value: unknown): AgentTrainingConfig | 
     forbiddenRules,
     customRules: typeof data.customRules === "string" ? data.customRules : "",
     knowledgeFlowIds,
+    actions: normalizeAgentActionsConfig(data.actions),
+  };
+}
+
+function normalizeAgentActionsConfig(value: unknown): AgentActionsConfig {
+  const data = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const notify = data.notify && typeof data.notify === "object" && !Array.isArray(data.notify)
+    ? data.notify as Record<string, unknown>
+    : {};
+
+  return {
+    notify: {
+      enabled: Boolean(notify.enabled),
+      destinationPhoneNumber: typeof notify.destinationPhoneNumber === "string" ? notify.destinationPhoneNumber.trim() : "",
+      instruction: typeof notify.instruction === "string" ? notify.instruction.trim() : "",
+    },
   };
 }
 

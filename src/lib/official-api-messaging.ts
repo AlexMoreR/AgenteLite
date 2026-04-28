@@ -189,6 +189,69 @@ export async function sendOfficialApiTextMessage(input: {
   return { ok: true as const };
 }
 
+export async function sendOfficialApiDirectTextMessage(input: {
+  config: OfficialApiMessagingConfig;
+  to: string;
+  message: string;
+}) {
+  if (!input.config.accessToken?.trim() || !input.config.phoneNumberId?.trim()) {
+    return { ok: false as const, error: "La API oficial no tiene credenciales activas." };
+  }
+
+  const response = await fetch(
+    `https://graph.facebook.com/v23.0/${encodeURIComponent(input.config.phoneNumberId)}/messages`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${input.config.accessToken}`,
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to: input.to,
+        type: "text",
+        text: {
+          body: input.message,
+        },
+      }),
+      cache: "no-store",
+    },
+  );
+
+  const payload = (await response.json().catch(() => null)) as
+    | {
+        messages?: Array<{
+          id?: string;
+        }>;
+        error?: {
+          message?: string;
+        };
+      }
+    | null;
+
+  if (!response.ok) {
+    if (isMetaGraphAuthError(payload)) {
+      await updateOfficialApiConnectionStatus({
+        configId: input.config.id,
+        status: "ERROR",
+      });
+    }
+
+    return {
+      ok: false as const,
+      error: isMetaGraphAuthError(payload)
+        ? "El access token de Meta ya no es valido. Pide al administrador reconectar la API oficial."
+        : getMetaGraphErrorMessage(payload, "No se pudo enviar la notificacion con la API oficial."),
+    };
+  }
+
+  return {
+    ok: true as const,
+    messageId: payload?.messages?.[0]?.id ?? null,
+  };
+}
+
 export async function sendOfficialApiImageMessage(input: {
   config: OfficialApiMessagingConfig;
   conversationId: string;

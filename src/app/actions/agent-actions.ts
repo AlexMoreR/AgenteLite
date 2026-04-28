@@ -158,6 +158,29 @@ const saveAgentKnowledgeProductInstructionSchema = z.object({
   instructions: z.string().trim().max(5000, "La instruccion es demasiado larga"),
 });
 
+const saveAgentActionsSchema = z.object({
+  agentId: z.string().trim().min(1, "Agente invalido"),
+  notifyEnabled: z.boolean(),
+  notifyPhoneNumber: z.string().trim().max(60, "El numero es demasiado largo"),
+  notifyInstruction: z.string().trim().max(500, "La intencion es demasiado larga"),
+}).superRefine((data, ctx) => {
+  if (data.notifyEnabled && data.notifyInstruction.trim().length < 3) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["notifyInstruction"],
+      message: "Describe la intencion",
+    });
+  }
+
+  if (data.notifyEnabled && data.notifyPhoneNumber.trim().length < 6) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["notifyPhoneNumber"],
+      message: "Agrega un numero de celular valido",
+    });
+  }
+});
+
 export type AgentTrainingAutosaveState = {
   ok: boolean;
   message: string;
@@ -936,6 +959,7 @@ async function persistAgentTraining(
     forbiddenRules: input.forbiddenRules,
     customRules: input.customRules,
     knowledgeFlowIds: currentTraining.knowledgeFlowIds,
+    actions: currentTraining.actions,
   });
   const nextAgentName = `Asistente ${input.businessName}`;
   const knowledgeProducts = await getAgentKnowledgePromptProducts(agent.id);
@@ -1074,6 +1098,7 @@ export async function createAgentAction(formData: FormData): Promise<void> {
     forbiddenRules: parsed.data.forbiddenRules,
     customRules: parsed.data.customRules,
     knowledgeFlowIds: [],
+    actions: defaultAgentTrainingConfig.actions,
     location: "",
     website: "",
     contactPhone: "",
@@ -1308,6 +1333,7 @@ export async function saveAgentBusinessProfileAction(input: {
     facebook: parsed.data.facebook,
     tiktok: parsed.data.tiktok,
     youtube: parsed.data.youtube,
+    actions: currentTraining.actions,
   });
 
   const nextAgentName = `Asistente ${parsed.data.businessName}`;
@@ -1955,6 +1981,128 @@ export async function saveAgentKnowledgeProductInstructionAction(formData: FormD
   revalidatePath(`/cliente/agentes/${agent.id}/conocimiento`);
   revalidatePath(`/cliente/agentes/${agent.id}/probar`);
   redirect(`/cliente/agentes/${agent.id}/conocimiento?ok=Instruccion+del+producto+actualizada`);
+}
+
+export async function saveAgentActionsAction(formData: FormData): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+    redirect("/unauthorized");
+  }
+
+  const parsed = saveAgentActionsSchema.safeParse({
+    agentId: formData.get("agentId"),
+    notifyEnabled: formData.get("notifyEnabled") === "on",
+    notifyPhoneNumber: formData.get("notifyPhoneNumber"),
+    notifyInstruction: formData.get("notifyInstruction"),
+  });
+
+  const fallbackAgentId = String(formData.get("agentId") || "");
+  if (!parsed.success) {
+    redirect(`/cliente/agentes/${fallbackAgentId}/acciones?error=No+se+pudieron+guardar+las+acciones`);
+  }
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    redirect("/cliente/agentes?error=Debes+configurar+tu+negocio+primero");
+  }
+
+  const agent = await prisma.agent.findFirst({
+    where: {
+      id: parsed.data.agentId,
+      workspaceId: membership.workspace.id,
+    },
+    select: {
+      id: true,
+      trainingConfig: true,
+    },
+  });
+
+  if (!agent) {
+    redirect("/cliente/agentes?error=Agente+no+encontrado");
+  }
+
+  const currentTraining = parseAgentTrainingConfig(agent.trainingConfig) ?? defaultAgentTrainingConfig;
+  const nextTraining = buildAgentTrainingConfig({
+    ...currentTraining,
+    actions: {
+      ...currentTraining.actions,
+      notify: {
+        enabled: parsed.data.notifyEnabled,
+        destinationPhoneNumber: parsed.data.notifyPhoneNumber.trim(),
+        instruction: parsed.data.notifyInstruction.trim(),
+      },
+    },
+  });
+
+  await prisma.agent.update({
+    where: { id: agent.id },
+    data: {
+      trainingConfig: nextTraining,
+    },
+  });
+
+  revalidatePath("/cliente/agentes");
+  revalidatePath(`/cliente/agentes/${agent.id}`);
+  revalidatePath(`/cliente/agentes/${agent.id}/acciones`);
+  revalidatePath(`/cliente/agentes/${agent.id}/entrenamiento`);
+  redirect(`/cliente/agentes/${agent.id}/acciones?ok=Acciones+actualizadas`);
+}
+
+export async function deleteAgentActionsAction(formData: FormData): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+    redirect("/unauthorized");
+  }
+
+  const agentId = String(formData.get("agentId") || "").trim();
+  if (!agentId) {
+    redirect("/cliente/agentes?error=Agente+invalido");
+  }
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    redirect("/cliente/agentes?error=Debes+configurar+tu+negocio+primero");
+  }
+
+  const agent = await prisma.agent.findFirst({
+    where: {
+      id: agentId,
+      workspaceId: membership.workspace.id,
+    },
+    select: {
+      id: true,
+      trainingConfig: true,
+    },
+  });
+
+  if (!agent) {
+    redirect("/cliente/agentes?error=Agente+no+encontrado");
+  }
+
+  const currentTraining = parseAgentTrainingConfig(agent.trainingConfig) ?? defaultAgentTrainingConfig;
+  const nextTraining = buildAgentTrainingConfig({
+    ...currentTraining,
+    actions: {
+      notify: {
+        enabled: false,
+        destinationPhoneNumber: "",
+        instruction: "",
+      },
+    },
+  });
+
+  await prisma.agent.update({
+    where: { id: agent.id },
+    data: {
+      trainingConfig: nextTraining,
+    },
+  });
+
+  revalidatePath("/cliente/agentes");
+  revalidatePath(`/cliente/agentes/${agent.id}`);
+  revalidatePath(`/cliente/agentes/${agent.id}/acciones`);
+  revalidatePath(`/cliente/agentes/${agent.id}/entrenamiento`);
+  redirect(`/cliente/agentes/${agent.id}/acciones?ok=Acci%C3%B3n+eliminada`);
 }
 
 export async function deleteAgentAction(formData: FormData): Promise<void> {

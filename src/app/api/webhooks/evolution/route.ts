@@ -31,6 +31,7 @@ import {
 import { resolveAgentKnowledgeBaseReply } from "@/lib/agent-knowledge-media";
 import { enforceWorkspacePlanAccess } from "@/lib/workspace-plan-access";
 import { getEvolutionSettings } from "@/lib/system-settings";
+import { resolveNotifyHumanAction } from "@/features/agent-actions";
 
 function mapChannelStatus(eventName: string | null, rawState: string | null) {
   const state = rawState?.toLowerCase() ?? "";
@@ -244,7 +245,7 @@ export async function POST(request: Request) {
       workspaceId: channel.workspaceId,
       phoneNumber,
     },
-    select: { id: true },
+    select: { id: true, name: true, phoneNumber: true },
   });
 
   const existingConversation = await prisma.conversation.findFirst({
@@ -392,6 +393,7 @@ export async function POST(request: Request) {
       where: { id: channel.agentId },
       select: {
         id: true,
+        name: true,
         status: true,
         isActive: true,
         model: true,
@@ -458,6 +460,32 @@ export async function POST(request: Request) {
           content: true,
         },
       });
+
+      const notifyHumanAction = resolveNotifyHumanAction({
+        trainingConfig: agent.trainingConfig,
+        agentName: agent.name,
+        customerPhoneNumber: phoneNumber,
+        customerName: contact.name,
+        latestUserMessage: messageText,
+        history: recentMessages,
+      });
+      const notifyHumanPromise = notifyHumanAction && channel.evolutionInstanceName
+        ? sendEvolutionTextMessageWithReconnect({
+            instanceName: channel.evolutionInstanceName,
+            phoneNumber: notifyHumanAction.destinationPhoneNumber,
+            text: notifyHumanAction.message,
+            delayMs: 0,
+          }).catch((error) => {
+            console.warn("[EVOLUTION] human_notification_failed", {
+              conversationId: conversation.id,
+              agentId: agent.id,
+              phoneNumber,
+              destinationPhoneNumber: notifyHumanAction.destinationPhoneNumber,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            return null;
+          })
+        : null;
 
       const hardFlowReply = await resolveAgentProductFlowReply({
         agentId: agent.id,
@@ -680,6 +708,10 @@ export async function POST(request: Request) {
                   rawPayload: followOutbound.raw as never,
                 },
               });
+            }
+
+            if (notifyHumanPromise) {
+              await notifyHumanPromise;
             }
 
             await prisma.conversation.update({

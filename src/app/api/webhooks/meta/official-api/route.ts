@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { resolveAgentProductFlowReply } from "@/lib/agent-product-flow";
 import { resolveOfficialApiAutomationReply } from "@/lib/official-api-chatbot";
 import {
+  sendOfficialApiDirectTextMessage,
   sendOfficialApiImageMessage,
   sendOfficialApiTextMessage,
   sendOfficialApiTypingIndicator,
@@ -11,6 +12,7 @@ import {
 import { resolveAgentKnowledgeBaseReply } from "@/lib/agent-knowledge-media";
 import { prisma } from "@/lib/prisma";
 import { ensureOfficialApiConfigTable } from "@/lib/official-api-config";
+import { resolveNotifyHumanAction } from "@/features/agent-actions";
 
 type MetaWebhookPayload = {
   object?: string;
@@ -171,6 +173,8 @@ async function findOfficialApiLinkedAgent(workspaceId: string) {
       agent: {
         select: {
           id: true,
+          name: true,
+          trainingConfig: true,
         },
       },
     },
@@ -340,6 +344,7 @@ async function syncInboundMessages(configId: string, payload: MetaWebhookPayload
     conversationId: string;
     contactId: string;
     waId: string;
+    contactName: string | null;
     content: string | null;
     inboundExternalMessageId: string;
   }> = [];
@@ -481,6 +486,7 @@ async function syncInboundMessages(configId: string, payload: MetaWebhookPayload
       conversationId: conversation.id,
       contactId: contact.id,
       waId: message.waId,
+      contactName: message.contactName,
       content: message.content,
       inboundExternalMessageId: message.id,
     });
@@ -599,6 +605,32 @@ export async function POST(request: Request) {
             LIMIT 8
           `
         : [];
+      const notifyHumanAction = linkedAgentChannel?.agent?.id
+        ? resolveNotifyHumanAction({
+            trainingConfig: linkedAgentChannel.agent.trainingConfig,
+            agentName: linkedAgentChannel.agent.name,
+            customerPhoneNumber: message.waId,
+            customerName: message.contactName,
+            latestUserMessage: message.content,
+            history: recentMessages,
+          })
+        : null;
+      const notifyHumanPromise = notifyHumanAction
+        ? sendOfficialApiDirectTextMessage({
+            config,
+            to: notifyHumanAction.destinationPhoneNumber,
+            message: notifyHumanAction.message,
+          }).catch((error) => {
+            console.warn("[official-api] human_notification_failed", {
+              configId: config.id,
+              conversationId: message.conversationId,
+              contactId: message.contactId,
+              destinationPhoneNumber: notifyHumanAction.destinationPhoneNumber,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            return null;
+          })
+        : null;
       const agentKnowledgeBaseReply = linkedAgentChannel?.agent?.id
         ? await resolveAgentKnowledgeBaseReply({
             agentId: linkedAgentChannel.agent.id,
@@ -717,6 +749,10 @@ export async function POST(request: Request) {
             source: "automation",
           });
         }
+      }
+
+      if (notifyHumanPromise) {
+        await notifyHumanPromise;
       }
     }
 
