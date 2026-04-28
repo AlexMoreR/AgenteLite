@@ -682,7 +682,7 @@ export function SharedInbox({
 
       setLiveConversation((current) => mergeConversationSnapshots(current ?? selectedConversation ?? null, snapshot));
       setConversationItems((current) => {
-        const currentItem = findConversationItemBySnapshotId(current, snapshot.id);
+        const currentItem = findConversationItemBySnapshotId(current, snapshot.id) ?? undefined;
         const updatedItem = buildConversationItemFromSnapshot(snapshot, currentItem);
         const nextItems = current.map((item) =>
           conversationIdMatchesKey(item.id, snapshot.id) ? { ...item, ...updatedItem } : item,
