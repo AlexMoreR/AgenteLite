@@ -15,6 +15,7 @@ import { getEvolutionSettings } from "@/lib/system-settings";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
+import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -139,6 +140,24 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     redirect("/cliente");
   }
 
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: membership.workspace.id },
+    select: { businessConfig: true },
+  });
+
+  const autoTagNewLeads =
+    workspace &&
+    typeof workspace.businessConfig === "object" &&
+    !Array.isArray(workspace.businessConfig) &&
+    (workspace.businessConfig as { autoTagNewLeads?: unknown }).autoTagNewLeads !== false;
+  const newLeadTagName =
+    workspace &&
+    typeof workspace.businessConfig === "object" &&
+    !Array.isArray(workspace.businessConfig) &&
+    typeof (workspace.businessConfig as { newLeadTagName?: unknown }).newLeadTagName === "string"
+      ? ((workspace.businessConfig as { newLeadTagName?: string }).newLeadTagName ?? "").trim()
+      : "";
+
   const params = await searchParams;
   const selectedChatKeyParam = typeof params.chatKey === "string" ? params.chatKey : "";
   const selectedConnectionParam = typeof params.connection === "string" ? params.connection : "";
@@ -256,6 +275,36 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   });
 
   const contactIds = Array.from(new Set(activeAgentConversations.map((conversation) => conversation.contact.id)));
+  const outboundRows =
+    autoTagNewLeads && contactIds.length > 0
+      ? await prisma.$queryRaw<Array<{ contactId: string; outboundCount: number }>>`
+          SELECT
+            m."contactId" AS "contactId",
+            COUNT(*)::int AS "outboundCount"
+          FROM "Message" m
+          WHERE m."workspaceId" = ${membership.workspace.id}
+            AND m."contactId" IN (${Prisma.join(contactIds)})
+            AND m."direction" = 'OUTBOUND'
+          GROUP BY m."contactId"
+        `
+      : [];
+  const outboundCountByContactId = new Map<string, number>();
+  for (const row of outboundRows) {
+    outboundCountByContactId.set(row.contactId, row.outboundCount);
+  }
+
+  if (autoTagNewLeads && contactIds.length > 0) {
+    await Promise.all(
+      contactIds.map((contactId) =>
+        syncLeadLifecycleForContact({
+          workspaceId: membership.workspace.id,
+          contactId,
+          newLeadTagName,
+          hasHistory: (outboundCountByContactId.get(contactId) ?? 0) > 0,
+        }),
+      ),
+    );
+  }
   const contactTagRows = contactIds.length
     ? await prisma.$queryRaw<Array<{ contactId: string; name: string; color: string }>>`
         SELECT

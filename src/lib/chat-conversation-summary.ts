@@ -1,5 +1,4 @@
 import { prisma } from "@/lib/prisma";
-import { Prisma } from "@prisma/client";
 
 export type ChatConversationSummary = {
   id: string;
@@ -22,7 +21,7 @@ function getAgentContactLabel(input: { name: string | null; phoneNumber: string 
   return input.name?.trim() || input.phoneNumber;
 }
 
-function getContactTags(
+export function getContactTags(
   input: Array<{
     name: string;
     color: string;

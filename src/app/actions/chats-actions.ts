@@ -7,6 +7,7 @@ import { auth } from "@/auth";
 import { sendManualAgentReplyAction } from "@/app/actions/agent-actions";
 import { sendOfficialApiReplyAction } from "@/app/actions/official-api-actions";
 import { getConversationAutomationPaused, setConversationAutomationPaused } from "@/lib/conversation-automation";
+import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
 import { sendEvolutionTextMessage } from "@/lib/evolution";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
@@ -209,6 +210,12 @@ export async function toggleConversationAutomationAction(formData: FormData): Pr
             evolution: outbound.raw,
           } as never,
         },
+      });
+
+      await syncLeadLifecycleForContact({
+        workspaceId: membership.workspace.id,
+        contactId: conversation.contact.id,
+        hasHistory: true,
       });
 
       await prisma.conversation.update({

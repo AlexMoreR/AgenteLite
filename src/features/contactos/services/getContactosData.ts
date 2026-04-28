@@ -1,4 +1,7 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
+import { getContactTags } from "@/lib/chat-conversation-summary";
 import type { ContactosContact, ContactosData } from "../types";
 
 type ContactosQuery = {
@@ -30,6 +33,7 @@ export async function getContactosData({
         select: {
           id: true,
           name: true,
+          businessConfig: true,
         },
       },
     },
@@ -41,79 +45,138 @@ export async function getContactosData({
 
   const query = normalize(searchQuery);
   const agentId = agentFilterId.trim();
+  const autoTagNewLeads =
+    typeof membership.workspace.businessConfig === "object" &&
+    membership.workspace.businessConfig !== null &&
+    !Array.isArray(membership.workspace.businessConfig) &&
+    (membership.workspace.businessConfig as { autoTagNewLeads?: unknown }).autoTagNewLeads !== false;
+  const newLeadTagName =
+    typeof membership.workspace.businessConfig === "object" &&
+    membership.workspace.businessConfig !== null &&
+    !Array.isArray(membership.workspace.businessConfig) &&
+    typeof (membership.workspace.businessConfig as { newLeadTagName?: unknown }).newLeadTagName === "string"
+      ? ((membership.workspace.businessConfig as { newLeadTagName?: string }).newLeadTagName ?? "").trim()
+      : "";
 
-  const rawContacts = await prisma.contact.findMany({
-    where: {
-      workspaceId: membership.workspace.id,
-      ...(agentId
-        ? {
-            conversations: {
-              some: {
-                agentId,
+  const loadContacts = async () =>
+    prisma.contact.findMany({
+      where: {
+        workspaceId: membership.workspace.id,
+        ...(agentId
+          ? {
+              conversations: {
+                some: {
+                  agentId,
+                },
+              },
+            }
+          : {}),
+      },
+      orderBy: [{ updatedAt: "desc" }],
+      take: 250,
+      select: {
+        id: true,
+        name: true,
+        phoneNumber: true,
+        email: true,
+        notes: true,
+        avatarUrl: true,
+        createdAt: true,
+        updatedAt: true,
+        ContactTag: {
+          select: {
+            Tag: {
+              select: {
+                name: true,
+                color: true,
               },
             },
-          }
-        : {}),
-    },
-    orderBy: [{ updatedAt: "desc" }],
-    take: 250,
-    select: {
-      id: true,
-      name: true,
-      phoneNumber: true,
-      email: true,
-      notes: true,
-      avatarUrl: true,
-      createdAt: true,
-      updatedAt: true,
-      _count: {
-        select: {
-          conversations: true,
-          messages: true,
+          },
         },
-      },
-      conversations: {
-        where: agentId
-          ? {
-              agentId,
-            }
-          : undefined,
-        orderBy: [{ lastMessageAt: "desc" }, { updatedAt: "desc" }],
-        take: 3,
-        select: {
-          id: true,
-          status: true,
-          automationPaused: true,
-          lastMessageAt: true,
-          startedAt: true,
-          updatedAt: true,
-          agent: {
-            select: {
-              id: true,
-              name: true,
-            },
+        _count: {
+          select: {
+            conversations: true,
+            messages: true,
           },
-          channel: {
-            select: {
-              id: true,
-              name: true,
-              provider: true,
+        },
+        conversations: {
+          where: agentId
+            ? {
+                agentId,
+              }
+            : undefined,
+          orderBy: [{ lastMessageAt: "desc" }, { updatedAt: "desc" }],
+          take: 3,
+          select: {
+            id: true,
+            status: true,
+            automationPaused: true,
+            lastMessageAt: true,
+            startedAt: true,
+            updatedAt: true,
+            agent: {
+              select: {
+                id: true,
+                name: true,
+              },
             },
-          },
-          messages: {
-            orderBy: { createdAt: "desc" },
-            take: 1,
-            select: {
-              content: true,
-              createdAt: true,
-              direction: true,
-              type: true,
+            channel: {
+              select: {
+                id: true,
+                name: true,
+                provider: true,
+              },
+            },
+            messages: {
+              orderBy: { createdAt: "desc" },
+              take: 1,
+              select: {
+                content: true,
+                createdAt: true,
+                direction: true,
+                type: true,
+              },
             },
           },
         },
       },
-    },
-  });
+    });
+
+  let rawContacts = await loadContacts();
+
+  const contactIds = rawContacts.map((contact) => contact.id);
+  const outboundRows =
+    contactIds.length > 0
+      ? await prisma.$queryRaw<Array<{ contactId: string; outboundCount: number }>>`
+          SELECT
+            m."contactId" AS "contactId",
+            COUNT(*)::int AS "outboundCount"
+          FROM "Message" m
+          WHERE m."workspaceId" = ${membership.workspace.id}
+            AND m."contactId" IN (${Prisma.join(contactIds)})
+            AND m."direction" = 'OUTBOUND'
+          GROUP BY m."contactId"
+        `
+      : [];
+  const outboundCountByContactId = new Map<string, number>();
+  for (const row of outboundRows) {
+    outboundCountByContactId.set(row.contactId, row.outboundCount);
+  }
+
+  if (autoTagNewLeads && rawContacts.length > 0) {
+    await Promise.all(
+      rawContacts.map((contact) =>
+        syncLeadLifecycleForContact({
+          workspaceId: membership.workspace.id,
+          contactId: contact.id,
+          newLeadTagName,
+          hasHistory: (outboundCountByContactId.get(contact.id) ?? 0) > 0,
+        }),
+      ),
+    );
+
+    rawContacts = await loadContacts();
+  }
 
   const contacts: ContactosContact[] = rawContacts
     .map((contact) => ({
@@ -123,6 +186,7 @@ export async function getContactosData({
       email: contact.email,
       notes: contact.notes,
       avatarUrl: contact.avatarUrl,
+      tags: getContactTags(contact.ContactTag.map((item) => item.Tag)),
       createdAt: contact.createdAt.toISOString(),
       updatedAt: contact.updatedAt.toISOString(),
       totalConversations: contact._count.conversations,

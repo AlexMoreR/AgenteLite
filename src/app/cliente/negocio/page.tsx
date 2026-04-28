@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { Building2, Globe, Instagram, Mail, MapPin, Phone, Save, Youtube } from "lucide-react";
+import { Building2, Globe, Instagram, Mail, MapPin, Phone, Save, Tag, Youtube } from "lucide-react";
 import { auth } from "@/auth";
 import { saveWorkspaceBusinessConfigAction } from "@/app/actions/workspace-actions";
 import { BusinessChatsCleanupMenu } from "./BusinessChatsCleanupMenu";
@@ -181,6 +181,50 @@ export default async function MiNegocioPage({ searchParams }: PageProps) {
               <Field label="Facebook" name="facebook" icon={<svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/></svg>} defaultValue={config.facebook} placeholder="@minegocio" />
               <Field label="TikTok" name="tiktok" icon={<svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-2.88 2.5 2.89 2.89 0 0 1-2.89-2.89 2.89 2.89 0 0 1 2.89-2.89c.28 0 .54.04.79.1V9.01a6.33 6.33 0 0 0-.79-.05 6.34 6.34 0 0 0-6.34 6.34 6.34 6.34 0 0 0 6.34 6.34 6.34 6.34 0 0 0 6.33-6.34V8.69a8.18 8.18 0 0 0 4.78 1.52V6.75a4.84 4.84 0 0 1-1.01-.06z"/></svg>} defaultValue={config.tiktok} placeholder="@minegocio" />
               <Field label="YouTube" name="youtube" icon={<Youtube className="h-3.5 w-3.5" />} defaultValue={config.youtube} placeholder="@minegocio" />
+            </div>
+          </div>
+        </Card>
+
+        <Card className="border border-[rgba(148,163,184,0.14)] p-5 shadow-[0_8px_24px_rgba(15,23,42,0.04)]">
+          <div className="space-y-4">
+            <SectionHeader title="Automatizaciones base" />
+            <div className="rounded-[20px] border border-[color-mix(in_srgb,var(--primary)_12%,white)] bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.92))] p-4">
+              <div className="flex items-start gap-3">
+                <span className="mt-0.5 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_10%,white)] text-[var(--primary)]">
+                  <Tag className="h-4 w-4" />
+                </span>
+                <div className="min-w-0 space-y-1">
+                  <p className="text-sm font-semibold text-slate-950">Nuevo lead por defecto</p>
+                  <p className="text-sm leading-6 text-slate-600">
+                    Cuando entra un contacto nuevo por WhatsApp, el sistema puede asignarle esta etiqueta de forma automática.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-4 space-y-1.5">
+                <label className="text-[13px] font-medium text-slate-700">Nombre de la etiqueta</label>
+                <input
+                  name="newLeadTagName"
+                  defaultValue={config.newLeadTagName}
+                  placeholder="Ej. Nuevo lead"
+                  className="field-select h-10 w-full rounded-[16px] border-[rgba(148,163,184,0.14)] bg-white text-[13px] focus:border-[var(--primary)]"
+                />
+              </div>
+
+              <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-[18px] border border-slate-100 bg-white px-4 py-3 transition hover:border-[color-mix(in_srgb,var(--primary)_20%,white)]">
+                <input
+                  type="checkbox"
+                  name="autoTagNewLeads"
+                  defaultChecked={config.autoTagNewLeads}
+                  className="mt-1 h-4 w-4 rounded border-slate-300 text-[var(--primary)] focus:ring-[var(--primary)]"
+                />
+                <span className="space-y-1">
+                  <span className="block text-[13px] font-medium text-slate-800">Activar etiqueta automática</span>
+                  <span className="block text-[12px] leading-5 text-slate-500">
+                    Se creará y asignará la etiqueta <span className="font-medium text-slate-700">Nuevo lead</span> solo en contactos que aparezcan por primera vez.
+                  </span>
+                </span>
+              </label>
             </div>
           </div>
         </Card>

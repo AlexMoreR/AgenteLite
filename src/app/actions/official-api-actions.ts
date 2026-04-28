@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { canAccessOfficialApiModule } from "@/lib/admin-module-access";
+import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
 import { getOfficialApiConfigByWorkspaceId, hasOfficialApiBaseCredentials } from "@/lib/official-api-config";
 import { sendOfficialApiImageMessage, sendOfficialApiTextMessage } from "@/lib/official-api-messaging";
 import { prisma } from "@/lib/prisma";
@@ -155,6 +156,11 @@ export async function sendOfficialApiReplyAction(formData: FormData): Promise<vo
     if (parsed.data.returnTo) {
       revalidatePath(parsed.data.returnTo);
     }
+    await syncLeadLifecycleForContact({
+      workspaceId: membership.workspace.id,
+      contactId: conversation.contactId,
+      hasHistory: true,
+    });
     revalidatePath("/cliente/api-oficial");
     revalidatePath("/cliente/api-oficial/chats");
     if (parsed.data.returnTo) {
@@ -180,6 +186,12 @@ export async function sendOfficialApiReplyAction(formData: FormData): Promise<vo
     }
     redirect(`/cliente/api-oficial/chats?conversationId=${conversation.id}&error=${encodeURIComponent(result.error)}`);
   }
+
+  await syncLeadLifecycleForContact({
+    workspaceId: membership.workspace.id,
+    contactId: conversation.contactId,
+    hasHistory: true,
+  });
 
   if (parsed.data.returnTo) {
     revalidatePath(parsed.data.returnTo);

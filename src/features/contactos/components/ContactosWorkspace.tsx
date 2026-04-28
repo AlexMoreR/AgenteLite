@@ -58,6 +58,13 @@ function getConversationHref(contact: ContactosContact) {
   return conversation ? `/cliente/chats?chatKey=agent:${conversation.id}` : "/cliente/chats";
 }
 
+function getTagBadgeStyle(color?: string | null) {
+  const normalized = color?.trim();
+  return {
+    backgroundColor: normalized || "var(--primary)",
+  };
+}
+
 function ContactMetric({
   label,
   value,
@@ -155,6 +162,21 @@ function ContactCard({
               </span>
             )}
           </div>
+
+          {contact.tags.length ? (
+            <div className="flex flex-wrap gap-1.5">
+              {contact.tags.map((tag) => (
+                <span
+                  key={`${contact.id}:${tag.label}`}
+                  className="inline-flex max-w-full items-center rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-white shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
+                  style={getTagBadgeStyle(tag.color)}
+                  title={tag.label}
+                >
+                  <span className="truncate">{tag.label}</span>
+                </span>
+              ))}
+            </div>
+          ) : null}
 
           {lastConversation?.lastMessage?.content ? (
             <p className="line-clamp-2 text-xs leading-5 text-slate-600">
@@ -307,6 +329,20 @@ export function ContactosWorkspace({ data }: { data: ContactosData }) {
                       </div>
                       <p className="text-sm text-slate-500">{selectedContact.phoneNumber}</p>
                       {selectedContact.email ? <p className="text-sm text-slate-500">{selectedContact.email}</p> : null}
+                      {selectedContact.tags.length ? (
+                        <div className="flex flex-wrap gap-1.5 pt-1">
+                          {selectedContact.tags.map((tag) => (
+                            <span
+                              key={`${selectedContact.id}:${tag.label}`}
+                              className="inline-flex max-w-full items-center rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-white shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
+                              style={getTagBadgeStyle(tag.color)}
+                              title={tag.label}
+                            >
+                              <span className="truncate">{tag.label}</span>
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
                   </div>
 

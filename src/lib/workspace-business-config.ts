@@ -11,6 +11,8 @@ export type WorkspaceBusinessConfig = {
   facebook: string;
   tiktok: string;
   youtube: string;
+  newLeadTagName: string;
+  autoTagNewLeads: boolean;
 };
 
 export const defaultWorkspaceBusinessConfig: WorkspaceBusinessConfig = {
@@ -26,6 +28,8 @@ export const defaultWorkspaceBusinessConfig: WorkspaceBusinessConfig = {
   facebook: "",
   tiktok: "",
   youtube: "",
+  newLeadTagName: "Nuevo lead",
+  autoTagNewLeads: true,
 };
 
 export function parseWorkspaceBusinessConfig(raw: unknown): WorkspaceBusinessConfig {
@@ -46,5 +50,7 @@ export function parseWorkspaceBusinessConfig(raw: unknown): WorkspaceBusinessCon
     facebook: typeof r.facebook === "string" ? r.facebook : "",
     tiktok: typeof r.tiktok === "string" ? r.tiktok : "",
     youtube: typeof r.youtube === "string" ? r.youtube : "",
+    newLeadTagName: typeof r.newLeadTagName === "string" && r.newLeadTagName.trim() ? r.newLeadTagName : defaultWorkspaceBusinessConfig.newLeadTagName,
+    autoTagNewLeads: typeof r.autoTagNewLeads === "boolean" ? r.autoTagNewLeads : true,
   };
 }

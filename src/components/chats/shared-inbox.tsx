@@ -1048,11 +1048,11 @@ export function SharedInbox({
                       {getInitials(renderedConversation.label)}
                     </div>
                   )}
-                  <div className="min-w-0 space-y-0.5">
-                    <div className="flex min-w-0 items-center gap-1.5">
-                      <h2 className="truncate text-[13px] font-semibold text-slate-950 md:text-sm">
-                        {renderedConversation.label}
-                      </h2>
+                    <div className="min-w-0 space-y-0.5">
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <h2 className="truncate text-[13px] font-semibold text-slate-950 md:text-sm">
+                          {renderedConversation.label}
+                        </h2>
                       {renderedConversation.contactId ? (
                         <button
                           type="button"
@@ -1071,10 +1071,27 @@ export function SharedInbox({
                       >
                         <Tag className="h-3.5 w-3.5" />
                       </button>
+                      </div>
+                      <p className="truncate text-xs text-slate-500">{renderedConversation.secondaryLabel}</p>
+                      {renderedConversation.tags?.length ? (
+                        <div className="flex flex-wrap gap-1.5 pt-1">
+                          {renderedConversation.tags.map((tag) => (
+                            <span
+                              key={`${renderedConversation.id}:${tag.label}`}
+                              className="inline-flex max-w-full items-center rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
+                              style={{
+                                backgroundColor: tag.color,
+                                color: "#ffffff",
+                              }}
+                              title={tag.label}
+                            >
+                              <span className="truncate">{tag.label}</span>
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
-                    <p className="truncate text-xs text-slate-500">{renderedConversation.secondaryLabel}</p>
                   </div>
-                </div>
 
                 {hasSettledConversation && (headerActions || headerBadge) ? (
                   <div className="flex shrink-0 items-center justify-end gap-2">

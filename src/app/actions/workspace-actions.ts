@@ -139,6 +139,8 @@ export async function saveWorkspaceBusinessConfigAction(formData: FormData): Pro
     facebook: (formData.get("facebook") as string | null)?.trim() ?? "",
     tiktok: (formData.get("tiktok") as string | null)?.trim() ?? "",
     youtube: (formData.get("youtube") as string | null)?.trim() ?? "",
+    newLeadTagName: (formData.get("newLeadTagName") as string | null)?.trim() ?? "",
+    autoTagNewLeads: formData.get("autoTagNewLeads") === "on",
   };
 
   await prisma.workspace.update({

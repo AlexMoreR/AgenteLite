@@ -30,6 +30,7 @@ import { generateAgentReply } from "@/lib/agent-ai";
 import { resolveAgentKnowledgeBaseReply } from "@/lib/agent-knowledge-media";
 import { resolveAgentProductFlowReply } from "@/lib/agent-product-flow";
 import { composeAgentWelcomeReply } from "@/lib/agent-reply-composer";
+import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
 import {
   deleteEvolutionInstance,
   sendEvolutionImageMessage,
@@ -2380,6 +2381,12 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<vo
           } as never,
         },
       });
+
+      await syncLeadLifecycleForContact({
+        workspaceId: membership.workspace.id,
+        contactId: conversation.contact!.id,
+        hasHistory: true,
+      });
     };
 
     const sendImage = async (image: { url: string; caption: string | null }) => {
@@ -2409,6 +2416,12 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<vo
             evolution: outbound.raw,
           } as never,
         },
+      });
+
+      await syncLeadLifecycleForContact({
+        workspaceId: membership.workspace.id,
+        contactId: conversation.contact!.id,
+        hasHistory: true,
       });
     };
 
@@ -2465,6 +2478,12 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<vo
         evolution: outbound.raw,
       } as never,
     },
+  });
+
+  await syncLeadLifecycleForContact({
+    workspaceId: membership.workspace.id,
+    contactId: conversation.contact.id,
+    hasHistory: true,
   });
 
   await prisma.conversation.update({

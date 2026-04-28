@@ -29,6 +29,10 @@ export type ContactosContact = {
   email: string | null;
   notes: string | null;
   avatarUrl: string | null;
+  tags: Array<{
+    label: string;
+    color: string;
+  }>;
   createdAt: string;
   updatedAt: string;
   totalConversations: number;

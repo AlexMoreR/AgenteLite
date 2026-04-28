@@ -34,6 +34,7 @@ import { enforceWorkspacePlanAccess } from "@/lib/workspace-plan-access";
 import { getEvolutionSettings } from "@/lib/system-settings";
 import { buildHandoffMessage } from "@/lib/agent-training";
 import { resolveNotifyHumanAction } from "@/features/agent-actions";
+import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
 
 function mapChannelStatus(eventName: string | null, rawState: string | null) {
   const state = rawState?.toLowerCase() ?? "";
@@ -258,20 +259,75 @@ export async function POST(request: Request) {
     });
   }
 
-  const contact = await prisma.contact.upsert({
+  const existingContact = await prisma.contact.findUnique({
     where: {
       workspaceId_phoneNumber: {
         workspaceId: channel.workspaceId,
         phoneNumber,
       },
     },
-    update: {},
-    create: {
-      workspaceId: channel.workspaceId,
-      phoneNumber,
+    select: {
+      id: true,
+      name: true,
+      phoneNumber: true,
     },
-    select: { id: true, name: true, phoneNumber: true },
   });
+
+  const contact =
+    existingContact ??
+    (await prisma.contact.upsert({
+      where: {
+        workspaceId_phoneNumber: {
+          workspaceId: channel.workspaceId,
+          phoneNumber,
+        },
+      },
+      update: {},
+      create: {
+        workspaceId: channel.workspaceId,
+        phoneNumber,
+      },
+      select: { id: true, name: true, phoneNumber: true },
+    }));
+
+  const outboundCount = existingContact
+    ? await prisma.message.count({
+        where: {
+          workspaceId: channel.workspaceId,
+          contactId: existingContact.id,
+          direction: "OUTBOUND",
+        },
+      })
+    : 0;
+
+  {
+    const workspace = await prisma.workspace.findUnique({
+      where: { id: channel.workspaceId },
+      select: { businessConfig: true },
+    });
+
+    const autoTagNewLeads =
+      workspace &&
+      typeof workspace.businessConfig === "object" &&
+      !Array.isArray(workspace.businessConfig) &&
+      (workspace.businessConfig as { autoTagNewLeads?: unknown }).autoTagNewLeads !== false;
+    const newLeadTagName =
+      workspace &&
+      typeof workspace.businessConfig === "object" &&
+      !Array.isArray(workspace.businessConfig) &&
+      typeof (workspace.businessConfig as { newLeadTagName?: unknown }).newLeadTagName === "string"
+        ? ((workspace.businessConfig as { newLeadTagName?: string }).newLeadTagName ?? "").trim()
+        : "";
+
+    if (autoTagNewLeads) {
+      await syncLeadLifecycleForContact({
+        workspaceId: channel.workspaceId,
+        contactId: contact.id,
+        newLeadTagName,
+        hasHistory: outboundCount > 0,
+      });
+    }
+  }
 
   const existingConversation = await prisma.conversation.findFirst({
     where: {
