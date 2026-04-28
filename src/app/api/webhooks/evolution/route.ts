@@ -105,9 +105,10 @@ export async function POST(request: Request) {
 
   const eventName = extractEvolutionEventName(payload);
   const instanceName = extractEvolutionInstanceName(payload);
+  const channelPhoneNumber = normalizePhoneFromJid(extractEvolutionPhoneNumber(payload));
   const isConnectionEvent = eventName === "QRCODE_UPDATED" || eventName === "CONNECTION_UPDATE";
 
-  const channel = instanceName
+  let channel = instanceName
     ? await prisma.whatsAppChannel.findUnique({
         where: { evolutionInstanceName: instanceName },
         select: {
@@ -123,6 +124,27 @@ export async function POST(request: Request) {
         },
       })
     : null;
+
+  if (!channel && channelPhoneNumber) {
+    channel = await prisma.whatsAppChannel.findFirst({
+      where: {
+        provider: "EVOLUTION",
+        phoneNumber: channelPhoneNumber,
+      },
+      orderBy: [{ updatedAt: "desc" }],
+      select: {
+        id: true,
+        workspaceId: true,
+        agentId: true,
+        name: true,
+        isActive: true,
+        evolutionInstanceName: true,
+        status: true,
+        phoneNumber: true,
+        qrCode: true,
+      },
+    });
+  }
 
   await prisma.webhookEventLog.create({
     data: {
@@ -140,6 +162,7 @@ export async function POST(request: Request) {
     console.warn("[EVOLUTION] channel_not_found", {
       eventName,
       instanceName,
+      channelPhoneNumber,
     });
     return NextResponse.json({
       ok: true,

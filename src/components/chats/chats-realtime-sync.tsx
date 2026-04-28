@@ -17,6 +17,8 @@ const ACTIVE_REFRESH_DELAY_MS = 180;
 const BACKGROUND_REFRESH_DELAY_MS = 1200;
 const ACTIVE_REFRESH_MIN_GAP_MS = 350;
 const BACKGROUND_REFRESH_MIN_GAP_MS = 4000;
+const PAGE_REFRESH_DELAY_MS = 250;
+const PAGE_REFRESH_MIN_GAP_MS = 1200;
 
 function normalizeBaseUrl(value?: string) {
   return value?.trim().replace(/\/+$/, "") || "";
@@ -131,6 +133,8 @@ export function ChatsRealtimeSync({
   const listUpdateInFlightRef = useRef(false);
   const listUpdateQueuedRef = useRef(false);
   const lastListUpdateAtRef = useRef(0);
+  const pageRefreshTimerRef = useRef<number | null>(null);
+  const lastPageRefreshAtRef = useRef(0);
 
   useEffect(() => {
     function handleVisibilityChange() {
@@ -163,6 +167,13 @@ export function ChatsRealtimeSync({
       if (listUpdateTimerRef.current) {
         window.clearTimeout(listUpdateTimerRef.current);
         listUpdateTimerRef.current = null;
+      }
+    }
+
+    function clearPageRefreshTimer() {
+      if (pageRefreshTimerRef.current) {
+        window.clearTimeout(pageRefreshTimerRef.current);
+        pageRefreshTimerRef.current = null;
       }
     }
 
@@ -339,6 +350,20 @@ export function ChatsRealtimeSync({
       }, Math.max(0, targetAt - now));
     };
 
+    const schedulePageRefresh = (priority: RefreshPriority) => {
+      const now = Date.now();
+      const minGap = priority === "active" ? PAGE_REFRESH_MIN_GAP_MS : BACKGROUND_REFRESH_MIN_GAP_MS;
+      const preferredDelay = priority === "active" ? PAGE_REFRESH_DELAY_MS : BACKGROUND_REFRESH_DELAY_MS;
+      const earliestAllowedAt = lastPageRefreshAtRef.current + minGap;
+      const targetAt = Math.max(now + preferredDelay, earliestAllowedAt);
+
+      clearPageRefreshTimer();
+      pageRefreshTimerRef.current = window.setTimeout(() => {
+        lastPageRefreshAtRef.current = Date.now();
+        router.refresh();
+      }, Math.max(0, targetAt - now));
+    };
+
     for (const instanceName of normalizedInstanceNames) {
       const socket = io(buildSocketUrl(normalizedBaseUrl, instanceName), {
         transports: ["websocket", "polling"],
@@ -349,8 +374,14 @@ export function ChatsRealtimeSync({
         if (typeof eventName === "string" && shouldTriggerRefresh(eventName)) {
           const isActiveInstance = normalizedActiveInstanceName && instanceName === normalizedActiveInstanceName;
           const payload = args[0];
+          const isOfficialConversationSelected = selectedConversationKey?.startsWith("official:");
 
           if (isActiveInstance) {
+            if (isOfficialConversationSelected) {
+              schedulePageRefresh("active");
+              return;
+            }
+
             scheduleLiveUpdate("active");
             if (selectedConversationKey?.startsWith("agent:")) {
               scheduleListUpdate("active", instanceName, payload);
@@ -364,6 +395,11 @@ export function ChatsRealtimeSync({
               : "";
 
           if (payloadInstanceName && payloadInstanceName === normalizedActiveInstanceName) {
+            if (isOfficialConversationSelected) {
+              schedulePageRefresh("active");
+              return;
+            }
+
             scheduleLiveUpdate("active");
             if (selectedConversationKey?.startsWith("agent:")) {
               scheduleListUpdate("active", instanceName, payload);
@@ -373,12 +409,19 @@ export function ChatsRealtimeSync({
 
           const phoneNumber = extractPhoneNumberFromPayload(payload);
           if (phoneNumber) {
+            if (isOfficialConversationSelected) {
+              schedulePageRefresh("background");
+              return;
+            }
+
             scheduleListUpdate("background", instanceName, payload);
             return;
           }
 
           if (selectedConversationKey?.startsWith("agent:")) {
             scheduleLiveUpdate("background");
+          } else if (isOfficialConversationSelected) {
+            schedulePageRefresh("background");
           }
         }
       });
@@ -389,6 +432,7 @@ export function ChatsRealtimeSync({
     return () => {
       clearLiveUpdateTimer();
       clearListUpdateTimer();
+      clearPageRefreshTimer();
       liveUpdateQueuedRef.current = false;
       liveUpdateInFlightRef.current = false;
       listUpdateQueuedRef.current = false;

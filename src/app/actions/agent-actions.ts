@@ -2303,7 +2303,6 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<vo
     where: {
       id: parsed.data.conversationId,
       workspaceId: membership.workspace.id,
-      agentId: parsed.data.agentId,
     },
     include: {
       contact: {
