@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import { ChatScrollAnchor } from "@/components/agents/chat-scroll-anchor";
 import { ChatSelectionOverlay } from "@/components/chats/chat-selection-overlay";
-import { readConversationFromCache, saveConversationToCache } from "@/components/chats/chat-history-cache";
+import { mergeConversationSnapshots, readConversationFromCache, saveConversationToCache } from "@/components/chats/chat-history-cache";
 import { ConversationList } from "@/components/chats/conversation-list";
 import { EditContactModal } from "@/components/chats/edit-contact-modal";
 import { EtiquetaModal } from "@/components/chats/etiqueta-modal";
@@ -42,6 +42,7 @@ const chatTimeFormatter = new Intl.DateTimeFormat("es-CO", {
 
 export type SharedInboxConversationItem = {
   id: string;
+  contactId?: string | null;
   label: string;
   secondaryLabel: string;
   tags?: Array<{
@@ -93,6 +94,27 @@ type OptimisticDraftMessage = SharedInboxMessageItem & {
   isOptimistic: true;
 };
 
+type LiveConversationSnapshot = SharedInboxSelectedConversation & {
+  messages: Array<SharedInboxMessageItem & { createdAt: Date }>;
+};
+
+type LiveConversationListSnapshot = SharedInboxConversationItem & {
+  lastMessageAt: Date | null;
+};
+
+type ConversationContactUpdateDetail = {
+  contactId: string;
+  name: string;
+};
+
+type ConversationTagsUpdateDetail = {
+  contactId: string;
+  tags: Array<{
+    label: string;
+    color: string;
+  }>;
+};
+
 export type SharedInboxSidebarItem = {
   id: string;
   label: string;
@@ -129,6 +151,139 @@ function getInitials(value: string) {
   const parts = value.trim().split(/\s+/).filter(Boolean).slice(0, 2);
   const initials = parts.map((part) => part.charAt(0).toUpperCase()).join("");
   return initials || "CT";
+}
+
+function countIncomingMessagesSinceLastOutbound(messages: SharedInboxMessageItem[]) {
+  let incomingCount = 0;
+
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.direction === "OUTBOUND") {
+      break;
+    }
+
+    if (message.direction === "INBOUND") {
+      incomingCount += 1;
+    }
+  }
+
+  return incomingCount;
+}
+
+function normalizeLiveConversationSnapshot(value: unknown): LiveConversationSnapshot | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const data = value as {
+    id?: unknown;
+    messages?: Array<{ createdAt?: string | Date } & Record<string, unknown>>;
+  };
+
+  if (typeof data.id !== "string" || !Array.isArray(data.messages)) {
+    return null;
+  }
+
+  return {
+    ...(value as SharedInboxSelectedConversation),
+    id: data.id,
+    messages: data.messages.map((message) => ({
+      ...(message as SharedInboxMessageItem),
+      createdAt: new Date(message.createdAt || Date.now()),
+    })),
+  };
+}
+
+function normalizeLiveConversationListSnapshot(value: unknown): LiveConversationListSnapshot | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const data = value as {
+    id?: unknown;
+    lastMessageAt?: string | Date | null;
+  };
+
+  if (typeof data.id !== "string") {
+    return null;
+  }
+
+  return {
+    ...(value as SharedInboxConversationItem),
+    id: data.id,
+    lastMessageAt: data.lastMessageAt ? new Date(data.lastMessageAt) : null,
+  };
+}
+
+function buildConversationItemFromSnapshot(
+  snapshot: LiveConversationSnapshot,
+  existing?: SharedInboxConversationItem,
+): SharedInboxConversationItem {
+  const latestMessage = snapshot.messages.at(-1) ?? null;
+  const nextItem: SharedInboxConversationItem = {
+    id: existing?.id ?? snapshot.id,
+    contactId: snapshot.contactId ?? existing?.contactId ?? null,
+    label: snapshot.label,
+    secondaryLabel: snapshot.secondaryLabel,
+    tags: snapshot.tags ?? existing?.tags ?? [],
+    channelType: existing?.channelType,
+    incomingCount: countIncomingMessagesSinceLastOutbound(snapshot.messages),
+    avatarUrl: snapshot.avatarUrl ?? existing?.avatarUrl ?? null,
+    lastMessage: latestMessage?.content ?? existing?.lastMessage ?? null,
+    lastMessageType: latestMessage?.type ?? existing?.lastMessageType ?? null,
+    lastMessageDirection: latestMessage?.direction ?? existing?.lastMessageDirection ?? null,
+    lastMessageAt: latestMessage?.createdAt ?? existing?.lastMessageAt ?? null,
+    href: existing?.href ?? "",
+  };
+
+  return nextItem;
+}
+
+function buildConversationItemFromListSnapshot(
+  snapshot: LiveConversationListSnapshot,
+  existing?: SharedInboxConversationItem,
+): SharedInboxConversationItem {
+  return {
+    id: snapshot.id,
+    contactId: snapshot.contactId ?? existing?.contactId ?? null,
+    label: snapshot.label,
+    secondaryLabel: snapshot.secondaryLabel,
+    tags: snapshot.tags ?? existing?.tags ?? [],
+    channelType: snapshot.channelType ?? existing?.channelType,
+    incomingCount: snapshot.incomingCount ?? existing?.incomingCount ?? 0,
+    avatarUrl: snapshot.avatarUrl ?? existing?.avatarUrl ?? null,
+    lastMessage: snapshot.lastMessage ?? existing?.lastMessage ?? null,
+    lastMessageType: snapshot.lastMessageType ?? existing?.lastMessageType ?? null,
+    lastMessageDirection: snapshot.lastMessageDirection ?? existing?.lastMessageDirection ?? null,
+    lastMessageAt: snapshot.lastMessageAt ?? existing?.lastMessageAt ?? null,
+    href: existing?.href ?? "",
+  };
+}
+
+function sortConversationItems(items: SharedInboxConversationItem[]) {
+  return [...items].sort((left, right) => {
+    const leftAt = left.lastMessageAt ? left.lastMessageAt.getTime() : 0;
+    const rightAt = right.lastMessageAt ? right.lastMessageAt.getTime() : 0;
+    return rightAt - leftAt;
+  });
+}
+
+function updateConversationItemByContact(
+  current: SharedInboxConversationItem[],
+  contactId: string,
+  updater: (item: SharedInboxConversationItem) => SharedInboxConversationItem,
+) {
+  let changed = false;
+  const nextItems = current.map((item) => {
+    if (item.contactId !== contactId) {
+      return item;
+    }
+
+    changed = true;
+    return updater(item);
+  });
+
+  return changed ? nextItems : current;
 }
 
 function renderWhatsAppText(content: string) {
@@ -398,7 +553,9 @@ export function SharedInbox({
   emptySelectionDescription,
   messageScrollBehavior = "bottom",
 }: SharedInboxProps) {
+  const [conversationItems, setConversationItems] = useState<SharedInboxConversationItem[]>(conversations);
   const [optimisticConversation, setOptimisticConversation] = useState<SharedInboxSelectedConversation | null>(null);
+  const [liveConversation, setLiveConversation] = useState<SharedInboxSelectedConversation | null>(null);
   const [optimisticOutgoingMessage, setOptimisticOutgoingMessage] = useState<OptimisticDraftMessage | null>(null);
   const [editContactOpen, setEditContactOpen] = useState(false);
   const handleCloseEditContact = useCallback(() => setEditContactOpen(false), []);
@@ -425,6 +582,10 @@ export function SharedInbox({
       saveConversationToCache(selectedConversation);
     }
   }, [selectedConversation]);
+
+  useEffect(() => {
+    setConversationItems(conversations);
+  }, [conversations]);
 
   useEffect(() => {
     if (!optimisticOutgoingMessage) {
@@ -469,6 +630,143 @@ export function SharedInbox({
   }, []);
 
   useEffect(() => {
+    function handleLiveUpdate(event: Event) {
+      const customEvent = event as CustomEvent<{ conversation?: unknown }>;
+      const snapshot = normalizeLiveConversationSnapshot(customEvent.detail?.conversation);
+      if (!snapshot || snapshot.id !== selectedConversationId) {
+        return;
+      }
+
+      setLiveConversation((current) => mergeConversationSnapshots(current ?? selectedConversation ?? null, snapshot));
+      setConversationItems((current) => {
+        const currentItem = current.find((item) => item.id === snapshot.id);
+        const updatedItem = buildConversationItemFromSnapshot(snapshot, currentItem);
+        const nextItems = current.map((item) => (item.id === snapshot.id ? { ...item, ...updatedItem } : item));
+
+        return nextItems.sort((left, right) => {
+          const leftAt = left.lastMessageAt ? left.lastMessageAt.getTime() : 0;
+          const rightAt = right.lastMessageAt ? right.lastMessageAt.getTime() : 0;
+          return rightAt - leftAt;
+        });
+      });
+    }
+
+    window.addEventListener("chat-live-update", handleLiveUpdate as EventListener);
+    return () => window.removeEventListener("chat-live-update", handleLiveUpdate as EventListener);
+  }, [selectedConversation, selectedConversationId]);
+
+  useEffect(() => {
+    function handleListUpdate(event: Event) {
+      const customEvent = event as CustomEvent<{ conversation?: unknown }>;
+      const snapshot = normalizeLiveConversationListSnapshot(customEvent.detail?.conversation);
+      if (!snapshot) {
+        return;
+      }
+
+      setConversationItems((current) => {
+        const currentItem = current.find((item) => item.id === snapshot.id);
+        const updatedItem = buildConversationItemFromListSnapshot(snapshot, currentItem);
+        const nextItems = current.map((item) => (item.id === snapshot.id ? { ...item, ...updatedItem } : item));
+
+        return sortConversationItems(nextItems);
+      });
+    }
+
+    window.addEventListener("chat-list-update", handleListUpdate as EventListener);
+    return () => window.removeEventListener("chat-list-update", handleListUpdate as EventListener);
+  }, []);
+
+  useEffect(() => {
+    function handleContactUpdate(event: Event) {
+      const customEvent = event as CustomEvent<ConversationContactUpdateDetail>;
+      const detail = customEvent.detail;
+
+      if (!detail?.contactId || !detail.name?.trim()) {
+        return;
+      }
+
+      setConversationItems((current) =>
+        updateConversationItemByContact(current, detail.contactId, (item) => ({
+          ...item,
+          label: detail.name.trim(),
+        })),
+      );
+
+      setLiveConversation((current) => {
+        const baseConversation = current ?? selectedConversation ?? null;
+        if (!baseConversation || baseConversation.contactId !== detail.contactId) {
+          return current;
+        }
+
+        return {
+          ...baseConversation,
+          label: detail.name.trim(),
+          contactName: detail.name.trim(),
+        };
+      });
+
+      setOptimisticConversation((current) => {
+        if (!current || current.contactId !== detail.contactId) {
+          return current;
+        }
+
+        return {
+          ...current,
+          label: detail.name.trim(),
+          contactName: detail.name.trim(),
+        };
+      });
+    }
+
+    window.addEventListener("chat-contact-updated", handleContactUpdate as EventListener);
+    return () => window.removeEventListener("chat-contact-updated", handleContactUpdate as EventListener);
+  }, [selectedConversation]);
+
+  useEffect(() => {
+    function handleTagsUpdate(event: Event) {
+      const customEvent = event as CustomEvent<ConversationTagsUpdateDetail>;
+      const detail = customEvent.detail;
+
+      if (!detail?.contactId) {
+        return;
+      }
+
+      setConversationItems((current) =>
+        updateConversationItemByContact(current, detail.contactId, (item) => ({
+          ...item,
+          tags: detail.tags,
+        })),
+      );
+
+      setLiveConversation((current) => {
+        const baseConversation = current ?? selectedConversation ?? null;
+        if (!baseConversation || baseConversation.contactId !== detail.contactId) {
+          return current;
+        }
+
+        return {
+          ...baseConversation,
+          tags: detail.tags,
+        };
+      });
+
+      setOptimisticConversation((current) => {
+        if (!current || current.contactId !== detail.contactId) {
+          return current;
+        }
+
+        return {
+          ...current,
+          tags: detail.tags,
+        };
+      });
+    }
+
+    window.addEventListener("chat-tags-updated", handleTagsUpdate as EventListener);
+    return () => window.removeEventListener("chat-tags-updated", handleTagsUpdate as EventListener);
+  }, [selectedConversation]);
+
+  useEffect(() => {
     if (!pendingConversation?.id || pendingConversation.id === selectedConversationId) {
       return;
     }
@@ -482,16 +780,22 @@ export function SharedInbox({
   }, [pendingConversation?.id, selectedConversationId]);
 
   const cachedSelectedConversation = selectedConversation ? readConversationFromCache(selectedConversation.id) : null;
-  const renderedSelectedConversation =
-    selectedConversation && cachedSelectedConversation && cachedSelectedConversation.messages.length > selectedConversation.messages.length
-      ? cachedSelectedConversation
-      : selectedConversation;
+  const effectiveLiveConversation =
+    liveConversation && liveConversation.id === selectedConversationId ? liveConversation : null;
+  const liveOrCachedConversation = mergeConversationSnapshots(selectedConversation ?? null, effectiveLiveConversation ?? cachedSelectedConversation);
+
+  useEffect(() => {
+    if (effectiveLiveConversation) {
+      saveConversationToCache(liveOrCachedConversation);
+    }
+  }, [effectiveLiveConversation, liveOrCachedConversation]);
+
   const renderedConversation =
-    renderedSelectedConversation && pendingConversation?.id === renderedSelectedConversation.id
-      ? renderedSelectedConversation
+    liveOrCachedConversation && pendingConversation?.id === liveOrCachedConversation.id
+      ? liveOrCachedConversation
       : optimisticConversation && pendingConversation?.id === optimisticConversation.id
         ? optimisticConversation
-        : renderedSelectedConversation;
+        : liveOrCachedConversation;
   const optimisticDraftMatchesLatestMessage =
     Boolean(
       optimisticOutgoingMessage &&
@@ -645,9 +949,9 @@ export function SharedInbox({
             ref={conversationListScrollRef}
             className="min-h-0 flex-1 overflow-y-auto overscroll-contain divide-y divide-[rgba(148,163,184,0.12)] [-webkit-overflow-scrolling:touch]"
           >
-            {conversations.length > 0 ? (
+            {conversationItems.length > 0 ? (
               <ConversationList
-                conversations={conversations}
+                conversations={conversationItems}
                 selectedConversationId={selectedConversationId}
                 scrollContainerRef={conversationListScrollRef}
               />
@@ -669,7 +973,7 @@ export function SharedInbox({
       </Card>
 
       <Card
-        className={`${hasMobileSelection || conversations.length === 0 ? "flex" : "hidden md:flex"} chat-inbox-panel min-h-0 flex-1 overflow-hidden border border-[rgba(148,163,184,0.14)] bg-white p-0 shadow-none md:h-full md:shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)]`}
+        className={`${hasMobileSelection || conversationItems.length === 0 ? "flex" : "hidden md:flex"} chat-inbox-panel min-h-0 flex-1 overflow-hidden border border-[rgba(148,163,184,0.14)] bg-white p-0 shadow-none md:h-full md:shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)]`}
       >
         {renderedConversation ? (
           <div className="flex min-h-0 h-full w-full flex-1 flex-col">

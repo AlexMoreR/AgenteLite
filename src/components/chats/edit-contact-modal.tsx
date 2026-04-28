@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useActionState } from "react";
-import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
 import { updateContactAction } from "@/app/actions/chats-actions";
 
@@ -12,18 +11,28 @@ type Props = {
   contactName: string;
 };
 
-const initialState: { error?: string; success?: boolean } = {};
+type EditContactActionState =
+  | { error: string; success?: false }
+  | { success: true; contactId: string; name: string };
+
+const initialState: EditContactActionState = { error: "" };
 
 export function EditContactModal({ open, onClose, contactId, contactName }: Props) {
-  const router = useRouter();
   const [state, formAction, isPending] = useActionState(updateContactAction, initialState);
 
   useEffect(() => {
-    if (state.success) {
-      router.refresh();
+    if (state.success && state.contactId) {
+      window.dispatchEvent(
+        new CustomEvent("chat-contact-updated", {
+          detail: {
+            contactId: state.contactId,
+            name: state.name,
+          },
+        }),
+      );
       onClose();
     }
-  }, [state.success, onClose, router]);
+  }, [state, onClose]);
 
   if (!open) return null;
 

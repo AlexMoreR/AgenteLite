@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useActionState, useState, useCallback, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { X, Plus, Check } from "lucide-react";
 import { BsFillTagFill } from "react-icons/bs";
 import {
@@ -27,7 +26,6 @@ type Props = {
 const createInitialState: { error?: string; success?: boolean } = {};
 
 export function EtiquetaModal({ open, onClose, contactId }: Props) {
-  const router = useRouter();
   const [etiquetas, setEtiquetas] = useState<EtiquetaItem[]>([]);
   const [assignedIds, setAssignedIds] = useState<Set<string>>(new Set());
   const [showForm, setShowForm] = useState(false);
@@ -72,6 +70,10 @@ export function EtiquetaModal({ open, onClose, contactId }: Props) {
   const handleToggle = (tagId: string) => {
     if (!contactId || toggling) return;
     startToggle(async () => {
+      const nextAssignedIds = new Set(assignedIds);
+      if (nextAssignedIds.has(tagId)) nextAssignedIds.delete(tagId);
+      else nextAssignedIds.add(tagId);
+
       setAssignedIds((prev) => {
         const next = new Set(prev);
         if (next.has(tagId)) next.delete(tagId);
@@ -89,7 +91,22 @@ export function EtiquetaModal({ open, onClose, contactId }: Props) {
         return;
       }
 
-      router.refresh();
+      const nextTags = etiquetas
+        .filter((tag) => nextAssignedIds.has(tag.id))
+        .map((tag) => ({
+          label: tag.name,
+          color: tag.color,
+        }));
+
+      window.dispatchEvent(
+        new CustomEvent("chat-tags-updated", {
+          detail: {
+            contactId,
+            tags: nextTags,
+            assignedTagIds: Array.from(nextAssignedIds),
+          },
+        }),
+      );
     });
   };
 

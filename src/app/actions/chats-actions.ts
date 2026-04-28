@@ -16,10 +16,14 @@ const updateContactSchema = z.object({
   name: z.string().trim().max(120),
 });
 
+type UpdateContactActionState =
+  | { error: string; success?: false }
+  | { success: true; contactId: string; name: string };
+
 export async function updateContactAction(
-  _prevState: { error?: string; success?: boolean },
+  _prevState: UpdateContactActionState | { error?: string; success?: boolean },
   formData: FormData,
-): Promise<{ error?: string; success?: boolean }> {
+): Promise<UpdateContactActionState> {
   const session = await auth();
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
     return { error: "No autorizado" };
@@ -53,8 +57,11 @@ export async function updateContactAction(
     data: { name: parsed.data.name || null },
   });
 
-  revalidatePath("/cliente/chats");
-  return { success: true };
+  return {
+    success: true,
+    contactId: contact.id,
+    name: parsed.data.name.trim(),
+  };
 }
 
 const sendUnifiedChatReplySchema = z.object({

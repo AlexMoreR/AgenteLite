@@ -34,6 +34,7 @@ type UnifiedConversation = {
   channelId?: string;
   label: string;
   secondaryLabel: string;
+  contactId?: string;
   tags?: Array<{
     label: string;
     color: string;
@@ -55,15 +56,9 @@ function getOfficialContactLabel(input: { name: string | null; phoneNumber: stri
 }
 
 function getContactTags(
-  input: Array<{
-    Tag: {
-      name: string;
-      color: string;
-    };
-  }>,
+  input: Array<{ name: string; color: string }>,
 ) {
   return input
-    .map((item) => item.Tag)
     .filter((tag): tag is { name: string; color: string } => Boolean(tag?.name?.trim()))
     .map((tag) => ({
       label: tag.name,
@@ -261,27 +256,22 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
 
   const contactIds = Array.from(new Set(activeAgentConversations.map((conversation) => conversation.contact.id)));
   const contactTagRows = contactIds.length
-    ? await prisma.contactTag.findMany({
-        where: {
-          workspaceId: membership.workspace.id,
-          contactId: { in: contactIds },
-        },
-        orderBy: { createdAt: "asc" },
-        select: {
-          contactId: true,
-          Tag: {
-            select: {
-              name: true,
-              color: true,
-            },
-          },
-        },
-      })
+    ? await prisma.$queryRaw<Array<{ contactId: string; name: string; color: string }>>`
+        SELECT
+          ct."contactId" AS "contactId",
+          t."name" AS "name",
+          t."color" AS "color"
+        FROM "ContactTag" ct
+        INNER JOIN "Tag" t ON t."id" = ct."tagId"
+        WHERE ct."workspaceId" = ${membership.workspace.id}
+          AND ct."contactId" IN (${Prisma.join(contactIds)})
+        ORDER BY ct."createdAt" ASC
+      `
     : [];
-  const contactTagsByContactId = new Map<string, Array<{ Tag: { name: string; color: string } }>>();
+  const contactTagsByContactId = new Map<string, Array<{ name: string; color: string }>>();
   for (const row of contactTagRows) {
     const current = contactTagsByContactId.get(row.contactId) || [];
-    current.push({ Tag: row.Tag });
+    current.push({ name: row.name, color: row.color });
     contactTagsByContactId.set(row.contactId, current);
   }
 
@@ -358,6 +348,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       key: `agent:${conversation.id}`,
       source: "agent",
       conversationId: conversation.id,
+      contactId: conversation.contact.id,
       agentId: conversation.agentId || linkedChannel?.agent?.id || undefined,
       channelId: conversation.channelId || undefined,
       label: getAgentContactLabel(conversation.contact),
@@ -622,7 +613,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         apiBaseUrl={evolutionSettings.apiBaseUrl}
         instanceNames={evolutionInstanceNames}
         activeInstanceName={selectedEvolutionInstanceName}
-        fallbackIntervalMs={15000}
+        selectedConversationKey={selectedUnified?.key ?? null}
       />
       <QueryFeedbackToast
         okMessage={okMessage}
@@ -639,6 +630,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         messageScrollBehavior={scrollMode === CHAT_MESSAGE_SCROLL_PRESERVE_QUERY ? "preserve" : "bottom"}
         conversations={merged.map((item) => ({
           id: item.key,
+          contactId: item.contactId ?? null,
           label: item.label,
           secondaryLabel: item.secondaryLabel,
           tags: item.tags ?? [],

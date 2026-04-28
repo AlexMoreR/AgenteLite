@@ -81,34 +81,66 @@ function serializeConversation(conversation: SharedInboxSelectedConversation): C
   };
 }
 
-function mergeCachedConversations(existing: CachedConversation | null, next: CachedConversation): CachedConversation {
+function mergeCachedMessages(existing: CachedMessageItem[] | SharedInboxSelectedConversation["messages"], next: CachedMessageItem[] | SharedInboxSelectedConversation["messages"]) {
+  const messages = new Map<string, CachedMessageItem>();
+
+  for (const message of existing) {
+    messages.set(message.id, {
+      ...message,
+      createdAt: typeof message.createdAt === "string" ? message.createdAt : message.createdAt.toISOString(),
+    });
+  }
+
+  for (const message of next) {
+    messages.set(message.id, {
+      ...message,
+      createdAt: typeof message.createdAt === "string" ? message.createdAt : message.createdAt.toISOString(),
+    });
+  }
+
+  return Array.from(messages.values()).sort((left, right) => {
+    const leftAt = new Date(left.createdAt).getTime();
+    const rightAt = new Date(right.createdAt).getTime();
+
+    if (leftAt !== rightAt) {
+      return leftAt - rightAt;
+    }
+
+    return left.id.localeCompare(right.id);
+  });
+}
+
+export function mergeConversationSnapshots(
+  existing: SharedInboxSelectedConversation | null,
+  next: SharedInboxSelectedConversation | null,
+) {
   if (!existing) {
     return next;
   }
 
-  const messages = new Map<string, CachedMessageItem>();
-
-  for (const message of existing.messages) {
-    messages.set(message.id, message);
-  }
-
-  for (const message of next.messages) {
-    messages.set(message.id, message);
+  if (!next) {
+    return existing;
   }
 
   return {
     ...existing,
     ...next,
-    messages: Array.from(messages.values()).sort((left, right) => {
-      const leftAt = new Date(left.createdAt).getTime();
-      const rightAt = new Date(right.createdAt).getTime();
+    messages: mergeCachedMessages(existing.messages, next.messages).map((message) => ({
+      ...message,
+      createdAt: typeof message.createdAt === "string" ? new Date(message.createdAt) : message.createdAt,
+    })),
+  };
+}
 
-      if (leftAt !== rightAt) {
-        return leftAt - rightAt;
-      }
+function mergeCachedConversations(existing: CachedConversation | null, next: CachedConversation): CachedConversation {
+  if (!existing) {
+    return next;
+  }
 
-      return left.id.localeCompare(right.id);
-    }),
+  return {
+    ...existing,
+    ...next,
+    messages: mergeCachedMessages(existing.messages, next.messages),
     cachedAt: Date.now(),
   };
 }

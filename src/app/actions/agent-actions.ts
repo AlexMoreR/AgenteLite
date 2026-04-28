@@ -2329,22 +2329,24 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<vo
     redirect(`/cliente/agentes/${parsed.data.agentId}/chats?error=No+se+encontro+el+canal+o+contacto`);
   }
 
-  try {
-    await sendEvolutionPresence({
-      instanceName: conversation.channel.evolutionInstanceName,
-      phoneNumber: conversation.contact.phoneNumber,
-      presence: "composing",
-      delay: 900,
-    });
-  } catch {
-    // Si falla el indicador de escritura, igual enviamos el mensaje manual.
-  }
-
   const quickResponseFlow = await resolveEvolutionQuickResponseFlow({
     workspaceId: membership.workspace.id,
     channelId: conversation.channel.id,
     manualMessage: parsed.data.message,
   });
+
+  if (!quickResponseFlow) {
+    try {
+      await sendEvolutionPresence({
+        instanceName: conversation.channel.evolutionInstanceName,
+        phoneNumber: conversation.contact.phoneNumber,
+        presence: "composing",
+        delay: 900,
+      });
+    } catch {
+      // Si falla el indicador de escritura, igual enviamos el mensaje manual.
+    }
+  }
 
   if (quickResponseFlow) {
     const reply = quickResponseFlow.reply;
@@ -2428,11 +2430,6 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<vo
         lastMessageAt: now,
         status: "OPEN",
       },
-    });
-
-    await setConversationAutomationPaused({
-      conversationId: conversation.id,
-      paused: true,
     });
 
     if (parsed.data.returnTo) {
