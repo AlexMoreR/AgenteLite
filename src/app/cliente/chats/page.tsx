@@ -179,7 +179,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
                 name: true,
                 phoneNumber: true,
                 avatarUrl: true,
-                ContactTag: {
+                contactTags: {
                   orderBy: { createdAt: "asc" },
                   select: {
                     tag: {
@@ -267,7 +267,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
             name: true,
             phoneNumber: true,
             avatarUrl: true,
-            ContactTag: {
+            contactTags: {
               orderBy: { createdAt: "asc" },
               select: {
                 tag: {
