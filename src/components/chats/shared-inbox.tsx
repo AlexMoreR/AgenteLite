@@ -84,6 +84,7 @@ export type SharedInboxSelectedConversation = {
   messages: SharedInboxMessageItem[];
   automationPaused?: boolean;
   loadMoreHref?: string | null;
+  loadMoreCursor?: string | null;
   cacheKey?: string | null;
 };
 
@@ -480,12 +481,17 @@ export function SharedInbox({
     return () => window.clearTimeout(timer);
   }, [pendingConversation?.id, selectedConversationId]);
 
+  const cachedSelectedConversation = selectedConversation ? readConversationFromCache(selectedConversation.id) : null;
+  const renderedSelectedConversation =
+    selectedConversation && cachedSelectedConversation && cachedSelectedConversation.messages.length > selectedConversation.messages.length
+      ? cachedSelectedConversation
+      : selectedConversation;
   const renderedConversation =
-    selectedConversation && pendingConversation?.id === selectedConversation.id
-      ? selectedConversation
+    renderedSelectedConversation && pendingConversation?.id === renderedSelectedConversation.id
+      ? renderedSelectedConversation
       : optimisticConversation && pendingConversation?.id === optimisticConversation.id
         ? optimisticConversation
-        : selectedConversation;
+        : renderedSelectedConversation;
   const optimisticDraftMatchesLatestMessage =
     Boolean(
       optimisticOutgoingMessage &&

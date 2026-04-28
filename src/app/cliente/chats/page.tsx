@@ -7,6 +7,7 @@ import { FormActionSwitch } from "@/components/ui/form-action-switch";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { Card } from "@/components/ui/card";
 import { OfficialApiLockedState, getOfficialApiChatsData } from "@/features/official-api";
+import { loadAgentConversationDetail } from "@/lib/chat-message-loader";
 import { canAccessOfficialApiModule } from "@/lib/admin-module-access";
 import { fetchEvolutionMediaDataUrl, fetchEvolutionProfilePictureUrl } from "@/lib/evolution";
 import { getEvolutionSettings } from "@/lib/system-settings";
@@ -18,7 +19,6 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 const CHAT_MESSAGE_BATCH_SIZE = 20;
 const CHAT_MESSAGE_MAX_BATCHES = 5;
-const CHAT_MESSAGE_MAX_MESSAGES = CHAT_MESSAGE_BATCH_SIZE * CHAT_MESSAGE_MAX_BATCHES;
 const CHAT_MESSAGE_MEDIA_RESOLUTION_LIMIT = 16;
 const CHAT_MESSAGE_SCROLL_PRESERVE_QUERY = "preserve";
 
@@ -148,6 +148,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   const selectedConnectionParam = typeof params.connection === "string" ? params.connection : "";
   const searchQuery = typeof params.q === "string" ? params.q.trim() : "";
   const messagePage = clampMessagePage(parsePositiveInteger(typeof params.messagePage === "string" ? params.messagePage : undefined, 1));
+  const messageBeforeId = typeof params.beforeMessageId === "string" ? params.beforeMessageId.trim() : "";
   const okMessage = typeof params.ok === "string" ? params.ok : "";
   const errorMessage = typeof params.error === "string" ? params.error : "";
   const scrollMode = typeof params.scroll === "string" ? params.scroll : "";
@@ -158,43 +159,11 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   const selectedAgentConversationId = selectedChatRef?.source === "agent" ? selectedChatRef.conversationId : "";
   const selectedAgentConversationPromise =
     selectedAgentConversationId
-      ? prisma.conversation.findFirst({
-          where: {
-            id: selectedAgentConversationId,
-            workspaceId: membership.workspace.id,
-          },
-          select: {
-            id: true,
-            agentId: true,
-            automationPaused: true,
-            channel: {
-              select: {
-                evolutionInstanceName: true,
-              },
-            },
-            contact: {
-              select: {
-                id: true,
-                name: true,
-                phoneNumber: true,
-                avatarUrl: true,
-              },
-            },
-            messages: {
-              orderBy: { createdAt: "desc" },
-              take: CHAT_MESSAGE_BATCH_SIZE * messagePage + 1,
-              select: {
-                id: true,
-                externalId: true,
-                content: true,
-                direction: true,
-                createdAt: true,
-                rawPayload: true,
-                type: true,
-                mediaUrl: true,
-              },
-            },
-          },
+      ? loadAgentConversationDetail({
+          workspaceId: membership.workspace.id,
+          conversationId: selectedAgentConversationId,
+          beforeMessageId: messageBeforeId || null,
+          batchSize: CHAT_MESSAGE_BATCH_SIZE,
         })
       : null;
   const officialDataPromise =
@@ -505,6 +474,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     contactName?: string | null;
     automationPaused?: boolean;
     loadMoreHref?: string | null;
+    loadMoreCursor?: string | null;
     cacheKey?: string | null;
     messages: Array<{
         id: string;
@@ -528,10 +498,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         : selectedUnified.channelId
           ? channelsById.get(selectedUnified.channelId) || null
           : null;
-      const loadedMessageCount = Math.min(CHAT_MESSAGE_BATCH_SIZE * messagePage, CHAT_MESSAGE_MAX_MESSAGES);
-      const detailMessages = detail.messages.slice(0, loadedMessageCount + 1);
-      const hasMoreMessages = detailMessages.length > loadedMessageCount && messagePage < CHAT_MESSAGE_MAX_BATCHES;
-      const renderableMessages = detailMessages.slice(0, loadedMessageCount).reverse();
+      const hasMoreMessages = detail.hasMoreMessages && messagePage < CHAT_MESSAGE_MAX_BATCHES;
+      const renderableMessages = detail.messages.reverse();
       const mediaResolutionStartIndex = Math.max(0, renderableMessages.length - CHAT_MESSAGE_MEDIA_RESOLUTION_LIMIT);
 
       const resolvedMessages = await Promise.all(
@@ -602,7 +570,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         avatarUrl,
         contactId: detail.contact.id,
         contactName: detail.contact.name ?? null,
-        automationPaused: "automationPaused" in detail ? detail.automationPaused : false,
+        automationPaused: detail.automationPaused,
         cacheKey: selectedUnified.key,
         messages: resolvedMessages,
         loadMoreHref: hasMoreMessages
@@ -611,9 +579,11 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
               ...(selectedConnectionKey ? [["connection", selectedConnectionKey]] : []),
               ...(searchQuery ? [["q", searchQuery]] : []),
               ["messagePage", String(Math.min(messagePage + 1, CHAT_MESSAGE_MAX_BATCHES))],
+              ...(detail.loadMoreCursor ? [["beforeMessageId", detail.loadMoreCursor]] : []),
               ["scroll", CHAT_MESSAGE_SCROLL_PRESERVE_QUERY],
             ]).toString()}`
           : null,
+        loadMoreCursor: detail.loadMoreCursor,
       };
     }
   }

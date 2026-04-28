@@ -12,6 +12,13 @@ type ChatsRealtimeSyncProps = {
   fallbackIntervalMs?: number;
 };
 
+type RefreshPriority = "active" | "background";
+
+const ACTIVE_REFRESH_DELAY_MS = 180;
+const BACKGROUND_REFRESH_DELAY_MS = 1200;
+const ACTIVE_REFRESH_MIN_GAP_MS = 350;
+const BACKGROUND_REFRESH_MIN_GAP_MS = 4000;
+
 function normalizeBaseUrl(value?: string) {
   return value?.trim().replace(/\/+$/, "") || "";
 }
@@ -53,8 +60,9 @@ export function ChatsRealtimeSync({
   const [isVisible, setIsVisible] = useState(() => (typeof document === "undefined" ? true : document.visibilityState === "visible"));
   const [isSocketReady, setIsSocketReady] = useState(false);
   const normalizedInstanceNames = useMemo(() => normalizeInstanceNames(instanceNames), [instanceNames]);
-  const activeRefreshTimerRef = useRef<number | null>(null);
-  const backgroundRefreshTimerRef = useRef<number | null>(null);
+  const refreshTimerRef = useRef<number | null>(null);
+  const pendingPriorityRef = useRef<RefreshPriority | null>(null);
+  const lastRefreshAtRef = useRef<number>(0);
 
   useEffect(() => {
     function handleVisibilityChange() {
@@ -77,28 +85,44 @@ export function ChatsRealtimeSync({
     const sockets: Socket[] = [];
     const normalizedActiveInstanceName = activeInstanceName?.trim() || "";
 
-    function clearTimer(timerRef: { current: number | null }) {
-      if (timerRef.current) {
-        window.clearTimeout(timerRef.current);
-        timerRef.current = null;
+    function clearRefreshTimer() {
+      if (refreshTimerRef.current) {
+        window.clearTimeout(refreshTimerRef.current);
+        refreshTimerRef.current = null;
       }
     }
 
-    const scheduleRefresh = (priority: "active" | "background") => {
-      const timerRef = priority === "active" ? activeRefreshTimerRef : backgroundRefreshTimerRef;
-      const delay = priority === "active" ? 180 : 1200;
+    function getPriorityRank(priority: RefreshPriority) {
+      return priority === "active" ? 1 : 0;
+    }
 
-      if (priority === "active") {
-        clearTimer(backgroundRefreshTimerRef);
+    const scheduleRefresh = (priority: RefreshPriority) => {
+      const now = Date.now();
+      const minGap = priority === "active" ? ACTIVE_REFRESH_MIN_GAP_MS : BACKGROUND_REFRESH_MIN_GAP_MS;
+      const preferredDelay = priority === "active" ? ACTIVE_REFRESH_DELAY_MS : BACKGROUND_REFRESH_DELAY_MS;
+      const earliestAllowedAt = lastRefreshAtRef.current + minGap;
+      const targetAt = Math.max(now + preferredDelay, earliestAllowedAt);
+      const existingPriority = pendingPriorityRef.current;
+
+      if (existingPriority && getPriorityRank(existingPriority) > getPriorityRank(priority)) {
+        return;
       }
 
-      clearTimer(timerRef);
+      if (existingPriority === priority && refreshTimerRef.current) {
+        return;
+      }
 
-      timerRef.current = window.setTimeout(() => {
+      clearRefreshTimer();
+      pendingPriorityRef.current = priority;
+
+      refreshTimerRef.current = window.setTimeout(() => {
+        pendingPriorityRef.current = null;
+        lastRefreshAtRef.current = Date.now();
+
         startTransition(() => {
           router.refresh();
         });
-      }, delay);
+      }, Math.max(0, targetAt - now));
     };
 
     function updateSocketReadyState() {
@@ -149,8 +173,8 @@ export function ChatsRealtimeSync({
     }
 
     return () => {
-      clearTimer(activeRefreshTimerRef);
-      clearTimer(backgroundRefreshTimerRef);
+      clearRefreshTimer();
+      pendingPriorityRef.current = null;
 
       for (const socket of sockets) {
         socket.removeAllListeners();

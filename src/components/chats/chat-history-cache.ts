@@ -81,6 +81,38 @@ function serializeConversation(conversation: SharedInboxSelectedConversation): C
   };
 }
 
+function mergeCachedConversations(existing: CachedConversation | null, next: CachedConversation): CachedConversation {
+  if (!existing) {
+    return next;
+  }
+
+  const messages = new Map<string, CachedMessageItem>();
+
+  for (const message of existing.messages) {
+    messages.set(message.id, message);
+  }
+
+  for (const message of next.messages) {
+    messages.set(message.id, message);
+  }
+
+  return {
+    ...existing,
+    ...next,
+    messages: Array.from(messages.values()).sort((left, right) => {
+      const leftAt = new Date(left.createdAt).getTime();
+      const rightAt = new Date(right.createdAt).getTime();
+
+      if (leftAt !== rightAt) {
+        return leftAt - rightAt;
+      }
+
+      return left.id.localeCompare(right.id);
+    }),
+    cachedAt: Date.now(),
+  };
+}
+
 function hydrateConversation(conversation: CachedConversation): SharedInboxSelectedConversation {
   return {
     id: conversation.id,
@@ -89,6 +121,7 @@ function hydrateConversation(conversation: CachedConversation): SharedInboxSelec
     tags: conversation.tags,
     avatarUrl: conversation.avatarUrl ?? null,
     automationPaused: conversation.automationPaused,
+    loadMoreCursor: conversation.loadMoreCursor ?? null,
     messages: conversation.messages.map((message) => ({
       ...message,
       createdAt: new Date(message.createdAt),
@@ -99,10 +132,13 @@ function hydrateConversation(conversation: CachedConversation): SharedInboxSelec
 export function saveConversationToCache(conversation: SharedInboxSelectedConversation) {
   const store = readStore();
   const cachedConversation = serializeConversation(conversation);
-  store.conversations[conversation.id] = cachedConversation;
+  const existingConversation = store.conversations[conversation.id] ?? (conversation.cacheKey ? store.conversations[conversation.cacheKey] : null) ?? null;
+  const mergedConversation = mergeCachedConversations(existingConversation, cachedConversation);
+
+  store.conversations[conversation.id] = mergedConversation;
 
   if (conversation.cacheKey && conversation.cacheKey !== conversation.id) {
-    store.conversations[conversation.cacheKey] = cachedConversation;
+    store.conversations[conversation.cacheKey] = mergedConversation;
   }
   writeStore(trimStore(store));
 }
