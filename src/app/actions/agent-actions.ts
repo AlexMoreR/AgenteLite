@@ -32,6 +32,7 @@ import { resolveAgentProductFlowReply } from "@/lib/agent-product-flow";
 import { composeAgentWelcomeReply } from "@/lib/agent-reply-composer";
 import {
   deleteEvolutionInstance,
+  sendEvolutionImageMessage,
   sendEvolutionPresence,
   sendEvolutionTextMessage,
 } from "@/lib/evolution";
@@ -45,6 +46,7 @@ import {
   type PrimaryWorkspaceMembership,
 } from "@/lib/workspace";
 import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowItems";
+import { resolveEvolutionQuickResponseFlow } from "@/features/flows/services/resolveEvolutionQuickResponseFlow";
 
 const createAgentSchema = z.object({
   businessName: z.string().trim().min(2, "Nombre del negocio invalido").max(120, "Nombre demasiado largo"),
@@ -2313,13 +2315,14 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<vo
       channel: {
         select: {
           id: true,
+          provider: true,
           evolutionInstanceName: true,
         },
       },
     },
   });
 
-  if (!conversation || !conversation.channel?.evolutionInstanceName || !conversation.contact?.phoneNumber) {
+  if (!conversation || conversation.channel?.provider !== "EVOLUTION" || !conversation.channel.evolutionInstanceName || !conversation.contact?.phoneNumber) {
     if (parsed.data.returnTo) {
       redirect(`${parsed.data.returnTo}${parsed.data.returnTo.includes("?") ? "&" : "?"}error=No+se+encontro+el+canal+o+contacto`);
     }
@@ -2335,6 +2338,110 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<vo
     });
   } catch {
     // Si falla el indicador de escritura, igual enviamos el mensaje manual.
+  }
+
+  const quickResponseFlow = await resolveEvolutionQuickResponseFlow({
+    workspaceId: membership.workspace.id,
+    channelId: conversation.channel.id,
+    manualMessage: parsed.data.message,
+  });
+
+  if (quickResponseFlow) {
+    const reply = quickResponseFlow.reply;
+    const textToSend = reply.text?.trim() || "";
+    const imageToSend = reply.image;
+    const now = new Date();
+
+    const sendText = async (text: string, sourceType: "manual") => {
+      const outbound = await sendEvolutionTextMessage({
+        instanceName: conversation.channel!.evolutionInstanceName!,
+        phoneNumber: conversation.contact!.phoneNumber!,
+        text,
+      });
+
+      await prisma.message.create({
+        data: {
+          workspaceId: membership.workspace.id,
+          conversationId: conversation.id,
+          channelId: conversation.channel!.id,
+          contactId: conversation.contact!.id,
+          agentId: parsed.data.agentId,
+          externalId: outbound.externalId,
+          direction: "OUTBOUND",
+          type: "TEXT",
+          status: "SENT",
+          content: text,
+          sentAt: now,
+          rawPayload: {
+            source: sourceType,
+            evolution: outbound.raw,
+          } as never,
+        },
+      });
+    };
+
+    const sendImage = async (image: { url: string; caption: string | null }) => {
+      const outbound = await sendEvolutionImageMessage({
+        instanceName: conversation.channel!.evolutionInstanceName!,
+        phoneNumber: conversation.contact!.phoneNumber!,
+        imageUrl: image.url,
+        caption: image.caption,
+      });
+
+      await prisma.message.create({
+        data: {
+          workspaceId: membership.workspace.id,
+          conversationId: conversation.id,
+          channelId: conversation.channel!.id,
+          contactId: conversation.contact!.id,
+          agentId: parsed.data.agentId,
+          externalId: outbound.externalId,
+          direction: "OUTBOUND",
+          type: "IMAGE",
+          status: "SENT",
+          content: image.caption,
+          mediaUrl: image.url,
+          sentAt: now,
+          rawPayload: {
+            source: "manual",
+            evolution: outbound.raw,
+          } as never,
+        },
+      });
+    };
+
+    if (reply.imageFirst && imageToSend) {
+      await sendImage(imageToSend);
+    }
+
+    if (textToSend) {
+      await sendText(textToSend, "manual");
+    }
+
+    if (!reply.imageFirst && imageToSend) {
+      await sendImage(imageToSend);
+    }
+
+    await prisma.conversation.update({
+      where: { id: conversation.id },
+      data: {
+        lastMessageAt: now,
+        status: "OPEN",
+      },
+    });
+
+    await setConversationAutomationPaused({
+      conversationId: conversation.id,
+      paused: true,
+    });
+
+    if (parsed.data.returnTo) {
+      revalidatePath(parsed.data.returnTo);
+      redirect(`${parsed.data.returnTo}${parsed.data.returnTo.includes("?") ? "&" : "?"}ok=Flujo+enviado`);
+    }
+
+    revalidatePath(`/cliente/agentes/${parsed.data.agentId}/chats`);
+    redirect(`/cliente/agentes/${parsed.data.agentId}/chats?conversationId=${conversation.id}&ok=Flujo+enviado`);
   }
 
   const outbound = await sendEvolutionTextMessage({

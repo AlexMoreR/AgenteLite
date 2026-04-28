@@ -6,9 +6,10 @@ import { z } from "zod";
 import { auth } from "@/auth";
 import { canAccessOfficialApiModule } from "@/lib/admin-module-access";
 import { getOfficialApiConfigByWorkspaceId, hasOfficialApiBaseCredentials } from "@/lib/official-api-config";
-import { sendOfficialApiTextMessage } from "@/lib/official-api-messaging";
+import { sendOfficialApiImageMessage, sendOfficialApiTextMessage } from "@/lib/official-api-messaging";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
+import { resolveOfficialApiQuickResponseFlow } from "@/features/official-api/services/resolveOfficialApiQuickResponseFlow";
 
 const sendOfficialApiReplySchema = z.object({
   conversationId: z.string().trim().min(1),
@@ -77,6 +78,86 @@ export async function sendOfficialApiReplyAction(formData: FormData): Promise<vo
       redirect(`${parsed.data.returnTo}${parsed.data.returnTo.includes("?") ? "&" : "?"}error=No+se+encontro+el+contacto`);
     }
     redirect(`/cliente/api-oficial/chats?conversationId=${fallbackConversationId}&error=No+se+encontro+el+contacto`);
+  }
+
+  const quickResponseFlow = await resolveOfficialApiQuickResponseFlow({
+    configId: config.id,
+    manualMessage: parsed.data.message,
+  });
+
+  if (quickResponseFlow) {
+    const { reply } = quickResponseFlow;
+    const textToSend = reply.text?.trim() || "";
+    const imageToSend = reply.image;
+
+    if (reply.imageFirst && imageToSend) {
+      const imageResult = await sendOfficialApiImageMessage({
+        config,
+        conversationId: conversation.id,
+        contactId: conversation.contactId,
+        to: conversation.contactWaId,
+        imageUrl: imageToSend.url,
+        caption: imageToSend.caption,
+        source: "manual",
+      });
+
+      if (!imageResult.ok) {
+        revalidatePath("/cliente/api-oficial");
+        revalidatePath("/cliente/api-oficial/chats");
+        if (parsed.data.returnTo) {
+          redirect(`${parsed.data.returnTo}${parsed.data.returnTo.includes("?") ? "&" : "?"}error=${encodeURIComponent(imageResult.error)}`);
+        }
+        redirect(`/cliente/api-oficial/chats?conversationId=${conversation.id}&error=${encodeURIComponent(imageResult.error)}`);
+      }
+    }
+
+    if (textToSend) {
+      const textResult = await sendOfficialApiTextMessage({
+        config,
+        conversationId: conversation.id,
+        contactId: conversation.contactId,
+        to: conversation.contactWaId,
+        message: textToSend,
+        source: "manual",
+      });
+
+      if (!textResult.ok) {
+        revalidatePath("/cliente/api-oficial");
+        revalidatePath("/cliente/api-oficial/chats");
+        if (parsed.data.returnTo) {
+          redirect(`${parsed.data.returnTo}${parsed.data.returnTo.includes("?") ? "&" : "?"}error=${encodeURIComponent(textResult.error)}`);
+        }
+        redirect(`/cliente/api-oficial/chats?conversationId=${conversation.id}&error=${encodeURIComponent(textResult.error)}`);
+      }
+    }
+
+    if (!reply.imageFirst && imageToSend) {
+      const imageResult = await sendOfficialApiImageMessage({
+        config,
+        conversationId: conversation.id,
+        contactId: conversation.contactId,
+        to: conversation.contactWaId,
+        imageUrl: imageToSend.url,
+        caption: imageToSend.caption,
+        source: "manual",
+      });
+
+      if (!imageResult.ok) {
+        revalidatePath("/cliente/api-oficial");
+        revalidatePath("/cliente/api-oficial/chats");
+        if (parsed.data.returnTo) {
+          redirect(`${parsed.data.returnTo}${parsed.data.returnTo.includes("?") ? "&" : "?"}error=${encodeURIComponent(imageResult.error)}`);
+        }
+        redirect(`/cliente/api-oficial/chats?conversationId=${conversation.id}&error=${encodeURIComponent(imageResult.error)}`);
+      }
+    }
+
+    revalidatePath("/cliente/api-oficial");
+    revalidatePath("/cliente/api-oficial/chats");
+    if (parsed.data.returnTo) {
+      redirect(`${parsed.data.returnTo}${parsed.data.returnTo.includes("?") ? "&" : "?"}ok=Flujo+enviado`);
+    }
+    redirect(`/cliente/api-oficial/chats?conversationId=${conversation.id}&ok=Flujo+enviado`);
   }
 
   const result = await sendOfficialApiTextMessage({
