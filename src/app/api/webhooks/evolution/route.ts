@@ -519,6 +519,30 @@ export async function POST(request: Request) {
       const imageReplyReason = hardFlowReply ? "flow" : knowledgeBaseReply ? "knowledge" : null;
       let followUpText: string | null = null;
 
+      const generateContextualFollowUp = async (
+        actionContext: string,
+        history: Array<{
+          direction: "INBOUND" | "OUTBOUND";
+          content: string | null;
+          type?: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT" | "TEMPLATE" | "INTERACTIVE" | "SYSTEM";
+          mediaUrl?: string | null;
+        }>,
+      ) =>
+        generateAgentReply({
+          model: agent.model,
+          systemPrompt: `${agent.systemPrompt ?? ""}\n\nACCION: ${actionContext} Genera una sola pregunta comercial concreta que asuma que ya se ejecuto la accion y lleve al siguiente paso (compra, reserva, consulta de precio, etc). Sin repetir la informacion ya enviada. Maximo 1-2 lineas.`,
+          rawSystemPrompt: true,
+          fallbackMessage: null,
+          history,
+          latestUserMessage: messageText,
+        })
+          .then((t) => t?.trim() || null)
+          .catch(() => null);
+
+      const flowFollowUpContext = hardFlowReply
+        ? `El flujo "${hardFlowReply.flowTitle}" ya fue ejecutado para "${hardFlowReply.productName || "el producto"}".`
+        : null;
+
       if (replyText || knowledgeImageReply || hardFlowImageReply) {
         try {
           console.log("[EVOLUTION] auto_reply_sending", {
@@ -604,24 +628,15 @@ export async function POST(request: Request) {
                   imageReplyReason === "flow"
                     ? `La imagen del flujo ya fue enviada para "${imageReplyProductName || "el producto"}".`
                     : `La imagen del producto ya fue enviada para "${imageReplyProductName || "el producto"}".`;
-                followUpText = await generateAgentReply({
-                  model: agent.model,
-                  systemPrompt: `${agent.systemPrompt ?? ""}\n\nACCION: ${imageContext} Genera una sola pregunta comercial concreta que asuma que la imagen ya salio y lleve al siguiente paso (compra, reserva, consulta de precio, etc). Sin repetir la informacion de la imagen. Maximo 1-2 lineas.`,
-                  rawSystemPrompt: true,
-                  fallbackMessage: null,
-                  history: [
-                    ...recentMessages,
-                    {
-                      direction: "OUTBOUND",
-                      type: "IMAGE",
-                      mediaUrl: imageReply.url,
-                      content: imageReply.caption || `Imagen enviada de ${imageReplyProductName || "producto"}`,
-                    },
-                  ],
-                  latestUserMessage: messageText,
-                })
-                  .then((t) => t?.trim() || null)
-                  .catch(() => null);
+                followUpText = await generateContextualFollowUp(imageContext, [
+                  ...recentMessages,
+                  {
+                    direction: "OUTBOUND",
+                    type: "IMAGE",
+                    mediaUrl: imageReply.url,
+                    content: imageReply.caption || `Imagen enviada de ${imageReplyProductName || "producto"}`,
+                  },
+                ]);
               }
 
               if (replyText) {
@@ -629,6 +644,17 @@ export async function POST(request: Request) {
               }
             } else {
               await sendText();
+            }
+
+            if (!followUpText && hardFlowReply && flowFollowUpContext) {
+              followUpText = await generateContextualFollowUp(flowFollowUpContext, [
+                ...recentMessages,
+                {
+                  direction: "OUTBOUND",
+                  type: "TEXT",
+                  content: replyText || hardFlowReply.reply || `Flujo ejecutado para ${hardFlowReply.productName || "el producto"}`,
+                },
+              ]);
             }
 
             if (followUpText && channel.evolutionInstanceName) {
