@@ -785,7 +785,7 @@ export function SharedInbox({
   const liveOrCachedConversation = mergeConversationSnapshots(selectedConversation ?? null, effectiveLiveConversation ?? cachedSelectedConversation);
 
   useEffect(() => {
-    if (effectiveLiveConversation) {
+    if (effectiveLiveConversation && liveOrCachedConversation) {
       saveConversationToCache(liveOrCachedConversation);
     }
   }, [effectiveLiveConversation, liveOrCachedConversation]);
