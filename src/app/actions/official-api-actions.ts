@@ -152,6 +152,9 @@ export async function sendOfficialApiReplyAction(formData: FormData): Promise<vo
       }
     }
 
+    if (parsed.data.returnTo) {
+      revalidatePath(parsed.data.returnTo);
+    }
     revalidatePath("/cliente/api-oficial");
     revalidatePath("/cliente/api-oficial/chats");
     if (parsed.data.returnTo) {
@@ -178,6 +181,9 @@ export async function sendOfficialApiReplyAction(formData: FormData): Promise<vo
     redirect(`/cliente/api-oficial/chats?conversationId=${conversation.id}&error=${encodeURIComponent(result.error)}`);
   }
 
+  if (parsed.data.returnTo) {
+    revalidatePath(parsed.data.returnTo);
+  }
   revalidatePath("/cliente/api-oficial");
   revalidatePath("/cliente/api-oficial/chats");
   if (parsed.data.returnTo) {

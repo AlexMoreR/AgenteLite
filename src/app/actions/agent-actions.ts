@@ -2286,6 +2286,7 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<vo
 
   const fallbackAgentId = String(formData.get("agentId") || "");
   const fallbackReturnTo = String(formData.get("returnTo") || "");
+  const returnToPath = parsed.success && parsed.data.returnTo ? parsed.data.returnTo.split("?")[0] : fallbackReturnTo.split("?")[0];
 
   if (!parsed.success) {
     if (fallbackReturnTo) {
@@ -2432,7 +2433,7 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<vo
     });
 
     if (parsed.data.returnTo) {
-      revalidatePath(parsed.data.returnTo);
+      revalidatePath(returnToPath);
       redirect(`${parsed.data.returnTo}${parsed.data.returnTo.includes("?") ? "&" : "?"}ok=Flujo+enviado`);
     }
 
@@ -2480,7 +2481,7 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<vo
   });
 
   if (parsed.data.returnTo) {
-    revalidatePath(parsed.data.returnTo);
+    revalidatePath(returnToPath);
     redirect(`${parsed.data.returnTo}${parsed.data.returnTo.includes("?") ? "&" : "?"}ok=Mensaje+enviado`);
   }
 
