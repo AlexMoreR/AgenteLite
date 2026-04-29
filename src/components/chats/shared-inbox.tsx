@@ -27,6 +27,7 @@ import { ConversationList } from "@/components/chats/conversation-list";
 import { EditContactModal } from "@/components/chats/edit-contact-modal";
 import { EtiquetaModal } from "@/components/chats/etiqueta-modal";
 import { Card } from "@/components/ui/card";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 const chatDateFormatter = new Intl.DateTimeFormat("en-CA");
 const chatDateLabelFormatter = new Intl.DateTimeFormat("es-CO", {
@@ -1038,20 +1039,33 @@ export function SharedInbox({
                     >
                       <ArrowLeft className="h-4 w-4" />
                   </Link>
-                  {renderedConversation.avatarUrl ? (
-                    <Image
-                      src={renderedConversation.avatarUrl}
-                      alt={renderedConversation.label}
-                      width={40}
-                      height={40}
-                      unoptimized
-                      className="h-10 w-10 shrink-0 rounded-2xl object-cover"
-                    />
-                  ) : (
-                    <div className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-sm font-semibold text-slate-700">
-                      {getInitials(renderedConversation.label)}
-                    </div>
-                  )}
+                  <TooltipProvider delayDuration={300}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="shrink-0 cursor-default">
+                          {renderedConversation.avatarUrl ? (
+                            <Image
+                              src={renderedConversation.avatarUrl}
+                              alt={renderedConversation.label}
+                              width={40}
+                              height={40}
+                              unoptimized
+                              className="h-10 w-10 rounded-2xl object-cover"
+                            />
+                          ) : (
+                            <div className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-100 text-sm font-semibold text-slate-700">
+                              {getInitials(renderedConversation.label)}
+                            </div>
+                          )}
+                        </div>
+                      </TooltipTrigger>
+                      {renderedConversation.secondaryLabel ? (
+                        <TooltipContent side="right">
+                          {renderedConversation.secondaryLabel}
+                        </TooltipContent>
+                      ) : null}
+                    </Tooltip>
+                  </TooltipProvider>
                     <div className="min-w-0 space-y-0.5">
                       <div className="flex min-w-0 items-center gap-1.5">
                         <h2 className="truncate text-[13px] font-semibold text-slate-950 md:text-sm">
@@ -1076,9 +1090,8 @@ export function SharedInbox({
                         <Tag className="h-3.5 w-3.5" />
                       </button>
                       </div>
-                      <p className="truncate text-xs text-slate-500">{renderedConversation.secondaryLabel}</p>
                       {renderedConversation.tags?.length ? (
-                        <div className="flex flex-wrap gap-1.5 pt-1">
+                        <div className="flex flex-wrap gap-1.5">
                           {renderedConversation.tags.map((tag) => (
                             <span
                               key={`${renderedConversation.id}:${tag.label}`}

@@ -34,7 +34,7 @@ function buildInstructions(input: GenerateAgentReplyInput) {
     "Usa el contexto del negocio y el historial de la conversacion cuando ayude.",
     "No inventes informacion que no tengas.",
     "Si falta contexto, haz una sola pregunta clara para avanzar.",
-    "FORMATO OBLIGATORIO: Cada respuesta debe tener al menos un dato en negrita WhatsApp con *asterisco simple*. Nombres de productos, precios y llamadas a accion siempre en negrita. Ejemplo correcto: 'Tenemos *camillas* ideales para spa desde *$800*. ¿Te *reservo* una?'. Nunca uses ** doble asterisco.",
+    "REGLA CRITICA DE FORMATO: Nunca envies un mensaje sin negrita. Pon en *asterisco simple* al menos el nombre del producto o servicio mencionado Y la llamada a la accion. Sin negrita tu respuesta esta incompleta. Ejemplo: 'Tenemos *camillas* ideales para spa. ¿Te *enviamos precios*?' — nunca ** doble asterisco.",
   ]
     .filter(Boolean)
     .join("\n\n");
