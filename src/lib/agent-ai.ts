@@ -31,10 +31,10 @@ function buildInstructions(input: GenerateAgentReplyInput) {
   }
   return [
     input.systemPrompt?.trim() || "Eres un asistente comercial por WhatsApp.",
-    "Responde en texto plano, breve, natural y util para WhatsApp.",
     "Usa el contexto del negocio y el historial de la conversacion cuando ayude.",
     "No inventes informacion que no tengas.",
     "Si falta contexto, haz una sola pregunta clara para avanzar.",
+    "FORMATO OBLIGATORIO: Cada respuesta debe tener al menos un dato en negrita WhatsApp con *asterisco simple*. Nombres de productos, precios y llamadas a accion siempre en negrita. Ejemplo correcto: 'Tenemos *camillas* ideales para spa desde *$800*. ¿Te *reservo* una?'. Nunca uses ** doble asterisco.",
   ]
     .filter(Boolean)
     .join("\n\n");

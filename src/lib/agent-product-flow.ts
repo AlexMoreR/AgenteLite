@@ -243,7 +243,7 @@ function scoreFlowIntentMatch(input: {
   latestText: string;
   recentContext: string;
   fullContext: string;
-}) {
+}): { score: number; hasLatestMatch: boolean } {
   const intentSource = [input.flow.intent, input.flow.title, input.flow.description ?? ""].filter(Boolean).join(" ");
   const intentTokens = tokenize(intentSource);
   const titleTokens = tokenize(input.flow.title);
@@ -251,27 +251,37 @@ function scoreFlowIntentMatch(input: {
   const context = input.fullContext || `${input.latestText} ${input.recentContext}`.trim();
 
   let score = 0;
+  let hasLatestMatch = false;
 
   for (const token of intentTokens) {
-    if (textMatchesToken(context, token)) {
-      score += 2;
-    }
-  }
-
-  for (const token of titleTokens) {
-    if (textMatchesToken(context, token)) {
+    if (textMatchesToken(input.latestText, token)) {
+      score += 4;
+      hasLatestMatch = true;
+    } else if (textMatchesToken(input.recentContext, token)) {
       score += 1;
     }
   }
 
-  if (intentPhrase && context.includes(intentPhrase)) {
-    score += 3;
+  for (const token of titleTokens) {
+    if (textMatchesToken(input.latestText, token)) {
+      score += 2;
+      hasLatestMatch = true;
+    } else if (textMatchesToken(input.recentContext, token)) {
+      score += 1;
+    }
   }
 
-  return score;
+  if (intentPhrase && input.latestText.includes(intentPhrase)) {
+    score += 5;
+    hasLatestMatch = true;
+  } else if (intentPhrase && context.includes(intentPhrase)) {
+    score += 1;
+  }
+
+  return { score, hasLatestMatch };
 }
 
-const FLOW_MATCH_THRESHOLD = 3;
+const FLOW_MATCH_THRESHOLD = 4;
 
 async function getFlowReply(input: {
   workspaceId: string;
@@ -373,7 +383,7 @@ export async function resolveAgentProductFlowReply(input: {
     let bestMatch: { flow: (typeof selectedFlows)[number]; score: number } | null = null;
 
     for (const flow of selectedFlows) {
-      const score = scoreFlowIntentMatch({
+      const { score, hasLatestMatch } = scoreFlowIntentMatch({
         flow: {
           title: flow.title,
           intent: flow.intent,
@@ -383,6 +393,8 @@ export async function resolveAgentProductFlowReply(input: {
         recentContext: normalizedRecentContext,
         fullContext: conversationContext.fullContext,
       });
+
+      if (!hasLatestMatch) continue;
 
       if (!bestMatch || score > bestMatch.score) {
         bestMatch = {
@@ -449,8 +461,7 @@ export async function resolveAgentProductFlowReply(input: {
 
     const productTokens = tokenize(`${row.productName} ${row.productDescription ?? ""}`);
     const latestMentionsProduct =
-      productTokens.some((token) => normalizedLatest.includes(token)) ||
-      productTokens.some((token) => textMatchesToken(normalizedRecentContext, token));
+      productTokens.some((token) => normalizedLatest.includes(token));
     const productGate = productTokens.length === 0 || latestMentionsProduct || referencedFlowIds.length > 0;
 
     if (!productGate) {
@@ -465,7 +476,7 @@ export async function resolveAgentProductFlowReply(input: {
         continue;
       }
 
-      const score = scoreFlowIntentMatch({
+      const { score, hasLatestMatch } = scoreFlowIntentMatch({
         flow: {
           title: flow.title,
           intent: flow.intent,
@@ -475,6 +486,8 @@ export async function resolveAgentProductFlowReply(input: {
         recentContext: normalizedRecentContext,
         fullContext: conversationContext.fullContext,
       });
+
+      if (!hasLatestMatch) continue;
 
       const referenceBonus = references.some((reference) => normalizeText(reference.title) === normalizeText(flow.title)) ? 2 : 0;
       const combinedScore = score + referenceBonus;

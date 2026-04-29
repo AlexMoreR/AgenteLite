@@ -307,7 +307,7 @@ export function buildAgentSystemPrompt(input: {
   ];
 
   const communicationDirectives = [
-    "Usa negrita solo para palabras clave o datos importantes, sin cambiar el significado ni agregar contenido extra.",
+    "En cada mensaje, aplica negrita de WhatsApp (*texto* con un solo asterisco) a: nombres de productos, precios, nombre del negocio y llamadas a la acción. No uses negrita en frases completas, solo en los datos clave.",
     "Si el cliente se desvía, redirige con sutileza y resuelve objeciones de forma discreta.",
     "Evita repetir respuestas para mantener la fluidez y el profesionalismo.",
     "Evita frases genéricas como '¿En qué puedo ayudarte?'; responde de forma proactiva según el contexto.",
@@ -317,7 +317,7 @@ export function buildAgentSystemPrompt(input: {
     "Adapta tu tono al del usuario, manteniendo respuestas breves, concisas y optimizadas para WhatsApp.",
     "Si el mensaje tiene 245 caracteres o menos, escribe un solo bloque.",
     "Si el mensaje supera 245 caracteres, usa máximo 3 párrafos con 2 saltos de línea entre ellos.",
-    "Resalta datos importantes en negrita para facilitar la visualización.",
+    "Resalta en negrita (*texto*) al menos un dato importante por mensaje: producto, precio, acción o nombre del negocio.",
     "Los enlaces deben enviarse con 2 saltos de línea, sin comillas ni artefactos de código.",
   ];
 
