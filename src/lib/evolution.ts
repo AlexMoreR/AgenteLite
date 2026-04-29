@@ -592,6 +592,51 @@ export async function sendEvolutionImageMessage(input: {
   }
 }
 
+export async function sendEvolutionDocumentMessage(input: {
+  instanceName: string;
+  phoneNumber: string;
+  documentUrl: string;
+  caption?: string | null;
+  fileName?: string | null;
+  delayMs?: number;
+}) {
+  const normalizedCaption = input.caption?.trim() || "";
+  const normalizedFileName = (() => {
+    if (input.fileName?.trim()) return input.fileName.trim();
+    try {
+      const pathname = new URL(input.documentUrl).pathname;
+      return pathname.split("/").pop()?.trim() || "documento.pdf";
+    } catch {
+      return "documento.pdf";
+    }
+  })();
+  const mimetype = normalizedFileName.endsWith(".pdf") ? "application/pdf" : "application/octet-stream";
+
+  const response = await evolutionRequest<EvolutionSendMediaResponse>(`/message/sendMedia/${input.instanceName}`, {
+    method: "POST",
+    body: JSON.stringify({
+      number: input.phoneNumber,
+      mediatype: "document",
+      mimetype,
+      caption: normalizedCaption,
+      media: input.documentUrl,
+      fileName: normalizedFileName,
+      delay: input.delayMs ?? 1200,
+    }),
+  });
+
+  const externalId =
+    response.key?.id ||
+    response.message?.key?.id ||
+    response.data?.key?.id ||
+    response.data?.id ||
+    response.id ||
+    response.messageId ||
+    null;
+
+  return { externalId, raw: response };
+}
+
 function isEvolutionConnectionClosedError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   return /connection closed/i.test(message);

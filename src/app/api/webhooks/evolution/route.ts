@@ -25,6 +25,7 @@ import {
 } from "@/lib/evolution-webhook";
 import {
   ensureEvolutionInstanceReady,
+  sendEvolutionDocumentMessage,
   sendEvolutionImageMessage,
   sendEvolutionPresence,
   sendEvolutionTextMessageWithReconnect,
@@ -495,6 +496,34 @@ export async function POST(request: Request) {
           });
         }
 
+        for (const doc of ownerTriggeredFlow.reply.documents ?? []) {
+          const docOutbound = await sendEvolutionDocumentMessage({
+            instanceName: channel.evolutionInstanceName,
+            phoneNumber,
+            documentUrl: doc.url,
+            caption: doc.caption,
+            fileName: doc.fileName,
+            delayMs: 0,
+          });
+          await prisma.message.create({
+            data: {
+              workspaceId: channel.workspaceId,
+              conversationId: conversation.id,
+              channelId: channel.id,
+              contactId: contact.id,
+              agentId: channel.agentId,
+              externalId: docOutbound.externalId,
+              direction: "OUTBOUND",
+              type: "DOCUMENT",
+              status: "SENT",
+              content: doc.caption,
+              mediaUrl: doc.url,
+              sentAt: new Date(),
+              rawPayload: docOutbound.raw as never,
+            },
+          });
+        }
+
         if (ownerTriggeredFlow.reply.text) {
           const textOutbound = await sendEvolutionTextMessageWithReconnect({
             instanceName: channel.evolutionInstanceName,
@@ -754,6 +783,10 @@ export async function POST(request: Request) {
       const hardFlowImageReply = shouldHandoffToHuman ? null : hardFlowReply?.image ?? null;
       const knowledgeImageReply = shouldHandoffToHuman ? null : knowledgeBaseReply?.image ?? null;
       const imageReply = quickResponseImageReply ?? hardFlowImageReply ?? knowledgeImageReply;
+      const documentReplies = shouldHandoffToHuman ? [] : [
+        ...(quickResponseFlow?.reply.documents ?? []),
+        ...(hardFlowReply?.documents ?? []),
+      ];
       const imageReplyProductName = quickResponseFlow?.scenarioTitle || hardFlowReply?.productName || knowledgeBaseReply?.productName || "";
       const imageReplyReason = shouldHandoffToHuman
         ? null
@@ -847,6 +880,34 @@ export async function POST(request: Request) {
                 },
               });
             };
+
+            for (const doc of documentReplies) {
+              const docOutbound = await sendEvolutionDocumentMessage({
+                instanceName: channel.evolutionInstanceName,
+                phoneNumber,
+                documentUrl: doc.url,
+                caption: doc.caption,
+                fileName: doc.fileName,
+                delayMs: 0,
+              });
+              await prisma.message.create({
+                data: {
+                  workspaceId: channel.workspaceId,
+                  conversationId: conversation.id,
+                  channelId: channel.id,
+                  contactId: contact.id,
+                  agentId: agent.id,
+                  externalId: docOutbound.externalId,
+                  direction: "OUTBOUND",
+                  type: "DOCUMENT",
+                  status: "SENT",
+                  content: doc.caption,
+                  mediaUrl: doc.url,
+                  sentAt: new Date(),
+                  rawPayload: docOutbound.raw as never,
+                },
+              });
+            }
 
             if (imageReply) {
               const imageOutbound = await sendEvolutionImageMessage({

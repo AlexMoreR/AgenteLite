@@ -24,6 +24,11 @@ type FlowReplyPayload = {
     caption: string | null;
   } | null;
   imageFirst: boolean;
+  documents: Array<{
+    url: string;
+    caption: string | null;
+    fileName: string | null;
+  }>;
 };
 
 function normalizeText(value: string) {
@@ -34,6 +39,18 @@ function normalizeText(value: string) {
     .replace(/[^a-z0-9\s]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+const AFFIRMATION_WORDS = new Set([
+  "si", "ok", "dale", "bueno", "claro", "listo", "perfecto",
+  "quiero", "enviame", "mandame", "mandalo", "envialo", "adelante",
+  "hagalo", "hagamoslo", "si por favor", "porfa", "porfavor", "sure", "yes",
+]);
+
+function isAffirmationMessage(normalizedText: string): boolean {
+  const words = normalizedText.split(" ").filter(Boolean);
+  if (words.length > 4) return false;
+  return words.every((w) => AFFIRMATION_WORDS.has(w) || w.length <= 2);
 }
 
 function tokenize(value: string) {
@@ -199,14 +216,21 @@ function getScenarioReplyFromState(input: {
   const imageUrl = imageNode?.meta.trim() || "";
   const imageCaption = imageNode?.body.trim() || null;
   const image = imageUrl && isValidHttpUrl(imageUrl)
-    ? {
-        url: imageUrl,
-        caption: imageCaption,
-      }
+    ? { url: imageUrl, caption: imageCaption }
     : null;
-  const text = replyNode?.body.trim() || image?.caption || null;
 
-  if (!text && !image) {
+  const documentNodes = candidateNodes.filter((node) => node.kind === "document" && isValidHttpUrl(node.meta.trim()));
+  const documents = documentNodes.map((node) => {
+    const url = node.meta.trim();
+    const fileName = (() => {
+      try { return new URL(url).pathname.split("/").pop()?.trim() || null; } catch { return null; }
+    })();
+    return { url, caption: node.body.trim() || null, fileName };
+  });
+
+  const text = replyNode?.body.trim() || null;
+
+  if (!text && !image && !documents.length) {
     return null;
   }
 
@@ -218,6 +242,7 @@ function getScenarioReplyFromState(input: {
     text,
     image,
     imageFirst,
+    documents,
   };
 }
 
@@ -250,8 +275,10 @@ function scoreFlowIntentMatch(input: {
   const intentPhrase = normalizeText(input.flow.intent);
   const context = input.fullContext || `${input.latestText} ${input.recentContext}`.trim();
 
+  const isAffirmation = isAffirmationMessage(input.latestText);
   let score = 0;
   let hasLatestMatch = false;
+  let contextScore = 0;
 
   for (const token of intentTokens) {
     if (textMatchesToken(input.latestText, token)) {
@@ -259,6 +286,7 @@ function scoreFlowIntentMatch(input: {
       hasLatestMatch = true;
     } else if (textMatchesToken(input.recentContext, token)) {
       score += 1;
+      contextScore += 1;
     }
   }
 
@@ -268,6 +296,7 @@ function scoreFlowIntentMatch(input: {
       hasLatestMatch = true;
     } else if (textMatchesToken(input.recentContext, token)) {
       score += 1;
+      contextScore += 1;
     }
   }
 
@@ -276,6 +305,13 @@ function scoreFlowIntentMatch(input: {
     hasLatestMatch = true;
   } else if (intentPhrase && context.includes(intentPhrase)) {
     score += 1;
+    contextScore += 1;
+  }
+
+  // Si el usuario confirma con una afirmación corta ("Si", "Ok", "Dale")
+  // y el contexto reciente tiene matches fuertes del flujo, lo ejecutamos.
+  if (isAffirmation && contextScore >= 2) {
+    hasLatestMatch = true;
   }
 
   return { score, hasLatestMatch };
@@ -419,6 +455,7 @@ export async function resolveAgentProductFlowReply(input: {
         reply: reply.text ?? "",
         image: reply.image,
         imageFirst: reply.imageFirst,
+        documents: reply.documents,
         flowTitle: selectedFlowMatch.flow.title,
         productName: null,
       };
@@ -515,6 +552,7 @@ export async function resolveAgentProductFlowReply(input: {
         reply: reply.text ?? "",
         image: reply.image,
         imageFirst: reply.imageFirst,
+        documents: reply.documents,
         flowTitle: bestMatch.flow.title,
         productName: row.productName,
       };

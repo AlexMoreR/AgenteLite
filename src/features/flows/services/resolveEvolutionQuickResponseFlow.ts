@@ -21,6 +21,11 @@ type QuickResponseFlowReply = {
     caption: string | null;
   } | null;
   imageFirst: boolean;
+  documents: Array<{
+    url: string;
+    caption: string | null;
+    fileName: string | null;
+  }>;
 };
 
 function normalizeText(value: string) {
@@ -96,14 +101,21 @@ function getScenarioReplyFromState(input: {
   const imageUrl = imageNode?.meta.trim() || "";
   const imageCaption = imageNode?.body.trim() || null;
   const image = imageUrl && isValidHttpUrl(imageUrl)
-    ? {
-        url: imageUrl,
-        caption: imageCaption,
-      }
+    ? { url: imageUrl, caption: imageCaption }
     : null;
-  const text = replyNode?.body.trim() || image?.caption || null;
 
-  if (!text && !image) {
+  const documentNodes = candidateNodes.filter((node) => node.kind === "document" && isValidHttpUrl(node.meta.trim()));
+  const documents = documentNodes.map((node) => {
+    const url = node.meta.trim();
+    const fileName = (() => {
+      try { return new URL(url).pathname.split("/").pop()?.trim() || null; } catch { return null; }
+    })();
+    return { url, caption: node.body.trim() || null, fileName };
+  });
+
+  const text = replyNode?.body.trim() || null;
+
+  if (!text && !image && !documents.length) {
     return null;
   }
 
@@ -115,6 +127,7 @@ function getScenarioReplyFromState(input: {
     text,
     image,
     imageFirst,
+    documents,
   };
 }
 
@@ -125,13 +138,9 @@ function normalizeScenarioReply(reply: QuickResponseFlowReply): QuickResponseFlo
 
   return {
     text: shouldSkipTextBecauseCaptionMatches ? null : text,
-    image: reply.image
-      ? {
-          url: reply.image.url,
-          caption: imageCaption,
-        }
-      : null,
+    image: reply.image ? { url: reply.image.url, caption: imageCaption } : null,
     imageFirst: reply.imageFirst,
+    documents: reply.documents,
   };
 }
 
