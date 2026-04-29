@@ -271,6 +271,8 @@ function scoreFlowIntentMatch(input: {
   return score;
 }
 
+const FLOW_MATCH_THRESHOLD = 3;
+
 async function getFlowReply(input: {
   workspaceId: string;
   flowId: string;
@@ -390,7 +392,7 @@ export async function resolveAgentProductFlowReply(input: {
       }
     }
 
-    return bestMatch && bestMatch.score >= 4 ? bestMatch : null;
+    return bestMatch && bestMatch.score >= FLOW_MATCH_THRESHOLD ? bestMatch : null;
   })();
 
   if (selectedFlowMatch) {
@@ -485,7 +487,7 @@ export async function resolveAgentProductFlowReply(input: {
       }
     }
 
-    if (!bestMatch || bestMatch.score < 4) {
+    if (!bestMatch || bestMatch.score < FLOW_MATCH_THRESHOLD) {
       continue;
     }
 

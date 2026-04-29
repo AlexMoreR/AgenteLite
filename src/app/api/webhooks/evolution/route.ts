@@ -308,11 +308,13 @@ export async function POST(request: Request) {
 
     const autoTagNewLeads =
       workspace &&
+      workspace.businessConfig !== null &&
       typeof workspace.businessConfig === "object" &&
       !Array.isArray(workspace.businessConfig) &&
       (workspace.businessConfig as { autoTagNewLeads?: unknown }).autoTagNewLeads !== false;
     const newLeadTagName =
       workspace &&
+      workspace.businessConfig !== null &&
       typeof workspace.businessConfig === "object" &&
       !Array.isArray(workspace.businessConfig) &&
       typeof (workspace.businessConfig as { newLeadTagName?: unknown }).newLeadTagName === "string"
@@ -692,7 +694,7 @@ export async function POST(request: Request) {
             workspaceId: channel.workspaceId,
             latestUserMessage: messageText,
             history: recentMessages,
-            includeOfficialApi: false,
+            includeOfficialApi: true,
           });
 
       const knowledgeBaseReply = hardFlowReply

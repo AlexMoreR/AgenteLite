@@ -1,6 +1,7 @@
 ﻿import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { sendUnifiedChatReplyAction, toggleConversationAutomationAction } from "@/app/actions/chats-actions";
+import { ClearChatButton } from "@/components/chats/clear-chat-button";
 import { ChatsAutoRefresh } from "@/components/agents/chats-auto-refresh";
 import { ChatsRealtimeSync } from "@/components/chats/chats-realtime-sync";
 import { SharedInbox } from "@/components/chats/shared-inbox";
@@ -147,11 +148,13 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
 
   const autoTagNewLeads =
     workspace &&
+    workspace.businessConfig !== null &&
     typeof workspace.businessConfig === "object" &&
     !Array.isArray(workspace.businessConfig) &&
     (workspace.businessConfig as { autoTagNewLeads?: unknown }).autoTagNewLeads !== false;
   const newLeadTagName =
     workspace &&
+    workspace.businessConfig !== null &&
     typeof workspace.businessConfig === "object" &&
     !Array.isArray(workspace.businessConfig) &&
     typeof (workspace.businessConfig as { newLeadTagName?: unknown }).newLeadTagName === "string"
@@ -699,16 +702,21 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         headerBadge={null}
         headerActions={
           selectedUnified?.source === "agent" && selectedConversation ? (
-            <FormActionSwitch
-              key={`automation-switch:${selectedConversation.id}`}
-              action={toggleConversationAutomationAction}
-              checked={!selectedConversation.automationPaused}
-              ariaLabel={selectedConversation.automationPaused ? "Reactivar IA" : "Pausar IA"}
-              hiddenFields={[
-                { name: "conversationId", value: selectedConversation.id },
-                { name: "returnTo", value: selectedChatHref },
-              ]}
-            />
+            <div key={`header-actions:${selectedConversation.id}`} className="flex items-center gap-1">
+              <ClearChatButton
+                conversationId={selectedConversation.id}
+                returnTo={selectedChatHref}
+              />
+              <FormActionSwitch
+                action={toggleConversationAutomationAction}
+                checked={!selectedConversation.automationPaused}
+                ariaLabel={selectedConversation.automationPaused ? "Reactivar IA" : "Pausar IA"}
+                hiddenFields={[
+                  { name: "conversationId", value: selectedConversation.id },
+                  { name: "returnTo", value: selectedChatHref },
+                ]}
+              />
+            </div>
           ) : null
         }
         composer={

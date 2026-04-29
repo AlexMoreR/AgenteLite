@@ -599,6 +599,7 @@ export function SharedInbox({
   const [conversationItems, setConversationItems] = useState<SharedInboxConversationItem[]>(conversations);
   const [optimisticConversation, setOptimisticConversation] = useState<SharedInboxSelectedConversation | null>(null);
   const [liveConversation, setLiveConversation] = useState<SharedInboxSelectedConversation | null>(null);
+  const [cachedSelectedConversation, setCachedSelectedConversation] = useState<SharedInboxSelectedConversation | null>(null);
   const [optimisticOutgoingMessage, setOptimisticOutgoingMessage] = useState<OptimisticDraftMessage | null>(null);
   const [editContactOpen, setEditContactOpen] = useState(false);
   const handleCloseEditContact = useCallback(() => setEditContactOpen(false), []);
@@ -625,6 +626,10 @@ export function SharedInbox({
       saveConversationToCache(selectedConversation);
     }
   }, [selectedConversation]);
+
+  useEffect(() => {
+    setCachedSelectedConversation(selectedConversation ? readConversationFromCache(selectedConversation.id) : null);
+  }, [selectedConversation?.id]);
 
   useEffect(() => {
     setConversationItems(conversations);
@@ -826,7 +831,6 @@ export function SharedInbox({
     return () => window.clearTimeout(timer);
   }, [pendingConversation?.id, selectedConversationId]);
 
-  const cachedSelectedConversation = selectedConversation ? readConversationFromCache(selectedConversation.id) : null;
   const effectiveLiveConversation =
     liveConversation && conversationIdMatchesKey(selectedConversationId, liveConversation.id) ? liveConversation : null;
   const liveOrCachedConversation = mergeConversationSnapshots(selectedConversation ?? null, effectiveLiveConversation ?? cachedSelectedConversation);

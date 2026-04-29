@@ -241,6 +241,48 @@ export async function toggleConversationAutomationAction(formData: FormData): Pr
   );
 }
 
+const clearConversationSchema = z.object({
+  conversationId: z.string().trim().min(1),
+  returnTo: z.string().trim().min(1).max(500),
+});
+
+export async function clearConversationMessagesAction(formData: FormData): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+    redirect("/unauthorized");
+  }
+
+  const parsed = clearConversationSchema.safeParse({
+    conversationId: formData.get("conversationId"),
+    returnTo: formData.get("returnTo"),
+  });
+
+  if (!parsed.success) {
+    redirect("/cliente/chats?error=Datos+invalidos");
+  }
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    redirect("/cliente/chats?error=Workspace+no+encontrado");
+  }
+
+  const conversation = await prisma.conversation.findFirst({
+    where: { id: parsed.data.conversationId, workspaceId: membership.workspace.id },
+    select: { id: true },
+  });
+
+  if (!conversation) {
+    redirect(`${parsed.data.returnTo}${parsed.data.returnTo.includes("?") ? "&" : "?"}error=Conversacion+no+encontrada`);
+  }
+
+  await prisma.message.deleteMany({
+    where: { conversationId: conversation.id, workspaceId: membership.workspace.id },
+  });
+
+  revalidatePath("/cliente/chats");
+  redirect(`${parsed.data.returnTo}${parsed.data.returnTo.includes("?") ? "&" : "?"}ok=Chat+limpiado`);
+}
+
 export type EtiquetaItem = { id: string; name: string; color: string };
 
 export async function getEtiquetasAction(): Promise<{ items?: EtiquetaItem[]; error?: string }> {
