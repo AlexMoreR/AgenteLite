@@ -20,7 +20,8 @@ const builderSchema = z.object({
     z.object({
       id: z.string().trim().min(1).max(120),
       title: z.string().trim().min(1).max(120),
-      summary: z.string().trim().min(1).max(4096),
+      intent: z.string().trim().max(4096).optional(),
+      summary: z.string().trim().max(4096).optional(),
       messages: z.array(
         z.object({
           id: z.string().trim().min(1).max(120),
@@ -89,7 +90,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: "Configuracion invalida del chatbot." }, { status: 400 });
   }
 
-  await saveOfficialApiChatbotBuilderState(config.id, parsed.data);
+  await saveOfficialApiChatbotBuilderState(config.id, {
+    ...parsed.data,
+    scenarios: parsed.data.scenarios.map((scenario) => ({
+      ...scenario,
+      intent: scenario.intent?.trim() || scenario.summary?.trim() || "Intencion personalizada del builder.",
+    })),
+  });
 
   return NextResponse.json({ ok: true });
 }
