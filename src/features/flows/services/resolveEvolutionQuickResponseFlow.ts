@@ -71,6 +71,22 @@ function getPrimaryPathNodeIds(nodes: BuilderNode[], edges: BuilderEdge[]) {
   return orderedIds;
 }
 
+function extractDocumentFileName(nodeTitle: string, url: string): string | null {
+  const titleTrimmed = nodeTitle.trim();
+  if (titleTrimmed && /\.[a-zA-Z0-9]{2,5}$/.test(titleTrimmed)) {
+    return titleTrimmed;
+  }
+
+  try {
+    const raw = new URL(url).pathname.split("/").pop()?.trim() || "";
+    if (!raw) return null;
+    const cleaned = raw.replace(/^\d{10,}-/, "").replace(/_/g, " ");
+    return cleaned || raw;
+  } catch {
+    return null;
+  }
+}
+
 function isValidHttpUrl(value: string) {
   try {
     const url = new URL(value);
@@ -107,9 +123,7 @@ function getScenarioReplyFromState(input: {
   const documentNodes = candidateNodes.filter((node) => node.kind === "document" && isValidHttpUrl(node.meta.trim()));
   const documents = documentNodes.map((node) => {
     const url = node.meta.trim();
-    const fileName = (() => {
-      try { return new URL(url).pathname.split("/").pop()?.trim() || null; } catch { return null; }
-    })();
+    const fileName = extractDocumentFileName(node.title, url);
     return { url, caption: node.body.trim() || null, fileName };
   });
 

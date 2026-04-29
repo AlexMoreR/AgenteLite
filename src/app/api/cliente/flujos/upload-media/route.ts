@@ -88,17 +88,26 @@ export async function POST(request: Request) {
   await mkdir(uploadDir, { recursive: true });
 
   const ext = getSafeMediaExtension(file.name);
-  const fileName = `${Date.now()}-${randomUUID()}${ext}`;
+  const originalName = path.basename(file.name, path.extname(file.name))
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^\w\s-]/g, "")
+    .replace(/\s+/g, "_")
+    .trim()
+    .slice(0, 60);
+  const fileName = `${Date.now()}-${originalName || randomUUID()}${ext}`;
   const filePath = path.join(uploadDir, fileName);
   const bytes = Buffer.from(await file.arrayBuffer());
   await writeFile(filePath, bytes);
 
   const relativeUrl = `/uploads/chatbot-flows/${fileName}`;
   const baseUrl = getBaseUrl(request);
+  const displayName = `${originalName || path.basename(file.name, ext)}${ext}`;
 
   return NextResponse.json({
     ok: true,
     url: baseUrl ? `${baseUrl}${relativeUrl}` : relativeUrl,
     relativeUrl,
+    fileName: displayName,
   });
 }

@@ -1530,14 +1530,18 @@ export function OfficialApiChatbotWorkspace({
         body: formData,
       });
       const payload = (await response.json().catch(() => null)) as
-        | { ok?: boolean; url?: string; error?: string }
+        | { ok?: boolean; url?: string; fileName?: string; error?: string }
         | null;
 
       if (!response.ok || !payload?.ok || !payload.url) {
         throw new Error(payload?.error || `No se pudo subir el ${uploadLabel}.`);
       }
 
-      updateNode(selectedNode.id, { meta: payload.url });
+      const nodeUpdates: Record<string, string> = { meta: payload.url };
+      if (selectedNode.kind === "document" && payload.fileName) {
+        nodeUpdates.title = payload.fileName;
+      }
+      updateNode(selectedNode.id, nodeUpdates);
       toast.success(`${uploadLabel[0].toUpperCase()}${uploadLabel.slice(1)} subido`, {
         description: "La URL quedo cargada en el nodo.",
       });
