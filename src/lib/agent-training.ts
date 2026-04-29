@@ -121,6 +121,7 @@ export type AgentKnowledgePromptProduct = {
 
 export type AgentKnowledgePromptFlow = {
   title: string;
+  intent?: string | null;
   description?: string | null;
   sourceLabel?: string | null;
 };
@@ -383,6 +384,9 @@ export function buildAgentSystemPrompt(input: {
       }
 
       const summary = [`Flujo disponible: ${title}`];
+      if (flow.intent?.trim()) {
+        summary.push(`Intencion: ${flow.intent.trim()}`);
+      }
       if (flow.sourceLabel?.trim()) {
         summary.push(`Origen: ${flow.sourceLabel.trim()}`);
       }
@@ -395,7 +399,7 @@ export function buildAgentSystemPrompt(input: {
     .filter((item): item is string => Boolean(item));
 
   const flowKnowledgeSection = knowledgeFlows.length
-    ? `CONOCIMIENTO DE FLUJOS\n- ${knowledgeFlows.join("\n- ")}\n- Si una conversacion coincide con uno de estos recorridos, guia al cliente hacia ese flujo o explica el siguiente paso con claridad.\n- No inventes automatizaciones ni pasos que no existan en esta base.`
+    ? `CONOCIMIENTO DE FLUJOS\n- ${knowledgeFlows.join("\n- ")}\n- Si la conversacion coincide con la intencion de uno de estos recorridos, ejecútalo o guia al cliente hacia ese flujo con claridad.\n- No inventes automatizaciones ni pasos que no existan en esta base.`
     : null;
 
   const sections = [

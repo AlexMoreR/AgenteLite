@@ -672,7 +672,10 @@ export function OfficialApiChatbotWorkspace({
   const [blockLibrarySection, setBlockLibrarySection] = useState<"root" | "send">("root");
   const [isCreatingWorkflow, setIsCreatingWorkflow] = useState(false);
   const [newWorkflowTitle, setNewWorkflowTitle] = useState("");
-  const [newWorkflowSummary, setNewWorkflowSummary] = useState("");
+  const [newWorkflowIntent, setNewWorkflowIntent] = useState("");
+  const [isEditingWorkflowIntent, setIsEditingWorkflowIntent] = useState(false);
+  const [editingWorkflowIntentDraft, setEditingWorkflowIntentDraft] = useState("");
+  const [editingWorkflowIntentScenarioId, setEditingWorkflowIntentScenarioId] = useState("");
   const [isUploadingNodeImage, setIsUploadingNodeImage] = useState(false);
   const [nodeImageUploadError, setNodeImageUploadError] = useState("");
   const [openMenuScenarioId, setOpenMenuScenarioId] = useState("");
@@ -705,14 +708,79 @@ export function OfficialApiChatbotWorkspace({
 
   function openCreateWorkflowModal() {
     setNewWorkflowTitle("");
-    setNewWorkflowSummary("");
+    setNewWorkflowIntent("");
     setIsCreatingWorkflow(true);
   }
 
   function closeCreateWorkflowModal() {
     setIsCreatingWorkflow(false);
     setNewWorkflowTitle("");
-    setNewWorkflowSummary("");
+    setNewWorkflowIntent("");
+  }
+
+  function openEditWorkflowIntentModal(scenario: OfficialApiChatbotScenario) {
+    setOpenMenuScenarioId("");
+    setEditingWorkflowIntentScenarioId(scenario.id);
+    setEditingWorkflowIntentDraft(scenario.intent || "");
+    setIsEditingWorkflowIntent(true);
+  }
+
+  function closeEditWorkflowIntentModal() {
+    setIsEditingWorkflowIntent(false);
+    setEditingWorkflowIntentScenarioId("");
+    setEditingWorkflowIntentDraft("");
+  }
+
+  function saveWorkflowIntent() {
+    const scenarioId = editingWorkflowIntentScenarioId.trim();
+    const intent = editingWorkflowIntentDraft.trim();
+    if (!scenarioId) {
+      closeEditWorkflowIntentModal();
+      return;
+    }
+
+    if (!intent) {
+      toast.error("Completa la intención", {
+        description: "Escribe una intención antes de guardarla.",
+      });
+      return;
+    }
+
+    const nextScenarios = scenarios.map((scenario) =>
+      scenario.id === scenarioId ? { ...scenario, intent } : scenario,
+    );
+
+    setScenarios(nextScenarios);
+    closeEditWorkflowIntentModal();
+
+    startSaving(async () => {
+      try {
+        await persistBuilderState({
+          selectedScenarioId,
+          scenarios: nextScenarios,
+          nodesByScenarioId,
+          nodePositionsByScenarioId,
+          edgesByScenarioId,
+          successMessage: "Intención actualizada",
+        });
+        lastAutoSavedSnapshotRef.current = buildAutoSaveSnapshot({
+          selectedScenarioId,
+          scenarios: nextScenarios,
+          nodesByScenarioId,
+          nodePositionsByScenarioId,
+          edgesByScenarioId,
+          businessHours,
+          captureLeadEnabled,
+          handoffEnabled,
+          fallbackEnabled,
+          replyEveryMessageEnabled,
+        });
+      } catch {
+        toast.error("No se pudo guardar", {
+          description: "Ocurrio un error al guardar la intención del flujo.",
+        });
+      }
+    });
   }
 
   function buildAutoSaveSnapshot(input: {
@@ -1007,7 +1075,7 @@ export function OfficialApiChatbotWorkspace({
 
   function createWorkflow() {
     const title = newWorkflowTitle.trim();
-    const summary = newWorkflowSummary.trim();
+    const intent = newWorkflowIntent.trim();
     if (!title) {
       toast.error("Completa el flujo", {
         description: "Agrega el nombre antes de crear el flujo.",
@@ -1018,7 +1086,7 @@ export function OfficialApiChatbotWorkspace({
     const nextScenario: OfficialApiChatbotScenario = {
       id: createWorkflowId(),
       title,
-      summary: summary || "Flujo personalizado creado desde el builder.",
+      intent: intent || "Intención personalizada creada desde el builder.",
       messages: [],
     };
 
@@ -1065,7 +1133,7 @@ export function OfficialApiChatbotWorkspace({
     });
   }
 
-  function updateSelectedWorkflow(patch: Partial<Pick<OfficialApiChatbotScenario, "title" | "summary">>) {
+  function updateSelectedWorkflow(patch: Partial<Pick<OfficialApiChatbotScenario, "title" | "intent">>) {
     if (!selectedScenario) {
       return;
     }
@@ -1686,6 +1754,17 @@ export function OfficialApiChatbotWorkspace({
                       </button>
                       <button
                         type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openEditWorkflowIntentModal(scenario);
+                          }}
+                        className="flex w-full items-center gap-2 whitespace-nowrap px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50"
+                      >
+                        <FileText className="h-4 w-4" />
+                        Editar intención
+                      </button>
+                      <button
+                        type="button"
                         onClick={(event) => {
                           event.stopPropagation();
                           handleDeleteRequest(scenario);
@@ -1971,10 +2050,10 @@ export function OfficialApiChatbotWorkspace({
                         />
                       </label>
                       <label className="block space-y-2">
-                        <span className="text-sm font-medium text-slate-900">Resumen del flujo</span>
+                        <span className="text-sm font-medium text-slate-900">Intención del flujo</span>
                         <textarea
-                          value={selectedScenario.summary}
-                          onChange={(event) => updateSelectedWorkflow({ summary: event.target.value })}
+                          value={selectedScenario.intent}
+                          onChange={(event) => updateSelectedWorkflow({ intent: event.target.value })}
                           className="field-textarea min-h-24"
                         />
                       </label>
@@ -2110,15 +2189,15 @@ export function OfficialApiChatbotWorkspace({
                 </label>
 
                 <label className="block space-y-2">
-                  <span className="text-sm font-medium text-slate-900">Resumen del flujo</span>
+                  <span className="text-sm font-medium text-slate-900">Intención del flujo</span>
                   <textarea
-                    value={newWorkflowSummary}
-                    onChange={(event) => setNewWorkflowSummary(event.target.value)}
+                    value={newWorkflowIntent}
+                    onChange={(event) => setNewWorkflowIntent(event.target.value)}
                     className="field-textarea min-h-24"
-                    placeholder="Ej. Se activa cuando el cliente pide precios, compara opciones o quiere avanzar a compra."
+                    placeholder="Ej. Intención de precio: cuando el cliente pide precios, compara opciones o quiere avanzar a compra."
                   />
                   <p className="text-xs leading-5 text-slate-500">
-                    Describe cuándo debe activarse este flujo, qué dispara su uso y qué resultado debe conseguir. Si lo dejas vacío, se guardará un resumen base.
+                    Describe qué intención debe detectar el agente, qué dispara su uso y qué resultado debe conseguir. Si lo dejas vacío, se guardará una intención base.
                   </p>
                 </label>
 
@@ -2283,6 +2362,57 @@ export function OfficialApiChatbotWorkspace({
                 <Button type="button" onClick={() => setIsQuickResponsesModalOpen(false)}>
                   Cerrar
                 </Button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+        {isEditingWorkflowIntent ? (
+          <div className="absolute inset-0 z-40 flex items-center justify-center bg-slate-950/25 p-6 backdrop-blur-[2px]">
+            <div className="w-full max-w-xl overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_30px_80px_-48px_rgba(15,23,42,0.32)]">
+              <div className="relative border-b border-slate-200 px-6 py-5">
+                  <button
+                    type="button"
+                    onClick={closeEditWorkflowIntentModal}
+                  className="absolute right-4 top-4 inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                  aria-label="Cerrar editor de intención"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
+                    <FileText className="h-4 w-4" />
+                  </span>
+                  <div>
+                    <p className="text-lg font-semibold text-slate-950">Editar intención</p>
+                    <p className="text-sm text-slate-500">
+                      {scenarios.find((scenario) => scenario.id === editingWorkflowIntentScenarioId)?.title ?? "Flujo"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-4 px-6 py-5">
+                <label className="block space-y-2">
+                  <span className="text-sm font-medium text-slate-900">Intención del flujo</span>
+                  <textarea
+                    value={editingWorkflowIntentDraft}
+                    onChange={(event) => setEditingWorkflowIntentDraft(event.target.value)}
+                    className="field-textarea min-h-28"
+                    placeholder="Describe qué intención debe detectar el agente y qué debe lograr."
+                  />
+                  <p className="text-xs leading-5 text-slate-500">
+                    Usa una frase concreta que le sirva al agente para reconocer la intención correcta.
+                  </p>
+                </label>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-6 py-4">
+                  <Button type="button" variant="outline" onClick={closeEditWorkflowIntentModal}>
+                    Cancelar
+                  </Button>
+                  <Button type="button" onClick={saveWorkflowIntent}>
+                    Guardar
+                  </Button>
               </div>
             </div>
           </div>

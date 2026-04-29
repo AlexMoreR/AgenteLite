@@ -119,7 +119,25 @@ export async function getEvolutionFlowData(workspaceId: string, channelId: strin
         message: "Voy a dejar tu caso listo para que una persona del equipo te continúe atendiendo.",
       },
     ],
-    scenarios: Array.isArray(savedState.scenarios) ? (savedState.scenarios as OfficialApiChatbotData["scenarios"]) : [],
+    scenarios: Array.isArray(savedState.scenarios)
+      ? (savedState.scenarios as Array<OfficialApiChatbotData["scenarios"][number] & { summary?: string | null }>).map((scenario, index) => ({
+          id: typeof scenario.id === "string" && scenario.id.trim() ? scenario.id.trim() : `workflow-${index + 1}`,
+          title: typeof scenario.title === "string" && scenario.title.trim() ? scenario.title.trim() : `Workflow ${index + 1}`,
+          intent:
+            typeof scenario.intent === "string" && scenario.intent.trim()
+              ? scenario.intent.trim()
+              : typeof scenario.summary === "string" && scenario.summary.trim()
+                ? scenario.summary.trim()
+                : "Intencion personalizada del builder.",
+          messages: Array.isArray(scenario.messages)
+            ? scenario.messages.map((message) => ({
+                id: typeof message.id === "string" && message.id.trim() ? message.id.trim() : `message-${index + 1}`,
+                direction: message.direction === "bot" ? "bot" : "inbound",
+                content: typeof message.content === "string" ? message.content : "",
+              }))
+            : [],
+        }))
+      : [],
     checklist: [
       {
         id: "connect",

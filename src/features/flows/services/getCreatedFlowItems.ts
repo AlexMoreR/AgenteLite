@@ -10,6 +10,7 @@ export type CreatedFlowItem = {
   sourceType: CreatedFlowSourceType;
   sourceId: string;
   title: string;
+  intent: string;
   description: string;
   badge: string;
   href: string;
@@ -59,7 +60,8 @@ export async function getCreatedFlowItems(input: {
         sourceType: "official-api",
         sourceId: officialConfig.id,
         title: scenario.title,
-        description: scenario.summary,
+        intent: scenario.intent,
+        description: scenario.intent,
         badge: "Meta",
         href: `/cliente/flujos/${encodeURIComponent(scenario.id)}?sourceType=official-api`,
       });
@@ -79,12 +81,18 @@ export async function getCreatedFlowItems(input: {
       const scenario = rawScenario as {
         id?: unknown;
         title?: unknown;
+        intent?: unknown;
         summary?: unknown;
       };
 
       const scenarioId = typeof scenario.id === "string" ? scenario.id.trim() : "";
       const title = typeof scenario.title === "string" ? scenario.title.trim() : "";
-      const description = typeof scenario.summary === "string" ? scenario.summary.trim() : "";
+      const description =
+        typeof scenario.intent === "string"
+          ? scenario.intent.trim()
+          : typeof scenario.summary === "string"
+            ? scenario.summary.trim()
+            : "";
 
       if (!scenarioId || !title) {
         continue;
@@ -100,6 +108,12 @@ export async function getCreatedFlowItems(input: {
         sourceType: "evolution",
         sourceId: channel.id,
         title,
+        intent:
+          typeof scenario.intent === "string"
+            ? scenario.intent.trim()
+            : typeof scenario.summary === "string"
+              ? scenario.summary.trim()
+              : "",
         description: description || `Flujo creado en ${channel.name}.`,
         badge: "Evolution",
         href: `/cliente/flujos/${encodeURIComponent(scenarioId)}?sourceType=evolution&sourceId=${encodeURIComponent(channel.id)}`,

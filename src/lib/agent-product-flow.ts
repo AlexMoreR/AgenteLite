@@ -4,6 +4,7 @@ import type {
 } from "@/features/official-api/types/official-api";
 import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowItems";
 import { getOfficialApiChatbotBuilderState } from "@/lib/official-api-chatbot";
+import { defaultAgentTrainingConfig, parseAgentTrainingConfig } from "@/lib/agent-training";
 import { prisma } from "@/lib/prisma";
 
 type ConversationLine = {
@@ -109,19 +110,6 @@ function textMatchesToken(normalizedText: string, token: string) {
   return normalizedText
     .split(" ")
     .some((word) => Math.abs(word.length - token.length) <= 2 && levenshteinDistance(word, token) <= 2);
-}
-
-function buildTriggerTokens(beforeText: string, productTokens: string[], flowTitle: string) {
-  const productTokenSet = new Set(productTokens);
-  const flowTitleTokenSet = new Set(tokenize(flowTitle));
-
-  return tokenize(beforeText).filter((token) => {
-    if (productTokenSet.has(token) || flowTitleTokenSet.has(token)) {
-      return false;
-    }
-
-    return true;
-  });
 }
 
 function extractFlowReferences(instructions: string, availableFlowTitles: string[]): FlowReference[] {
@@ -233,6 +221,56 @@ function getScenarioReplyFromState(input: {
   };
 }
 
+function buildConversationContext(latestUserMessage: string, history: ConversationLine[]) {
+  const recentContext = history
+    .slice(-6)
+    .map((line) => line.content ?? "")
+    .join(" ");
+
+  return {
+    latestText: normalizeText(latestUserMessage),
+    recentContext: normalizeText(recentContext),
+    fullContext: normalizeText(`${latestUserMessage} ${recentContext}`),
+  };
+}
+
+function scoreFlowIntentMatch(input: {
+  flow: {
+    title: string;
+    intent: string;
+    description?: string | null;
+  };
+  latestText: string;
+  recentContext: string;
+  fullContext: string;
+}) {
+  const intentSource = [input.flow.intent, input.flow.title, input.flow.description ?? ""].filter(Boolean).join(" ");
+  const intentTokens = tokenize(intentSource);
+  const titleTokens = tokenize(input.flow.title);
+  const intentPhrase = normalizeText(input.flow.intent);
+  const context = input.fullContext || `${input.latestText} ${input.recentContext}`.trim();
+
+  let score = 0;
+
+  for (const token of intentTokens) {
+    if (textMatchesToken(context, token)) {
+      score += 2;
+    }
+  }
+
+  for (const token of titleTokens) {
+    if (textMatchesToken(context, token)) {
+      score += 1;
+    }
+  }
+
+  if (intentPhrase && context.includes(intentPhrase)) {
+    score += 3;
+  }
+
+  return score;
+}
+
 async function getFlowReply(input: {
   workspaceId: string;
   flowId: string;
@@ -300,12 +338,77 @@ export async function resolveAgentProductFlowReply(input: {
     return null;
   }
 
-  const flowTargets = await getCreatedFlowItems({
-    workspaceId: input.workspaceId,
-    includeOfficialApi: input.includeOfficialApi,
-  });
-  if (!flowTargets.length) {
+  const [agent, flowTargets] = await Promise.all([
+    prisma.agent.findFirst({
+      where: {
+        id: input.agentId,
+        workspaceId: input.workspaceId,
+      },
+      select: {
+        trainingConfig: true,
+      },
+    }),
+    getCreatedFlowItems({
+      workspaceId: input.workspaceId,
+      includeOfficialApi: input.includeOfficialApi,
+    }),
+  ]);
+
+  if (!agent || !flowTargets.length) {
     return null;
+  }
+
+  const training = parseAgentTrainingConfig(agent.trainingConfig) ?? defaultAgentTrainingConfig;
+  const selectedFlowIds = new Set(training.knowledgeFlowIds);
+
+  const flowById = new Map(flowTargets.map((flow) => [flow.id, flow]));
+  const selectedFlows = flowTargets.filter((flow) => selectedFlowIds.has(flow.id));
+
+  const conversationContext = buildConversationContext(latestText, input.history ?? []);
+  const normalizedLatest = conversationContext.latestText;
+  const normalizedRecentContext = conversationContext.recentContext;
+  const selectedFlowMatch = (() => {
+    let bestMatch: { flow: (typeof selectedFlows)[number]; score: number } | null = null;
+
+    for (const flow of selectedFlows) {
+      const score = scoreFlowIntentMatch({
+        flow: {
+          title: flow.title,
+          intent: flow.intent,
+          description: flow.description,
+        },
+        latestText: normalizedLatest,
+        recentContext: normalizedRecentContext,
+        fullContext: conversationContext.fullContext,
+      });
+
+      if (!bestMatch || score > bestMatch.score) {
+        bestMatch = {
+          flow,
+          score,
+        };
+      }
+    }
+
+    return bestMatch && bestMatch.score >= 4 ? bestMatch : null;
+  })();
+
+  if (selectedFlowMatch) {
+    const reply = await getFlowReply({
+      workspaceId: input.workspaceId,
+      flowId: selectedFlowMatch.flow.id,
+      includeOfficialApi: input.includeOfficialApi,
+    });
+
+    if (reply) {
+      return {
+        reply: reply.text ?? "",
+        image: reply.image,
+        imageFirst: reply.imageFirst,
+        flowTitle: selectedFlowMatch.flow.title,
+        productName: null,
+      };
+    }
   }
 
   const knowledgeRows = await prisma.$queryRaw<Array<{
@@ -327,56 +430,79 @@ export async function resolveAgentProductFlowReply(input: {
     ORDER BY akp."updatedAt" DESC, akp."createdAt" DESC
   `;
 
-  const normalizedLatest = normalizeText(latestText);
-  const recentContext = (input.history ?? [])
-    .slice(-6)
-    .map((line) => normalizeText(line.content ?? ""))
-    .join(" ");
-  const flowTitleByNormalized = new Map(flowTargets.map((flow) => [normalizeText(flow.title), flow]));
+  const flowByNormalizedTitle = new Map(flowTargets.map((flow) => [normalizeText(flow.title), flow]));
+  const selectedFlowIdList = Array.from(selectedFlowIds);
 
   for (const row of knowledgeRows) {
     const instructions = row.instructions?.trim() || "";
     const references = extractFlowReferences(instructions, flowTargets.map((flow) => flow.title));
-    if (!references.length) {
+    const referencedFlowIds = references
+      .map((reference) => flowByNormalizedTitle.get(normalizeText(reference.title))?.id)
+      .filter((value): value is string => Boolean(value));
+    const candidateFlowIds = referencedFlowIds.length > 0 ? referencedFlowIds : selectedFlowIdList;
+
+    if (!candidateFlowIds.length) {
       continue;
     }
 
     const productTokens = tokenize(`${row.productName} ${row.productDescription ?? ""}`);
     const latestMentionsProduct =
       productTokens.some((token) => normalizedLatest.includes(token)) ||
-      productTokens.some((token) => textMatchesToken(recentContext, token));
+      productTokens.some((token) => textMatchesToken(normalizedRecentContext, token));
+    const productGate = productTokens.length === 0 || latestMentionsProduct || referencedFlowIds.length > 0;
 
-    for (const reference of references) {
-      const triggerTokens = buildTriggerTokens(reference.beforeText, productTokens, reference.title);
-      const latestMatchesTrigger = triggerTokens.some((token) => textMatchesToken(normalizedLatest, token));
-      const shouldExecute = triggerTokens.length > 0
-        ? latestMatchesTrigger && (latestMentionsProduct || productTokens.length === 0)
-        : latestMentionsProduct || productTokens.length === 0;
+    if (!productGate) {
+      continue;
+    }
 
-      if (!shouldExecute) {
-        continue;
-      }
+    let bestMatch: { flow: (typeof selectedFlows)[number]; score: number } | null = null;
 
-      const flow = flowTitleByNormalized.get(normalizeText(reference.title));
+    for (const flowId of candidateFlowIds) {
+      const flow = flowById.get(flowId);
       if (!flow) {
         continue;
       }
 
-      const reply = await getFlowReply({
-        workspaceId: input.workspaceId,
-        flowId: flow.id,
-        includeOfficialApi: input.includeOfficialApi,
+      const score = scoreFlowIntentMatch({
+        flow: {
+          title: flow.title,
+          intent: flow.intent,
+          description: flow.description,
+        },
+        latestText: normalizedLatest,
+        recentContext: normalizedRecentContext,
+        fullContext: conversationContext.fullContext,
       });
 
-      if (reply) {
-        return {
-          reply: reply.text ?? "",
-          image: reply.image,
-          imageFirst: reply.imageFirst,
-          flowTitle: flow.title,
-          productName: row.productName,
+      const referenceBonus = references.some((reference) => normalizeText(reference.title) === normalizeText(flow.title)) ? 2 : 0;
+      const combinedScore = score + referenceBonus;
+
+      if (!bestMatch || combinedScore > bestMatch.score) {
+        bestMatch = {
+          flow,
+          score: combinedScore,
         };
       }
+    }
+
+    if (!bestMatch || bestMatch.score < 4) {
+      continue;
+    }
+
+    const reply = await getFlowReply({
+      workspaceId: input.workspaceId,
+      flowId: bestMatch.flow.id,
+      includeOfficialApi: input.includeOfficialApi,
+    });
+
+    if (reply) {
+      return {
+        reply: reply.text ?? "",
+        image: reply.image,
+        imageFirst: reply.imageFirst,
+        flowTitle: bestMatch.flow.title,
+        productName: row.productName,
+      };
     }
   }
 

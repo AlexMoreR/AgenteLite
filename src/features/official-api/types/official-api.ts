@@ -115,7 +115,7 @@ export type OfficialApiChatbotScenarioMessage = {
 export type OfficialApiChatbotScenario = {
   id: string;
   title: string;
-  summary: string;
+  intent: string;
   messages: OfficialApiChatbotScenarioMessage[];
 };
 

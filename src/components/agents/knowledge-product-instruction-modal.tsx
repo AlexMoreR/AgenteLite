@@ -9,6 +9,7 @@ type FlowOption = {
   id: string;
   title: string;
   badge: string;
+  intent: string;
   description: string;
 };
 
@@ -71,7 +72,7 @@ export function KnowledgeProductInstructionModal({
           return true;
         }
 
-        return `${flow.title} ${flow.description} ${flow.badge}`.toLowerCase().includes(normalizedQuery);
+        return `${flow.title} ${flow.intent} ${flow.description} ${flow.badge}`.toLowerCase().includes(normalizedQuery);
       })
       .slice(0, 6);
   }, [flows, normalizedQuery, slashSearch]);
@@ -285,7 +286,7 @@ export function KnowledgeProductInstructionModal({
                                 </span>
                                 <span className="min-w-0">
                                   <span className="block text-sm font-semibold text-slate-900">/{flow.title}</span>
-                                  <span className="line-clamp-1 block text-xs text-slate-500">{flow.description}</span>
+                                  <span className="line-clamp-1 block text-xs text-slate-500">{flow.intent || flow.description}</span>
                                 </span>
                               </button>
                             ))

@@ -419,6 +419,7 @@ async function getAgentKnowledgePromptFlows(
     .filter((flow) => selectedIds.has(flow.id))
     .map((flow) => ({
       title: flow.title,
+      intent: flow.intent,
       description: flow.description,
       sourceLabel: flow.badge === "Meta" ? "API oficial" : "API no oficial",
     }));

@@ -235,6 +235,7 @@ export default async function AgentKnowledgePage({ params, searchParams }: PageP
                             id: flow.id,
                             title: flow.title,
                             badge: flow.badge,
+                            intent: flow.intent,
                             description: flow.description,
                           }))}
                         />
@@ -295,7 +296,7 @@ export default async function AgentKnowledgePage({ params, searchParams }: PageP
                               </span>
                             ) : null}
                           </div>
-                          <p className="max-w-2xl text-sm leading-6 text-slate-500">{flow.description}</p>
+                          <p className="max-w-2xl text-sm leading-6 text-slate-500">{flow.intent || flow.description}</p>
                         </div>
                       </div>
                       <Link

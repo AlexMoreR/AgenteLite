@@ -25,6 +25,10 @@ export type OfficialApiChatbotBuilderState = {
   edgesByScenarioId: OfficialApiChatbotEdgesByScenarioId;
 };
 
+function getScenarioIntent(scenario: { intent?: string | null; summary?: string | null }) {
+  return (scenario.intent ?? scenario.summary ?? "").trim();
+}
+
 export type StoredOfficialApiAutomationRule = {
   id: string;
   name: string;
@@ -405,7 +409,7 @@ export async function getOfficialApiChatbotBuilderState(
           ? parsed.scenarios.map((scenario, index) => ({
               id: scenario.id?.trim() || `workflow-${index + 1}`,
               title: scenario.title?.trim() || `Workflow ${index + 1}`,
-              summary: scenario.summary?.trim() || "Workflow personalizado del builder.",
+              intent: getScenarioIntent(scenario) || "Intencion personalizada del builder.",
               messages: Array.isArray(scenario.messages) ? scenario.messages : [],
             }))
           : defaultBuilderState.scenarios,
@@ -438,7 +442,7 @@ export async function saveOfficialApiChatbotBuilderState(
         ? state.scenarios.map((scenario, index) => ({
             id: scenario.id.trim() || `workflow-${index + 1}`,
             title: scenario.title.trim() || `Workflow ${index + 1}`,
-            summary: scenario.summary.trim() || "Workflow personalizado del builder.",
+            intent: scenario.intent.trim() || "Intencion personalizada del builder.",
             messages: Array.isArray(scenario.messages) ? scenario.messages : [],
           }))
         : defaultBuilderState.scenarios,

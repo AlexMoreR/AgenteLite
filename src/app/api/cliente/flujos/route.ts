@@ -23,7 +23,8 @@ const builderSchema = z.object({
     z.object({
       id: z.string().trim().min(1).max(120),
       title: z.string().trim().min(1).max(120),
-      summary: z.string().trim().min(1).max(4096),
+      intent: z.string().trim().min(1).max(4096),
+      summary: z.string().trim().max(4096).optional(),
       messages: z.array(
         z.object({
           id: z.string().trim().min(1).max(120),
@@ -109,7 +110,10 @@ export async function POST(request: Request) {
     fallbackEnabled: parsed.data.fallbackEnabled,
     replyEveryMessageEnabled: parsed.data.replyEveryMessageEnabled,
     selectedScenarioId: parsed.data.selectedScenarioId,
-    scenarios: parsed.data.scenarios,
+    scenarios: parsed.data.scenarios.map((scenario) => ({
+      ...scenario,
+      intent: scenario.intent.trim() || scenario.summary?.trim() || "Intencion personalizada del builder.",
+    })),
     nodesByScenarioId: parsed.data.nodesByScenarioId,
     nodePositionsByScenarioId: parsed.data.nodePositionsByScenarioId,
     edgesByScenarioId: parsed.data.edgesByScenarioId,
