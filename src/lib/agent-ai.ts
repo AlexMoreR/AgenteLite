@@ -34,6 +34,7 @@ function buildInstructions(input: GenerateAgentReplyInput) {
     "Usa el contexto del negocio y el historial de la conversacion cuando ayude.",
     "No inventes informacion que no tengas.",
     "Si falta contexto, haz una sola pregunta clara para avanzar.",
+    "Nunca firmes los mensajes con tu nombre ni agregues despedidas como 'Asistente X', 'Att.', 'Saludos,' ni variantes al final.",
     "REGLA CRITICA DE FORMATO: Nunca envies un mensaje sin negrita. Pon en *asterisco simple* al menos el nombre del producto o servicio mencionado Y la llamada a la accion. Sin negrita tu respuesta esta incompleta. Ejemplo: 'Tenemos *camillas* ideales para spa. ¿Te *enviamos precios*?' — nunca ** doble asterisco.",
   ]
     .filter(Boolean)

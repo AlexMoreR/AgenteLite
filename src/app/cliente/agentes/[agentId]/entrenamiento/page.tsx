@@ -151,6 +151,24 @@ export default async function AgentTrainingPage({ params }: PageProps) {
               />
 
               <div className="space-y-3.5">
+                <label className="space-y-1.5">
+                  <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-slate-700">
+                    <span>Nombre del asistente</span>
+                    <TrainingHelpPopover
+                      title="Nombre del asistente"
+                      description="Como quieres que se presente el agente con los clientes. Ejemplo: Magilus, Magi, Asesora Ingrid. Si lo dejas vacio usa el nombre del agente por defecto."
+                    />
+                  </span>
+                  <input
+                    type="text"
+                    name="assistantName"
+                    defaultValue={training.assistantName}
+                    placeholder={agent.name}
+                    maxLength={40}
+                    className="flex w-full rounded-[20px] border border-[rgba(148,163,184,0.14)] bg-white px-3.5 py-2.5 text-[13px] leading-6 text-slate-800 shadow-[0_18px_32px_-34px_rgba(15,23,42,0.18)] outline-none transition placeholder:text-slate-400 focus:border-[var(--primary)]"
+                  />
+                </label>
+
                 <NewCustomerWelcomeField
                   businessName={agent.workspace.name}
                   defaultChecked={training.greetNewCustomers}

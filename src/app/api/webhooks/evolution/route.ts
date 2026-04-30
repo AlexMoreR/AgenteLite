@@ -810,7 +810,7 @@ export async function POST(request: Request) {
       ) =>
         generateAgentReply({
           model: agent.model,
-          systemPrompt: `${agent.systemPrompt ?? ""}\n\nACCION: ${actionContext} Genera una sola pregunta comercial concreta que asuma que ya se ejecuto la accion y lleve al siguiente paso (compra, reserva, consulta de precio, etc). Sin repetir la informacion ya enviada. Maximo 1-2 lineas.`,
+          systemPrompt: `${agent.systemPrompt ?? ""}\n\nACCION: ${actionContext} Genera UNICAMENTE una pregunta corta de seguimiento (maximo 1 linea) para avanzar al siguiente paso. PROHIBIDO: listar productos, mencionar nombres de modelos, dar precios o describir caracteristicas. Solo pregunta algo como cual modelo le interesa, si quiere precios, o si desea reservar.`,
           rawSystemPrompt: true,
           fallbackMessage: null,
           history,

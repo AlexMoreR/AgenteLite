@@ -50,6 +50,7 @@ import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowIte
 import { resolveEvolutionQuickResponseFlow } from "@/features/flows/services/resolveEvolutionQuickResponseFlow";
 
 const createAgentSchema = z.object({
+  assistantName: z.string().trim().max(40).default(""),
   businessName: z.string().trim().min(2, "Nombre del negocio invalido").max(120, "Nombre demasiado largo"),
   businessSummary: z.string().trim().max(500, "Resumen demasiado largo").default(""),
   businessDescription: z
@@ -785,6 +786,7 @@ function collectTrainingFormInput(formData: FormData) {
   };
 
   return {
+    assistantName: getStringValue("assistantName"),
     businessName: getStringValue("businessName"),
     businessSummary: getStringValue("businessSummary"),
     businessDescription: getStringValue("businessDescription"),
@@ -822,6 +824,7 @@ function collectTrainingFormInput(formData: FormData) {
 function normalizeTrainingUpdateInput(
   input: {
     agentId: string;
+    assistantName: string;
     businessName: string;
     businessSummary: string;
     businessDescription: string;
@@ -934,6 +937,7 @@ async function persistAgentTraining(
 
   const currentTraining = parseAgentTrainingConfig(agent.trainingConfig) ?? defaultAgentTrainingConfig;
   const training = buildAgentTrainingConfig({
+    assistantName: input.assistantName ?? "",
     businessDescription: input.businessDescription,
     targetAudiences: input.targetAudiences,
     priceRangeMin: input.priceRangeMin,
@@ -1100,6 +1104,7 @@ export async function createAgentAction(formData: FormData): Promise<void> {
     sendPaymentLink: parsed.data.sendPaymentLink,
     handoffToHuman: parsed.data.handoffToHuman,
     forbiddenRules: parsed.data.forbiddenRules,
+    assistantName: "",
     customRules: parsed.data.customRules,
     knowledgeFlowIds: [],
     actions: defaultAgentTrainingConfig.actions,

@@ -66,6 +66,7 @@ export type SalesTone = (typeof toneOptions)[number]["value"];
 export type ResponseLength = (typeof responseLengthOptions)[number]["value"];
 
 export type AgentTrainingConfig = {
+  assistantName: string;
   businessDescription: string;
   targetAudiences: TargetAudience[];
   priceRangeMin: string;
@@ -127,6 +128,7 @@ export type AgentKnowledgePromptFlow = {
 };
 
 export const defaultAgentTrainingConfig: AgentTrainingConfig = {
+  assistantName: "",
   businessDescription: "",
   targetAudiences: ["Mujer"],
   priceRangeMin: "",
@@ -249,7 +251,8 @@ export function buildAgentSystemPrompt(input: {
   knowledgeProducts?: AgentKnowledgePromptProduct[];
   knowledgeFlows?: AgentKnowledgePromptFlow[];
 }) {
-  const { agentName, businessName, training } = input;
+  const { businessName, training } = input;
+  const agentName = training.assistantName?.trim() || input.agentName;
   const voiceRules = [
     `Adopta este tono como prioridad: ${getTonePrompt(training.salesTone)}`,
     `Longitud de respuesta obligatoria: ${getResponseLengthPrompt(training.responseLength)}`,
@@ -267,7 +270,9 @@ export function buildAgentSystemPrompt(input: {
 
   const salesBehaviors = [
     training.askNameFirst
-      ? "Si aun no sabes el nombre del cliente, tu primera respuesta debe presentarte y pedir su nombre antes de seguir vendiendo."
+      ? training.greetNewCustomers
+        ? "La presentacion y la solicitud de nombre ya fueron enviadas automaticamente por la aplicacion en el saludo inicial. NO te vuelvas a presentar ni repitas la solicitud de nombre. Responde directo segun lo que el cliente escriba."
+        : "Si aun no sabes el nombre del cliente, tu primera respuesta debe presentarte y pedir su nombre antes de seguir vendiendo."
       : "No pidas el nombre al inicio si no hace falta para avanzar.",
     training.greetNewCustomers
       ? `El saludo inicial del chat lo maneja la aplicacion con este texto: "${resolveWelcomeMessageTemplate(training.customWelcomeMessage || buildDefaultNewCustomerWelcomeMessage(businessName), businessName)}". Solo debe usarse cuando la conversacion esta vacia; si ya existe historial, no lo repitas ni lo vuelvas a agregar.`
@@ -426,7 +431,8 @@ export function buildWelcomeMessage(input: {
   businessName: string;
   training: AgentTrainingConfig;
 }) {
-  const { agentName, businessName, training } = input;
+  const { businessName, training } = input;
+  const agentName = training.assistantName?.trim() || input.agentName;
   if (training.greetNewCustomers) {
     return resolveWelcomeMessageTemplate(
       training.customWelcomeMessage || buildDefaultNewCustomerWelcomeMessage(businessName),
@@ -516,6 +522,7 @@ export function parseAgentTrainingConfig(value: unknown): AgentTrainingConfig | 
   const str = (key: string) => typeof data[key] === "string" ? (data[key] as string) : "";
 
   return {
+    assistantName: str("assistantName"),
     businessDescription: data.businessDescription,
     targetAudiences,
     priceRangeMin: str("priceRangeMin"),
