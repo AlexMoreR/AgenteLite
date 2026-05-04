@@ -967,7 +967,8 @@ export async function POST(request: Request) {
               await sendText();
             }
 
-            if (!followUpText && (quickResponseFlow || hardFlowReply) && flowFollowUpContext && hardFlowReply?.aiFollowUpEnabled !== false) {
+            const flowHasTextReply = Boolean(quickResponseFlow?.reply.text?.trim() || hardFlowReply?.reply?.trim());
+            if (!followUpText && (quickResponseFlow || hardFlowReply) && flowFollowUpContext && hardFlowReply?.aiFollowUpEnabled !== false && !flowHasTextReply) {
               followUpText = await generateContextualFollowUp(flowFollowUpContext, [
                 ...recentMessages,
                 {

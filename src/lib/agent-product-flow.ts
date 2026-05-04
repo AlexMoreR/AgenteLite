@@ -425,6 +425,8 @@ async function selectFlowByAI(input: {
     "- Usa la intención de cada flujo como guía principal para decidir si el mensaje del cliente corresponde.",
     "- Activa el flujo si el mensaje del cliente claramente encaja con lo que describe la intención, aunque no use las mismas palabras exactas.",
     "- NO activas un flujo si el cliente solo saluda, escribe algo fuera de tema o hace una pregunta completamente genérica sin relación con ninguna intención.",
+    "- Si el cliente ya menciona un producto o modelo concreto en su mensaje y pregunta sobre ese producto específico → responde 'ninguno' para que la IA lo atienda directamente, no envíes un catálogo general.",
+    "- Un flujo de catálogo o colección solo se activa cuando el cliente claramente no sabe qué quiere y pide ver opciones, modelos disponibles o comparar productos.",
     "- Si el cliente confirma con 'Si', 'Ok', 'Dale' y el contexto reciente ofreció enviar algo → actívalo.",
     "- Si dos flujos podrían aplicar, elige el más específico.",
     "- En caso de duda real → responde 'ninguno'.",
@@ -441,6 +443,7 @@ async function selectFlowByAI(input: {
     history: [],
     latestUserMessage: contextMessage,
     fallbackMessage: "ninguno",
+    temperature: 0,
   });
 
   const trimmed = result.trim().replace(/^["']|["']$/g, "");
@@ -460,7 +463,7 @@ export async function resolveAgentProductFlowReply(input: {
     return null;
   }
 
-  const [agent, flowTargets] = await Promise.all([
+  const [agent, flowTargets, knowledgeRows, allKnowledgeProducts] = await Promise.all([
     prisma.agent.findFirst({
       where: {
         id: input.agentId,
@@ -474,6 +477,35 @@ export async function resolveAgentProductFlowReply(input: {
       workspaceId: input.workspaceId,
       includeOfficialApi: input.includeOfficialApi,
     }),
+    prisma.$queryRaw<Array<{
+      productId: string;
+      productName: string;
+      productDescription: string | null;
+      instructions: string | null;
+    }>>`
+      SELECT
+        akp."productId",
+        p."name" AS "productName",
+        p."description" AS "productDescription",
+        akp."instructions"
+      FROM "AgentKnowledgeProduct" akp
+      INNER JOIN "Product" p ON p."id" = akp."productId"
+      WHERE akp."agentId" = ${input.agentId}
+        AND akp."instructions" IS NOT NULL
+        AND LENGTH(TRIM(akp."instructions")) > 0
+      ORDER BY akp."updatedAt" DESC, akp."createdAt" DESC
+    `,
+    prisma.$queryRaw<Array<{
+      productName: string;
+      productDescription: string | null;
+    }>>`
+      SELECT
+        p."name" AS "productName",
+        p."description" AS "productDescription"
+      FROM "AgentKnowledgeProduct" akp
+      INNER JOIN "Product" p ON p."id" = akp."productId"
+      WHERE akp."agentId" = ${input.agentId}
+    `,
   ]);
 
   if (!agent || !flowTargets.length) {
@@ -490,7 +522,12 @@ export async function resolveAgentProductFlowReply(input: {
   const normalizedLatest = conversationContext.latestText;
   const normalizedRecentContext = conversationContext.recentContext;
 
-  if (selectedFlows.length > 0) {
+  const mentionsKnownProduct = allKnowledgeProducts.some((row) => {
+    const productTokens = tokenize(`${row.productName} ${row.productDescription ?? ""}`);
+    return productTokens.length > 0 && productTokens.some((token) => textMatchesToken(normalizedLatest, token));
+  });
+
+  if (selectedFlows.length > 0 && !mentionsKnownProduct) {
     const aiSelectedFlowId = await selectFlowByAI({
       flows: selectedFlows.map((f) => ({ id: f.id, title: f.title, intent: f.intent })),
       latestUserMessage: latestText,
@@ -520,24 +557,6 @@ export async function resolveAgentProductFlowReply(input: {
     }
   }
 
-  const knowledgeRows = await prisma.$queryRaw<Array<{
-    productId: string;
-    productName: string;
-    productDescription: string | null;
-    instructions: string | null;
-  }>>`
-    SELECT
-      akp."productId",
-      p."name" AS "productName",
-      p."description" AS "productDescription",
-      akp."instructions"
-    FROM "AgentKnowledgeProduct" akp
-    INNER JOIN "Product" p ON p."id" = akp."productId"
-    WHERE akp."agentId" = ${input.agentId}
-      AND akp."instructions" IS NOT NULL
-      AND LENGTH(TRIM(akp."instructions")) > 0
-    ORDER BY akp."updatedAt" DESC, akp."createdAt" DESC
-  `;
 
   const flowByNormalizedTitle = new Map(flowTargets.map((flow) => [normalizeText(flow.title), flow]));
   const selectedFlowIdList = Array.from(selectedFlowIds);

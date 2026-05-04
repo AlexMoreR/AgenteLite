@@ -1937,8 +1937,8 @@ export async function saveAgentKnowledgeProductInstructionAction(formData: FormD
 
   try {
     await prisma.$executeRaw`
-      INSERT INTO "AgentKnowledgeProduct" ("agentId", "productId", "instructions")
-      VALUES (${agent.id}, ${product.id}, ${parsed.data.instructions || null})
+      INSERT INTO "AgentKnowledgeProduct" ("agentId", "productId", "instructions", "updatedAt")
+      VALUES (${agent.id}, ${product.id}, ${parsed.data.instructions || null}, CURRENT_TIMESTAMP)
       ON CONFLICT ("agentId", "productId")
       DO UPDATE SET
         "instructions" = EXCLUDED."instructions",

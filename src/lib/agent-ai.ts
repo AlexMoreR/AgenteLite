@@ -12,6 +12,7 @@ type GenerateAgentReplyInput = {
   history: ConversationTurn[];
   latestUserMessage: string;
   rawSystemPrompt?: boolean;
+  temperature?: number;
 };
 
 type OpenAIResponsesApiResponse = {
@@ -106,7 +107,7 @@ async function generateWithOpenAI(input: GenerateAgentReplyInput, apiKey: string
     body: JSON.stringify({
       model,
       instructions,
-      temperature: input.rawSystemPrompt ? 0.2 : 0.7,
+      temperature: input.temperature ?? (input.rawSystemPrompt ? 0.2 : 0.7),
       input: messages,
     }),
     cache: "no-store",
@@ -142,7 +143,7 @@ async function generateWithGemini(input: GenerateAgentReplyInput, apiKey: string
           parts: [{ text: message.content }],
         })),
         generationConfig: {
-          temperature: 0.7,
+          temperature: input.temperature ?? 0.7,
         },
       }),
       cache: "no-store",
