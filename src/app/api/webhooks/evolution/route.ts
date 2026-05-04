@@ -819,17 +819,13 @@ export async function POST(request: Request) {
       ) =>
         generateAgentReply({
           model: agent.model,
-          systemPrompt: `${agent.systemPrompt ?? ""}\n\nACCION: ${actionContext} Genera UNICAMENTE una pregunta corta de seguimiento (maximo 1 linea) para avanzar al siguiente paso. PROHIBIDO: listar productos, mencionar nombres de modelos, dar precios, describir caracteristicas, incluir URLs, links o cualquier referencia a imagenes. Solo pregunta algo como cual modelo le interesa, si quiere precios, o si desea reservar.`,
+          systemPrompt: `${agent.systemPrompt ?? ""}\n\nACCION: ${actionContext} Genera UNICAMENTE una pregunta corta de seguimiento (maximo 1 linea) para avanzar al siguiente paso. PROHIBIDO: listar productos, mencionar nombres de modelos, dar precios o describir caracteristicas. Solo pregunta algo como cual modelo le interesa, si quiere precios, o si desea reservar.`,
           rawSystemPrompt: true,
           fallbackMessage: null,
           history,
           latestUserMessage: messageText,
         })
-          .then((t) => {
-            if (!t?.trim()) return null;
-            const cleaned = t.replace(/https?:\/\/\S+/gi, "").replace(/\s{2,}/g, " ").trim();
-            return cleaned || null;
-          })
+          .then((t) => t?.trim() || null)
           .catch(() => null);
 
       const flowFollowUpContext = shouldHandoffToHuman
