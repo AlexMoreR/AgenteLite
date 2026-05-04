@@ -363,7 +363,7 @@ export function buildAgentSystemPrompt(input: {
         summary.push(`Precio de referencia: ${product.price.trim()}`);
       }
       if (product.instructions?.trim()) {
-        summary.push(`Instrucciones comerciales: ${product.instructions.trim()}`);
+        summary.push(`INSTRUCCION: ${product.instructions.trim()}`);
       }
 
       return summary.join(" | ");
@@ -371,7 +371,7 @@ export function buildAgentSystemPrompt(input: {
     .filter((item): item is string => Boolean(item));
 
   const knowledgeSection = knowledgeProducts.length
-    ? `CONOCIMIENTO DE PRODUCTOS\n- ${knowledgeProducts.join("\n- ")}\n- Usa esta base para responder con precision sobre esos productos.\n- Nunca respondas solo con el nombre del producto si tienes descripcion, precio o imagen de referencia.\n- Cuando hables de un producto, menciona la informacion util disponible y agrega un siguiente paso claro si ayuda a vender.\n- Si te preguntan por algo fuera de esta base, no lo inventes y aclara que debes confirmarlo.`
+    ? `CONOCIMIENTO DE PRODUCTOS\n- ${knowledgeProducts.join("\n- ")}\n- Usa esta base para responder con precision sobre esos productos.\n- Nunca respondas solo con el nombre del producto si tienes descripcion, precio o imagen de referencia.\n- Cuando hables de un producto, menciona la informacion util disponible y agrega un siguiente paso claro si ayuda a vender.\n- Si te preguntan por algo fuera de esta base, no lo inventes y aclara que debes confirmarlo.\n- IMPORTANTE: Cuando un producto tenga INSTRUCCION, esa instruccion define como debes manejar ese producto. Siguela por encima de cualquier otra consideracion.\n- ETAPAS: Si la INSTRUCCION tiene pasos numerados (1. 2. 3.), responde UNICAMENTE con el paso que corresponde al momento actual de la conversacion. Nunca adelantes pasos que dependen de la respuesta del cliente. Espera siempre la reaccion del cliente antes de avanzar al siguiente paso.`
     : null;
 
   const productResponseRule = knowledgeProducts.length

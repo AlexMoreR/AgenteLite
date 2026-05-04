@@ -567,11 +567,13 @@ export async function resolveAgentProductFlowReply(input: {
     const referencedFlowIds = references
       .map((reference) => flowByNormalizedTitle.get(normalizeText(reference.title))?.id)
       .filter((value): value is string => Boolean(value));
-    const candidateFlowIds = referencedFlowIds.length > 0 ? referencedFlowIds : selectedFlowIdList;
-
-    if (!candidateFlowIds.length) {
+    // Only trigger a flow when the product instructions explicitly reference one.
+    // Without an explicit reference, the AI handles the product query directly.
+    if (referencedFlowIds.length === 0) {
       continue;
     }
+
+    const candidateFlowIds = referencedFlowIds;
 
     const productTokens = tokenize(`${row.productName} ${row.productDescription ?? ""}`);
     const latestMentionsProduct =
