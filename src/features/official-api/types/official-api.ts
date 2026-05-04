@@ -132,6 +132,7 @@ export type OfficialApiChatbotBuilderNode = {
   title: string;
   body: string;
   meta: string;
+  aiFollowUpEnabled?: boolean;
 };
 
 export type OfficialApiChatbotNodesByScenarioId = Record<string, OfficialApiChatbotBuilderNode[]>;

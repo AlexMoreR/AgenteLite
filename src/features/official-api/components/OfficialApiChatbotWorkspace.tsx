@@ -2442,23 +2442,43 @@ export function OfficialApiChatbotWorkspace({
               </div>
               <div className="space-y-4 px-6 py-5">
                 {selectedNode.kind === "trigger" ? (
-                  <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-semibold text-slate-900">Modo de respuesta</p>
-                        <p className="mt-1 text-xs leading-5 text-slate-600">
-                          Define si el flujo responde solo una vez al iniciar o en cada mensaje entrante.
-                        </p>
+                  <div className="space-y-3">
+                    <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-slate-900">Modo de respuesta</p>
+                          <p className="mt-1 text-xs leading-5 text-slate-600">
+                            Define si el flujo responde solo una vez al iniciar o en cada mensaje entrante.
+                          </p>
+                        </div>
+                        <Switch
+                          checked={replyEveryMessageEnabled}
+                          onCheckedChange={setReplyEveryMessageEnabled}
+                          aria-label="Repetir respuesta en cada mensaje"
+                        />
                       </div>
-                      <Switch
-                        checked={replyEveryMessageEnabled}
-                        onCheckedChange={setReplyEveryMessageEnabled}
-                        aria-label="Repetir respuesta en cada mensaje"
-                      />
+                      <p className="mt-3 text-xs font-medium text-slate-700">
+                        {replyEveryMessageEnabled ? "Repetir: responde en cada mensaje." : "Unico: responde solo al primer mensaje."}
+                      </p>
                     </div>
-                    <p className="mt-3 text-xs font-medium text-slate-700">
-                      {replyEveryMessageEnabled ? "Repetir: responde en cada mensaje." : "Unico: responde solo al primer mensaje."}
-                    </p>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-slate-900">Respuesta con IA</p>
+                          <p className="mt-1 text-xs leading-5 text-slate-600">
+                            Después de ejecutar el flujo, la IA genera un mensaje de seguimiento.
+                          </p>
+                        </div>
+                        <Switch
+                          checked={selectedNode.aiFollowUpEnabled !== false}
+                          onCheckedChange={(checked) => updateNode(selectedNode.id, { aiFollowUpEnabled: checked })}
+                          aria-label="Respuesta con IA después del flujo"
+                        />
+                      </div>
+                      <p className="mt-3 text-xs font-medium text-slate-700">
+                        {selectedNode.aiFollowUpEnabled !== false ? "Activo: la IA responde después del flujo." : "Desactivado: el flujo responde sin IA."}
+                      </p>
+                    </div>
                   </div>
                 ) : selectedNode.kind === "image" ? (
                   <>

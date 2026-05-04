@@ -944,7 +944,7 @@ export async function POST(request: Request) {
                   rawPayload: imageOutbound.raw as never,
                 },
               });
-              if (imageReplyReason) {
+              if (imageReplyReason && hardFlowReply?.aiFollowUpEnabled !== false) {
                 const imageContext =
                   imageReplyReason === "flow"
                     ? `La imagen del flujo ya fue enviada para "${imageReplyProductName || "el producto"}".`
@@ -967,7 +967,7 @@ export async function POST(request: Request) {
               await sendText();
             }
 
-            if (!followUpText && (quickResponseFlow || hardFlowReply) && flowFollowUpContext) {
+            if (!followUpText && (quickResponseFlow || hardFlowReply) && flowFollowUpContext && hardFlowReply?.aiFollowUpEnabled !== false) {
               followUpText = await generateContextualFollowUp(flowFollowUpContext, [
                 ...recentMessages,
                 {

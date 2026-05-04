@@ -30,6 +30,7 @@ type FlowReplyPayload = {
     caption: string | null;
     fileName: string | null;
   }>;
+  aiFollowUpEnabled: boolean;
 };
 
 function normalizeText(value: string) {
@@ -253,11 +254,15 @@ function getScenarioReplyFromState(input: {
   const replyIndex = replyNode ? candidateNodes.indexOf(replyNode) : -1;
   const imageFirst = imageNode !== undefined && (replyIndex === -1 || imageIndex < replyIndex);
 
+  const triggerNode = nodes.find((node) => node.kind === "trigger");
+  const aiFollowUpEnabled = triggerNode?.aiFollowUpEnabled !== false;
+
   return {
     text,
     image,
     imageFirst,
     documents,
+    aiFollowUpEnabled,
   };
 }
 
@@ -509,6 +514,7 @@ export async function resolveAgentProductFlowReply(input: {
           documents: reply.documents,
           flowTitle: aiSelectedFlow.title,
           productName: null,
+          aiFollowUpEnabled: reply.aiFollowUpEnabled,
         };
       }
     }
@@ -607,6 +613,7 @@ export async function resolveAgentProductFlowReply(input: {
         documents: reply.documents,
         flowTitle: bestMatch.flow.title,
         productName: row.productName,
+        aiFollowUpEnabled: reply.aiFollowUpEnabled,
       };
     }
   }
