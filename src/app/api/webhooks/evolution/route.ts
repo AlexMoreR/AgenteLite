@@ -218,6 +218,15 @@ export async function POST(request: Request) {
     });
   }
 
+  // A message arrived → the channel is definitely connected. Auto-correct stale status.
+  if (channel && channel.status !== "CONNECTED") {
+    await prisma.whatsAppChannel.update({
+      where: { id: channel.id },
+      data: { status: "CONNECTED", qrCode: null, lastConnectionAt: new Date() },
+    });
+    channel = { ...channel, status: "CONNECTED", qrCode: null };
+  }
+
   const remoteJid = extractEvolutionRemoteJid(payload);
   const phoneNumber = normalizePhoneFromJid(remoteJid);
   const messageText = extractEvolutionMessageText(payload);
@@ -810,13 +819,17 @@ export async function POST(request: Request) {
       ) =>
         generateAgentReply({
           model: agent.model,
-          systemPrompt: `${agent.systemPrompt ?? ""}\n\nACCION: ${actionContext} Genera UNICAMENTE una pregunta corta de seguimiento (maximo 1 linea) para avanzar al siguiente paso. PROHIBIDO: listar productos, mencionar nombres de modelos, dar precios o describir caracteristicas. Solo pregunta algo como cual modelo le interesa, si quiere precios, o si desea reservar.`,
+          systemPrompt: `${agent.systemPrompt ?? ""}\n\nACCION: ${actionContext} Genera UNICAMENTE una pregunta corta de seguimiento (maximo 1 linea) para avanzar al siguiente paso. PROHIBIDO: listar productos, mencionar nombres de modelos, dar precios, describir caracteristicas, incluir URLs, links o cualquier referencia a imagenes. Solo pregunta algo como cual modelo le interesa, si quiere precios, o si desea reservar.`,
           rawSystemPrompt: true,
           fallbackMessage: null,
           history,
           latestUserMessage: messageText,
         })
-          .then((t) => t?.trim() || null)
+          .then((t) => {
+            if (!t?.trim()) return null;
+            const cleaned = t.replace(/https?:\/\/\S+/gi, "").replace(/\s{2,}/g, " ").trim();
+            return cleaned || null;
+          })
           .catch(() => null);
 
       const flowFollowUpContext = shouldHandoffToHuman
@@ -827,7 +840,7 @@ export async function POST(request: Request) {
           ? `El flujo "${hardFlowReply.flowTitle}" ya fue ejecutado para "${hardFlowReply.productName || "el producto"}".`
           : null;
 
-      if (replyText || quickResponseImageReply || knowledgeImageReply || hardFlowImageReply) {
+      if (replyText || quickResponseImageReply || knowledgeImageReply || hardFlowImageReply || documentReplies.length > 0) {
         try {
           console.log("[EVOLUTION] auto_reply_sending", {
             conversationId: conversation.id,

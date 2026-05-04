@@ -63,20 +63,30 @@ async function ensureWorkspaceTag(input: {
 }
 
 async function assignTagToContact(input: { workspaceId: string; contactId: string; tagId: string }) {
-  await prisma.contactTag.upsert({
-    where: {
-      contactId_tagId: {
+  try {
+    await prisma.contactTag.upsert({
+      where: {
+        contactId_tagId: {
+          contactId: input.contactId,
+          tagId: input.tagId,
+        },
+      },
+      create: {
         contactId: input.contactId,
         tagId: input.tagId,
+        workspaceId: input.workspaceId,
       },
-    },
-    create: {
-      contactId: input.contactId,
-      tagId: input.tagId,
-      workspaceId: input.workspaceId,
-    },
-    update: {},
-  });
+      update: {},
+    });
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.includes("Unique constraint failed")
+    ) {
+      return;
+    }
+    throw error;
+  }
 }
 
 async function removeTagFromContact(input: { contactId: string; tagId: string }) {

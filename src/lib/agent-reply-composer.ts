@@ -32,24 +32,37 @@ function stripRepeatedWelcome(reply: string, welcomeMessage: string) {
   return paragraphs.slice(1).join("\n\n").trimStart();
 }
 
+function stripBusinessNameFromIntro(reply: string) {
+  // Strips "de NombreEmpresa" from self-introduction patterns like "Soy Magi de Magilus"
+  // so the business name isn't repeated when the welcome message already shows it.
+  return reply.replace(
+    /\b(soy\s+\*?\w+(?:\s+\w+)?\*?)\s+de\s+\*?[A-ZÁÉÍÓÚÑ][A-Za-záéíóúñ]*(?:\s+[A-Za-záéíóúñ]+)?\*?/gi,
+    "$1",
+  );
+}
+
 export function composeAgentWelcomeReply(input: {
   welcomeMessage?: string | null;
   reply?: string | null;
   hasConversationHistory?: boolean;
 }) {
   const welcomeMessage = input.welcomeMessage?.trim() || "";
-  const reply = input.reply?.trim() || "";
+  let reply = input.reply?.trim() || "";
+
+  if (welcomeMessage && !input.hasConversationHistory) {
+    reply = stripBusinessNameFromIntro(reply);
+  }
 
   if (!welcomeMessage) {
     return reply;
   }
 
-  if (!reply) {
-    return welcomeMessage;
+  if (input.hasConversationHistory) {
+    return reply ? stripRepeatedWelcome(reply, welcomeMessage) : reply;
   }
 
-  if (input.hasConversationHistory) {
-    return stripRepeatedWelcome(reply, welcomeMessage);
+  if (!reply) {
+    return welcomeMessage;
   }
 
   const normalizedWelcome = normalizeReplyText(welcomeMessage);

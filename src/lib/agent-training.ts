@@ -271,7 +271,7 @@ export function buildAgentSystemPrompt(input: {
   const salesBehaviors = [
     training.askNameFirst
       ? training.greetNewCustomers
-        ? "La presentacion y la solicitud de nombre ya fueron enviadas automaticamente por la aplicacion en el saludo inicial. NO te vuelvas a presentar ni repitas la solicitud de nombre. Responde directo segun lo que el cliente escriba."
+        ? `Si aun no sabes el nombre del cliente, preséntate ÚNICAMENTE con tu nombre ("Soy ${agentName}") sin agregar "de ${businessName}" ni ninguna referencia al negocio —el saludo de bienvenida ya lo mencionó arriba— y pide el nombre del cliente para continuar.`
         : "Si aun no sabes el nombre del cliente, tu primera respuesta debe presentarte y pedir su nombre antes de seguir vendiendo."
       : "No pidas el nombre al inicio si no hace falta para avanzar.",
     training.greetNewCustomers
@@ -361,9 +361,6 @@ export function buildAgentSystemPrompt(input: {
       }
       if (product.price?.trim()) {
         summary.push(`Precio de referencia: ${product.price.trim()}`);
-      }
-      if (product.thumbnailUrl?.trim()) {
-        summary.push(`Imagen de referencia: ${product.thumbnailUrl.trim()}`);
       }
       if (product.instructions?.trim()) {
         summary.push(`Instrucciones comerciales: ${product.instructions.trim()}`);

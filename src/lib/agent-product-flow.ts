@@ -5,6 +5,7 @@ import type {
 import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowItems";
 import { getOfficialApiChatbotBuilderState } from "@/lib/official-api-chatbot";
 import { defaultAgentTrainingConfig, parseAgentTrainingConfig } from "@/lib/agent-training";
+import { generateAgentReply } from "@/lib/agent-ai";
 import { prisma } from "@/lib/prisma";
 
 type ConversationLine = {
@@ -283,7 +284,7 @@ function scoreFlowIntentMatch(input: {
   recentContext: string;
   fullContext: string;
 }): { score: number; hasLatestMatch: boolean } {
-  const intentSource = [input.flow.intent, input.flow.title, input.flow.description ?? ""].filter(Boolean).join(" ");
+  const intentSource = [input.flow.intent, input.flow.description ?? ""].filter(Boolean).join(" ");
   const intentTokens = tokenize(intentSource);
   const titleTokens = tokenize(input.flow.title);
   const intentPhrase = normalizeText(input.flow.intent);
@@ -293,18 +294,22 @@ function scoreFlowIntentMatch(input: {
   let score = 0;
   let hasLatestMatch = false;
   let contextScore = 0;
+  const scoredTokens = new Set<string>();
 
   for (const token of intentTokens) {
     if (textMatchesToken(input.latestText, token)) {
       score += 4;
       hasLatestMatch = true;
+      scoredTokens.add(token);
     } else if (textMatchesToken(input.recentContext, token)) {
       score += 1;
       contextScore += 1;
+      scoredTokens.add(token);
     }
   }
 
   for (const token of titleTokens) {
+    if (scoredTokens.has(token)) continue;
     if (textMatchesToken(input.latestText, token)) {
       score += 2;
       hasLatestMatch = true;
@@ -331,7 +336,7 @@ function scoreFlowIntentMatch(input: {
   return { score, hasLatestMatch };
 }
 
-const FLOW_MATCH_THRESHOLD = 4;
+const FLOW_MATCH_THRESHOLD = 9;
 
 async function getFlowReply(input: {
   workspaceId: string;
@@ -388,6 +393,55 @@ async function getFlowReply(input: {
   });
 }
 
+async function selectFlowByAI(input: {
+  flows: Array<{ id: string; title: string; intent: string }>;
+  latestUserMessage: string;
+  history: ConversationLine[];
+}): Promise<string | null> {
+  if (!input.flows.length) return null;
+
+  const flowList = input.flows
+    .map((f) => `ID: ${f.id}\nTítulo: ${f.title}\nIntención: ${f.intent}`)
+    .join("\n\n---\n\n");
+
+  const recentHistory = input.history
+    .slice(-6)
+    .map((h) => `${h.direction === "INBOUND" ? "Cliente" : "Agente"}: ${h.content?.trim() || ""}`)
+    .filter((h) => h.trim())
+    .join("\n");
+
+  const systemPrompt = [
+    "Eres un clasificador de flujos de ventas. Tu ÚNICA tarea es determinar si el último mensaje del cliente activa alguno de los flujos disponibles.",
+    "",
+    "FLUJOS DISPONIBLES:",
+    flowList,
+    "",
+    "REGLAS ESTRICTAS:",
+    "- Activa un flujo SOLO si el cliente pide EXPLÍCITAMENTE el contenido del flujo: catálogo, lista, documento, modelos, precios, etc.",
+    "- Una pregunta general sobre un producto ('información sobre X', '¿tienen X?', '¿qué es X?') NO activa ningún flujo aunque el producto esté relacionado.",
+    "- Solo activa si el cliente usa frases como: 'quiero el catálogo', 'envíame los modelos', 'muéstrame las opciones', 'quiero ver precios', etc.",
+    "- Si el cliente confirma con 'Si', 'Ok', 'Dale' y el contexto reciente ofreció enviar algo → actívalo.",
+    "- En caso de duda → responde 'ninguno'.",
+    "- Responde ÚNICAMENTE con el ID exacto del flujo o la palabra 'ninguno'. Sin explicación, sin comillas.",
+  ].join("\n");
+
+  const contextMessage = recentHistory
+    ? `Historial reciente:\n${recentHistory}\n\nÚltimo mensaje del cliente: ${input.latestUserMessage}`
+    : `Último mensaje del cliente: ${input.latestUserMessage}`;
+
+  const result = await generateAgentReply({
+    systemPrompt,
+    rawSystemPrompt: true,
+    history: [],
+    latestUserMessage: contextMessage,
+    fallbackMessage: "ninguno",
+  });
+
+  const trimmed = result.trim().replace(/^["']|["']$/g, "");
+  const matched = input.flows.find((f) => f.id === trimmed);
+  return matched?.id ?? null;
+}
+
 export async function resolveAgentProductFlowReply(input: {
   agentId: string;
   workspaceId: string;
@@ -429,50 +483,33 @@ export async function resolveAgentProductFlowReply(input: {
   const conversationContext = buildConversationContext(latestText, input.history ?? []);
   const normalizedLatest = conversationContext.latestText;
   const normalizedRecentContext = conversationContext.recentContext;
-  const selectedFlowMatch = (() => {
-    let bestMatch: { flow: (typeof selectedFlows)[number]; score: number } | null = null;
 
-    for (const flow of selectedFlows) {
-      const { score, hasLatestMatch } = scoreFlowIntentMatch({
-        flow: {
-          title: flow.title,
-          intent: flow.intent,
-          description: flow.description,
-        },
-        latestText: normalizedLatest,
-        recentContext: normalizedRecentContext,
-        fullContext: conversationContext.fullContext,
-      });
-
-      if (!hasLatestMatch) continue;
-
-      if (!bestMatch || score > bestMatch.score) {
-        bestMatch = {
-          flow,
-          score,
-        };
-      }
-    }
-
-    return bestMatch && bestMatch.score >= FLOW_MATCH_THRESHOLD ? bestMatch : null;
-  })();
-
-  if (selectedFlowMatch) {
-    const reply = await getFlowReply({
-      workspaceId: input.workspaceId,
-      flowId: selectedFlowMatch.flow.id,
-      includeOfficialApi: input.includeOfficialApi,
+  if (selectedFlows.length > 0) {
+    const aiSelectedFlowId = await selectFlowByAI({
+      flows: selectedFlows.map((f) => ({ id: f.id, title: f.title, intent: f.intent })),
+      latestUserMessage: latestText,
+      history: input.history ?? [],
     });
 
-    if (reply) {
-      return {
-        reply: reply.text ?? "",
-        image: reply.image,
-        imageFirst: reply.imageFirst,
-        documents: reply.documents,
-        flowTitle: selectedFlowMatch.flow.title,
-        productName: null,
-      };
+    const aiSelectedFlow = aiSelectedFlowId ? flowById.get(aiSelectedFlowId) : null;
+
+    if (aiSelectedFlow) {
+      const reply = await getFlowReply({
+        workspaceId: input.workspaceId,
+        flowId: aiSelectedFlow.id,
+        includeOfficialApi: input.includeOfficialApi,
+      });
+
+      if (reply) {
+        return {
+          reply: reply.text ?? "",
+          image: reply.image,
+          imageFirst: reply.imageFirst,
+          documents: reply.documents,
+          flowTitle: aiSelectedFlow.title,
+          productName: null,
+        };
+      }
     }
   }
 

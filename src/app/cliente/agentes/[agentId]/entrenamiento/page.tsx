@@ -235,38 +235,8 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                         helpText="Si manejas un rango de precios, escribirlo ayuda a que el agente oriente mejor al cliente."
                       />
                     </div>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <label className="space-y-1.5">
-                        <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-slate-700">
-                          <span>Precio desde</span>
-                          <TrainingHelpPopover
-                            title="Precio desde"
-                            description="Pon el valor mas bajo habitual de tu oferta. Si no manejas un minimo claro, puedes dejarlo vacio."
-                          />
-                        </span>
-                        <input
-                          name="priceRangeMin"
-                          defaultValue={priceRangeMin}
-                          placeholder="Ej. 80.000 COP"
-                          className="field-select h-10 rounded-[16px] border-[rgba(148,163,184,0.14)] bg-slate-50 text-[13px] focus:border-[var(--primary)]"
-                        />
-                      </label>
-                      <label className="space-y-1.5">
-                        <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-slate-700">
-                          <span>Precio hasta</span>
-                          <TrainingHelpPopover
-                            title="Precio hasta"
-                            description="Pon el valor mas alto habitual para que el agente pueda orientar mejor a clientes con distinto presupuesto."
-                          />
-                        </span>
-                        <input
-                          name="priceRangeMax"
-                          defaultValue={priceRangeMax}
-                          placeholder="Ej. 220.000 COP"
-                          className="field-select h-10 rounded-[16px] border-[rgba(148,163,184,0.14)] bg-slate-50 text-[13px] focus:border-[var(--primary)]"
-                        />
-                      </label>
-                    </div>
+                    <input type="hidden" name="priceRangeMin" value={priceRangeMin} />
+                    <input type="hidden" name="priceRangeMax" value={priceRangeMax} />
 
                     <TrainingResponseLengthField
                       defaultValue={training.responseLength}
