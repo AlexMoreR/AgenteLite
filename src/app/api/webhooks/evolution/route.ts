@@ -680,19 +680,26 @@ export async function POST(request: Request) {
 
         let replyText: string | null = null;
 
-      const recentMessages = await prisma.message.findMany({
+      const recentMessages = (await prisma.message.findMany({
         where: {
           conversationId: conversation.id,
         },
         orderBy: {
-          createdAt: "asc",
+          createdAt: "desc",
         },
-        take: 8,
+        take: 12,
         select: {
           direction: true,
           content: true,
+          type: true,
+          mediaUrl: true,
         },
-      });
+      })).reverse().map((m) => ({
+        direction: m.direction,
+        content: m.content,
+        type: m.type as "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT" | "TEMPLATE" | "INTERACTIVE" | "SYSTEM" | undefined,
+        mediaUrl: m.mediaUrl,
+      }));
 
       const notifyHumanAction = resolveNotifyHumanAction({
         trainingConfig: agent.trainingConfig,
@@ -819,7 +826,7 @@ export async function POST(request: Request) {
       ) =>
         generateAgentReply({
           model: agent.model,
-          systemPrompt: `${agent.systemPrompt ?? ""}\n\nACCION: ${actionContext} Genera UNICAMENTE una pregunta corta de seguimiento (maximo 1 linea) para avanzar al siguiente paso. PROHIBIDO: listar productos, mencionar nombres de modelos, dar precios o describir caracteristicas. Solo pregunta algo como cual modelo le interesa, si quiere precios, o si desea reservar.`,
+          systemPrompt: `${agent.systemPrompt ?? ""}\n\nACCION: ${actionContext} Genera UNICAMENTE una pregunta corta de seguimiento (maximo 1 linea) para avanzar al siguiente paso. PROHIBIDO: listar productos, mencionar nombres de modelos, dar precios o describir caracteristicas. Revisa el historial de la conversacion y NO preguntes por algo que ya fue respondido (precio, detalles, imagen). Pregunta unicamente sobre lo que aun no se ha cubierto o el siguiente paso logico para cerrar la venta.`,
           rawSystemPrompt: true,
           fallbackMessage: null,
           history,

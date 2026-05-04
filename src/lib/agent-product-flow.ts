@@ -522,9 +522,10 @@ export async function resolveAgentProductFlowReply(input: {
   const normalizedLatest = conversationContext.latestText;
   const normalizedRecentContext = conversationContext.recentContext;
 
+  const recentText = `${normalizedLatest} ${conversationContext.recentContext}`.trim();
   const mentionsKnownProduct = allKnowledgeProducts.some((row) => {
     const productTokens = tokenize(`${row.productName} ${row.productDescription ?? ""}`);
-    return productTokens.length > 0 && productTokens.some((token) => textMatchesToken(normalizedLatest, token));
+    return productTokens.length > 0 && productTokens.some((token) => textMatchesToken(recentText, token));
   });
 
   if (selectedFlows.length > 0 && !mentionsKnownProduct) {
