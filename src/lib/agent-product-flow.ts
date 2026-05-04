@@ -416,12 +416,13 @@ async function selectFlowByAI(input: {
     "FLUJOS DISPONIBLES:",
     flowList,
     "",
-    "REGLAS ESTRICTAS:",
-    "- Activa un flujo SOLO si el cliente pide EXPLÍCITAMENTE el contenido del flujo: catálogo, lista, documento, modelos, precios, etc.",
-    "- Una pregunta general sobre un producto ('información sobre X', '¿tienen X?', '¿qué es X?') NO activa ningún flujo aunque el producto esté relacionado.",
-    "- Solo activa si el cliente usa frases como: 'quiero el catálogo', 'envíame los modelos', 'muéstrame las opciones', 'quiero ver precios', etc.",
+    "REGLAS:",
+    "- Usa la intención de cada flujo como guía principal para decidir si el mensaje del cliente corresponde.",
+    "- Activa el flujo si el mensaje del cliente claramente encaja con lo que describe la intención, aunque no use las mismas palabras exactas.",
+    "- NO activas un flujo si el cliente solo saluda, escribe algo fuera de tema o hace una pregunta completamente genérica sin relación con ninguna intención.",
     "- Si el cliente confirma con 'Si', 'Ok', 'Dale' y el contexto reciente ofreció enviar algo → actívalo.",
-    "- En caso de duda → responde 'ninguno'.",
+    "- Si dos flujos podrían aplicar, elige el más específico.",
+    "- En caso de duda real → responde 'ninguno'.",
     "- Responde ÚNICAMENTE con el ID exacto del flujo o la palabra 'ninguno'. Sin explicación, sin comillas.",
   ].join("\n");
 
