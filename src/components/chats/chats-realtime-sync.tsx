@@ -467,7 +467,7 @@ export function ChatsRealtimeSync({
 
             scheduleLiveUpdate("active");
             if (currentConversationKey?.startsWith("agent:")) {
-              scheduleListUpdate("active", instanceName, payload);
+              scheduleListUpdate("active", instanceName ?? normalizedActiveInstanceName, payload);
             }
             return;
           }
@@ -485,7 +485,7 @@ export function ChatsRealtimeSync({
 
             scheduleLiveUpdate("active");
             if (currentConversationKey?.startsWith("agent:")) {
-              scheduleListUpdate("active", instanceName, payload);
+              scheduleListUpdate("active", normalizedActiveInstanceName, payload);
             }
             return;
           }
@@ -517,7 +517,7 @@ export function ChatsRealtimeSync({
               return;
             }
 
-            scheduleListUpdate("background", payloadInstanceName || instanceName || normalizedActiveInstanceName || "", payload);
+            scheduleListUpdate("background", payloadInstanceName || (instanceName ?? normalizedActiveInstanceName) || "", payload);
             return;
           }
 
