@@ -54,6 +54,10 @@ export async function GET(request: Request) {
     ok: true,
     conversation: {
       ...conversation,
+      label: conversation.contact.name?.trim() || conversation.contact.phoneNumber,
+      secondaryLabel: conversation.contact.phoneNumber,
+      avatarUrl: conversation.contact.avatarUrl ?? null,
+      contactId: conversation.contact.id,
       messages: conversation.messages.map((message) => ({
         ...message,
         createdAt: message.createdAt.toISOString(),

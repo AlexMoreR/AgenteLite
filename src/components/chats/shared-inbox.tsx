@@ -171,6 +171,24 @@ function countIncomingMessagesSinceLastOutbound(messages: SharedInboxMessageItem
   return incomingCount;
 }
 
+function getMessagePreviewText(message?: SharedInboxMessageItem | null) {
+  if (!message) {
+    return null;
+  }
+
+  const content = message.content?.trim();
+  if (content) {
+    return content;
+  }
+
+  if (message.type === "AUDIO") return "Audio";
+  if (message.type === "IMAGE") return "Imagen";
+  if (message.type === "VIDEO") return "Video";
+  if (message.type === "DOCUMENT") return "Documento";
+
+  return null;
+}
+
 function normalizeLiveConversationSnapshot(value: unknown): LiveConversationSnapshot | null {
   if (!value || typeof value !== "object") {
     return null;
@@ -188,10 +206,18 @@ function normalizeLiveConversationSnapshot(value: unknown): LiveConversationSnap
   return {
     ...(value as SharedInboxSelectedConversation),
     id: data.id,
-    messages: data.messages.map((message) => ({
-      ...(message as SharedInboxMessageItem),
-      createdAt: new Date(message.createdAt || Date.now()),
-    })),
+    // Normalizar a ASC (oldest-first) igual que page.tsx hace con .reverse().
+    // /live retorna DESC del DB; buildConversationItemFromSnapshot y
+    // countIncomingMessagesSinceLastOutbound asumen ASC.
+    messages: data.messages
+      .map((message) => ({
+        ...(message as SharedInboxMessageItem),
+        createdAt: new Date(message.createdAt || Date.now()),
+      }))
+      .sort((a, b) => {
+        const diff = a.createdAt.getTime() - b.createdAt.getTime();
+        return diff !== 0 ? diff : a.id.localeCompare(b.id);
+      }),
   };
 }
 
@@ -267,13 +293,13 @@ function buildConversationItemFromSnapshot(
   const nextItem: SharedInboxConversationItem = {
     id: existing?.id ?? snapshot.id,
     contactId: snapshot.contactId ?? existing?.contactId ?? null,
-    label: snapshot.label,
-    secondaryLabel: snapshot.secondaryLabel,
+    label: snapshot.label ?? existing?.label ?? snapshot.id,
+    secondaryLabel: snapshot.secondaryLabel ?? existing?.secondaryLabel ?? "",
     tags: snapshot.tags ?? existing?.tags ?? [],
     channelType: existing?.channelType,
     incomingCount: countIncomingMessagesSinceLastOutbound(snapshot.messages),
     avatarUrl: snapshot.avatarUrl ?? existing?.avatarUrl ?? null,
-    lastMessage: latestMessage?.content ?? existing?.lastMessage ?? null,
+    lastMessage: latestMessage ? getMessagePreviewText(latestMessage) : existing?.lastMessage ?? null,
     lastMessageType: latestMessage?.type ?? existing?.lastMessageType ?? null,
     lastMessageDirection: latestMessage?.direction ?? existing?.lastMessageDirection ?? null,
     lastMessageAt: latestMessage?.createdAt ?? existing?.lastMessageAt ?? null,
@@ -288,7 +314,7 @@ function buildConversationItemFromListSnapshot(
   existing?: SharedInboxConversationItem | null,
 ): SharedInboxConversationItem {
   return {
-    id: snapshot.id,
+    id: existing?.id ?? snapshot.id,
     contactId: snapshot.contactId ?? existing?.contactId ?? null,
     label: snapshot.label,
     secondaryLabel: snapshot.secondaryLabel,
@@ -796,7 +822,6 @@ export function SharedInbox({
   // Ref sincronizada en cada render: permite leer el valor actual dentro de event
   // listeners sin declararlos como dependencia (evita re-registro en cada mensaje).
   const selectedConversationRef = useRef(selectedConversation);
-  selectedConversationRef.current = selectedConversation;
   const router = useRouter();
   const [pendingConversation, setPendingConversation] = useState<{
     id: string;
@@ -818,6 +843,10 @@ export function SharedInbox({
   useEffect(() => {
     setCachedSelectedConversation(selectedConversation ? readConversationFromCache(selectedConversation.id) : null);
   }, [selectedConversation?.id]);
+
+  useEffect(() => {
+    selectedConversationRef.current = selectedConversation;
+  }, [selectedConversation]);
 
   useEffect(() => {
     setConversationItems(conversations);
@@ -873,7 +902,15 @@ export function SharedInbox({
         return;
       }
 
-      setLiveConversation((current) => mergeConversationSnapshots(current ?? selectedConversationRef.current ?? null, snapshot));
+      setLiveConversation((current) => {
+        // Si current pertenece a una conversación diferente (liveConversation nunca se
+        // resetea al navegar), usarlo como base haría que mergeCachedMessages concatene
+        // mensajes de dos chats distintos. Solo se usa current si es del mismo chat.
+        const base = (current && current.id === snapshot.id)
+          ? current
+          : (selectedConversationRef.current ?? null);
+        return mergeConversationSnapshots(base, snapshot);
+      });
       setConversationItems((current) => {
         const currentItem = findConversationItemBySnapshotId(current, snapshot.id) ?? undefined;
         const updatedItem = buildConversationItemFromSnapshot(snapshot, currentItem);
@@ -897,12 +934,14 @@ export function SharedInbox({
     function handleListUpdate(event: Event) {
       const customEvent = event as CustomEvent<{ conversation?: unknown }>;
       const snapshot = normalizeLiveConversationListSnapshot(customEvent.detail?.conversation);
+      console.log("[SharedInbox] chat-list-update recibido", { snapshotId: snapshot?.id, lastMessage: (snapshot as Record<string, unknown> | null)?.lastMessage });
       if (!snapshot) {
         return;
       }
 
       setConversationItems((current) => {
         const currentItem = findConversationItemBySnapshotId(current, snapshot.id) ?? undefined;
+        console.log("[SharedInbox] item encontrado en lista:", { currentItemId: currentItem?.id, match: Boolean(currentItem) });
         const updatedItem = buildConversationItemFromListSnapshot(snapshot, currentItem);
         const nextItems = current.map((item) =>
           conversationIdMatchesKey(item.id, snapshot.id) ? { ...item, ...updatedItem } : item,

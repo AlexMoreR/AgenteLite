@@ -84,6 +84,7 @@ const ConversationListItem = memo(function ConversationListItem({
   onSelect: (conversation: SharedInboxConversationItem) => void;
   onPrefetch: (conversation: SharedInboxConversationItem) => void;
 }) {
+  console.log("[ListItem] render", { id: conversation.id, label: conversation.label, lastMessage: conversation.lastMessage, lastMessageAt: conversation.lastMessageAt });
   return (
     <Link
       href={conversation.href}
@@ -114,7 +115,7 @@ const ConversationListItem = memo(function ConversationListItem({
         {conversation.avatarUrl ? (
           <Image
             src={conversation.avatarUrl}
-            alt={conversation.label}
+            alt={conversation.label ?? ""}
             width={40}
             height={40}
             unoptimized
@@ -225,7 +226,14 @@ export function ConversationList({
       emitPendingSelection(conversation);
     }
     startTransition(() => {
-      router.push(conversation.href);
+      // Si ya estamos en la misma URL (conversación sin datos en Prisma aún),
+      // router.push sería no-op — usar refresh() para re-ejecutar el server component.
+      const currentUrl = window.location.pathname + window.location.search;
+      if (conversation.href === currentUrl) {
+        router.refresh();
+      } else {
+        router.push(conversation.href);
+      }
     });
   }, [emitPendingSelection, router, startTransition]);
 

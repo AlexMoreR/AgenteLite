@@ -59,7 +59,9 @@ export async function getAgentConversationSummaryByPhoneNumber(input: {
   const contact = await prisma.contact.findFirst({
     where: {
       workspaceId: input.workspaceId,
-      phoneNumber: input.phoneNumber,
+      // Buscar con y sin prefijo '+' por si el número en DB tiene formato distinto
+      // al que extrae normalizePhoneNumber del JID de WhatsApp (solo dígitos).
+      phoneNumber: { in: [input.phoneNumber, `+${input.phoneNumber}`] },
     },
     select: {
       id: true,

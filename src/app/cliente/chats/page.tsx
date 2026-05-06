@@ -491,6 +491,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         ]).toString()}`
       : ""
   }`;
+  const evolutionGlobalWebsocketEventsEnabled = process.env.WEBSOCKET_GLOBAL_EVENTS === "true";
   const isOfficialUnavailable = Boolean(canUseOfficialApi && officialChannel && officialData && !officialData.isConnected);
   const isOfficialConnectionSelected =
     Boolean(selectedConnectionKey) &&
@@ -661,13 +662,14 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
 
   return (
     <section className="chat-app-layout flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
-      <ChatsAutoRefresh intervalMs={5000} />
+      <ChatsAutoRefresh intervalMs={5000} selectedConversationKey={selectedUnified?.key ?? null} />
       <ChatsRealtimeSync
         enabled={Boolean(selectedUnified)}
         apiBaseUrl={evolutionSettings.apiBaseUrl}
         instanceNames={evolutionInstanceNames}
         activeInstanceName={selectedEvolutionInstanceName}
         selectedConversationKey={selectedUnified?.key ?? null}
+        globalEventsEnabled={evolutionGlobalWebsocketEventsEnabled}
       />
       <QueryFeedbackToast
         okMessage={okMessage}

@@ -3,6 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { io, type Socket } from "socket.io-client";
+import {
+  extractEvolutionPhoneNumber,
+  extractEvolutionRemoteJid,
+  normalizePhoneFromJid,
+} from "@/lib/evolution-webhook";
 
 type ChatsRealtimeSyncProps = {
   apiBaseUrl?: string;
@@ -10,6 +15,7 @@ type ChatsRealtimeSyncProps = {
   activeInstanceName?: string | null;
   selectedConversationKey?: string | null;
   enabled?: boolean;
+  globalEventsEnabled?: boolean;
 };
 
 type RefreshPriority = "active" | "background";
@@ -20,6 +26,12 @@ const ACTIVE_REFRESH_MIN_GAP_MS = 350;
 const BACKGROUND_REFRESH_MIN_GAP_MS = 4000;
 const PAGE_REFRESH_DELAY_MS = 250;
 const PAGE_REFRESH_MIN_GAP_MS = 1200;
+// El live-update de la conversación activa puede ir rápido (180ms) porque solo
+// lee mensajes ya guardados por el webhook en ese momento. El summary de lista
+// necesita más margen: el webhook puede tardar 500-1000ms en escribir el mensaje
+// antes de que la query de summary lo vea.
+const LIST_REFRESH_DELAY_MS = 1200;
+const LIST_REFRESH_MIN_GAP_MS = 2000;
 
 function normalizeBaseUrl(value?: string) {
   return value?.trim().replace(/\/+$/, "") || "";
@@ -29,8 +41,13 @@ function normalizeInstanceNames(instanceNames: string[]) {
   return Array.from(new Set(instanceNames.map((name) => name.trim()).filter(Boolean)));
 }
 
-function buildSocketUrl(baseUrl: string, instanceName: string) {
-  return `${normalizeBaseUrl(baseUrl)}/${encodeURIComponent(instanceName)}`;
+function buildSocketUrl(baseUrl: string, instanceName?: string | null) {
+  const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
+  if (!instanceName?.trim()) {
+    return normalizedBaseUrl;
+  }
+
+  return `${normalizedBaseUrl}/${encodeURIComponent(instanceName)}`;
 }
 
 function normalizeEventName(eventName: string) {
@@ -78,6 +95,14 @@ function normalizePhoneNumber(value: string | null): string | null {
 }
 
 function extractPhoneNumberFromPayload(payload: unknown): string | null {
+  const webhookPhoneNumber = normalizePhoneFromJid(
+    extractEvolutionRemoteJid(payload) ?? extractEvolutionPhoneNumber(payload),
+  );
+
+  if (webhookPhoneNumber) {
+    return webhookPhoneNumber;
+  }
+
   const root = asRecord(payload);
   const data = asRecord(root?.data);
   const message = asRecord(data?.message);
@@ -123,6 +148,7 @@ export function ChatsRealtimeSync({
   activeInstanceName = null,
   selectedConversationKey = null,
   enabled = true,
+  globalEventsEnabled = false,
 }: ChatsRealtimeSyncProps) {
   const router = useRouter();
   const [isVisible, setIsVisible] = useState(() => (typeof document === "undefined" ? true : document.visibilityState === "visible"));
@@ -134,8 +160,13 @@ export function ChatsRealtimeSync({
   const liveUpdateQueuedRef = useRef(false);
   const lastLiveUpdateAtRef = useRef(0);
   const listUpdateTimerRef = useRef<number | null>(null);
+  const listUpdateFollowUpTimerRef = useRef<number | null>(null);
   const listUpdateInFlightRef = useRef(false);
-  const listUpdateQueuedRef = useRef(false);
+  const listUpdatePendingRef = useRef<{
+    priority: RefreshPriority;
+    instanceName: string;
+    payload: unknown;
+  } | null>(null);
   const lastListUpdateAtRef = useRef(0);
   const pageRefreshTimerRef = useRef<number | null>(null);
   const lastPageRefreshAtRef = useRef(0);
@@ -160,8 +191,12 @@ export function ChatsRealtimeSync({
   useEffect(() => {
     const normalizedBaseUrl = normalizeBaseUrl(apiBaseUrl);
     const normalizedInstanceNames = normalizedInstanceNamesKey ? normalizedInstanceNamesKey.split("\u0000") : [];
+    // Escuchar el socket base y los sockets por instancia cubre ambos modos de Evolution:
+    // global (sin /instancia) y tradicional (/instancia). Los refreshes están throttleados,
+    // así que los eventos duplicados no generan trabajo extra significativo.
+    const socketTargets = Array.from(new Set([null, ...normalizedInstanceNames]));
 
-    if (!enabled || !isVisible || !normalizedBaseUrl || normalizedInstanceNames.length === 0) {
+    if (!enabled || !isVisible || !normalizedBaseUrl || socketTargets.length === 0) {
       return;
     }
 
@@ -178,6 +213,13 @@ export function ChatsRealtimeSync({
       if (listUpdateTimerRef.current) {
         window.clearTimeout(listUpdateTimerRef.current);
         listUpdateTimerRef.current = null;
+      }
+    }
+
+    function clearListUpdateFollowUpTimer() {
+      if (listUpdateFollowUpTimerRef.current) {
+        window.clearTimeout(listUpdateFollowUpTimerRef.current);
+        listUpdateFollowUpTimerRef.current = null;
       }
     }
 
@@ -271,14 +313,14 @@ export function ChatsRealtimeSync({
       }
     }
 
-    async function runListUpdate(input: { instanceName: string; payload: unknown }) {
+    async function runListUpdate(input: { priority: RefreshPriority; instanceName: string; payload: unknown }) {
       const phoneNumber = extractPhoneNumberFromPayload(input.payload);
       if (!phoneNumber) {
         return false;
       }
 
       if (listUpdateInFlightRef.current) {
-        listUpdateQueuedRef.current = true;
+        listUpdatePendingRef.current = input;
         return true;
       }
 
@@ -294,6 +336,7 @@ export function ChatsRealtimeSync({
         );
 
         if (!response.ok) {
+          console.log("[ListUpdate] fetch falló", { status: response.status, instanceName: input.instanceName, phoneNumber });
           return false;
         }
 
@@ -302,14 +345,21 @@ export function ChatsRealtimeSync({
           | null;
 
         if (!payload?.ok || !payload.conversation) {
+          console.log("[ListUpdate] payload inválido o ok=false", { payload });
           return false;
         }
 
         const conversation = normalizeConversationSummarySnapshot(payload.conversation);
         if (!conversation) {
+          console.log("[ListUpdate] normalizeConversationSummarySnapshot devolvió null", payload.conversation);
           return false;
         }
 
+        console.log("[ListUpdate] response ok, despachando chat-list-update", {
+          id: conversation.id,
+          lastMessage: (conversation as Record<string, unknown>).lastMessage,
+          lastMessageAt: (conversation as Record<string, unknown>).lastMessageAt,
+        });
         window.dispatchEvent(
           new CustomEvent("chat-list-update", {
             detail: {
@@ -324,9 +374,11 @@ export function ChatsRealtimeSync({
       } finally {
         listUpdateInFlightRef.current = false;
 
-        if (listUpdateQueuedRef.current) {
-          listUpdateQueuedRef.current = false;
-          scheduleListUpdate("background", input.instanceName, input.payload);
+        const pendingUpdate = listUpdatePendingRef.current;
+        listUpdatePendingRef.current = null;
+
+        if (pendingUpdate) {
+          scheduleListUpdate(pendingUpdate.priority, pendingUpdate.instanceName, pendingUpdate.payload);
         }
       }
     }
@@ -345,18 +397,31 @@ export function ChatsRealtimeSync({
     };
 
     const scheduleListUpdate = (priority: RefreshPriority, instanceName: string, payload: unknown) => {
+      const phoneForLog = extractPhoneNumberFromPayload(payload);
+      console.log("[ListUpdate] scheduleListUpdate iniciado", { instanceName, priority, phoneNumber: phoneForLog });
       const now = Date.now();
-      const minGap = priority === "active" ? ACTIVE_REFRESH_MIN_GAP_MS : BACKGROUND_REFRESH_MIN_GAP_MS;
-      const preferredDelay = priority === "active" ? ACTIVE_REFRESH_DELAY_MS : BACKGROUND_REFRESH_DELAY_MS;
+      const minGap = priority === "active" ? LIST_REFRESH_MIN_GAP_MS : BACKGROUND_REFRESH_MIN_GAP_MS;
+      const preferredDelay = priority === "active" ? LIST_REFRESH_DELAY_MS : BACKGROUND_REFRESH_DELAY_MS;
       const earliestAllowedAt = lastListUpdateAtRef.current + minGap;
       const targetAt = Math.max(now + preferredDelay, earliestAllowedAt);
 
       clearListUpdateTimer();
+      clearListUpdateFollowUpTimer();
       listUpdateTimerRef.current = window.setTimeout(() => {
-        void runListUpdate({ instanceName, payload }).then((success) => {
+        void runListUpdate({ priority, instanceName, payload }).then((success) => {
           if (success) {
             lastListUpdateAtRef.current = Date.now();
           }
+          // Segundo intento ~2500ms después para capturar casos donde el webhook
+          // todavía no había escrito el mensaje al DB en el primer intento (race condition).
+          clearListUpdateFollowUpTimer();
+          listUpdateFollowUpTimerRef.current = window.setTimeout(() => {
+            void runListUpdate({ priority: "background", instanceName, payload }).then((retrySuccess) => {
+              if (retrySuccess) {
+                lastListUpdateAtRef.current = Date.now();
+              }
+            });
+          }, 2500);
         });
       }, Math.max(0, targetAt - now));
     };
@@ -375,7 +440,7 @@ export function ChatsRealtimeSync({
       }, Math.max(0, targetAt - now));
     };
 
-    for (const instanceName of normalizedInstanceNames) {
+    for (const instanceName of socketTargets) {
       const socket = io(buildSocketUrl(normalizedBaseUrl, instanceName), {
         transports: ["websocket", "polling"],
         reconnection: true,
@@ -386,7 +451,10 @@ export function ChatsRealtimeSync({
           // Leer refs en el momento del evento — siempre reflejan la conversación actual
           // sin necesidad de recrear los sockets cuando el usuario cambia de chat.
           const normalizedActiveInstanceName = activeInstanceNameRef.current?.trim() || "";
-          const isActiveInstance = normalizedActiveInstanceName && instanceName === normalizedActiveInstanceName;
+          const isActiveInstance =
+            Boolean(normalizedActiveInstanceName) &&
+            (!globalEventsEnabled || instanceName === normalizedActiveInstanceName) &&
+            instanceName === normalizedActiveInstanceName;
           const payload = args[0];
           const currentConversationKey = selectedConversationKeyRef.current;
           const isOfficialConversationSelected = currentConversationKey?.startsWith("official:");
@@ -424,17 +492,38 @@ export function ChatsRealtimeSync({
 
           const phoneNumber = extractPhoneNumberFromPayload(payload);
           if (phoneNumber) {
+            if (globalEventsEnabled) {
+              if (currentConversationKey?.startsWith("agent:")) {
+                scheduleLiveUpdate("background");
+              }
+
+              // En modo global el payload incluye instanceName: usar ese valor para la
+              // query del summary, igual que el path no-global (línea de abajo).
+              // schedulePageRefresh("background") se reemplaza por scheduleListUpdate
+              // porque page-refresh tiene min-gap de 4000ms y dejaría el preview
+              // desactualizado varios segundos; scheduleListUpdate es directo y rápido.
+              const listInstanceName = payloadInstanceName || normalizedActiveInstanceName;
+              console.log("[WS] scheduleListUpdate llamado", { listInstanceName, phoneNumber, payloadInstanceName, normalizedActiveInstanceName, eventName });
+              if (listInstanceName) {
+                scheduleListUpdate("background", listInstanceName, payload);
+              } else {
+                schedulePageRefresh("background");
+              }
+              return;
+            }
+
             if (isOfficialConversationSelected) {
               schedulePageRefresh("background");
               return;
             }
 
-            scheduleListUpdate("background", instanceName, payload);
+            scheduleListUpdate("background", payloadInstanceName || instanceName || normalizedActiveInstanceName || "", payload);
             return;
           }
 
           if (currentConversationKey?.startsWith("agent:")) {
             scheduleLiveUpdate("background");
+            schedulePageRefresh("background");
           } else if (isOfficialConversationSelected) {
             schedulePageRefresh("background");
           }
@@ -447,10 +536,11 @@ export function ChatsRealtimeSync({
     return () => {
       clearLiveUpdateTimer();
       clearListUpdateTimer();
+      clearListUpdateFollowUpTimer();
       clearPageRefreshTimer();
       liveUpdateQueuedRef.current = false;
       liveUpdateInFlightRef.current = false;
-      listUpdateQueuedRef.current = false;
+      listUpdatePendingRef.current = null;
       listUpdateInFlightRef.current = false;
 
       for (const socket of sockets) {
@@ -458,7 +548,7 @@ export function ChatsRealtimeSync({
         socket.disconnect();
       }
     };
-  }, [apiBaseUrl, enabled, isVisible, normalizedInstanceNamesKey]);
+  }, [apiBaseUrl, enabled, isVisible, normalizedInstanceNamesKey, globalEventsEnabled, router]);
 
   return null;
 }
