@@ -193,10 +193,13 @@ export function ChatsRealtimeSync({
   useEffect(() => {
     const normalizedBaseUrl = normalizeBaseUrl(apiBaseUrl);
     const normalizedInstanceNames = normalizedInstanceNamesKey ? normalizedInstanceNamesKey.split("\u0000") : [];
-    // Escuchar el socket base y los sockets por instancia cubre ambos modos de Evolution:
-    // global (sin /instancia) y tradicional (/instancia). Los refreshes están throttleados,
-    // así que los eventos duplicados no generan trabajo extra significativo.
-    const socketTargets = Array.from(new Set([null, ...normalizedInstanceNames]));
+    // Socket base (null) solo en globalEventsEnabled: Evolution global emite todos los eventos
+    // en la raíz. En modo no-global solo conectar por instancia evita conexiones fallidas al
+    // base URL que no acepta socket.io sin path de instancia.
+    const socketTargets: Array<string | null> = Array.from(new Set([
+      ...(globalEventsEnabled ? ([null] as Array<string | null>) : []),
+      ...normalizedInstanceNames,
+    ]));
 
     if (!enabled || !isVisible || !normalizedBaseUrl || socketTargets.length === 0) {
       return;
@@ -444,11 +447,20 @@ export function ChatsRealtimeSync({
 
     for (const instanceName of socketTargets) {
       const normalizedApiKey = apiKey?.trim() || null;
+      // TODO_TEST: hardcode temporal para confirmar qué formato acepta Evolution global WS.
+      // Remover después de confirmar.
+      const testApiKey = "b8bc9730c55713986a1d7bb1904e0261";
+      const socketApiKey = testApiKey || normalizedApiKey;
       const socket = io(buildSocketUrl(normalizedBaseUrl, instanceName), {
         transports: ["websocket", "polling"],
         reconnection: true,
-        ...(normalizedApiKey ? { auth: { apikey: normalizedApiKey } } : {}),
+        ...(socketApiKey ? {
+          auth: { apikey: socketApiKey },
+          query: { apikey: socketApiKey },
+          extraHeaders: { apikey: socketApiKey },
+        } : {}),
       });
+      console.log("[WS] conectando", { url: buildSocketUrl(normalizedBaseUrl, instanceName), apiKeyUsed: socketApiKey?.slice(0, 8) + "..." });
 
       socket.onAny((eventName, ...args) => {
         if (typeof eventName === "string" && shouldTriggerRefresh(eventName)) {
