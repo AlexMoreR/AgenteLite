@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useRef, useState, useCallback, type FormEvent, type ReactNode } from "react";
+import { memo, useEffect, useRef, useState, useCallback, type FormEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useFormStatus } from "react-dom";
 import {
@@ -579,6 +579,189 @@ function extractChatAdPreview(rawPayload: unknown): ChatAdPreview | null {
   };
 }
 
+// Componente memoizado: solo re-renderiza si cambian sus props directas.
+// Evita que los ~N mensajes renderizados re-ejecuten cuando cambia estado de UI
+// en SharedInbox (modal abierto, optimisticOutgoingMessage, pendingConversation, etc.).
+const MessageBubble = memo(function MessageBubble({
+  message,
+  previousMessage,
+}: {
+  message: SharedInboxMessageItem;
+  previousMessage: SharedInboxMessageItem | undefined;
+}) {
+  const outbound = message.direction === "OUTBOUND";
+  const currentDateKey = chatDateFormatter.format(message.createdAt);
+  const previousDateKey = previousMessage ? chatDateFormatter.format(previousMessage.createdAt) : null;
+  const showDateDivider = currentDateKey !== previousDateKey;
+  const adPreview = extractChatAdPreview(message.rawPayload);
+  const isOptimistic = "isOptimistic" in message && Boolean((message as { isOptimistic?: boolean }).isOptimistic);
+
+  return (
+    <div
+      className="space-y-2.5 md:space-y-3"
+      style={{ contentVisibility: "auto", containIntrinsicSize: "160px" }}
+    >
+      {showDateDivider ? (
+        <div className="flex justify-center">
+          <span className="rounded-full border border-white/70 bg-white/80 px-3 py-1 text-[11px] font-medium capitalize text-slate-500 shadow-sm backdrop-blur">
+            {formatDateDivider(message.createdAt)}
+          </span>
+        </div>
+      ) : null}
+
+      <div className={`flex ${outbound ? "justify-end" : "justify-start"}`}>
+        <div
+          className={`max-w-[88%] rounded-[16px] px-[10px] py-[8px] text-[13px] leading-5 shadow-[0_10px_24px_-20px_rgba(15,23,42,0.16)] md:max-w-[72%] md:px-[10px] md:py-[9px] ${
+            outbound
+              ? "bg-[var(--primary)] text-white"
+              : "border border-[rgba(148,163,184,0.12)] bg-white text-slate-800"
+          } ${isOptimistic ? "opacity-85" : ""}`}
+        >
+          {adPreview ? (
+            <div className="space-y-3">
+              <div
+                className={`overflow-hidden rounded-[14px] border ${
+                  outbound ? "border-white/20 bg-white/10" : "border-[rgba(148,163,184,0.16)] bg-slate-50"
+                }`}
+              >
+                {adPreview.thumbnailUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={adPreview.thumbnailUrl}
+                    alt={adPreview.title}
+                    className="h-auto max-h-[220px] w-full object-cover"
+                  />
+                ) : null}
+                <div className="space-y-1.5 px-3 py-3">
+                  <div className="flex items-center gap-2 text-[11px]">
+                    {adPreview.sourceApp === "facebook" ? (
+                      <Facebook className={`h-3.5 w-3.5 ${outbound ? "text-white/80" : "text-blue-600"}`} />
+                    ) : (
+                      <MessageCircle className={`h-3.5 w-3.5 ${outbound ? "text-white/80" : "text-emerald-600"}`} />
+                    )}
+                    <span className={outbound ? "text-white/80" : "text-slate-500"}>
+                      {adPreview.sourceApp === "facebook" ? "Anuncio de Facebook" : "Referencia de anuncio"}
+                    </span>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="line-clamp-2 text-[13px] font-semibold leading-5">{adPreview.title}</p>
+                    {adPreview.body ? (
+                      <p className={`line-clamp-2 text-[12px] leading-5 ${outbound ? "text-white/85" : "text-slate-600"}`}>
+                        {adPreview.body}
+                      </p>
+                    ) : null}
+                  </div>
+                  {adPreview.sourceUrl ? (
+                    <a
+                      href={adPreview.sourceUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className={`inline-flex text-[11px] underline underline-offset-2 ${
+                        outbound ? "text-white/85" : "text-slate-500"
+                      }`}
+                    >
+                      {adPreview.sourceUrl.replace(/^https?:\/\//, "")}
+                    </a>
+                  ) : null}
+                </div>
+              </div>
+              {renderMessageText(message.content)}
+            </div>
+          ) : isVisualMessage(message) ? (
+            <div className="space-y-2">
+              {(() => {
+                const previewUrl = extractImagePreviewUrl(message);
+                return previewUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={previewUrl}
+                    alt={message.content?.trim() || "Imagen del chat"}
+                    className="max-h-[320px] w-full rounded-xl object-cover"
+                  />
+                ) : (
+                  <div
+                    className={`flex min-h-[140px] items-center justify-center rounded-xl border border-dashed text-sm ${
+                      outbound ? "border-white/20 text-white/80" : "border-slate-200 text-slate-500"
+                    }`}
+                  >
+                    Imagen no disponible
+                  </div>
+                );
+              })()}
+              {renderMessageText(message.content)}
+            </div>
+          ) : isVideoMessage(message) ? (
+            <div className="space-y-2">
+              {(() => {
+                const videoUrl = message.mediaUrl || extractMediaUrlFromPayload(message, "VIDEO");
+                return videoUrl ? (
+                  <video
+                    src={videoUrl}
+                    controls
+                    preload="metadata"
+                    className="max-h-[320px] w-full rounded-xl bg-black"
+                  />
+                ) : (
+                  <div
+                    className={`flex min-h-[140px] items-center justify-center rounded-xl border border-dashed text-sm ${
+                      outbound ? "border-white/20 text-white/80" : "border-slate-200 text-slate-500"
+                    }`}
+                  >
+                    Video no disponible
+                  </div>
+                );
+              })()}
+              {renderMessageText(message.content)}
+            </div>
+          ) : isAudioMessage(message) ? (
+            message.mediaUrl || extractMediaUrlFromPayload(message, "AUDIO") ? (
+              <AudioMessageCard
+                mediaUrl={message.mediaUrl || extractMediaUrlFromPayload(message, "AUDIO") || ""}
+                content={message.content}
+                outbound={outbound}
+              />
+            ) : (
+              renderMessageText(message.content) || <p>Audio no disponible</p>
+            )
+          ) : isDocumentMessage(message) ? (
+            <div className="space-y-2">
+              <a
+                href={message.mediaUrl || extractMediaUrlFromPayload(message, "DOCUMENT") || "#"}
+                target="_blank"
+                rel="noreferrer"
+                className={`inline-flex items-center rounded-xl px-3 py-2 text-sm font-medium underline-offset-2 transition hover:underline ${
+                  outbound ? "bg-white/14 text-white" : "bg-slate-100 text-slate-700"
+                }`}
+              >
+                Abrir documento
+              </a>
+              {renderMessageText(message.content)}
+            </div>
+          ) : (
+            renderMessageText(message.content) || <p>-</p>
+          )}
+
+          <div className={`mt-1.5 flex items-center justify-end gap-1 text-[10px] ${outbound ? "text-white/80" : "text-slate-400"}`}>
+            {message.authorType === "bot" ? (
+              <Bot className="h-3 w-3" />
+            ) : (
+              <UserRound className="h-3 w-3" />
+            )}
+            <span>{chatTimeFormatter.format(message.createdAt)}</span>
+            {outbound && message.outboundStatusLabel ? (
+              message.outboundStatusLabel === "entregado" ? (
+                <CheckCheck className="ml-1 h-3 w-3 shrink-0" aria-hidden="true" />
+              ) : (
+                <span className="ml-1">{message.outboundStatusLabel}</span>
+              )
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+});
+
 export function SharedInbox({
   searchAction,
   selectedConversationId,
@@ -610,6 +793,10 @@ export function SharedInbox({
   const messagesScrollRef = useRef<HTMLDivElement | null>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
   const autoLoadLockRef = useRef(false);
+  // Ref sincronizada en cada render: permite leer el valor actual dentro de event
+  // listeners sin declararlos como dependencia (evita re-registro en cada mensaje).
+  const selectedConversationRef = useRef(selectedConversation);
+  selectedConversationRef.current = selectedConversation;
   const router = useRouter();
   const [pendingConversation, setPendingConversation] = useState<{
     id: string;
@@ -686,7 +873,7 @@ export function SharedInbox({
         return;
       }
 
-      setLiveConversation((current) => mergeConversationSnapshots(current ?? selectedConversation ?? null, snapshot));
+      setLiveConversation((current) => mergeConversationSnapshots(current ?? selectedConversationRef.current ?? null, snapshot));
       setConversationItems((current) => {
         const currentItem = findConversationItemBySnapshotId(current, snapshot.id) ?? undefined;
         const updatedItem = buildConversationItemFromSnapshot(snapshot, currentItem);
@@ -704,7 +891,7 @@ export function SharedInbox({
 
     window.addEventListener("chat-live-update", handleLiveUpdate as EventListener);
     return () => window.removeEventListener("chat-live-update", handleLiveUpdate as EventListener);
-  }, [selectedConversation, selectedConversationId]);
+  }, [selectedConversationId]);
 
   useEffect(() => {
     function handleListUpdate(event: Event) {
@@ -746,7 +933,7 @@ export function SharedInbox({
       );
 
       setLiveConversation((current) => {
-        const baseConversation = current ?? selectedConversation ?? null;
+        const baseConversation = current ?? selectedConversationRef.current ?? null;
         if (!baseConversation || baseConversation.contactId !== detail.contactId) {
           return current;
         }
@@ -773,7 +960,7 @@ export function SharedInbox({
 
     window.addEventListener("chat-contact-updated", handleContactUpdate as EventListener);
     return () => window.removeEventListener("chat-contact-updated", handleContactUpdate as EventListener);
-  }, [selectedConversation]);
+  }, []);
 
   useEffect(() => {
     function handleTagsUpdate(event: Event) {
@@ -792,7 +979,7 @@ export function SharedInbox({
       );
 
       setLiveConversation((current) => {
-        const baseConversation = current ?? selectedConversation ?? null;
+        const baseConversation = current ?? selectedConversationRef.current ?? null;
         if (!baseConversation || baseConversation.contactId !== detail.contactId) {
           return current;
         }
@@ -817,7 +1004,7 @@ export function SharedInbox({
 
     window.addEventListener("chat-tags-updated", handleTagsUpdate as EventListener);
     return () => window.removeEventListener("chat-tags-updated", handleTagsUpdate as EventListener);
-  }, [selectedConversation]);
+  }, []);
 
   useEffect(() => {
     if (!pendingConversation?.id || pendingConversation.id === selectedConversationId) {
@@ -1147,185 +1334,13 @@ export function SharedInbox({
                         </div>
                       </div>
                     ) : null}
-                  {renderedMessages.map((message, index) => {
-                    const outbound = message.direction === "OUTBOUND";
-                    const previousMessage = renderedMessages[index - 1];
-                    const currentDateKey = chatDateFormatter.format(message.createdAt);
-                    const previousDateKey = previousMessage
-                      ? chatDateFormatter.format(previousMessage.createdAt)
-                      : null;
-                    const showDateDivider = currentDateKey !== previousDateKey;
-                    const adPreview = extractChatAdPreview(message.rawPayload);
-                    const isOptimistic = "isOptimistic" in message && Boolean((message as OptimisticDraftMessage).isOptimistic);
-                    return (
-                      <div
-                        key={message.id}
-                        className="space-y-2.5 md:space-y-3"
-                        style={{ contentVisibility: "auto", containIntrinsicSize: "160px" }}
-                      >
-                        {showDateDivider ? (
-                          <div className="flex justify-center">
-                            <span className="rounded-full border border-white/70 bg-white/80 px-3 py-1 text-[11px] font-medium capitalize text-slate-500 shadow-sm backdrop-blur">
-                              {formatDateDivider(message.createdAt)}
-                            </span>
-                          </div>
-                        ) : null}
-
-                        <div className={`flex ${outbound ? "justify-end" : "justify-start"}`}>
-                          <div
-                            className={`max-w-[88%] rounded-[16px] px-[10px] py-[8px] text-[13px] leading-5 shadow-[0_10px_24px_-20px_rgba(15,23,42,0.16)] md:max-w-[72%] md:px-[10px] md:py-[9px] ${
-                              outbound
-                                ? "bg-[var(--primary)] text-white"
-                                : "border border-[rgba(148,163,184,0.12)] bg-white text-slate-800"
-                            } ${isOptimistic ? "opacity-85" : ""}`}
-                          >
-                            {adPreview ? (
-                              <div className="space-y-3">
-                                <div
-                                  className={`overflow-hidden rounded-[14px] border ${
-                                    outbound
-                                      ? "border-white/20 bg-white/10"
-                                      : "border-[rgba(148,163,184,0.16)] bg-slate-50"
-                                  }`}
-                                >
-                                  {adPreview.thumbnailUrl ? (
-                                    // eslint-disable-next-line @next/next/no-img-element
-                                    <img
-                                      src={adPreview.thumbnailUrl}
-                                      alt={adPreview.title}
-                                      className="h-auto max-h-[220px] w-full object-cover"
-                                    />
-                                  ) : null}
-                                  <div className="space-y-1.5 px-3 py-3">
-                                    <div className="flex items-center gap-2 text-[11px]">
-                                      {adPreview.sourceApp === "facebook" ? (
-                                        <Facebook className={`h-3.5 w-3.5 ${outbound ? "text-white/80" : "text-blue-600"}`} />
-                                      ) : (
-                                        <MessageCircle className={`h-3.5 w-3.5 ${outbound ? "text-white/80" : "text-emerald-600"}`} />
-                                      )}
-                                      <span className={outbound ? "text-white/80" : "text-slate-500"}>
-                                        {adPreview.sourceApp === "facebook" ? "Anuncio de Facebook" : "Referencia de anuncio"}
-                                      </span>
-                                    </div>
-                                    <div className="space-y-1">
-                                      <p className="line-clamp-2 text-[13px] font-semibold leading-5">{adPreview.title}</p>
-                                      {adPreview.body ? (
-                                        <p className={`line-clamp-2 text-[12px] leading-5 ${outbound ? "text-white/85" : "text-slate-600"}`}>
-                                          {adPreview.body}
-                                        </p>
-                                      ) : null}
-                                    </div>
-                                    {adPreview.sourceUrl ? (
-                                      <a
-                                        href={adPreview.sourceUrl}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className={`inline-flex text-[11px] underline underline-offset-2 ${
-                                          outbound ? "text-white/85" : "text-slate-500"
-                                        }`}
-                                      >
-                                        {adPreview.sourceUrl.replace(/^https?:\/\//, "")}
-                                      </a>
-                                    ) : null}
-                                  </div>
-                                </div>
-                                {renderMessageText(message.content)}
-                              </div>
-                            ) : isVisualMessage(message) ? (
-                              <div className="space-y-2">
-                                {(() => {
-                                  const previewUrl = extractImagePreviewUrl(message);
-                                  return previewUrl ? (
-                                    // eslint-disable-next-line @next/next/no-img-element
-                                    <img
-                                      src={previewUrl}
-                                      alt={message.content?.trim() || "Imagen del chat"}
-                                      className="max-h-[320px] w-full rounded-xl object-cover"
-                                    />
-                                  ) : (
-                                    <div
-                                      className={`flex min-h-[140px] items-center justify-center rounded-xl border border-dashed text-sm ${
-                                        outbound ? "border-white/20 text-white/80" : "border-slate-200 text-slate-500"
-                                      }`}
-                                    >
-                                      Imagen no disponible
-                                    </div>
-                                  );
-                                })()}
-                                {renderMessageText(message.content)}
-                              </div>
-                            ) : isVideoMessage(message) ? (
-                              <div className="space-y-2">
-                                {(() => {
-                                  const videoUrl = message.mediaUrl || extractMediaUrlFromPayload(message, "VIDEO");
-                                  return videoUrl ? (
-                                    <video
-                                      src={videoUrl}
-                                      controls
-                                      preload="metadata"
-                                      className="max-h-[320px] w-full rounded-xl bg-black"
-                                    />
-                                  ) : (
-                                    <div
-                                      className={`flex min-h-[140px] items-center justify-center rounded-xl border border-dashed text-sm ${
-                                        outbound ? "border-white/20 text-white/80" : "border-slate-200 text-slate-500"
-                                      }`}
-                                    >
-                                      Video no disponible
-                                    </div>
-                                  );
-                                })()}
-                                {renderMessageText(message.content)}
-                              </div>
-                            ) : isAudioMessage(message) ? (
-                              message.mediaUrl || extractMediaUrlFromPayload(message, "AUDIO") ? (
-                              <AudioMessageCard
-                                  mediaUrl={message.mediaUrl || extractMediaUrlFromPayload(message, "AUDIO") || ""}
-                                  content={message.content}
-                                  outbound={outbound}
-                                />
-                              ) : (
-                                renderMessageText(message.content) || <p>Audio no disponible</p>
-                              )
-                            ) : isDocumentMessage(message) ? (
-                              <div className="space-y-2">
-                                <a
-                                  href={message.mediaUrl || extractMediaUrlFromPayload(message, "DOCUMENT") || "#"}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className={`inline-flex items-center rounded-xl px-3 py-2 text-sm font-medium underline-offset-2 transition hover:underline ${
-                                    outbound ? "bg-white/14 text-white" : "bg-slate-100 text-slate-700"
-                                  }`}
-                                >
-                                  Abrir documento
-                                </a>
-                                {renderMessageText(message.content)}
-                              </div>
-                            ) : (
-                              renderMessageText(message.content) || <p>-</p>
-                            )}
-                            <div className={`mt-1.5 flex items-center justify-end gap-1 text-[10px] ${outbound ? "text-white/80" : "text-slate-400"}`}>
-                              {message.authorType === "bot" ? (
-                                <Bot className="h-3 w-3" />
-                              ) : (
-                                <UserRound className="h-3 w-3" />
-                              )}
-                              <span>
-                                {chatTimeFormatter.format(message.createdAt)}
-                              </span>
-                              {outbound && message.outboundStatusLabel ? (
-                                message.outboundStatusLabel === "entregado" ? (
-                                  <CheckCheck className="ml-1 h-3 w-3 shrink-0" aria-hidden="true" />
-                                ) : (
-                                  <span className="ml-1">{message.outboundStatusLabel}</span>
-                                )
-                              ) : null}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
+                  {renderedMessages.map((message, index) => (
+                    <MessageBubble
+                      key={message.id}
+                      message={message}
+                      previousMessage={renderedMessages[index - 1]}
+                    />
+                  ))}
                   <ChatScrollAnchor dependencyKey={selectedConversationScrollKey} behavior={messageScrollBehavior} />
                 </div>
               </div>

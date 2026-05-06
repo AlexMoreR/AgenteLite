@@ -139,6 +139,12 @@ export function ChatsRealtimeSync({
   const lastListUpdateAtRef = useRef(0);
   const pageRefreshTimerRef = useRef<number | null>(null);
   const lastPageRefreshAtRef = useRef(0);
+  // Refs para valores volátiles: evitan que el useEffect de sockets se re-ejecute
+  // (y desconecte/reconecte todos los sockets) cada vez que cambia la conversación activa.
+  const selectedConversationKeyRef = useRef(selectedConversationKey);
+  selectedConversationKeyRef.current = selectedConversationKey;
+  const activeInstanceNameRef = useRef(activeInstanceName);
+  activeInstanceNameRef.current = activeInstanceName;
 
   useEffect(() => {
     function handleVisibilityChange() {
@@ -160,7 +166,6 @@ export function ChatsRealtimeSync({
     }
 
     const sockets: Socket[] = [];
-    const normalizedActiveInstanceName = activeInstanceName?.trim() || "";
 
     function clearLiveUpdateTimer() {
       if (liveUpdateTimerRef.current) {
@@ -208,7 +213,7 @@ export function ChatsRealtimeSync({
     }
 
     async function runLiveUpdate() {
-      const normalizedChatKey = selectedConversationKey?.trim() || "";
+      const normalizedChatKey = selectedConversationKeyRef.current?.trim() || "";
       if (!normalizedChatKey.startsWith("agent:")) {
         return false;
       }
@@ -378,9 +383,13 @@ export function ChatsRealtimeSync({
 
       socket.onAny((eventName, ...args) => {
         if (typeof eventName === "string" && shouldTriggerRefresh(eventName)) {
+          // Leer refs en el momento del evento — siempre reflejan la conversación actual
+          // sin necesidad de recrear los sockets cuando el usuario cambia de chat.
+          const normalizedActiveInstanceName = activeInstanceNameRef.current?.trim() || "";
           const isActiveInstance = normalizedActiveInstanceName && instanceName === normalizedActiveInstanceName;
           const payload = args[0];
-          const isOfficialConversationSelected = selectedConversationKey?.startsWith("official:");
+          const currentConversationKey = selectedConversationKeyRef.current;
+          const isOfficialConversationSelected = currentConversationKey?.startsWith("official:");
 
           if (isActiveInstance) {
             if (isOfficialConversationSelected) {
@@ -389,7 +398,7 @@ export function ChatsRealtimeSync({
             }
 
             scheduleLiveUpdate("active");
-            if (selectedConversationKey?.startsWith("agent:")) {
+            if (currentConversationKey?.startsWith("agent:")) {
               scheduleListUpdate("active", instanceName, payload);
             }
             return;
@@ -407,7 +416,7 @@ export function ChatsRealtimeSync({
             }
 
             scheduleLiveUpdate("active");
-            if (selectedConversationKey?.startsWith("agent:")) {
+            if (currentConversationKey?.startsWith("agent:")) {
               scheduleListUpdate("active", instanceName, payload);
             }
             return;
@@ -424,7 +433,7 @@ export function ChatsRealtimeSync({
             return;
           }
 
-          if (selectedConversationKey?.startsWith("agent:")) {
+          if (currentConversationKey?.startsWith("agent:")) {
             scheduleLiveUpdate("background");
           } else if (isOfficialConversationSelected) {
             schedulePageRefresh("background");
@@ -449,7 +458,7 @@ export function ChatsRealtimeSync({
         socket.disconnect();
       }
     };
-  }, [activeInstanceName, apiBaseUrl, enabled, isVisible, normalizedInstanceNamesKey, selectedConversationKey]);
+  }, [apiBaseUrl, enabled, isVisible, normalizedInstanceNamesKey]);
 
   return null;
 }

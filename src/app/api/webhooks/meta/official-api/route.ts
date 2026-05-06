@@ -659,8 +659,9 @@ export async function POST(request: Request) {
           });
       const reply = agentProductFlowReply
         ? {
-            text: agentProductFlowReply.reply?.trim() || null,
-            image: agentProductFlowReply.image,
+            text: agentProductFlowReply.steps.find((s) => s.kind === "text")?.content?.trim() || null,
+            image: agentProductFlowReply.steps.find((s): s is Extract<(typeof agentProductFlowReply.steps)[number], { kind: "image" }> => s.kind === "image") ?? null,
+            images: agentProductFlowReply.steps.filter((s): s is Extract<(typeof agentProductFlowReply.steps)[number], { kind: "image" }> => s.kind === "image"),
           }
         : agentKnowledgeBaseReply
           ? agentKnowledgeBaseReply
@@ -716,19 +717,22 @@ export async function POST(request: Request) {
       }
 
       let imageSent = false;
-      if (reply.image?.url) {
+      const imagesToSend = (reply as { images?: Array<{ url: string; caption: string | null }> }).images ?? (reply.image ? [reply.image] : []);
+      for (const img of imagesToSend) {
+        if (!img?.url) continue;
         try {
           const imageResult = await sendOfficialApiImageMessage({
             config,
             conversationId: message.conversationId,
             contactId: message.contactId,
             to: message.waId,
-            imageUrl: reply.image.url,
-            caption: reply.image.caption,
+            imageUrl: img.url,
+            caption: img.caption,
             source: "automation",
           });
-          imageSent = imageResult.ok;
-          if (!imageResult.ok) {
+          if (imageResult.ok) {
+            imageSent = true;
+          } else {
             console.warn("[official-api] image node failed, continuing flow", {
               configId: config.id,
               conversationId: message.conversationId,
@@ -737,7 +741,6 @@ export async function POST(request: Request) {
             });
           }
         } catch {
-          imageSent = false;
           console.warn("[official-api] image node threw error, continuing flow", {
             configId: config.id,
             conversationId: message.conversationId,

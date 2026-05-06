@@ -2760,17 +2760,13 @@ export async function simulateAgentReplyAction(input: {
       });
 
   if (hardFlowReply) {
+    const firstText = hardFlowReply.steps.find((s) => s.kind === "text");
+    const imageSteps = hardFlowReply.steps.filter((s): s is Extract<typeof s, { kind: "image" }> => s.kind === "image");
     return {
       ok: true,
-      reply: hardFlowReply.reply,
-      media: hardFlowReply.image
-        ? [
-            {
-              type: "IMAGE",
-              url: hardFlowReply.image.url,
-              caption: hardFlowReply.image.caption,
-            },
-          ]
+      reply: firstText?.content ?? "",
+      media: imageSteps.length > 0
+        ? imageSteps.map((s) => ({ type: "IMAGE" as const, url: s.url, caption: s.caption }))
         : undefined,
     };
   }

@@ -18,18 +18,15 @@ type FlowReference = {
   beforeText: string;
 };
 
+type FlowStep =
+  | { kind: "text"; content: string }
+  | { kind: "image"; url: string; caption: string | null }
+  | { kind: "document"; url: string; caption: string | null; fileName: string | null };
+
+export type { FlowStep };
+
 type FlowReplyPayload = {
-  text: string | null;
-  image: {
-    url: string;
-    caption: string | null;
-  } | null;
-  imageFirst: boolean;
-  documents: Array<{
-    url: string;
-    caption: string | null;
-    fileName: string | null;
-  }>;
+  steps: FlowStep[];
   aiFollowUpEnabled: boolean;
 };
 
@@ -225,45 +222,52 @@ function getScenarioReplyFromState(input: {
     .map((nodeId) => nodeById.get(nodeId))
     .filter((node): node is OfficialApiChatbotBuilderNode => Boolean(node));
   const candidateNodes = orderedNodes.length > 0 ? orderedNodes : nodes;
-  const messageNodes = candidateNodes.filter((node) => node.kind === "message" && node.body.trim());
-  const replyNode =
-    messageNodes.find((node) => node.id === "reply") ??
-    messageNodes.find((node) => !node.title.toLowerCase().includes("bienvenida") && !node.title.toLowerCase().includes("fallback")) ??
-    messageNodes[0];
-  const imageNode = candidateNodes.find((node) => node.kind === "image") ?? nodes.find((node) => node.kind === "image");
-  const imageUrl = imageNode?.meta.trim() || "";
-  const imageCaption = imageNode?.body.trim() || null;
-  const image = imageUrl && isValidHttpUrl(imageUrl)
-    ? { url: imageUrl, caption: imageCaption }
-    : null;
+  const steps: FlowStep[] = [];
 
-  const documentNodes = candidateNodes.filter((node) => node.kind === "document" && isValidHttpUrl(node.meta.trim()));
-  const documents = documentNodes.map((node) => {
-    const url = node.meta.trim();
-    const fileName = extractDocumentFileName(node.title, url);
-    return { url, caption: node.body.trim() || null, fileName };
-  });
+  for (const node of candidateNodes) {
+    if (node.kind === "trigger") continue;
 
-  const text = replyNode?.body.trim() || null;
-
-  if (!text && !image && !documents.length) {
-    return null;
+    if (node.kind === "message" && node.body.trim()) {
+      steps.push({ kind: "text", content: node.body.trim() });
+    } else if (node.kind === "image") {
+      const url = node.meta.trim();
+      if (isValidHttpUrl(url)) {
+        steps.push({ kind: "image", url, caption: node.body.trim() || null });
+      }
+    } else if (node.kind === "document") {
+      const url = node.meta.trim();
+      if (isValidHttpUrl(url)) {
+        steps.push({ kind: "document", url, caption: node.body.trim() || null, fileName: extractDocumentFileName(node.title, url) });
+      }
+    }
+    // audio, video, input, condition, action: ignored for now
   }
 
-  const imageIndex = imageNode ? candidateNodes.indexOf(imageNode) : -1;
-  const replyIndex = replyNode ? candidateNodes.indexOf(replyNode) : -1;
-  const imageFirst = imageNode !== undefined && (replyIndex === -1 || imageIndex < replyIndex);
+  // Fallback: if primary path produced no steps, try all nodes unordered
+  if (!steps.length) {
+    for (const node of nodes) {
+      if (node.kind === "image") {
+        const url = node.meta.trim();
+        if (isValidHttpUrl(url)) {
+          steps.push({ kind: "image", url, caption: node.body.trim() || null });
+        }
+      } else if (node.kind === "document") {
+        const url = node.meta.trim();
+        if (isValidHttpUrl(url)) {
+          steps.push({ kind: "document", url, caption: node.body.trim() || null, fileName: extractDocumentFileName(node.title, url) });
+        }
+      }
+    }
+  }
+
+  if (!steps.length) {
+    return null;
+  }
 
   const triggerNode = nodes.find((node) => node.kind === "trigger");
   const aiFollowUpEnabled = triggerNode?.aiFollowUpEnabled !== false;
 
-  return {
-    text,
-    image,
-    imageFirst,
-    documents,
-    aiFollowUpEnabled,
-  };
+  return { steps, aiFollowUpEnabled };
 }
 
 function buildConversationContext(latestUserMessage: string, history: ConversationLine[]) {
@@ -547,10 +551,7 @@ export async function resolveAgentProductFlowReply(input: {
 
       if (reply) {
         return {
-          reply: reply.text ?? "",
-          image: reply.image,
-          imageFirst: reply.imageFirst,
-          documents: reply.documents,
+          steps: reply.steps,
           flowTitle: aiSelectedFlow.title,
           productName: null,
           aiFollowUpEnabled: reply.aiFollowUpEnabled,
@@ -630,10 +631,7 @@ export async function resolveAgentProductFlowReply(input: {
 
     if (reply) {
       return {
-        reply: reply.text ?? "",
-        image: reply.image,
-        imageFirst: reply.imageFirst,
-        documents: reply.documents,
+        steps: reply.steps,
         flowTitle: bestMatch.flow.title,
         productName: row.productName,
         aiFollowUpEnabled: reply.aiFollowUpEnabled,

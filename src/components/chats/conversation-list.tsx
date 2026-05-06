@@ -9,6 +9,13 @@ import { WhatsAppGlyph } from "@/components/icons/whatsapp-glyph";
 import { readConversationFromCache } from "./chat-history-cache";
 import type { SharedInboxConversationItem } from "./shared-inbox";
 
+// Instancia única compartida por todos los items — new Intl.DateTimeFormat() es costoso
+// y no debería crearse dentro del render de cada fila en cada actualización.
+const conversationTimeFormatter = new Intl.DateTimeFormat("es-CO", {
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
 function renderChannelBadgeIcon(channelType?: SharedInboxConversationItem["channelType"]) {
   if (channelType === "whatsapp_official") return <BadgeCheck className="h-3.5 w-3.5 shrink-0 text-white" />;
   if (channelType === "instagram") return <Instagram className="h-3.5 w-3.5 shrink-0 text-white" />;
@@ -142,11 +149,7 @@ const ConversationListItem = memo(function ConversationListItem({
             </p>
           </div>
           <span className="shrink-0 text-[10px] text-slate-500 md:text-[10px]">
-            {conversation.lastMessageAt
-              ? new Intl.DateTimeFormat("es-CO", { hour: "2-digit", minute: "2-digit" }).format(
-                  conversation.lastMessageAt,
-                )
-              : ""}
+            {conversation.lastMessageAt ? conversationTimeFormatter.format(conversation.lastMessageAt) : ""}
           </span>
         </div>
 
@@ -198,7 +201,7 @@ export function ConversationList({
   const router = useRouter();
   const effectiveSelectedId = isPending && pendingId ? pendingId : selectedConversationId;
 
-  function emitPendingSelection(conversation: SharedInboxConversationItem) {
+  const emitPendingSelection = useCallback((conversation: SharedInboxConversationItem) => {
     window.dispatchEvent(
       new CustomEvent("chat-selection-pending", {
         detail: {
@@ -213,7 +216,7 @@ export function ConversationList({
         },
       }),
     );
-  }
+  }, []);
 
   const handleSelect = useCallback((conversation: SharedInboxConversationItem) => {
     setPendingId(conversation.id);
@@ -224,7 +227,7 @@ export function ConversationList({
     startTransition(() => {
       router.push(conversation.href);
     });
-  }, [router, startTransition]);
+  }, [emitPendingSelection, router, startTransition]);
 
   const handlePrefetch = useCallback((conversation: SharedInboxConversationItem) => {
     router.prefetch(conversation.href);

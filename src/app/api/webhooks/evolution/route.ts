@@ -761,7 +761,9 @@ export async function POST(request: Request) {
         replyText = quickResponseFlow.reply.text ?? "";
         shouldComposeWelcome = Boolean(replyText);
       } else if (hardFlowReply) {
-        replyText = hardFlowReply.reply ?? "";
+        // steps executed directly in the flow engine block below
+        replyText = null;
+        shouldComposeWelcome = false;
       } else if (knowledgeBaseReply) {
         replyText = knowledgeBaseReply.text ?? null;
         shouldComposeWelcome = Boolean(replyText);
@@ -800,24 +802,17 @@ export async function POST(request: Request) {
       });
 
       const quickResponseImageReply = shouldHandoffToHuman ? null : quickResponseFlow?.reply.image ?? null;
-      const hardFlowImageReply = shouldHandoffToHuman ? null : hardFlowReply?.image ?? null;
       const knowledgeImageReply = shouldHandoffToHuman ? null : knowledgeBaseReply?.image ?? null;
-      const imageReply = quickResponseImageReply ?? hardFlowImageReply ?? knowledgeImageReply;
-      const documentReplies = shouldHandoffToHuman ? [] : [
-        ...(quickResponseFlow?.reply.documents ?? []),
-        ...(hardFlowReply?.documents ?? []),
-      ];
-      const imageReplyProductName = quickResponseFlow?.scenarioTitle || hardFlowReply?.productName || knowledgeBaseReply?.productName || "";
+      const imageReply = quickResponseImageReply ?? knowledgeImageReply;
+      const documentReplies = shouldHandoffToHuman ? [] : (quickResponseFlow?.reply.documents ?? []);
+      const imageReplyProductName = quickResponseFlow?.scenarioTitle || knowledgeBaseReply?.productName || "";
       const imageReplyReason = shouldHandoffToHuman
         ? null
         : quickResponseFlow
           ? "flow"
-          : hardFlowReply
-            ? "flow"
-            : knowledgeBaseReply
-              ? "knowledge"
-              : null;
-      let followUpText: string | null = null;
+          : knowledgeBaseReply
+            ? "knowledge"
+            : null;
 
       const generateContextualFollowUp = async (
         actionContext: string,
@@ -839,15 +834,191 @@ export async function POST(request: Request) {
           .then((t) => t?.trim() || null)
           .catch(() => null);
 
-      const flowFollowUpContext = shouldHandoffToHuman
-        ? null
-        : quickResponseFlow
-          ? `El flujo "${quickResponseFlow.scenarioTitle}" ya fue ejecutado para la palabra clave "${quickResponseFlow.keyword}".`
-          : hardFlowReply
-          ? `El flujo "${hardFlowReply.flowTitle}" ya fue ejecutado para "${hardFlowReply.productName || "el producto"}".`
-          : null;
+      // ── Flow engine: execute hardFlowReply steps in exact order ──────────────
+      if (hardFlowReply && hardFlowReply.steps.length > 0) {
+        try {
+          console.log("[EVOLUTION] auto_reply_sending", {
+            conversationId: conversation.id,
+            agentId: agent.id,
+            phoneNumber,
+            instanceName: channel.evolutionInstanceName,
+            mode: "hard_flow",
+            steps: hardFlowReply.steps.map((s) => s.kind),
+          });
 
-      if (replyText || quickResponseImageReply || knowledgeImageReply || hardFlowImageReply || documentReplies.length > 0) {
+          try {
+            await sendEvolutionPresence({
+              instanceName: channel.evolutionInstanceName,
+              phoneNumber,
+              presence: "composing",
+              delay: responseDelayMs,
+            });
+          } catch {
+            // presence is best-effort
+          }
+
+          let welcomeApplied = false;
+          for (const step of hardFlowReply.steps) {
+            if (step.kind === "text") {
+              let content = step.content;
+              if (!welcomeApplied) {
+                content = composeAgentWelcomeReply({
+                  welcomeMessage: agent.welcomeMessage,
+                  reply: content,
+                  hasConversationHistory: inboundMessageCount > 1,
+                });
+                welcomeApplied = true;
+              }
+              const outbound = await sendEvolutionTextMessageWithReconnect({
+                instanceName: channel.evolutionInstanceName,
+                phoneNumber,
+                text: content,
+                delayMs: 0,
+              });
+              await prisma.message.create({
+                data: {
+                  workspaceId: channel.workspaceId,
+                  conversationId: conversation.id,
+                  channelId: channel.id,
+                  contactId: contact.id,
+                  agentId: agent.id,
+                  externalId: outbound.externalId,
+                  direction: "OUTBOUND",
+                  type: "TEXT",
+                  status: "SENT",
+                  content,
+                  sentAt: new Date(),
+                  rawPayload: outbound.raw as never,
+                },
+              });
+            } else if (step.kind === "image") {
+              const imageOutbound = await sendEvolutionImageMessage({
+                instanceName: channel.evolutionInstanceName,
+                phoneNumber,
+                imageUrl: step.url,
+                caption: step.caption,
+                delayMs: 0,
+              });
+              await prisma.message.create({
+                data: {
+                  workspaceId: channel.workspaceId,
+                  conversationId: conversation.id,
+                  channelId: channel.id,
+                  contactId: contact.id,
+                  agentId: agent.id,
+                  externalId: imageOutbound.externalId,
+                  direction: "OUTBOUND",
+                  type: "IMAGE",
+                  status: "SENT",
+                  content: step.caption,
+                  mediaUrl: step.url,
+                  sentAt: new Date(),
+                  rawPayload: imageOutbound.raw as never,
+                },
+              });
+            } else if (step.kind === "document") {
+              const docOutbound = await sendEvolutionDocumentMessage({
+                instanceName: channel.evolutionInstanceName,
+                phoneNumber,
+                documentUrl: step.url,
+                caption: step.caption,
+                fileName: step.fileName,
+                delayMs: 0,
+              });
+              await prisma.message.create({
+                data: {
+                  workspaceId: channel.workspaceId,
+                  conversationId: conversation.id,
+                  channelId: channel.id,
+                  contactId: contact.id,
+                  agentId: agent.id,
+                  externalId: docOutbound.externalId,
+                  direction: "OUTBOUND",
+                  type: "DOCUMENT",
+                  status: "SENT",
+                  content: step.caption,
+                  mediaUrl: step.url,
+                  sentAt: new Date(),
+                  rawPayload: docOutbound.raw as never,
+                },
+              });
+            }
+          }
+
+          // AI follow-up: only if enabled AND the flow's last step is not a text (the flow already closes)
+          const lastStep = hardFlowReply.steps[hardFlowReply.steps.length - 1];
+          if (hardFlowReply.aiFollowUpEnabled && lastStep?.kind !== "text") {
+            const ctx = `El flujo "${hardFlowReply.flowTitle}" fue ejecutado para "${hardFlowReply.productName || "el producto"}".`;
+            const followUp = await generateContextualFollowUp(ctx, recentMessages);
+            if (followUp && channel.evolutionInstanceName) {
+              const followOutbound = await sendEvolutionTextMessageWithReconnect({
+                instanceName: channel.evolutionInstanceName,
+                phoneNumber,
+                text: followUp,
+                delayMs: 600,
+              });
+              await prisma.message.create({
+                data: {
+                  workspaceId: channel.workspaceId,
+                  conversationId: conversation.id,
+                  channelId: channel.id,
+                  contactId: contact.id,
+                  agentId: agent.id,
+                  externalId: followOutbound.externalId,
+                  direction: "OUTBOUND",
+                  type: "TEXT",
+                  status: "SENT",
+                  content: followUp,
+                  sentAt: new Date(),
+                  rawPayload: followOutbound.raw as never,
+                },
+              });
+            }
+          }
+
+          if (notifyHumanPromise) await notifyHumanPromise;
+          await prisma.conversation.update({
+            where: { id: conversation.id },
+            data: { lastMessageAt: new Date(), status: "OPEN" },
+          });
+
+          console.log("[EVOLUTION] auto_reply_sent", {
+            conversationId: conversation.id,
+            agentId: agent.id,
+            phoneNumber,
+            mode: "hard_flow",
+            stepsCount: hardFlowReply.steps.length,
+          });
+        } catch (error) {
+          const errorMessage = error instanceof Error ? (error.stack || error.message) : JSON.stringify(error);
+          if (errorMessage.toLowerCase().includes("connection closed")) {
+            const recovery = await ensureEvolutionInstanceReady(channel.evolutionInstanceName);
+            console.warn("[EVOLUTION] auto_reply_connection_closed", {
+              conversationId: conversation.id,
+              agentId: agent.id,
+              instanceName: channel.evolutionInstanceName,
+              recovered: recovery.recovered,
+              state: recovery.state,
+            });
+          }
+          console.error(`[EVOLUTION] auto_reply_failed conversationId=${conversation.id} agentId=${agent.id} phone=${phoneNumber} instance=${channel.evolutionInstanceName} error=${errorMessage}`);
+          await prisma.message.create({
+            data: {
+              workspaceId: channel.workspaceId,
+              conversationId: conversation.id,
+              channelId: channel.id,
+              contactId: contact.id,
+              agentId: agent.id,
+              direction: "OUTBOUND",
+              type: "TEXT",
+              status: "FAILED",
+              content: hardFlowReply.steps.find((s) => s.kind === "text")?.content ?? null,
+              failedAt: new Date(),
+            },
+          });
+        }
+      } else if (replyText || quickResponseImageReply || knowledgeImageReply || documentReplies.length > 0) {
+        let followUpText: string | null = null;
         try {
           console.log("[EVOLUTION] auto_reply_sending", {
             conversationId: conversation.id,
@@ -855,7 +1026,7 @@ export async function POST(request: Request) {
             phoneNumber,
             instanceName: channel.evolutionInstanceName,
             preview: replyText?.slice(0, 80) ?? "",
-            withImage: Boolean(quickResponseImageReply || knowledgeImageReply || hardFlowImageReply),
+            withImage: Boolean(quickResponseImageReply || knowledgeImageReply),
           });
 
             try {
@@ -937,7 +1108,6 @@ export async function POST(request: Request) {
                 caption: imageReply.caption,
                 delayMs: 0,
               });
-
               await prisma.message.create({
                 data: {
                   workspaceId: channel.workspaceId,
@@ -955,7 +1125,7 @@ export async function POST(request: Request) {
                   rawPayload: imageOutbound.raw as never,
                 },
               });
-              if (imageReplyReason && hardFlowReply?.aiFollowUpEnabled !== false) {
+              if (imageReplyReason) {
                 const imageContext =
                   imageReplyReason === "flow"
                     ? `La imagen del flujo ya fue enviada para "${imageReplyProductName || "el producto"}".`
@@ -970,26 +1140,22 @@ export async function POST(request: Request) {
                   },
                 ]);
               }
-
-              if (replyText) {
-                await sendText();
-              }
+              await sendText();
             } else {
               await sendText();
             }
 
-            const flowHasTextReply = Boolean(quickResponseFlow?.reply.text?.trim() || hardFlowReply?.reply?.trim());
-            if (!followUpText && (quickResponseFlow || hardFlowReply) && flowFollowUpContext && hardFlowReply?.aiFollowUpEnabled !== false && !flowHasTextReply) {
+            const flowFollowUpContext = quickResponseFlow
+              ? `El flujo "${quickResponseFlow.scenarioTitle}" ya fue ejecutado para la palabra clave "${quickResponseFlow.keyword}".`
+              : null;
+            const flowHasTextReply = Boolean(quickResponseFlow?.reply.text?.trim());
+            if (!followUpText && quickResponseFlow && flowFollowUpContext && !flowHasTextReply) {
               followUpText = await generateContextualFollowUp(flowFollowUpContext, [
                 ...recentMessages,
                 {
                   direction: "OUTBOUND",
                   type: "TEXT",
-                  content:
-                    replyText ||
-                    quickResponseFlow?.reply.text ||
-                    hardFlowReply?.reply ||
-                    `Flujo ejecutado para ${quickResponseFlow?.scenarioTitle || hardFlowReply?.productName || "el producto"}`,
+                  content: replyText || quickResponseFlow.reply.text || `Flujo ejecutado para ${quickResponseFlow.scenarioTitle}`,
                 },
               ]);
             }
@@ -1036,7 +1202,7 @@ export async function POST(request: Request) {
             agentId: agent.id,
             phoneNumber,
             sentText: Boolean(replyText),
-            sentImage: Boolean(knowledgeImageReply || hardFlowImageReply || quickResponseImageReply),
+            sentImage: Boolean(knowledgeImageReply || quickResponseImageReply),
           });
         } catch (error) {
           const errorMessage =
@@ -1068,14 +1234,10 @@ export async function POST(request: Request) {
               contactId: contact.id,
               agentId: agent.id,
               direction: "OUTBOUND",
-              type: knowledgeImageReply || hardFlowImageReply ? "IMAGE" : "TEXT",
+              type: knowledgeImageReply ? "IMAGE" : "TEXT",
               status: "FAILED",
-              content:
-                replyText ||
-                knowledgeImageReply?.caption ||
-                hardFlowImageReply?.caption ||
-                null,
-              mediaUrl: knowledgeImageReply?.url ?? hardFlowImageReply?.url ?? null,
+              content: replyText || knowledgeImageReply?.caption || null,
+              mediaUrl: knowledgeImageReply?.url ?? null,
               failedAt: new Date(),
             },
           });
