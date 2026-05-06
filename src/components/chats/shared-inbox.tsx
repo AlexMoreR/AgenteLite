@@ -2,13 +2,14 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { memo, useEffect, useRef, useState, useCallback, type FormEvent, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useFormStatus } from "react-dom";
 import {
   ArrowLeft,
   BadgeCheck,
   Bot,
+  ChevronDown,
   ChevronRight,
   CheckCheck,
   Facebook,
@@ -820,6 +821,9 @@ export function SharedInbox({
   const conversationListScrollRef = useRef<HTMLDivElement | null>(null);
   const messagesScrollRef = useRef<HTMLDivElement | null>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
+  const isNearBottomRef = useRef(true);
+  const prevScrollKeyRef = useRef("");
+  const [unreadCount, setUnreadCount] = useState(0);
   const autoLoadLockRef = useRef(false);
   // Ref sincronizada en cada render: permite leer el valor actual dentro de event
   // listeners sin declararlos como dependencia (evita re-registro en cada mensaje).
@@ -844,7 +848,7 @@ export function SharedInbox({
 
   useEffect(() => {
     setCachedSelectedConversation(selectedConversation ? readConversationFromCache(selectedConversation.id) : null);
-  }, [selectedConversation?.id]);
+  }, [selectedConversation]);
 
   useEffect(() => {
     selectedConversationRef.current = selectedConversation;
@@ -936,14 +940,12 @@ export function SharedInbox({
     function handleListUpdate(event: Event) {
       const customEvent = event as CustomEvent<{ conversation?: unknown }>;
       const snapshot = normalizeLiveConversationListSnapshot(customEvent.detail?.conversation);
-      console.log("[SharedInbox] chat-list-update recibido", { snapshotId: snapshot?.id, lastMessage: (snapshot as Record<string, unknown> | null)?.lastMessage });
       if (!snapshot) {
         return;
       }
 
       setConversationItems((current) => {
         const currentItem = findConversationItemBySnapshotId(current, snapshot.id) ?? undefined;
-        console.log("[SharedInbox] item encontrado en lista:", { currentItemId: currentItem?.id, match: Boolean(currentItem) });
         const updatedItem = buildConversationItemFromListSnapshot(snapshot, currentItem);
         const nextItems = current.map((item) =>
           conversationIdMatchesKey(item.id, snapshot.id) ? { ...item, ...updatedItem } : item,
@@ -1141,6 +1143,79 @@ export function SharedInbox({
       observer.disconnect();
     };
   }, [messageScrollBehavior, renderedConversation?.id, renderedConversation?.loadMoreHref, router]);
+
+  // Reset scroll state when the user opens a different conversation.
+  useEffect(() => {
+    isNearBottomRef.current = true;
+    setUnreadCount(0);
+    prevScrollKeyRef.current = "";
+  }, [selectedConversationId]);
+
+  // Track whether the user is near the bottom of the message list.
+  useEffect(() => {
+    const container = messagesScrollRef.current;
+    if (!container) return;
+
+    function handleScroll() {
+      const el = container!;
+      const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      isNearBottomRef.current = distFromBottom <= 150;
+      if (isNearBottomRef.current) setUnreadCount(0);
+    }
+
+    container.addEventListener("scroll", handleScroll, { passive: true });
+    return () => container.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  // Smart scroll: auto-scroll only when near bottom; count new messages when scrolled up.
+  useLayoutEffect(() => {
+    if (messageScrollBehavior !== "bottom") return;
+
+    const container = messagesScrollRef.current;
+    const currentKey = selectedConversationScrollKey;
+    const prevKey = prevScrollKeyRef.current;
+    prevScrollKeyRef.current = currentKey;
+
+    if (currentKey === "empty" || !container) return;
+
+    if (!prevKey || prevKey === "empty") {
+      // Initial load — jump to bottom without animation.
+      container.scrollTop = container.scrollHeight;
+      isNearBottomRef.current = true;
+      return;
+    }
+
+    const prevConvId = prevKey.split(":")[0];
+    const curConvId = currentKey.split(":")[0];
+
+    if (prevConvId !== curConvId) {
+      // Different conversation opened — always jump to bottom.
+      container.scrollTop = container.scrollHeight;
+      isNearBottomRef.current = true;
+      setUnreadCount(0);
+      return;
+    }
+
+    // Same conversation: check for appended messages.
+    const prevCount = Number(prevKey.split(":")[1]) || 0;
+    const curCount = Number(currentKey.split(":")[1]) || 0;
+    const added = curCount - prevCount;
+    if (added <= 0) return;
+
+    if (isNearBottomRef.current) {
+      container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+    } else {
+      setUnreadCount((prev) => prev + added);
+    }
+  }, [selectedConversationScrollKey, messageScrollBehavior]);
+
+  const scrollToBottom = useCallback(() => {
+    const container = messagesScrollRef.current;
+    if (!container) return;
+    container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+    isNearBottomRef.current = true;
+    setUnreadCount(0);
+  }, []);
 
   return (
     <>
@@ -1349,42 +1424,56 @@ export function SharedInbox({
 
               <div className="relative flex min-h-0 flex-1 flex-col bg-[#f3f4f6]">
                 <ChatSelectionOverlay selectedConversationId={selectedConversationId} />
-                <div
-                  ref={messagesScrollRef}
-                  className="chat-messages-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-2.5 py-2.5 pb-3 [-webkit-overflow-scrolling:touch] md:px-5 md:py-5 md:pb-5"
-                  style={{
-                    backgroundColor: "#f3f4f6",
-                    backgroundImage:
-                      "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220' viewBox='0 0 220 220'%3E%3Cg fill='none' stroke='%23cbd5e1' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round' opacity='0.45'%3E%3Ccircle cx='28' cy='24' r='10'/%3E%3Cpath d='M62 18l8 14 14 2-10 10 2 14-14-7-12 7 2-14-10-10 14-2z'/%3E%3Cpath d='M122 18c10 0 18 8 18 18s-8 18-18 18-18-8-18-18 8-18 18-18z'/%3E%3Cpath d='M169 24l20 20M189 24l-20 20'/%3E%3Crect x='20' y='76' width='28' height='18' rx='6'/%3E%3Cpath d='M26 102c6-8 16-8 22 0'/%3E%3Cpath d='M76 74l10 18 20 3-14 14 3 20-19-10-18 10 3-20-14-14 20-3z'/%3E%3Cpath d='M130 78h28v18h-28z'/%3E%3Cpath d='M144 70v36M130 87h28'/%3E%3Cpath d='M176 76c10 0 18 8 18 18s-8 18-18 18-18-8-18-18 8-18 18-18z'/%3E%3Cpath d='M24 142c6-8 18-8 24 0 6 8 18 8 24 0'/%3E%3Cpath d='M86 144c0-8 6-14 14-14s14 6 14 14-6 14-14 14-14-6-14-14z'/%3E%3Cpath d='M128 136l24 24M152 136l-24 24'/%3E%3Cpath d='M174 132h26v26h-26z'/%3E%3Cpath d='M182 124v42M174 145h26'/%3E%3Ccircle cx='42' cy='188' r='16'/%3E%3Cpath d='M36 188h12M42 182v12'/%3E%3Cpath d='M92 180c8-10 22-10 30 0-8 10-22 10-30 0z'/%3E%3Cpath d='M140 180l12 12 18-18'/%3E%3Cpath d='M178 184c6-8 16-8 22 0'/%3E%3C/g%3E%3C/svg%3E\")",
-                    backgroundPosition: "center",
-                    backgroundSize: "220px 220px",
-                  }}
-                >
-                  <div className="space-y-2.5 md:space-y-3">
-                    {renderedConversation.loadMoreHref ? (
-                      <div className="pb-1">
-                        <div ref={loadMoreSentinelRef} aria-hidden="true" className="h-px w-full" />
-                        <div className="flex justify-center">
-                          <Link
-                            href={renderedConversation.loadMoreHref}
-                            scroll={false}
-                            className="inline-flex items-center rounded-full border border-[rgba(148,163,184,0.16)] bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-800"
-                          >
-                            Cargar mensajes anteriores
-                          </Link>
+                <div className="relative min-h-0 flex-1">
+                  <div
+                    ref={messagesScrollRef}
+                    className="chat-messages-scroll h-full overflow-y-auto overscroll-contain px-2.5 py-2.5 pb-3 [-webkit-overflow-scrolling:touch] md:px-5 md:py-5 md:pb-5"
+                    style={{
+                      backgroundColor: "#f3f4f6",
+                      backgroundImage:
+                        "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220' viewBox='0 0 220 220'%3E%3Cg fill='none' stroke='%23cbd5e1' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round' opacity='0.45'%3E%3Ccircle cx='28' cy='24' r='10'/%3E%3Cpath d='M62 18l8 14 14 2-10 10 2 14-14-7-12 7 2-14-10-10 14-2z'/%3E%3Cpath d='M122 18c10 0 18 8 18 18s-8 18-18 18-18-8-18-18 8-18 18-18z'/%3E%3Cpath d='M169 24l20 20M189 24l-20 20'/%3E%3Crect x='20' y='76' width='28' height='18' rx='6'/%3E%3Cpath d='M26 102c6-8 16-8 22 0'/%3E%3Cpath d='M76 74l10 18 20 3-14 14 3 20-19-10-18 10 3-20-14-14 20-3z'/%3E%3Cpath d='M130 78h28v18h-28z'/%3E%3Cpath d='M144 70v36M130 87h28'/%3E%3Cpath d='M176 76c10 0 18 8 18 18s-8 18-18 18-18-8-18-18 8-18 18-18z'/%3E%3Cpath d='M24 142c6-8 18-8 24 0 6 8 18 8 24 0'/%3E%3Cpath d='M86 144c0-8 6-14 14-14s14 6 14 14-6 14-14 14-14-6-14-14z'/%3E%3Cpath d='M128 136l24 24M152 136l-24 24'/%3E%3Cpath d='M174 132h26v26h-26z'/%3E%3Cpath d='M182 124v42M174 145h26'/%3E%3Ccircle cx='42' cy='188' r='16'/%3E%3Cpath d='M36 188h12M42 182v12'/%3E%3Cpath d='M92 180c8-10 22-10 30 0-8 10-22 10-30 0z'/%3E%3Cpath d='M140 180l12 12 18-18'/%3E%3Cpath d='M178 184c6-8 16-8 22 0'/%3E%3C/g%3E%3C/svg%3E\")",
+                      backgroundPosition: "center",
+                      backgroundSize: "220px 220px",
+                    }}
+                  >
+                    <div className="space-y-2.5 md:space-y-3">
+                      {renderedConversation.loadMoreHref ? (
+                        <div className="pb-1">
+                          <div ref={loadMoreSentinelRef} aria-hidden="true" className="h-px w-full" />
+                          <div className="flex justify-center">
+                            <Link
+                              href={renderedConversation.loadMoreHref}
+                              scroll={false}
+                              className="inline-flex items-center rounded-full border border-[rgba(148,163,184,0.16)] bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-800"
+                            >
+                              Cargar mensajes anteriores
+                            </Link>
+                          </div>
                         </div>
-                      </div>
-                    ) : null}
-                  {renderedMessages.map((message, index) => (
-                    <MessageBubble
-                      key={message.id}
-                      message={message}
-                      previousMessage={renderedMessages[index - 1]}
-                    />
-                  ))}
-                  <ChatScrollAnchor dependencyKey={selectedConversationScrollKey} behavior={messageScrollBehavior} />
+                      ) : null}
+                      {renderedMessages.map((message, index) => (
+                        <MessageBubble
+                          key={message.id}
+                          message={message}
+                          previousMessage={renderedMessages[index - 1]}
+                        />
+                      ))}
+                      {messageScrollBehavior === "preserve" ? (
+                        <ChatScrollAnchor dependencyKey={selectedConversationScrollKey} behavior="preserve" />
+                      ) : null}
+                    </div>
+                  </div>
+                  {unreadCount > 0 ? (
+                    <button
+                      type="button"
+                      onClick={scrollToBottom}
+                      className="absolute bottom-4 right-4 z-10 flex cursor-pointer items-center gap-1.5 rounded-full bg-slate-900/90 px-3 py-1.5 text-xs font-semibold text-white shadow-lg backdrop-blur-sm transition hover:bg-slate-900"
+                    >
+                      <ChevronDown className="h-3.5 w-3.5" />
+                      {unreadCount}
+                    </button>
+                  ) : null}
                 </div>
-              </div>
 
               {composer && hasSettledConversation ? (
                 <div className="chat-composer z-20 shrink-0 border-t border-[rgba(148,163,184,0.12)] bg-white/96 px-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 shadow-[0_-12px_28px_-24px_rgba(15,23,42,0.2)] backdrop-blur md:border-t md:bg-white md:px-2 md:py-2 md:shadow-none md:backdrop-blur-0">

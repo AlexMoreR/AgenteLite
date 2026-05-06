@@ -84,7 +84,9 @@ const ConversationListItem = memo(function ConversationListItem({
   onSelect: (conversation: SharedInboxConversationItem) => void;
   onPrefetch: (conversation: SharedInboxConversationItem) => void;
 }) {
-  console.log("[ListItem] render", { id: conversation.id, label: conversation.label, lastMessage: conversation.lastMessage, lastMessageAt: conversation.lastMessageAt });
+  const incomingCountLabel = renderIncomingCountLabel(conversation.incomingCount);
+  const previewText = renderConversationPreview(conversation);
+
   return (
     <Link
       href={conversation.href}
@@ -102,7 +104,7 @@ const ConversationListItem = memo(function ConversationListItem({
         isSelected
           ? "bg-[color-mix(in_srgb,var(--primary)_6%,white)]"
           : "hover:bg-[color-mix(in_srgb,var(--primary)_4%,white)] hover:shadow-[inset_0_0_0_1px_rgba(16,185,129,0.08)]"
-      }`}
+        }`}
       style={{ contentVisibility: "auto", containIntrinsicSize: "96px" }}
     >
       <span
@@ -127,10 +129,10 @@ const ConversationListItem = memo(function ConversationListItem({
           </div>
         )}
 
-        {renderIncomingCountLabel(conversation.incomingCount) ? (
+        {incomingCountLabel ? (
           <span className="absolute -top-1 -right-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#2563eb] px-1 shadow-[0_1px_4px_rgba(15,23,42,0.18)]">
             <span className="text-[10px] font-semibold leading-none text-white">
-              {renderIncomingCountLabel(conversation.incomingCount)}
+              {incomingCountLabel}
             </span>
           </span>
         ) : null}
@@ -156,7 +158,7 @@ const ConversationListItem = memo(function ConversationListItem({
 
         <div className="mt-0.5 flex min-w-0 max-w-full items-center gap-2 overflow-hidden">
           <p className="block min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[12px] leading-[1.12] text-slate-600 md:text-[13px]">
-            {renderConversationPreview(conversation)}
+            {previewText}
           </p>
         </div>
 
