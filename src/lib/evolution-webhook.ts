@@ -247,7 +247,8 @@ export function extractEvolutionRemoteJid(payload: unknown): string | null {
 export function normalizePhoneFromJid(value: string | null): string | null {
   if (!value) return null;
   const normalized = value.split("@")[0]?.replace(/\D/g, "") ?? "";
-  return normalized || null;
+  if (!normalized || normalized.length < 7 || normalized.length > 15) return null;
+  return normalized;
 }
 
 export function isInboundMessageEvent(eventName: string | null): boolean {

@@ -35,6 +35,98 @@ export function getContactTags(
     }));
 }
 
+export async function getAgentConversationSummaryByConversationId(input: {
+  workspaceId: string;
+  conversationId: string;
+}): Promise<ChatConversationSummary | null> {
+  const conversation = await prisma.conversation.findFirst({
+    where: {
+      id: input.conversationId,
+      workspaceId: input.workspaceId,
+    },
+    select: {
+      id: true,
+      contact: {
+        select: {
+          id: true,
+          name: true,
+          phoneNumber: true,
+          avatarUrl: true,
+        },
+      },
+    },
+  });
+
+  if (!conversation) {
+    return null;
+  }
+
+  const contact = conversation.contact;
+
+  const [lastMessage, contactTagRows, incomingCountRows] = await Promise.all([
+    prisma.message.findFirst({
+      where: {
+        workspaceId: input.workspaceId,
+        conversationId: conversation.id,
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      select: {
+        content: true,
+        direction: true,
+        createdAt: true,
+        type: true,
+      },
+    }),
+    prisma.$queryRaw<Array<{ name: string; color: string }>>`
+      SELECT
+        t."name" AS "name",
+        t."color" AS "color"
+      FROM "ContactTag" ct
+      INNER JOIN "Tag" t ON t."id" = ct."tagId"
+      WHERE ct."workspaceId" = ${input.workspaceId}
+        AND ct."contactId" = ${contact.id}
+      ORDER BY ct."createdAt" ASC
+    `,
+    prisma.$queryRaw<Array<{ incomingCount: bigint | number }>>`
+      SELECT
+        COALESCE(incoming."incomingCount", 0)::bigint AS "incomingCount"
+      FROM "Conversation" c
+      LEFT JOIN LATERAL (
+        SELECT MAX(mo."createdAt") AS "lastOutboundAt"
+        FROM "Message" mo
+        WHERE mo."conversationId" = c."id"
+          AND mo."direction" = 'OUTBOUND'
+      ) lo ON true
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*)::bigint AS "incomingCount"
+        FROM "Message" mi
+        WHERE mi."conversationId" = c."id"
+          AND mi."direction" = 'INBOUND'
+          AND mi."createdAt" > COALESCE(lo."lastOutboundAt", TIMESTAMP '1970-01-01')
+      ) incoming ON true
+      WHERE c."id" = ${conversation.id}
+        AND c."workspaceId" = ${input.workspaceId}
+    `,
+  ]);
+
+  return {
+    id: conversation.id,
+    label: getAgentContactLabel({
+      name: contact.name,
+      phoneNumber: contact.phoneNumber,
+    }),
+    secondaryLabel: contact.phoneNumber,
+    tags: getContactTags(contactTagRows),
+    avatarUrl: contact.avatarUrl ?? null,
+    incomingCount: Number(incomingCountRows[0]?.incomingCount ?? 0),
+    lastMessage: lastMessage?.content ?? null,
+    lastMessageType: lastMessage?.type ?? null,
+    lastMessageDirection: lastMessage?.direction ?? null,
+    lastMessageAt: lastMessage?.createdAt ?? null,
+    channelType: "whatsapp",
+  };
+}
+
 export async function getAgentConversationSummaryByPhoneNumber(input: {
   workspaceId: string;
   instanceName: string;
@@ -52,16 +144,23 @@ export async function getAgentConversationSummaryByPhoneNumber(input: {
     },
   });
 
+  console.log("[Summary] channel lookup", { instanceName: input.instanceName, workspaceId: input.workspaceId, found: Boolean(channel) });
   if (!channel) {
     return null;
   }
 
+  // Normalizar variantes del número: solo dígitos, con '+', y con sufijo JID completo.
+  const phoneVariants = Array.from(new Set([
+    input.phoneNumber,
+    `+${input.phoneNumber}`,
+    `${input.phoneNumber}@s.whatsapp.net`,
+    `+${input.phoneNumber}@s.whatsapp.net`,
+  ]));
+
   const contact = await prisma.contact.findFirst({
     where: {
       workspaceId: input.workspaceId,
-      // Buscar con y sin prefijo '+' por si el número en DB tiene formato distinto
-      // al que extrae normalizePhoneNumber del JID de WhatsApp (solo dígitos).
-      phoneNumber: { in: [input.phoneNumber, `+${input.phoneNumber}`] },
+      phoneNumber: { in: phoneVariants },
     },
     select: {
       id: true,
@@ -71,6 +170,7 @@ export async function getAgentConversationSummaryByPhoneNumber(input: {
     },
   });
 
+  console.log("[Summary] contact lookup", { phoneVariants, found: Boolean(contact), contactPhone: contact?.phoneNumber });
   if (!contact) {
     return null;
   }
@@ -86,6 +186,7 @@ export async function getAgentConversationSummaryByPhoneNumber(input: {
     },
   });
 
+  console.log("[Summary] conversation lookup", { channelId: channel.id, contactId: contact.id, found: Boolean(conversation) });
   if (!conversation) {
     return null;
   }

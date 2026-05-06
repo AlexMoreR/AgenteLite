@@ -325,7 +325,9 @@ function buildConversationItemFromListSnapshot(
     lastMessage: snapshot.lastMessage ?? existing?.lastMessage ?? null,
     lastMessageType: snapshot.lastMessageType ?? existing?.lastMessageType ?? null,
     lastMessageDirection: snapshot.lastMessageDirection ?? existing?.lastMessageDirection ?? null,
-    lastMessageAt: snapshot.lastMessageAt ?? existing?.lastMessageAt ?? null,
+    // No usar existing como fallback para lastMessageAt: si el snapshot trae null pero existing
+    // tiene una fecha vieja, el item quedaría anclado en su posición anterior en el sort.
+    lastMessageAt: snapshot.lastMessageAt ?? null,
     href: existing?.href ?? "",
   };
 }

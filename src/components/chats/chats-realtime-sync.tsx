@@ -89,21 +89,25 @@ function pickString(source: UnknownRecord | null, keys: string[]): string | null
   return null;
 }
 
-function normalizePhoneNumber(value: string | null): string | null {
-  if (!value) return null;
-  const normalized = value.split("@")[0]?.replace(/\D/g, "") ?? "";
-  return normalized || null;
+// Solo @s.whatsapp.net es un JID de contacto individual válido.
+// @g.us = grupo, @lid = identificador interno de Meta (no es número), otros = desconocidos.
+function isIndividualJid(jid: string | null): boolean {
+  return Boolean(jid && jid.endsWith("@s.whatsapp.net"));
 }
 
 function extractPhoneNumberFromPayload(payload: unknown): string | null {
-  const webhookPhoneNumber = normalizePhoneFromJid(
-    extractEvolutionRemoteJid(payload) ?? extractEvolutionPhoneNumber(payload),
-  );
+  const remoteJid = extractEvolutionRemoteJid(payload) ?? extractEvolutionPhoneNumber(payload);
 
-  if (webhookPhoneNumber) {
-    return webhookPhoneNumber;
+  // Si el JID principal existe pero no es de contacto individual, descartar todo el payload.
+  if (remoteJid && !isIndividualJid(remoteJid)) {
+    return null;
   }
 
+  if (remoteJid) {
+    return normalizePhoneFromJid(remoteJid);
+  }
+
+  // Fallback: buscar en otros campos del payload, filtrando también JIDs no individuales.
   const root = asRecord(payload);
   const data = asRecord(root?.data);
   const message = asRecord(data?.message);
@@ -111,15 +115,18 @@ function extractPhoneNumberFromPayload(payload: unknown): string | null {
   const sender = asRecord(data?.sender);
   const contextInfo = asRecord(asRecord(message?.extendedTextMessage)?.contextInfo);
 
-  return (
-    normalizePhoneNumber(
-      pickString(key, ["remoteJid", "participant"]) ||
-        pickString(sender, ["id", "jid"]) ||
-        pickString(data, ["remoteJid", "participant", "from", "phoneNumber", "number", "phone"]) ||
-        pickString(contextInfo, ["participant", "remoteJid"]) ||
-        pickString(root, ["remoteJid", "phoneNumber", "number", "phone", "owner", "ownerJid", "wuid"]),
-    )
-  );
+  const rawJid =
+    pickString(key, ["remoteJid", "participant"]) ||
+    pickString(sender, ["id", "jid"]) ||
+    pickString(data, ["remoteJid", "participant", "from", "phoneNumber", "number", "phone"]) ||
+    pickString(contextInfo, ["participant", "remoteJid"]) ||
+    pickString(root, ["remoteJid", "phoneNumber", "number", "phone", "owner", "ownerJid", "wuid"]);
+
+  if (!rawJid || !isIndividualJid(rawJid)) {
+    return null;
+  }
+
+  return normalizePhoneFromJid(rawJid);
 }
 
 function normalizeConversationSummarySnapshot(value: unknown) {
@@ -158,6 +165,7 @@ export function ChatsRealtimeSync({
     new Set(instanceNames.map((name) => name.trim()).filter(Boolean)),
   ).join("\u0000");
   const liveUpdateTimerRef = useRef<number | null>(null);
+  const liveUpdateFollowUpTimerRef = useRef<number | null>(null);
   const liveUpdateInFlightRef = useRef(false);
   const liveUpdateQueuedRef = useRef(false);
   const lastLiveUpdateAtRef = useRef(0);
@@ -168,6 +176,7 @@ export function ChatsRealtimeSync({
     priority: RefreshPriority;
     instanceName: string;
     payload: unknown;
+    chatKey?: string;
   } | null>(null);
   const lastListUpdateAtRef = useRef(0);
   const pageRefreshTimerRef = useRef<number | null>(null);
@@ -211,6 +220,13 @@ export function ChatsRealtimeSync({
       if (liveUpdateTimerRef.current) {
         window.clearTimeout(liveUpdateTimerRef.current);
         liveUpdateTimerRef.current = null;
+      }
+    }
+
+    function clearLiveUpdateFollowUpTimer() {
+      if (liveUpdateFollowUpTimerRef.current) {
+        window.clearTimeout(liveUpdateFollowUpTimerRef.current);
+        liveUpdateFollowUpTimerRef.current = null;
       }
     }
 
@@ -318,9 +334,9 @@ export function ChatsRealtimeSync({
       }
     }
 
-    async function runListUpdate(input: { priority: RefreshPriority; instanceName: string; payload: unknown }) {
+    async function runListUpdate(input: { priority: RefreshPriority; instanceName: string; payload: unknown; chatKey?: string }) {
       const phoneNumber = extractPhoneNumberFromPayload(input.payload);
-      if (!phoneNumber) {
+      if (!phoneNumber && !input.chatKey) {
         return false;
       }
 
@@ -331,17 +347,18 @@ export function ChatsRealtimeSync({
 
       listUpdateInFlightRef.current = true;
 
+      const summaryUrl = input.chatKey
+        ? `/api/cliente/chats/summary?chatKey=${encodeURIComponent(input.chatKey)}`
+        : `/api/cliente/chats/summary?instanceName=${encodeURIComponent(input.instanceName)}&phoneNumber=${encodeURIComponent(phoneNumber!)}`;
+
       try {
-        const response = await fetch(
-          `/api/cliente/chats/summary?instanceName=${encodeURIComponent(input.instanceName)}&phoneNumber=${encodeURIComponent(phoneNumber)}`,
-          {
+        const response = await fetch(summaryUrl, {
             credentials: "same-origin",
             cache: "no-store",
-          },
-        );
+          });
 
         if (!response.ok) {
-          console.log("[ListUpdate] fetch falló", { status: response.status, instanceName: input.instanceName, phoneNumber });
+          console.log("[ListUpdate] fetch error HTTP", { status: response.status, instanceName: input.instanceName, phoneNumber });
           return false;
         }
 
@@ -396,14 +413,31 @@ export function ChatsRealtimeSync({
       const targetAt = Math.max(now + preferredDelay, earliestAllowedAt);
 
       clearLiveUpdateTimer();
+      clearLiveUpdateFollowUpTimer();
       liveUpdateTimerRef.current = window.setTimeout(() => {
-        void runLiveUpdate();
+        void runLiveUpdate().then((success) => {
+          if (success) {
+            lastLiveUpdateAtRef.current = Date.now();
+          }
+          if (priority === "active") {
+            // Segundo intento ~3000ms después: captura la respuesta del agente IA cuya
+            // escritura en DB llega tarde respecto al socket event (fromMe: true).
+            clearLiveUpdateFollowUpTimer();
+            liveUpdateFollowUpTimerRef.current = window.setTimeout(() => {
+              void runLiveUpdate().then((retrySuccess) => {
+                if (retrySuccess) {
+                  lastLiveUpdateAtRef.current = Date.now();
+                }
+              });
+            }, 3000);
+          }
+        });
       }, Math.max(0, targetAt - now));
     };
 
-    const scheduleListUpdate = (priority: RefreshPriority, instanceName: string, payload: unknown) => {
+    const scheduleListUpdate = (priority: RefreshPriority, instanceName: string, payload: unknown, chatKey?: string) => {
       const phoneForLog = extractPhoneNumberFromPayload(payload);
-      console.log("[ListUpdate] scheduleListUpdate iniciado", { instanceName, priority, phoneNumber: phoneForLog });
+      console.log("[ListUpdate] scheduleListUpdate iniciado", { instanceName, priority, phoneNumber: phoneForLog, chatKey });
       const now = Date.now();
       const minGap = priority === "active" ? LIST_REFRESH_MIN_GAP_MS : BACKGROUND_REFRESH_MIN_GAP_MS;
       const preferredDelay = priority === "active" ? LIST_REFRESH_DELAY_MS : BACKGROUND_REFRESH_DELAY_MS;
@@ -413,7 +447,7 @@ export function ChatsRealtimeSync({
       clearListUpdateTimer();
       clearListUpdateFollowUpTimer();
       listUpdateTimerRef.current = window.setTimeout(() => {
-        void runListUpdate({ priority, instanceName, payload }).then((success) => {
+        void runListUpdate({ priority, instanceName, payload, chatKey }).then((success) => {
           if (success) {
             lastListUpdateAtRef.current = Date.now();
           }
@@ -421,7 +455,7 @@ export function ChatsRealtimeSync({
           // todavía no había escrito el mensaje al DB en el primer intento (race condition).
           clearListUpdateFollowUpTimer();
           listUpdateFollowUpTimerRef.current = window.setTimeout(() => {
-            void runListUpdate({ priority: "background", instanceName, payload }).then((retrySuccess) => {
+            void runListUpdate({ priority: "background", instanceName, payload, chatKey }).then((retrySuccess) => {
               if (retrySuccess) {
                 lastListUpdateAtRef.current = Date.now();
               }
@@ -483,15 +517,19 @@ export function ChatsRealtimeSync({
 
             scheduleLiveUpdate("active");
             if (currentConversationKey?.startsWith("agent:")) {
-              scheduleListUpdate("active", instanceName ?? normalizedActiveInstanceName, payload);
+              // Usar chatKey directamente para no depender de extraer el teléfono del payload:
+              // esto garantiza que scheduleListUpdate también dispare para fromMe: true.
+              scheduleListUpdate("active", instanceName ?? normalizedActiveInstanceName, payload, currentConversationKey);
             }
             return;
           }
 
-          const payloadInstanceName =
-            payload && typeof payload === "object" && !Array.isArray(payload) && "instanceName" in payload
-              ? String((payload as { instanceName?: unknown }).instanceName || "").trim()
-              : "";
+          // Evolution socket.io usa 'instance' (no 'instanceName') como clave del payload global.
+          const payloadInstanceName = (() => {
+            if (!payload || typeof payload !== "object" || Array.isArray(payload)) return "";
+            const p = payload as Record<string, unknown>;
+            return String(p["instanceName"] || p["instance"] || "").trim();
+          })();
 
           if (payloadInstanceName && payloadInstanceName === normalizedActiveInstanceName) {
             if (isOfficialConversationSelected) {
@@ -501,7 +539,7 @@ export function ChatsRealtimeSync({
 
             scheduleLiveUpdate("active");
             if (currentConversationKey?.startsWith("agent:")) {
-              scheduleListUpdate("active", normalizedActiveInstanceName, payload);
+              scheduleListUpdate("active", normalizedActiveInstanceName, payload, currentConversationKey);
             }
             return;
           }
@@ -551,6 +589,7 @@ export function ChatsRealtimeSync({
 
     return () => {
       clearLiveUpdateTimer();
+      clearLiveUpdateFollowUpTimer();
       clearListUpdateTimer();
       clearListUpdateFollowUpTimer();
       clearPageRefreshTimer();
