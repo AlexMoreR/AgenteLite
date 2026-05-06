@@ -97,6 +97,8 @@ export type AgentTrainingConfig = {
   customRules: string;
   knowledgeFlowIds: string[];
   actions: AgentActionsConfig;
+  useCustomPrompt: boolean;
+  customSystemPrompt: string;
 };
 
 export type AgentNotifyActionConfig = {
@@ -165,6 +167,8 @@ export const defaultAgentTrainingConfig: AgentTrainingConfig = {
       instruction: "",
     },
   },
+  useCustomPrompt: false,
+  customSystemPrompt: "",
 };
 
 function getTonePrompt(value: SalesTone) {
@@ -375,7 +379,7 @@ export function buildAgentSystemPrompt(input: {
     : null;
 
   const productResponseRule = knowledgeProducts.length
-    ? "Si el cliente pregunta por un producto, usa la ficha del producto: nombre, descripcion, precio e instrucciones. Nunca repitas solo el nombre; responde con una sintesis util, comercial y clara. Si la ficha esta incompleta, menciona los datos disponibles y agrega una pregunta o siguiente paso concreto. No ofrezcas fotos ni imagenes del producto por texto — eso se gestiona por separado."
+    ? "Cuando el cliente pregunta por primera vez sobre un producto: NO des el precio de inmediato. Primero genera interaccion genuina con una pregunta persuasiva de DOS alternativas concretas y relevantes que lo haga reflexionar sobre su necesidad (ej: '¿Lo buscas para un spa o para un salon de belleza?' o '¿Es para equipar tu negocio o ampliar lo que ya tienes?'). Esa pregunta debe sentirse natural, no banal, y obligar al cliente a responder para avanzar. Solo despues de que el cliente responda, entrega descripcion, detalles o precio segun corresponda. Si el cliente ya respondio una pregunta anterior o lleva mas de un intercambio, puedes dar el precio cuando sea el momento logico. No ofrezcas fotos ni imagenes del producto por texto — eso se gestiona por separado."
     : "Si el cliente pregunta por un producto, responde con la informacion que tengas en el contexto sin repetir solo el nombre.";
 
   const knowledgeFlows = (input.knowledgeFlows ?? [])
@@ -550,6 +554,8 @@ export function parseAgentTrainingConfig(value: unknown): AgentTrainingConfig | 
     customRules: typeof data.customRules === "string" ? data.customRules : "",
     knowledgeFlowIds,
     actions: normalizeAgentActionsConfig(data.actions),
+    useCustomPrompt: Boolean(data.useCustomPrompt),
+    customSystemPrompt: typeof data.customSystemPrompt === "string" ? data.customSystemPrompt : "",
   };
 }
 

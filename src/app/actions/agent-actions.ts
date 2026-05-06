@@ -968,6 +968,8 @@ async function persistAgentTraining(
     customRules: input.customRules,
     knowledgeFlowIds: currentTraining.knowledgeFlowIds,
     actions: currentTraining.actions,
+    useCustomPrompt: currentTraining.useCustomPrompt,
+    customSystemPrompt: currentTraining.customSystemPrompt,
   });
   const nextAgentName = `Asistente ${input.businessName}`;
   const knowledgeProducts = await getAgentKnowledgePromptProducts(agent.id);
@@ -1116,6 +1118,8 @@ export async function createAgentAction(formData: FormData): Promise<void> {
     facebook: "",
     tiktok: "",
     youtube: "",
+    useCustomPrompt: false,
+    customSystemPrompt: "",
   });
 
   const systemPrompt = buildAgentSystemPrompt({
@@ -1990,6 +1994,59 @@ export async function saveAgentKnowledgeProductInstructionAction(formData: FormD
   revalidatePath(`/cliente/agentes/${agent.id}/conocimiento`);
   revalidatePath(`/cliente/agentes/${agent.id}/probar`);
   redirect(`/cliente/agentes/${agent.id}/conocimiento?ok=Instruccion+del+producto+actualizada`);
+}
+
+export async function saveAgentAdvancedPromptAction(formData: FormData): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+    redirect("/unauthorized");
+  }
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    redirect("/cliente/agentes?error=Workspace+no+encontrado");
+  }
+
+  const agentId = formData.get("agentId")?.toString() ?? "";
+  const agent = await prisma.agent.findFirst({
+    where: { id: agentId, workspaceId: membership.workspace.id },
+    select: { id: true, name: true, workspace: { select: { name: true } }, trainingConfig: true },
+  });
+
+  if (!agent) {
+    redirect("/cliente/agentes?error=Agente+no+encontrado");
+  }
+
+  const useCustomPrompt = formData.get("useCustomPrompt") === "true";
+  const customSystemPrompt = formData.get("customSystemPrompt")?.toString() ?? "";
+  const training = parseAgentTrainingConfig(agent.trainingConfig) ?? defaultAgentTrainingConfig;
+  const nextTraining = buildAgentTrainingConfig({
+    ...training,
+    useCustomPrompt,
+    customSystemPrompt,
+  });
+
+  const knowledgeProducts = await getAgentKnowledgePromptProducts(agent.id);
+  const canUseOfficialApi = await canAccessOfficialApiModule(session.user.id, session.user.role);
+  const knowledgeFlows = await getAgentKnowledgePromptFlows(canUseOfficialApi, membership.workspace.id, nextTraining.knowledgeFlowIds);
+
+  await prisma.agent.update({
+    where: { id: agent.id },
+    data: {
+      trainingConfig: nextTraining,
+      systemPrompt: buildAgentSystemPrompt({
+        agentName: agent.name,
+        businessName: agent.workspace.name,
+        training: nextTraining,
+        knowledgeProducts,
+        knowledgeFlows,
+      }),
+    },
+  });
+
+  revalidatePath(`/cliente/agentes/${agent.id}`);
+  revalidatePath(`/cliente/agentes/${agent.id}/avanzado`);
+  redirect(`/cliente/agentes/${agent.id}/avanzado?ok=Configuracion+avanzada+guardada`);
 }
 
 export async function saveAgentActionsAction(formData: FormData): Promise<void> {

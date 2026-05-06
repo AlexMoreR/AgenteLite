@@ -336,6 +336,7 @@ function scoreFlowIntentMatch(input: {
   // y el contexto reciente tiene matches fuertes del flujo, lo ejecutamos.
   if (isAffirmation && contextScore >= 2) {
     hasLatestMatch = true;
+    score += 7;
   }
 
   return { score, hasLatestMatch };

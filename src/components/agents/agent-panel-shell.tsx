@@ -7,6 +7,7 @@ import {
   Bot,
   BellRing,
   Brain,
+  Code2,
   MessageCircle,
   Sparkles,
 } from "lucide-react";
@@ -18,17 +19,18 @@ type AgentPanelShellProps = {
 };
 
 const tabs = [
-  { key: "resumen", label: "Resumen", href: (agentId: string) => `/cliente/agentes/${agentId}`, icon: Bot },
-  { key: "entrenamiento", label: "Entrenamiento", href: (agentId: string) => `/cliente/agentes/${agentId}/entrenamiento`, icon: Sparkles },
-  { key: "simulacion", label: "Simulacion", href: (agentId: string) => `/cliente/agentes/${agentId}/probar`, icon: MessageCircle },
-  { key: "conocimiento", label: "Conocimiento", href: (agentId: string) => `/cliente/agentes/${agentId}/conocimiento`, icon: Brain },
-  { key: "acciones", label: "Acciones", href: (agentId: string) => `/cliente/agentes/${agentId}/acciones`, icon: BellRing },
+  { key: "resumen", label: "Resumen", href: (agentId: string) => `/cliente/agentes/${agentId}`, icon: Bot, mobileHidden: false },
+  { key: "entrenamiento", label: "Entrenamiento", href: (agentId: string) => `/cliente/agentes/${agentId}/entrenamiento`, icon: Sparkles, mobileHidden: false },
+  { key: "simulacion", label: "Simulacion", href: (agentId: string) => `/cliente/agentes/${agentId}/probar`, icon: MessageCircle, mobileHidden: false },
+  { key: "conocimiento", label: "Conocimiento", href: (agentId: string) => `/cliente/agentes/${agentId}/conocimiento`, icon: Brain, mobileHidden: false },
+  { key: "acciones", label: "Acciones", href: (agentId: string) => `/cliente/agentes/${agentId}/acciones`, icon: BellRing, mobileHidden: false },
+  { key: "avanzado", label: "Avanzado", href: (agentId: string) => `/cliente/agentes/${agentId}/avanzado`, icon: Code2, mobileHidden: true },
 ];
 
 export function AgentPanelShell({ agentId, children, hideMobileNav = false }: AgentPanelShellProps) {
   const pathname = usePathname();
   const shouldHideMobileNav = hideMobileNav;
-  const mobileTabs = tabs;
+  const mobileTabs = tabs.filter((t) => !t.mobileHidden);
 
   return (
     <section className="flex min-h-0 w-full flex-1 flex-col overflow-x-hidden">

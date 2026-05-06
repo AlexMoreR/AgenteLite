@@ -33,7 +33,7 @@ import {
 import { resolveAgentKnowledgeBaseReply } from "@/lib/agent-knowledge-media";
 import { enforceWorkspacePlanAccess } from "@/lib/workspace-plan-access";
 import { getEvolutionSettings } from "@/lib/system-settings";
-import { buildHandoffMessage } from "@/lib/agent-training";
+import { buildHandoffMessage, parseAgentTrainingConfig } from "@/lib/agent-training";
 import { resolveNotifyHumanAction } from "@/features/agent-actions";
 import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
 
@@ -766,9 +766,13 @@ export async function POST(request: Request) {
         replyText = knowledgeBaseReply.text ?? null;
         shouldComposeWelcome = Boolean(replyText);
       } else {
+        const agentTraining = parseAgentTrainingConfig(agent.trainingConfig);
+        const effectiveSystemPrompt = agentTraining?.useCustomPrompt && agentTraining.customSystemPrompt?.trim()
+          ? agentTraining.customSystemPrompt.trim()
+          : agent.systemPrompt;
         replyText = await generateAgentReply({
           model: agent.model,
-          systemPrompt: agent.systemPrompt,
+          systemPrompt: effectiveSystemPrompt,
           fallbackMessage: agent.fallbackMessage,
           history: recentMessages,
           latestUserMessage: messageText,
