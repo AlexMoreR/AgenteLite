@@ -481,10 +481,7 @@ export function ChatsRealtimeSync({
 
     for (const instanceName of socketTargets) {
       const normalizedApiKey = apiKey?.trim() || null;
-      // TODO_TEST: hardcode temporal para confirmar qué formato acepta Evolution global WS.
-      // Remover después de confirmar.
-      const testApiKey = "b8bc9730c55713986a1d7bb1904e0261";
-      const socketApiKey = testApiKey || normalizedApiKey;
+      const socketApiKey = normalizedApiKey;
       const socket = io(buildSocketUrl(normalizedBaseUrl, instanceName), {
         transports: ["websocket", "polling"],
         reconnection: true,
