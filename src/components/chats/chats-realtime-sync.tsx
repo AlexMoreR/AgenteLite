@@ -11,6 +11,7 @@ import {
 
 type ChatsRealtimeSyncProps = {
   apiBaseUrl?: string;
+  apiKey?: string | null;
   instanceNames?: string[];
   activeInstanceName?: string | null;
   selectedConversationKey?: string | null;
@@ -144,6 +145,7 @@ function normalizeConversationSummarySnapshot(value: unknown) {
 
 export function ChatsRealtimeSync({
   apiBaseUrl,
+  apiKey = null,
   instanceNames = [],
   activeInstanceName = null,
   selectedConversationKey = null,
@@ -441,9 +443,11 @@ export function ChatsRealtimeSync({
     };
 
     for (const instanceName of socketTargets) {
+      const normalizedApiKey = apiKey?.trim() || null;
       const socket = io(buildSocketUrl(normalizedBaseUrl, instanceName), {
         transports: ["websocket", "polling"],
         reconnection: true,
+        ...(normalizedApiKey ? { auth: { apikey: normalizedApiKey } } : {}),
       });
 
       socket.onAny((eventName, ...args) => {
@@ -548,7 +552,7 @@ export function ChatsRealtimeSync({
         socket.disconnect();
       }
     };
-  }, [apiBaseUrl, enabled, isVisible, normalizedInstanceNamesKey, globalEventsEnabled, router]);
+  }, [apiBaseUrl, apiKey, enabled, isVisible, normalizedInstanceNamesKey, globalEventsEnabled, router]);
 
   return null;
 }
