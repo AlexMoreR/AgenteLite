@@ -666,7 +666,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       <ChatsRealtimeSync
         enabled={Boolean(selectedUnified)}
         apiBaseUrl={evolutionSettings.apiBaseUrl}
-        apiKey={evolutionSettings.apiToken || null}
+        apiKey={process.env.EVOLUTION_API_KEY?.trim() || evolutionSettings.apiToken || null}
         instanceNames={evolutionInstanceNames}
         activeInstanceName={selectedEvolutionInstanceName}
         selectedConversationKey={selectedUnified?.key ?? null}
