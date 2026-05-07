@@ -1713,31 +1713,36 @@ export function SharedInbox({
                       backgroundSize: "220px 220px",
                     }}
                   >
-                    <div className="space-y-2.5 md:space-y-3">
-                      {renderedConversation.loadMoreHref ? (
-                        <div className="pb-1">
-                          <div ref={loadMoreSentinelRef} aria-hidden="true" className="h-px w-full" />
-                          <div className="flex justify-center">
-                            <Link
-                              href={renderedConversation.loadMoreHref}
-                              scroll={false}
-                              className="inline-flex items-center rounded-full border border-[rgba(148,163,184,0.16)] bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-800"
-                            >
-                              Cargar mensajes anteriores
-                            </Link>
+                    <div className="flex min-h-full flex-col">
+                      <div className="shrink-0">
+                        {renderedConversation.loadMoreHref ? (
+                          <div className="pb-1">
+                            <div ref={loadMoreSentinelRef} aria-hidden="true" className="h-px w-full" />
+                            <div className="flex justify-center">
+                              <Link
+                                href={renderedConversation.loadMoreHref}
+                                scroll={false}
+                                className="inline-flex items-center rounded-full border border-[rgba(148,163,184,0.16)] bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-800"
+                              >
+                                Cargar mensajes anteriores
+                              </Link>
+                            </div>
                           </div>
-                        </div>
-                      ) : null}
-                      {renderedMessages.map((message, index) => (
-                        <MessageBubble
-                          key={message.id}
-                          message={message}
-                          previousMessage={renderedMessages[index - 1]}
-                        />
-                      ))}
-                      {messageScrollBehavior === "preserve" ? (
-                        <ChatScrollAnchor dependencyKey={selectedConversationScrollKey} behavior="preserve" />
-                      ) : null}
+                        ) : null}
+                      </div>
+                      <div className="min-h-0 flex-1" aria-hidden="true" />
+                      <div className="space-y-2.5 md:space-y-3">
+                        {renderedMessages.map((message, index) => (
+                          <MessageBubble
+                            key={message.id}
+                            message={message}
+                            previousMessage={renderedMessages[index - 1]}
+                          />
+                        ))}
+                        {messageScrollBehavior === "preserve" ? (
+                          <ChatScrollAnchor dependencyKey={selectedConversationScrollKey} behavior="preserve" />
+                        ) : null}
+                      </div>
                     </div>
                   </div>
                   {unreadCount > 0 ? (
