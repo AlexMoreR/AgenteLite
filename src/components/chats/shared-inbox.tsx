@@ -2,8 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { flushSync } from "react-dom";
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition, type FormEvent, type ReactNode, type RefObject } from "react";
 import { useRouter } from "next/navigation";
 import { useFormStatus } from "react-dom";
 import {
@@ -991,6 +990,395 @@ const MessageBubble = memo(function MessageBubble({
   );
 });
 
+const MESSAGE_VIRTUALIZATION_THRESHOLD = 28;
+const MESSAGE_VIRTUALIZATION_OVERSCAN_PX = 720;
+
+function estimateMessageBubbleHeight(message: SharedInboxMessageItem) {
+  const contentLength = message.content?.trim().length ?? 0;
+
+  if (message.type === "IMAGE") {
+    return 392;
+  }
+
+  if (message.type === "VIDEO") {
+    return 340;
+  }
+
+  if (message.type === "AUDIO") {
+    return 152;
+  }
+
+  if (message.type === "DOCUMENT") {
+    return 128;
+  }
+
+  const estimatedTextLines = Math.max(1, Math.ceil(contentLength / 46));
+  return Math.min(92 + (estimatedTextLines - 1) * 20, 320);
+}
+
+type ConversationPanelProps = {
+  backHref: string;
+  composer: SharedInboxProps["composer"];
+  composerHiddenFields: Array<{ name: string; value: string }>;
+  hasSettledConversation: boolean;
+  isLoadingOlderMessages: boolean;
+  loadMoreSentinelRef: RefObject<HTMLDivElement | null>;
+  messageScrollBehavior: "bottom" | "preserve";
+  messagesScrollRef: RefObject<HTMLDivElement | null>;
+  unreadCount: number;
+  onScrollToBottom: () => void;
+  onEditContact: () => void;
+  onOpenTags: () => void;
+  onComposerDraft: (message: string) => void;
+  renderedConversation: SharedInboxSelectedConversation | null;
+  renderedMessages: SharedInboxMessageItem[];
+  selectedConversationId: string;
+  selectedConversationScrollKey: string;
+  emptySelectionTitle: string;
+  emptySelectionDescription: string;
+  headerActions?: ReactNode;
+  headerBadge?: ReactNode;
+};
+
+const ConversationPanel = memo(function ConversationPanel({
+  backHref,
+  composer,
+  composerHiddenFields,
+  hasSettledConversation,
+  isLoadingOlderMessages,
+  loadMoreSentinelRef,
+  messageScrollBehavior,
+  messagesScrollRef,
+  unreadCount,
+  onScrollToBottom,
+  onEditContact,
+  onOpenTags,
+  onComposerDraft,
+  renderedConversation,
+  renderedMessages,
+  selectedConversationId,
+  selectedConversationScrollKey,
+  emptySelectionTitle,
+  emptySelectionDescription,
+  headerActions,
+  headerBadge,
+}: ConversationPanelProps) {
+  const canLoadOlderMessages = Boolean(renderedConversation?.loadMoreCursor && renderedConversation.hasMoreMessages);
+  const [viewportHeight, setViewportHeight] = useState(0);
+  const [scrollTop, setScrollTop] = useState(0);
+  const scrollFrameRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const container = messagesScrollRef.current;
+    if (!container) {
+      return;
+    }
+
+    function updateViewportHeight() {
+      const nextHeight = container.clientHeight;
+      setViewportHeight((current) => (current === nextHeight ? current : nextHeight));
+    }
+
+    function updateScrollTop() {
+      if (scrollFrameRef.current !== null) {
+        return;
+      }
+
+      scrollFrameRef.current = window.requestAnimationFrame(() => {
+        scrollFrameRef.current = null;
+        const nextScrollTop = container.scrollTop;
+        setScrollTop((current) => (current === nextScrollTop ? current : nextScrollTop));
+      });
+    }
+
+    updateViewportHeight();
+    updateScrollTop();
+    container.addEventListener("scroll", updateScrollTop, { passive: true });
+
+    const resizeObserver = new ResizeObserver(updateViewportHeight);
+    resizeObserver.observe(container);
+
+    return () => {
+      if (scrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(scrollFrameRef.current);
+        scrollFrameRef.current = null;
+      }
+
+      container.removeEventListener("scroll", updateScrollTop);
+      resizeObserver.disconnect();
+    };
+  }, [messagesScrollRef]);
+
+  const { messageHeights, totalMessageHeight } = useMemo(() => {
+    const nextHeights = renderedMessages.map((message) => estimateMessageBubbleHeight(message));
+    return {
+      messageHeights: nextHeights,
+      totalMessageHeight: nextHeights.reduce((sum, height) => sum + height, 0),
+    };
+  }, [renderedMessages]);
+
+  const virtualizedMessages = useMemo(() => {
+    if (renderedMessages.length <= MESSAGE_VIRTUALIZATION_THRESHOLD || viewportHeight <= 0) {
+      return {
+        start: 0,
+        end: renderedMessages.length,
+        topSpacer: 0,
+        bottomSpacer: 0,
+      };
+    }
+
+    const overscanTop = Math.max(0, scrollTop - MESSAGE_VIRTUALIZATION_OVERSCAN_PX);
+    const overscanBottom = scrollTop + viewportHeight + MESSAGE_VIRTUALIZATION_OVERSCAN_PX;
+    let start = 0;
+    let accumulatedTop = 0;
+
+    while (start < messageHeights.length && accumulatedTop + messageHeights[start] < overscanTop) {
+      accumulatedTop += messageHeights[start];
+      start += 1;
+    }
+
+    let end = start;
+    let accumulatedBottom = accumulatedTop;
+
+    while (end < messageHeights.length && accumulatedBottom < overscanBottom) {
+      accumulatedBottom += messageHeights[end];
+      end += 1;
+    }
+
+    return {
+      start,
+      end,
+      topSpacer: accumulatedTop,
+      bottomSpacer: Math.max(0, totalMessageHeight - accumulatedBottom),
+    };
+  }, [messageHeights, renderedMessages.length, scrollTop, totalMessageHeight, viewportHeight]);
+
+  const visibleMessages = useMemo(() => {
+    return renderedMessages.slice(virtualizedMessages.start, virtualizedMessages.end);
+  }, [renderedMessages, virtualizedMessages.end, virtualizedMessages.start]);
+
+  return (
+    <Card
+      className={`${renderedConversation || selectedConversationId ? "flex" : "hidden md:flex"} chat-inbox-panel min-h-0 flex-1 overflow-hidden border border-[rgba(148,163,184,0.14)] bg-white p-0 shadow-none md:h-full md:shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)]`}
+    >
+      {renderedConversation ? (
+        <div className="flex min-h-0 h-full w-full flex-1 flex-col">
+          <div className="shrink-0 border-b border-[rgba(148,163,184,0.12)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcff_100%)] px-3 pb-2.5 pt-[calc(env(safe-area-inset-top)+0.625rem)] md:px-[10px] md:py-[10px]">
+            <div className="flex min-w-0 items-center justify-between gap-3">
+              <div className="flex min-w-0 flex-1 items-center gap-3">
+                <Link
+                  href={backHref}
+                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[rgba(148,163,184,0.14)] bg-white text-slate-500 transition hover:bg-slate-50 md:hidden"
+                  aria-label="Volver a chats"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                </Link>
+                <TooltipProvider delayDuration={300}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="shrink-0 cursor-default">
+                        {renderedConversation.avatarUrl ? (
+                          <Image
+                            src={renderedConversation.avatarUrl}
+                            alt={renderedConversation.label}
+                            width={40}
+                            height={40}
+                            unoptimized
+                            className="h-10 w-10 rounded-2xl object-cover"
+                          />
+                        ) : (
+                          <div className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-100 text-sm font-semibold text-slate-700">
+                            {getInitials(renderedConversation.label)}
+                          </div>
+                        )}
+                      </div>
+                    </TooltipTrigger>
+                    {renderedConversation.secondaryLabel ? (
+                      <TooltipContent side="right">
+                        {renderedConversation.secondaryLabel}
+                      </TooltipContent>
+                    ) : null}
+                  </Tooltip>
+                </TooltipProvider>
+                <div className="min-w-0 space-y-0.5">
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <h2 className="truncate text-[13px] font-semibold text-slate-950 md:text-sm">
+                      {renderedConversation.label}
+                    </h2>
+                    {renderedConversation.contactId ? (
+                      <button
+                        type="button"
+                        onClick={onEditContact}
+                        className="shrink-0 inline-flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                        aria-label="Editar contacto"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={onOpenTags}
+                      className="shrink-0 inline-flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                      aria-label="Etiquetas"
+                    >
+                      <Tag className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  {renderedConversation.tags?.length ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {renderedConversation.tags.map((tag) => (
+                        <span
+                          key={`${renderedConversation.id}:${tag.label}`}
+                          className="inline-flex max-w-full items-center rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
+                          style={{
+                            backgroundColor: tag.color,
+                            color: "#ffffff",
+                          }}
+                          title={tag.label}
+                        >
+                          <span className="truncate">{tag.label}</span>
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+
+              {hasSettledConversation && (headerActions || headerBadge) ? (
+                <div className="flex shrink-0 items-center justify-end gap-2">
+                  {headerActions}
+                  {headerBadge}
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="relative flex min-h-0 flex-1 flex-col bg-[#f3f4f6]">
+            <ChatSelectionOverlay selectedConversationId={selectedConversationId} />
+            <div className="relative min-h-0 flex-1">
+              <div
+                ref={messagesScrollRef}
+                className="chat-messages-scroll h-full overflow-y-auto overscroll-contain px-2.5 py-2.5 pb-3 [-webkit-overflow-scrolling:touch] md:px-5 md:py-5 md:pb-5"
+                style={{
+                  backgroundColor: "#f3f4f6",
+                  backgroundImage:
+                    `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220' viewBox='0 0 220 220'%3E%3Cg fill='none' stroke='%23cbd5e1' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round' opacity='0.45'%3E%3Ccircle cx='28' cy='24' r='10'/%3E%3Cpath d='M62 18l8 14 14 2-10 10 2 14-14-7-12 7 2-14-10-10 14-2z'/%3E%3Cpath d='M122 18c10 0 18 8 18 18s-8 18-18 18-18-8-18-18 8-18 18-18z'/%3E%3Cpath d='M169 24l20 20M189 24l-20 20'/%3E%3Crect x='20' y='76' width='28' height='18' rx='6'/%3E%3Cpath d='M26 102c6-8 16-8 22 0'/%3E%3Cpath d='M76 74l10 18 20 3-14 14 3 20-19-10-18 10 3-20-14-14 20-3z'/%3E%3Cpath d='M130 78h28v18h-28z'/%3E%3Cpath d='M144 70v36M130 87h28'/%3E%3Cpath d='M176 76c10 0 18 8 18 18s-8 18-18 18-18-8-18-18 8-18 18-18z'/%3E%3Cpath d='M24 142c6-8 18-8 24 0 6 8 18 8 24 0'/%3E%3Cpath d='M86 144c0-8 6-14 14-14s14 6 14 14-6 14-14 14-14-6-14-14z'/%3E%3Cpath d='M128 136l24 24M152 136l-24 24'/%3E%3Cpath d='M174 132h26v26h-26z'/%3E%3Cpath d='M182 124v42M174 145h26'/%3E%3Ccircle cx='42' cy='188' r='16'/%3E%3Cpath d='M36 188h12M42 182v12'/%3E%3Cpath d='M92 180c8-10 22-10 30 0-8 10-22 10-30 0z'/%3E%3Cpath d='M140 180l12 12 18-18'/%3E%3Cpath d='M178 184c6-8 16-8 22 0'/%3E%3C/g%3E%3C/svg%3E")`,
+                  backgroundPosition: "center",
+                  backgroundSize: "220px 220px",
+                }}
+              >
+                <div className="flex min-h-full flex-col">
+                  <div className="shrink-0">
+                    {canLoadOlderMessages ? (
+                      <div className="pb-1">
+                        <div ref={loadMoreSentinelRef} aria-hidden="true" className="h-px w-full" />
+                        {renderedConversation.loadMoreHref ? (
+                          <div className="flex justify-center">
+                            <Link
+                              href={renderedConversation.loadMoreHref}
+                              scroll={false}
+                              className="inline-flex items-center rounded-full border border-[rgba(148,163,184,0.16)] bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-800"
+                            >
+                              Cargar mensajes anteriores
+                            </Link>
+                          </div>
+                        ) : isLoadingOlderMessages ? (
+                          <div className="flex justify-center px-3 py-1.5 text-[11px] font-medium text-slate-500">
+                            Cargando historial...
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                  {virtualizedMessages.topSpacer > 0 ? (
+                    <div aria-hidden="true" style={{ height: virtualizedMessages.topSpacer }} />
+                  ) : null}
+                  <div className="space-y-2.5 md:space-y-3">
+                    {visibleMessages.map((message, index) => {
+                      const absoluteIndex = virtualizedMessages.start + index;
+                      return (
+                        <MessageBubble
+                          key={message.id}
+                          message={message}
+                          previousMessage={renderedMessages[absoluteIndex - 1]}
+                        />
+                      );
+                    })}
+                    {virtualizedMessages.bottomSpacer > 0 ? (
+                      <div aria-hidden="true" style={{ height: virtualizedMessages.bottomSpacer }} />
+                    ) : null}
+                    {messageScrollBehavior === "preserve" ? (
+                      <ChatScrollAnchor dependencyKey={selectedConversationScrollKey} behavior="preserve" />
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+              {unreadCount > 0 ? (
+                <button
+                  type="button"
+                  onClick={onScrollToBottom}
+                  className="absolute bottom-4 right-4 z-10 flex cursor-pointer items-center gap-1.5 rounded-full bg-slate-900/90 px-3 py-1.5 text-xs font-semibold text-white shadow-lg backdrop-blur-sm transition hover:bg-slate-900"
+                >
+                  <ChevronDown className="h-3.5 w-3.5" />
+                  {unreadCount}
+                </button>
+              ) : null}
+            </div>
+
+            {composer && renderedConversation ? (
+              <div className="chat-composer z-20 shrink-0 border-t border-[rgba(148,163,184,0.12)] bg-white/96 px-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 shadow-[0_-12px_28px_-24px_rgba(15,23,42,0.2)] backdrop-blur md:border-t md:bg-white md:px-2 md:py-2 md:shadow-none md:backdrop-blur-0">
+                <form
+                  action={composer.action}
+                  className="mx-auto w-full max-w-5xl"
+                  onSubmit={(event: FormEvent<HTMLFormElement>) => {
+                    const form = event.currentTarget;
+                    const formData = new FormData(form);
+                    const message = String(formData.get("message") || "").trim();
+
+                    if (!message || !renderedConversation) {
+                      return;
+                    }
+
+                    onComposerDraft(message);
+                  }}
+                >
+                  {composerHiddenFields.map((field) => (
+                    <input key={`${field.name}-${field.value}`} type="hidden" name={field.name} value={field.value} />
+                  ))}
+
+                  <div className="flex items-end gap-2 md:gap-3">
+                    <textarea
+                      name="message"
+                      rows={1}
+                      placeholder={composer.placeholder || "Escribe un mensaje..."}
+                      className="flex min-h-[44px] flex-1 resize-none rounded-2xl border border-[rgba(148,163,184,0.14)] bg-slate-50/80 px-3 py-2.5 text-[14px] text-slate-800 placeholder:text-slate-400 outline-none transition focus:border-[var(--primary)] focus:bg-white focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_18%,white)] md:min-h-[40px] md:py-2 md:text-sm"
+                    />
+                    <ComposerSendButton />
+                  </div>
+                </form>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : (
+        <div className="flex min-h-[74vh] items-center justify-center px-6 py-10 text-center">
+          <div className="mx-auto flex max-w-sm flex-col items-center gap-3">
+            <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-50 text-slate-500">
+              <MessageSquareText className="h-5 w-5" />
+            </span>
+            <div className="space-y-1">
+              <h3 className="text-base font-semibold text-slate-950">{emptySelectionTitle}</h3>
+              <p className="text-sm leading-6 text-slate-600">
+                {emptySelectionDescription}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+});
+
 export function SharedInbox({
   searchAction,
   selectedConversationId,
@@ -1017,6 +1405,9 @@ export function SharedInbox({
   const handleCloseEditContact = useCallback(() => setEditContactOpen(false), []);
   const [etiquetaModalOpen, setEtiquetaModalOpen] = useState(false);
   const handleCloseEtiquetaModal = useCallback(() => setEtiquetaModalOpen(false), []);
+  const handleOpenEditContact = useCallback(() => setEditContactOpen(true), []);
+  const handleOpenEtiquetaModal = useCallback(() => setEtiquetaModalOpen(true), []);
+  const [, startSelectionTransition] = useTransition();
   const conversationListScrollRef = useRef<HTMLDivElement | null>(null);
   const messagesScrollRef = useRef<HTMLDivElement | null>(null);
   const scrollFrameRef = useRef<number | null>(null);
@@ -1031,6 +1422,7 @@ export function SharedInbox({
   const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [hasHydrated, setHasHydrated] = useState(false);
+  const selectedConversationDetailInFlightRef = useRef<string | null>(null);
   // Ref sincronizada en cada render: permite leer el valor actual dentro de event
   // listeners sin declararlos como dependencia (evita re-registro en cada mensaje).
   const selectedConversationRef = useRef(selectedConversation);
@@ -1187,16 +1579,12 @@ export function SharedInbox({
       const cacheKey = nextConversation.cacheKey || nextConversation.id;
       const cachedConversation = readConversationFromCache(cacheKey);
 
-      flushSync(() => {
-        setPendingConversation(nextConversation);
+      setPendingConversation(nextConversation);
+      startSelectionTransition(() => {
         setLiveConversation(null);
-
-        if (cachedConversation) {
-          setOptimisticConversation(cachedConversation);
-          return;
-        }
-
-        setOptimisticConversation(buildPendingConversationPreview(nextConversation));
+        setOptimisticConversation(
+          cachedConversation ? cachedConversation : buildPendingConversationPreview(nextConversation),
+        );
       });
     }
 
@@ -1409,6 +1797,12 @@ export function SharedInbox({
       return;
     }
 
+    if (selectedConversationDetailInFlightRef.current === normalizedSelectedConversationId) {
+      return;
+    }
+
+    selectedConversationDetailInFlightRef.current = normalizedSelectedConversationId;
+
     const controller = new AbortController();
     let cancelled = false;
 
@@ -1442,11 +1836,15 @@ export function SharedInbox({
             ? current
             : (selectedConversationRef.current && conversationIdMatchesKey(selectedConversationRef.current.id, snapshot.id)
                 ? selectedConversationRef.current
-                : selectedConversation ?? null);
+                : selectedConversationRef.current ?? null);
           return mergeConversationSnapshots(base, snapshot);
         });
       } catch {
         // Intentional no-op: si falla, la vista cacheada/preview sigue siendo usable.
+      } finally {
+        if (selectedConversationDetailInFlightRef.current === normalizedSelectedConversationId) {
+          selectedConversationDetailInFlightRef.current = null;
+        }
       }
     }
 
@@ -1461,7 +1859,6 @@ export function SharedInbox({
     cachedConversationForCurrentSelectionMessagesCount,
     liveConversationMessagesCount,
     pendingConversation?.chatKey,
-    selectedConversation,
     selectedConversationId,
   ]);
 
@@ -1648,6 +2045,28 @@ export function SharedInbox({
         ? [...renderedConversation.messages, optimisticOutgoingMessage]
         : renderedConversation?.messages ?? [],
     [optimisticDraftMatchesLatestMessage, optimisticOutgoingMessage, renderedConversation],
+  );
+  const handleComposerDraft = useCallback(
+    (message: string) => {
+      if (!renderedConversation) {
+        return;
+      }
+
+      setOptimisticOutgoingMessage({
+        id: `optimistic:${renderedConversation.id}:${Date.now()}`,
+        conversationId: renderedConversation.id,
+        content: message,
+        direction: "OUTBOUND",
+        createdAt: new Date(),
+        authorType: "user",
+        outboundStatusLabel: "enviando",
+        type: "TEXT",
+        mediaUrl: null,
+        rawPayload: { optimistic: true },
+        isOptimistic: true,
+      });
+    },
+    [renderedConversation],
   );
   const hasSettledConversation = Boolean(renderedConversation && currentSelectedConversation && renderedConversation.id === currentSelectedConversation.id);
   const hasMobileSelection = Boolean(renderedConversation || pendingConversation || selectedConversationId);
@@ -1945,228 +2364,29 @@ export function SharedInbox({
         </div>
       </Card>
 
-      <Card
-        className={`${hasMobileSelection || conversationItems.length === 0 ? "flex" : "hidden md:flex"} chat-inbox-panel min-h-0 flex-1 overflow-hidden border border-[rgba(148,163,184,0.14)] bg-white p-0 shadow-none md:h-full md:shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)]`}
-      >
-        {renderedConversation ? (
-          <div className="flex min-h-0 h-full w-full flex-1 flex-col">
-            <div className="shrink-0 border-b border-[rgba(148,163,184,0.12)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcff_100%)] px-3 pb-2.5 pt-[calc(env(safe-area-inset-top)+0.625rem)] md:px-[10px] md:py-[10px]">
-              <div className="flex min-w-0 items-center justify-between gap-3">
-                <div className="flex min-w-0 flex-1 items-center gap-3">
-                  <Link
-                    href={backHref}
-                    className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[rgba(148,163,184,0.14)] bg-white text-slate-500 transition hover:bg-slate-50 md:hidden"
-                    aria-label="Volver a chats"
-                    >
-                      <ArrowLeft className="h-4 w-4" />
-                  </Link>
-                  <TooltipProvider delayDuration={300}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <div className="shrink-0 cursor-default">
-                          {renderedConversation.avatarUrl ? (
-                            <Image
-                              src={renderedConversation.avatarUrl}
-                              alt={renderedConversation.label}
-                              width={40}
-                              height={40}
-                              unoptimized
-                              className="h-10 w-10 rounded-2xl object-cover"
-                            />
-                          ) : (
-                            <div className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-100 text-sm font-semibold text-slate-700">
-                              {getInitials(renderedConversation.label)}
-                            </div>
-                          )}
-                        </div>
-                      </TooltipTrigger>
-                      {renderedConversation.secondaryLabel ? (
-                        <TooltipContent side="right">
-                          {renderedConversation.secondaryLabel}
-                        </TooltipContent>
-                      ) : null}
-                    </Tooltip>
-                  </TooltipProvider>
-                    <div className="min-w-0 space-y-0.5">
-                      <div className="flex min-w-0 items-center gap-1.5">
-                        <h2 className="truncate text-[13px] font-semibold text-slate-950 md:text-sm">
-                          {renderedConversation.label}
-                        </h2>
-                      {renderedConversation.contactId ? (
-                        <button
-                          type="button"
-                          onClick={() => setEditContactOpen(true)}
-                          className="shrink-0 inline-flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
-                          aria-label="Editar contacto"
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        onClick={() => setEtiquetaModalOpen(true)}
-                        className="shrink-0 inline-flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
-                        aria-label="Etiquetas"
-                      >
-                        <Tag className="h-3.5 w-3.5" />
-                      </button>
-                      </div>
-                      {renderedConversation.tags?.length ? (
-                        <div className="flex flex-wrap gap-1.5">
-                          {renderedConversation.tags.map((tag) => (
-                            <span
-                              key={`${renderedConversation.id}:${tag.label}`}
-                              className="inline-flex max-w-full items-center rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
-                              style={{
-                                backgroundColor: tag.color,
-                                color: "#ffffff",
-                              }}
-                              title={tag.label}
-                            >
-                              <span className="truncate">{tag.label}</span>
-                            </span>
-                          ))}
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-
-                {hasSettledConversation && (headerActions || headerBadge) ? (
-                  <div className="flex shrink-0 items-center justify-end gap-2">
-                    {headerActions}
-                    {headerBadge}
-                  </div>
-                ) : null}
-              </div>
-            </div>
-
-              <div className="relative flex min-h-0 flex-1 flex-col bg-[#f3f4f6]">
-                <ChatSelectionOverlay selectedConversationId={selectedConversationId} />
-                <div className="relative min-h-0 flex-1">
-                  <div
-                    ref={messagesScrollRef}
-                    className="chat-messages-scroll h-full overflow-y-auto overscroll-contain px-2.5 py-2.5 pb-3 [-webkit-overflow-scrolling:touch] md:px-5 md:py-5 md:pb-5"
-                    style={{
-                      backgroundColor: "#f3f4f6",
-                      backgroundImage:
-                        `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220' viewBox='0 0 220 220'%3E%3Cg fill='none' stroke='%23cbd5e1' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round' opacity='0.45'%3E%3Ccircle cx='28' cy='24' r='10'/%3E%3Cpath d='M62 18l8 14 14 2-10 10 2 14-14-7-12 7 2-14-10-10 14-2z'/%3E%3Cpath d='M122 18c10 0 18 8 18 18s-8 18-18 18-18-8-18-18 8-18 18-18z'/%3E%3Cpath d='M169 24l20 20M189 24l-20 20'/%3E%3Crect x='20' y='76' width='28' height='18' rx='6'/%3E%3Cpath d='M26 102c6-8 16-8 22 0'/%3E%3Cpath d='M76 74l10 18 20 3-14 14 3 20-19-10-18 10 3-20-14-14 20-3z'/%3E%3Cpath d='M130 78h28v18h-28z'/%3E%3Cpath d='M144 70v36M130 87h28'/%3E%3Cpath d='M176 76c10 0 18 8 18 18s-8 18-18 18-18-8-18-18 8-18 18-18z'/%3E%3Cpath d='M24 142c6-8 18-8 24 0 6 8 18 8 24 0'/%3E%3Cpath d='M86 144c0-8 6-14 14-14s14 6 14 14-6 14-14 14-14-6-14-14z'/%3E%3Cpath d='M128 136l24 24M152 136l-24 24'/%3E%3Cpath d='M174 132h26v26h-26z'/%3E%3Cpath d='M182 124v42M174 145h26'/%3E%3Ccircle cx='42' cy='188' r='16'/%3E%3Cpath d='M36 188h12M42 182v12'/%3E%3Cpath d='M92 180c8-10 22-10 30 0-8 10-22 10-30 0z'/%3E%3Cpath d='M140 180l12 12 18-18'/%3E%3Cpath d='M178 184c6-8 16-8 22 0'/%3E%3C/g%3E%3C/svg%3E")`,
-                      backgroundPosition: "center",
-                      backgroundSize: "220px 220px",
-                    }}
-                  >
-                    <div className="flex min-h-full flex-col">
-                      <div className="shrink-0">
-                        {canLoadOlderMessages ? (
-                          <div className="pb-1">
-                            <div ref={loadMoreSentinelRef} aria-hidden="true" className="h-px w-full" />
-                            {renderedConversation.loadMoreHref ? (
-                              <div className="flex justify-center">
-                                <Link
-                                  href={renderedConversation.loadMoreHref}
-                                  scroll={false}
-                                  className="inline-flex items-center rounded-full border border-[rgba(148,163,184,0.16)] bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-800"
-                                >
-                                  Cargar mensajes anteriores
-                                </Link>
-                              </div>
-                            ) : isLoadingOlderMessages ? (
-                              <div className="flex justify-center px-3 py-1.5 text-[11px] font-medium text-slate-500">
-                                Cargando historial...
-                              </div>
-                            ) : null}
-                          </div>
-                        ) : null}
-                      </div>
-                      <div className="min-h-0 flex-1" aria-hidden="true" />
-                      <div className="space-y-2.5 md:space-y-3">
-                        {renderedMessages.map((message, index) => (
-                          <MessageBubble
-                            key={message.id}
-                            message={message}
-                            previousMessage={renderedMessages[index - 1]}
-                          />
-                        ))}
-                        {messageScrollBehavior === "preserve" ? (
-                          <ChatScrollAnchor dependencyKey={selectedConversationScrollKey} behavior="preserve" />
-                        ) : null}
-                      </div>
-                    </div>
-                  </div>
-                  {unreadCount > 0 ? (
-                    <button
-                      type="button"
-                      onClick={scrollToBottom}
-                      className="absolute bottom-4 right-4 z-10 flex cursor-pointer items-center gap-1.5 rounded-full bg-slate-900/90 px-3 py-1.5 text-xs font-semibold text-white shadow-lg backdrop-blur-sm transition hover:bg-slate-900"
-                    >
-                      <ChevronDown className="h-3.5 w-3.5" />
-                      {unreadCount}
-                    </button>
-                  ) : null}
-                </div>
-
-              {composer && renderedConversation ? (
-                <div className="chat-composer z-20 shrink-0 border-t border-[rgba(148,163,184,0.12)] bg-white/96 px-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 shadow-[0_-12px_28px_-24px_rgba(15,23,42,0.2)] backdrop-blur md:border-t md:bg-white md:px-2 md:py-2 md:shadow-none md:backdrop-blur-0">
-                  <form
-                    action={composer.action}
-                    className="mx-auto w-full max-w-5xl"
-                    onSubmit={(event: FormEvent<HTMLFormElement>) => {
-                      const form = event.currentTarget;
-                      const formData = new FormData(form);
-                      const message = String(formData.get("message") || "").trim();
-
-                      if (!message || !renderedConversation) {
-                        return;
-                      }
-
-                      setOptimisticOutgoingMessage({
-                        id: `optimistic:${renderedConversation.id}:${Date.now()}`,
-                        conversationId: renderedConversation.id,
-                        content: message,
-                        direction: "OUTBOUND",
-                        createdAt: new Date(),
-                        authorType: "user",
-                        outboundStatusLabel: "enviando",
-                        type: "TEXT",
-                        mediaUrl: null,
-                        rawPayload: { optimistic: true },
-                        isOptimistic: true,
-                      });
-                    }}
-                  >
-                    {composerHiddenFields.map((field) => (
-                      <input key={`${field.name}-${field.value}`} type="hidden" name={field.name} value={field.value} />
-                    ))}
-
-                    <div className="flex items-end gap-2 md:gap-3">
-                      <textarea
-                        name="message"
-                        rows={1}
-                        placeholder={composer.placeholder || "Escribe un mensaje..."}
-                        className="flex min-h-[44px] flex-1 resize-none rounded-2xl border border-[rgba(148,163,184,0.14)] bg-slate-50/80 px-3 py-2.5 text-[14px] text-slate-800 placeholder:text-slate-400 outline-none transition focus:border-[var(--primary)] focus:bg-white focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_18%,white)] md:min-h-[40px] md:py-2 md:text-sm"
-                      />
-                      <ComposerSendButton />
-                    </div>
-                  </form>
-                </div>
-              ) : null}
-            </div>
-          </div>
-        ) : (
-          <div className="flex min-h-[74vh] items-center justify-center px-6 py-10 text-center">
-            <div className="mx-auto flex max-w-sm flex-col items-center gap-3">
-              <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-50 text-slate-500">
-                <MessageSquareText className="h-5 w-5" />
-              </span>
-              <div className="space-y-1">
-                <h3 className="text-base font-semibold text-slate-950">{emptySelectionTitle}</h3>
-                <p className="text-sm leading-6 text-slate-600">
-                  {emptySelectionDescription}
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-      </Card>
+      <ConversationPanel
+        backHref={backHref}
+        composer={composer}
+        composerHiddenFields={composerHiddenFields}
+        hasSettledConversation={hasSettledConversation}
+        isLoadingOlderMessages={isLoadingOlderMessages}
+        loadMoreSentinelRef={loadMoreSentinelRef}
+        messageScrollBehavior={messageScrollBehavior}
+        messagesScrollRef={messagesScrollRef}
+        unreadCount={unreadCount}
+        onScrollToBottom={scrollToBottom}
+        onEditContact={handleOpenEditContact}
+        onOpenTags={handleOpenEtiquetaModal}
+        onComposerDraft={handleComposerDraft}
+        renderedConversation={renderedConversation}
+        renderedMessages={renderedMessages}
+      selectedConversationId={selectedConversationId}
+      selectedConversationScrollKey={selectedConversationScrollKey}
+      emptySelectionTitle={emptySelectionTitle}
+      emptySelectionDescription={emptySelectionDescription}
+      headerActions={headerActions}
+      headerBadge={headerBadge}
+    />
     </div>
 
     {renderedConversation?.contactId ? (

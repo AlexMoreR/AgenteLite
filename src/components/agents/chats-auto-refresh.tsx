@@ -6,9 +6,8 @@ import { useRouter } from "next/navigation";
 type ChatsAutoRefreshProps = {
   intervalMs?: number;
   enabled?: boolean;
-  // Clave de la conversación activa (ej. "agent:xxx" u "official:xxx").
-  // Con ella se evita router.refresh() para conversaciones Evolution: se hace un
-  // fetch targetizado al endpoint /live y se despacha chat-live-update en su lugar.
+  // Active conversation key (for example: "agent:xxx" or "official:xxx").
+  // For Evolution chats we use /live instead of router.refresh().
   selectedConversationKey?: string | null;
 };
 
@@ -36,10 +35,13 @@ export function ChatsAutoRefresh({
   const [isVisible, setIsVisible] = useState(
     () => (typeof document === "undefined" ? true : document.visibilityState === "visible"),
   );
-  // Evita fetch concurrentes si el intervalo se dispara antes de que termine el anterior.
+
+  // Avoid concurrent fetches if the interval fires before the previous request ends.
   const inFlightRef = useRef(false);
-  // Ref sincronizada: el callback del intervalo siempre lee la conversación activa
-  // sin necesitar recrear el setInterval cuando el usuario cambia de chat.
+  // If a live update already refreshed the active chat recently, skip one poll tick.
+  const lastLiveUpdateAtRef = useRef(0);
+  const lastLiveUpdateKeyRef = useRef<string | null>(null);
+  // Stable ref so the interval always reads the latest active conversation.
   const selectedConversationKeyRef = useRef(selectedConversationKey);
   selectedConversationKeyRef.current = selectedConversationKey;
 
@@ -47,9 +49,28 @@ export function ChatsAutoRefresh({
     function handleVisibilityChange() {
       setIsVisible(document.visibilityState === "visible");
     }
+
     document.addEventListener("visibilitychange", handleVisibilityChange);
     handleVisibilityChange();
+
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, []);
+
+  useEffect(() => {
+    function handleLiveUpdate(event: Event) {
+      const customEvent = event as CustomEvent<{ chatKey?: string | null }>;
+      const chatKey = customEvent.detail?.chatKey?.trim() || "";
+
+      if (!chatKey || chatKey !== selectedConversationKeyRef.current?.trim()) {
+        return;
+      }
+
+      lastLiveUpdateAtRef.current = Date.now();
+      lastLiveUpdateKeyRef.current = chatKey;
+    }
+
+    window.addEventListener("chat-live-update", handleLiveUpdate as EventListener);
+    return () => window.removeEventListener("chat-live-update", handleLiveUpdate as EventListener);
   }, []);
 
   useEffect(() => {
@@ -61,15 +82,23 @@ export function ChatsAutoRefresh({
       const chatKey = selectedConversationKeyRef.current?.trim() ?? "";
 
       if (chatKey.startsWith("agent:")) {
-        // Ruta rápida: fetch targetizado — cero re-render de Router/RSC.
-        // Replica exactamente lo que hace ChatsRealtimeSync.runLiveUpdate().
+        const wasRecentlyUpdated =
+          lastLiveUpdateKeyRef.current === chatKey &&
+          Date.now() - lastLiveUpdateAtRef.current < intervalMs;
+
+        if (wasRecentlyUpdated) {
+          return;
+        }
+
+        // Targeted fetch, no router.refresh() / RSC re-render.
         if (inFlightRef.current) return;
+
         inFlightRef.current = true;
         try {
-          const response = await fetch(
-            `/api/cliente/chats/live?chatKey=${encodeURIComponent(chatKey)}`,
-            { credentials: "same-origin", cache: "no-store" },
-          );
+          const response = await fetch(`/api/cliente/chats/live?chatKey=${encodeURIComponent(chatKey)}`, {
+            credentials: "same-origin",
+            cache: "no-store",
+          });
 
           if (!response.ok) {
             return;
@@ -93,23 +122,22 @@ export function ChatsAutoRefresh({
             new CustomEvent("chat-live-update", { detail: { conversation, chatKey } }),
           );
         } catch {
-          // Error de red — sin fallback: el próximo tick lo reintentará.
+          // Network error: the next tick will retry.
         } finally {
           inFlightRef.current = false;
         }
+
         return;
       }
 
-      // Conversación Official API o sin selección: router.refresh() es necesario
-      // porque no existe un endpoint equivalente para esas conversaciones.
+      // Official API chat or no selection: router.refresh() is still necessary.
       startTransition(() => {
         router.refresh();
       });
     }, intervalMs);
 
     return () => window.clearInterval(timer);
-    // pathname y searchParams eliminados: el intervalo no debe reiniciarse cuando
-    // el usuario cambia de conversación — eso causaba un refresh() extra en cada navegación.
+    // The interval should not reset when the active chat changes.
   }, [enabled, isVisible, intervalMs, router, startTransition]);
 
   return null;
