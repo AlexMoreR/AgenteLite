@@ -39,10 +39,6 @@ function normalizeBaseUrl(value?: string) {
   return value?.trim().replace(/\/+$/, "") || "";
 }
 
-function normalizeInstanceNames(instanceNames: string[]) {
-  return Array.from(new Set(instanceNames.map((name) => name.trim()).filter(Boolean)));
-}
-
 function buildSocketUrl(baseUrl: string, instanceName?: string | null) {
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
   if (!instanceName?.trim()) {
@@ -528,7 +524,7 @@ export function ChatsRealtimeSync({
               scheduleLiveUpdate("active");
               // Usar chatKey directamente para no depender de extraer el telefono del payload:
               // esto garantiza que scheduleListUpdate tambien dispare para fromMe: true.
-              scheduleListUpdate("active", instanceName ?? normalizedActiveInstanceName, payload, currentConversationKey);
+              scheduleListUpdate("active", instanceName ?? normalizedActiveInstanceName, payload, currentConversationKey || undefined);
               return;
             }
 
