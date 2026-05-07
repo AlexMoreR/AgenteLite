@@ -44,6 +44,8 @@ const chatTimeFormatter = new Intl.DateTimeFormat("es-CO", {
 
 export type SharedInboxConversationItem = {
   id: string;
+  source: "agent" | "official";
+  agentId?: string | null;
   contactId?: string | null;
   label: string;
   secondaryLabel: string;
@@ -119,18 +121,41 @@ type ConversationTagsUpdateDetail = {
 
 type PendingConversationSelection = {
   id: string;
+  chatKey?: string | null;
+  source?: "agent" | "official";
+  agentId?: string | null;
   label: string;
   secondaryLabel: string;
   avatarUrl?: string | null;
   lastMessage?: string | null;
+  lastMessageType?: SharedInboxMessageItem["type"] | null;
+  lastMessageDirection?: "INBOUND" | "OUTBOUND" | null;
+  lastMessageAt?: string | Date | null;
   channelType?: SharedInboxConversationItem["channelType"];
   cacheKey?: string | null;
+  phoneNumber?: string | null;
   hasCache?: boolean;
 };
 
 function buildPendingConversationPreview(
   pendingConversation: PendingConversationSelection,
 ): SharedInboxSelectedConversation {
+  const lastMessage = pendingConversation.lastMessage?.trim() || "";
+  const direction = pendingConversation.lastMessageDirection || "INBOUND";
+  const createdAt = pendingConversation.lastMessageAt ? new Date(pendingConversation.lastMessageAt) : new Date();
+  const previewMessages = lastMessage
+    ? [
+        {
+          id: `${pendingConversation.cacheKey ?? pendingConversation.id}:preview`,
+          content: lastMessage,
+          direction,
+          createdAt,
+          authorType: direction === "OUTBOUND" ? "bot" : "user",
+          type: pendingConversation.lastMessageType ?? "TEXT",
+        } satisfies SharedInboxMessageItem,
+      ]
+    : [];
+
   return {
     id: pendingConversation.id,
     label: pendingConversation.label,
@@ -139,9 +164,35 @@ function buildPendingConversationPreview(
     tags: [],
     contactId: null,
     contactName: null,
-    messages: [],
+    messages: previewMessages,
     cacheKey: pendingConversation.cacheKey ?? pendingConversation.id,
   };
+}
+
+function buildComposerHiddenFields(
+  baseFields: Array<{ name: string; value: string }>,
+  selectedConversation: PendingConversationSelection | null,
+) {
+  if (!selectedConversation) {
+    return baseFields;
+  }
+
+  const nextFields = [...baseFields];
+  const upsertField = (name: string, value: string) => {
+    const index = nextFields.findIndex((field) => field.name === name);
+    if (index >= 0) {
+      nextFields[index] = { name, value };
+      return;
+    }
+
+    nextFields.push({ name, value });
+  };
+
+  upsertField("source", selectedConversation.source || "agent");
+  upsertField("conversationId", selectedConversation.id);
+  upsertField("agentId", selectedConversation.source === "agent" ? (selectedConversation.agentId ?? "") : "");
+
+  return nextFields;
 }
 
 export type SharedInboxSidebarItem = {
@@ -320,6 +371,8 @@ function buildConversationItemFromSnapshot(
   const latestMessage = snapshot.messages.at(-1) ?? null;
   const nextItem: SharedInboxConversationItem = {
     id: existing?.id ?? snapshot.id,
+    source: existing?.source ?? "agent",
+    agentId: existing?.agentId ?? null,
     contactId: snapshot.contactId ?? existing?.contactId ?? null,
     label: snapshot.label ?? existing?.label ?? snapshot.id,
     secondaryLabel: snapshot.secondaryLabel ?? existing?.secondaryLabel ?? "",
@@ -343,6 +396,8 @@ function buildConversationItemFromListSnapshot(
 ): SharedInboxConversationItem {
   return {
     id: existing?.id ?? snapshot.id,
+    source: existing?.source ?? (snapshot.channelType === "whatsapp_official" ? "official" : "agent"),
+    agentId: existing?.agentId ?? null,
     contactId: snapshot.contactId ?? existing?.contactId ?? null,
     label: snapshot.label,
     secondaryLabel: snapshot.secondaryLabel,
@@ -858,6 +913,7 @@ export function SharedInbox({
   const router = useRouter();
   const [pendingConversation, setPendingConversation] = useState<{
     id: string;
+    chatKey?: string | null;
     label: string;
     secondaryLabel: string;
     avatarUrl?: string | null;
@@ -901,12 +957,19 @@ export function SharedInbox({
     function handlePendingSelection(event: Event) {
       const customEvent = event as CustomEvent<{
         id: string;
+        chatKey?: string | null;
+        source?: "agent" | "official";
+        agentId?: string | null;
         label: string;
         secondaryLabel: string;
         avatarUrl?: string | null;
         lastMessage?: string | null;
+        lastMessageType?: SharedInboxMessageItem["type"] | null;
+        lastMessageDirection?: "INBOUND" | "OUTBOUND" | null;
+        lastMessageAt?: string | Date | null;
         channelType?: SharedInboxConversationItem["channelType"];
         cacheKey?: string | null;
+        phoneNumber?: string | null;
         hasCache?: boolean;
       }>;
       const nextConversation = customEvent.detail;
@@ -1073,7 +1136,7 @@ export function SharedInbox({
   }, []);
 
   useEffect(() => {
-    const normalizedSelectedConversationId = selectedConversationId.trim();
+    const normalizedSelectedConversationId = (pendingConversation?.chatKey ?? selectedConversationId).trim();
 
     if (!normalizedSelectedConversationId.startsWith("agent:")) {
       return;
@@ -1082,7 +1145,7 @@ export function SharedInbox({
     const hasLoadedMessages =
       (selectedConversation?.messages.length ?? 0) > 0 ||
       (cachedSelectedConversation?.messages.length ?? 0) > 0 ||
-      (liveConversation?.id === selectedConversationId && (liveConversation.messages.length ?? 0) > 0);
+      (liveConversation && conversationIdMatchesKey(liveConversation.id, normalizedSelectedConversationId) && (liveConversation.messages.length ?? 0) > 0);
 
     if (hasLoadedMessages) {
       return;
@@ -1117,7 +1180,11 @@ export function SharedInbox({
         }
 
         setLiveConversation((current) => {
-          const base = current && current.id === snapshot.id ? current : (selectedConversationRef.current ?? selectedConversation ?? null);
+          const base = current && conversationIdMatchesKey(current.id, snapshot.id)
+            ? current
+            : (selectedConversationRef.current && conversationIdMatchesKey(selectedConversationRef.current.id, snapshot.id)
+                ? selectedConversationRef.current
+                : selectedConversation ?? null);
           return mergeConversationSnapshots(base, snapshot);
         });
       } catch {
@@ -1131,10 +1198,10 @@ export function SharedInbox({
       cancelled = true;
       controller.abort();
     };
-  }, [cachedSelectedConversation?.messages.length, liveConversation, selectedConversation, selectedConversationId]);
+  }, [cachedSelectedConversation?.messages.length, liveConversation, pendingConversation?.chatKey, selectedConversation, selectedConversationId]);
 
   useEffect(() => {
-    if (!pendingConversation?.id || pendingConversation.id === selectedConversationId) {
+    if (!pendingConversation?.id || pendingConversation.id !== selectedConversationId) {
       return;
     }
 
@@ -1157,11 +1224,15 @@ export function SharedInbox({
   }, [effectiveLiveConversation, liveOrCachedConversation]);
 
   const renderedConversation =
-    liveOrCachedConversation && pendingConversation?.id === liveOrCachedConversation.id
-      ? liveOrCachedConversation
-      : optimisticConversation && pendingConversation?.id === optimisticConversation.id
-        ? optimisticConversation
-        : liveOrCachedConversation;
+    optimisticConversation &&
+    pendingConversation?.id === optimisticConversation.id &&
+    (!liveOrCachedConversation || (optimisticConversation.messages.length > 0 && liveOrCachedConversation.messages.length === 0))
+      ? optimisticConversation
+      : liveOrCachedConversation && pendingConversation?.id === liveOrCachedConversation.id
+        ? liveOrCachedConversation
+        : optimisticConversation && pendingConversation?.id === optimisticConversation.id
+          ? optimisticConversation
+          : liveOrCachedConversation;
   const optimisticDraftMatchesLatestMessage =
     Boolean(
       optimisticOutgoingMessage &&
@@ -1179,6 +1250,12 @@ export function SharedInbox({
       : renderedConversation?.messages ?? [];
   const hasSettledConversation = Boolean(renderedConversation && selectedConversation && renderedConversation.id === selectedConversation.id);
   const hasMobileSelection = Boolean(renderedConversation || pendingConversation || selectedConversationId);
+  const composerHiddenFields = composer
+    ? buildComposerHiddenFields(
+        composer.hiddenFields,
+        pendingConversation && pendingConversation.id === renderedConversation?.id ? pendingConversation : null,
+      )
+    : [];
   const selectedConversationScrollKey = renderedConversation
     ? `${renderedConversation.id}:${renderedMessages.length}:${renderedMessages.at(-1)?.id ?? ""}`
     : "empty";
@@ -1285,6 +1362,14 @@ export function SharedInbox({
     const curCount = Number(currentKey.split(":")[1]) || 0;
     const added = curCount - prevCount;
     if (added <= 0) return;
+
+    // First messages arriving (0 → N): always jump to bottom regardless of scroll position.
+    if (prevCount === 0) {
+      container.scrollTop = container.scrollHeight;
+      isNearBottomRef.current = true;
+      setUnreadCount(0);
+      return;
+    }
 
     if (isNearBottomRef.current) {
       container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
@@ -1559,7 +1644,7 @@ export function SharedInbox({
                   ) : null}
                 </div>
 
-              {composer && hasSettledConversation ? (
+              {composer && renderedConversation ? (
                 <div className="chat-composer z-20 shrink-0 border-t border-[rgba(148,163,184,0.12)] bg-white/96 px-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 shadow-[0_-12px_28px_-24px_rgba(15,23,42,0.2)] backdrop-blur md:border-t md:bg-white md:px-2 md:py-2 md:shadow-none md:backdrop-blur-0">
                   <form
                     action={composer.action}
@@ -1588,7 +1673,7 @@ export function SharedInbox({
                       });
                     }}
                   >
-                    {composer.hiddenFields.map((field) => (
+                    {composerHiddenFields.map((field) => (
                       <input key={`${field.name}-${field.value}`} type="hidden" name={field.name} value={field.value} />
                     ))}
 

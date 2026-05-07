@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useEffect, useMemo, useState, useTransition, type RefObject } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useTransition, type RefObject } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
@@ -201,20 +201,28 @@ export function ConversationList({
   const [isPending, startTransition] = useTransition();
   const [viewportHeight, setViewportHeight] = useState(0);
   const [scrollTop, setScrollTop] = useState(0);
+  const navigationFrameRef = useRef<number | null>(null);
   const router = useRouter();
   const effectiveSelectedId = isPending && pendingId ? pendingId : selectedConversationId;
 
   const emitPendingSelection = useCallback((conversation: SharedInboxConversationItem) => {
     window.dispatchEvent(
       new CustomEvent("chat-selection-pending", {
-        detail: {
-          id: conversation.id,
-          label: conversation.label,
-          secondaryLabel: conversation.secondaryLabel,
-          avatarUrl: conversation.avatarUrl ?? null,
+      detail: {
+        id: conversation.id,
+        chatKey: conversation.id,
+        source: conversation.source,
+        agentId: conversation.agentId ?? null,
+        label: conversation.label,
+        secondaryLabel: conversation.secondaryLabel,
+        avatarUrl: conversation.avatarUrl ?? null,
           lastMessage: conversation.lastMessage,
+          lastMessageType: conversation.lastMessageType ?? null,
+          lastMessageDirection: conversation.lastMessageDirection ?? null,
+          lastMessageAt: conversation.lastMessageAt ? conversation.lastMessageAt.toISOString() : null,
           channelType: conversation.channelType,
           cacheKey: conversation.id,
+          phoneNumber: conversation.secondaryLabel,
           hasCache: Boolean(readConversationFromCache(conversation.id)),
         },
       }),
@@ -224,15 +232,20 @@ export function ConversationList({
   const handleSelect = useCallback((conversation: SharedInboxConversationItem) => {
     setPendingId(conversation.id);
     emitPendingSelection(conversation);
-    startTransition(() => {
-      // Si ya estamos en la misma URL (conversación sin datos en Prisma aún),
-      // router.push sería no-op — usar refresh() para re-ejecutar el server component.
-      const currentUrl = window.location.pathname + window.location.search;
-      if (conversation.href === currentUrl) {
-        router.refresh();
-      } else {
-        router.push(conversation.href);
-      }
+    if (navigationFrameRef.current !== null) {
+      window.cancelAnimationFrame(navigationFrameRef.current);
+    }
+
+    navigationFrameRef.current = window.requestAnimationFrame(() => {
+      startTransition(() => {
+        const currentUrl = window.location.pathname + window.location.search;
+        if (conversation.href === currentUrl) {
+          router.refresh();
+        } else {
+          router.push(conversation.href);
+        }
+      });
+      navigationFrameRef.current = null;
     });
   }, [emitPendingSelection, router, startTransition]);
 
@@ -326,4 +339,5 @@ export function ConversationList({
     </>
   );
 }
+
 

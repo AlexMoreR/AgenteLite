@@ -349,8 +349,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       key: `agent:${conversation.id}`,
       source: "agent",
       conversationId: conversation.id,
-      contactId: conversation.contact.id,
       agentId: conversation.agentId || linkedChannel?.agent?.id || undefined,
+      contactId: conversation.contact.id,
       channelId: conversation.channelId || undefined,
       label: getAgentContactLabel(conversation.contact),
       secondaryLabel: conversation.contact.phoneNumber,
@@ -556,10 +556,12 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         searchQuery={searchQuery}
         messageScrollBehavior={scrollMode === CHAT_MESSAGE_SCROLL_PRESERVE_QUERY ? "preserve" : "bottom"}
         conversations={merged.map((item) => ({
-          id: item.key,
-          contactId: item.contactId ?? null,
-          label: item.label,
-          secondaryLabel: item.secondaryLabel,
+        id: item.key,
+        source: item.source,
+        agentId: item.agentId ?? null,
+        contactId: item.contactId ?? null,
+        label: item.label,
+        secondaryLabel: item.secondaryLabel,
           tags: item.tags ?? [],
           channelType: item.source === "official" ? "whatsapp_official" : "whatsapp",
           incomingCount: item.incomingCount ?? 0,

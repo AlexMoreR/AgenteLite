@@ -22,6 +22,12 @@ type ChatsRealtimeSyncProps = {
 
 type RefreshPriority = "active" | "background";
 
+type PendingConversationSelectionDetail = {
+  id?: string;
+  chatKey?: string | null;
+  phoneNumber?: string | null;
+};
+
 const ACTIVE_REFRESH_DELAY_MS = 180;
 const BACKGROUND_REFRESH_DELAY_MS = 1200;
 const ACTIVE_REFRESH_MIN_GAP_MS = 350;
@@ -185,6 +191,10 @@ export function ChatsRealtimeSync({
   selectedConversationKeyRef.current = selectedConversationKey;
   const selectedConversationPhoneNumberRef = useRef(selectedConversationPhoneNumber);
   selectedConversationPhoneNumberRef.current = selectedConversationPhoneNumber;
+  const pendingSelectionRef = useRef<{
+    key: string | null;
+    phoneNumber: string | null;
+  } | null>(null);
   const activeInstanceNameRef = useRef(activeInstanceName);
   activeInstanceNameRef.current = activeInstanceName;
 
@@ -197,6 +207,26 @@ export function ChatsRealtimeSync({
     handleVisibilityChange();
 
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, []);
+
+  useEffect(() => {
+    function handlePendingSelection(event: Event) {
+      const customEvent = event as CustomEvent<PendingConversationSelectionDetail>;
+      const detail = customEvent.detail;
+      const nextKey = readString(detail?.chatKey) || readString(detail?.id) || null;
+
+      if (!nextKey) {
+        return;
+      }
+
+      pendingSelectionRef.current = {
+        key: nextKey,
+        phoneNumber: readString(detail?.phoneNumber) || null,
+      };
+    }
+
+    window.addEventListener("chat-selection-pending", handlePendingSelection as EventListener);
+    return () => window.removeEventListener("chat-selection-pending", handlePendingSelection as EventListener);
   }, []);
 
   useEffect(() => {
@@ -251,6 +281,14 @@ export function ChatsRealtimeSync({
       }
     }
 
+    function getEffectiveSelectedConversationKey() {
+      return pendingSelectionRef.current?.key ?? selectedConversationKeyRef.current;
+    }
+
+    function getEffectiveSelectedPhoneNumber() {
+      return pendingSelectionRef.current?.phoneNumber ?? selectedConversationPhoneNumberRef.current;
+    }
+
     function hydrateConversationSnapshot(value: unknown) {
       if (!value || typeof value !== "object") {
         return null;
@@ -276,7 +314,7 @@ export function ChatsRealtimeSync({
     }
 
     async function runLiveUpdate() {
-      const normalizedChatKey = selectedConversationKeyRef.current?.trim() || "";
+      const normalizedChatKey = getEffectiveSelectedConversationKey()?.trim() || "";
       if (!normalizedChatKey.startsWith("agent:")) {
         return false;
       }
@@ -500,9 +538,9 @@ export function ChatsRealtimeSync({
           const normalizedActiveInstanceName = activeInstanceNameRef.current?.trim() || "";
           const payload = args[0];
           const phoneNumber = extractPhoneNumberFromPayload(payload);
-          const currentConversationKey = selectedConversationKeyRef.current;
+          const currentConversationKey = pendingSelectionRef.current?.key ?? selectedConversationKeyRef.current;
           const isOfficialConversationSelected = currentConversationKey?.startsWith("official:");
-          const selectedPhoneNumber = selectedConversationPhoneNumberRef.current?.trim() || "";
+          const selectedPhoneNumber = getEffectiveSelectedPhoneNumber()?.trim() || "";
           const normalizedSelectedPhoneNumber = selectedPhoneNumber.replace(/\D/g, "");
           const isSelectedAgentConversation =
             Boolean(currentConversationKey?.startsWith("agent:")) &&
