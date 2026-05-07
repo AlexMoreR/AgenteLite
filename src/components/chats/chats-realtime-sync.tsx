@@ -81,6 +81,23 @@ function readString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function pickSocketPayload(args: unknown[]): unknown {
+  for (const arg of args) {
+    if (arg && typeof arg === "object" && !Array.isArray(arg)) {
+      return arg;
+    }
+
+    if (Array.isArray(arg)) {
+      const nested = arg.find((item) => item && typeof item === "object" && !Array.isArray(item));
+      if (nested) {
+        return nested;
+      }
+    }
+  }
+
+  return args[0];
+}
+
 function pickString(source: UnknownRecord | null, keys: string[]): string | null {
   if (!source) return null;
 
@@ -533,10 +550,11 @@ export function ChatsRealtimeSync({
 
       socket.onAny((eventName, ...args) => {
         if (typeof eventName === "string" && shouldTriggerRefresh(eventName)) {
+          const normalizedEventName = normalizeEventName(eventName);
           // Leer refs en el momento del evento — siempre reflejan la conversación actual
           // sin necesidad de recrear los sockets cuando el usuario cambia de chat.
           const normalizedActiveInstanceName = activeInstanceNameRef.current?.trim() || "";
-          const payload = args[0];
+          const payload = pickSocketPayload(args);
           const phoneNumber = extractPhoneNumberFromPayload(payload);
           const currentConversationKey = pendingSelectionRef.current?.key ?? selectedConversationKeyRef.current;
           const isOfficialConversationSelected = currentConversationKey?.startsWith("official:");
@@ -636,6 +654,10 @@ export function ChatsRealtimeSync({
             scheduleLiveUpdate("background");
             schedulePageRefresh("background");
           } else if (isOfficialConversationSelected) {
+            schedulePageRefresh("background");
+          } else if (/MESSAGE|CHAT/.test(normalizedEventName)) {
+            // Fallback para payloads que no dejan extraer el telefono pero sí son eventos
+            // de mensaje reales. Un refresh de background mantiene la lista viva.
             schedulePageRefresh("background");
           }
         }

@@ -112,12 +112,19 @@ export function extractEvolutionPhoneNumber(payload: unknown): string | null {
   const root = asRecord(payload);
   const data = asRecord(root?.data);
   const instance = asRecord(root?.instance);
+  const key = asRecord(root?.key);
+  const sender = asRecord(root?.sender);
+  const message = asRecord(root?.message);
+  const contextInfo = asRecord(asRecord(message?.extendedTextMessage)?.contextInfo);
 
   return (
     pickString(data, ["number", "phone", "phoneNumber", "owner", "ownerJid", "wuid"]) ||
     pickNestedString(data, [["me", "id"], ["instance", "owner"], ["instance", "ownerJid"], ["instance", "wuid"]]) ||
     pickString(instance, ["number", "phone", "phoneNumber", "owner", "ownerJid", "wuid"]) ||
     pickNestedString(instance, [["me", "id"]]) ||
+    pickString(key, ["remoteJid", "participant"]) ||
+    pickString(sender, ["id", "jid"]) ||
+    pickString(contextInfo, ["participant", "remoteJid"]) ||
     pickString(root, ["number", "phone", "phoneNumber", "owner", "ownerJid", "wuid"]) ||
     pickNestedString(root, [["me", "id"]])
   );
@@ -231,15 +238,23 @@ export function extractEvolutionRemoteJid(payload: unknown): string | null {
   const root = asRecord(payload);
   const data = asRecord(root?.data);
   const key = asRecord(data?.key);
+  const rootKey = asRecord(root?.key);
   const sender = asRecord(data?.sender);
+  const rootSender = asRecord(root?.sender);
   const message = asRecord(data?.message);
+  const rootMessage = asRecord(root?.message);
   const contextInfo = asRecord(asRecord(message?.extendedTextMessage)?.contextInfo);
+  const rootContextInfo = asRecord(asRecord(rootMessage?.extendedTextMessage)?.contextInfo);
 
   return (
     pickString(key, ["remoteJid", "participant"]) ||
+    pickString(rootKey, ["remoteJid", "participant"]) ||
     pickString(sender, ["id", "jid"]) ||
+    pickString(rootSender, ["id", "jid"]) ||
     pickString(data, ["remoteJid", "participant", "from"]) ||
+    pickString(root, ["remoteJid", "participant", "from"]) ||
     pickString(contextInfo, ["participant", "remoteJid"]) ||
+    pickString(rootContextInfo, ["participant", "remoteJid"]) ||
     pickString(root, ["remoteJid"])
   );
 }
