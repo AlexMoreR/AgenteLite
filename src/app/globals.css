@@ -36,6 +36,13 @@ body {
   line-height: 1.45;
 }
 
+body:has(.chat-app-layout) {
+  background:
+    radial-gradient(circle at top left, rgba(37, 99, 235, 0.08), transparent 32%),
+    radial-gradient(circle at top right, rgba(16, 185, 129, 0.08), transparent 28%),
+    linear-gradient(180deg, #f8fafc 0%, #eef2f7 52%, #e8edf3 100%);
+}
+
 html:has(.chat-app-layout),
 body:has(.chat-app-layout) {
   height: 100%;
@@ -57,6 +64,20 @@ body:has(.chat-app-layout) {
 .chat-app-shell,
 .chat-app-layout {
   height: 100%;
+}
+
+.chat-app-frame {
+  isolation: isolate;
+}
+
+.chat-app-shell {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.56) 0%, rgba(255, 255, 255, 0.28) 100%),
+    linear-gradient(180deg, rgba(248, 250, 252, 0.84) 0%, rgba(241, 245, 249, 0.94) 100%);
+}
+
+.chat-app-main {
+  backdrop-filter: blur(16px);
 }
 
 @media (max-width: 767px) {
@@ -91,6 +112,34 @@ body:has(.chat-app-layout) {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.34) transparent;
+}
+
+.chat-messages-scroll::-webkit-scrollbar,
+.chat-inbox-sidebar::-webkit-scrollbar,
+.chat-inbox-grid::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.chat-messages-scroll::-webkit-scrollbar-track,
+.chat-inbox-sidebar::-webkit-scrollbar-track,
+.chat-inbox-grid::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.chat-messages-scroll::-webkit-scrollbar-thumb,
+.chat-inbox-sidebar::-webkit-scrollbar-thumb,
+.chat-inbox-grid::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.28);
+}
+
+.chat-messages-scroll::-webkit-scrollbar-thumb:hover,
+.chat-inbox-sidebar::-webkit-scrollbar-thumb:hover,
+.chat-inbox-grid::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.36);
 }
 
 .chat-composer {
