@@ -24,7 +24,12 @@ import {
 } from "lucide-react";
 import { ChatScrollAnchor } from "@/components/agents/chat-scroll-anchor";
 import { ChatSelectionOverlay } from "@/components/chats/chat-selection-overlay";
-import { mergeConversationSnapshots, readConversationFromCache, saveConversationToCache } from "@/components/chats/chat-history-cache";
+import {
+  hasConversationBeenVisited,
+  mergeConversationSnapshots,
+  readConversationFromCache,
+  saveConversationToCache,
+} from "@/components/chats/chat-history-cache";
 import { ConversationList } from "@/components/chats/conversation-list";
 import { EditContactModal } from "@/components/chats/edit-contact-modal";
 import { EtiquetaModal } from "@/components/chats/etiqueta-modal";
@@ -1049,6 +1054,16 @@ export function SharedInbox({
       }
 
       setPendingConversation(nextConversation);
+
+      const cacheKey = nextConversation.cacheKey || nextConversation.id;
+      const cachedConversation = readConversationFromCache(cacheKey);
+
+      if (cachedConversation) {
+        setCachedSelectedConversation(cachedConversation);
+        setOptimisticConversation(cachedConversation);
+        return;
+      }
+
       setOptimisticConversation(buildPendingConversationPreview(nextConversation));
     }
 
@@ -1217,6 +1232,7 @@ export function SharedInbox({
     const hasLoadedMessages =
       (selectedConversation?.messages.length ?? 0) > 0 ||
       (cachedSelectedConversation?.messages.length ?? 0) > 0 ||
+      hasConversationBeenVisited(normalizedSelectedConversationId) ||
       (liveConversation && conversationIdMatchesKey(liveConversation.id, normalizedSelectedConversationId) && (liveConversation.messages.length ?? 0) > 0);
 
     if (hasLoadedMessages) {

@@ -17,7 +17,9 @@ type ConversationCacheStore = {
 };
 
 const STORAGE_KEY = "aglite:chat-history-cache:v1";
+const VISITED_STORAGE_KEY = "aglite:chat-visited:v1";
 const MAX_CACHE_ENTRIES = 20;
+const MAX_VISITED_ENTRIES = 200;
 
 function isBrowser() {
   return typeof window !== "undefined";
@@ -55,6 +57,81 @@ function writeStore(store: ConversationCacheStore) {
   } catch {
     // Ignore storage quota or serialization failures.
   }
+}
+
+function readVisitedStore(): Record<string, number> {
+  if (!isBrowser()) {
+    return {};
+  }
+
+  try {
+    const raw = window.localStorage.getItem(VISITED_STORAGE_KEY);
+    if (!raw) {
+      return {};
+    }
+
+    const parsed = JSON.parse(raw) as Record<string, number> | null;
+    if (!parsed || typeof parsed !== "object") {
+      return {};
+    }
+
+    return parsed;
+  } catch {
+    return {};
+  }
+}
+
+function writeVisitedStore(store: Record<string, number>) {
+  if (!isBrowser()) {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(VISITED_STORAGE_KEY, JSON.stringify(store));
+  } catch {
+    // Ignore storage quota or serialization failures.
+  }
+}
+
+function trimVisitedStore(store: Record<string, number>) {
+  const entries = Object.entries(store);
+  if (entries.length <= MAX_VISITED_ENTRIES) {
+    return store;
+  }
+
+  const sorted = entries.sort((left, right) => right[1] - left[1]).slice(0, MAX_VISITED_ENTRIES);
+  return Object.fromEntries(sorted);
+}
+
+function normalizeVisitedKey(conversationId: string) {
+  const normalized = conversationId.trim();
+  if (!normalized) {
+    return "";
+  }
+
+  const separatorIndex = normalized.indexOf(":");
+  return separatorIndex >= 0 ? normalized.slice(separatorIndex + 1) : normalized;
+}
+
+export function markConversationAsVisited(conversationId: string) {
+  const normalizedConversationId = normalizeVisitedKey(conversationId);
+  if (!normalizedConversationId) {
+    return;
+  }
+
+  const store = readVisitedStore();
+  store[normalizedConversationId] = Date.now();
+  writeVisitedStore(trimVisitedStore(store));
+}
+
+export function hasConversationBeenVisited(conversationId: string) {
+  const normalizedConversationId = normalizeVisitedKey(conversationId);
+  if (!normalizedConversationId) {
+    return false;
+  }
+
+  const store = readVisitedStore();
+  return normalizedConversationId in store;
 }
 
 function trimStore(store: ConversationCacheStore) {
@@ -173,6 +250,10 @@ export function saveConversationToCache(conversation: SharedInboxSelectedConvers
     store.conversations[conversation.cacheKey] = mergedConversation;
   }
   writeStore(trimStore(store));
+  markConversationAsVisited(conversation.id);
+  if (conversation.cacheKey && conversation.cacheKey !== conversation.id) {
+    markConversationAsVisited(conversation.cacheKey);
+  }
 }
 
 export function readConversationFromCache(conversationId: string) {

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
-import { readConversationFromCache } from "./chat-history-cache";
+import { hasConversationBeenVisited, readConversationFromCache } from "./chat-history-cache";
 
 type PendingConversationSelection = {
   id: string;
@@ -26,7 +26,8 @@ export function ChatSelectionOverlay({ selectedConversationId }: ChatSelectionOv
   const cachedConversation =
     pendingConversation &&
     (pendingConversation.hasCache ||
-      Boolean(readConversationFromCache(pendingConversation.cacheKey || pendingConversation.id)));
+      Boolean(readConversationFromCache(pendingConversation.cacheKey || pendingConversation.id)) ||
+      hasConversationBeenVisited(pendingConversation.cacheKey || pendingConversation.id));
 
   useEffect(() => {
     function handlePendingSelection(event: Event) {
