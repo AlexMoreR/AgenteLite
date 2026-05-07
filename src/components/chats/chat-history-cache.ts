@@ -230,6 +230,7 @@ function hydrateConversation(conversation: CachedConversation): SharedInboxSelec
     tags: conversation.tags,
     avatarUrl: conversation.avatarUrl ?? null,
     automationPaused: conversation.automationPaused,
+    loadMoreHref: conversation.loadMoreHref ?? null,
     loadMoreCursor: conversation.loadMoreCursor ?? null,
     messages: conversation.messages.map((message) => ({
       ...message,

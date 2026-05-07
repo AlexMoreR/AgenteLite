@@ -4,6 +4,9 @@ import { loadAgentConversationDetail } from "@/lib/chat-message-loader";
 import { fetchEvolutionMediaDataUrl } from "@/lib/evolution";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
+const INITIAL_MESSAGE_BATCH_SIZE = 10;
+const HISTORY_MESSAGE_BATCH_SIZE = 10;
+
 function parseChatKey(input: string) {
   if (!input) {
     return null;
@@ -47,7 +50,9 @@ export async function GET(request: Request) {
     workspaceId: membership.workspace.id,
     conversationId: parsed.conversationId,
     beforeMessageId: beforeMessageId || null,
-    batchSize: batchSizeParam ? Number.parseInt(batchSizeParam, 10) : (beforeMessageId ? 10 : 1),
+    batchSize: batchSizeParam
+      ? Number.parseInt(batchSizeParam, 10)
+      : (beforeMessageId ? HISTORY_MESSAGE_BATCH_SIZE : INITIAL_MESSAGE_BATCH_SIZE),
   });
 
   if (!conversation) {

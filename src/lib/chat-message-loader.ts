@@ -29,7 +29,7 @@ export type LoadedAgentConversationDetail = {
   loadMoreCursor: string | null;
 };
 
-const DEFAULT_MESSAGE_BATCH_SIZE = 20;
+const DEFAULT_MESSAGE_BATCH_SIZE = 10;
 const MAX_MESSAGE_BATCH_SIZE = 100;
 
 function clampBatchSize(value?: number) {

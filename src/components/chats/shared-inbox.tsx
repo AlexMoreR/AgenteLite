@@ -942,10 +942,12 @@ export function SharedInbox({
   const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
   const isNearBottomRef = useRef(true);
   const prevScrollKeyRef = useRef("");
+  const lastScrollTopRef = useRef(0);
+  const historyLoadArmedRef = useRef(false);
   const loadMoreHistoryInFlightRef = useRef(false);
   const loadMoreHistoryRestoreRef = useRef<{ scrollTop: number; scrollHeight: number } | null>(null);
+  const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
-  const autoLoadLockRef = useRef(false);
   // Ref sincronizada en cada render: permite leer el valor actual dentro de event
   // listeners sin declararlos como dependencia (evita re-registro en cada mensaje).
   const selectedConversationRef = useRef(selectedConversation);
@@ -1371,6 +1373,10 @@ export function SharedInbox({
       return;
     }
 
+    historyLoadArmedRef.current = false;
+    lastScrollTopRef.current = 0;
+    setIsLoadingOlderMessages(false);
+
     const timer = window.setTimeout(() => {
       setPendingConversation(null);
       setOptimisticConversation(null);
@@ -1473,6 +1479,7 @@ export function SharedInbox({
     }
 
     loadMoreHistoryInFlightRef.current = true;
+    setIsLoadingOlderMessages(true);
     loadMoreHistoryRestoreRef.current = {
       scrollTop: container.scrollTop,
       scrollHeight: container.scrollHeight,
@@ -1520,6 +1527,7 @@ export function SharedInbox({
         loadMoreHistoryRestoreRef.current = null;
       }
       loadMoreHistoryInFlightRef.current = false;
+      setIsLoadingOlderMessages(false);
     }
   }, [renderedConversation, selectedConversation, selectedConversationId]);
 
@@ -1544,6 +1552,14 @@ export function SharedInbox({
   const hasSettledConversation = Boolean(renderedConversation && currentSelectedConversation && renderedConversation.id === currentSelectedConversation.id);
   const hasMobileSelection = Boolean(renderedConversation || pendingConversation || selectedConversationId);
   const canLoadOlderMessages = Boolean(renderedConversation?.loadMoreCursor && renderedConversation.hasMoreMessages);
+  const loadOlderMessagesRef = useRef(loadOlderMessages);
+  loadOlderMessagesRef.current = loadOlderMessages;
+  const canLoadOlderMessagesRef = useRef(canLoadOlderMessages);
+  canLoadOlderMessagesRef.current = canLoadOlderMessages;
+  const loadMoreHrefRef = useRef(renderedConversation?.loadMoreHref ?? null);
+  loadMoreHrefRef.current = renderedConversation?.loadMoreHref ?? null;
+  const messageScrollBehaviorRef = useRef(messageScrollBehavior);
+  messageScrollBehaviorRef.current = messageScrollBehavior;
   const composerHiddenFields = composer
     ? buildComposerHiddenFields(
         composer.hiddenFields,
@@ -1556,10 +1572,6 @@ export function SharedInbox({
   const hasSidebar = sidebarItems.length > 0;
 
   useEffect(() => {
-    autoLoadLockRef.current = false;
-  }, [renderedConversation?.loadMoreHref, renderedConversation?.id]);
-
-  useEffect(() => {
     return () => {
       if (scrollFrameRef.current !== null) {
         window.cancelAnimationFrame(scrollFrameRef.current);
@@ -1567,85 +1579,62 @@ export function SharedInbox({
     };
   }, []);
 
-  useEffect(() => {
-    const scrollContainer = messagesScrollRef.current;
-    const loadMoreSentinel = loadMoreSentinelRef.current;
-    const loadMoreHref = renderedConversation?.loadMoreHref;
-
-    if (
-      !scrollContainer ||
-      !loadMoreSentinel ||
-      (!loadMoreHref && !canLoadOlderMessages) ||
-      typeof IntersectionObserver === "undefined"
-    ) {
-      return;
-    }
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const [entry] = entries;
-
-        if (!entry?.isIntersecting || autoLoadLockRef.current) {
-          return;
-        }
-
-        autoLoadLockRef.current = true;
-        if (loadMoreHref && messageScrollBehavior === "preserve") {
-          router.replace(loadMoreHref, { scroll: false });
-          return;
-        }
-
-        if (canLoadOlderMessages) {
-          void loadOlderMessages().finally(() => {
-            autoLoadLockRef.current = false;
-          });
-        }
-      },
-      {
-        root: scrollContainer,
-        threshold: 0,
-        rootMargin: "96px 0px 0px 0px",
-      },
-    );
-
-    observer.observe(loadMoreSentinel);
-
-    return () => {
-      observer.disconnect();
-    };
-  }, [
-    loadOlderMessages,
-    messageScrollBehavior,
-    canLoadOlderMessages,
-    renderedConversation?.id,
-    renderedConversation?.loadMoreCursor,
-    renderedConversation?.loadMoreHref,
-    router,
-  ]);
-
   // Reset scroll state when the user opens a different conversation.
   useEffect(() => {
     isNearBottomRef.current = true;
     setUnreadCount(0);
     prevScrollKeyRef.current = "";
+    lastScrollTopRef.current = 0;
+    historyLoadArmedRef.current = false;
   }, [selectedConversationId]);
 
-  // Track whether the user is near the bottom of the message list.
+  // Track whether the user is near the bottom of the message list and only arm
+  // older-history loading after the user actually scrolls upward.
   useEffect(() => {
     const container = messagesScrollRef.current;
     if (!container) return;
     const BOTTOM_SCROLL_THRESHOLD_PX = 24;
+    const TOP_SCROLL_THRESHOLD_PX = 96;
 
     function handleScroll() {
       const el = container!;
-      const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      const nextScrollTop = el.scrollTop;
+      const previousScrollTop = lastScrollTopRef.current;
+
+      if (nextScrollTop < previousScrollTop) {
+        historyLoadArmedRef.current = true;
+      }
+
+      lastScrollTopRef.current = nextScrollTop;
+
+      const distFromBottom = el.scrollHeight - nextScrollTop - el.clientHeight;
       isNearBottomRef.current = distFromBottom <= BOTTOM_SCROLL_THRESHOLD_PX;
       if (isNearBottomRef.current) setUnreadCount(0);
+
+      if (
+        !historyLoadArmedRef.current ||
+        nextScrollTop > TOP_SCROLL_THRESHOLD_PX ||
+        loadMoreHistoryInFlightRef.current
+      ) {
+        return;
+      }
+
+      historyLoadArmedRef.current = false;
+
+      const loadMoreHref = loadMoreHrefRef.current;
+      if (loadMoreHref && messageScrollBehaviorRef.current === "preserve") {
+        router.replace(loadMoreHref, { scroll: false });
+        return;
+      }
+
+      if (canLoadOlderMessagesRef.current) {
+        void loadOlderMessagesRef.current();
+      }
     }
 
     container.addEventListener("scroll", handleScroll, { passive: true });
     return () => container.removeEventListener("scroll", handleScroll);
-  }, []);
+  }, [router]);
 
   // Smart scroll: auto-scroll only when near bottom; count new messages when scrolled up.
   useLayoutEffect(() => {
@@ -1973,11 +1962,11 @@ export function SharedInbox({
                                   Cargar mensajes anteriores
                                 </Link>
                               </div>
-                            ) : (
+                            ) : isLoadingOlderMessages ? (
                               <div className="flex justify-center px-3 py-1.5 text-[11px] font-medium text-slate-500">
                                 Cargando historial...
                               </div>
-                            )}
+                            ) : null}
                           </div>
                         ) : null}
                       </div>
