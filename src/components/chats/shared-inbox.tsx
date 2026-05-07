@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { flushSync } from "react-dom";
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useFormStatus } from "react-dom";
@@ -1005,7 +1006,12 @@ export function SharedInbox({
     selectedConversationRef.current = selectedConversation;
   }, [selectedConversation]);
 
-  const selectedConversationVisited = hasConversationBeenVisited((pendingConversation?.chatKey ?? selectedConversationId).trim());
+  const selectedConversationKey = (pendingConversation?.chatKey ?? selectedConversationId).trim();
+  const selectedConversationCache = selectedConversationKey ? readConversationFromCache(selectedConversationKey) : null;
+  const cachedConversationForCurrentSelection =
+    cachedSelectedConversation && conversationIdMatchesKey(cachedSelectedConversation.id, selectedConversationKey)
+      ? cachedSelectedConversation
+      : null;
 
   useEffect(() => {
     setConversationItems((current) => {
@@ -1055,18 +1061,22 @@ export function SharedInbox({
         return;
       }
 
-      setPendingConversation(nextConversation);
-
       const cacheKey = nextConversation.cacheKey || nextConversation.id;
       const cachedConversation = readConversationFromCache(cacheKey);
 
-      if (cachedConversation) {
-        setCachedSelectedConversation(cachedConversation);
-        setOptimisticConversation(cachedConversation);
-        return;
-      }
+      flushSync(() => {
+        setPendingConversation(nextConversation);
+        setLiveConversation(null);
 
-      setOptimisticConversation(buildPendingConversationPreview(nextConversation));
+        if (cachedConversation) {
+          setCachedSelectedConversation(cachedConversation);
+          setOptimisticConversation(cachedConversation);
+          return;
+        }
+
+        setCachedSelectedConversation(null);
+        setOptimisticConversation(buildPendingConversationPreview(nextConversation));
+      });
     }
 
     window.addEventListener("chat-selection-pending", handlePendingSelection as EventListener);
@@ -1233,8 +1243,7 @@ export function SharedInbox({
 
     const hasLoadedMessages =
       (selectedConversation?.messages.length ?? 0) > 0 ||
-      (cachedSelectedConversation?.messages.length ?? 0) > 0 ||
-      hasConversationBeenVisited(normalizedSelectedConversationId) ||
+      (cachedConversationForCurrentSelection?.messages.length ?? 0) > 0 ||
       (liveConversation && conversationIdMatchesKey(liveConversation.id, normalizedSelectedConversationId) && (liveConversation.messages.length ?? 0) > 0);
 
     if (hasLoadedMessages) {
@@ -1305,9 +1314,10 @@ export function SharedInbox({
 
   const effectiveLiveConversation =
     liveConversation && conversationIdMatchesKey(selectedConversationId, liveConversation.id) ? liveConversation : null;
-  const liveOrCachedConversation = selectedConversationVisited && cachedSelectedConversation
-    ? mergeConversationSnapshots(cachedSelectedConversation, effectiveLiveConversation)
-    : mergeConversationSnapshots(selectedConversation ?? null, effectiveLiveConversation ?? cachedSelectedConversation);
+  const liveOrCachedConversation = mergeConversationSnapshots(
+    selectedConversation ?? null,
+    effectiveLiveConversation ?? selectedConversationCache ?? cachedConversationForCurrentSelection,
+  );
   const pendingConversationPreview =
     pendingConversation && optimisticConversation && pendingConversation.id === optimisticConversation.id
       ? optimisticConversation
