@@ -330,6 +330,37 @@ function extractImageThumbnailDataUrl(payload: unknown, mimeType = "image/jpeg")
   return `data:${mimeType};base64,${base64}`;
 }
 
+function extractEvolutionMessageIdFromPayload(payload: unknown) {
+  const root = asRecord(payload);
+  const data = asRecord(root?.data);
+  const message = asRecord(data?.message) ?? asRecord(root?.message);
+  const key = asRecord(data?.key) ?? asRecord(root?.key) ?? asRecord(message?.key);
+
+  return (
+    readString(key?.id) ||
+    readString(data?.messageId) ||
+    readString(root?.messageId) ||
+    readString(message?.id) ||
+    null
+  );
+}
+
+function extractRenderableImageUrlFromPayload(payload: unknown) {
+  const root = asRecord(payload);
+  const data = asRecord(root?.data);
+  const message = asRecord(data?.message) ?? asRecord(root?.message);
+  const imageMessage = asRecord(message?.imageMessage);
+
+  const candidate =
+    readString(imageMessage?.directPath) ||
+    readString(imageMessage?.url) ||
+    readString(data?.mediaUrl) ||
+    readString(data?.media) ||
+    readString(data?.url);
+
+  return isRenderableMediaUrl(candidate) ? candidate : null;
+}
+
 export async function fetchEvolutionMediaDataUrl(input: {
   instanceName: string;
   messageId: string;
@@ -381,12 +412,15 @@ export async function resolveEvolutionMessageMediaUrl(input: {
     return input.mediaUrl ?? null;
   }
 
+  const payloadMessageId = input.rawPayload ? extractEvolutionMessageIdFromPayload(input.rawPayload) : null;
+  const resolvedMessageId = payloadMessageId || input.messageId?.trim() || null;
+
   // En Evolution muchas veces la URL persistida no es utilizable directamente
   // desde el navegador; primero intentamos resolver el binario real desde la API.
-  if (input.instanceName?.trim() && input.messageId?.trim()) {
+  if (input.instanceName?.trim() && resolvedMessageId) {
     const resolved = await fetchEvolutionMediaDataUrl({
       instanceName: input.instanceName.trim(),
-      messageId: input.messageId.trim(),
+      messageId: resolvedMessageId,
       mediaType: input.mediaType,
     });
 
@@ -396,14 +430,21 @@ export async function resolveEvolutionMessageMediaUrl(input: {
   }
 
   if (input.mediaType === "IMAGE" && input.rawPayload) {
-    const thumbnailUrl = extractImageThumbnailDataUrl(input.rawPayload);
-    if (thumbnailUrl) {
-      return thumbnailUrl;
+    const renderableImageUrl = extractRenderableImageUrlFromPayload(input.rawPayload);
+    if (renderableImageUrl) {
+      return renderableImageUrl;
     }
   }
 
   if (isRenderableMediaUrl(input.mediaUrl)) {
     return input.mediaUrl ?? null;
+  }
+
+  if (input.mediaType === "IMAGE" && input.rawPayload) {
+    const thumbnailUrl = extractImageThumbnailDataUrl(input.rawPayload);
+    if (thumbnailUrl) {
+      return thumbnailUrl;
+    }
   }
 
   return input.mediaUrl || null;

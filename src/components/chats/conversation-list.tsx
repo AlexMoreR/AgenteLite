@@ -77,11 +77,13 @@ function getConversationTagBadgeStyle(color?: string | null) {
 const ConversationListItem = memo(function ConversationListItem({
   conversation,
   isSelected,
+  onPreviewSelect,
   onSelect,
   onPrefetch,
 }: {
   conversation: SharedInboxConversationItem;
   isSelected: boolean;
+  onPreviewSelect: (conversation: SharedInboxConversationItem) => void;
   onSelect: (conversation: SharedInboxConversationItem) => void;
   onPrefetch: (conversation: SharedInboxConversationItem) => void;
 }) {
@@ -91,6 +93,14 @@ const ConversationListItem = memo(function ConversationListItem({
   return (
     <Link
       href={conversation.href}
+      onPointerDown={(event) => {
+        if ("button" in event && event.button !== 0) {
+          return;
+        }
+
+        onPreviewSelect(conversation);
+        onPrefetch(conversation);
+      }}
       onClick={(event) => {
         if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) {
           return;
@@ -231,6 +241,11 @@ export function ConversationList({
     );
   }, []);
 
+  const handlePreviewSelect = useCallback((conversation: SharedInboxConversationItem) => {
+    setPendingId(conversation.id);
+    emitPendingSelection(conversation);
+  }, [emitPendingSelection]);
+
   const handleSelect = useCallback((conversation: SharedInboxConversationItem) => {
     setPendingId(conversation.id);
     emitPendingSelection(conversation);
@@ -239,18 +254,18 @@ export function ConversationList({
     }
 
     navigationFrameRef.current = window.requestAnimationFrame(() => {
-      startTransition(() => {
-        const currentUrl = window.location.pathname + window.location.search;
-        if (conversation.href === currentUrl) {
-          router.refresh();
-          return;
-        }
+        startTransition(() => {
+          const currentUrl = window.location.pathname + window.location.search;
+          if (conversation.href === currentUrl) {
+            router.refresh();
+            return;
+          }
 
-        router.push(conversation.href);
+          router.push(conversation.href, { scroll: false });
+        });
+        navigationFrameRef.current = null;
       });
-      navigationFrameRef.current = null;
-    });
-  }, [emitPendingSelection, router, startTransition]);
+    }, [emitPendingSelection, router, startTransition]);
 
   const handlePrefetch = useCallback((conversation: SharedInboxConversationItem) => {
     const href = conversation.href.trim();
@@ -338,10 +353,11 @@ export function ConversationList({
       ) : null}
 
       {(conversations.length > VIRTUALIZATION_THRESHOLD ? visibleConversations : conversations).map((conversation) => (
-        <ConversationListItem
+                <ConversationListItem
           key={conversation.id}
           conversation={conversation}
           isSelected={effectiveSelectedId === conversation.id}
+          onPreviewSelect={handlePreviewSelect}
           onSelect={handleSelect}
           onPrefetch={handlePrefetch}
         />
