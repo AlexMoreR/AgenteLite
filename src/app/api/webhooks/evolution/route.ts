@@ -300,47 +300,6 @@ export async function POST(request: Request) {
       select: { id: true, name: true, phoneNumber: true },
     }));
 
-  const outboundCount = existingContact
-    ? await prisma.message.count({
-        where: {
-          workspaceId: channel.workspaceId,
-          contactId: existingContact.id,
-          direction: "OUTBOUND",
-        },
-      })
-    : 0;
-
-  {
-    const workspace = await prisma.workspace.findUnique({
-      where: { id: channel.workspaceId },
-      select: { businessConfig: true },
-    });
-
-    const autoTagNewLeads =
-      workspace &&
-      workspace.businessConfig !== null &&
-      typeof workspace.businessConfig === "object" &&
-      !Array.isArray(workspace.businessConfig) &&
-      (workspace.businessConfig as { autoTagNewLeads?: unknown }).autoTagNewLeads !== false;
-    const newLeadTagName =
-      workspace &&
-      workspace.businessConfig !== null &&
-      typeof workspace.businessConfig === "object" &&
-      !Array.isArray(workspace.businessConfig) &&
-      typeof (workspace.businessConfig as { newLeadTagName?: unknown }).newLeadTagName === "string"
-        ? ((workspace.businessConfig as { newLeadTagName?: string }).newLeadTagName ?? "").trim()
-        : "";
-
-    if (autoTagNewLeads) {
-      await syncLeadLifecycleForContact({
-        workspaceId: channel.workspaceId,
-        contactId: contact.id,
-        newLeadTagName,
-        hasHistory: outboundCount > 0,
-      });
-    }
-  }
-
   const existingConversation = await prisma.conversation.findFirst({
     where: {
       workspaceId: channel.workspaceId,
@@ -379,11 +338,6 @@ export async function POST(request: Request) {
       },
     });
   }
-  const conversationAutomationPaused = await getConversationAutomationPaused({
-    conversationId: conversation.id,
-    workspaceId: channel.workspaceId,
-  });
-
   try {
     await prisma.message.create({
       data: {
@@ -453,6 +407,59 @@ export async function POST(request: Request) {
     phoneNumber,
     direction: fromMe ? "OUTBOUND" : "INBOUND",
   });
+
+  const response = NextResponse.json({
+    ok: true,
+    message: "Inbound message processed",
+    instanceName,
+    event: eventName,
+  });
+
+  after(async () => {
+    try {
+      const [outboundCount, workspace, conversationAutomationPaused] = await Promise.all([
+        existingContact
+          ? prisma.message.count({
+              where: {
+                workspaceId: channel.workspaceId,
+                contactId: existingContact.id,
+                direction: "OUTBOUND",
+              },
+            })
+          : Promise.resolve(0),
+        prisma.workspace.findUnique({
+          where: { id: channel.workspaceId },
+          select: { businessConfig: true },
+        }),
+        getConversationAutomationPaused({
+          conversationId: conversation.id,
+          workspaceId: channel.workspaceId,
+        }),
+      ]);
+
+      const autoTagNewLeads =
+        workspace &&
+        workspace.businessConfig !== null &&
+        typeof workspace.businessConfig === "object" &&
+        !Array.isArray(workspace.businessConfig) &&
+        (workspace.businessConfig as { autoTagNewLeads?: unknown }).autoTagNewLeads !== false;
+      const newLeadTagName =
+        workspace &&
+        workspace.businessConfig !== null &&
+        typeof workspace.businessConfig === "object" &&
+        !Array.isArray(workspace.businessConfig) &&
+        typeof (workspace.businessConfig as { newLeadTagName?: unknown }).newLeadTagName === "string"
+          ? ((workspace.businessConfig as { newLeadTagName?: string }).newLeadTagName ?? "").trim()
+          : "";
+
+      if (autoTagNewLeads) {
+        await syncLeadLifecycleForContact({
+          workspaceId: channel.workspaceId,
+          contactId: contact.id,
+          newLeadTagName,
+          hasHistory: outboundCount > 0,
+        });
+      }
 
   if (fromMe && channel.agentId && channel.isActive && channel.evolutionInstanceName && messageText) {
     const ownerTriggeredFlow = await resolveEvolutionQuickResponseFlow({
@@ -1277,12 +1284,17 @@ export async function POST(request: Request) {
     });
   }
 
-  return NextResponse.json({
-    ok: true,
-    message: "Inbound message processed",
-    instanceName,
-    event: eventName,
+    } catch (error) {
+      console.error("[EVOLUTION] post_response_processing_failed", {
+        conversationId: conversation.id,
+        contactId: contact.id,
+        phoneNumber,
+        error: error instanceof Error ? error.stack || error.message : String(error),
+      });
+    }
   });
+
+  return response;
 }
 
 export async function GET() {
