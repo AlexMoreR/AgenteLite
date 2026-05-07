@@ -15,6 +15,7 @@ type ChatsRealtimeSyncProps = {
   instanceNames?: string[];
   activeInstanceName?: string | null;
   selectedConversationKey?: string | null;
+  selectedConversationPhoneNumber?: string | null;
   enabled?: boolean;
   globalEventsEnabled?: boolean;
 };
@@ -156,6 +157,7 @@ export function ChatsRealtimeSync({
   instanceNames = [],
   activeInstanceName = null,
   selectedConversationKey = null,
+  selectedConversationPhoneNumber = null,
   enabled = true,
   globalEventsEnabled = false,
 }: ChatsRealtimeSyncProps) {
@@ -185,6 +187,8 @@ export function ChatsRealtimeSync({
   // (y desconecte/reconecte todos los sockets) cada vez que cambia la conversación activa.
   const selectedConversationKeyRef = useRef(selectedConversationKey);
   selectedConversationKeyRef.current = selectedConversationKey;
+  const selectedConversationPhoneNumberRef = useRef(selectedConversationPhoneNumber);
+  selectedConversationPhoneNumberRef.current = selectedConversationPhoneNumber;
   const activeInstanceNameRef = useRef(activeInstanceName);
   activeInstanceNameRef.current = activeInstanceName;
 
@@ -481,10 +485,7 @@ export function ChatsRealtimeSync({
 
     for (const instanceName of socketTargets) {
       const normalizedApiKey = apiKey?.trim() || null;
-      // TODO_TEST: hardcode temporal para confirmar qué formato acepta Evolution global WS.
-      // Remover después de confirmar.
-      const testApiKey = "b8bc9730c55713986a1d7bb1904e0261";
-      const socketApiKey = testApiKey || normalizedApiKey;
+      const socketApiKey = normalizedApiKey;
       const socket = io(buildSocketUrl(normalizedBaseUrl, instanceName), {
         transports: ["websocket", "polling"],
         reconnection: true,
@@ -501,13 +502,21 @@ export function ChatsRealtimeSync({
           // Leer refs en el momento del evento — siempre reflejan la conversación actual
           // sin necesidad de recrear los sockets cuando el usuario cambia de chat.
           const normalizedActiveInstanceName = activeInstanceNameRef.current?.trim() || "";
+          const payload = args[0];
+          const phoneNumber = extractPhoneNumberFromPayload(payload);
+          const currentConversationKey = selectedConversationKeyRef.current;
+          const isOfficialConversationSelected = currentConversationKey?.startsWith("official:");
+          const selectedPhoneNumber = selectedConversationPhoneNumberRef.current?.trim() || "";
+          const normalizedSelectedPhoneNumber = selectedPhoneNumber.replace(/\D/g, "");
+          const isSelectedAgentConversation =
+            Boolean(currentConversationKey?.startsWith("agent:")) &&
+            Boolean(phoneNumber) &&
+            Boolean(normalizedSelectedPhoneNumber) &&
+            phoneNumber === normalizedSelectedPhoneNumber;
           const isActiveInstance =
             Boolean(normalizedActiveInstanceName) &&
             (!globalEventsEnabled || instanceName === normalizedActiveInstanceName) &&
             instanceName === normalizedActiveInstanceName;
-          const payload = args[0];
-          const currentConversationKey = selectedConversationKeyRef.current;
-          const isOfficialConversationSelected = currentConversationKey?.startsWith("official:");
 
           if (isActiveInstance) {
             if (isOfficialConversationSelected) {
@@ -515,12 +524,20 @@ export function ChatsRealtimeSync({
               return;
             }
 
-            scheduleLiveUpdate("active");
-            if (currentConversationKey?.startsWith("agent:")) {
-              // Usar chatKey directamente para no depender de extraer el teléfono del payload:
-              // esto garantiza que scheduleListUpdate también dispare para fromMe: true.
+            if (isSelectedAgentConversation) {
+              scheduleLiveUpdate("active");
+              // Usar chatKey directamente para no depender de extraer el telefono del payload:
+              // esto garantiza que scheduleListUpdate tambien dispare para fromMe: true.
               scheduleListUpdate("active", instanceName ?? normalizedActiveInstanceName, payload, currentConversationKey);
+              return;
             }
+
+            if (phoneNumber) {
+              scheduleListUpdate("background", instanceName ?? normalizedActiveInstanceName, payload);
+              return;
+            }
+
+            schedulePageRefresh("background");
             return;
           }
 
@@ -537,17 +554,23 @@ export function ChatsRealtimeSync({
               return;
             }
 
-            scheduleLiveUpdate("active");
-            if (currentConversationKey?.startsWith("agent:")) {
-              scheduleListUpdate("active", normalizedActiveInstanceName, payload, currentConversationKey);
+            if (isSelectedAgentConversation) {
+              scheduleLiveUpdate("active");
+              scheduleListUpdate("active", normalizedActiveInstanceName, payload, currentConversationKey || undefined);
+              return;
             }
+
+            if (phoneNumber) {
+              scheduleListUpdate("background", payloadInstanceName, payload);
+              return;
+            }
+
+            schedulePageRefresh("background");
             return;
           }
-
-          const phoneNumber = extractPhoneNumberFromPayload(payload);
           if (phoneNumber) {
             if (globalEventsEnabled) {
-              if (currentConversationKey?.startsWith("agent:")) {
+              if (isSelectedAgentConversation) {
                 scheduleLiveUpdate("background");
               }
 
@@ -607,3 +630,4 @@ export function ChatsRealtimeSync({
 
   return null;
 }
+

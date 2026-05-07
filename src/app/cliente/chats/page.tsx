@@ -670,6 +670,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         instanceNames={evolutionInstanceNames}
         activeInstanceName={selectedEvolutionInstanceName}
         selectedConversationKey={selectedUnified?.key ?? null}
+        selectedConversationPhoneNumber={selectedUnified?.source === "agent" ? selectedUnified.secondaryLabel : null}
         globalEventsEnabled={evolutionGlobalWebsocketEventsEnabled}
       />
       <QueryFeedbackToast
