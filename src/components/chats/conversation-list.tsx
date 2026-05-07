@@ -105,7 +105,6 @@ const ConversationListItem = memo(function ConversationListItem({
           ? "bg-[color-mix(in_srgb,var(--primary)_6%,white)]"
           : "hover:bg-[color-mix(in_srgb,var(--primary)_4%,white)] hover:shadow-[inset_0_0_0_1px_rgba(16,185,129,0.08)]"
         }`}
-      style={{ contentVisibility: "auto", containIntrinsicSize: "96px" }}
     >
       <span
         className={`absolute inset-y-3 left-0 w-1 rounded-r-full ${
@@ -291,26 +290,13 @@ export function ConversationList({
     const visibleCount = Math.ceil(viewportHeight / ESTIMATED_ROW_HEIGHT);
     const baseStart = Math.max(0, Math.floor(scrollTop / ESTIMATED_ROW_HEIGHT) - OVERSCAN_ROWS);
     const baseEnd = Math.min(conversations.length, baseStart + visibleCount + OVERSCAN_ROWS * 2);
-    const selectedIndex = conversations.findIndex((conversation) => conversation.id === effectiveSelectedId);
-
-    if (selectedIndex >= 0 && (selectedIndex < baseStart || selectedIndex >= baseEnd)) {
-      const selectedStart = Math.max(0, selectedIndex - Math.floor(visibleCount / 2));
-      const selectedEnd = Math.min(conversations.length, selectedStart + visibleCount + OVERSCAN_ROWS * 2);
-      return {
-        start: selectedStart,
-        end: selectedEnd,
-        topSpacer: selectedStart * ESTIMATED_ROW_HEIGHT,
-        bottomSpacer: Math.max(0, (conversations.length - selectedEnd) * ESTIMATED_ROW_HEIGHT),
-      };
-    }
-
     return {
       start: baseStart,
       end: baseEnd,
       topSpacer: baseStart * ESTIMATED_ROW_HEIGHT,
       bottomSpacer: Math.max(0, (conversations.length - baseEnd) * ESTIMATED_ROW_HEIGHT),
     };
-  }, [conversations, effectiveSelectedId, scrollTop, viewportHeight]);
+  }, [conversations, scrollTop, viewportHeight]);
 
   const visibleConversations = useMemo(
     () => conversations.slice(virtualizedWindow.start, virtualizedWindow.end),

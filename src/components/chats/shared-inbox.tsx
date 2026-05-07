@@ -26,7 +26,6 @@ import {
 import { ChatScrollAnchor } from "@/components/agents/chat-scroll-anchor";
 import { ChatSelectionOverlay } from "@/components/chats/chat-selection-overlay";
 import {
-  hasConversationBeenVisited,
   mergeConversationSnapshots,
   readConversationFromCache,
   saveConversationToCache,
@@ -97,6 +96,7 @@ export type SharedInboxSelectedConversation = {
   automationPaused?: boolean;
   loadMoreHref?: string | null;
   loadMoreCursor?: string | null;
+  hasMoreMessages?: boolean;
   cacheKey?: string | null;
 };
 
@@ -742,7 +742,6 @@ const MessageBubble = memo(function MessageBubble({
   return (
     <div
       className="space-y-2.5 md:space-y-3"
-      style={{ contentVisibility: "auto", containIntrinsicSize: "160px" }}
     >
       {showDateDivider ? (
         <div className="flex justify-center">
@@ -938,6 +937,8 @@ export function SharedInbox({
   const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
   const isNearBottomRef = useRef(true);
   const prevScrollKeyRef = useRef("");
+  const loadMoreHistoryInFlightRef = useRef(false);
+  const loadMoreHistoryRestoreRef = useRef<{ scrollTop: number; scrollHeight: number } | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const autoLoadLockRef = useRef(false);
   // Ref sincronizada en cada render: permite leer el valor actual dentro de event
@@ -1009,10 +1010,10 @@ export function SharedInbox({
   const selectedConversationKey = (pendingConversation?.chatKey ?? selectedConversationId).trim();
   const selectedConversationCache = selectedConversationKey ? readConversationFromCache(selectedConversationKey) : null;
   const selectedConversationMatchesCurrentKey =
-    Boolean(selectedConversation && conversationIdMatchesKey(selectedConversation.id, selectedConversationKey));
+    Boolean(selectedConversation && conversationIdMatchesKey(selectedConversationKey, selectedConversation.id));
   const currentSelectedConversation = selectedConversationMatchesCurrentKey ? selectedConversation : null;
   const cachedConversationForCurrentSelection =
-    cachedSelectedConversation && conversationIdMatchesKey(cachedSelectedConversation.id, selectedConversationKey)
+    cachedSelectedConversation && conversationIdMatchesKey(selectedConversationKey, cachedSelectedConversation.id)
       ? cachedSelectedConversation
       : null;
 
@@ -1247,7 +1248,7 @@ export function SharedInbox({
     const hasLoadedMessages =
       (currentSelectedConversation?.messages.length ?? 0) > 0 ||
       (cachedConversationForCurrentSelection?.messages.length ?? 0) > 0 ||
-      (liveConversation && conversationIdMatchesKey(liveConversation.id, normalizedSelectedConversationId) && (liveConversation.messages.length ?? 0) > 0);
+      (liveConversation && conversationIdMatchesKey(normalizedSelectedConversationId, liveConversation.id) && (liveConversation.messages.length ?? 0) > 0);
 
     if (hasLoadedMessages) {
       return;
@@ -1300,7 +1301,15 @@ export function SharedInbox({
       cancelled = true;
       controller.abort();
     };
-  }, [cachedSelectedConversation?.messages.length, liveConversation, pendingConversation?.chatKey, selectedConversation, selectedConversationId]);
+  }, [
+    cachedConversationForCurrentSelection?.messages.length,
+    cachedSelectedConversation?.messages.length,
+    currentSelectedConversation?.messages.length,
+    liveConversation,
+    pendingConversation?.chatKey,
+    selectedConversation,
+    selectedConversationId,
+  ]);
 
   useEffect(() => {
     if (!pendingConversation?.id || pendingConversation.id !== selectedConversationId) {
@@ -1322,7 +1331,7 @@ export function SharedInbox({
     effectiveLiveConversation ?? selectedConversationCache ?? cachedConversationForCurrentSelection,
   );
   const pendingConversationPreview =
-    pendingConversation && optimisticConversation && pendingConversation.id === optimisticConversation.id
+    pendingConversation && optimisticConversation && conversationIdMatchesKey(pendingConversation.id, optimisticConversation.id)
       ? optimisticConversation
       : null;
 
@@ -1375,6 +1384,78 @@ export function SharedInbox({
     saveConversationToCache(renderedConversation);
   }, [renderedConversation]);
 
+  const loadOlderMessages = useCallback(async () => {
+    const conversation = renderedConversation;
+    const loadMoreCursor = conversation?.loadMoreCursor?.trim() || "";
+    const chatKey = conversation?.id?.trim() || "";
+    let shouldRestoreScroll = false;
+
+    if (
+      !conversation ||
+      !chatKey ||
+      !loadMoreCursor ||
+      !conversation.hasMoreMessages ||
+      loadMoreHistoryInFlightRef.current
+    ) {
+      return;
+    }
+
+    const container = messagesScrollRef.current;
+    if (!container) {
+      return;
+    }
+
+    loadMoreHistoryInFlightRef.current = true;
+    loadMoreHistoryRestoreRef.current = {
+      scrollTop: container.scrollTop,
+      scrollHeight: container.scrollHeight,
+    };
+
+    try {
+      const response = await fetch(
+        `/api/cliente/chats/live?chatKey=${encodeURIComponent(chatKey)}&beforeMessageId=${encodeURIComponent(loadMoreCursor)}&batchSize=10`,
+        {
+          credentials: "same-origin",
+          cache: "no-store",
+        },
+      );
+
+      if (!response.ok) {
+        return;
+      }
+
+      const payload = (await response.json().catch(() => null)) as
+        | { ok?: boolean; conversation?: unknown }
+        | null;
+
+      if (!payload?.ok || !payload.conversation) {
+        return;
+      }
+
+      const snapshot = normalizeLiveConversationSnapshot(payload.conversation);
+      if (!snapshot) {
+        return;
+      }
+
+      shouldRestoreScroll = true;
+      setLiveConversation((current) => {
+        const base = current && conversationIdMatchesKey(current.id, snapshot.id)
+          ? current
+          : (selectedConversationRef.current && conversationIdMatchesKey(selectedConversationRef.current.id, snapshot.id)
+              ? selectedConversationRef.current
+              : selectedConversation ?? null);
+        return mergeConversationSnapshots(base, snapshot);
+      });
+    } catch {
+      // Ignore loading failures so scroll never gets blocked.
+    } finally {
+      if (!shouldRestoreScroll) {
+        loadMoreHistoryRestoreRef.current = null;
+      }
+      loadMoreHistoryInFlightRef.current = false;
+    }
+  }, [renderedConversation, selectedConversation]);
+
   const optimisticDraftMatchesLatestMessage =
     Boolean(
       optimisticOutgoingMessage &&
@@ -1392,6 +1473,7 @@ export function SharedInbox({
       : renderedConversation?.messages ?? [];
   const hasSettledConversation = Boolean(renderedConversation && currentSelectedConversation && renderedConversation.id === currentSelectedConversation.id);
   const hasMobileSelection = Boolean(renderedConversation || pendingConversation || selectedConversationId);
+  const canLoadOlderMessages = Boolean(renderedConversation?.loadMoreCursor && renderedConversation.hasMoreMessages);
   const composerHiddenFields = composer
     ? buildComposerHiddenFields(
         composer.hiddenFields,
@@ -1423,8 +1505,7 @@ export function SharedInbox({
     if (
       !scrollContainer ||
       !loadMoreSentinel ||
-      !loadMoreHref ||
-      messageScrollBehavior !== "preserve" ||
+      (!loadMoreHref && !canLoadOlderMessages) ||
       typeof IntersectionObserver === "undefined"
     ) {
       return;
@@ -1439,7 +1520,16 @@ export function SharedInbox({
         }
 
         autoLoadLockRef.current = true;
-        router.replace(loadMoreHref, { scroll: false });
+        if (loadMoreHref && messageScrollBehavior === "preserve") {
+          router.replace(loadMoreHref, { scroll: false });
+          return;
+        }
+
+        if (canLoadOlderMessages) {
+          void loadOlderMessages().finally(() => {
+            autoLoadLockRef.current = false;
+          });
+        }
       },
       {
         root: scrollContainer,
@@ -1453,7 +1543,15 @@ export function SharedInbox({
     return () => {
       observer.disconnect();
     };
-  }, [messageScrollBehavior, renderedConversation?.id, renderedConversation?.loadMoreHref, router]);
+  }, [
+    loadOlderMessages,
+    messageScrollBehavior,
+    canLoadOlderMessages,
+    renderedConversation?.id,
+    renderedConversation?.loadMoreCursor,
+    renderedConversation?.loadMoreHref,
+    router,
+  ]);
 
   // Reset scroll state when the user opens a different conversation.
   useEffect(() => {
@@ -1489,6 +1587,14 @@ export function SharedInbox({
     prevScrollKeyRef.current = currentKey;
 
     if (currentKey === "empty" || !container) return;
+
+    if (loadMoreHistoryRestoreRef.current) {
+      const restore = loadMoreHistoryRestoreRef.current;
+      const delta = container.scrollHeight - restore.scrollHeight;
+      container.scrollTop = Math.max(0, restore.scrollTop + delta);
+      loadMoreHistoryRestoreRef.current = null;
+      return;
+    }
 
     const jumpToBottom = (smooth: boolean) => {
       if (scrollFrameRef.current !== null) {
@@ -1784,18 +1890,24 @@ export function SharedInbox({
                   >
                     <div className="flex min-h-full flex-col">
                       <div className="shrink-0">
-                        {renderedConversation.loadMoreHref ? (
+                        {canLoadOlderMessages ? (
                           <div className="pb-1">
                             <div ref={loadMoreSentinelRef} aria-hidden="true" className="h-px w-full" />
-                            <div className="flex justify-center">
-                              <Link
-                                href={renderedConversation.loadMoreHref}
-                                scroll={false}
-                                className="inline-flex items-center rounded-full border border-[rgba(148,163,184,0.16)] bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-800"
-                              >
-                                Cargar mensajes anteriores
-                              </Link>
-                            </div>
+                            {renderedConversation.loadMoreHref ? (
+                              <div className="flex justify-center">
+                                <Link
+                                  href={renderedConversation.loadMoreHref}
+                                  scroll={false}
+                                  className="inline-flex items-center rounded-full border border-[rgba(148,163,184,0.16)] bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-800"
+                                >
+                                  Cargar mensajes anteriores
+                                </Link>
+                              </div>
+                            ) : (
+                              <div className="flex justify-center px-3 py-1.5 text-[11px] font-medium text-slate-500">
+                                Cargando historial...
+                              </div>
+                            )}
                           </div>
                         ) : null}
                       </div>

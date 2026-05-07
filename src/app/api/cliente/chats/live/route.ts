@@ -35,6 +35,8 @@ export async function GET(request: Request) {
 
   const requestUrl = new URL(request.url);
   const chatKey = requestUrl.searchParams.get("chatKey")?.trim() || "";
+  const beforeMessageId = requestUrl.searchParams.get("beforeMessageId")?.trim() || "";
+  const batchSizeParam = requestUrl.searchParams.get("batchSize")?.trim() || "";
   const parsed = parseChatKey(chatKey);
 
   if (!parsed) {
@@ -44,7 +46,8 @@ export async function GET(request: Request) {
   const conversation = await loadAgentConversationDetail({
     workspaceId: membership.workspace.id,
     conversationId: parsed.conversationId,
-    batchSize: 20,
+    beforeMessageId: beforeMessageId || null,
+    batchSize: batchSizeParam ? Number.parseInt(batchSizeParam, 10) : (beforeMessageId ? 10 : 1),
   });
 
   if (!conversation) {
