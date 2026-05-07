@@ -1313,12 +1313,6 @@ export function SharedInbox({
       ? optimisticConversation
       : null;
 
-  useEffect(() => {
-    if (effectiveLiveConversation && liveOrCachedConversation) {
-      saveConversationToCache(liveOrCachedConversation);
-    }
-  }, [effectiveLiveConversation, liveOrCachedConversation]);
-
   const renderedConversation = (() => {
     if (!pendingConversationPreview) {
       return liveOrCachedConversation;
@@ -1359,6 +1353,15 @@ export function SharedInbox({
 
     return liveOrCachedConversation;
   })();
+
+  useEffect(() => {
+    if (!renderedConversation) {
+      return;
+    }
+
+    saveConversationToCache(renderedConversation);
+  }, [renderedConversation]);
+
   const optimisticDraftMatchesLatestMessage =
     Boolean(
       optimisticOutgoingMessage &&
