@@ -170,7 +170,7 @@ export async function getAgentConversationSummaryByPhoneNumber(input: {
     return null;
   }
 
-  // Normalizar variantes del número: solo dígitos, con '+', y con sufijo JID completo.
+
   console.log("[Summary] contact lookup", { phoneVariants, found: Boolean(contact), contactPhone: contact?.phoneNumber });
   if (!contact) {
     return null;
@@ -255,3 +255,5 @@ export async function getAgentConversationSummaryByPhoneNumber(input: {
     channelType: "whatsapp",
   };
 }
+
+
