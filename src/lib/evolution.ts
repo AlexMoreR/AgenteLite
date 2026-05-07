@@ -223,6 +223,20 @@ function normalizeBase64DataUrl(base64Like: string, mimeType: string) {
   return `data:${mimeType};base64,${compact}`;
 }
 
+function isRenderableMediaUrl(value?: string | null) {
+  if (!value) {
+    return false;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  return (
+    normalized.startsWith("data:") ||
+    normalized.startsWith("blob:") ||
+    normalized.startsWith("http://") ||
+    normalized.startsWith("https://")
+  );
+}
+
 function extractBase64Candidate(value: unknown): string | null {
   const record = asRecord(value);
   if (!record) {
@@ -248,6 +262,73 @@ function extractBase64Candidate(value: unknown): string | null {
     extractBase64Candidate(record.message) ||
     extractBase64Candidate(record.result)
   );
+}
+
+function bytesLikeToBase64(value: unknown) {
+  const toBase64 = (bytes: number[]) => {
+    if (bytes.length === 0) {
+      return null;
+    }
+
+    let binary = "";
+    for (const byte of bytes) {
+      binary += String.fromCharCode(byte);
+    }
+
+    return Buffer.from(binary, "binary").toString("base64");
+  };
+
+  if (value instanceof Uint8Array) {
+    return toBase64(Array.from(value));
+  }
+
+  if (Array.isArray(value)) {
+    const bytes = value.filter((item): item is number => typeof item === "number");
+    return toBase64(bytes);
+  }
+
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const numericEntries = Object.entries(value)
+    .filter(([key, entryValue]) => /^\d+$/.test(key) && typeof entryValue === "number")
+    .sort((left, right) => Number(left[0]) - Number(right[0]))
+    .map(([, entryValue]) => entryValue as number);
+
+  return toBase64(numericEntries);
+}
+
+function extractImageThumbnailDataUrl(payload: unknown, mimeType = "image/jpeg") {
+  const root = asRecord(payload);
+  const data = asRecord(root?.data);
+  const message = asRecord(data?.message) ?? asRecord(root?.message);
+  const imageMessage = asRecord(message?.imageMessage);
+  const contextInfo = asRecord(data?.contextInfo) ?? asRecord(message?.contextInfo);
+  const externalAdReply = asRecord(contextInfo?.externalAdReply);
+
+  const thumbnailBytes =
+    imageMessage?.jpegThumbnail ??
+    imageMessage?.thumbnail ??
+    externalAdReply?.thumbnail ??
+    data?.thumbnail ??
+    root?.thumbnail;
+
+  const base64 =
+    bytesLikeToBase64(thumbnailBytes) ||
+    extractBase64Candidate(thumbnailBytes) ||
+    extractBase64Candidate(imageMessage?.thumbnailUrl) ||
+    extractBase64Candidate(externalAdReply?.thumbnailUrl);
+
+  if (!base64) {
+    return null;
+  }
+
+  if (base64.startsWith("data:")) {
+    return base64;
+  }
+
+  return `data:${mimeType};base64,${base64}`;
 }
 
 export async function fetchEvolutionMediaDataUrl(input: {
@@ -288,6 +369,45 @@ export async function fetchEvolutionMediaDataUrl(input: {
   } catch {
     return null;
   }
+}
+
+export async function resolveEvolutionMessageMediaUrl(input: {
+  instanceName?: string | null;
+  messageId?: string | null;
+  mediaType: "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT";
+  mediaUrl?: string | null;
+  rawPayload?: unknown;
+}) {
+  if (input.mediaUrl?.trim().startsWith("data:") || input.mediaUrl?.trim().startsWith("blob:")) {
+    return input.mediaUrl ?? null;
+  }
+
+  // En Evolution muchas veces la URL persistida no es utilizable directamente
+  // desde el navegador; primero intentamos resolver el binario real desde la API.
+  if (input.instanceName?.trim() && input.messageId?.trim()) {
+    const resolved = await fetchEvolutionMediaDataUrl({
+      instanceName: input.instanceName.trim(),
+      messageId: input.messageId.trim(),
+      mediaType: input.mediaType,
+    });
+
+    if (resolved) {
+      return resolved;
+    }
+  }
+
+  if (input.mediaType === "IMAGE" && input.rawPayload) {
+    const thumbnailUrl = extractImageThumbnailDataUrl(input.rawPayload);
+    if (thumbnailUrl) {
+      return thumbnailUrl;
+    }
+  }
+
+  if (isRenderableMediaUrl(input.mediaUrl)) {
+    return input.mediaUrl ?? null;
+  }
+
+  return input.mediaUrl || null;
 }
 
 export async function getEvolutionConnectionState(instanceName: string) {

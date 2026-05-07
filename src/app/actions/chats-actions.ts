@@ -9,6 +9,7 @@ import { sendOfficialApiReplyAction } from "@/app/actions/official-api-actions";
 import { getConversationAutomationPaused, setConversationAutomationPaused } from "@/lib/conversation-automation";
 import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
 import { sendEvolutionTextMessage } from "@/lib/evolution";
+import { normalizeInternalPath } from "@/lib/app-url";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
@@ -91,12 +92,14 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<vo
     redirect("/cliente/chats?error=No+se+pudo+enviar+el+mensaje");
   }
 
+  const safeReturnTo = normalizeInternalPath(parsed.data.returnTo, "");
+
   if (parsed.data.source === "official") {
     const nextData = new FormData();
     nextData.set("conversationId", parsed.data.conversationId);
     nextData.set("message", parsed.data.message);
-    if (parsed.data.returnTo) {
-      nextData.set("returnTo", parsed.data.returnTo);
+    if (safeReturnTo) {
+      nextData.set("returnTo", safeReturnTo);
     }
     return sendOfficialApiReplyAction(nextData);
   }
@@ -109,7 +112,7 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<vo
   nextData.set("agentId", parsed.data.agentId);
   nextData.set("conversationId", parsed.data.conversationId);
   nextData.set("message", parsed.data.message);
-  nextData.set("returnTo", parsed.data.returnTo || `/cliente/chats?chatKey=agent:${parsed.data.conversationId}`);
+  nextData.set("returnTo", safeReturnTo || `/cliente/chats?chatKey=agent:${parsed.data.conversationId}`);
   return sendManualAgentReplyAction(nextData);
 }
 
@@ -162,7 +165,8 @@ export async function toggleConversationAutomationAction(formData: FormData): Pr
   });
 
   if (!conversation) {
-    redirect(`${parsed.data.returnTo}${parsed.data.returnTo.includes("?") ? "&" : "?"}error=Conversacion+no+encontrada`);
+    const safeReturnTo = normalizeInternalPath(parsed.data.returnTo, "/cliente/chats");
+    redirect(`${safeReturnTo}${safeReturnTo.includes("?") ? "&" : "?"}error=Conversacion+no+encontrada`);
   }
 
   const currentPaused = await getConversationAutomationPaused({
@@ -234,8 +238,9 @@ export async function toggleConversationAutomationAction(formData: FormData): Pr
     revalidatePath(`/cliente/agentes/${conversation.agentId}/chats`);
   }
 
+  const safeReturnTo = normalizeInternalPath(parsed.data.returnTo, "/cliente/chats");
   redirect(
-    `${parsed.data.returnTo}${parsed.data.returnTo.includes("?") ? "&" : "?"}ok=${
+    `${safeReturnTo}${safeReturnTo.includes("?") ? "&" : "?"}ok=${
       nextPaused ? "IA+pausada+en+este+chat" : "IA+reactivada+en+este+chat"
     }`,
   );
@@ -272,7 +277,8 @@ export async function clearConversationMessagesAction(formData: FormData): Promi
   });
 
   if (!conversation) {
-    redirect(`${parsed.data.returnTo}${parsed.data.returnTo.includes("?") ? "&" : "?"}error=Conversacion+no+encontrada`);
+    const safeReturnTo = normalizeInternalPath(parsed.data.returnTo, "/cliente/chats");
+    redirect(`${safeReturnTo}${safeReturnTo.includes("?") ? "&" : "?"}error=Conversacion+no+encontrada`);
   }
 
   await prisma.message.deleteMany({
@@ -280,7 +286,8 @@ export async function clearConversationMessagesAction(formData: FormData): Promi
   });
 
   revalidatePath("/cliente/chats");
-  redirect(`${parsed.data.returnTo}${parsed.data.returnTo.includes("?") ? "&" : "?"}ok=Chat+limpiado`);
+  const safeReturnTo = normalizeInternalPath(parsed.data.returnTo, "/cliente/chats");
+  redirect(`${safeReturnTo}${safeReturnTo.includes("?") ? "&" : "?"}ok=Chat+limpiado`);
 }
 
 export type EtiquetaItem = { id: string; name: string; color: string };

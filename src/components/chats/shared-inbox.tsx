@@ -554,7 +554,7 @@ function formatDateDivider(date: Date) {
   return chatDateLabelFormatter.format(date);
 }
 
-function isRenderableMediaUrl(url?: string | null) {
+function isMediaSourceUrl(url?: string | null) {
   if (!url) {
     return false;
   }
@@ -563,9 +563,18 @@ function isRenderableMediaUrl(url?: string | null) {
   return (
     normalized.startsWith("data:") ||
     normalized.startsWith("blob:") ||
+    normalized.startsWith("/") ||
     normalized.startsWith("http://") ||
     normalized.startsWith("https://")
   );
+}
+
+function toProxiedMediaUrl(url: string) {
+  if (url.startsWith("data:") || url.startsWith("blob:")) {
+    return url;
+  }
+
+  return `/api/media/proxy?url=${encodeURIComponent(url)}`;
 }
 
 function extractMediaUrlFromPayload(message: SharedInboxMessageItem, type: "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT") {
@@ -590,7 +599,7 @@ function extractMediaUrlFromPayload(message: SharedInboxMessageItem, type: "IMAG
     message.mediaUrl ||
     null;
 
-  return isRenderableMediaUrl(candidate) ? candidate : null;
+  return isMediaSourceUrl(candidate) ? toProxiedMediaUrl(candidate) : null;
 }
 
 function AudioMessageCard({
@@ -705,8 +714,8 @@ function bytesLikeToBase64(value: unknown) {
 }
 
 function extractImagePreviewUrl(message: SharedInboxMessageItem) {
-  if (isRenderableMediaUrl(message.mediaUrl)) {
-    return message.mediaUrl;
+  if (isMediaSourceUrl(message.mediaUrl)) {
+    return toProxiedMediaUrl(message.mediaUrl);
   }
 
   const rootPayload = getNestedRecord(message.rawPayload, "evolution") ?? (isObjectRecord(message.rawPayload) ? message.rawPayload : null);
@@ -720,8 +729,8 @@ function extractImagePreviewUrl(message: SharedInboxMessageItem) {
     getNestedString(data, "media") ||
     getNestedString(data, "url");
 
-  if (isRenderableMediaUrl(directImageUrl)) {
-    return directImageUrl;
+  if (isMediaSourceUrl(directImageUrl)) {
+    return toProxiedMediaUrl(directImageUrl);
   }
 
   const thumbnailBytes =
@@ -731,7 +740,7 @@ function extractImagePreviewUrl(message: SharedInboxMessageItem) {
 
   const base64 = bytesLikeToBase64(thumbnailBytes);
 
-  return base64 ? `data:image/jpeg;base64,${base64}` : isRenderableMediaUrl(message.mediaUrl) ? message.mediaUrl : null;
+  return base64 ? `data:image/jpeg;base64,${base64}` : isMediaSourceUrl(message.mediaUrl) ? toProxiedMediaUrl(message.mediaUrl) : null;
 }
 
 function extractChatAdPreview(rawPayload: unknown): ChatAdPreview | null {
@@ -810,7 +819,7 @@ const MessageBubble = memo(function MessageBubble({
                 {adPreview.thumbnailUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
-                    src={adPreview.thumbnailUrl}
+                    src={isMediaSourceUrl(adPreview.thumbnailUrl) ? toProxiedMediaUrl(adPreview.thumbnailUrl) : ""}
                     alt={adPreview.title}
                     className="h-auto max-h-[220px] w-full object-cover"
                   />

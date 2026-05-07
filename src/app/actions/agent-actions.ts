@@ -30,6 +30,7 @@ import { generateAgentReply } from "@/lib/agent-ai";
 import { resolveAgentKnowledgeBaseReply } from "@/lib/agent-knowledge-media";
 import { resolveAgentProductFlowReply } from "@/lib/agent-product-flow";
 import { composeAgentWelcomeReply } from "@/lib/agent-reply-composer";
+import { normalizeInternalPath } from "@/lib/app-url";
 import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
 import {
   deleteEvolutionInstance,
@@ -2292,7 +2293,7 @@ export async function toggleAgentStatusAction(formData: FormData): Promise<void>
     redirect("/cliente/agentes?error=Agente+invalido");
   }
 
-  const returnTo = parsed.data.returnTo || "";
+  const returnTo = normalizeInternalPath(parsed.data.returnTo, "");
 
   const membership = await getPrimaryWorkspaceForUser(session.user.id);
   if (!membership) {
@@ -2329,7 +2330,7 @@ export async function toggleAgentStatusAction(formData: FormData): Promise<void>
   revalidatePath("/cliente/agentes");
   if (returnTo) {
     revalidatePath(returnTo);
-    redirect(`${returnTo}?ok=${nextStatus === "ACTIVE" ? "Agente+encendido" : "Agente+apagado"}`);
+    redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}ok=${nextStatus === "ACTIVE" ? "Agente+encendido" : "Agente+apagado"}`);
   }
 
   redirect(`/cliente/agentes?ok=${nextStatus === "ACTIVE" ? "Agente+encendido" : "Agente+apagado"}`);
@@ -2349,8 +2350,10 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<vo
   });
 
   const fallbackAgentId = String(formData.get("agentId") || "");
-  const fallbackReturnTo = String(formData.get("returnTo") || "");
-  const returnToPath = parsed.success && parsed.data.returnTo ? parsed.data.returnTo.split("?")[0] : fallbackReturnTo.split("?")[0];
+  const fallbackReturnTo = normalizeInternalPath(String(formData.get("returnTo") || ""), "");
+  const returnToPath = parsed.success && parsed.data.returnTo
+    ? normalizeInternalPath(parsed.data.returnTo, "").split("?")[0]
+    : fallbackReturnTo.split("?")[0];
 
   if (!parsed.success) {
     if (fallbackReturnTo) {
@@ -2387,8 +2390,9 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<vo
   });
 
   if (!conversation || conversation.channel?.provider !== "EVOLUTION" || !conversation.channel.evolutionInstanceName || !conversation.contact?.phoneNumber) {
-    if (parsed.data.returnTo) {
-      redirect(`${parsed.data.returnTo}${parsed.data.returnTo.includes("?") ? "&" : "?"}error=No+se+encontro+el+canal+o+contacto`);
+    const safeReturnTo = normalizeInternalPath(parsed.data.returnTo, "");
+    if (safeReturnTo) {
+      redirect(`${safeReturnTo}${safeReturnTo.includes("?") ? "&" : "?"}error=No+se+encontro+el+canal+o+contacto`);
     }
     redirect(`/cliente/agentes/${parsed.data.agentId}/chats?error=No+se+encontro+el+canal+o+contacto`);
   }
@@ -2508,9 +2512,10 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<vo
       },
     });
 
-    if (parsed.data.returnTo) {
+    const safeReturnTo = normalizeInternalPath(parsed.data.returnTo, "");
+    if (safeReturnTo) {
       revalidatePath(returnToPath);
-      redirect(`${parsed.data.returnTo}${parsed.data.returnTo.includes("?") ? "&" : "?"}ok=Flujo+enviado`);
+      redirect(`${safeReturnTo}${safeReturnTo.includes("?") ? "&" : "?"}ok=Flujo+enviado`);
     }
 
     revalidatePath(`/cliente/agentes/${parsed.data.agentId}/chats`);
@@ -2562,9 +2567,10 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<vo
     paused: true,
   });
 
-  if (parsed.data.returnTo) {
+  const safeReturnTo = normalizeInternalPath(parsed.data.returnTo, "");
+  if (safeReturnTo) {
     revalidatePath(returnToPath);
-    redirect(`${parsed.data.returnTo}${parsed.data.returnTo.includes("?") ? "&" : "?"}ok=Mensaje+enviado`);
+    redirect(`${safeReturnTo}${safeReturnTo.includes("?") ? "&" : "?"}ok=Mensaje+enviado`);
   }
 
   revalidatePath(`/cliente/agentes/${parsed.data.agentId}/chats`);
@@ -2619,9 +2625,10 @@ export async function saveAgentReactivationMessageAction(formData: FormData): Pr
   revalidatePath("/cliente");
   revalidatePath("/cliente/agentes");
 
-  if (parsed.data.returnTo) {
-    revalidatePath(parsed.data.returnTo);
-    redirect(`${parsed.data.returnTo}${parsed.data.returnTo.includes("?") ? "&" : "?"}ok=Frase+de+reactivacion+guardada`);
+  const safeReturnTo = normalizeInternalPath(parsed.data.returnTo, "");
+  if (safeReturnTo) {
+    revalidatePath(safeReturnTo);
+    redirect(`${safeReturnTo}${safeReturnTo.includes("?") ? "&" : "?"}ok=Frase+de+reactivacion+guardada`);
   }
 
   redirect("/cliente/agentes?ok=Frase+de+reactivacion+guardada");
@@ -2675,9 +2682,10 @@ export async function saveAgentResponseDelayAction(formData: FormData): Promise<
   revalidatePath("/cliente");
   revalidatePath("/cliente/agentes");
 
-  if (parsed.data.returnTo) {
-    revalidatePath(parsed.data.returnTo);
-    redirect(`${parsed.data.returnTo}${parsed.data.returnTo.includes("?") ? "&" : "?"}ok=Retraso+de+respuesta+guardado`);
+  const safeReturnTo = normalizeInternalPath(parsed.data.returnTo, "");
+  if (safeReturnTo) {
+    revalidatePath(safeReturnTo);
+    redirect(`${safeReturnTo}${safeReturnTo.includes("?") ? "&" : "?"}ok=Retraso+de+respuesta+guardado`);
   }
 
   redirect("/cliente/agentes?ok=Retraso+de+respuesta+guardado");

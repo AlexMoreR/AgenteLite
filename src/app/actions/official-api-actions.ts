@@ -6,6 +6,7 @@ import { z } from "zod";
 import { auth } from "@/auth";
 import { canAccessOfficialApiModule } from "@/lib/admin-module-access";
 import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
+import { normalizeInternalPath } from "@/lib/app-url";
 import { getOfficialApiConfigByWorkspaceId, hasOfficialApiBaseCredentials } from "@/lib/official-api-config";
 import { sendOfficialApiImageMessage, sendOfficialApiTextMessage } from "@/lib/official-api-messaging";
 import { prisma } from "@/lib/prisma";
@@ -36,12 +37,17 @@ export async function sendOfficialApiReplyAction(formData: FormData): Promise<vo
   const fallbackConversationId = String(formData.get("conversationId") || "");
 
   if (!parsed.success) {
-    const fallbackReturnTo = typeof formData.get("returnTo") === "string" ? String(formData.get("returnTo")) : "";
-    if (fallbackReturnTo) {
-      redirect(`${fallbackReturnTo}${fallbackReturnTo.includes("?") ? "&" : "?"}error=No+se+pudo+enviar+el+mensaje`);
+    const safeFallbackReturnTo = normalizeInternalPath(
+      typeof formData.get("returnTo") === "string" ? String(formData.get("returnTo")) : "",
+      "",
+    );
+    if (safeFallbackReturnTo) {
+      redirect(`${safeFallbackReturnTo}${safeFallbackReturnTo.includes("?") ? "&" : "?"}error=No+se+pudo+enviar+el+mensaje`);
     }
     redirect(`/cliente/api-oficial/chats?conversationId=${fallbackConversationId}&error=No+se+pudo+enviar+el+mensaje`);
   }
+
+  const safeReturnTo = normalizeInternalPath(parsed.data.returnTo, "");
 
   const membership = await getPrimaryWorkspaceForUser(session.user.id);
   if (!membership?.workspace.id) {
@@ -75,8 +81,8 @@ export async function sendOfficialApiReplyAction(formData: FormData): Promise<vo
   const conversation = conversationRows[0] ?? null;
 
   if (!conversation?.contactWaId) {
-    if (parsed.data.returnTo) {
-      redirect(`${parsed.data.returnTo}${parsed.data.returnTo.includes("?") ? "&" : "?"}error=No+se+encontro+el+contacto`);
+    if (safeReturnTo) {
+      redirect(`${safeReturnTo}${safeReturnTo.includes("?") ? "&" : "?"}error=No+se+encontro+el+contacto`);
     }
     redirect(`/cliente/api-oficial/chats?conversationId=${fallbackConversationId}&error=No+se+encontro+el+contacto`);
   }
@@ -105,8 +111,8 @@ export async function sendOfficialApiReplyAction(formData: FormData): Promise<vo
       if (!imageResult.ok) {
         revalidatePath("/cliente/api-oficial");
         revalidatePath("/cliente/api-oficial/chats");
-        if (parsed.data.returnTo) {
-          redirect(`${parsed.data.returnTo}${parsed.data.returnTo.includes("?") ? "&" : "?"}error=${encodeURIComponent(imageResult.error)}`);
+        if (safeReturnTo) {
+          redirect(`${safeReturnTo}${safeReturnTo.includes("?") ? "&" : "?"}error=${encodeURIComponent(imageResult.error)}`);
         }
         redirect(`/cliente/api-oficial/chats?conversationId=${conversation.id}&error=${encodeURIComponent(imageResult.error)}`);
       }
@@ -125,8 +131,8 @@ export async function sendOfficialApiReplyAction(formData: FormData): Promise<vo
       if (!textResult.ok) {
         revalidatePath("/cliente/api-oficial");
         revalidatePath("/cliente/api-oficial/chats");
-        if (parsed.data.returnTo) {
-          redirect(`${parsed.data.returnTo}${parsed.data.returnTo.includes("?") ? "&" : "?"}error=${encodeURIComponent(textResult.error)}`);
+        if (safeReturnTo) {
+          redirect(`${safeReturnTo}${safeReturnTo.includes("?") ? "&" : "?"}error=${encodeURIComponent(textResult.error)}`);
         }
         redirect(`/cliente/api-oficial/chats?conversationId=${conversation.id}&error=${encodeURIComponent(textResult.error)}`);
       }
@@ -146,15 +152,15 @@ export async function sendOfficialApiReplyAction(formData: FormData): Promise<vo
       if (!imageResult.ok) {
         revalidatePath("/cliente/api-oficial");
         revalidatePath("/cliente/api-oficial/chats");
-        if (parsed.data.returnTo) {
-          redirect(`${parsed.data.returnTo}${parsed.data.returnTo.includes("?") ? "&" : "?"}error=${encodeURIComponent(imageResult.error)}`);
+        if (safeReturnTo) {
+          redirect(`${safeReturnTo}${safeReturnTo.includes("?") ? "&" : "?"}error=${encodeURIComponent(imageResult.error)}`);
         }
         redirect(`/cliente/api-oficial/chats?conversationId=${conversation.id}&error=${encodeURIComponent(imageResult.error)}`);
       }
     }
 
-    if (parsed.data.returnTo) {
-      revalidatePath(parsed.data.returnTo);
+    if (safeReturnTo) {
+      revalidatePath(safeReturnTo);
     }
     await syncLeadLifecycleForContact({
       workspaceId: membership.workspace.id,
@@ -163,8 +169,8 @@ export async function sendOfficialApiReplyAction(formData: FormData): Promise<vo
     });
     revalidatePath("/cliente/api-oficial");
     revalidatePath("/cliente/api-oficial/chats");
-    if (parsed.data.returnTo) {
-      redirect(`${parsed.data.returnTo}${parsed.data.returnTo.includes("?") ? "&" : "?"}ok=Flujo+enviado`);
+    if (safeReturnTo) {
+      redirect(`${safeReturnTo}${safeReturnTo.includes("?") ? "&" : "?"}ok=Flujo+enviado`);
     }
     redirect(`/cliente/api-oficial/chats?conversationId=${conversation.id}&ok=Flujo+enviado`);
   }
@@ -181,8 +187,8 @@ export async function sendOfficialApiReplyAction(formData: FormData): Promise<vo
   if (!result.ok) {
     revalidatePath("/cliente/api-oficial");
     revalidatePath("/cliente/api-oficial/chats");
-    if (parsed.data.returnTo) {
-      redirect(`${parsed.data.returnTo}${parsed.data.returnTo.includes("?") ? "&" : "?"}error=${encodeURIComponent(result.error)}`);
+    if (safeReturnTo) {
+      redirect(`${safeReturnTo}${safeReturnTo.includes("?") ? "&" : "?"}error=${encodeURIComponent(result.error)}`);
     }
     redirect(`/cliente/api-oficial/chats?conversationId=${conversation.id}&error=${encodeURIComponent(result.error)}`);
   }
@@ -193,13 +199,13 @@ export async function sendOfficialApiReplyAction(formData: FormData): Promise<vo
     hasHistory: true,
   });
 
-  if (parsed.data.returnTo) {
-    revalidatePath(parsed.data.returnTo);
+  if (safeReturnTo) {
+    revalidatePath(safeReturnTo);
   }
   revalidatePath("/cliente/api-oficial");
   revalidatePath("/cliente/api-oficial/chats");
-  if (parsed.data.returnTo) {
-    redirect(`${parsed.data.returnTo}${parsed.data.returnTo.includes("?") ? "&" : "?"}ok=Mensaje+enviado`);
+  if (safeReturnTo) {
+    redirect(`${safeReturnTo}${safeReturnTo.includes("?") ? "&" : "?"}ok=Mensaje+enviado`);
   }
   redirect(`/cliente/api-oficial/chats?conversationId=${conversation.id}&ok=Mensaje+enviado`);
 }

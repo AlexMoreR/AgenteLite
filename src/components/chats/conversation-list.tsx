@@ -242,9 +242,10 @@ export function ConversationList({
         const currentUrl = window.location.pathname + window.location.search;
         if (conversation.href === currentUrl) {
           router.refresh();
-        } else {
-          router.push(conversation.href);
+          return;
         }
+
+        router.push(conversation.href);
       });
       navigationFrameRef.current = null;
     });

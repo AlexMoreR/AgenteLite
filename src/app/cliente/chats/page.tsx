@@ -11,6 +11,7 @@ import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { Card } from "@/components/ui/card";
 import { OfficialApiLockedState, getOfficialApiChatsData } from "@/features/official-api";
 import { canAccessOfficialApiModule } from "@/lib/admin-module-access";
+import { loadAgentConversationDetail } from "@/lib/chat-message-loader";
 import { fetchEvolutionProfilePictureUrl } from "@/lib/evolution";
 import { getEvolutionSettings } from "@/lib/system-settings";
 import { prisma } from "@/lib/prisma";
@@ -133,6 +134,13 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   const selectedChatRef = parseChatKey(selectedChatKeyParam);
 
   const canUseOfficialApiPromise = canAccessOfficialApiModule(session.user.id, session.user.role);
+  const selectedAgentConversationDetailPromise =
+    selectedChatRef?.source === "agent"
+      ? loadAgentConversationDetail({
+          workspaceId: membership.workspace.id,
+          conversationId: selectedChatRef.conversationId,
+        })
+      : null;
   const officialDataPromise = canUseOfficialApiPromise.then((canUseOfficialApi) =>
     canUseOfficialApi
       ? getOfficialApiChatsData({
@@ -485,6 +493,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     automationPaused?: boolean;
     loadMoreHref?: string | null;
     loadMoreCursor?: string | null;
+    hasMoreMessages?: boolean;
     cacheKey?: string | null;
     messages: Array<{
         id: string;
@@ -502,20 +511,35 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   if (selectedUnified?.source === "agent") {
     const selectedContactId = selectedUnified.contactId ?? null;
     const selectedTags = selectedContactId ? getContactTags(contactTagsByContactId.get(selectedContactId) || []) : [];
+    const selectedAgentDetail = selectedAgentConversationDetailPromise ? await selectedAgentConversationDetailPromise : null;
 
     selectedConversation = {
       id: selectedUnified.conversationId,
       label: selectedUnified.label,
       secondaryLabel: selectedUnified.secondaryLabel,
       tags: selectedTags,
-      avatarUrl: selectedUnified.avatarUrl ?? null,
-      contactId: selectedContactId,
-      contactName: selectedUnified.label,
-      automationPaused: false,
+      avatarUrl: selectedAgentDetail?.contact.avatarUrl ?? selectedUnified.avatarUrl ?? null,
+      contactId: selectedAgentDetail?.contact.id ?? selectedContactId,
+      contactName: selectedAgentDetail?.contact.name?.trim() || selectedUnified.label,
+      automationPaused: selectedAgentDetail?.automationPaused ?? false,
       cacheKey: selectedUnified.key,
-      messages: [],
+      messages: (selectedAgentDetail?.messages ?? [])
+        .slice()
+        .reverse()
+        .map((message) => ({
+          id: message.id,
+          content: message.content,
+          direction: message.direction,
+          createdAt: message.createdAt,
+          authorType: message.direction === "OUTBOUND" ? "user" : "bot",
+          outboundStatusLabel: message.direction === "OUTBOUND" ? "enviado" : null,
+          type: message.type ?? undefined,
+          mediaUrl: message.mediaUrl,
+          rawPayload: message.rawPayload,
+        })),
+      hasMoreMessages: selectedAgentDetail?.hasMoreMessages ?? false,
+      loadMoreCursor: selectedAgentDetail?.loadMoreCursor ?? null,
       loadMoreHref: null,
-      loadMoreCursor: null,
     };
   }
 

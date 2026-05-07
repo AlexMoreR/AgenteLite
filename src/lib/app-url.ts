@@ -2,6 +2,25 @@ function normalizeUrl(value: string | null | undefined): string {
   return value?.trim().replace(/\/+$/, "") ?? "";
 }
 
+export function normalizeInternalPath(value: string | null | undefined, fallback = "") {
+  const normalized = value?.trim() ?? "";
+  if (!normalized) {
+    return fallback;
+  }
+
+  // Solo rutas internas absolutas del sitio. Rechazar protocolos, URLs
+  // relativas de red y backslashes para evitar open redirects.
+  if (!normalized.startsWith("/") || normalized.startsWith("//") || normalized.includes("\\")) {
+    return fallback;
+  }
+
+  if (/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(normalized)) {
+    return fallback;
+  }
+
+  return normalized;
+}
+
 function getConfiguredBaseUrl(): string {
   return (
     normalizeUrl(process.env.AUTH_URL) ||

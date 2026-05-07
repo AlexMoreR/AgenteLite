@@ -113,6 +113,16 @@ function normalizeVisitedKey(conversationId: string) {
   return separatorIndex >= 0 ? normalized.slice(separatorIndex + 1) : normalized;
 }
 
+function normalizeConversationCacheKey(conversationId: string) {
+  const normalized = conversationId.trim();
+  if (!normalized) {
+    return "";
+  }
+
+  const separatorIndex = normalized.indexOf(":");
+  return separatorIndex >= 0 ? normalized.slice(separatorIndex + 1) : normalized;
+}
+
 export function markConversationAsVisited(conversationId: string) {
   const normalizedConversationId = normalizeVisitedKey(conversationId);
   if (!normalizedConversationId) {
@@ -274,6 +284,51 @@ export function clearConversationCache() {
 
   try {
     window.localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // Ignore storage failures so cache cleanup never breaks the UI.
+  }
+}
+
+export function clearConversationFromCache(conversationId: string) {
+  if (!isBrowser()) {
+    return;
+  }
+
+  const normalizedConversationId = normalizeConversationCacheKey(conversationId);
+  if (!normalizedConversationId) {
+    return;
+  }
+
+  try {
+    const store = readStore();
+    const nextConversations: Record<string, CachedConversation> = {};
+
+    for (const [key, conversation] of Object.entries(store.conversations)) {
+      const normalizedKey = normalizeConversationCacheKey(key);
+      const normalizedStoredId = normalizeConversationCacheKey(conversation.id);
+      const normalizedCacheKey = conversation.cacheKey ? normalizeConversationCacheKey(conversation.cacheKey) : "";
+
+      if (
+        normalizedKey === normalizedConversationId ||
+        normalizedStoredId === normalizedConversationId ||
+        normalizedCacheKey === normalizedConversationId
+      ) {
+        continue;
+      }
+
+      nextConversations[key] = conversation;
+    }
+
+    writeStore({
+      version: 1,
+      conversations: nextConversations,
+    });
+
+    const visitedStore = readVisitedStore();
+    delete visitedStore[normalizedConversationId];
+    delete visitedStore[`agent:${normalizedConversationId}`];
+    delete visitedStore[`official:${normalizedConversationId}`];
+    writeVisitedStore(visitedStore);
   } catch {
     // Ignore storage failures so cache cleanup never breaks the UI.
   }

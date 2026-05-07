@@ -3,6 +3,7 @@
 import { useRef } from "react";
 import { Trash2 } from "lucide-react";
 import { clearConversationMessagesAction } from "@/app/actions/chats-actions";
+import { clearConversationFromCache } from "@/components/chats/chat-history-cache";
 
 type ClearChatButtonProps = {
   conversationId: string;
@@ -16,6 +17,8 @@ export function ClearChatButton({ conversationId, returnTo }: ClearChatButtonPro
     if (!window.confirm("¿Limpiar este chat? Se eliminarán todos los mensajes permanentemente.")) {
       return;
     }
+
+    clearConversationFromCache(conversationId);
     formRef.current?.requestSubmit();
   }
 
