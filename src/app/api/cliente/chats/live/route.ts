@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { loadAgentConversationDetail } from "@/lib/chat-message-loader";
+import { fetchEvolutionMediaDataUrl } from "@/lib/evolution";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
 function parseChatKey(input: string) {
@@ -50,6 +51,26 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false, error: "Conversacion no encontrada" }, { status: 404 });
   }
 
+  const instanceName = conversation.channel?.evolutionInstanceName?.trim() || null;
+  const messages = await Promise.all(
+    conversation.messages.map(async (message) => {
+      const resolvedMediaUrl =
+        message.type === "AUDIO" && instanceName
+          ? (await fetchEvolutionMediaDataUrl({
+              instanceName,
+              messageId: message.externalId ?? message.id,
+              mediaType: "AUDIO",
+            })) || message.mediaUrl
+          : message.mediaUrl;
+
+      return {
+        ...message,
+        mediaUrl: resolvedMediaUrl,
+        createdAt: message.createdAt.toISOString(),
+      };
+    }),
+  );
+
   return NextResponse.json({
     ok: true,
     conversation: {
@@ -58,10 +79,7 @@ export async function GET(request: Request) {
       secondaryLabel: conversation.contact.phoneNumber,
       avatarUrl: conversation.contact.avatarUrl ?? null,
       contactId: conversation.contact.id,
-      messages: conversation.messages.map((message) => ({
-        ...message,
-        createdAt: message.createdAt.toISOString(),
-      })),
+      messages,
     },
   });
 }

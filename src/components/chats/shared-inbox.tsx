@@ -20,6 +20,7 @@ import {
   SendHorizonal,
   Tag,
   UserRound,
+  X,
 } from "lucide-react";
 import { ChatScrollAnchor } from "@/components/agents/chat-scroll-anchor";
 import { ChatSelectionOverlay } from "@/components/chats/chat-selection-overlay";
@@ -912,6 +913,42 @@ export function SharedInbox({
   // listeners sin declararlos como dependencia (evita re-registro en cada mensaje).
   const selectedConversationRef = useRef(selectedConversation);
   const router = useRouter();
+  const [searchInputValue, setSearchInputValue] = useState(searchQuery);
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    setSearchInputValue(searchQuery);
+  }, [searchQuery]);
+
+  const buildSearchUrl = useCallback(
+    (q: string) => {
+      const params = new URLSearchParams();
+      if (selectedConversationId) params.set("chatKey", selectedConversationId);
+      if (selectedConnectionKey) params.set("connection", selectedConnectionKey);
+      if (q) params.set("q", q);
+      const qs = params.toString();
+      return qs ? `${searchAction}?${qs}` : searchAction;
+    },
+    [searchAction, selectedConversationId, selectedConnectionKey],
+  );
+
+  const handleSearchChange = useCallback(
+    (value: string) => {
+      setSearchInputValue(value);
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+      searchDebounceRef.current = setTimeout(() => {
+        router.replace(buildSearchUrl(value.trim()));
+      }, 350);
+    },
+    [buildSearchUrl, router],
+  );
+
+  const handleSearchClear = useCallback(() => {
+    setSearchInputValue("");
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    router.replace(buildSearchUrl(""));
+  }, [buildSearchUrl, router]);
+
   const [pendingConversation, setPendingConversation] = useState<{
     id: string;
     chatKey?: string | null;
@@ -1504,17 +1541,28 @@ export function SharedInbox({
       >
         <div className="flex min-h-0 w-full flex-col">
           <div className="shrink-0 border-b border-[rgba(148,163,184,0.12)] bg-white px-3 py-2.5 md:px-3 md:py-3">
-            <form className="relative" action={searchAction}>
+            <form className="relative" action={searchAction} onSubmit={() => { if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current); }}>
               <input type="hidden" name="chatKey" value={selectedConversationId} />
               {selectedConnectionKey ? <input type="hidden" name="connection" value={selectedConnectionKey} /> : null}
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
                 name="q"
-                defaultValue={searchQuery}
+                value={searchInputValue}
+                onChange={(e) => handleSearchChange(e.target.value)}
                 placeholder="Buscar chat..."
-                className="h-10 w-full rounded-2xl border border-[rgba(148,163,184,0.14)] bg-slate-50 pl-9 pr-3 text-[14px] text-slate-700 outline-none transition focus:border-[var(--primary)] focus:bg-white md:text-sm"
+                className="h-10 w-full rounded-2xl border border-[rgba(148,163,184,0.14)] bg-slate-50 pl-9 pr-8 text-[14px] text-slate-700 outline-none transition focus:border-[var(--primary)] focus:bg-white md:text-sm"
               />
+              {searchInputValue ? (
+                <button
+                  type="button"
+                  onClick={handleSearchClear}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded text-slate-400 transition hover:text-slate-600 focus:outline-none"
+                  aria-label="Limpiar búsqueda"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              ) : null}
             </form>
           </div>
           <div

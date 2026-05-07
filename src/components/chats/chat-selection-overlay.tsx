@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { MessageSquareText, UserRound } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { readConversationFromCache } from "./chat-history-cache";
 
 type PendingConversationSelection = {
@@ -46,41 +46,10 @@ export function ChatSelectionOverlay({ selectedConversationId }: ChatSelectionOv
   }
 
   return (
-    <div className="pointer-events-none absolute bottom-24 left-1/2 z-30 w-[min(92%,42rem)] -translate-x-1/2 md:bottom-24">
-      <div className="rounded-2xl border border-[rgba(148,163,184,0.16)] bg-white/96 px-4 py-3 shadow-[0_14px_36px_-26px_rgba(15,23,42,0.26)] backdrop-blur">
-        <div className="flex items-center gap-3">
-          {pendingConversation.avatarUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={pendingConversation.avatarUrl}
-              alt={pendingConversation.label}
-              className="h-9 w-9 rounded-2xl object-cover"
-            />
-          ) : (
-            <div className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_10%,white)] text-[var(--primary)]">
-              <UserRound className="h-4.5 w-4.5" />
-            </div>
-          )}
-
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <h3 className="truncate text-sm font-semibold text-slate-950">{pendingConversation.label}</h3>
-              <span className="inline-flex items-center gap-1 rounded-full bg-[color-mix(in_srgb,var(--primary)_10%,white)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--primary)]">
-                <MessageSquareText className="h-3 w-3" />
-                Historial
-              </span>
-            </div>
-            <p className="truncate text-xs text-slate-500">{pendingConversation.secondaryLabel}</p>
-          </div>
-        </div>
-        {pendingConversation.lastMessage ? (
-          <div className="mt-2 flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
-            <span className="inline-flex h-2 w-2 shrink-0 rounded-full bg-[var(--primary)]/60" />
-            <p className="line-clamp-1">
-              {pendingConversation.lastMessage}
-            </p>
-          </div>
-        ) : null}
+    <div className="pointer-events-none absolute left-1/2 top-3 z-30 w-[min(92%,18rem)] -translate-x-1/2">
+      <div className="inline-flex w-full items-center justify-center rounded-full border border-[rgba(148,163,184,0.16)] bg-white/95 px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.12em] text-slate-500 shadow-[0_10px_28px_-22px_rgba(15,23,42,0.25)] backdrop-blur">
+        <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin text-[var(--primary)]" />
+        Historial
       </div>
     </div>
   );
