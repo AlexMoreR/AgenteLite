@@ -563,6 +563,7 @@ function isMediaSourceUrl(url?: string | null) {
   return (
     normalized.startsWith("data:") ||
     normalized.startsWith("blob:") ||
+    normalized.startsWith("/api/media/proxy") ||
     normalized.startsWith("/") ||
     normalized.startsWith("http://") ||
     normalized.startsWith("https://")
@@ -570,11 +571,28 @@ function isMediaSourceUrl(url?: string | null) {
 }
 
 function toProxiedMediaUrl(url: string) {
-  if (url.startsWith("data:") || url.startsWith("blob:")) {
+  if (
+    url.startsWith("data:") ||
+    url.startsWith("blob:") ||
+    url.startsWith("/api/media/proxy")
+  ) {
     return url;
   }
 
   return `/api/media/proxy?url=${encodeURIComponent(url)}`;
+}
+
+function uniquePush(values: string[], candidate?: string | null) {
+  if (!candidate) {
+    return;
+  }
+
+  const normalized = candidate.trim();
+  if (!normalized || values.includes(normalized)) {
+    return;
+  }
+
+  values.push(normalized);
 }
 
 function extractMediaUrlFromPayload(message: SharedInboxMessageItem, type: "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT") {
@@ -713,9 +731,12 @@ function bytesLikeToBase64(value: unknown) {
   return toBase64(numericEntries);
 }
 
-function extractImagePreviewUrl(message: SharedInboxMessageItem) {
+function collectImagePreviewUrls(message: SharedInboxMessageItem) {
+  const previewUrls: string[] = [];
+
   if (isMediaSourceUrl(message.mediaUrl)) {
-    return toProxiedMediaUrl(message.mediaUrl);
+    uniquePush(previewUrls, toProxiedMediaUrl(message.mediaUrl));
+    uniquePush(previewUrls, message.mediaUrl);
   }
 
   const rootPayload = getNestedRecord(message.rawPayload, "evolution") ?? (isObjectRecord(message.rawPayload) ? message.rawPayload : null);
@@ -730,7 +751,8 @@ function extractImagePreviewUrl(message: SharedInboxMessageItem) {
     getNestedString(data, "url");
 
   if (isMediaSourceUrl(directImageUrl)) {
-    return toProxiedMediaUrl(directImageUrl);
+    uniquePush(previewUrls, toProxiedMediaUrl(directImageUrl));
+    uniquePush(previewUrls, directImageUrl);
   }
 
   const thumbnailBytes =
@@ -740,7 +762,11 @@ function extractImagePreviewUrl(message: SharedInboxMessageItem) {
 
   const base64 = bytesLikeToBase64(thumbnailBytes);
 
-  return base64 ? `data:image/jpeg;base64,${base64}` : isMediaSourceUrl(message.mediaUrl) ? toProxiedMediaUrl(message.mediaUrl) : null;
+  if (base64) {
+    uniquePush(previewUrls, `data:image/jpeg;base64,${base64}`);
+  }
+
+  return previewUrls;
 }
 
 function extractChatAdPreview(rawPayload: unknown): ChatAdPreview | null {
@@ -778,17 +804,40 @@ const MessageBubble = memo(function MessageBubble({
   message: SharedInboxMessageItem;
   previousMessage: SharedInboxMessageItem | undefined;
 }) {
-  const [imageLoadFailed, setImageLoadFailed] = useState(false);
+  const [imagePreviewIndex, setImagePreviewIndex] = useState(0);
   const outbound = message.direction === "OUTBOUND";
   const currentDateKey = chatDateFormatter.format(message.createdAt);
   const previousDateKey = previousMessage ? chatDateFormatter.format(previousMessage.createdAt) : null;
   const showDateDivider = currentDateKey !== previousDateKey;
-  const adPreview = extractChatAdPreview(message.rawPayload);
-  const imagePreviewUrl = extractImagePreviewUrl(message);
-  const audioUrl = message.type === "AUDIO" ? extractMediaUrlFromPayload(message, "AUDIO") : null;
-  const videoUrl = message.type === "VIDEO" ? extractMediaUrlFromPayload(message, "VIDEO") : null;
-  const documentUrl = message.type === "DOCUMENT" ? extractMediaUrlFromPayload(message, "DOCUMENT") : null;
+  const adPreview = useMemo(() => extractChatAdPreview(message.rawPayload), [message.rawPayload]);
+  const imagePreviewUrls = useMemo(() => collectImagePreviewUrls(message), [
+    message.mediaUrl,
+    message.rawPayload,
+  ]);
+  const imagePreviewUrl = imagePreviewUrls[imagePreviewIndex] ?? null;
+  const audioUrl = useMemo(
+    () => (message.type === "AUDIO" ? extractMediaUrlFromPayload(message, "AUDIO") : null),
+    [message.mediaUrl, message.rawPayload, message.type],
+  );
+  const videoUrl = useMemo(
+    () => (message.type === "VIDEO" ? extractMediaUrlFromPayload(message, "VIDEO") : null),
+    [message.mediaUrl, message.rawPayload, message.type],
+  );
+  const documentUrl = useMemo(
+    () => (message.type === "DOCUMENT" ? extractMediaUrlFromPayload(message, "DOCUMENT") : null),
+    [message.mediaUrl, message.rawPayload, message.type],
+  );
   const isOptimistic = "isOptimistic" in message && Boolean((message as { isOptimistic?: boolean }).isOptimistic);
+
+  const handleImageError = () => {
+    setImagePreviewIndex((current) => {
+      const nextIndex = current + 1;
+      return nextIndex < imagePreviewUrls.length ? nextIndex : current;
+    });
+  };
+
+  const hasImagePreview = imagePreviewUrl !== null;
+  const imagePreviewExhausted = imagePreviewUrls.length > 0 && !hasImagePreview;
 
   return (
     <div
@@ -860,7 +909,7 @@ const MessageBubble = memo(function MessageBubble({
               </div>
               {renderMessageText(message.content)}
             </div>
-          ) : imagePreviewUrl && !imageLoadFailed ? (
+          ) : hasImagePreview ? (
             <div className="space-y-2">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
@@ -868,12 +917,12 @@ const MessageBubble = memo(function MessageBubble({
                 alt={message.content?.trim() || "Imagen del chat"}
                 loading="lazy"
                 decoding="async"
-                onError={() => setImageLoadFailed(true)}
+                onError={handleImageError}
                 className="max-h-[320px] w-full rounded-xl object-cover"
               />
               {renderMessageText(message.content)}
             </div>
-          ) : imagePreviewUrl ? (
+          ) : imagePreviewExhausted ? (
             <div className="space-y-2">
               <div className={`flex h-[180px] w-full items-center justify-center rounded-xl border border-dashed ${
                 outbound ? "border-white/20 bg-white/10 text-white/80" : "border-[rgba(148,163,184,0.22)] bg-slate-50 text-slate-500"

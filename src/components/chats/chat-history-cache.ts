@@ -24,12 +24,39 @@ const CACHE_SAVE_DEBOUNCE_MS = 120;
 
 const pendingConversationSaves = new Map<string, SharedInboxSelectedConversation>();
 let pendingSaveTimer: ReturnType<typeof setTimeout> | null = null;
+let cachedStore: ConversationCacheStore | null = null;
+let cachedVisitedStore: Record<string, number> | null = null;
+let storageListenerAttached = false;
 
 function isBrowser() {
   return typeof window !== "undefined";
 }
 
+function invalidateCaches(event?: StorageEvent) {
+  if (event && event.key && event.key !== STORAGE_KEY && event.key !== VISITED_STORAGE_KEY) {
+    return;
+  }
+
+  cachedStore = null;
+  cachedVisitedStore = null;
+}
+
+function ensureStorageListeners() {
+  if (!isBrowser() || storageListenerAttached) {
+    return;
+  }
+
+  window.addEventListener("storage", invalidateCaches);
+  storageListenerAttached = true;
+}
+
 function readStore(): ConversationCacheStore {
+  ensureStorageListeners();
+
+  if (cachedStore) {
+    return cachedStore;
+  }
+
   if (!isBrowser()) {
     return { version: 1, conversations: {} };
   }
@@ -45,6 +72,7 @@ function readStore(): ConversationCacheStore {
       return { version: 1, conversations: {} };
     }
 
+    cachedStore = parsed;
     return parsed;
   } catch {
     return { version: 1, conversations: {} };
@@ -52,6 +80,8 @@ function readStore(): ConversationCacheStore {
 }
 
 function writeStore(store: ConversationCacheStore) {
+  cachedStore = store;
+
   if (!isBrowser()) {
     return;
   }
@@ -64,6 +94,12 @@ function writeStore(store: ConversationCacheStore) {
 }
 
 function readVisitedStore(): Record<string, number> {
+  ensureStorageListeners();
+
+  if (cachedVisitedStore) {
+    return cachedVisitedStore;
+  }
+
   if (!isBrowser()) {
     return {};
   }
@@ -79,6 +115,7 @@ function readVisitedStore(): Record<string, number> {
       return {};
     }
 
+    cachedVisitedStore = parsed;
     return parsed;
   } catch {
     return {};
@@ -86,6 +123,8 @@ function readVisitedStore(): Record<string, number> {
 }
 
 function writeVisitedStore(store: Record<string, number>) {
+  cachedVisitedStore = store;
+
   if (!isBrowser()) {
     return;
   }
@@ -182,26 +221,48 @@ function normalizeConversationStoreKey(conversationId: string) {
   return separatorIndex >= 0 ? normalized.slice(separatorIndex + 1) : normalized;
 }
 
-function mergeCachedMessages(existing: CachedMessageItem[] | SharedInboxSelectedConversation["messages"], next: CachedMessageItem[] | SharedInboxSelectedConversation["messages"]) {
-  const messages = new Map<string, CachedMessageItem>();
+function getMessageCreatedAtTime(message: CachedMessageItem | SharedInboxSelectedConversation["messages"][number]) {
+  return typeof message.createdAt === "string" ? new Date(message.createdAt).getTime() : message.createdAt.getTime();
+}
+
+function areMergedMessagesEqual(
+  left: CachedMessageItem | SharedInboxSelectedConversation["messages"][number],
+  right: CachedMessageItem | SharedInboxSelectedConversation["messages"][number],
+) {
+  return (
+    left.id === right.id &&
+    left.content === right.content &&
+    left.direction === right.direction &&
+    left.authorType === right.authorType &&
+    left.outboundStatusLabel === right.outboundStatusLabel &&
+    left.type === right.type &&
+    left.mediaUrl === right.mediaUrl &&
+    getMessageCreatedAtTime(left) === getMessageCreatedAtTime(right)
+  );
+}
+
+function mergeCachedMessages(
+  existing: CachedMessageItem[] | SharedInboxSelectedConversation["messages"],
+  next: CachedMessageItem[] | SharedInboxSelectedConversation["messages"],
+) {
+  const messages = new Map<string, CachedMessageItem | SharedInboxSelectedConversation["messages"][number]>();
 
   for (const message of existing) {
-    messages.set(message.id, {
-      ...message,
-      createdAt: typeof message.createdAt === "string" ? message.createdAt : message.createdAt.toISOString(),
-    });
+    messages.set(message.id, message);
   }
 
   for (const message of next) {
-    messages.set(message.id, {
-      ...message,
-      createdAt: typeof message.createdAt === "string" ? message.createdAt : message.createdAt.toISOString(),
-    });
+    const existingMessage = messages.get(message.id);
+    if (existingMessage && areMergedMessagesEqual(existingMessage, message)) {
+      continue;
+    }
+
+    messages.set(message.id, message);
   }
 
   return Array.from(messages.values()).sort((left, right) => {
-    const leftAt = new Date(left.createdAt).getTime();
-    const rightAt = new Date(right.createdAt).getTime();
+    const leftAt = getMessageCreatedAtTime(left);
+    const rightAt = getMessageCreatedAtTime(right);
 
     if (leftAt !== rightAt) {
       return leftAt - rightAt;
@@ -226,10 +287,7 @@ export function mergeConversationSnapshots(
   return {
     ...existing,
     ...next,
-    messages: mergeCachedMessages(existing.messages, next.messages).map((message) => ({
-      ...message,
-      createdAt: typeof message.createdAt === "string" ? new Date(message.createdAt) : message.createdAt,
-    })),
+    messages: mergeCachedMessages(existing.messages, next.messages) as SharedInboxSelectedConversation["messages"],
   };
 }
 
@@ -336,6 +394,9 @@ export function clearConversationCache() {
     window.clearTimeout(pendingSaveTimer);
     pendingSaveTimer = null;
   }
+
+  cachedStore = { version: 1, conversations: {} };
+  cachedVisitedStore = {};
 
   try {
     window.localStorage.removeItem(STORAGE_KEY);
