@@ -358,16 +358,12 @@ export function saveConversationToCache(conversation: SharedInboxSelectedConvers
     return;
   }
 
-  const cacheKey = normalizeConversationStoreKey(conversation.cacheKey ?? "");
   const conversationKey = normalizeConversationStoreKey(conversation.id);
   if (!conversationKey) {
     return;
   }
 
   pendingConversationSaves.set(conversationKey, conversation);
-  if (cacheKey && cacheKey !== conversationKey) {
-    pendingConversationSaves.set(cacheKey, conversation);
-  }
 
   if (pendingSaveTimer !== null) {
     window.clearTimeout(pendingSaveTimer);
@@ -385,17 +381,14 @@ export function saveConversationToCache(conversation: SharedInboxSelectedConvers
 
     for (const pendingConversation of pendingConversationSaves.values()) {
       const cachedConversation = serializeConversation(pendingConversation);
-      const existingConversation =
-        store.conversations[pendingConversation.id] ??
-        (pendingConversation.cacheKey ? store.conversations[pendingConversation.cacheKey] : null) ??
-        null;
+      const existingConversation = store.conversations[pendingConversation.id] ?? null;
       const mergedConversation = mergeCachedConversations(existingConversation, cachedConversation);
 
       store.conversations[pendingConversation.id] = mergedConversation;
       visitedStore[normalizeConversationStoreKey(pendingConversation.id)] = Date.now();
 
       if (pendingConversation.cacheKey && pendingConversation.cacheKey !== pendingConversation.id) {
-        store.conversations[pendingConversation.cacheKey] = mergedConversation;
+        delete store.conversations[pendingConversation.cacheKey];
         visitedStore[normalizeConversationStoreKey(pendingConversation.cacheKey)] = Date.now();
       }
     }
@@ -412,7 +405,12 @@ export function readConversationFromCache(conversationId: string) {
   }
 
   const store = readStore();
-  const cached = store.conversations[conversationId] ?? store.conversations[conversationId.split(":").slice(1).join(":")] ?? null;
+  const normalizedConversationId = normalizeConversationCacheKey(conversationId);
+  const cached =
+    store.conversations[conversationId] ??
+    store.conversations[normalizedConversationId] ??
+    store.conversations[conversationId.split(":").slice(1).join(":")] ??
+    null;
   return cached ? hydrateConversation(cached) : null;
 }
 
