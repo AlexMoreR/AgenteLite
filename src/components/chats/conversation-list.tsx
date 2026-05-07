@@ -223,10 +223,7 @@ export function ConversationList({
 
   const handleSelect = useCallback((conversation: SharedInboxConversationItem) => {
     setPendingId(conversation.id);
-    const cachedConversation = readConversationFromCache(conversation.id);
-    if (!cachedConversation) {
-      emitPendingSelection(conversation);
-    }
+    emitPendingSelection(conversation);
     startTransition(() => {
       // Si ya estamos en la misma URL (conversación sin datos en Prisma aún),
       // router.push sería no-op — usar refresh() para re-ejecutar el server component.
@@ -329,3 +326,4 @@ export function ConversationList({
     </>
   );
 }
+

@@ -9,9 +9,8 @@ import { FormActionSwitch } from "@/components/ui/form-action-switch";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { Card } from "@/components/ui/card";
 import { OfficialApiLockedState, getOfficialApiChatsData } from "@/features/official-api";
-import { loadAgentConversationDetail } from "@/lib/chat-message-loader";
 import { canAccessOfficialApiModule } from "@/lib/admin-module-access";
-import { fetchEvolutionMediaDataUrl, fetchEvolutionProfilePictureUrl } from "@/lib/evolution";
+import { fetchEvolutionProfilePictureUrl } from "@/lib/evolution";
 import { getEvolutionSettings } from "@/lib/system-settings";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
@@ -20,9 +19,7 @@ import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-const CHAT_MESSAGE_BATCH_SIZE = 20;
 const CHAT_MESSAGE_MAX_BATCHES = 5;
-const CHAT_MESSAGE_MEDIA_RESOLUTION_LIMIT = 16;
 const CHAT_MESSAGE_SCROLL_PRESERVE_QUERY = "preserve";
 
 type PageProps = {
@@ -92,44 +89,6 @@ function clampMessagePage(value: number) {
   return Math.min(value, CHAT_MESSAGE_MAX_BATCHES);
 }
 
-function isRenderableMediaUrl(mediaUrl?: string | null) {
-  if (!mediaUrl) {
-    return false;
-  }
-
-  const normalized = mediaUrl.trim().toLowerCase();
-  return (
-    normalized.startsWith("data:") ||
-    normalized.startsWith("blob:") ||
-    normalized.startsWith("http://") ||
-    normalized.startsWith("https://")
-  );
-}
-
-function shouldResolveEvolutionMedia(mediaUrl?: string | null) {
-  if (!mediaUrl) {
-    return true;
-  }
-
-  const normalized = mediaUrl.toLowerCase();
-  if (!isRenderableMediaUrl(mediaUrl)) {
-    return true;
-  }
-
-  return normalized.includes("mmg.whatsapp.net") || normalized.includes(".enc");
-}
-
-function getRenderableEvolutionMessageId(input: { externalId?: string | null; id: string }) {
-  return input.externalId?.trim() || input.id;
-}
-
-function getEvolutionMediaTypeForMessage(input: { type?: string | null }) {
-  if (input.type === "AUDIO") return "AUDIO" as const;
-  if (input.type === "VIDEO") return "VIDEO" as const;
-  if (input.type === "DOCUMENT") return "DOCUMENT" as const;
-  return "IMAGE" as const;
-}
-
 export default async function ClienteChatsPage({ searchParams }: PageProps) {
   const session = await auth();
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
@@ -166,7 +125,6 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   const selectedConnectionParam = typeof params.connection === "string" ? params.connection : "";
   const searchQuery = typeof params.q === "string" ? params.q.trim() : "";
   const messagePage = clampMessagePage(parsePositiveInteger(typeof params.messagePage === "string" ? params.messagePage : undefined, 1));
-  const messageBeforeId = typeof params.beforeMessageId === "string" ? params.beforeMessageId.trim() : "";
   const okMessage = typeof params.ok === "string" ? params.ok : "";
   const errorMessage = typeof params.error === "string" ? params.error : "";
   const scrollMode = typeof params.scroll === "string" ? params.scroll : "";
@@ -174,16 +132,6 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   const selectedChatRef = parseChatKey(selectedChatKeyParam);
 
   const canUseOfficialApi = await canAccessOfficialApiModule(session.user.id, session.user.role);
-  const selectedAgentConversationId = selectedChatRef?.source === "agent" ? selectedChatRef.conversationId : "";
-  const selectedAgentConversationPromise =
-    selectedAgentConversationId
-      ? loadAgentConversationDetail({
-          workspaceId: membership.workspace.id,
-          conversationId: selectedAgentConversationId,
-          beforeMessageId: messageBeforeId || null,
-          batchSize: CHAT_MESSAGE_BATCH_SIZE,
-        })
-      : null;
   const officialDataPromise =
     canUseOfficialApi
       ? getOfficialApiChatsData({
@@ -535,102 +483,23 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   } | null = null;
 
   if (selectedUnified?.source === "agent") {
-    const detail = selectedAgentConversationPromise ? await selectedAgentConversationPromise : null;
+    const selectedContactId = selectedUnified.contactId ?? null;
+    const selectedTags = selectedContactId ? getContactTags(contactTagsByContactId.get(selectedContactId) || []) : [];
 
-    if (detail) {
-      const detailChannel = detail.channel?.evolutionInstanceName
-        ? { evolutionInstanceName: detail.channel.evolutionInstanceName }
-        : selectedUnified.channelId
-          ? channelsById.get(selectedUnified.channelId) || null
-          : null;
-      const hasMoreMessages = detail.hasMoreMessages && messagePage < CHAT_MESSAGE_MAX_BATCHES;
-      const renderableMessages = detail.messages.reverse();
-      const mediaResolutionStartIndex = Math.max(0, renderableMessages.length - CHAT_MESSAGE_MEDIA_RESOLUTION_LIMIT);
-
-      const resolvedMessages = await Promise.all(
-        renderableMessages.map(async (message, index) => {
-          const outbound = message.direction === "OUTBOUND";
-          const isManualOutbound =
-            outbound &&
-            typeof message.rawPayload === "object" &&
-            message.rawPayload !== null &&
-            "source" in message.rawPayload &&
-            (message.rawPayload.source === "manual" || message.rawPayload.source === "instance");
-
-          const shouldResolveMedia =
-            Boolean(detailChannel?.evolutionInstanceName) &&
-            ["IMAGE", "AUDIO", "VIDEO", "DOCUMENT"].includes(message.type || "") &&
-            (message.type === "AUDIO" || shouldResolveEvolutionMedia(message.mediaUrl)) &&
-            index >= mediaResolutionStartIndex;
-
-          const resolvedMediaUrl =
-            shouldResolveMedia && detailChannel?.evolutionInstanceName
-              ? (await fetchEvolutionMediaDataUrl({
-                  instanceName: detailChannel.evolutionInstanceName,
-                  messageId: getRenderableEvolutionMessageId(message),
-                  mediaType: getEvolutionMediaTypeForMessage({ type: message.type }),
-                  mimeType:
-                    message.type === "AUDIO"
-                      ? "audio/ogg"
-                      : message.type === "VIDEO"
-                        ? "video/mp4"
-                        : message.type === "DOCUMENT"
-                          ? "application/octet-stream"
-                          : "image/jpeg",
-                })) || message.mediaUrl
-              : message.mediaUrl;
-
-          return {
-            id: message.id,
-            content: message.content,
-            direction: message.direction,
-            createdAt: message.createdAt,
-            authorType: (outbound ? (isManualOutbound ? "user" : "bot") : "user") as "user" | "bot",
-            outboundStatusLabel: outbound ? "entregado" : null,
-            type: message.type,
-            mediaUrl: resolvedMediaUrl,
-            rawPayload: message.rawPayload,
-          };
-        }),
-      );
-
-      const avatarUrl = detail.contact.avatarUrl ?? selectedUnified.avatarUrl ?? null;
-      const tags = getContactTags(contactTagsByContactId.get(detail.contact.id) || []);
-      if (!detail.contact.avatarUrl && detailChannel?.evolutionInstanceName && detail.contact.phoneNumber) {
-        void fetchEvolutionProfilePictureUrl({
-          instanceName: detailChannel.evolutionInstanceName,
-          phoneNumber: detail.contact.phoneNumber,
-        }).then((fetchedAvatar) => {
-          if (fetchedAvatar) {
-            void prisma.contact.update({ where: { id: detail.contact.id }, data: { avatarUrl: fetchedAvatar } });
-          }
-        }).catch(() => null);
-      }
-
-      selectedConversation = {
-        id: detail.id,
-        label: getAgentContactLabel(detail.contact),
-        secondaryLabel: detail.contact.phoneNumber,
-        tags,
-        avatarUrl,
-        contactId: detail.contact.id,
-        contactName: detail.contact.name ?? null,
-        automationPaused: detail.automationPaused,
-        cacheKey: selectedUnified.key,
-        messages: resolvedMessages,
-        loadMoreHref: hasMoreMessages
-          ? `/cliente/chats?${new URLSearchParams([
-              ["chatKey", selectedUnified.key],
-              ...(selectedConnectionKey ? [["connection", selectedConnectionKey]] : []),
-              ...(searchQuery ? [["q", searchQuery]] : []),
-              ["messagePage", String(Math.min(messagePage + 1, CHAT_MESSAGE_MAX_BATCHES))],
-              ...(detail.loadMoreCursor ? [["beforeMessageId", detail.loadMoreCursor]] : []),
-              ["scroll", CHAT_MESSAGE_SCROLL_PRESERVE_QUERY],
-            ]).toString()}`
-          : null,
-        loadMoreCursor: detail.loadMoreCursor,
-      };
-    }
+    selectedConversation = {
+      id: selectedUnified.conversationId,
+      label: selectedUnified.label,
+      secondaryLabel: selectedUnified.secondaryLabel,
+      tags: selectedTags,
+      avatarUrl: selectedUnified.avatarUrl ?? null,
+      contactId: selectedContactId,
+      contactName: selectedUnified.label,
+      automationPaused: false,
+      cacheKey: selectedUnified.key,
+      messages: [],
+      loadMoreHref: null,
+      loadMoreCursor: null,
+    };
   }
 
   if (selectedUnified?.source === "official" && officialData?.selectedConversation) {

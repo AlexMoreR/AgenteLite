@@ -117,6 +117,33 @@ type ConversationTagsUpdateDetail = {
   }>;
 };
 
+type PendingConversationSelection = {
+  id: string;
+  label: string;
+  secondaryLabel: string;
+  avatarUrl?: string | null;
+  lastMessage?: string | null;
+  channelType?: SharedInboxConversationItem["channelType"];
+  cacheKey?: string | null;
+  hasCache?: boolean;
+};
+
+function buildPendingConversationPreview(
+  pendingConversation: PendingConversationSelection,
+): SharedInboxSelectedConversation {
+  return {
+    id: pendingConversation.id,
+    label: pendingConversation.label,
+    secondaryLabel: pendingConversation.secondaryLabel,
+    avatarUrl: pendingConversation.avatarUrl ?? null,
+    tags: [],
+    contactId: null,
+    contactName: null,
+    messages: [],
+    cacheKey: pendingConversation.cacheKey ?? pendingConversation.id,
+  };
+}
+
 export type SharedInboxSidebarItem = {
   id: string;
   label: string;
@@ -889,11 +916,7 @@ export function SharedInbox({
 
       setPendingConversation(nextConversation);
       const cachedConversation = readConversationFromCache(nextConversation.id);
-      if (cachedConversation) {
-        setOptimisticConversation(cachedConversation);
-      } else {
-        setOptimisticConversation(null);
-      }
+      setOptimisticConversation(cachedConversation ?? buildPendingConversationPreview(nextConversation));
     }
 
     window.addEventListener("chat-selection-pending", handlePendingSelection as EventListener);
@@ -1048,6 +1071,67 @@ export function SharedInbox({
     window.addEventListener("chat-tags-updated", handleTagsUpdate as EventListener);
     return () => window.removeEventListener("chat-tags-updated", handleTagsUpdate as EventListener);
   }, []);
+
+  useEffect(() => {
+    const normalizedSelectedConversationId = selectedConversationId.trim();
+
+    if (!normalizedSelectedConversationId.startsWith("agent:")) {
+      return;
+    }
+
+    const hasLoadedMessages =
+      (selectedConversation?.messages.length ?? 0) > 0 ||
+      (cachedSelectedConversation?.messages.length ?? 0) > 0 ||
+      (liveConversation?.id === selectedConversationId && (liveConversation.messages.length ?? 0) > 0);
+
+    if (hasLoadedMessages) {
+      return;
+    }
+
+    const controller = new AbortController();
+    let cancelled = false;
+
+    async function loadSelectedConversationDetail() {
+      try {
+        const response = await fetch(`/api/cliente/chats/live?chatKey=${encodeURIComponent(normalizedSelectedConversationId)}`, {
+          credentials: "same-origin",
+          cache: "no-store",
+          signal: controller.signal,
+        });
+
+        if (!response.ok || cancelled) {
+          return;
+        }
+
+        const payload = (await response.json().catch(() => null)) as
+          | { ok?: boolean; conversation?: unknown }
+          | null;
+
+        if (!payload?.ok || !payload.conversation || cancelled) {
+          return;
+        }
+
+        const snapshot = normalizeLiveConversationSnapshot(payload.conversation);
+        if (!snapshot || cancelled) {
+          return;
+        }
+
+        setLiveConversation((current) => {
+          const base = current && current.id === snapshot.id ? current : (selectedConversationRef.current ?? selectedConversation ?? null);
+          return mergeConversationSnapshots(base, snapshot);
+        });
+      } catch {
+        // Intentional no-op: si falla, la vista cacheada/preview sigue siendo usable.
+      }
+    }
+
+    void loadSelectedConversationDetail();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [cachedSelectedConversation?.messages.length, liveConversation, selectedConversation, selectedConversationId]);
 
   useEffect(() => {
     if (!pendingConversation?.id || pendingConversation.id === selectedConversationId) {
