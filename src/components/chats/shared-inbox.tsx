@@ -1005,6 +1005,8 @@ export function SharedInbox({
     selectedConversationRef.current = selectedConversation;
   }, [selectedConversation]);
 
+  const selectedConversationVisited = hasConversationBeenVisited((pendingConversation?.chatKey ?? selectedConversationId).trim());
+
   useEffect(() => {
     setConversationItems((current) => {
       if (current.length === 0) {
@@ -1303,7 +1305,9 @@ export function SharedInbox({
 
   const effectiveLiveConversation =
     liveConversation && conversationIdMatchesKey(selectedConversationId, liveConversation.id) ? liveConversation : null;
-  const liveOrCachedConversation = mergeConversationSnapshots(selectedConversation ?? null, effectiveLiveConversation ?? cachedSelectedConversation);
+  const liveOrCachedConversation = selectedConversationVisited && cachedSelectedConversation
+    ? mergeConversationSnapshots(cachedSelectedConversation, effectiveLiveConversation)
+    : mergeConversationSnapshots(selectedConversation ?? null, effectiveLiveConversation ?? cachedSelectedConversation);
   const pendingConversationPreview =
     pendingConversation && optimisticConversation && pendingConversation.id === optimisticConversation.id
       ? optimisticConversation
