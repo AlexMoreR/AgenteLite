@@ -284,10 +284,42 @@ export function mergeConversationSnapshots(
     return existing;
   }
 
+  const nextMessagesById = new Map(next.messages.map((message) => [message.id, message]));
+  const mergedMessages: SharedInboxSelectedConversation["messages"] = [];
+
+  for (const existingMessage of existing.messages) {
+    const nextMessage = nextMessagesById.get(existingMessage.id);
+    if (!nextMessage) {
+      mergedMessages.push(existingMessage);
+      continue;
+    }
+
+    if (areMergedMessagesEqual(existingMessage, nextMessage)) {
+      mergedMessages.push(existingMessage);
+    } else {
+      mergedMessages.push(nextMessage);
+    }
+
+    nextMessagesById.delete(existingMessage.id);
+  }
+
+  for (const nextMessage of nextMessagesById.values()) {
+    mergedMessages.push(nextMessage);
+  }
+
   return {
     ...existing,
     ...next,
-    messages: mergeCachedMessages(existing.messages, next.messages) as SharedInboxSelectedConversation["messages"],
+    messages: mergedMessages.sort((left, right) => {
+      const leftAt = getMessageCreatedAtTime(left);
+      const rightAt = getMessageCreatedAtTime(right);
+
+      if (leftAt !== rightAt) {
+        return leftAt - rightAt;
+      }
+
+      return left.id.localeCompare(right.id);
+    }),
   };
 }
 

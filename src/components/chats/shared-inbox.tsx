@@ -707,7 +707,15 @@ function bytesLikeToBase64(value: unknown) {
       binary += String.fromCharCode(byte);
     }
 
-    return window.btoa(binary);
+    if (typeof window !== "undefined" && typeof window.btoa === "function") {
+      return window.btoa(binary);
+    }
+
+    if (typeof Buffer !== "undefined") {
+      return Buffer.from(binary, "binary").toString("base64");
+    }
+
+    return null;
   };
 
   if (value instanceof Uint8Array) {
@@ -809,23 +817,20 @@ const MessageBubble = memo(function MessageBubble({
   const currentDateKey = chatDateFormatter.format(message.createdAt);
   const previousDateKey = previousMessage ? chatDateFormatter.format(previousMessage.createdAt) : null;
   const showDateDivider = currentDateKey !== previousDateKey;
-  const adPreview = useMemo(() => extractChatAdPreview(message.rawPayload), [message.rawPayload]);
-  const imagePreviewUrls = useMemo(() => collectImagePreviewUrls(message), [
-    message.mediaUrl,
-    message.rawPayload,
-  ]);
+  const adPreview = useMemo(() => extractChatAdPreview(message.rawPayload), [message]);
+  const imagePreviewUrls = useMemo(() => collectImagePreviewUrls(message), [message]);
   const imagePreviewUrl = imagePreviewUrls[imagePreviewIndex] ?? null;
   const audioUrl = useMemo(
     () => (message.type === "AUDIO" ? extractMediaUrlFromPayload(message, "AUDIO") : null),
-    [message.mediaUrl, message.rawPayload, message.type],
+    [message],
   );
   const videoUrl = useMemo(
     () => (message.type === "VIDEO" ? extractMediaUrlFromPayload(message, "VIDEO") : null),
-    [message.mediaUrl, message.rawPayload, message.type],
+    [message],
   );
   const documentUrl = useMemo(
     () => (message.type === "DOCUMENT" ? extractMediaUrlFromPayload(message, "DOCUMENT") : null),
-    [message.mediaUrl, message.rawPayload, message.type],
+    [message],
   );
   const isOptimistic = "isOptimistic" in message && Boolean((message as { isOptimistic?: boolean }).isOptimistic);
 
@@ -1091,6 +1096,17 @@ export function SharedInbox({
   useEffect(() => {
     selectedConversationRef.current = selectedConversation;
   }, [selectedConversation]);
+
+  useEffect(() => {
+    if (pendingConversation?.id && pendingConversation.id !== selectedConversationId) {
+      setPendingConversation(null);
+      setOptimisticConversation(null);
+    }
+
+    if (liveConversation && !conversationIdMatchesKey(selectedConversationId, liveConversation.id)) {
+      setLiveConversation(null);
+    }
+  }, [liveConversation, pendingConversation?.id, selectedConversationId]);
 
   const selectedConversationKey = (pendingConversation?.chatKey ?? selectedConversationId).trim();
   const selectedConversationCache = useMemo(
@@ -1483,10 +1499,13 @@ export function SharedInbox({
   );
   const pendingConversationPreview = useMemo(
     () =>
-      pendingConversation && optimisticConversation && conversationIdMatchesKey(pendingConversation.id, optimisticConversation.id)
+      pendingConversation &&
+      pendingConversation.id === selectedConversationId &&
+      optimisticConversation &&
+      conversationIdMatchesKey(pendingConversation.id, optimisticConversation.id)
         ? optimisticConversation
         : null,
-    [optimisticConversation, pendingConversation],
+    [optimisticConversation, pendingConversation, selectedConversationId],
   );
 
   const renderedConversation = useMemo(() => {
