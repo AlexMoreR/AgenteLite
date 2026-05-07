@@ -1008,6 +1008,9 @@ export function SharedInbox({
 
   const selectedConversationKey = (pendingConversation?.chatKey ?? selectedConversationId).trim();
   const selectedConversationCache = selectedConversationKey ? readConversationFromCache(selectedConversationKey) : null;
+  const selectedConversationMatchesCurrentKey =
+    Boolean(selectedConversation && conversationIdMatchesKey(selectedConversation.id, selectedConversationKey));
+  const currentSelectedConversation = selectedConversationMatchesCurrentKey ? selectedConversation : null;
   const cachedConversationForCurrentSelection =
     cachedSelectedConversation && conversationIdMatchesKey(cachedSelectedConversation.id, selectedConversationKey)
       ? cachedSelectedConversation
@@ -1242,7 +1245,7 @@ export function SharedInbox({
     }
 
     const hasLoadedMessages =
-      (selectedConversation?.messages.length ?? 0) > 0 ||
+      (currentSelectedConversation?.messages.length ?? 0) > 0 ||
       (cachedConversationForCurrentSelection?.messages.length ?? 0) > 0 ||
       (liveConversation && conversationIdMatchesKey(liveConversation.id, normalizedSelectedConversationId) && (liveConversation.messages.length ?? 0) > 0);
 
@@ -1315,7 +1318,7 @@ export function SharedInbox({
   const effectiveLiveConversation =
     liveConversation && conversationIdMatchesKey(selectedConversationId, liveConversation.id) ? liveConversation : null;
   const liveOrCachedConversation = mergeConversationSnapshots(
-    selectedConversation ?? null,
+    currentSelectedConversation ?? null,
     effectiveLiveConversation ?? selectedConversationCache ?? cachedConversationForCurrentSelection,
   );
   const pendingConversationPreview =
@@ -1387,7 +1390,7 @@ export function SharedInbox({
     !optimisticDraftMatchesLatestMessage
       ? [...renderedConversation.messages, optimisticOutgoingMessage]
       : renderedConversation?.messages ?? [];
-  const hasSettledConversation = Boolean(renderedConversation && selectedConversation && renderedConversation.id === selectedConversation.id);
+  const hasSettledConversation = Boolean(renderedConversation && currentSelectedConversation && renderedConversation.id === currentSelectedConversation.id);
   const hasMobileSelection = Boolean(renderedConversation || pendingConversation || selectedConversationId);
   const composerHiddenFields = composer
     ? buildComposerHiddenFields(
