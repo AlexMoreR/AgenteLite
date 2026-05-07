@@ -20,6 +20,10 @@ const STORAGE_KEY = "aglite:chat-history-cache:v1";
 const VISITED_STORAGE_KEY = "aglite:chat-visited:v1";
 const MAX_CACHE_ENTRIES = 20;
 const MAX_VISITED_ENTRIES = 200;
+const CACHE_SAVE_DEBOUNCE_MS = 120;
+
+const pendingConversationSaves = new Map<string, SharedInboxSelectedConversation>();
+let pendingSaveTimer: ReturnType<typeof setTimeout> | null = null;
 
 function isBrowser() {
   return typeof window !== "undefined";
@@ -168,6 +172,16 @@ function serializeConversation(conversation: SharedInboxSelectedConversation): C
   };
 }
 
+function normalizeConversationStoreKey(conversationId: string) {
+  const normalized = conversationId.trim();
+  if (!normalized) {
+    return "";
+  }
+
+  const separatorIndex = normalized.indexOf(":");
+  return separatorIndex >= 0 ? normalized.slice(separatorIndex + 1) : normalized;
+}
+
 function mergeCachedMessages(existing: CachedMessageItem[] | SharedInboxSelectedConversation["messages"], next: CachedMessageItem[] | SharedInboxSelectedConversation["messages"]) {
   const messages = new Map<string, CachedMessageItem>();
 
@@ -250,21 +264,56 @@ function hydrateConversation(conversation: CachedConversation): SharedInboxSelec
 }
 
 export function saveConversationToCache(conversation: SharedInboxSelectedConversation) {
-  const store = readStore();
-  const cachedConversation = serializeConversation(conversation);
-  const existingConversation = store.conversations[conversation.id] ?? (conversation.cacheKey ? store.conversations[conversation.cacheKey] : null) ?? null;
-  const mergedConversation = mergeCachedConversations(existingConversation, cachedConversation);
-
-  store.conversations[conversation.id] = mergedConversation;
-
-  if (conversation.cacheKey && conversation.cacheKey !== conversation.id) {
-    store.conversations[conversation.cacheKey] = mergedConversation;
+  if (!isBrowser()) {
+    return;
   }
-  writeStore(trimStore(store));
-  markConversationAsVisited(conversation.id);
-  if (conversation.cacheKey && conversation.cacheKey !== conversation.id) {
-    markConversationAsVisited(conversation.cacheKey);
+
+  const cacheKey = normalizeConversationStoreKey(conversation.cacheKey ?? "");
+  const conversationKey = normalizeConversationStoreKey(conversation.id);
+  if (!conversationKey) {
+    return;
   }
+
+  pendingConversationSaves.set(conversationKey, conversation);
+  if (cacheKey && cacheKey !== conversationKey) {
+    pendingConversationSaves.set(cacheKey, conversation);
+  }
+
+  if (pendingSaveTimer !== null) {
+    window.clearTimeout(pendingSaveTimer);
+  }
+
+  pendingSaveTimer = window.setTimeout(() => {
+    pendingSaveTimer = null;
+
+    if (pendingConversationSaves.size === 0) {
+      return;
+    }
+
+    const store = readStore();
+    const visitedStore = readVisitedStore();
+
+    for (const pendingConversation of pendingConversationSaves.values()) {
+      const cachedConversation = serializeConversation(pendingConversation);
+      const existingConversation =
+        store.conversations[pendingConversation.id] ??
+        (pendingConversation.cacheKey ? store.conversations[pendingConversation.cacheKey] : null) ??
+        null;
+      const mergedConversation = mergeCachedConversations(existingConversation, cachedConversation);
+
+      store.conversations[pendingConversation.id] = mergedConversation;
+      visitedStore[normalizeConversationStoreKey(pendingConversation.id)] = Date.now();
+
+      if (pendingConversation.cacheKey && pendingConversation.cacheKey !== pendingConversation.id) {
+        store.conversations[pendingConversation.cacheKey] = mergedConversation;
+        visitedStore[normalizeConversationStoreKey(pendingConversation.cacheKey)] = Date.now();
+      }
+    }
+
+    pendingConversationSaves.clear();
+    writeStore(trimStore(store));
+    writeVisitedStore(trimVisitedStore(visitedStore));
+  }, CACHE_SAVE_DEBOUNCE_MS);
 }
 
 export function readConversationFromCache(conversationId: string) {
@@ -280,6 +329,12 @@ export function readConversationFromCache(conversationId: string) {
 export function clearConversationCache() {
   if (!isBrowser()) {
     return;
+  }
+
+  pendingConversationSaves.clear();
+  if (pendingSaveTimer !== null) {
+    window.clearTimeout(pendingSaveTimer);
+    pendingSaveTimer = null;
   }
 
   try {
@@ -298,6 +353,10 @@ export function clearConversationFromCache(conversationId: string) {
   if (!normalizedConversationId) {
     return;
   }
+
+  pendingConversationSaves.delete(normalizedConversationId);
+  pendingConversationSaves.delete(`agent:${normalizedConversationId}`);
+  pendingConversationSaves.delete(`official:${normalizedConversationId}`);
 
   try {
     const store = readStore();

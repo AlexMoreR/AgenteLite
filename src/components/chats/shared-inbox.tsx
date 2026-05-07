@@ -778,6 +778,7 @@ const MessageBubble = memo(function MessageBubble({
   message: SharedInboxMessageItem;
   previousMessage: SharedInboxMessageItem | undefined;
 }) {
+  const [imageLoadFailed, setImageLoadFailed] = useState(false);
   const outbound = message.direction === "OUTBOUND";
   const currentDateKey = chatDateFormatter.format(message.createdAt);
   const previousDateKey = previousMessage ? chatDateFormatter.format(previousMessage.createdAt) : null;
@@ -859,14 +860,26 @@ const MessageBubble = memo(function MessageBubble({
               </div>
               {renderMessageText(message.content)}
             </div>
-          ) : imagePreviewUrl ? (
+          ) : imagePreviewUrl && !imageLoadFailed ? (
             <div className="space-y-2">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={imagePreviewUrl}
                 alt={message.content?.trim() || "Imagen del chat"}
+                loading="lazy"
+                decoding="async"
+                onError={() => setImageLoadFailed(true)}
                 className="max-h-[320px] w-full rounded-xl object-cover"
               />
+              {renderMessageText(message.content)}
+            </div>
+          ) : imagePreviewUrl ? (
+            <div className="space-y-2">
+              <div className={`flex h-[180px] w-full items-center justify-center rounded-xl border border-dashed ${
+                outbound ? "border-white/20 bg-white/10 text-white/80" : "border-[rgba(148,163,184,0.22)] bg-slate-50 text-slate-500"
+              }`}>
+                <span className="text-sm font-medium">Imagen no disponible</span>
+              </div>
               {renderMessageText(message.content)}
             </div>
           ) : videoUrl ? (
@@ -945,7 +958,6 @@ export function SharedInbox({
   const [conversationItems, setConversationItems] = useState<SharedInboxConversationItem[]>(conversations);
   const [optimisticConversation, setOptimisticConversation] = useState<SharedInboxSelectedConversation | null>(null);
   const [liveConversation, setLiveConversation] = useState<SharedInboxSelectedConversation | null>(null);
-  const [cachedSelectedConversation, setCachedSelectedConversation] = useState<SharedInboxSelectedConversation | null>(null);
   const [optimisticOutgoingMessage, setOptimisticOutgoingMessage] = useState<OptimisticDraftMessage | null>(null);
   const [editContactOpen, setEditContactOpen] = useState(false);
   const handleCloseEditContact = useCallback(() => setEditContactOpen(false), []);
@@ -959,6 +971,7 @@ export function SharedInbox({
   const prevScrollKeyRef = useRef("");
   const lastScrollTopRef = useRef(0);
   const historyLoadArmedRef = useRef(false);
+  const historyLoadConsumedRef = useRef(false);
   const loadMoreHistoryInFlightRef = useRef(false);
   const loadMoreHistoryRestoreRef = useRef<{ scrollTop: number; scrollHeight: number } | null>(null);
   const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
@@ -1027,10 +1040,6 @@ export function SharedInbox({
   }, [selectedConversation]);
 
   useEffect(() => {
-    setCachedSelectedConversation(selectedConversation ? readConversationFromCache(selectedConversation.id) : null);
-  }, [selectedConversation]);
-
-  useEffect(() => {
     selectedConversationRef.current = selectedConversation;
   }, [selectedConversation]);
 
@@ -1043,9 +1052,15 @@ export function SharedInbox({
     Boolean(selectedConversation && conversationIdMatchesKey(selectedConversationKey, selectedConversation.id));
   const currentSelectedConversation = selectedConversationMatchesCurrentKey ? selectedConversation : null;
   const cachedConversationForCurrentSelection =
-    cachedSelectedConversation && conversationIdMatchesKey(selectedConversationKey, cachedSelectedConversation.id)
-      ? cachedSelectedConversation
+    selectedConversationCache && conversationIdMatchesKey(selectedConversationKey, selectedConversationCache.id)
+      ? selectedConversationCache
       : null;
+  const currentSelectedConversationMessagesCount = currentSelectedConversation?.messages.length ?? 0;
+  const cachedConversationForCurrentSelectionMessagesCount = cachedConversationForCurrentSelection?.messages.length ?? 0;
+  const liveConversationMessagesCount =
+    liveConversation && conversationIdMatchesKey((pendingConversation?.chatKey ?? selectedConversationId).trim(), liveConversation.id)
+      ? liveConversation.messages.length
+      : 0;
 
   useEffect(() => {
     setConversationItems((current) => {
@@ -1112,12 +1127,10 @@ export function SharedInbox({
         setLiveConversation(null);
 
         if (cachedConversation) {
-          setCachedSelectedConversation(cachedConversation);
           setOptimisticConversation(cachedConversation);
           return;
         }
 
-        setCachedSelectedConversation(null);
         setOptimisticConversation(buildPendingConversationPreview(nextConversation));
       });
     }
@@ -1323,9 +1336,9 @@ export function SharedInbox({
     }
 
     const hasLoadedMessages =
-      (currentSelectedConversation?.messages.length ?? 0) > 0 ||
-      (cachedConversationForCurrentSelection?.messages.length ?? 0) > 0 ||
-      (liveConversation && conversationIdMatchesKey(normalizedSelectedConversationId, liveConversation.id) && (liveConversation.messages.length ?? 0) > 0);
+      currentSelectedConversationMessagesCount > 0 ||
+      cachedConversationForCurrentSelectionMessagesCount > 0 ||
+      liveConversationMessagesCount > 0;
 
     if (hasLoadedMessages) {
       return;
@@ -1379,10 +1392,9 @@ export function SharedInbox({
       controller.abort();
     };
   }, [
-    cachedConversationForCurrentSelection?.messages.length,
-    cachedSelectedConversation?.messages.length,
-    currentSelectedConversation?.messages.length,
-    liveConversation,
+    currentSelectedConversationMessagesCount,
+    cachedConversationForCurrentSelectionMessagesCount,
+    liveConversationMessagesCount,
     pendingConversation?.chatKey,
     selectedConversation,
     selectedConversationId,
@@ -1606,6 +1618,7 @@ export function SharedInbox({
     prevScrollKeyRef.current = "";
     lastScrollTopRef.current = 0;
     historyLoadArmedRef.current = false;
+    historyLoadConsumedRef.current = false;
   }, [selectedConversationId]);
 
   // Track whether the user is near the bottom of the message list and only arm
@@ -1625,6 +1638,10 @@ export function SharedInbox({
         historyLoadArmedRef.current = true;
       }
 
+      if (nextScrollTop > TOP_SCROLL_THRESHOLD_PX) {
+        historyLoadConsumedRef.current = false;
+      }
+
       lastScrollTopRef.current = nextScrollTop;
 
       const distFromBottom = el.scrollHeight - nextScrollTop - el.clientHeight;
@@ -1633,6 +1650,7 @@ export function SharedInbox({
 
       if (
         !historyLoadArmedRef.current ||
+        historyLoadConsumedRef.current ||
         nextScrollTop > TOP_SCROLL_THRESHOLD_PX ||
         loadMoreHistoryInFlightRef.current
       ) {
@@ -1640,6 +1658,7 @@ export function SharedInbox({
       }
 
       historyLoadArmedRef.current = false;
+      historyLoadConsumedRef.current = true;
 
       const loadMoreHref = loadMoreHrefRef.current;
       if (loadMoreHref && messageScrollBehaviorRef.current === "preserve") {

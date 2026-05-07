@@ -12,7 +12,7 @@ import { Card } from "@/components/ui/card";
 import { OfficialApiLockedState, getOfficialApiChatsData } from "@/features/official-api";
 import { canAccessOfficialApiModule } from "@/lib/admin-module-access";
 import { loadAgentConversationDetail } from "@/lib/chat-message-loader";
-import { fetchEvolutionProfilePictureUrl } from "@/lib/evolution";
+import { fetchEvolutionProfilePictureUrl, resolveEvolutionMessageMediaUrl } from "@/lib/evolution";
 import { getEvolutionSettings } from "@/lib/system-settings";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
@@ -451,11 +451,19 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       return right - left;
     });
 
-  const selectedUnified = merged.find((item) => item.key === selectedChatKeyParam) || merged[0] || null;
+  const selectedUnified = selectedChatKeyParam
+    ? merged.find((item) => item.key === selectedChatKeyParam) || null
+    : null;
   const selectedEvolutionInstanceName =
     selectedUnified?.source === "agent" && selectedUnified.channelId
       ? channelsById.get(selectedUnified.channelId)?.evolutionInstanceName?.trim() || null
       : null;
+  const evolutionGlobalWebsocketEventsEnabled = process.env.WEBSOCKET_GLOBAL_EVENTS === "true";
+  const chatsRealtimeSyncEnabled = Boolean(
+    evolutionSettings.apiBaseUrl &&
+      evolutionSettings.apiToken &&
+      (evolutionGlobalWebsocketEventsEnabled || evolutionInstanceNames.length > 0),
+  );
   const chatListHref = `/cliente/chats${
     selectedConnectionKey || searchQuery
       ? `?${new URLSearchParams([
@@ -464,7 +472,6 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         ]).toString()}`
       : ""
   }`;
-  const evolutionGlobalWebsocketEventsEnabled = process.env.WEBSOCKET_GLOBAL_EVENTS === "true";
   const isOfficialUnavailable = Boolean(canUseOfficialApi && officialChannel && officialData && !officialData.isConnected);
   const isOfficialConnectionSelected =
     Boolean(selectedConnectionKey) &&
@@ -523,20 +530,31 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       contactName: selectedAgentDetail?.contact.name?.trim() || selectedUnified.label,
       automationPaused: selectedAgentDetail?.automationPaused ?? false,
       cacheKey: selectedUnified.key,
-      messages: (selectedAgentDetail?.messages ?? [])
-        .slice()
-        .reverse()
-        .map((message) => ({
-          id: message.id,
-          content: message.content,
-          direction: message.direction,
-          createdAt: message.createdAt,
-          authorType: message.direction === "OUTBOUND" ? "user" : "bot",
-          outboundStatusLabel: message.direction === "OUTBOUND" ? "enviado" : null,
-          type: message.type ?? undefined,
-          mediaUrl: message.mediaUrl,
-          rawPayload: message.rawPayload,
-        })),
+      messages: await Promise.all(
+        (selectedAgentDetail?.messages ?? [])
+          .slice()
+          .reverse()
+          .map(async (message) => ({
+            id: message.id,
+            content: message.content,
+            direction: message.direction,
+            createdAt: message.createdAt,
+            authorType: message.direction === "OUTBOUND" ? "user" : "bot",
+            outboundStatusLabel: message.direction === "OUTBOUND" ? "enviado" : null,
+            type: message.type ?? undefined,
+            mediaUrl:
+              message.type === "IMAGE"
+                ? await resolveEvolutionMessageMediaUrl({
+                    instanceName: selectedAgentDetail?.channel?.evolutionInstanceName ?? null,
+                    messageId: message.externalId ?? message.id,
+                    mediaType: "IMAGE",
+                    mediaUrl: message.mediaUrl,
+                    rawPayload: message.rawPayload,
+                  })
+                : message.mediaUrl,
+            rawPayload: message.rawPayload,
+          })),
+      ),
       hasMoreMessages: selectedAgentDetail?.hasMoreMessages ?? false,
       loadMoreCursor: selectedAgentDetail?.loadMoreCursor ?? null,
       loadMoreHref: null,
@@ -572,9 +590,13 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
 
   return (
     <section className="chat-app-layout flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
-      <ChatsAutoRefresh intervalMs={5000} selectedConversationKey={selectedUnified?.key ?? null} />
-      <ChatsRealtimeSync
+      <ChatsAutoRefresh
+        intervalMs={5000}
         enabled={Boolean(selectedUnified)}
+        selectedConversationKey={selectedUnified?.key ?? null}
+      />
+      <ChatsRealtimeSync
+        enabled={chatsRealtimeSyncEnabled}
         apiBaseUrl={evolutionSettings.apiBaseUrl}
         apiKey={evolutionSettings.apiToken || null}
         instanceNames={evolutionInstanceNames}
@@ -635,19 +657,17 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
             </div>
           ) : null
         }
-        composer={
-          selectedUnified
-            ? {
-                action: sendUnifiedChatReplyAction,
-                hiddenFields: [
-                  { name: "source", value: selectedUnified.source },
-                  { name: "conversationId", value: selectedUnified.conversationId },
-                  { name: "agentId", value: selectedUnified.agentId ?? "" },
-                  ...(selectedChatHref ? [{ name: "returnTo", value: selectedChatHref }] : []),
-                ],
-              }
-            : undefined
-        }
+        composer={{
+          action: sendUnifiedChatReplyAction,
+          hiddenFields: selectedUnified
+            ? [
+                { name: "source", value: selectedUnified.source },
+                { name: "conversationId", value: selectedUnified.conversationId },
+                { name: "agentId", value: selectedUnified.agentId ?? "" },
+                ...(selectedChatHref ? [{ name: "returnTo", value: selectedChatHref }] : []),
+              ]
+            : [],
+        }}
         emptyListTitle="Aun no hay conversaciones"
         emptyListDescription={
           isOfficialConnectionSelected && isOfficialUnavailable

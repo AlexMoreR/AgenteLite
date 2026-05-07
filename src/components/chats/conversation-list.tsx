@@ -202,6 +202,7 @@ export function ConversationList({
   const [viewportHeight, setViewportHeight] = useState(0);
   const [scrollTop, setScrollTop] = useState(0);
   const navigationFrameRef = useRef<number | null>(null);
+  const scrollFrameRef = useRef<number | null>(null);
   const prefetchedHrefsRef = useRef(new Set<string>());
   const router = useRouter();
   const effectiveSelectedId = isPending && pendingId ? pendingId : selectedConversationId;
@@ -269,19 +270,37 @@ export function ConversationList({
 
     const scrollContainer = container;
 
-    function updateViewportMetrics() {
-      setViewportHeight(scrollContainer.clientHeight);
-      setScrollTop(scrollContainer.scrollTop);
+    function updateViewportHeight() {
+      const nextHeight = scrollContainer.clientHeight;
+      setViewportHeight((current) => (current === nextHeight ? current : nextHeight));
     }
 
-    updateViewportMetrics();
-    scrollContainer.addEventListener("scroll", updateViewportMetrics, { passive: true });
+    function updateScrollTop() {
+      if (scrollFrameRef.current !== null) {
+        return;
+      }
 
-    const resizeObserver = new ResizeObserver(updateViewportMetrics);
+      scrollFrameRef.current = window.requestAnimationFrame(() => {
+        scrollFrameRef.current = null;
+        const nextScrollTop = scrollContainer.scrollTop;
+        setScrollTop((current) => (current === nextScrollTop ? current : nextScrollTop));
+      });
+    }
+
+    updateViewportHeight();
+    updateScrollTop();
+    scrollContainer.addEventListener("scroll", updateScrollTop, { passive: true });
+
+    const resizeObserver = new ResizeObserver(updateViewportHeight);
     resizeObserver.observe(scrollContainer);
 
     return () => {
-      scrollContainer.removeEventListener("scroll", updateViewportMetrics);
+      if (scrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(scrollFrameRef.current);
+        scrollFrameRef.current = null;
+      }
+
+      scrollContainer.removeEventListener("scroll", updateScrollTop);
       resizeObserver.disconnect();
     };
   }, [scrollContainerRef]);

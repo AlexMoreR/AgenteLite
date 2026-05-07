@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { loadAgentConversationDetail } from "@/lib/chat-message-loader";
+import { resolveEvolutionMessageMediaUrl } from "@/lib/evolution";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
 const INITIAL_MESSAGE_BATCH_SIZE = 10;
@@ -58,11 +59,23 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false, error: "Conversacion no encontrada" }, { status: 404 });
   }
 
-  const messages = conversation.messages.map((message) => ({
-    ...message,
-    mediaUrl: message.mediaUrl,
-    createdAt: message.createdAt.toISOString(),
-  }));
+  const instanceName = conversation.channel?.evolutionInstanceName?.trim() || null;
+  const messages = await Promise.all(
+    conversation.messages.map(async (message) => ({
+      ...message,
+      mediaUrl:
+        message.type === "IMAGE"
+          ? await resolveEvolutionMessageMediaUrl({
+              instanceName,
+              messageId: message.externalId ?? message.id,
+              mediaType: "IMAGE",
+              mediaUrl: message.mediaUrl,
+              rawPayload: message.rawPayload,
+            })
+          : message.mediaUrl,
+      createdAt: message.createdAt.toISOString(),
+    })),
+  );
 
   return NextResponse.json({
     ok: true,
