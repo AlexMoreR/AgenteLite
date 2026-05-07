@@ -424,6 +424,31 @@ function sortConversationItems(items: SharedInboxConversationItem[]) {
   });
 }
 
+function mergeConversationListItem(
+  next: SharedInboxConversationItem,
+  existing?: SharedInboxConversationItem | null,
+) {
+  if (!existing) {
+    return next;
+  }
+
+  const existingAt = existing.lastMessageAt ? existing.lastMessageAt.getTime() : 0;
+  const nextAt = next.lastMessageAt ? next.lastMessageAt.getTime() : 0;
+
+  if (existingAt <= nextAt) {
+    return next;
+  }
+
+  return {
+    ...next,
+    incomingCount: Math.max(existing.incomingCount ?? 0, next.incomingCount ?? 0),
+    lastMessage: existing.lastMessage ?? next.lastMessage ?? null,
+    lastMessageType: existing.lastMessageType ?? next.lastMessageType ?? null,
+    lastMessageDirection: existing.lastMessageDirection ?? next.lastMessageDirection ?? null,
+    lastMessageAt: existing.lastMessageAt ?? next.lastMessageAt ?? null,
+  };
+}
+
 function updateConversationItemByContact(
   current: SharedInboxConversationItem[],
   contactId: string,
@@ -976,7 +1001,15 @@ export function SharedInbox({
   }, [selectedConversation]);
 
   useEffect(() => {
-    setConversationItems(conversations);
+    setConversationItems((current) => {
+      if (current.length === 0) {
+        return sortConversationItems(conversations);
+      }
+
+      const currentById = new Map(current.map((item) => [item.id, item]));
+      const merged = conversations.map((conversation) => mergeConversationListItem(conversation, currentById.get(conversation.id) ?? null));
+      return sortConversationItems(merged);
+    });
   }, [conversations]);
 
   useEffect(() => {
