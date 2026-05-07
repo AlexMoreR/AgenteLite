@@ -71,6 +71,7 @@ export async function getOfficialApiChatsData(input: {
   const activeConfig = config;
   const includeSelectedConversation = input.includeSelectedConversation ?? true;
   const requestedConversationId = input.conversationId?.trim() || "";
+  const conversationListLimit = !requestedConversationId && !searchQuery ? 50 : 80;
   const officialSearchFilter = searchQuery
     ? Prisma.sql`
       AND (
@@ -167,70 +168,154 @@ export async function getOfficialApiChatsData(input: {
       ? fetchConversationDetail(requestedConversationId)
       : null;
 
-  const conversationRows = await prisma.$queryRaw<Array<{
-    id: string;
-    contactId: string;
-    contactName: string | null;
-    contactPhoneNumber: string | null;
-    contactWaId: string;
-    incomingCount: number;
-    lastMessageId: string | null;
-    lastMessageContent: string | null;
-    lastMessageDirection: "INBOUND" | "OUTBOUND" | null;
-    lastMessageCreatedAt: Date | null;
-    lastMessageStatus: "RECEIVED" | "SENT" | "DELIVERED" | "READ" | "FAILED" | null;
-    lastMessageMediaUrl: string | null;
-    lastMessageRawPayload: unknown;
-  }>>`
-    SELECT
-      c."id",
-      ct."id" AS "contactId",
-      ct."name" AS "contactName",
-      ct."phoneNumber" AS "contactPhoneNumber",
-      ct."waId" AS "contactWaId",
-      COALESCE(incoming."incomingCount", 0)::int AS "incomingCount",
-      lm."id" AS "lastMessageId",
-      lm."content" AS "lastMessageContent",
-      lm."direction"::text AS "lastMessageDirection",
-      lm."createdAt" AS "lastMessageCreatedAt",
-      lm."status"::text AS "lastMessageStatus",
-      lm."mediaUrl" AS "lastMessageMediaUrl",
-      lm."rawPayload" AS "lastMessageRawPayload"
-    FROM "OfficialApiConversation" c
-    INNER JOIN "OfficialApiContact" ct
-      ON ct."id" = c."contactId"
-    LEFT JOIN LATERAL (
-      SELECT MAX(mo."createdAt") AS "lastOutboundAt"
-      FROM "OfficialApiMessage" mo
-      WHERE mo."conversationId" = c."id"
-        AND mo."direction" = 'OUTBOUND'
-    ) lo ON true
-    LEFT JOIN LATERAL (
-      SELECT COUNT(*)::int AS "incomingCount"
-      FROM "OfficialApiMessage" mi
-      WHERE mi."conversationId" = c."id"
-        AND mi."direction" = 'INBOUND'
-        AND mi."createdAt" > COALESCE(lo."lastOutboundAt", TIMESTAMP '1970-01-01')
-    ) incoming ON true
-    LEFT JOIN LATERAL (
-      SELECT
-        m."id",
-        m."content",
-        m."direction",
-        m."createdAt",
-        m."status",
-        m."mediaUrl",
-        m."rawPayload"
-      FROM "OfficialApiMessage" m
-      WHERE m."conversationId" = c."id"
-      ORDER BY m."createdAt" DESC
-      LIMIT 1
-    ) lm ON true
-    WHERE c."configId" = ${activeConfig.id}
-      ${officialSearchFilter}
-    ORDER BY c."lastMessageAt" DESC NULLS LAST, c."updatedAt" DESC
-    LIMIT 80
-  `;
+  const conversationRows = searchQuery
+    ? await prisma.$queryRaw<Array<{
+        id: string;
+        contactId: string;
+        contactName: string | null;
+        contactPhoneNumber: string | null;
+        contactWaId: string;
+        incomingCount: number;
+        lastMessageId: string | null;
+        lastMessageContent: string | null;
+        lastMessageDirection: "INBOUND" | "OUTBOUND" | null;
+        lastMessageCreatedAt: Date | null;
+        lastMessageStatus: "RECEIVED" | "SENT" | "DELIVERED" | "READ" | "FAILED" | null;
+        lastMessageMediaUrl: string | null;
+        lastMessageRawPayload: unknown;
+      }>>`
+        SELECT
+          c."id",
+          ct."id" AS "contactId",
+          ct."name" AS "contactName",
+          ct."phoneNumber" AS "contactPhoneNumber",
+          ct."waId" AS "contactWaId",
+          COALESCE(incoming."incomingCount", 0)::int AS "incomingCount",
+          lm."id" AS "lastMessageId",
+          lm."content" AS "lastMessageContent",
+          lm."direction"::text AS "lastMessageDirection",
+          lm."createdAt" AS "lastMessageCreatedAt",
+          lm."status"::text AS "lastMessageStatus",
+          lm."mediaUrl" AS "lastMessageMediaUrl",
+          lm."rawPayload" AS "lastMessageRawPayload"
+        FROM "OfficialApiConversation" c
+        INNER JOIN "OfficialApiContact" ct
+          ON ct."id" = c."contactId"
+        LEFT JOIN LATERAL (
+          SELECT MAX(mo."createdAt") AS "lastOutboundAt"
+          FROM "OfficialApiMessage" mo
+          WHERE mo."conversationId" = c."id"
+            AND mo."direction" = 'OUTBOUND'
+        ) lo ON true
+        LEFT JOIN LATERAL (
+          SELECT COUNT(*)::int AS "incomingCount"
+          FROM "OfficialApiMessage" mi
+          WHERE mi."conversationId" = c."id"
+            AND mi."direction" = 'INBOUND'
+            AND mi."createdAt" > COALESCE(lo."lastOutboundAt", TIMESTAMP '1970-01-01')
+        ) incoming ON true
+        LEFT JOIN LATERAL (
+          SELECT
+            m."id",
+            m."content",
+            m."direction",
+            m."createdAt",
+            m."status",
+            m."mediaUrl",
+            m."rawPayload"
+          FROM "OfficialApiMessage" m
+          WHERE m."conversationId" = c."id"
+          ORDER BY m."createdAt" DESC
+          LIMIT 1
+        ) lm ON true
+        WHERE c."configId" = ${activeConfig.id}
+          ${officialSearchFilter}
+        ORDER BY c."lastMessageAt" DESC NULLS LAST, c."updatedAt" DESC
+        LIMIT ${conversationListLimit}
+      `
+    : await prisma.$queryRaw<Array<{
+        id: string;
+        contactId: string;
+        contactName: string | null;
+        contactPhoneNumber: string | null;
+        contactWaId: string;
+        incomingCount: number;
+        lastMessageId: string | null;
+        lastMessageContent: string | null;
+        lastMessageDirection: "INBOUND" | "OUTBOUND" | null;
+        lastMessageCreatedAt: Date | null;
+        lastMessageStatus: "RECEIVED" | "SENT" | "DELIVERED" | "READ" | "FAILED" | null;
+        lastMessageMediaUrl: string | null;
+        lastMessageRawPayload: unknown;
+      }>>`
+        WITH filtered_conversations AS (
+          SELECT
+            c."id",
+            c."contactId",
+            c."lastMessageAt",
+            c."updatedAt"
+          FROM "OfficialApiConversation" c
+          WHERE c."configId" = ${activeConfig.id}
+          ORDER BY c."lastMessageAt" DESC NULLS LAST, c."updatedAt" DESC
+          LIMIT ${conversationListLimit}
+        ),
+        last_messages AS (
+          SELECT DISTINCT ON (m."conversationId")
+            m."conversationId",
+            m."id",
+            m."content",
+            m."direction"::text AS "direction",
+            m."createdAt",
+            m."status"::text AS "status",
+            m."mediaUrl",
+            m."rawPayload"
+          FROM "OfficialApiMessage" m
+          INNER JOIN filtered_conversations fc ON fc."id" = m."conversationId"
+          ORDER BY m."conversationId", m."createdAt" DESC, m."id" DESC
+        ),
+        outbound_times AS (
+          SELECT
+            m."conversationId",
+            MAX(m."createdAt") AS "lastOutboundAt"
+          FROM "OfficialApiMessage" m
+          INNER JOIN filtered_conversations fc ON fc."id" = m."conversationId"
+          WHERE m."direction" = 'OUTBOUND'
+          GROUP BY m."conversationId"
+        ),
+        incoming_counts AS (
+          SELECT
+            m."conversationId",
+            COUNT(*)::int AS "incomingCount"
+          FROM "OfficialApiMessage" m
+          INNER JOIN filtered_conversations fc ON fc."id" = m."conversationId"
+          LEFT JOIN outbound_times ot ON ot."conversationId" = m."conversationId"
+          WHERE m."direction" = 'INBOUND'
+            AND m."createdAt" > COALESCE(ot."lastOutboundAt", TIMESTAMP '1970-01-01')
+          GROUP BY m."conversationId"
+        )
+        SELECT
+          fc."id",
+          ct."id" AS "contactId",
+          ct."name" AS "contactName",
+          ct."phoneNumber" AS "contactPhoneNumber",
+          ct."waId" AS "contactWaId",
+          COALESCE(ic."incomingCount", 0)::int AS "incomingCount",
+          lm."id" AS "lastMessageId",
+          lm."content" AS "lastMessageContent",
+          lm."direction" AS "lastMessageDirection",
+          lm."createdAt" AS "lastMessageCreatedAt",
+          lm."status" AS "lastMessageStatus",
+          lm."mediaUrl" AS "lastMessageMediaUrl",
+          lm."rawPayload" AS "lastMessageRawPayload"
+        FROM filtered_conversations fc
+        INNER JOIN "OfficialApiContact" ct
+          ON ct."id" = fc."contactId"
+        LEFT JOIN incoming_counts ic
+          ON ic."conversationId" = fc."id"
+        LEFT JOIN last_messages lm
+          ON lm."conversationId" = fc."id"
+        ORDER BY fc."lastMessageAt" DESC NULLS LAST, fc."updatedAt" DESC
+      `;
 
   const conversations = conversationRows.slice(0, 50).map((row) => ({
     id: row.id,

@@ -132,24 +132,6 @@ export async function getAgentConversationSummaryByPhoneNumber(input: {
   instanceName: string;
   phoneNumber: string;
 }): Promise<ChatConversationSummary | null> {
-  const channel = await prisma.whatsAppChannel.findFirst({
-    where: {
-      workspaceId: input.workspaceId,
-      provider: "EVOLUTION",
-      evolutionInstanceName: input.instanceName,
-    },
-    select: {
-      id: true,
-      agentId: true,
-    },
-  });
-
-  console.log("[Summary] channel lookup", { instanceName: input.instanceName, workspaceId: input.workspaceId, found: Boolean(channel) });
-  if (!channel) {
-    return null;
-  }
-
-  // Normalizar variantes del número: solo dígitos, con '+', y con sufijo JID completo.
   const phoneVariants = Array.from(new Set([
     input.phoneNumber,
     `+${input.phoneNumber}`,
@@ -157,19 +139,38 @@ export async function getAgentConversationSummaryByPhoneNumber(input: {
     `+${input.phoneNumber}@s.whatsapp.net`,
   ]));
 
-  const contact = await prisma.contact.findFirst({
-    where: {
-      workspaceId: input.workspaceId,
-      phoneNumber: { in: phoneVariants },
-    },
-    select: {
-      id: true,
-      name: true,
-      phoneNumber: true,
-      avatarUrl: true,
-    },
-  });
+  const [channel, contact] = await Promise.all([
+    prisma.whatsAppChannel.findFirst({
+      where: {
+        workspaceId: input.workspaceId,
+        provider: "EVOLUTION",
+        evolutionInstanceName: input.instanceName,
+      },
+      select: {
+        id: true,
+        agentId: true,
+      },
+    }),
+    prisma.contact.findFirst({
+      where: {
+        workspaceId: input.workspaceId,
+        phoneNumber: { in: phoneVariants },
+      },
+      select: {
+        id: true,
+        name: true,
+        phoneNumber: true,
+        avatarUrl: true,
+      },
+    }),
+  ]);
 
+  console.log("[Summary] channel lookup", { instanceName: input.instanceName, workspaceId: input.workspaceId, found: Boolean(channel) });
+  if (!channel) {
+    return null;
+  }
+
+  // Normalizar variantes del número: solo dígitos, con '+', y con sufijo JID completo.
   console.log("[Summary] contact lookup", { phoneVariants, found: Boolean(contact), contactPhone: contact?.phoneNumber });
   if (!contact) {
     return null;

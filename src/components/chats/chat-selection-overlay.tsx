@@ -1,45 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
+import { usePendingConversationSelection } from "./chat-selection-store";
 import { readConversationFromCache } from "./chat-history-cache";
-
-type PendingConversationSelection = {
-  id: string;
-  label: string;
-  secondaryLabel: string;
-  avatarUrl?: string | null;
-  lastMessage?: string | null;
-  channelType?: "whatsapp" | "whatsapp_official" | "instagram" | "facebook";
-  cacheKey?: string | null;
-  hasCache?: boolean;
-};
 
 type ChatSelectionOverlayProps = {
   selectedConversationId: string;
 };
 
-const EVENT_NAME = "chat-selection-pending";
-
 export function ChatSelectionOverlay({ selectedConversationId }: ChatSelectionOverlayProps) {
-  const [pendingConversation, setPendingConversation] = useState<PendingConversationSelection | null>(null);
+  const pendingConversation = usePendingConversationSelection();
   const cachedConversation =
     pendingConversation &&
     (pendingConversation.hasCache ||
       Boolean(readConversationFromCache(pendingConversation.cacheKey || pendingConversation.id)));
-
-  useEffect(() => {
-    function handlePendingSelection(event: Event) {
-      const customEvent = event as CustomEvent<PendingConversationSelection>;
-      const nextConversation = customEvent.detail;
-      if (nextConversation?.id) {
-        setPendingConversation(nextConversation);
-      }
-    }
-
-    window.addEventListener(EVENT_NAME, handlePendingSelection as EventListener);
-    return () => window.removeEventListener(EVENT_NAME, handlePendingSelection as EventListener);
-  }, []);
 
   if (!pendingConversation || pendingConversation.id === selectedConversationId || cachedConversation) {
     return null;

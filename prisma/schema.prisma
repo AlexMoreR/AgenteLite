@@ -143,6 +143,7 @@ model WhatsAppChannel {
   workspace             Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, status])
+  @@index([workspaceId, provider, evolutionInstanceName])
   @@index([agentId])
 }
 
@@ -189,6 +190,7 @@ model Conversation {
   @@index([workspaceId, status])
   @@index([workspaceId, lastMessageAt])
   @@index([workspaceId, lastMessageAt, updatedAt])
+  @@index([workspaceId, channelId, contactId])
   @@index([contactId, lastMessageAt])
   @@index([channelId, lastMessageAt])
 }
@@ -459,6 +461,7 @@ model OfficialApiMessage {
   @@unique([configId, externalMessageId])
   @@index([configId, createdAt])
   @@index([conversationId, createdAt])
+  @@index([conversationId, direction, createdAt])
   @@index([contactId, createdAt])
 }
 

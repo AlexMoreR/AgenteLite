@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { io, type Socket } from "socket.io-client";
+import { usePendingConversationSelection } from "./chat-selection-store";
 import {
   extractEvolutionPhoneNumber,
   extractEvolutionRemoteJid,
@@ -21,12 +22,6 @@ type ChatsRealtimeSyncProps = {
 };
 
 type RefreshPriority = "active" | "background";
-
-type PendingConversationSelectionDetail = {
-  id?: string;
-  chatKey?: string | null;
-  phoneNumber?: string | null;
-};
 
 const ACTIVE_REFRESH_DELAY_MS = 180;
 const BACKGROUND_REFRESH_DELAY_MS = 1200;
@@ -208,10 +203,17 @@ export function ChatsRealtimeSync({
   selectedConversationKeyRef.current = selectedConversationKey;
   const selectedConversationPhoneNumberRef = useRef(selectedConversationPhoneNumber);
   selectedConversationPhoneNumberRef.current = selectedConversationPhoneNumber;
+  const pendingConversation = usePendingConversationSelection();
   const pendingSelectionRef = useRef<{
     key: string | null;
     phoneNumber: string | null;
   } | null>(null);
+  pendingSelectionRef.current = pendingConversation
+    ? {
+        key: pendingConversation.chatKey ?? pendingConversation.id ?? null,
+        phoneNumber: pendingConversation.phoneNumber ?? null,
+      }
+    : null;
   const activeInstanceNameRef = useRef(activeInstanceName);
   activeInstanceNameRef.current = activeInstanceName;
 
@@ -224,26 +226,6 @@ export function ChatsRealtimeSync({
     handleVisibilityChange();
 
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, []);
-
-  useEffect(() => {
-    function handlePendingSelection(event: Event) {
-      const customEvent = event as CustomEvent<PendingConversationSelectionDetail>;
-      const detail = customEvent.detail;
-      const nextKey = readString(detail?.chatKey) || readString(detail?.id) || null;
-
-      if (!nextKey) {
-        return;
-      }
-
-      pendingSelectionRef.current = {
-        key: nextKey,
-        phoneNumber: readString(detail?.phoneNumber) || null,
-      };
-    }
-
-    window.addEventListener("chat-selection-pending", handlePendingSelection as EventListener);
-    return () => window.removeEventListener("chat-selection-pending", handlePendingSelection as EventListener);
   }, []);
 
   useEffect(() => {
@@ -538,6 +520,10 @@ export function ChatsRealtimeSync({
       });
 
       socket.onAny((eventName, ...args) => {
+        if (process.env.NODE_ENV !== "production") {
+          console.log("[EVO WS]", eventName, args);
+        }
+
         if (typeof eventName === "string" && shouldTriggerRefresh(eventName)) {
           const normalizedEventName = normalizeEventName(eventName);
           // Leer refs en el momento del evento — siempre reflejan la conversación actual

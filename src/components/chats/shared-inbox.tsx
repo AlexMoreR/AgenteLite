@@ -34,6 +34,11 @@ import { EditContactModal } from "@/components/chats/edit-contact-modal";
 import { EtiquetaModal } from "@/components/chats/etiqueta-modal";
 import { Card } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  clearPendingConversationSelection,
+  usePendingConversationSelection,
+  type PendingChatSelection,
+} from "./chat-selection-store";
 
 const CHAT_TIME_ZONE = "America/Bogota";
 
@@ -131,26 +136,8 @@ type ConversationTagsUpdateDetail = {
   }>;
 };
 
-type PendingConversationSelection = {
-  id: string;
-  chatKey?: string | null;
-  source?: "agent" | "official";
-  agentId?: string | null;
-  label: string;
-  secondaryLabel: string;
-  avatarUrl?: string | null;
-  lastMessage?: string | null;
-  lastMessageType?: SharedInboxMessageItem["type"] | null;
-  lastMessageDirection?: "INBOUND" | "OUTBOUND" | null;
-  lastMessageAt?: string | Date | null;
-  channelType?: SharedInboxConversationItem["channelType"];
-  cacheKey?: string | null;
-  phoneNumber?: string | null;
-  hasCache?: boolean;
-};
-
 function buildPendingConversationPreview(
-  pendingConversation: PendingConversationSelection,
+  pendingConversation: PendingChatSelection,
 ): SharedInboxSelectedConversation {
   const lastMessage = pendingConversation.lastMessage?.trim() || "";
   const direction = pendingConversation.lastMessageDirection || "INBOUND";
@@ -183,7 +170,7 @@ function buildPendingConversationPreview(
 
 function buildComposerHiddenFields(
   baseFields: Array<{ name: string; value: string }>,
-  selectedConversation: PendingConversationSelection | null,
+  selectedConversation: PendingChatSelection | null,
 ) {
   if (!selectedConversation) {
     return baseFields;
@@ -1467,17 +1454,7 @@ export function SharedInbox({
     router.replace(buildSearchUrl(""));
   }, [buildSearchUrl, router]);
 
-  const [pendingConversation, setPendingConversation] = useState<{
-    id: string;
-    chatKey?: string | null;
-    label: string;
-    secondaryLabel: string;
-    avatarUrl?: string | null;
-    lastMessage?: string | null;
-    channelType?: SharedInboxConversationItem["channelType"];
-    cacheKey?: string | null;
-    hasCache?: boolean;
-  } | null>(null);
+  const pendingConversation = usePendingConversationSelection();
 
   useEffect(() => {
     if (selectedConversation) {
@@ -1490,15 +1467,20 @@ export function SharedInbox({
   }, [selectedConversation]);
 
   useEffect(() => {
-    if (pendingConversation?.id && pendingConversation.id !== selectedConversationId) {
-      setPendingConversation(null);
-      setOptimisticConversation(null);
+    if (pendingConversation?.id && pendingConversation.id === selectedConversationId) {
+      clearPendingConversationSelection();
     }
 
     if (liveConversation && !conversationIdMatchesKey(selectedConversationId, liveConversation.id)) {
       setLiveConversation(null);
     }
   }, [liveConversation, pendingConversation?.id, selectedConversationId]);
+
+  useEffect(() => {
+    return () => {
+      clearPendingConversationSelection();
+    };
+  }, []);
 
   const selectedConversationKey = (pendingConversation?.chatKey ?? selectedConversationId).trim();
   const selectedConversationCache = useMemo(
@@ -1553,44 +1535,20 @@ export function SharedInbox({
   }, [optimisticOutgoingMessage]);
 
   useEffect(() => {
-    function handlePendingSelection(event: Event) {
-      const customEvent = event as CustomEvent<{
-        id: string;
-        chatKey?: string | null;
-        source?: "agent" | "official";
-        agentId?: string | null;
-        label: string;
-        secondaryLabel: string;
-        avatarUrl?: string | null;
-        lastMessage?: string | null;
-        lastMessageType?: SharedInboxMessageItem["type"] | null;
-        lastMessageDirection?: "INBOUND" | "OUTBOUND" | null;
-        lastMessageAt?: string | Date | null;
-        channelType?: SharedInboxConversationItem["channelType"];
-        cacheKey?: string | null;
-        phoneNumber?: string | null;
-        hasCache?: boolean;
-      }>;
-      const nextConversation = customEvent.detail;
-      if (!nextConversation?.id) {
-        return;
-      }
-
-      const cacheKey = nextConversation.cacheKey || nextConversation.id;
-      const cachedConversation = readConversationFromCache(cacheKey);
-
-      setPendingConversation(nextConversation);
-      startSelectionTransition(() => {
-        setLiveConversation(null);
-        setOptimisticConversation(
-          cachedConversation ? cachedConversation : buildPendingConversationPreview(nextConversation),
-        );
-      });
+    if (!pendingConversation?.id) {
+      return;
     }
 
-    window.addEventListener("chat-selection-pending", handlePendingSelection as EventListener);
-    return () => window.removeEventListener("chat-selection-pending", handlePendingSelection as EventListener);
-  }, []);
+    const cacheKey = pendingConversation.cacheKey || pendingConversation.id;
+    const cachedConversation = readConversationFromCache(cacheKey);
+
+    startSelectionTransition(() => {
+      setLiveConversation(null);
+      setOptimisticConversation(
+        cachedConversation ? cachedConversation : buildPendingConversationPreview(pendingConversation),
+      );
+    });
+  }, [pendingConversation, startSelectionTransition]);
 
   useEffect(() => {
     function handleLiveUpdate(event: Event) {
@@ -1872,7 +1830,7 @@ export function SharedInbox({
     setIsLoadingOlderMessages(false);
 
     const timer = window.setTimeout(() => {
-      setPendingConversation(null);
+      clearPendingConversationSelection();
       setOptimisticConversation(null);
     }, 0);
 

@@ -6,6 +6,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { BadgeCheck, Facebook, Instagram, Mic, UserRound } from "lucide-react";
 import { WhatsAppGlyph } from "@/components/icons/whatsapp-glyph";
+import { warmConversationCache } from "./chat-conversation-warmup";
+import { setPendingConversationSelection } from "./chat-selection-store";
 import { readConversationFromCache } from "./chat-history-cache";
 import type { SharedInboxConversationItem } from "./shared-inbox";
 
@@ -217,38 +219,30 @@ export function ConversationList({
   const router = useRouter();
   const effectiveSelectedId = isPending && pendingId ? pendingId : selectedConversationId;
 
-  const emitPendingSelection = useCallback((conversation: SharedInboxConversationItem) => {
-    window.dispatchEvent(
-      new CustomEvent("chat-selection-pending", {
-      detail: {
-        id: conversation.id,
-        chatKey: conversation.id,
-        source: conversation.source,
-        agentId: conversation.agentId ?? null,
-        label: conversation.label,
-        secondaryLabel: conversation.secondaryLabel,
-        avatarUrl: conversation.avatarUrl ?? null,
-          lastMessage: conversation.lastMessage,
-          lastMessageType: conversation.lastMessageType ?? null,
-          lastMessageDirection: conversation.lastMessageDirection ?? null,
-          lastMessageAt: conversation.lastMessageAt ? conversation.lastMessageAt.toISOString() : null,
-          channelType: conversation.channelType,
-          cacheKey: conversation.id,
-          phoneNumber: conversation.secondaryLabel,
-          hasCache: Boolean(readConversationFromCache(conversation.id)),
-        },
-      }),
-    );
-  }, []);
-
   const handlePreviewSelect = useCallback((conversation: SharedInboxConversationItem) => {
     setPendingId(conversation.id);
-    emitPendingSelection(conversation);
-  }, [emitPendingSelection]);
+    setPendingConversationSelection({
+      id: conversation.id,
+      chatKey: conversation.id,
+      source: conversation.source,
+      agentId: conversation.agentId ?? null,
+      label: conversation.label,
+      secondaryLabel: conversation.secondaryLabel,
+      avatarUrl: conversation.avatarUrl ?? null,
+      lastMessage: conversation.lastMessage,
+      lastMessageType: conversation.lastMessageType ?? null,
+      lastMessageDirection: conversation.lastMessageDirection ?? null,
+      lastMessageAt: conversation.lastMessageAt ? conversation.lastMessageAt.toISOString() : null,
+      channelType: conversation.channelType,
+      cacheKey: conversation.id,
+      phoneNumber: conversation.secondaryLabel,
+      hasCache: Boolean(readConversationFromCache(conversation.id)),
+    });
+    void warmConversationCache(conversation.id);
+  }, []);
 
   const handleSelect = useCallback((conversation: SharedInboxConversationItem) => {
-    setPendingId(conversation.id);
-    emitPendingSelection(conversation);
+    handlePreviewSelect(conversation);
     if (navigationFrameRef.current !== null) {
       window.cancelAnimationFrame(navigationFrameRef.current);
     }
@@ -265,7 +259,7 @@ export function ConversationList({
         });
         navigationFrameRef.current = null;
       });
-    }, [emitPendingSelection, router, startTransition]);
+    }, [handlePreviewSelect, router, startTransition]);
 
   const handlePrefetch = useCallback((conversation: SharedInboxConversationItem) => {
     const href = conversation.href.trim();
@@ -275,6 +269,7 @@ export function ConversationList({
 
     prefetchedHrefsRef.current.add(href);
     router.prefetch(href);
+    void warmConversationCache(conversation.id);
   }, [router]);
 
   useEffect(() => {
