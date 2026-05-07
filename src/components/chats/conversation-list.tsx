@@ -14,6 +14,7 @@ import type { SharedInboxConversationItem } from "./shared-inbox";
 const conversationTimeFormatter = new Intl.DateTimeFormat("es-CO", {
   hour: "2-digit",
   minute: "2-digit",
+  timeZone: "America/Bogota",
 });
 
 function renderChannelBadgeIcon(channelType?: SharedInboxConversationItem["channelType"]) {

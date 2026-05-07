@@ -1,5 +1,6 @@
 ﻿import { redirect } from "next/navigation";
 import { auth } from "@/auth";
+import { after } from "next/server";
 import { sendUnifiedChatReplyAction, toggleConversationAutomationAction } from "@/app/actions/chats-actions";
 import { ClearChatButton } from "@/components/chats/clear-chat-button";
 import { ChatsAutoRefresh } from "@/components/agents/chats-auto-refresh";
@@ -131,8 +132,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
 
   const selectedChatRef = parseChatKey(selectedChatKeyParam);
 
-  const canUseOfficialApi = await canAccessOfficialApiModule(session.user.id, session.user.role);
-  const officialDataPromise =
+  const canUseOfficialApiPromise = canAccessOfficialApiModule(session.user.id, session.user.role);
+  const officialDataPromise = canUseOfficialApiPromise.then((canUseOfficialApi) =>
     canUseOfficialApi
       ? getOfficialApiChatsData({
           workspaceId: membership.workspace.id,
@@ -140,9 +141,11 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           q: searchQuery,
           includeSelectedConversation: selectedChatRef?.source === "official",
         })
-      : null;
+      : null,
+  );
 
-  const [evolutionSettings, channels, agentConversations] = await Promise.all([
+  const [canUseOfficialApi, evolutionSettings, channels, agentConversations] = await Promise.all([
+    canUseOfficialApiPromise,
     getEvolutionSettings(),
     prisma.whatsAppChannel.findMany({
       where: { workspaceId: membership.workspace.id },
@@ -226,9 +229,11 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   });
 
   const contactIds = Array.from(new Set(activeAgentConversations.map((conversation) => conversation.contact.id)));
-  const outboundRows =
-    autoTagNewLeads && contactIds.length > 0
-      ? await prisma.$queryRaw<Array<{ contactId: string; outboundCount: number }>>`
+  const activeAgentConversationIds = activeAgentConversations.map((conversation) => conversation.id);
+  if (autoTagNewLeads && contactIds.length > 0) {
+    after(async () => {
+      try {
+        const outboundRows = await prisma.$queryRaw<Array<{ contactId: string; outboundCount: number }>>`
           SELECT
             m."contactId" AS "contactId",
             COUNT(*)::int AS "outboundCount"
@@ -237,27 +242,30 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
             AND m."contactId" IN (${Prisma.join(contactIds)})
             AND m."direction" = 'OUTBOUND'
           GROUP BY m."contactId"
-        `
-      : [];
-  const outboundCountByContactId = new Map<string, number>();
-  for (const row of outboundRows) {
-    outboundCountByContactId.set(row.contactId, row.outboundCount);
+        `;
+        const outboundCountByContactId = new Map<string, number>();
+        for (const row of outboundRows) {
+          outboundCountByContactId.set(row.contactId, row.outboundCount);
+        }
+
+        await Promise.allSettled(
+          contactIds.map((contactId) =>
+            syncLeadLifecycleForContact({
+              workspaceId: membership.workspace.id,
+              contactId,
+              newLeadTagName,
+              hasHistory: (outboundCountByContactId.get(contactId) ?? 0) > 0,
+            }),
+          ),
+        );
+      } catch {
+        // No bloqueamos la carga si falla la sincronización de tags en segundo plano.
+      }
+    });
   }
 
-  if (autoTagNewLeads && contactIds.length > 0) {
-    await Promise.all(
-      contactIds.map((contactId) =>
-        syncLeadLifecycleForContact({
-          workspaceId: membership.workspace.id,
-          contactId,
-          newLeadTagName,
-          hasHistory: (outboundCountByContactId.get(contactId) ?? 0) > 0,
-        }),
-      ),
-    );
-  }
-  const contactTagRows = contactIds.length
-    ? await prisma.$queryRaw<Array<{ contactId: string; name: string; color: string }>>`
+  const contactTagRowsPromise = contactIds.length
+    ? prisma.$queryRaw<Array<{ contactId: string; name: string; color: string }>>`
         SELECT
           ct."contactId" AS "contactId",
           t."name" AS "name",
@@ -268,17 +276,10 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           AND ct."contactId" IN (${Prisma.join(contactIds)})
         ORDER BY ct."createdAt" ASC
       `
-    : [];
-  const contactTagsByContactId = new Map<string, Array<{ name: string; color: string }>>();
-  for (const row of contactTagRows) {
-    const current = contactTagsByContactId.get(row.contactId) || [];
-    current.push({ name: row.name, color: row.color });
-    contactTagsByContactId.set(row.contactId, current);
-  }
+    : Promise.resolve([] as Array<{ contactId: string; name: string; color: string }>);
 
-  const activeAgentConversationIds = activeAgentConversations.map((conversation) => conversation.id);
-  const agentIncomingCountRows = activeAgentConversationIds.length
-    ? await prisma.$queryRaw<Array<{
+  const agentIncomingCountRowsPromise = activeAgentConversationIds.length
+    ? prisma.$queryRaw<Array<{
         conversationId: string;
         incomingCount: number;
       }>>`
@@ -302,7 +303,23 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         WHERE c."workspaceId" = ${membership.workspace.id}
           AND c."id" IN (${Prisma.join(activeAgentConversationIds)})
       `
-    : [];
+    : Promise.resolve([] as Array<{
+        conversationId: string;
+        incomingCount: number;
+      }>);
+
+  const [contactTagRows, agentIncomingCountRows] = await Promise.all([
+    contactTagRowsPromise,
+    agentIncomingCountRowsPromise,
+  ]);
+
+  const contactTagsByContactId = new Map<string, Array<{ name: string; color: string }>>();
+  for (const row of contactTagRows) {
+    const current = contactTagsByContactId.get(row.contactId) || [];
+    current.push({ name: row.name, color: row.color });
+    contactTagsByContactId.set(row.contactId, current);
+  }
+
   const agentIncomingCountById = new Map(agentIncomingCountRows.map((row) => [row.conversationId, row.incomingCount]));
 
   const selectedAgentConversation =

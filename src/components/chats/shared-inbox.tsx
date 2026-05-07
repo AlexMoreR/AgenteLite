@@ -36,16 +36,22 @@ import { EtiquetaModal } from "@/components/chats/etiqueta-modal";
 import { Card } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
-const chatDateFormatter = new Intl.DateTimeFormat("en-CA");
+const CHAT_TIME_ZONE = "America/Bogota";
+
+const chatDateFormatter = new Intl.DateTimeFormat("en-CA", {
+  timeZone: CHAT_TIME_ZONE,
+});
 const chatDateLabelFormatter = new Intl.DateTimeFormat("es-CO", {
   weekday: "long",
   day: "numeric",
   month: "long",
   year: "numeric",
+  timeZone: CHAT_TIME_ZONE,
 });
 const chatTimeFormatter = new Intl.DateTimeFormat("es-CO", {
   hour: "numeric",
   minute: "2-digit",
+  timeZone: CHAT_TIME_ZONE,
 });
 
 export type SharedInboxConversationItem = {
@@ -948,6 +954,7 @@ export function SharedInbox({
   const loadMoreHistoryRestoreRef = useRef<{ scrollTop: number; scrollHeight: number } | null>(null);
   const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [hasHydrated, setHasHydrated] = useState(false);
   // Ref sincronizada en cada render: permite leer el valor actual dentro de event
   // listeners sin declararlos como dependencia (evita re-registro en cada mensaje).
   const selectedConversationRef = useRef(selectedConversation);
@@ -958,6 +965,10 @@ export function SharedInbox({
   useEffect(() => {
     setSearchInputValue(searchQuery);
   }, [searchQuery]);
+
+  useEffect(() => {
+    setHasHydrated(true);
+  }, []);
 
   const buildSearchUrl = useCallback(
     (q: string) => {
@@ -1016,8 +1027,8 @@ export function SharedInbox({
 
   const selectedConversationKey = (pendingConversation?.chatKey ?? selectedConversationId).trim();
   const selectedConversationCache = useMemo(
-    () => (selectedConversationKey ? readConversationFromCache(selectedConversationKey) : null),
-    [selectedConversationKey],
+    () => (hasHydrated && selectedConversationKey ? readConversationFromCache(selectedConversationKey) : null),
+    [hasHydrated, selectedConversationKey],
   );
   const selectedConversationMatchesCurrentKey =
     Boolean(selectedConversation && conversationIdMatchesKey(selectedConversationKey, selectedConversation.id));
