@@ -413,7 +413,6 @@ export function ChatsRealtimeSync({
           });
 
         if (!response.ok) {
-          console.log("[ListUpdate] fetch error HTTP", { status: response.status, instanceName: input.instanceName, phoneNumber });
           return false;
         }
 
@@ -422,21 +421,14 @@ export function ChatsRealtimeSync({
           | null;
 
         if (!payload?.ok || !payload.conversation) {
-          console.log("[ListUpdate] payload inválido o ok=false", { payload });
           return false;
         }
 
         const conversation = normalizeConversationSummarySnapshot(payload.conversation);
         if (!conversation) {
-          console.log("[ListUpdate] normalizeConversationSummarySnapshot devolvió null", payload.conversation);
           return false;
         }
 
-        console.log("[ListUpdate] response ok, despachando chat-list-update", {
-          id: conversation.id,
-          lastMessage: (conversation as Record<string, unknown>).lastMessage,
-          lastMessageAt: (conversation as Record<string, unknown>).lastMessageAt,
-        });
         window.dispatchEvent(
           new CustomEvent("chat-list-update", {
             detail: {
@@ -491,8 +483,6 @@ export function ChatsRealtimeSync({
     };
 
     const scheduleListUpdate = (priority: RefreshPriority, instanceName: string, payload: unknown, chatKey?: string) => {
-      const phoneForLog = extractPhoneNumberFromPayload(payload);
-      console.log("[ListUpdate] scheduleListUpdate iniciado", { instanceName, priority, phoneNumber: phoneForLog, chatKey });
       const now = Date.now();
       const minGap = priority === "active" ? LIST_REFRESH_MIN_GAP_MS : BACKGROUND_REFRESH_MIN_GAP_MS;
       const preferredDelay = priority === "active" ? LIST_REFRESH_DELAY_MS : BACKGROUND_REFRESH_DELAY_MS;
@@ -546,7 +536,6 @@ export function ChatsRealtimeSync({
           extraHeaders: { apikey: socketApiKey },
         } : {}),
       });
-      console.log("[WS] conectando", { url: buildSocketUrl(normalizedBaseUrl, instanceName), apiKeyUsed: socketApiKey?.slice(0, 8) + "..." });
 
       socket.onAny((eventName, ...args) => {
         if (typeof eventName === "string" && shouldTriggerRefresh(eventName)) {
@@ -632,7 +621,6 @@ export function ChatsRealtimeSync({
               // porque page-refresh tiene min-gap de 4000ms y dejaría el preview
               // desactualizado varios segundos; scheduleListUpdate es directo y rápido.
               const listInstanceName = payloadInstanceName || normalizedActiveInstanceName;
-              console.log("[WS] scheduleListUpdate llamado", { listInstanceName, phoneNumber, payloadInstanceName, normalizedActiveInstanceName, eventName });
               if (listInstanceName) {
                 scheduleListUpdate("background", listInstanceName, payload);
               } else {

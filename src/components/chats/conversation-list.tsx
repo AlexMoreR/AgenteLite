@@ -201,6 +201,7 @@ export function ConversationList({
   const [viewportHeight, setViewportHeight] = useState(0);
   const [scrollTop, setScrollTop] = useState(0);
   const navigationFrameRef = useRef<number | null>(null);
+  const prefetchedHrefsRef = useRef(new Set<string>());
   const router = useRouter();
   const effectiveSelectedId = isPending && pendingId ? pendingId : selectedConversationId;
 
@@ -249,7 +250,13 @@ export function ConversationList({
   }, [emitPendingSelection, router, startTransition]);
 
   const handlePrefetch = useCallback((conversation: SharedInboxConversationItem) => {
-    router.prefetch(conversation.href);
+    const href = conversation.href.trim();
+    if (!href || prefetchedHrefsRef.current.has(href)) {
+      return;
+    }
+
+    prefetchedHrefsRef.current.add(href);
+    router.prefetch(href);
   }, [router]);
 
   useEffect(() => {

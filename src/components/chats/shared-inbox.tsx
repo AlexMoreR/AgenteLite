@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { flushSync } from "react-dom";
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useFormStatus } from "react-dom";
 import {
@@ -455,6 +455,53 @@ function mergeConversationListItem(
   };
 }
 
+function areTagListsEqual(
+  left: SharedInboxConversationItem["tags"],
+  right: SharedInboxConversationItem["tags"],
+) {
+  if (left === right) {
+    return true;
+  }
+
+  if ((left?.length ?? 0) !== (right?.length ?? 0)) {
+    return false;
+  }
+
+  for (let index = 0; index < (left?.length ?? 0); index += 1) {
+    const leftTag = left?.[index];
+    const rightTag = right?.[index];
+
+    if (!leftTag || !rightTag || leftTag.label !== rightTag.label || leftTag.color !== rightTag.color) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function areConversationListItemsEqual(
+  left: SharedInboxConversationItem,
+  right: SharedInboxConversationItem,
+) {
+  return (
+    left.id === right.id &&
+    left.source === right.source &&
+    left.agentId === right.agentId &&
+    left.contactId === right.contactId &&
+    left.label === right.label &&
+    left.secondaryLabel === right.secondaryLabel &&
+    left.avatarUrl === right.avatarUrl &&
+    left.lastMessage === right.lastMessage &&
+    left.lastMessageType === right.lastMessageType &&
+    left.lastMessageDirection === right.lastMessageDirection &&
+    (left.lastMessageAt?.getTime() ?? 0) === (right.lastMessageAt?.getTime() ?? 0) &&
+    left.incomingCount === right.incomingCount &&
+    left.channelType === right.channelType &&
+    left.href === right.href &&
+    areTagListsEqual(left.tags ?? [], right.tags ?? [])
+  );
+}
+
 function updateConversationItemByContact(
   current: SharedInboxConversationItem[],
   contactId: string,
@@ -513,22 +560,6 @@ function isRenderableMediaUrl(url?: string | null) {
     normalized.startsWith("http://") ||
     normalized.startsWith("https://")
   );
-}
-
-function isVisualMessage(message: SharedInboxMessageItem) {
-  return Boolean(extractImagePreviewUrl(message)) && (message.type === "IMAGE" || (!message.type && message.mediaUrl));
-}
-
-function isAudioMessage(message: SharedInboxMessageItem) {
-  return Boolean(extractMediaUrlFromPayload(message, "AUDIO")) && message.type === "AUDIO";
-}
-
-function isVideoMessage(message: SharedInboxMessageItem) {
-  return Boolean(extractMediaUrlFromPayload(message, "VIDEO")) && message.type === "VIDEO";
-}
-
-function isDocumentMessage(message: SharedInboxMessageItem) {
-  return Boolean(extractMediaUrlFromPayload(message, "DOCUMENT")) && message.type === "DOCUMENT";
 }
 
 function extractMediaUrlFromPayload(message: SharedInboxMessageItem, type: "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT") {
@@ -737,6 +768,10 @@ const MessageBubble = memo(function MessageBubble({
   const previousDateKey = previousMessage ? chatDateFormatter.format(previousMessage.createdAt) : null;
   const showDateDivider = currentDateKey !== previousDateKey;
   const adPreview = extractChatAdPreview(message.rawPayload);
+  const imagePreviewUrl = extractImagePreviewUrl(message);
+  const audioUrl = message.type === "AUDIO" ? extractMediaUrlFromPayload(message, "AUDIO") : null;
+  const videoUrl = message.type === "VIDEO" ? extractMediaUrlFromPayload(message, "VIDEO") : null;
+  const documentUrl = message.type === "DOCUMENT" ? extractMediaUrlFromPayload(message, "DOCUMENT") : null;
   const isOptimistic = "isOptimistic" in message && Boolean((message as { isOptimistic?: boolean }).isOptimistic);
 
   return (
@@ -809,66 +844,36 @@ const MessageBubble = memo(function MessageBubble({
               </div>
               {renderMessageText(message.content)}
             </div>
-          ) : isVisualMessage(message) ? (
+          ) : imagePreviewUrl ? (
             <div className="space-y-2">
-              {(() => {
-                const previewUrl = extractImagePreviewUrl(message);
-                return previewUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={previewUrl}
-                    alt={message.content?.trim() || "Imagen del chat"}
-                    className="max-h-[320px] w-full rounded-xl object-cover"
-                  />
-                ) : (
-                  <div
-                    className={`flex min-h-[140px] items-center justify-center rounded-xl border border-dashed text-sm ${
-                      outbound ? "border-white/20 text-white/80" : "border-slate-200 text-slate-500"
-                    }`}
-                  >
-                    Imagen no disponible
-                  </div>
-                );
-              })()}
-              {renderMessageText(message.content)}
-            </div>
-          ) : isVideoMessage(message) ? (
-            <div className="space-y-2">
-              {(() => {
-                const videoUrl = message.mediaUrl || extractMediaUrlFromPayload(message, "VIDEO");
-                return videoUrl ? (
-                  <video
-                    src={videoUrl}
-                    controls
-                    preload="metadata"
-                    className="max-h-[320px] w-full rounded-xl bg-black"
-                  />
-                ) : (
-                  <div
-                    className={`flex min-h-[140px] items-center justify-center rounded-xl border border-dashed text-sm ${
-                      outbound ? "border-white/20 text-white/80" : "border-slate-200 text-slate-500"
-                    }`}
-                  >
-                    Video no disponible
-                  </div>
-                );
-              })()}
-              {renderMessageText(message.content)}
-            </div>
-          ) : isAudioMessage(message) ? (
-            message.mediaUrl || extractMediaUrlFromPayload(message, "AUDIO") ? (
-              <AudioMessageCard
-                mediaUrl={message.mediaUrl || extractMediaUrlFromPayload(message, "AUDIO") || ""}
-                content={message.content}
-                outbound={outbound}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={imagePreviewUrl}
+                alt={message.content?.trim() || "Imagen del chat"}
+                className="max-h-[320px] w-full rounded-xl object-cover"
               />
-            ) : (
-              renderMessageText(message.content) || <p>Audio no disponible</p>
-            )
-          ) : isDocumentMessage(message) ? (
+              {renderMessageText(message.content)}
+            </div>
+          ) : videoUrl ? (
+            <div className="space-y-2">
+              <video
+                src={videoUrl}
+                controls
+                preload="metadata"
+                className="max-h-[320px] w-full rounded-xl bg-black"
+              />
+              {renderMessageText(message.content)}
+            </div>
+          ) : audioUrl ? (
+            <AudioMessageCard
+              mediaUrl={audioUrl}
+              content={message.content}
+              outbound={outbound}
+            />
+          ) : documentUrl ? (
             <div className="space-y-2">
               <a
-                href={message.mediaUrl || extractMediaUrlFromPayload(message, "DOCUMENT") || "#"}
+                href={documentUrl}
                 target="_blank"
                 rel="noreferrer"
                 className={`inline-flex items-center rounded-xl px-3 py-2 text-sm font-medium underline-offset-2 transition hover:underline ${
@@ -1008,7 +1013,10 @@ export function SharedInbox({
   }, [selectedConversation]);
 
   const selectedConversationKey = (pendingConversation?.chatKey ?? selectedConversationId).trim();
-  const selectedConversationCache = selectedConversationKey ? readConversationFromCache(selectedConversationKey) : null;
+  const selectedConversationCache = useMemo(
+    () => (selectedConversationKey ? readConversationFromCache(selectedConversationKey) : null),
+    [selectedConversationKey],
+  );
   const selectedConversationMatchesCurrentKey =
     Boolean(selectedConversation && conversationIdMatchesKey(selectedConversationKey, selectedConversation.id));
   const currentSelectedConversation = selectedConversationMatchesCurrentKey ? selectedConversation : null;
@@ -1025,7 +1033,16 @@ export function SharedInbox({
 
       const currentById = new Map(current.map((item) => [item.id, item]));
       const merged = conversations.map((conversation) => mergeConversationListItem(conversation, currentById.get(conversation.id) ?? null));
-      return sortConversationItems(merged);
+      const sorted = sortConversationItems(merged);
+
+      if (
+        current.length === sorted.length &&
+        current.every((item, index) => areConversationListItemsEqual(item, sorted[index]))
+      ) {
+        return current;
+      }
+
+      return sorted;
     });
   }, [conversations]);
 
@@ -1109,15 +1126,28 @@ export function SharedInbox({
       setConversationItems((current) => {
         const currentItem = findConversationItemBySnapshotId(current, snapshot.id) ?? undefined;
         const updatedItem = buildConversationItemFromSnapshot(snapshot, currentItem);
+        if (currentItem && areConversationListItemsEqual(currentItem, updatedItem)) {
+          return current;
+        }
+
         const nextItems = current.map((item) =>
           conversationIdMatchesKey(item.id, snapshot.id) ? { ...item, ...updatedItem } : item,
         );
 
-        return nextItems.sort((left, right) => {
+        const sorted = nextItems.sort((left, right) => {
           const leftAt = left.lastMessageAt ? left.lastMessageAt.getTime() : 0;
           const rightAt = right.lastMessageAt ? right.lastMessageAt.getTime() : 0;
           return rightAt - leftAt;
         });
+
+        if (
+          current.length === sorted.length &&
+          current.every((item, index) => areConversationListItemsEqual(item, sorted[index]))
+        ) {
+          return current;
+        }
+
+        return sorted;
       });
     }
 
@@ -1136,11 +1166,23 @@ export function SharedInbox({
       setConversationItems((current) => {
         const currentItem = findConversationItemBySnapshotId(current, snapshot.id) ?? undefined;
         const updatedItem = buildConversationItemFromListSnapshot(snapshot, currentItem);
+        if (currentItem && areConversationListItemsEqual(currentItem, updatedItem)) {
+          return current;
+        }
+
         const nextItems = current.map((item) =>
           conversationIdMatchesKey(item.id, snapshot.id) ? { ...item, ...updatedItem } : item,
         );
+        const sorted = sortConversationItems(nextItems);
 
-        return sortConversationItems(nextItems);
+        if (
+          current.length === sorted.length &&
+          current.every((item, index) => areConversationListItemsEqual(item, sorted[index]))
+        ) {
+          return current;
+        }
+
+        return sorted;
       });
     }
 
@@ -1158,10 +1200,17 @@ export function SharedInbox({
       }
 
       setConversationItems((current) =>
-        updateConversationItemByContact(current, detail.contactId, (item) => ({
-          ...item,
-          label: detail.name.trim(),
-        })),
+        updateConversationItemByContact(current, detail.contactId, (item) => {
+          const nextLabel = detail.name.trim();
+          if (item.label === nextLabel) {
+            return item;
+          }
+
+          return {
+            ...item,
+            label: nextLabel,
+          };
+        }),
       );
 
       setLiveConversation((current) => {
@@ -1204,10 +1253,16 @@ export function SharedInbox({
       }
 
       setConversationItems((current) =>
-        updateConversationItemByContact(current, detail.contactId, (item) => ({
-          ...item,
-          tags: detail.tags,
-        })),
+        updateConversationItemByContact(current, detail.contactId, (item) => {
+          if (areTagListsEqual(item.tags ?? [], detail.tags)) {
+            return item;
+          }
+
+          return {
+            ...item,
+            tags: detail.tags,
+          };
+        }),
       );
 
       setLiveConversation((current) => {
@@ -1326,16 +1381,28 @@ export function SharedInbox({
 
   const effectiveLiveConversation =
     liveConversation && conversationIdMatchesKey(selectedConversationId, liveConversation.id) ? liveConversation : null;
-  const liveOrCachedConversation = mergeConversationSnapshots(
-    currentSelectedConversation ?? null,
-    effectiveLiveConversation ?? selectedConversationCache ?? cachedConversationForCurrentSelection,
+  const liveOrCachedConversation = useMemo(
+    () =>
+      mergeConversationSnapshots(
+        currentSelectedConversation ?? null,
+        effectiveLiveConversation ?? selectedConversationCache ?? cachedConversationForCurrentSelection,
+      ),
+    [
+      cachedConversationForCurrentSelection,
+      currentSelectedConversation,
+      effectiveLiveConversation,
+      selectedConversationCache,
+    ],
   );
-  const pendingConversationPreview =
-    pendingConversation && optimisticConversation && conversationIdMatchesKey(pendingConversation.id, optimisticConversation.id)
-      ? optimisticConversation
-      : null;
+  const pendingConversationPreview = useMemo(
+    () =>
+      pendingConversation && optimisticConversation && conversationIdMatchesKey(pendingConversation.id, optimisticConversation.id)
+        ? optimisticConversation
+        : null,
+    [optimisticConversation, pendingConversation],
+  );
 
-  const renderedConversation = (() => {
+  const renderedConversation = useMemo(() => {
     if (!pendingConversationPreview) {
       return liveOrCachedConversation;
     }
@@ -1374,7 +1441,7 @@ export function SharedInbox({
     }
 
     return liveOrCachedConversation;
-  })();
+  }, [liveOrCachedConversation, pendingConversationPreview]);
 
   useEffect(() => {
     if (!renderedConversation) {
@@ -1464,13 +1531,16 @@ export function SharedInbox({
         renderedConversation.messages.at(-1)?.direction === "OUTBOUND" &&
         renderedConversation.messages.at(-1)?.content?.trim() === optimisticOutgoingMessage.content?.trim(),
     );
-  const renderedMessages =
-    renderedConversation &&
-    optimisticOutgoingMessage &&
-    renderedConversation.id === optimisticOutgoingMessage.conversationId &&
-    !optimisticDraftMatchesLatestMessage
-      ? [...renderedConversation.messages, optimisticOutgoingMessage]
-      : renderedConversation?.messages ?? [];
+  const renderedMessages = useMemo(
+    () =>
+      renderedConversation &&
+      optimisticOutgoingMessage &&
+      renderedConversation.id === optimisticOutgoingMessage.conversationId &&
+      !optimisticDraftMatchesLatestMessage
+        ? [...renderedConversation.messages, optimisticOutgoingMessage]
+        : renderedConversation?.messages ?? [],
+    [optimisticDraftMatchesLatestMessage, optimisticOutgoingMessage, renderedConversation],
+  );
   const hasSettledConversation = Boolean(renderedConversation && currentSelectedConversation && renderedConversation.id === currentSelectedConversation.id);
   const hasMobileSelection = Boolean(renderedConversation || pendingConversation || selectedConversationId);
   const canLoadOlderMessages = Boolean(renderedConversation?.loadMoreCursor && renderedConversation.hasMoreMessages);
