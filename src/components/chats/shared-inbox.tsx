@@ -1387,7 +1387,7 @@ export function SharedInbox({
   const loadOlderMessages = useCallback(async () => {
     const conversation = renderedConversation;
     const loadMoreCursor = conversation?.loadMoreCursor?.trim() || "";
-    const chatKey = conversation?.id?.trim() || "";
+    const chatKey = conversation?.cacheKey?.trim() || selectedConversationId.trim();
     let shouldRestoreScroll = false;
 
     if (
@@ -1454,7 +1454,7 @@ export function SharedInbox({
       }
       loadMoreHistoryInFlightRef.current = false;
     }
-  }, [renderedConversation, selectedConversation]);
+  }, [renderedConversation, selectedConversation, selectedConversationId]);
 
   const optimisticDraftMatchesLatestMessage =
     Boolean(
