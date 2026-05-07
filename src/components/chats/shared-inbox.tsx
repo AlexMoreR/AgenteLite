@@ -902,6 +902,7 @@ export function SharedInbox({
   const handleCloseEtiquetaModal = useCallback(() => setEtiquetaModalOpen(false), []);
   const conversationListScrollRef = useRef<HTMLDivElement | null>(null);
   const messagesScrollRef = useRef<HTMLDivElement | null>(null);
+  const scrollFrameRef = useRef<number | null>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
   const isNearBottomRef = useRef(true);
   const prevScrollKeyRef = useRef("");
@@ -1266,6 +1267,14 @@ export function SharedInbox({
   }, [renderedConversation?.loadMoreHref, renderedConversation?.id]);
 
   useEffect(() => {
+    return () => {
+      if (scrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(scrollFrameRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     const scrollContainer = messagesScrollRef.current;
     const loadMoreSentinel = loadMoreSentinelRef.current;
     const loadMoreHref = renderedConversation?.loadMoreHref;
@@ -1328,6 +1337,30 @@ export function SharedInbox({
     return () => container.removeEventListener("scroll", handleScroll);
   }, []);
 
+  useLayoutEffect(() => {
+    if (messageScrollBehavior !== "bottom" || !renderedConversation) {
+      return;
+    }
+
+    const container = messagesScrollRef.current;
+    if (!container) {
+      return;
+    }
+
+    if (scrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(scrollFrameRef.current);
+    }
+
+    scrollFrameRef.current = window.requestAnimationFrame(() => {
+      scrollFrameRef.current = window.requestAnimationFrame(() => {
+        container.scrollTop = container.scrollHeight;
+        isNearBottomRef.current = true;
+        setUnreadCount(0);
+        scrollFrameRef.current = null;
+      });
+    });
+  }, [messageScrollBehavior, renderedConversation]);
+
   // Smart scroll: auto-scroll only when near bottom; count new messages when scrolled up.
   useLayoutEffect(() => {
     if (messageScrollBehavior !== "bottom") return;
@@ -1339,10 +1372,29 @@ export function SharedInbox({
 
     if (currentKey === "empty" || !container) return;
 
+    const jumpToBottom = (smooth: boolean) => {
+      if (scrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(scrollFrameRef.current);
+      }
+
+      scrollFrameRef.current = window.requestAnimationFrame(() => {
+        scrollFrameRef.current = window.requestAnimationFrame(() => {
+          if (smooth) {
+            container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+          } else {
+            container.scrollTop = container.scrollHeight;
+          }
+
+          isNearBottomRef.current = true;
+          setUnreadCount(0);
+          scrollFrameRef.current = null;
+        });
+      });
+    };
+
     if (!prevKey || prevKey === "empty") {
       // Initial load — jump to bottom without animation.
-      container.scrollTop = container.scrollHeight;
-      isNearBottomRef.current = true;
+      jumpToBottom(false);
       return;
     }
 
@@ -1351,9 +1403,7 @@ export function SharedInbox({
 
     if (prevConvId !== curConvId) {
       // Different conversation opened — always jump to bottom.
-      container.scrollTop = container.scrollHeight;
-      isNearBottomRef.current = true;
-      setUnreadCount(0);
+      jumpToBottom(false);
       return;
     }
 
@@ -1365,14 +1415,12 @@ export function SharedInbox({
 
     // First messages arriving (0 → N): always jump to bottom regardless of scroll position.
     if (prevCount === 0) {
-      container.scrollTop = container.scrollHeight;
-      isNearBottomRef.current = true;
-      setUnreadCount(0);
+      jumpToBottom(false);
       return;
     }
 
     if (isNearBottomRef.current) {
-      container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+      jumpToBottom(true);
     } else {
       setUnreadCount((prev) => prev + added);
     }
@@ -1600,7 +1648,7 @@ export function SharedInbox({
                     style={{
                       backgroundColor: "#f3f4f6",
                       backgroundImage:
-                        "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220' viewBox='0 0 220 220'%3E%3Cg fill='none' stroke='%23cbd5e1' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round' opacity='0.45'%3E%3Ccircle cx='28' cy='24' r='10'/%3E%3Cpath d='M62 18l8 14 14 2-10 10 2 14-14-7-12 7 2-14-10-10 14-2z'/%3E%3Cpath d='M122 18c10 0 18 8 18 18s-8 18-18 18-18-8-18-18 8-18 18-18z'/%3E%3Cpath d='M169 24l20 20M189 24l-20 20'/%3E%3Crect x='20' y='76' width='28' height='18' rx='6'/%3E%3Cpath d='M26 102c6-8 16-8 22 0'/%3E%3Cpath d='M76 74l10 18 20 3-14 14 3 20-19-10-18 10 3-20-14-14 20-3z'/%3E%3Cpath d='M130 78h28v18h-28z'/%3E%3Cpath d='M144 70v36M130 87h28'/%3E%3Cpath d='M176 76c10 0 18 8 18 18s-8 18-18 18-18-8-18-18 8-18 18-18z'/%3E%3Cpath d='M24 142c6-8 18-8 24 0 6 8 18 8 24 0'/%3E%3Cpath d='M86 144c0-8 6-14 14-14s14 6 14 14-6 14-14 14-14-6-14-14z'/%3E%3Cpath d='M128 136l24 24M152 136l-24 24'/%3E%3Cpath d='M174 132h26v26h-26z'/%3E%3Cpath d='M182 124v42M174 145h26'/%3E%3Ccircle cx='42' cy='188' r='16'/%3E%3Cpath d='M36 188h12M42 182v12'/%3E%3Cpath d='M92 180c8-10 22-10 30 0-8 10-22 10-30 0z'/%3E%3Cpath d='M140 180l12 12 18-18'/%3E%3Cpath d='M178 184c6-8 16-8 22 0'/%3E%3C/g%3E%3C/svg%3E\")",
+                        `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220' viewBox='0 0 220 220'%3E%3Cg fill='none' stroke='%23cbd5e1' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round' opacity='0.45'%3E%3Ccircle cx='28' cy='24' r='10'/%3E%3Cpath d='M62 18l8 14 14 2-10 10 2 14-14-7-12 7 2-14-10-10 14-2z'/%3E%3Cpath d='M122 18c10 0 18 8 18 18s-8 18-18 18-18-8-18-18 8-18 18-18z'/%3E%3Cpath d='M169 24l20 20M189 24l-20 20'/%3E%3Crect x='20' y='76' width='28' height='18' rx='6'/%3E%3Cpath d='M26 102c6-8 16-8 22 0'/%3E%3Cpath d='M76 74l10 18 20 3-14 14 3 20-19-10-18 10 3-20-14-14 20-3z'/%3E%3Cpath d='M130 78h28v18h-28z'/%3E%3Cpath d='M144 70v36M130 87h28'/%3E%3Cpath d='M176 76c10 0 18 8 18 18s-8 18-18 18-18-8-18-18 8-18 18-18z'/%3E%3Cpath d='M24 142c6-8 18-8 24 0 6 8 18 8 24 0'/%3E%3Cpath d='M86 144c0-8 6-14 14-14s14 6 14 14-6 14-14 14-14-6-14-14z'/%3E%3Cpath d='M128 136l24 24M152 136l-24 24'/%3E%3Cpath d='M174 132h26v26h-26z'/%3E%3Cpath d='M182 124v42M174 145h26'/%3E%3Ccircle cx='42' cy='188' r='16'/%3E%3Cpath d='M36 188h12M42 182v12'/%3E%3Cpath d='M92 180c8-10 22-10 30 0-8 10-22 10-30 0z'/%3E%3Cpath d='M140 180l12 12 18-18'/%3E%3Cpath d='M178 184c6-8 16-8 22 0'/%3E%3C/g%3E%3C/svg%3E")`,
                       backgroundPosition: "center",
                       backgroundSize: "220px 220px",
                     }}
@@ -1725,3 +1773,6 @@ export function SharedInbox({
     </>
   );
 }
+
+
+
