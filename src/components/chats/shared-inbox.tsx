@@ -1016,8 +1016,7 @@ export function SharedInbox({
       }
 
       setPendingConversation(nextConversation);
-      const cachedConversation = readConversationFromCache(nextConversation.id);
-      setOptimisticConversation(cachedConversation ?? buildPendingConversationPreview(nextConversation));
+      setOptimisticConversation(buildPendingConversationPreview(nextConversation));
     }
 
     window.addEventListener("chat-selection-pending", handlePendingSelection as EventListener);
@@ -1028,7 +1027,9 @@ export function SharedInbox({
     function handleLiveUpdate(event: Event) {
       const customEvent = event as CustomEvent<{ conversation?: unknown }>;
       const snapshot = normalizeLiveConversationSnapshot(customEvent.detail?.conversation);
-      if (!snapshot || !conversationIdMatchesKey(selectedConversationId, snapshot.id)) {
+      const effectiveSelectedKey = pendingConversation?.chatKey ?? selectedConversationId;
+
+      if (!snapshot || !conversationIdMatchesKey(effectiveSelectedKey, snapshot.id)) {
         return;
       }
 
@@ -1058,7 +1059,7 @@ export function SharedInbox({
 
     window.addEventListener("chat-live-update", handleLiveUpdate as EventListener);
     return () => window.removeEventListener("chat-live-update", handleLiveUpdate as EventListener);
-  }, [selectedConversationId]);
+  }, [pendingConversation?.chatKey, selectedConversationId]);
 
   useEffect(() => {
     function handleListUpdate(event: Event) {
@@ -1254,6 +1255,10 @@ export function SharedInbox({
   const effectiveLiveConversation =
     liveConversation && conversationIdMatchesKey(selectedConversationId, liveConversation.id) ? liveConversation : null;
   const liveOrCachedConversation = mergeConversationSnapshots(selectedConversation ?? null, effectiveLiveConversation ?? cachedSelectedConversation);
+  const pendingConversationPreview =
+    pendingConversation && optimisticConversation && pendingConversation.id === optimisticConversation.id
+      ? optimisticConversation
+      : null;
 
   useEffect(() => {
     if (effectiveLiveConversation && liveOrCachedConversation) {
@@ -1261,16 +1266,46 @@ export function SharedInbox({
     }
   }, [effectiveLiveConversation, liveOrCachedConversation]);
 
-  const renderedConversation =
-    optimisticConversation &&
-    pendingConversation?.id === optimisticConversation.id &&
-    (!liveOrCachedConversation || (optimisticConversation.messages.length > 0 && liveOrCachedConversation.messages.length === 0))
-      ? optimisticConversation
-      : liveOrCachedConversation && pendingConversation?.id === liveOrCachedConversation.id
-        ? liveOrCachedConversation
-        : optimisticConversation && pendingConversation?.id === optimisticConversation.id
-          ? optimisticConversation
-          : liveOrCachedConversation;
+  const renderedConversation = (() => {
+    if (!pendingConversationPreview) {
+      return liveOrCachedConversation;
+    }
+
+    if (!liveOrCachedConversation || pendingConversationPreview.id !== liveOrCachedConversation.id) {
+      return pendingConversationPreview;
+    }
+
+    const previewLastMessage = pendingConversationPreview.messages.at(-1) ?? null;
+    const currentLastMessage = liveOrCachedConversation.messages.at(-1) ?? null;
+
+    if (!previewLastMessage) {
+      return liveOrCachedConversation;
+    }
+
+    if (!currentLastMessage) {
+      return pendingConversationPreview;
+    }
+
+    const previewAt = previewLastMessage.createdAt.getTime();
+    const currentAt = currentLastMessage.createdAt.getTime();
+
+    if (previewAt > currentAt) {
+      return pendingConversationPreview;
+    }
+
+    if (previewAt === currentAt) {
+      const previewContent = previewLastMessage.content?.trim() || "";
+      const currentContent = currentLastMessage.content?.trim() || "";
+      const previewDirection = previewLastMessage.direction;
+      const currentDirection = currentLastMessage.direction;
+
+      if (previewContent !== currentContent || previewDirection !== currentDirection) {
+        return pendingConversationPreview;
+      }
+    }
+
+    return liveOrCachedConversation;
+  })();
   const optimisticDraftMatchesLatestMessage =
     Boolean(
       optimisticOutgoingMessage &&
@@ -1362,41 +1397,18 @@ export function SharedInbox({
   useEffect(() => {
     const container = messagesScrollRef.current;
     if (!container) return;
+    const BOTTOM_SCROLL_THRESHOLD_PX = 24;
 
     function handleScroll() {
       const el = container!;
       const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-      isNearBottomRef.current = distFromBottom <= 150;
+      isNearBottomRef.current = distFromBottom <= BOTTOM_SCROLL_THRESHOLD_PX;
       if (isNearBottomRef.current) setUnreadCount(0);
     }
 
     container.addEventListener("scroll", handleScroll, { passive: true });
     return () => container.removeEventListener("scroll", handleScroll);
   }, []);
-
-  useLayoutEffect(() => {
-    if (messageScrollBehavior !== "bottom" || !renderedConversation) {
-      return;
-    }
-
-    const container = messagesScrollRef.current;
-    if (!container) {
-      return;
-    }
-
-    if (scrollFrameRef.current !== null) {
-      window.cancelAnimationFrame(scrollFrameRef.current);
-    }
-
-    scrollFrameRef.current = window.requestAnimationFrame(() => {
-      scrollFrameRef.current = window.requestAnimationFrame(() => {
-        container.scrollTop = container.scrollHeight;
-        isNearBottomRef.current = true;
-        setUnreadCount(0);
-        scrollFrameRef.current = null;
-      });
-    });
-  }, [messageScrollBehavior, renderedConversation]);
 
   // Smart scroll: auto-scroll only when near bottom; count new messages when scrolled up.
   useLayoutEffect(() => {
