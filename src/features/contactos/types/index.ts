@@ -18,7 +18,7 @@ export type ContactosConversationSummary = {
     content: string | null;
     createdAt: string;
     direction: "INBOUND" | "OUTBOUND";
-    type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE";
+    type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE";
   } | null;
 };
 

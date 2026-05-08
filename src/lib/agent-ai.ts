@@ -1,7 +1,7 @@
 type ConversationTurn = {
   direction: "INBOUND" | "OUTBOUND";
   content: string | null;
-  type?: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT" | "TEMPLATE" | "INTERACTIVE" | "SYSTEM";
+  type?: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "TEMPLATE" | "INTERACTIVE" | "SYSTEM";
   mediaUrl?: string | null;
 };
 
@@ -54,7 +54,7 @@ function buildMessages(input: GenerateAgentReplyInput) {
         };
       }
 
-      if (item.type === "IMAGE" || item.mediaUrl) {
+      if (item.type === "IMAGE" || item.type === "STICKER" || item.mediaUrl) {
         return {
           role: item.direction === "OUTBOUND" ? "assistant" : "user",
           content: item.direction === "OUTBOUND"

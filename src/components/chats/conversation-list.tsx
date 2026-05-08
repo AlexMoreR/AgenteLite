@@ -41,6 +41,7 @@ function getConversationPreview(conversation: SharedInboxConversationItem) {
   if (conversation.lastMessageType === "AUDIO") return "Audio";
   if (conversation.lastMessageType === "IMAGE") return "Imagen";
   if (conversation.lastMessageType === "VIDEO") return "Video";
+  if (conversation.lastMessageType === "STICKER") return "Sticker";
   if (conversation.lastMessageType === "DOCUMENT") return "Documento";
   return "Sin mensajes visibles aun.";
 }
@@ -53,6 +54,9 @@ function renderConversationPreview(conversation: SharedInboxConversationItem) {
         <span>Audio</span>
       </span>
     );
+  }
+  if (conversation.lastMessageType === "STICKER" && !conversation.lastMessage?.trim()) {
+    return "Sticker";
   }
   return getConversationPreview(conversation);
 }

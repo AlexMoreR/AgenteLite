@@ -705,7 +705,7 @@ export async function POST(request: Request) {
       })).reverse().map((m) => ({
         direction: m.direction,
         content: m.content,
-        type: m.type as "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT" | "TEMPLATE" | "INTERACTIVE" | "SYSTEM" | undefined,
+        type: m.type as "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "TEMPLATE" | "INTERACTIVE" | "SYSTEM" | undefined,
         mediaUrl: m.mediaUrl,
       }));
 
@@ -827,7 +827,7 @@ export async function POST(request: Request) {
         history: Array<{
           direction: "INBOUND" | "OUTBOUND";
           content: string | null;
-          type?: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT" | "TEMPLATE" | "INTERACTIVE" | "SYSTEM";
+          type?: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "TEMPLATE" | "INTERACTIVE" | "SYSTEM";
           mediaUrl?: string | null;
         }>,
       ) =>

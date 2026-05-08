@@ -139,6 +139,7 @@ export function extractEvolutionMessageText(payload: unknown): string | null {
   const listResponseMessage = asRecord(message?.listResponseMessage);
   const templateButtonReplyMessage = asRecord(message?.templateButtonReplyMessage);
   const imageMessage = asRecord(message?.imageMessage);
+  const stickerMessage = asRecord(message?.stickerMessage);
   const videoMessage = asRecord(message?.videoMessage);
   const documentMessage = asRecord(message?.documentMessage);
   const conversation = readString(message?.conversation);
@@ -153,6 +154,7 @@ export function extractEvolutionMessageText(payload: unknown): string | null {
     readString(templateButtonReplyMessage?.selectedDisplayText) ||
     readString(templateButtonReplyMessage?.selectedId);
   const imageCaption = readString(imageMessage?.caption);
+  const stickerCaption = readString(stickerMessage?.caption);
   const videoCaption = readString(videoMessage?.caption);
   const documentCaption = readString(documentMessage?.caption);
   const documentFileName = readString(documentMessage?.fileName);
@@ -164,6 +166,7 @@ export function extractEvolutionMessageText(payload: unknown): string | null {
     listText ||
     templateReplyText ||
     imageCaption ||
+    stickerCaption ||
     videoCaption ||
     documentCaption ||
     documentFileName ||
@@ -182,6 +185,10 @@ export function extractEvolutionMessageType(payload: unknown) {
 
   if (asRecord(message?.audioMessage)) {
     return "AUDIO" as const;
+  }
+
+  if (asRecord(message?.stickerMessage)) {
+    return "STICKER" as const;
   }
 
   if (asRecord(message?.videoMessage)) {
@@ -204,10 +211,12 @@ export function extractEvolutionMediaUrl(payload: unknown): string | null {
     pickNestedString(message, [
       ["imageMessage", "url"],
       ["audioMessage", "url"],
+      ["stickerMessage", "url"],
       ["videoMessage", "url"],
       ["documentMessage", "url"],
       ["imageMessage", "directPath"],
       ["audioMessage", "directPath"],
+      ["stickerMessage", "directPath"],
       ["videoMessage", "directPath"],
       ["documentMessage", "directPath"],
     ]) ||

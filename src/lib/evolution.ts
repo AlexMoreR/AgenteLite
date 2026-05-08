@@ -178,7 +178,7 @@ async function evolutionRawRequest(path: string, init?: RequestInit) {
   return response;
 }
 
-function inferMediaMimeType(input: { mediaType: "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT"; mimeType?: string | null }) {
+function inferMediaMimeType(input: { mediaType: "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT"; mimeType?: string | null }) {
   if (input.mimeType?.trim()) {
     return input.mimeType.trim();
   }
@@ -190,6 +190,8 @@ function inferMediaMimeType(input: { mediaType: "IMAGE" | "AUDIO" | "VIDEO" | "D
       return "audio/ogg";
     case "VIDEO":
       return "video/mp4";
+    case "STICKER":
+      return "image/webp";
     default:
       return "application/octet-stream";
   }
@@ -361,7 +363,7 @@ function extractRenderableImageUrlFromPayload(payload: unknown) {
   return isRenderableMediaUrl(candidate) ? candidate : null;
 }
 
-function extractRenderableMediaUrlFromPayload(payload: unknown, mediaType: "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT") {
+function extractRenderableMediaUrlFromPayload(payload: unknown, mediaType: "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT") {
   const root = asRecord(payload);
   const data = asRecord(root?.data);
   const message = asRecord(data?.message) ?? asRecord(root?.message);
@@ -373,6 +375,8 @@ function extractRenderableMediaUrlFromPayload(payload: unknown, mediaType: "IMAG
         ? asRecord(message?.audioMessage)
         : mediaType === "VIDEO"
           ? asRecord(message?.videoMessage)
+          : mediaType === "STICKER"
+            ? asRecord(message?.stickerMessage)
           : asRecord(message?.documentMessage);
 
   const candidate =
@@ -388,7 +392,7 @@ function extractRenderableMediaUrlFromPayload(payload: unknown, mediaType: "IMAG
 export async function fetchEvolutionMediaDataUrl(input: {
   instanceName: string;
   messageId: string;
-  mediaType: "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT";
+  mediaType: "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT";
   mimeType?: string | null;
 }) {
   try {
@@ -428,7 +432,7 @@ export async function fetchEvolutionMediaDataUrl(input: {
 export async function resolveEvolutionMessageMediaUrl(input: {
   instanceName?: string | null;
   messageId?: string | null;
-  mediaType: "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT";
+  mediaType: "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT";
   mediaUrl?: string | null;
   rawPayload?: unknown;
 }) {
@@ -460,7 +464,7 @@ export async function resolveEvolutionMessageMediaUrl(input: {
     }
   }
 
-  if (input.mediaType === "IMAGE" && input.rawPayload) {
+  if ((input.mediaType === "IMAGE" || input.mediaType === "STICKER") && input.rawPayload) {
     const renderableImageUrl = extractRenderableImageUrlFromPayload(input.rawPayload);
     if (renderableImageUrl) {
       return renderableImageUrl;
@@ -471,7 +475,7 @@ export async function resolveEvolutionMessageMediaUrl(input: {
     return input.mediaUrl ?? null;
   }
 
-  if (input.mediaType === "IMAGE" && input.rawPayload) {
+  if ((input.mediaType === "IMAGE" || input.mediaType === "STICKER") && input.rawPayload) {
     const thumbnailUrl = extractImageThumbnailDataUrl(input.rawPayload);
     if (thumbnailUrl) {
       return thumbnailUrl;

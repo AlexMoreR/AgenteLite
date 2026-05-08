@@ -86,7 +86,7 @@ export type SharedInboxMessageItem = {
   createdAt: Date;
   authorType?: "user" | "bot";
   outboundStatusLabel?: string | null;
-  type?: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE";
+  type?: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE";
   mediaUrl?: string | null;
   rawPayload?: unknown;
 };
@@ -262,6 +262,7 @@ function getMessagePreviewText(message?: SharedInboxMessageItem | null) {
   if (message.type === "AUDIO") return "Audio";
   if (message.type === "IMAGE") return "Imagen";
   if (message.type === "VIDEO") return "Video";
+  if (message.type === "STICKER") return "Sticker";
   if (message.type === "DOCUMENT") return "Documento";
 
   return null;
@@ -581,7 +582,7 @@ function uniquePush(values: string[], candidate?: string | null) {
   values.push(normalized);
 }
 
-function extractMediaUrlFromPayload(message: SharedInboxMessageItem, type: "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT") {
+function extractMediaUrlFromPayload(message: SharedInboxMessageItem, type: "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT") {
   if (typeof message.mediaUrl === "string" && isMediaSourceUrl(message.mediaUrl)) {
     return toProxiedMediaUrl(message.mediaUrl);
   }
@@ -596,6 +597,8 @@ function extractMediaUrlFromPayload(message: SharedInboxMessageItem, type: "IMAG
         ? getNestedRecord(messageData, "audioMessage")
         : type === "VIDEO"
           ? getNestedRecord(messageData, "videoMessage")
+          : type === "STICKER"
+            ? getNestedRecord(messageData, "stickerMessage")
           : getNestedRecord(messageData, "documentMessage");
 
   const candidate =
@@ -809,6 +812,7 @@ const MessageBubble = memo(function MessageBubble({
   const showDateDivider = currentDateKey !== previousDateKey;
   const adPreview = useMemo(() => extractChatAdPreview(message.rawPayload), [message]);
   const isImageMessage = message.type === "IMAGE";
+  const isStickerMessage = message.type === "STICKER";
   const imagePreviewUrls = useMemo(() => (isImageMessage ? collectImagePreviewUrls(message) : []), [message, isImageMessage]);
   const imagePreviewUrl = imagePreviewUrls[imagePreviewIndex] ?? null;
   const audioUrl = useMemo(
@@ -818,6 +822,10 @@ const MessageBubble = memo(function MessageBubble({
   const videoUrl = useMemo(
     () => (message.type === "VIDEO" ? extractMediaUrlFromPayload(message, "VIDEO") : null),
     [message],
+  );
+  const stickerUrl = useMemo(
+    () => (isStickerMessage ? extractMediaUrlFromPayload(message, "STICKER") : null),
+    [isStickerMessage, message],
   );
   const documentUrl = useMemo(
     () => (message.type === "DOCUMENT" ? extractMediaUrlFromPayload(message, "DOCUMENT") : null),
@@ -849,7 +857,7 @@ const MessageBubble = memo(function MessageBubble({
 
       <div className={`flex ${outbound ? "justify-end" : "justify-start"}`}>
         <div
-          className={`max-w-[88%] rounded-[16px] px-[10px] py-[8px] text-[13px] leading-5 shadow-[0_10px_24px_-20px_rgba(15,23,42,0.16)] md:max-w-[72%] md:px-[10px] md:py-[9px] ${
+          className={`max-w-[88%] rounded-[8px] px-[6px] py-[6px] text-[13px] leading-5 shadow-[0_10px_24px_-20px_rgba(15,23,42,0.16)] md:max-w-[72%] md:px-[6px] md:py-[6px] ${
             outbound
               ? "bg-[var(--primary)] text-white"
               : "border border-[rgba(148,163,184,0.12)] bg-white text-slate-800"
@@ -937,6 +945,20 @@ const MessageBubble = memo(function MessageBubble({
               />
               {renderMessageText(message.content)}
             </div>
+          ) : stickerUrl ? (
+            <div className="space-y-2">
+              <div className="inline-flex max-w-[220px] items-center justify-center overflow-hidden rounded-xl border border-[rgba(148,163,184,0.12)] bg-white">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={stickerUrl}
+                  alt={message.content?.trim() || "Sticker"}
+                  loading="lazy"
+                  decoding="async"
+                  className="h-auto w-full max-w-[220px] object-contain"
+                />
+              </div>
+              {renderMessageText(message.content)}
+            </div>
           ) : audioUrl ? (
             <AudioMessageCard
               mediaUrl={audioUrl}
@@ -961,7 +983,7 @@ const MessageBubble = memo(function MessageBubble({
             renderMessageText(message.content) || <p>-</p>
           )}
 
-          <div className={`mt-1.5 flex items-center justify-end gap-1 text-[10px] ${outbound ? "text-white/80" : "text-slate-400"}`}>
+          <div className={`mt-0.5 flex items-center justify-end gap-1 text-[10px] ${outbound ? "text-white/80" : "text-slate-400"}`}>
             {message.authorType === "bot" ? (
               <Bot className="h-3 w-3" />
             ) : (
@@ -994,6 +1016,10 @@ function estimateMessageBubbleHeight(message: SharedInboxMessageItem) {
 
   if (message.type === "VIDEO") {
     return 340;
+  }
+
+  if (message.type === "STICKER") {
+    return 240;
   }
 
   if (message.type === "AUDIO") {

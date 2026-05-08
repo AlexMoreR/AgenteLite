@@ -11,7 +11,7 @@ export type ChatConversationSummary = {
   avatarUrl: string | null;
   incomingCount: number;
   lastMessage: string | null;
-  lastMessageType: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
+  lastMessageType: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
   lastMessageDirection: "INBOUND" | "OUTBOUND" | null;
   lastMessageAt: Date | null;
   channelType: "whatsapp" | "whatsapp_official" | "instagram" | "facebook";

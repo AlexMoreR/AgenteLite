@@ -6,7 +6,7 @@ export type AgentConversationMessageRecord = {
   content: string | null;
   direction: "INBOUND" | "OUTBOUND";
   createdAt: Date;
-  type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
+  type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
   mediaUrl: string | null;
   rawPayload: unknown;
 };
