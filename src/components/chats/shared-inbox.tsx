@@ -41,6 +41,7 @@ import {
 } from "./chat-selection-store";
 
 const CHAT_TIME_ZONE = "America/Bogota";
+const SELECTED_CONVERSATION_PENDING_CLEAR_DELAY_MS = 4000;
 
 const chatDateFormatter = new Intl.DateTimeFormat("en-CA", {
   timeZone: CHAT_TIME_ZONE,
@@ -1499,10 +1500,6 @@ export function SharedInbox({
   }, [selectedConversation]);
 
   useEffect(() => {
-    if (pendingConversation?.id && pendingConversation.id === selectedConversationId) {
-      clearPendingConversationSelection();
-    }
-
     if (liveConversation && !conversationIdMatchesKey(selectedConversationId, liveConversation.id)) {
       setLiveConversation(null);
     }
@@ -1526,6 +1523,10 @@ export function SharedInbox({
     selectedConversationCache && conversationIdMatchesKey(selectedConversationKey, selectedConversationCache.id)
       ? selectedConversationCache
       : null;
+  const hasReadySelectedConversation =
+    Boolean(currentSelectedConversation && conversationIdMatchesKey(selectedConversationId, currentSelectedConversation.id)) ||
+    Boolean(cachedConversationForCurrentSelection) ||
+    Boolean(liveConversation && conversationIdMatchesKey(selectedConversationId, liveConversation.id));
 
   useEffect(() => {
     setConversationItems((current) => {
@@ -1843,13 +1844,19 @@ export function SharedInbox({
     lastScrollTopRef.current = 0;
     setIsLoadingOlderMessages(false);
 
+    if (hasReadySelectedConversation) {
+      clearPendingConversationSelection();
+      setOptimisticConversation(null);
+      return;
+    }
+
     const timer = window.setTimeout(() => {
       clearPendingConversationSelection();
       setOptimisticConversation(null);
-    }, 0);
+    }, SELECTED_CONVERSATION_PENDING_CLEAR_DELAY_MS);
 
     return () => window.clearTimeout(timer);
-  }, [pendingConversation?.id, selectedConversationId]);
+  }, [hasReadySelectedConversation, pendingConversation?.id, selectedConversationId]);
 
   useEffect(() => {
     const normalizedSelectedConversationId = (pendingConversation?.chatKey ?? selectedConversationId).trim();
