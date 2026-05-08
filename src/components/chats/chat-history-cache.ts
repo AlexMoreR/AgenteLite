@@ -23,7 +23,7 @@ const MAX_VISITED_ENTRIES = 200;
 const CACHE_SAVE_DEBOUNCE_MS = 120;
 
 const pendingConversationSaves = new Map<string, SharedInboxSelectedConversation>();
-let pendingSaveTimer: ReturnType<typeof setTimeout> | null = null;
+let pendingSaveTimer: number | null = null;
 let cachedStore: ConversationCacheStore | null = null;
 let cachedVisitedStore: Record<string, number> | null = null;
 let storageListenerAttached = false;
