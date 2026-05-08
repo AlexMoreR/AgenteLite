@@ -64,11 +64,11 @@ export async function GET(request: Request) {
     conversation.messages.map(async (message) => ({
       ...message,
       mediaUrl:
-        message.type === "IMAGE"
+        message.type === "IMAGE" || message.type === "AUDIO"
           ? await resolveEvolutionMessageMediaUrl({
               instanceName,
               messageId: message.externalId ?? message.id,
-              mediaType: "IMAGE",
+              mediaType: message.type,
               mediaUrl: message.mediaUrl,
               rawPayload: message.rawPayload,
             })

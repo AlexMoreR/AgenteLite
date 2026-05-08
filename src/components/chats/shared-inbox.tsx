@@ -582,6 +582,10 @@ function uniquePush(values: string[], candidate?: string | null) {
 }
 
 function extractMediaUrlFromPayload(message: SharedInboxMessageItem, type: "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT") {
+  if (isMediaSourceUrl(message.mediaUrl)) {
+    return toProxiedMediaUrl(message.mediaUrl);
+  }
+
   const rootPayload = getNestedRecord(message.rawPayload, "evolution") ?? (isObjectRecord(message.rawPayload) ? message.rawPayload : null);
   const data = getNestedRecord(rootPayload, "data");
   const messageData = getNestedRecord(data, "message") ?? getNestedRecord(rootPayload, "message");
@@ -804,7 +808,8 @@ const MessageBubble = memo(function MessageBubble({
   const previousDateKey = previousMessage ? chatDateFormatter.format(previousMessage.createdAt) : null;
   const showDateDivider = currentDateKey !== previousDateKey;
   const adPreview = useMemo(() => extractChatAdPreview(message.rawPayload), [message]);
-  const imagePreviewUrls = useMemo(() => collectImagePreviewUrls(message), [message]);
+  const isImageMessage = message.type === "IMAGE";
+  const imagePreviewUrls = useMemo(() => (isImageMessage ? collectImagePreviewUrls(message) : []), [message, isImageMessage]);
   const imagePreviewUrl = imagePreviewUrls[imagePreviewIndex] ?? null;
   const audioUrl = useMemo(
     () => (message.type === "AUDIO" ? extractMediaUrlFromPayload(message, "AUDIO") : null),
@@ -827,8 +832,8 @@ const MessageBubble = memo(function MessageBubble({
     });
   };
 
-  const hasImagePreview = imagePreviewUrl !== null;
-  const imagePreviewExhausted = imagePreviewUrls.length > 0 && !hasImagePreview;
+  const hasImagePreview = isImageMessage && imagePreviewUrl !== null;
+  const imagePreviewExhausted = isImageMessage && imagePreviewUrls.length > 0 && !hasImagePreview;
 
   return (
     <div

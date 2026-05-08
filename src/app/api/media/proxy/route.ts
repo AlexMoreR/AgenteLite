@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getEvolutionSettings } from "@/lib/system-settings";
 
 function isAllowedMediaProtocol(protocol: string) {
   return protocol === "http:" || protocol === "https:";
@@ -14,7 +15,14 @@ export async function GET(request: Request) {
 
   let targetUrl: URL;
   try {
-    targetUrl = new URL(targetValue, request.url);
+    const evolutionSettings = await getEvolutionSettings();
+    const evolutionBaseUrl = evolutionSettings.apiBaseUrl?.trim() || "";
+    const shouldResolveAgainstEvolutionBase =
+      targetValue.startsWith("/") && Boolean(evolutionBaseUrl);
+
+    targetUrl = shouldResolveAgainstEvolutionBase
+      ? new URL(targetValue, evolutionBaseUrl)
+      : new URL(targetValue, request.url);
   } catch {
     return NextResponse.json({ ok: false, error: "Url invalida" }, { status: 400 });
   }
@@ -23,7 +31,23 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false, error: "Protocolo no permitido" }, { status: 400 });
   }
 
-  const response = await fetch(targetUrl, { cache: "no-store" });
+  const evolutionSettings = await getEvolutionSettings();
+  const headers: HeadersInit = {};
+  if (evolutionSettings.apiBaseUrl) {
+    try {
+      const evolutionBaseUrl = new URL(evolutionSettings.apiBaseUrl);
+      if (targetUrl.origin === evolutionBaseUrl.origin && evolutionSettings.apiToken) {
+        headers.apikey = evolutionSettings.apiToken;
+      }
+    } catch {
+      // Si la configuracion no tiene una base valida, simplemente hacemos fetch directo.
+    }
+  }
+
+  const response = await fetch(targetUrl, {
+    cache: "no-store",
+    headers,
+  });
   if (!response.ok || !response.body) {
     return NextResponse.json({ ok: false, error: "No se pudo obtener el medio" }, { status: 502 });
   }

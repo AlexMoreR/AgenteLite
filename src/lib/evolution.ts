@@ -361,6 +361,30 @@ function extractRenderableImageUrlFromPayload(payload: unknown) {
   return isRenderableMediaUrl(candidate) ? candidate : null;
 }
 
+function extractRenderableMediaUrlFromPayload(payload: unknown, mediaType: "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT") {
+  const root = asRecord(payload);
+  const data = asRecord(root?.data);
+  const message = asRecord(data?.message) ?? asRecord(root?.message);
+
+  const mediaMessage =
+    mediaType === "IMAGE"
+      ? asRecord(message?.imageMessage)
+      : mediaType === "AUDIO"
+        ? asRecord(message?.audioMessage)
+        : mediaType === "VIDEO"
+          ? asRecord(message?.videoMessage)
+          : asRecord(message?.documentMessage);
+
+  const candidate =
+    readString(mediaMessage?.url) ||
+    readString(mediaMessage?.directPath) ||
+    readString(data?.mediaUrl) ||
+    readString(data?.media) ||
+    readString(data?.url);
+
+  return isRenderableMediaUrl(candidate) ? candidate : null;
+}
+
 export async function fetchEvolutionMediaDataUrl(input: {
   instanceName: string;
   messageId: string;
@@ -414,6 +438,13 @@ export async function resolveEvolutionMessageMediaUrl(input: {
 
   const payloadMessageId = input.rawPayload ? extractEvolutionMessageIdFromPayload(input.rawPayload) : null;
   const resolvedMessageId = payloadMessageId || input.messageId?.trim() || null;
+
+  if (input.rawPayload) {
+    const renderableUrl = extractRenderableMediaUrlFromPayload(input.rawPayload, input.mediaType);
+    if (renderableUrl) {
+      return renderableUrl;
+    }
+  }
 
   // En Evolution muchas veces la URL persistida no es utilizable directamente
   // desde el navegador; primero intentamos resolver el binario real desde la API.

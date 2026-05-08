@@ -543,11 +543,11 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
             outboundStatusLabel: message.direction === "OUTBOUND" ? "enviado" : null,
             type: message.type ?? undefined,
             mediaUrl:
-              message.type === "IMAGE"
+              message.type === "IMAGE" || message.type === "AUDIO"
                 ? await resolveEvolutionMessageMediaUrl({
                     instanceName: selectedAgentDetail?.channel?.evolutionInstanceName ?? null,
                     messageId: message.externalId ?? message.id,
-                    mediaType: "IMAGE",
+                    mediaType: message.type,
                     mediaUrl: message.mediaUrl,
                     rawPayload: message.rawPayload,
                   })
