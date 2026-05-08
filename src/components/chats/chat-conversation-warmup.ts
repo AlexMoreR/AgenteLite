@@ -45,29 +45,30 @@ export function warmConversationCache(chatKey: string) {
     return inflightWarmups.get(normalizedChatKey) ?? Promise.resolve();
   }
 
-  const warmup = fetch(`/api/cliente/chats/live?chatKey=${encodeURIComponent(normalizedChatKey)}`, {
-    credentials: "same-origin",
-    cache: "no-store",
-  })
-    .then((response) => {
+  const warmup: Promise<void> = (async () => {
+    try {
+      const response = await fetch(`/api/cliente/chats/live?chatKey=${encodeURIComponent(normalizedChatKey)}`, {
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+
       if (!response.ok) {
-        return null;
+        return;
       }
 
-      return response.json().catch(() => null) as Promise<WarmupConversationResponse | null>;
-    })
-    .then((payload) => {
+      const payload = (await response.json().catch(() => null)) as WarmupConversationResponse | null;
       const conversation = normalizeSelectedConversation(payload?.conversation);
       if (!conversation) {
         return;
       }
 
       saveConversationToCache(conversation);
-    })
-    .catch(() => null)
-    .finally(() => {
-      inflightWarmups.delete(normalizedChatKey);
-    });
+    } catch {
+      // Warmup is opportunistic; failures should not block navigation.
+    }
+  })().finally(() => {
+    inflightWarmups.delete(normalizedChatKey);
+  });
 
   inflightWarmups.set(normalizedChatKey, warmup);
   return warmup;
