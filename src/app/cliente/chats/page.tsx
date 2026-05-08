@@ -11,8 +11,7 @@ import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { Card } from "@/components/ui/card";
 import { OfficialApiLockedState, getOfficialApiChatsData } from "@/features/official-api";
 import { canAccessOfficialApiModule } from "@/lib/admin-module-access";
-import { loadAgentConversationDetail } from "@/lib/chat-message-loader";
-import { fetchEvolutionProfilePictureUrl, resolveEvolutionMessageMediaUrl } from "@/lib/evolution";
+import { fetchEvolutionProfilePictureUrl } from "@/lib/evolution";
 import { getEvolutionSettings } from "@/lib/system-settings";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
@@ -134,13 +133,6 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   const selectedChatRef = parseChatKey(selectedChatKeyParam);
 
   const canUseOfficialApiPromise = canAccessOfficialApiModule(session.user.id, session.user.role);
-  const selectedAgentConversationDetailPromise =
-    selectedChatRef?.source === "agent"
-      ? loadAgentConversationDetail({
-          workspaceId: membership.workspace.id,
-          conversationId: selectedChatRef.conversationId,
-        })
-      : null;
   const officialDataPromise = canUseOfficialApiPromise.then((canUseOfficialApi) =>
     canUseOfficialApi
       ? getOfficialApiChatsData({
@@ -195,6 +187,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         id: true,
         agentId: true,
         channelId: true,
+        automationPaused: true,
         contact: {
           select: {
             id: true,
@@ -518,45 +511,20 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   if (selectedUnified?.source === "agent") {
     const selectedContactId = selectedUnified.contactId ?? null;
     const selectedTags = selectedContactId ? getContactTags(contactTagsByContactId.get(selectedContactId) || []) : [];
-    const selectedAgentDetail = selectedAgentConversationDetailPromise ? await selectedAgentConversationDetailPromise : null;
 
     selectedConversation = {
       id: selectedUnified.conversationId,
       label: selectedUnified.label,
       secondaryLabel: selectedUnified.secondaryLabel,
       tags: selectedTags,
-      avatarUrl: selectedAgentDetail?.contact.avatarUrl ?? selectedUnified.avatarUrl ?? null,
-      contactId: selectedAgentDetail?.contact.id ?? selectedContactId,
-      contactName: selectedAgentDetail?.contact.name?.trim() || selectedUnified.label,
-      automationPaused: selectedAgentDetail?.automationPaused ?? false,
+      avatarUrl: selectedUnified.avatarUrl ?? null,
+      contactId: selectedContactId,
+      contactName: selectedUnified.label,
+      automationPaused: selectedAgentConversation?.automationPaused ?? false,
       cacheKey: selectedUnified.key,
-      messages: await Promise.all(
-        (selectedAgentDetail?.messages ?? [])
-          .slice()
-          .reverse()
-          .map(async (message) => ({
-            id: message.id,
-            content: message.content,
-            direction: message.direction,
-            createdAt: message.createdAt,
-            authorType: message.direction === "OUTBOUND" ? "user" : "bot",
-            outboundStatusLabel: message.direction === "OUTBOUND" ? "enviado" : null,
-            type: message.type ?? undefined,
-            mediaUrl:
-              message.type === "IMAGE" || message.type === "AUDIO"
-                ? await resolveEvolutionMessageMediaUrl({
-                    instanceName: selectedAgentDetail?.channel?.evolutionInstanceName ?? null,
-                    messageId: message.externalId ?? message.id,
-                    mediaType: message.type,
-                    mediaUrl: message.mediaUrl,
-                    rawPayload: message.rawPayload,
-                  })
-                : message.mediaUrl,
-            rawPayload: message.rawPayload,
-          })),
-      ),
-      hasMoreMessages: selectedAgentDetail?.hasMoreMessages ?? false,
-      loadMoreCursor: selectedAgentDetail?.loadMoreCursor ?? null,
+      messages: [],
+      hasMoreMessages: false,
+      loadMoreCursor: null,
       loadMoreHref: null,
     };
   }

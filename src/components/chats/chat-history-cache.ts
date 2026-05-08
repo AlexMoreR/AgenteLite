@@ -225,6 +225,15 @@ function getMessageCreatedAtTime(message: CachedMessageItem | SharedInboxSelecte
   return typeof message.createdAt === "string" ? new Date(message.createdAt).getTime() : message.createdAt.getTime();
 }
 
+function toCachedMessageItem(
+  message: CachedMessageItem | SharedInboxSelectedConversation["messages"][number],
+): CachedMessageItem {
+  return {
+    ...message,
+    createdAt: typeof message.createdAt === "string" ? message.createdAt : message.createdAt.toISOString(),
+  };
+}
+
 function areMergedMessagesEqual(
   left: CachedMessageItem | SharedInboxSelectedConversation["messages"][number],
   right: CachedMessageItem | SharedInboxSelectedConversation["messages"][number],
@@ -245,10 +254,10 @@ function mergeCachedMessages(
   existing: CachedMessageItem[] | SharedInboxSelectedConversation["messages"],
   next: CachedMessageItem[] | SharedInboxSelectedConversation["messages"],
 ) {
-  const messages = new Map<string, CachedMessageItem | SharedInboxSelectedConversation["messages"][number]>();
+  const messages = new Map<string, CachedMessageItem>();
 
   for (const message of existing) {
-    messages.set(message.id, message);
+    messages.set(message.id, toCachedMessageItem(message));
   }
 
   for (const message of next) {
@@ -257,7 +266,7 @@ function mergeCachedMessages(
       continue;
     }
 
-    messages.set(message.id, message);
+    messages.set(message.id, toCachedMessageItem(message));
   }
 
   return Array.from(messages.values()).sort((left, right) => {
