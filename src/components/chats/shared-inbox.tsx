@@ -1411,6 +1411,7 @@ export function SharedInbox({
   const historyLoadConsumedRef = useRef(false);
   const loadMoreHistoryInFlightRef = useRef(false);
   const loadMoreHistoryRestoreRef = useRef<{ scrollTop: number; scrollHeight: number } | null>(null);
+  const selectedConversationDetailFollowUpTimerRef = useRef<number | null>(null);
   const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [hasHydrated, setHasHydrated] = useState(false);
@@ -1499,12 +1500,6 @@ export function SharedInbox({
     selectedConversationCache && conversationIdMatchesKey(selectedConversationKey, selectedConversationCache.id)
       ? selectedConversationCache
       : null;
-  const currentSelectedConversationMessagesCount = currentSelectedConversation?.messages.length ?? 0;
-  const cachedConversationForCurrentSelectionMessagesCount = cachedConversationForCurrentSelection?.messages.length ?? 0;
-  const liveConversationMessagesCount =
-    liveConversation && conversationIdMatchesKey((pendingConversation?.chatKey ?? selectedConversationId).trim(), liveConversation.id)
-      ? liveConversation.messages.length
-      : 0;
 
   useEffect(() => {
     setConversationItems((current) => {
@@ -1751,15 +1746,6 @@ export function SharedInbox({
       return;
     }
 
-    const hasLoadedMessages =
-      currentSelectedConversationMessagesCount > 0 ||
-      cachedConversationForCurrentSelectionMessagesCount > 0 ||
-      liveConversationMessagesCount > 0;
-
-    if (hasLoadedMessages) {
-      return;
-    }
-
     if (selectedConversationDetailInFlightRef.current === normalizedSelectedConversationId) {
       return;
     }
@@ -1818,9 +1804,6 @@ export function SharedInbox({
       controller.abort();
     };
   }, [
-    currentSelectedConversationMessagesCount,
-    cachedConversationForCurrentSelectionMessagesCount,
-    liveConversationMessagesCount,
     pendingConversation?.chatKey,
     selectedConversationId,
   ]);
@@ -1841,6 +1824,50 @@ export function SharedInbox({
 
     return () => window.clearTimeout(timer);
   }, [pendingConversation?.id, selectedConversationId]);
+
+  useEffect(() => {
+    const normalizedSelectedConversationId = (pendingConversation?.chatKey ?? selectedConversationId).trim();
+
+    if (!normalizedSelectedConversationId.startsWith("agent:")) {
+      return;
+    }
+
+    if (selectedConversationDetailFollowUpTimerRef.current !== null) {
+      window.clearTimeout(selectedConversationDetailFollowUpTimerRef.current);
+    }
+
+    selectedConversationDetailFollowUpTimerRef.current = window.setTimeout(() => {
+      selectedConversationDetailFollowUpTimerRef.current = null;
+      void fetch(`/api/cliente/chats/live?chatKey=${encodeURIComponent(normalizedSelectedConversationId)}`, {
+        credentials: "same-origin",
+        cache: "no-store",
+      })
+        .then((response) => (response.ok ? response.json().catch(() => null) : null))
+        .then((payload) => {
+          const snapshot = normalizeLiveConversationSnapshot((payload as { conversation?: unknown } | null)?.conversation);
+          if (!snapshot) {
+            return;
+          }
+
+          setLiveConversation((current) => {
+            const base = current && conversationIdMatchesKey(current.id, snapshot.id)
+              ? current
+              : (selectedConversationRef.current && conversationIdMatchesKey(selectedConversationRef.current.id, snapshot.id)
+                  ? selectedConversationRef.current
+                  : selectedConversationRef.current ?? null);
+            return mergeConversationSnapshots(base, snapshot);
+          });
+        })
+        .catch(() => null);
+    }, 2500);
+
+    return () => {
+      if (selectedConversationDetailFollowUpTimerRef.current !== null) {
+        window.clearTimeout(selectedConversationDetailFollowUpTimerRef.current);
+        selectedConversationDetailFollowUpTimerRef.current = null;
+      }
+    };
+  }, [pendingConversation?.chatKey, selectedConversationId]);
 
   const effectiveLiveConversation =
     liveConversation && conversationIdMatchesKey(selectedConversationId, liveConversation.id) ? liveConversation : null;
@@ -1999,16 +2026,46 @@ export function SharedInbox({
         renderedConversation.messages.at(-1)?.direction === "OUTBOUND" &&
         renderedConversation.messages.at(-1)?.content?.trim() === optimisticOutgoingMessage.content?.trim(),
     );
+  const optimisticDraftHasPersistedMatch =
+    Boolean(
+      optimisticOutgoingMessage &&
+        renderedConversation &&
+        renderedConversation.id === optimisticOutgoingMessage.conversationId &&
+        renderedConversation.messages.some((message) =>
+          message.direction === "OUTBOUND" &&
+          message.type === optimisticOutgoingMessage.type &&
+          message.content?.trim() === optimisticOutgoingMessage.content?.trim() &&
+          Math.abs(message.createdAt.getTime() - optimisticOutgoingMessage.createdAt.getTime()) < 120_000,
+        ),
+    );
   const renderedMessages = useMemo(
     () =>
       renderedConversation &&
       optimisticOutgoingMessage &&
       renderedConversation.id === optimisticOutgoingMessage.conversationId &&
-      !optimisticDraftMatchesLatestMessage
+      !optimisticDraftMatchesLatestMessage &&
+      !optimisticDraftHasPersistedMatch
         ? [...renderedConversation.messages, optimisticOutgoingMessage]
         : renderedConversation?.messages ?? [],
-    [optimisticDraftMatchesLatestMessage, optimisticOutgoingMessage, renderedConversation],
+    [optimisticDraftHasPersistedMatch, optimisticDraftMatchesLatestMessage, optimisticOutgoingMessage, renderedConversation],
   );
+
+  useEffect(() => {
+    if (!optimisticOutgoingMessage || !renderedConversation) {
+      return;
+    }
+
+    if (renderedConversation.id !== optimisticOutgoingMessage.conversationId) {
+      return;
+    }
+
+    if (!optimisticDraftHasPersistedMatch) {
+      return;
+    }
+
+    setOptimisticOutgoingMessage(null);
+  }, [optimisticDraftHasPersistedMatch, optimisticOutgoingMessage, renderedConversation]);
+
   const handleComposerDraft = useCallback(
     (message: string) => {
       if (!renderedConversation) {

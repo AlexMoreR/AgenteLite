@@ -535,11 +535,24 @@ export function ChatsRealtimeSync({
           const isOfficialConversationSelected = currentConversationKey?.startsWith("official:");
           const selectedPhoneNumber = getEffectiveSelectedPhoneNumber()?.trim() || "";
           const normalizedSelectedPhoneNumber = selectedPhoneNumber.replace(/\D/g, "");
+          const hasActiveAgentConversation = Boolean(currentConversationKey?.startsWith("agent:"));
           const isSelectedAgentConversation =
-            Boolean(currentConversationKey?.startsWith("agent:")) &&
+            hasActiveAgentConversation &&
             Boolean(phoneNumber) &&
             Boolean(normalizedSelectedPhoneNumber) &&
             phoneNumber === normalizedSelectedPhoneNumber;
+
+          if (hasActiveAgentConversation) {
+            scheduleLiveUpdate("active");
+
+            if (phoneNumber) {
+              scheduleListUpdate("active", instanceName ?? normalizedActiveInstanceName, payload, currentConversationKey || undefined);
+            } else {
+              schedulePageRefresh("background");
+            }
+            return;
+          }
+
           const isActiveInstance =
             Boolean(normalizedActiveInstanceName) &&
             (!globalEventsEnabled || instanceName === normalizedActiveInstanceName) &&
