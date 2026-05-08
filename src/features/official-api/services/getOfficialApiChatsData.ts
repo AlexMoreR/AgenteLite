@@ -9,6 +9,14 @@ function normalizeSearch(value: string | undefined) {
 
 type OfficialMessageType = "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT" | "TEMPLATE" | "INTERACTIVE" | "SYSTEM";
 
+type OfficialChatsCacheEntry = {
+  expiresAt: number;
+  value: OfficialApiChatsData;
+};
+
+const OFFICIAL_CHATS_CACHE_TTL_MS = 5000;
+const officialChatsCache = new Map<string, OfficialChatsCacheEntry>();
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -48,6 +56,22 @@ function inferOfficialApiMessageType(rawPayload: unknown, mediaUrl: string | nul
   return "TEXT";
 }
 
+function buildOfficialChatsCacheKey(input: {
+  workspaceId: string;
+  configId: string;
+  conversationId?: string;
+  q?: string;
+  includeSelectedConversation?: boolean;
+}) {
+  return JSON.stringify({
+    workspaceId: input.workspaceId,
+    configId: input.configId,
+    conversationId: input.conversationId?.trim() || "",
+    q: normalizeSearch(input.q),
+    includeSelectedConversation: input.includeSelectedConversation ?? true,
+  });
+}
+
 export async function getOfficialApiChatsData(input: {
   workspaceId: string;
   conversationId?: string;
@@ -69,6 +93,18 @@ export async function getOfficialApiChatsData(input: {
     };
   }
   const activeConfig = config;
+  const cacheKey = buildOfficialChatsCacheKey({
+    workspaceId: input.workspaceId,
+    configId: activeConfig.id,
+    conversationId: input.conversationId,
+    q: input.q,
+    includeSelectedConversation: input.includeSelectedConversation,
+  });
+  const cachedEntry = officialChatsCache.get(cacheKey);
+  if (cachedEntry && cachedEntry.expiresAt > Date.now()) {
+    return cachedEntry.value;
+  }
+
   const includeSelectedConversation = input.includeSelectedConversation ?? true;
   const requestedConversationId = input.conversationId?.trim() || "";
   const conversationListLimit = !requestedConversationId && !searchQuery ? 50 : 80;
@@ -344,7 +380,7 @@ export async function getOfficialApiChatsData(input: {
     ? await (selectedConversationPromise ?? fetchConversationDetail(selectedConversationId))
     : null;
 
-  return {
+  const result: OfficialApiChatsData = {
     configId: activeConfig.id,
     isConnected: true,
     conversations: conversations.map((conversation) => ({
@@ -357,4 +393,11 @@ export async function getOfficialApiChatsData(input: {
     selectedConversationId,
     searchQuery,
   };
+
+  officialChatsCache.set(cacheKey, {
+    expiresAt: Date.now() + OFFICIAL_CHATS_CACHE_TTL_MS,
+    value: result,
+  });
+
+  return result;
 }
