@@ -582,7 +582,7 @@ function uniquePush(values: string[], candidate?: string | null) {
 }
 
 function extractMediaUrlFromPayload(message: SharedInboxMessageItem, type: "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT") {
-  if (isMediaSourceUrl(message.mediaUrl)) {
+  if (typeof message.mediaUrl === "string" && isMediaSourceUrl(message.mediaUrl)) {
     return toProxiedMediaUrl(message.mediaUrl);
   }
 
@@ -607,7 +607,7 @@ function extractMediaUrlFromPayload(message: SharedInboxMessageItem, type: "IMAG
     message.mediaUrl ||
     null;
 
-  return isMediaSourceUrl(candidate) ? toProxiedMediaUrl(candidate) : null;
+  return typeof candidate === "string" && isMediaSourceUrl(candidate) ? toProxiedMediaUrl(candidate) : null;
 }
 
 function AudioMessageCard({
@@ -732,7 +732,7 @@ function bytesLikeToBase64(value: unknown) {
 function collectImagePreviewUrls(message: SharedInboxMessageItem) {
   const previewUrls: string[] = [];
 
-  if (isMediaSourceUrl(message.mediaUrl)) {
+  if (typeof message.mediaUrl === "string" && isMediaSourceUrl(message.mediaUrl)) {
     uniquePush(previewUrls, toProxiedMediaUrl(message.mediaUrl));
     uniquePush(previewUrls, message.mediaUrl);
   }
@@ -748,7 +748,7 @@ function collectImagePreviewUrls(message: SharedInboxMessageItem) {
     getNestedString(data, "media") ||
     getNestedString(data, "url");
 
-  if (isMediaSourceUrl(directImageUrl)) {
+  if (typeof directImageUrl === "string" && isMediaSourceUrl(directImageUrl)) {
     uniquePush(previewUrls, toProxiedMediaUrl(directImageUrl));
     uniquePush(previewUrls, directImageUrl);
   }
@@ -1067,7 +1067,7 @@ const ConversationPanel = memo(function ConversationPanel({
     }
 
     function updateViewportHeight() {
-      const nextHeight = container.clientHeight;
+      const nextHeight = container?.clientHeight ?? 0;
       setViewportHeight((current) => (current === nextHeight ? current : nextHeight));
     }
 
@@ -1078,7 +1078,7 @@ const ConversationPanel = memo(function ConversationPanel({
 
       scrollFrameRef.current = window.requestAnimationFrame(() => {
         scrollFrameRef.current = null;
-        const nextScrollTop = container.scrollTop;
+        const nextScrollTop = container?.scrollTop ?? 0;
         setScrollTop((current) => (current === nextScrollTop ? current : nextScrollTop));
       });
     }
