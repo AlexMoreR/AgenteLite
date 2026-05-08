@@ -131,6 +131,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   const scrollMode = typeof params.scroll === "string" ? params.scroll : "";
 
   const selectedChatRef = parseChatKey(selectedChatKeyParam);
+  const conversationListTake = searchQuery || selectedChatRef ? 120 : 60;
 
   const canUseOfficialApiPromise = canAccessOfficialApiModule(session.user.id, session.user.role);
   const officialDataPromise = canUseOfficialApiPromise.then((canUseOfficialApi) =>
@@ -182,7 +183,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         ],
       },
       orderBy: [{ lastMessageAt: "desc" }, { updatedAt: "desc" }],
-      take: 120,
+      take: conversationListTake,
       select: {
         id: true,
         agentId: true,
@@ -206,8 +207,6 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
             direction: true,
             createdAt: true,
             type: true,
-            rawPayload: true,
-            mediaUrl: true,
           },
         },
       },
@@ -231,6 +230,32 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
 
   const contactIds = Array.from(new Set(activeAgentConversations.map((conversation) => conversation.contact.id)));
   const activeAgentConversationIds = activeAgentConversations.map((conversation) => conversation.id);
+  const latestAgentMessageRowsPromise = activeAgentConversationIds.length
+    ? prisma.$queryRaw<Array<{
+        conversationId: string;
+        content: string | null;
+        direction: "INBOUND" | "OUTBOUND";
+        createdAt: Date;
+        type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
+      }>>`
+        SELECT DISTINCT ON (m."conversationId")
+          m."conversationId" AS "conversationId",
+          m."content" AS "content",
+          m."direction" AS "direction",
+          m."createdAt" AS "createdAt",
+          m."type" AS "type"
+        FROM "Message" m
+        WHERE m."workspaceId" = ${membership.workspace.id}
+          AND m."conversationId" IN (${Prisma.join(activeAgentConversationIds)})
+        ORDER BY m."conversationId", m."createdAt" DESC, m."id" DESC
+      `
+    : Promise.resolve([] as Array<{
+        conversationId: string;
+        content: string | null;
+        direction: "INBOUND" | "OUTBOUND";
+        createdAt: Date;
+        type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
+      }>);
   if (autoTagNewLeads && contactIds.length > 0) {
     after(async () => {
       try {
@@ -284,35 +309,53 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         conversationId: string;
         incomingCount: number;
       }>>`
+        WITH selected_conversations AS (
+          SELECT c."id"
+          FROM "Conversation" c
+          WHERE c."workspaceId" = ${membership.workspace.id}
+            AND c."id" IN (${Prisma.join(activeAgentConversationIds)})
+        ),
+        last_outbound AS (
+          SELECT
+            m."conversationId",
+            MAX(m."createdAt") AS "lastOutboundAt"
+          FROM "Message" m
+          WHERE m."workspaceId" = ${membership.workspace.id}
+            AND m."conversationId" IN (${Prisma.join(activeAgentConversationIds)})
+            AND m."direction" = 'OUTBOUND'
+          GROUP BY m."conversationId"
+        ),
+        incoming AS (
+          SELECT
+            m."conversationId",
+            COUNT(*)::int AS "incomingCount"
+          FROM "Message" m
+          LEFT JOIN last_outbound lo ON lo."conversationId" = m."conversationId"
+          WHERE m."workspaceId" = ${membership.workspace.id}
+            AND m."conversationId" IN (${Prisma.join(activeAgentConversationIds)})
+            AND m."direction" = 'INBOUND'
+            AND m."createdAt" > COALESCE(lo."lastOutboundAt", TIMESTAMP '1970-01-01')
+          GROUP BY m."conversationId"
+        )
         SELECT
-          c."id" AS "conversationId",
+          sc."id" AS "conversationId",
           COALESCE(incoming."incomingCount", 0)::int AS "incomingCount"
-        FROM "Conversation" c
-        LEFT JOIN LATERAL (
-          SELECT MAX(mo."createdAt") AS "lastOutboundAt"
-          FROM "Message" mo
-          WHERE mo."conversationId" = c."id"
-            AND mo."direction" = 'OUTBOUND'
-        ) lo ON true
-        LEFT JOIN LATERAL (
-          SELECT COUNT(*)::int AS "incomingCount"
-          FROM "Message" mi
-          WHERE mi."conversationId" = c."id"
-            AND mi."direction" = 'INBOUND'
-            AND mi."createdAt" > COALESCE(lo."lastOutboundAt", TIMESTAMP '1970-01-01')
-        ) incoming ON true
-        WHERE c."workspaceId" = ${membership.workspace.id}
-          AND c."id" IN (${Prisma.join(activeAgentConversationIds)})
+        FROM selected_conversations sc
+        LEFT JOIN incoming ON incoming."conversationId" = sc."id"
       `
     : Promise.resolve([] as Array<{
         conversationId: string;
         incomingCount: number;
       }>);
 
-  const [contactTagRows, agentIncomingCountRows] = await Promise.all([
+  const [contactTagRows, agentIncomingCountRows, latestAgentMessageRows] = await Promise.all([
     contactTagRowsPromise,
     agentIncomingCountRowsPromise,
+    latestAgentMessageRowsPromise,
   ]);
+  const latestAgentMessageByConversationId = new Map(
+    latestAgentMessageRows.map((row) => [row.conversationId, row]),
+  );
 
   const contactTagsByContactId = new Map<string, Array<{ name: string; color: string }>>();
   for (const row of contactTagRows) {
@@ -375,10 +418,10 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       tags,
       avatarUrl,
       incomingCount: agentIncomingCountById.get(conversation.id) ?? 0,
-      lastMessage: conversation.messages[0]?.content ?? null,
-      lastMessageType: conversation.messages[0]?.type ?? null,
-      lastMessageDirection: conversation.messages[0]?.direction ?? null,
-      lastMessageAt: conversation.messages[0]?.createdAt ?? null,
+      lastMessage: latestAgentMessageByConversationId.get(conversation.id)?.content ?? null,
+      lastMessageType: latestAgentMessageByConversationId.get(conversation.id)?.type ?? null,
+      lastMessageDirection: latestAgentMessageByConversationId.get(conversation.id)?.direction ?? null,
+      lastMessageAt: latestAgentMessageByConversationId.get(conversation.id)?.createdAt ?? null,
     };
   });
 
@@ -561,6 +604,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       <ChatsAutoRefresh
         intervalMs={5000}
         enabled={Boolean(selectedUnified)}
+        realtimeEnabled={chatsRealtimeSyncEnabled}
         selectedConversationKey={selectedUnified?.key ?? null}
       />
       <ChatsRealtimeSync

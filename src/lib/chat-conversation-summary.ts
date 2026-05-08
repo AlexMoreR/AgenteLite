@@ -35,6 +35,28 @@ export function getContactTags(
     }));
 }
 
+async function getIncomingCountForConversation(input: { workspaceId: string; conversationId: string }) {
+  const rows = await prisma.$queryRaw<Array<{ incomingCount: bigint | number }>>`
+    WITH last_outbound AS (
+      SELECT MAX(mo."createdAt") AS "lastOutboundAt"
+      FROM "Message" mo
+      WHERE mo."workspaceId" = ${input.workspaceId}
+        AND mo."conversationId" = ${input.conversationId}
+        AND mo."direction" = 'OUTBOUND'
+    )
+    SELECT
+      COUNT(*)::bigint AS "incomingCount"
+    FROM "Message" mi
+    LEFT JOIN last_outbound lo ON true
+    WHERE mi."workspaceId" = ${input.workspaceId}
+      AND mi."conversationId" = ${input.conversationId}
+      AND mi."direction" = 'INBOUND'
+      AND mi."createdAt" > COALESCE(lo."lastOutboundAt", TIMESTAMP '1970-01-01')
+  `;
+
+  return Number(rows[0]?.incomingCount ?? 0);
+}
+
 export async function getAgentConversationSummaryByConversationId(input: {
   workspaceId: string;
   conversationId: string;
@@ -63,7 +85,7 @@ export async function getAgentConversationSummaryByConversationId(input: {
 
   const contact = conversation.contact;
 
-  const [lastMessage, contactTagRows, incomingCountRows] = await Promise.all([
+  const [lastMessage, contactTagRows, incomingCount] = await Promise.all([
     prisma.message.findFirst({
       where: {
         workspaceId: input.workspaceId,
@@ -87,26 +109,10 @@ export async function getAgentConversationSummaryByConversationId(input: {
         AND ct."contactId" = ${contact.id}
       ORDER BY ct."createdAt" ASC
     `,
-    prisma.$queryRaw<Array<{ incomingCount: bigint | number }>>`
-      SELECT
-        COALESCE(incoming."incomingCount", 0)::bigint AS "incomingCount"
-      FROM "Conversation" c
-      LEFT JOIN LATERAL (
-        SELECT MAX(mo."createdAt") AS "lastOutboundAt"
-        FROM "Message" mo
-        WHERE mo."conversationId" = c."id"
-          AND mo."direction" = 'OUTBOUND'
-      ) lo ON true
-      LEFT JOIN LATERAL (
-        SELECT COUNT(*)::bigint AS "incomingCount"
-        FROM "Message" mi
-        WHERE mi."conversationId" = c."id"
-          AND mi."direction" = 'INBOUND'
-          AND mi."createdAt" > COALESCE(lo."lastOutboundAt", TIMESTAMP '1970-01-01')
-      ) incoming ON true
-      WHERE c."id" = ${conversation.id}
-        AND c."workspaceId" = ${input.workspaceId}
-    `,
+    getIncomingCountForConversation({
+      workspaceId: input.workspaceId,
+      conversationId: conversation.id,
+    }),
   ]);
 
   return {
@@ -118,7 +124,7 @@ export async function getAgentConversationSummaryByConversationId(input: {
     secondaryLabel: contact.phoneNumber,
     tags: getContactTags(contactTagRows),
     avatarUrl: contact.avatarUrl ?? null,
-    incomingCount: Number(incomingCountRows[0]?.incomingCount ?? 0),
+    incomingCount,
     lastMessage: lastMessage?.content ?? null,
     lastMessageType: lastMessage?.type ?? null,
     lastMessageDirection: lastMessage?.direction ?? null,
@@ -192,7 +198,7 @@ export async function getAgentConversationSummaryByPhoneNumber(input: {
     return null;
   }
 
-  const [lastMessage, contactTagRows, incomingCountRows] = await Promise.all([
+  const [lastMessage, contactTagRows, incomingCount] = await Promise.all([
     prisma.message.findFirst({
       where: {
         workspaceId: input.workspaceId,
@@ -216,26 +222,10 @@ export async function getAgentConversationSummaryByPhoneNumber(input: {
         AND ct."contactId" = ${contact.id}
       ORDER BY ct."createdAt" ASC
     `,
-    prisma.$queryRaw<Array<{ incomingCount: bigint | number }>>`
-      SELECT
-        COALESCE(incoming."incomingCount", 0)::bigint AS "incomingCount"
-      FROM "Conversation" c
-      LEFT JOIN LATERAL (
-        SELECT MAX(mo."createdAt") AS "lastOutboundAt"
-        FROM "Message" mo
-        WHERE mo."conversationId" = c."id"
-          AND mo."direction" = 'OUTBOUND'
-      ) lo ON true
-      LEFT JOIN LATERAL (
-        SELECT COUNT(*)::bigint AS "incomingCount"
-        FROM "Message" mi
-        WHERE mi."conversationId" = c."id"
-          AND mi."direction" = 'INBOUND'
-          AND mi."createdAt" > COALESCE(lo."lastOutboundAt", TIMESTAMP '1970-01-01')
-      ) incoming ON true
-      WHERE c."id" = ${conversation.id}
-        AND c."workspaceId" = ${input.workspaceId}
-    `,
+    getIncomingCountForConversation({
+      workspaceId: input.workspaceId,
+      conversationId: conversation.id,
+    }),
   ]);
 
   return {
@@ -247,7 +237,7 @@ export async function getAgentConversationSummaryByPhoneNumber(input: {
     secondaryLabel: contact.phoneNumber,
     tags: getContactTags(contactTagRows),
     avatarUrl: contact.avatarUrl ?? null,
-    incomingCount: Number(incomingCountRows[0]?.incomingCount ?? 0),
+    incomingCount,
     lastMessage: lastMessage?.content ?? null,
     lastMessageType: lastMessage?.type ?? null,
     lastMessageDirection: lastMessage?.direction ?? null,

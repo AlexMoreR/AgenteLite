@@ -553,9 +553,6 @@ export function ChatsRealtimeSync({
 
             if (isSelectedAgentConversation) {
               scheduleLiveUpdate("active");
-              // Usar chatKey directamente para no depender de extraer el telefono del payload:
-              // esto garantiza que scheduleListUpdate tambien dispare para fromMe: true.
-              scheduleListUpdate("active", instanceName ?? normalizedActiveInstanceName, payload, currentConversationKey || undefined);
               return;
             }
 
@@ -583,7 +580,6 @@ export function ChatsRealtimeSync({
 
             if (isSelectedAgentConversation) {
               scheduleLiveUpdate("active");
-              scheduleListUpdate("active", normalizedActiveInstanceName, payload, currentConversationKey || undefined);
               return;
             }
 

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 type ChatsAutoRefreshProps = {
   intervalMs?: number;
   enabled?: boolean;
+  realtimeEnabled?: boolean;
   // Active conversation key (for example: "agent:xxx" or "official:xxx").
   // For Evolution chats we use /live instead of router.refresh().
   selectedConversationKey?: string | null;
@@ -28,6 +29,7 @@ function hydrateConversationSnapshot(value: unknown) {
 export function ChatsAutoRefresh({
   intervalMs = 5000,
   enabled = true,
+  realtimeEnabled = true,
   selectedConversationKey = null,
 }: ChatsAutoRefreshProps) {
   const router = useRouter();
@@ -82,6 +84,10 @@ export function ChatsAutoRefresh({
       const chatKey = selectedConversationKeyRef.current?.trim() ?? "";
 
       if (chatKey.startsWith("agent:")) {
+        if (realtimeEnabled) {
+          return;
+        }
+
         const wasRecentlyUpdated =
           lastLiveUpdateKeyRef.current === chatKey &&
           Date.now() - lastLiveUpdateAtRef.current < intervalMs;
@@ -138,7 +144,7 @@ export function ChatsAutoRefresh({
 
     return () => window.clearInterval(timer);
     // The interval should not reset when the active chat changes.
-  }, [enabled, isVisible, intervalMs, router, startTransition]);
+  }, [enabled, isVisible, intervalMs, realtimeEnabled, router, startTransition]);
 
   return null;
 }
