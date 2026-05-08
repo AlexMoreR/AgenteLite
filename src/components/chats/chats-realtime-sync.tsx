@@ -546,7 +546,16 @@ export function ChatsRealtimeSync({
             scheduleLiveUpdate("active");
 
             if (phoneNumber) {
-              scheduleListUpdate("active", instanceName ?? normalizedActiveInstanceName, payload, currentConversationKey || undefined);
+              // Solo el chat seleccionado necesita forzar `chatKey`.
+              // Si el evento pertenece a otra conversación, dejamos que el
+              // summary se resuelva por `instanceName + phoneNumber` para que
+              // la lista refleje el chat correcto.
+              scheduleListUpdate(
+                "active",
+                instanceName ?? normalizedActiveInstanceName,
+                payload,
+                isSelectedAgentConversation ? currentConversationKey || undefined : undefined,
+              );
             } else {
               schedulePageRefresh("background");
             }
