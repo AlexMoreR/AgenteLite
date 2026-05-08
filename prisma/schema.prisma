@@ -357,6 +357,8 @@ model Message {
   status         MessageStatus    @default(RECEIVED)
   content        String?
   mediaUrl       String?
+  editedAt       DateTime?
+  deletedAt      DateTime?
   rawPayload     Json?
   sentAt         DateTime?
   deliveredAt    DateTime?
