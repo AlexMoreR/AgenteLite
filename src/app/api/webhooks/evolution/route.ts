@@ -317,30 +317,46 @@ export async function POST(request: Request) {
           },
         });
 
-  const contact =
-    existingContact ??
-    (existingMessage?.contactId
-      ? await prisma.contact.findFirst({
-          where: {
-            id: existingMessage.contactId,
-            workspaceId: channel.workspaceId,
-          },
-          select: { id: true, name: true, phoneNumber: true },
-        })
-      : await prisma.contact.upsert({
-          where: {
-            workspaceId_phoneNumber: {
-              workspaceId: channel.workspaceId,
-              phoneNumber,
-            },
-          },
-          update: {},
-          create: {
-            workspaceId: channel.workspaceId,
-            phoneNumber,
-          },
-          select: { id: true, name: true, phoneNumber: true },
-        }));
+  let contact = existingContact;
+
+  if (!contact && existingMessage?.contactId) {
+    contact = await prisma.contact.findFirst({
+      where: {
+        id: existingMessage.contactId,
+        workspaceId: channel.workspaceId,
+      },
+      select: { id: true, name: true, phoneNumber: true },
+    });
+  }
+
+  if (!contact) {
+    contact = await prisma.contact.upsert({
+      where: {
+        workspaceId_phoneNumber: {
+          workspaceId: channel.workspaceId,
+          phoneNumber,
+        },
+      },
+      update: {},
+      create: {
+        workspaceId: channel.workspaceId,
+        phoneNumber,
+      },
+      select: { id: true, name: true, phoneNumber: true },
+    });
+  }
+
+  if (!contact) {
+    return NextResponse.json(
+      {
+        ok: false,
+        message: "Unable to resolve contact for inbound Evolution webhook",
+        instanceName,
+        event: eventName,
+      },
+      { status: 500 },
+    );
+  }
 
   const existingConversation = existingMessage
     ? await prisma.conversation.findFirst({
@@ -392,6 +408,9 @@ export async function POST(request: Request) {
     });
   }
   try {
+    const direction = (fromMe ? "OUTBOUND" : "INBOUND") as Prisma.MessageUncheckedCreateInput["direction"];
+    const status = (fromMe ? "SENT" : "RECEIVED") as Prisma.MessageUncheckedCreateInput["status"];
+
     const messageData = {
       workspaceId: channel.workspaceId,
       conversationId: conversation.id,
@@ -399,9 +418,9 @@ export async function POST(request: Request) {
       contactId: contact.id,
       agentId: channel.agentId ?? null,
       externalId: inboundExternalId,
-      direction: fromMe ? "OUTBOUND" : "INBOUND",
+      direction,
       type: messageType,
-      status: fromMe ? "SENT" : "RECEIVED",
+      status,
       content: messageText,
       mediaUrl,
       rawPayload: {

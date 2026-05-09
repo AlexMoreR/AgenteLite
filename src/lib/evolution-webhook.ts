@@ -31,9 +31,13 @@ function getMessageRecord(payload: unknown) {
 
 export function hasEvolutionEditedMessagePayload(payload: unknown) {
   const message = getMessageRecord(payload);
-  const updateMessage = asRecord(asRecord(payload)?.update)?.message;
+  const payloadRoot = asRecord(payload);
+  const update = asRecord(payloadRoot?.update);
+  const updateMessage = asRecord(update?.message);
+  const messageEdited = asRecord(message?.editedMessage);
+  const updateEditedMessage = asRecord(updateMessage?.editedMessage);
 
-  return Boolean(message?.editedMessage || asRecord(asRecord(payload)?.editedMessage) || asRecord(updateMessage)?.editedMessage);
+  return Boolean(messageEdited || updateEditedMessage || asRecord(payloadRoot?.editedMessage));
 }
 
 function extractMessageTextFromRecord(message: UnknownRecord | null): string | null {
@@ -81,14 +85,17 @@ function getEditedMessageRecord(payload: unknown) {
   const payloadRoot = asRecord(payload);
   const update = asRecord(payloadRoot?.update);
   const updateMessage = asRecord(update?.message);
+  const messageEdited = asRecord(message?.editedMessage);
+  const updateEditedMessage = asRecord(updateMessage?.editedMessage);
+  const payloadEditedMessage = asRecord(payloadRoot?.editedMessage);
 
   return (
-    asRecord(message?.editedMessage?.message) ||
-    asRecord(message?.editedMessage) ||
-    asRecord(updateMessage?.editedMessage?.message) ||
-    asRecord(updateMessage?.editedMessage) ||
-    asRecord(payloadRoot?.editedMessage?.message) ||
-    asRecord(payloadRoot?.editedMessage)
+    asRecord(messageEdited?.message) ||
+    messageEdited ||
+    asRecord(updateEditedMessage?.message) ||
+    updateEditedMessage ||
+    asRecord(payloadEditedMessage?.message) ||
+    payloadEditedMessage
   );
 }
 
