@@ -987,20 +987,20 @@ const MessageBubble = memo(function MessageBubble({
           )}
 
           <div className={`mt-0.5 flex items-center justify-end gap-1 text-[10px] ${outbound ? "text-white/80" : "text-slate-400"}`}>
+            {message.editedAt ? (
+              <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-normal tracking-[0.08em] ${
+                outbound ? "bg-white/14 text-white/80" : "bg-slate-100 text-slate-500"
+              }`}>
+                <Pencil className="h-2.5 w-2.5" />
+                Editado
+              </span>
+            ) : null}
             {message.authorType === "bot" ? (
               <Bot className="h-3 w-3" />
             ) : (
               <UserRound className="h-3 w-3" />
             )}
             <span>{chatTimeFormatter.format(message.createdAt)}</span>
-            {message.editedAt ? (
-              <span className={`ml-1 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.08em] ${
-                outbound ? "bg-white/14 text-white/80" : "bg-slate-100 text-slate-500"
-              }`}>
-                <Pencil className="h-2.5 w-2.5" />
-                editado
-              </span>
-            ) : null}
             {outbound && message.outboundStatusLabel ? (
               message.outboundStatusLabel === "entregado" ? (
                 <CheckCheck className="ml-1 h-3 w-3 shrink-0" aria-hidden="true" />
