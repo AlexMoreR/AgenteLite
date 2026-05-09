@@ -7,6 +7,7 @@ import { usePendingConversationSelection } from "./chat-selection-store";
 import {
   extractEvolutionPhoneNumber,
   extractEvolutionRemoteJid,
+  hasEvolutionEditedMessagePayload,
   normalizePhoneFromJid,
 } from "@/lib/evolution-webhook";
 
@@ -295,7 +296,7 @@ export function ChatsRealtimeSync({
 
       const snapshot = value as {
         id?: unknown;
-        messages?: Array<{ createdAt?: string } & Record<string, unknown>>;
+        messages?: Array<{ createdAt?: string; editedAt?: string | Date | null } & Record<string, unknown>>;
       };
 
       if (typeof snapshot.id !== "string" || !Array.isArray(snapshot.messages)) {
@@ -308,6 +309,7 @@ export function ChatsRealtimeSync({
         messages: snapshot.messages.map((message) => ({
           ...message,
           createdAt: new Date(message.createdAt || Date.now()),
+          editedAt: message.editedAt ? new Date(message.editedAt) : null,
         })),
       };
     }
@@ -530,6 +532,7 @@ export function ChatsRealtimeSync({
           // sin necesidad de recrear los sockets cuando el usuario cambia de chat.
           const normalizedActiveInstanceName = activeInstanceNameRef.current?.trim() || "";
           const payload = pickSocketPayload(args);
+          const isEditedPayload = hasEvolutionEditedMessagePayload(payload);
           const phoneNumber = extractPhoneNumberFromPayload(payload);
           const currentConversationKey = pendingSelectionRef.current?.key ?? selectedConversationKeyRef.current;
           const isOfficialConversationSelected = currentConversationKey?.startsWith("official:");
@@ -544,6 +547,10 @@ export function ChatsRealtimeSync({
 
           if (hasActiveAgentConversation) {
             scheduleLiveUpdate("active");
+
+            if (isEditedPayload) {
+              return;
+            }
 
             if (phoneNumber) {
               // Solo el chat seleccionado necesita forzar `chatKey`.
@@ -569,12 +576,22 @@ export function ChatsRealtimeSync({
 
           if (isActiveInstance) {
             if (isOfficialConversationSelected) {
+              if (isEditedPayload) {
+                return;
+              }
               schedulePageRefresh("active");
               return;
             }
 
             if (isSelectedAgentConversation) {
               scheduleLiveUpdate("active");
+              if (isEditedPayload) {
+                return;
+              }
+              return;
+            }
+
+            if (isEditedPayload) {
               return;
             }
 
@@ -596,12 +613,22 @@ export function ChatsRealtimeSync({
 
           if (payloadInstanceName && payloadInstanceName === normalizedActiveInstanceName) {
             if (isOfficialConversationSelected) {
+              if (isEditedPayload) {
+                return;
+              }
               schedulePageRefresh("active");
               return;
             }
 
             if (isSelectedAgentConversation) {
               scheduleLiveUpdate("active");
+              if (isEditedPayload) {
+                return;
+              }
+              return;
+            }
+
+            if (isEditedPayload) {
               return;
             }
 
@@ -619,6 +646,10 @@ export function ChatsRealtimeSync({
                 scheduleLiveUpdate("background");
               }
 
+              if (isEditedPayload) {
+                return;
+              }
+
               // En modo global el payload incluye instanceName: usar ese valor para la
               // query del summary, igual que el path no-global (línea de abajo).
               // schedulePageRefresh("background") se reemplaza por scheduleListUpdate
@@ -634,7 +665,14 @@ export function ChatsRealtimeSync({
             }
 
             if (isOfficialConversationSelected) {
+              if (isEditedPayload) {
+                return;
+              }
               schedulePageRefresh("background");
+              return;
+            }
+
+            if (isEditedPayload) {
               return;
             }
 
@@ -644,10 +682,19 @@ export function ChatsRealtimeSync({
 
           if (currentConversationKey?.startsWith("agent:")) {
             scheduleLiveUpdate("background");
+            if (isEditedPayload) {
+              return;
+            }
             schedulePageRefresh("background");
           } else if (isOfficialConversationSelected) {
+            if (isEditedPayload) {
+              return;
+            }
             schedulePageRefresh("background");
           } else if (/MESSAGE|CHAT/.test(normalizedEventName)) {
+            if (isEditedPayload) {
+              return;
+            }
             // Fallback para payloads que no dejan extraer el telefono pero sí son eventos
             // de mensaje reales. Un refresh de background mantiene la lista viva.
             schedulePageRefresh("background");
@@ -678,4 +725,5 @@ export function ChatsRealtimeSync({
 
   return null;
 }
+
 

@@ -2,7 +2,11 @@
 
 import { useFormStatus } from "react-dom";
 import { Trash2, Users2 } from "lucide-react";
-import { clearWorkspaceChatsAction, clearWorkspaceContactsAction } from "@/app/actions/workspace-actions";
+import {
+  clearEvolutionGhostChatsAction,
+  clearWorkspaceChatsAction,
+  clearWorkspaceContactsAction,
+} from "@/app/actions/workspace-actions";
 import { clearConversationCache } from "@/components/chats/chat-history-cache";
 import { WhatsAppGlyph } from "@/components/icons/whatsapp-glyph";
 import {
@@ -38,6 +42,21 @@ function ClearContactsSubmitButton() {
     >
       <Users2 className="h-4 w-4" />
       {pending ? "Limpiando..." : "Limpiar contactos"}
+    </button>
+  );
+}
+
+function ClearEvolutionGhostChatsSubmitButton() {
+  const { pending } = useFormStatus();
+
+  return (
+    <button
+      type="submit"
+      className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm text-amber-700 transition hover:bg-amber-50 focus:bg-amber-50 focus:text-amber-800"
+      disabled={pending}
+    >
+      <Trash2 className="h-4 w-4" />
+      {pending ? "Limpiando..." : "Limpiar chats fantasma"}
     </button>
   );
 }
@@ -92,6 +111,26 @@ export function BusinessChatsCleanupMenu() {
           <input type="hidden" name="confirm" value="CLEAR_CONTACTS" />
           <DropdownMenuItem asChild>
             <ClearContactsSubmitButton />
+          </DropdownMenuItem>
+        </form>
+        <form
+          action={clearEvolutionGhostChatsAction}
+          onSubmit={(event) => {
+            const confirmed = window.confirm(
+              "Esto eliminara chats de Evolution vacios o claramente fantasma del negocio. La accion no se puede deshacer.",
+            );
+
+            if (!confirmed) {
+              event.preventDefault();
+              return;
+            }
+
+            clearConversationCache();
+          }}
+        >
+          <input type="hidden" name="confirm" value="CLEAR_EVOLUTION_GHOST_CHATS" />
+          <DropdownMenuItem asChild>
+            <ClearEvolutionGhostChatsSubmitButton />
           </DropdownMenuItem>
         </form>
       </DropdownMenuContent>

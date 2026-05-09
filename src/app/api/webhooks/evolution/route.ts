@@ -21,6 +21,7 @@ import {
   extractEvolutionPhoneNumber,
   extractEvolutionQrCode,
   extractEvolutionRemoteJid,
+  hasEvolutionEditedMessagePayload,
   isInboundMessageEvent,
   normalizePhoneFromJid,
 } from "@/lib/evolution-webhook";
@@ -210,7 +211,9 @@ export async function POST(request: Request) {
     });
   }
 
-  if (!isInboundMessageEvent(eventName)) {
+  const isMessageEvent = isInboundMessageEvent(eventName) || hasEvolutionEditedMessagePayload(payload);
+
+  if (!isMessageEvent) {
     return NextResponse.json({
       ok: true,
       message: "Event logged",
@@ -243,6 +246,23 @@ export async function POST(request: Request) {
     payload,
   });
   const fromMe = extractEvolutionFromMe(payload);
+  const messageWasEdited = hasEvolutionEditedMessagePayload(payload);
+  let shouldTouchConversation = !messageWasEdited;
+  const existingMessage = messageExternalId
+    ? await prisma.message.findFirst({
+        where: {
+          workspaceId: channel.workspaceId,
+          channelId: channel.id,
+          externalId: messageExternalId,
+        },
+        select: {
+          id: true,
+          conversationId: true,
+          contactId: true,
+          agentId: true,
+        },
+      })
+    : null;
 
   console.log("[EVOLUTION] inbound_candidate", {
     eventName,
@@ -270,51 +290,83 @@ export async function POST(request: Request) {
     });
   }
 
-  const existingContact = await prisma.contact.findUnique({
-    where: {
-      workspaceId_phoneNumber: {
-        workspaceId: channel.workspaceId,
-        phoneNumber,
-      },
-    },
-    select: {
-      id: true,
-      name: true,
-      phoneNumber: true,
-    },
-  });
+  const existingContact =
+    existingMessage?.contactId
+      ? await prisma.contact.findFirst({
+          where: {
+            id: existingMessage.contactId,
+            workspaceId: channel.workspaceId,
+          },
+          select: {
+            id: true,
+            name: true,
+            phoneNumber: true,
+          },
+        })
+      : await prisma.contact.findUnique({
+          where: {
+            workspaceId_phoneNumber: {
+              workspaceId: channel.workspaceId,
+              phoneNumber,
+            },
+          },
+          select: {
+            id: true,
+            name: true,
+            phoneNumber: true,
+          },
+        });
 
   const contact =
     existingContact ??
-    (await prisma.contact.upsert({
-      where: {
-        workspaceId_phoneNumber: {
-          workspaceId: channel.workspaceId,
-          phoneNumber,
-        },
-      },
-      update: {},
-      create: {
-        workspaceId: channel.workspaceId,
-        phoneNumber,
-      },
-      select: { id: true, name: true, phoneNumber: true },
-    }));
+    (existingMessage?.contactId
+      ? await prisma.contact.findFirst({
+          where: {
+            id: existingMessage.contactId,
+            workspaceId: channel.workspaceId,
+          },
+          select: { id: true, name: true, phoneNumber: true },
+        })
+      : await prisma.contact.upsert({
+          where: {
+            workspaceId_phoneNumber: {
+              workspaceId: channel.workspaceId,
+              phoneNumber,
+            },
+          },
+          update: {},
+          create: {
+            workspaceId: channel.workspaceId,
+            phoneNumber,
+          },
+          select: { id: true, name: true, phoneNumber: true },
+        }));
 
-  const existingConversation = await prisma.conversation.findFirst({
-    where: {
-      workspaceId: channel.workspaceId,
-      channelId: channel.id,
-      contactId: contact.id,
-    },
-    orderBy: {
-      updatedAt: "desc",
-    },
-    select: {
-      id: true,
-      status: true,
-    },
-  });
+  const existingConversation = existingMessage
+    ? await prisma.conversation.findFirst({
+        where: {
+          id: existingMessage.conversationId,
+          workspaceId: channel.workspaceId,
+        },
+        select: {
+          id: true,
+          status: true,
+        },
+      })
+    : await prisma.conversation.findFirst({
+        where: {
+          workspaceId: channel.workspaceId,
+          channelId: channel.id,
+          contactId: contact.id,
+        },
+        orderBy: {
+          updatedAt: "desc",
+        },
+        select: {
+          id: true,
+          status: true,
+        },
+      });
 
   const conversation = existingConversation
     ? { id: existingConversation.id }
@@ -330,7 +382,7 @@ export async function POST(request: Request) {
         select: { id: true },
       });
 
-  if (existingConversation && !["OPEN", "PENDING"].includes(existingConversation.status)) {
+  if (!messageWasEdited && existingConversation && !["OPEN", "PENDING"].includes(existingConversation.status)) {
     await prisma.conversation.update({
       where: { id: conversation.id },
       data: {
@@ -340,26 +392,57 @@ export async function POST(request: Request) {
     });
   }
   try {
-    await prisma.message.create({
-      data: {
-        workspaceId: channel.workspaceId,
-        conversationId: conversation.id,
-        channelId: channel.id,
-        contactId: contact.id,
-        agentId: channel.agentId ?? null,
-        externalId: inboundExternalId,
-        direction: fromMe ? "OUTBOUND" : "INBOUND",
-        type: messageType,
-        status: fromMe ? "SENT" : "RECEIVED",
-        content: messageText,
-        mediaUrl,
-        rawPayload: {
-          source: fromMe ? "instance" : "webhook",
-          evolution: payload,
-        } as never,
-        ...(fromMe ? { sentAt: new Date() } : {}),
-      },
-    });
+    const messageData = {
+      workspaceId: channel.workspaceId,
+      conversationId: conversation.id,
+      channelId: channel.id,
+      contactId: contact.id,
+      agentId: channel.agentId ?? null,
+      externalId: inboundExternalId,
+      direction: fromMe ? "OUTBOUND" : "INBOUND",
+      type: messageType,
+      status: fromMe ? "SENT" : "RECEIVED",
+      content: messageText,
+      mediaUrl,
+      rawPayload: {
+        source: fromMe ? "instance" : "webhook",
+        evolution: payload,
+      } as never,
+      ...(fromMe ? { sentAt: new Date() } : {}),
+    };
+
+    if (messageWasEdited && messageExternalId) {
+      const existingMessage = await prisma.message.findFirst({
+        where: {
+          workspaceId: channel.workspaceId,
+          channelId: channel.id,
+          externalId: messageExternalId,
+        },
+        select: { id: true },
+      });
+
+      if (existingMessage) {
+        await prisma.message.update({
+          where: { id: existingMessage.id },
+          data: {
+            ...messageData,
+            editedAt: new Date(),
+          },
+        });
+      } else {
+        await prisma.message.create({
+          data: {
+            ...messageData,
+            editedAt: new Date(),
+          },
+        });
+        shouldTouchConversation = true;
+      }
+    } else {
+      await prisma.message.create({
+        data: messageData,
+      });
+    }
   } catch (error) {
     const isDuplicateMessage =
       error instanceof Prisma.PrismaClientKnownRequestError &&
@@ -385,13 +468,15 @@ export async function POST(request: Request) {
     throw error;
   }
 
-  await prisma.conversation.update({
-    where: { id: conversation.id },
-    data: {
-      lastMessageAt: new Date(),
-      status: "OPEN",
-    },
-  });
+  if (shouldTouchConversation) {
+    await prisma.conversation.update({
+      where: { id: conversation.id },
+      data: {
+        lastMessageAt: new Date(),
+        status: "OPEN",
+      },
+    });
+  }
 
   const inboundMessageCountRows = await prisma.$queryRaw<Array<{ total: bigint | number }>>`
     SELECT COUNT(*)::bigint AS "total"
@@ -460,6 +545,16 @@ export async function POST(request: Request) {
           newLeadTagName,
           hasHistory: outboundCount > 0,
         });
+      }
+
+      if (messageWasEdited) {
+        console.log("[EVOLUTION] auto_reply_skipped", {
+          reason: "edited_message",
+          conversationId: conversation.id,
+          agentId: channel.agentId,
+          phoneNumber,
+        });
+        return;
       }
 
   if (fromMe && channel.agentId && channel.isActive && channel.evolutionInstanceName && messageText) {

@@ -85,6 +85,7 @@ export type SharedInboxMessageItem = {
   content: string | null;
   direction: "INBOUND" | "OUTBOUND";
   createdAt: Date;
+  editedAt?: Date | null;
   authorType?: "user" | "bot";
   outboundStatusLabel?: string | null;
   type?: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE";
@@ -276,7 +277,7 @@ function normalizeLiveConversationSnapshot(value: unknown): LiveConversationSnap
 
   const data = value as {
     id?: unknown;
-    messages?: Array<{ createdAt?: string | Date } & Record<string, unknown>>;
+    messages?: Array<{ createdAt?: string | Date; editedAt?: string | Date | null } & Record<string, unknown>>;
   };
 
   if (typeof data.id !== "string" || !Array.isArray(data.messages)) {
@@ -293,6 +294,7 @@ function normalizeLiveConversationSnapshot(value: unknown): LiveConversationSnap
       .map((message) => ({
         ...(message as SharedInboxMessageItem),
         createdAt: new Date(message.createdAt || Date.now()),
+        editedAt: message.editedAt ? new Date(message.editedAt) : null,
       }))
       .sort((a, b) => {
         const diff = a.createdAt.getTime() - b.createdAt.getTime();
@@ -991,6 +993,14 @@ const MessageBubble = memo(function MessageBubble({
               <UserRound className="h-3 w-3" />
             )}
             <span>{chatTimeFormatter.format(message.createdAt)}</span>
+            {message.editedAt ? (
+              <span className={`ml-1 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.08em] ${
+                outbound ? "bg-white/14 text-white/80" : "bg-slate-100 text-slate-500"
+              }`}>
+                <Pencil className="h-2.5 w-2.5" />
+                editado
+              </span>
+            ) : null}
             {outbound && message.outboundStatusLabel ? (
               message.outboundStatusLabel === "entregado" ? (
                 <CheckCheck className="ml-1 h-3 w-3 shrink-0" aria-hidden="true" />

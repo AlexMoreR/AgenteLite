@@ -2,8 +2,9 @@
 
 import type { SharedInboxMessageItem, SharedInboxSelectedConversation } from "./shared-inbox";
 
-type CachedMessageItem = Omit<SharedInboxMessageItem, "createdAt"> & {
+type CachedMessageItem = Omit<SharedInboxMessageItem, "createdAt" | "editedAt"> & {
   createdAt: string;
+  editedAt?: string | null;
 };
 
 type CachedConversation = Omit<SharedInboxSelectedConversation, "messages"> & {
@@ -206,6 +207,7 @@ function serializeConversation(conversation: SharedInboxSelectedConversation): C
     messages: conversation.messages.map((message) => ({
       ...message,
       createdAt: message.createdAt.toISOString(),
+      editedAt: message.editedAt ? message.editedAt.toISOString() : null,
     })),
     cachedAt: Date.now(),
   };
@@ -231,7 +233,21 @@ function toCachedMessageItem(
   return {
     ...message,
     createdAt: typeof message.createdAt === "string" ? message.createdAt : message.createdAt.toISOString(),
+    editedAt:
+      "editedAt" in message && message.editedAt
+        ? typeof message.editedAt === "string"
+          ? message.editedAt
+          : message.editedAt.toISOString()
+        : null,
   };
+}
+
+function getMessageEditedAtTime(message: CachedMessageItem | SharedInboxSelectedConversation["messages"][number]) {
+  if (!("editedAt" in message) || !message.editedAt) {
+    return null;
+  }
+
+  return typeof message.editedAt === "string" ? new Date(message.editedAt).getTime() : message.editedAt.getTime();
 }
 
 function areMergedMessagesEqual(
@@ -246,7 +262,8 @@ function areMergedMessagesEqual(
     left.outboundStatusLabel === right.outboundStatusLabel &&
     left.type === right.type &&
     left.mediaUrl === right.mediaUrl &&
-    getMessageCreatedAtTime(left) === getMessageCreatedAtTime(right)
+    getMessageCreatedAtTime(left) === getMessageCreatedAtTime(right) &&
+    getMessageEditedAtTime(left) === getMessageEditedAtTime(right)
   );
 }
 
@@ -358,6 +375,7 @@ function hydrateConversation(conversation: CachedConversation): SharedInboxSelec
     messages: conversation.messages.map((message) => ({
       ...message,
       createdAt: new Date(message.createdAt),
+      editedAt: message.editedAt ? new Date(message.editedAt) : null,
     })),
   };
 }

@@ -6,6 +6,7 @@ import { z } from "zod";
 import { auth } from "@/auth";
 import { buildDefaultWorkspacePlan } from "@/lib/plans";
 import { prisma } from "@/lib/prisma";
+import { clearEvolutionGhostChats } from "@/lib/evolution-chat-cleanup";
 import { generateUniqueWorkspaceSlug } from "@/lib/workspace";
 import { targetAudienceOptions } from "@/lib/agent-training";
 
@@ -27,6 +28,10 @@ const clearWorkspaceChatsSchema = z.object({
 
 const clearWorkspaceContactsSchema = z.object({
   confirm: z.literal("CLEAR_CONTACTS"),
+});
+
+const clearEvolutionGhostChatsSchema = z.object({
+  confirm: z.literal("CLEAR_EVOLUTION_GHOST_CHATS"),
 });
 
 export async function completeWorkspaceOnboardingAction(formData: FormData): Promise<void> {
@@ -367,4 +372,51 @@ export async function clearWorkspaceContactsAction(formData: FormData): Promise<
   revalidatePath("/cliente/agentes");
 
   redirect("/cliente/negocio?ok=Contactos+limpiados+correctamente");
+}
+
+export async function clearEvolutionGhostChatsAction(formData: FormData): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+    redirect("/unauthorized");
+  }
+
+  const parsed = clearEvolutionGhostChatsSchema.safeParse({
+    confirm: formData.get("confirm"),
+  });
+
+  if (!parsed.success) {
+    redirect("/cliente/negocio?error=No+se+pudieron+limpiar+los+chats+fantasma");
+  }
+
+  const membership = await prisma.workspaceMember.findFirst({
+    where: { userId: session.user.id },
+    orderBy: { createdAt: "asc" },
+    select: {
+      workspace: {
+        select: {
+          id: true,
+        },
+      },
+    },
+  });
+
+  if (!membership?.workspace.id) {
+    redirect("/cliente/negocio?error=No+hay+negocio+configurado");
+  }
+
+  const result = await clearEvolutionGhostChats(membership.workspace.id);
+
+  revalidatePath("/cliente/negocio");
+  revalidatePath("/cliente/contactos");
+  revalidatePath("/cliente/chats");
+  revalidatePath("/cliente/conexion");
+  revalidatePath("/cliente/agentes");
+
+  if (result.deletedConversationIds.length === 0) {
+    redirect("/cliente/negocio?ok=No+se+encontraron+chats+fantasma+de+Evolution");
+  }
+
+  redirect(
+    `/cliente/negocio?ok=Se+limpiaron+${result.deletedConversationIds.length}+chat${result.deletedConversationIds.length === 1 ? "" : "s"}+fantasma${result.deletedConversationIds.length === 1 ? "" : "s"}+de+Evolution`,
+  );
 }

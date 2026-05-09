@@ -21,6 +21,77 @@ function pickString(source: UnknownRecord | null, keys: string[]): string | null
   return null;
 }
 
+function getMessageRecord(payload: unknown) {
+  const root = asRecord(payload);
+  const data = asRecord(root?.data);
+  const update = asRecord(root?.update);
+
+  return asRecord(data?.message) ?? asRecord(update?.message) ?? asRecord(root?.message);
+}
+
+export function hasEvolutionEditedMessagePayload(payload: unknown) {
+  const message = getMessageRecord(payload);
+  const updateMessage = asRecord(asRecord(payload)?.update)?.message;
+
+  return Boolean(message?.editedMessage || asRecord(asRecord(payload)?.editedMessage) || asRecord(updateMessage)?.editedMessage);
+}
+
+function extractMessageTextFromRecord(message: UnknownRecord | null): string | null {
+  const extendedText = asRecord(message?.extendedTextMessage);
+  const buttonsResponseMessage = asRecord(message?.buttonsResponseMessage);
+  const listResponseMessage = asRecord(message?.listResponseMessage);
+  const templateButtonReplyMessage = asRecord(message?.templateButtonReplyMessage);
+  const imageMessage = asRecord(message?.imageMessage);
+  const stickerMessage = asRecord(message?.stickerMessage);
+  const videoMessage = asRecord(message?.videoMessage);
+  const documentMessage = asRecord(message?.documentMessage);
+  const conversation = readString(message?.conversation);
+  const extendedConversation = readString(extendedText?.text);
+  const buttonText =
+    readString(buttonsResponseMessage?.selectedDisplayText) ||
+    readString(buttonsResponseMessage?.selectedButtonId);
+  const listText =
+    readString(listResponseMessage?.title) ||
+    readString(listResponseMessage?.singleSelectReply && asRecord(listResponseMessage.singleSelectReply)?.selectedRowId);
+  const templateReplyText =
+    readString(templateButtonReplyMessage?.selectedDisplayText) ||
+    readString(templateButtonReplyMessage?.selectedId);
+  const imageCaption = readString(imageMessage?.caption);
+  const stickerCaption = readString(stickerMessage?.caption);
+  const videoCaption = readString(videoMessage?.caption);
+  const documentCaption = readString(documentMessage?.caption);
+  const documentFileName = readString(documentMessage?.fileName);
+
+  return (
+    conversation ||
+    extendedConversation ||
+    buttonText ||
+    listText ||
+    templateReplyText ||
+    imageCaption ||
+    stickerCaption ||
+    videoCaption ||
+    documentCaption ||
+    documentFileName
+  );
+}
+
+function getEditedMessageRecord(payload: unknown) {
+  const message = getMessageRecord(payload);
+  const payloadRoot = asRecord(payload);
+  const update = asRecord(payloadRoot?.update);
+  const updateMessage = asRecord(update?.message);
+
+  return (
+    asRecord(message?.editedMessage?.message) ||
+    asRecord(message?.editedMessage) ||
+    asRecord(updateMessage?.editedMessage?.message) ||
+    asRecord(updateMessage?.editedMessage) ||
+    asRecord(payloadRoot?.editedMessage?.message) ||
+    asRecord(payloadRoot?.editedMessage)
+  );
+}
+
 function pickNestedString(source: UnknownRecord | null, nestedKeys: string[][]): string | null {
   if (!source) return null;
 
@@ -118,6 +189,7 @@ export function extractEvolutionPhoneNumber(payload: unknown): string | null {
   const contextInfo = asRecord(asRecord(message?.extendedTextMessage)?.contextInfo);
 
   return (
+    pickString(data, ["remoteJid", "participant", "from"]) ||
     pickString(data, ["number", "phone", "phoneNumber", "owner", "ownerJid", "wuid"]) ||
     pickNestedString(data, [["me", "id"], ["instance", "owner"], ["instance", "ownerJid"], ["instance", "wuid"]]) ||
     pickString(instance, ["number", "phone", "phoneNumber", "owner", "ownerJid", "wuid"]) ||
@@ -131,71 +203,38 @@ export function extractEvolutionPhoneNumber(payload: unknown): string | null {
 }
 
 export function extractEvolutionMessageText(payload: unknown): string | null {
-  const root = asRecord(payload);
-  const data = asRecord(root?.data);
-  const message = asRecord(data?.message);
-  const extendedText = asRecord(message?.extendedTextMessage);
-  const buttonsResponseMessage = asRecord(message?.buttonsResponseMessage);
-  const listResponseMessage = asRecord(message?.listResponseMessage);
-  const templateButtonReplyMessage = asRecord(message?.templateButtonReplyMessage);
-  const imageMessage = asRecord(message?.imageMessage);
-  const stickerMessage = asRecord(message?.stickerMessage);
-  const videoMessage = asRecord(message?.videoMessage);
-  const documentMessage = asRecord(message?.documentMessage);
-  const conversation = readString(message?.conversation);
-  const extendedConversation = readString(extendedText?.text);
-  const buttonText =
-    readString(buttonsResponseMessage?.selectedDisplayText) ||
-    readString(buttonsResponseMessage?.selectedButtonId);
-  const listText =
-    readString(listResponseMessage?.title) ||
-    readString(listResponseMessage?.singleSelectReply && asRecord(listResponseMessage.singleSelectReply)?.selectedRowId);
-  const templateReplyText =
-    readString(templateButtonReplyMessage?.selectedDisplayText) ||
-    readString(templateButtonReplyMessage?.selectedId);
-  const imageCaption = readString(imageMessage?.caption);
-  const stickerCaption = readString(stickerMessage?.caption);
-  const videoCaption = readString(videoMessage?.caption);
-  const documentCaption = readString(documentMessage?.caption);
-  const documentFileName = readString(documentMessage?.fileName);
+  const message = getMessageRecord(payload);
+  const editedMessage = getEditedMessageRecord(payload);
 
   return (
-    conversation ||
-    extendedConversation ||
-    buttonText ||
-    listText ||
-    templateReplyText ||
-    imageCaption ||
-    stickerCaption ||
-    videoCaption ||
-    documentCaption ||
-    documentFileName ||
-    pickString(data, ["text", "body"])
+    extractMessageTextFromRecord(editedMessage) ||
+    extractMessageTextFromRecord(message) ||
+    pickString(asRecord(asRecord(payload)?.data), ["text", "body"])
   );
 }
 
 export function extractEvolutionMessageType(payload: unknown) {
-  const root = asRecord(payload);
-  const data = asRecord(root?.data);
-  const message = asRecord(data?.message);
+  const message = getMessageRecord(payload);
+  const editedMessage = getEditedMessageRecord(payload);
+  const target = editedMessage ?? message;
 
-  if (asRecord(message?.imageMessage)) {
+  if (asRecord(target?.imageMessage)) {
     return "IMAGE" as const;
   }
 
-  if (asRecord(message?.audioMessage)) {
+  if (asRecord(target?.audioMessage)) {
     return "AUDIO" as const;
   }
 
-  if (asRecord(message?.stickerMessage)) {
+  if (asRecord(target?.stickerMessage)) {
     return "STICKER" as const;
   }
 
-  if (asRecord(message?.videoMessage)) {
+  if (asRecord(target?.videoMessage)) {
     return "VIDEO" as const;
   }
 
-  if (asRecord(message?.documentMessage)) {
+  if (asRecord(target?.documentMessage)) {
     return "DOCUMENT" as const;
   }
 
@@ -205,10 +244,12 @@ export function extractEvolutionMessageType(payload: unknown) {
 export function extractEvolutionMediaUrl(payload: unknown): string | null {
   const root = asRecord(payload);
   const data = asRecord(root?.data);
-  const message = asRecord(data?.message);
+  const message = getMessageRecord(payload);
+  const editedMessage = getEditedMessageRecord(payload);
+  const target = editedMessage ?? message;
 
   return (
-    pickNestedString(message, [
+    pickNestedString(target, [
       ["imageMessage", "url"],
       ["audioMessage", "url"],
       ["stickerMessage", "url"],
@@ -228,10 +269,13 @@ export function extractEvolutionMessageId(payload: unknown): string | null {
   const root = asRecord(payload);
   const data = asRecord(root?.data);
   const key = asRecord(data?.key);
+  const rootKey = asRecord(root?.key);
 
   return (
+    pickString(data, ["keyId", "messageId", "message_id", "id"]) ||
+    pickString(root, ["keyId", "messageId", "message_id", "id"]) ||
     pickString(key, ["id"]) ||
-    pickString(data, ["messageId", "message_id", "id"])
+    pickString(rootKey, ["id"])
   );
 }
 
@@ -256,11 +300,11 @@ export function extractEvolutionRemoteJid(payload: unknown): string | null {
   const rootContextInfo = asRecord(asRecord(rootMessage?.extendedTextMessage)?.contextInfo);
 
   return (
+    pickString(data, ["remoteJid", "participant", "from"]) ||
     pickString(key, ["remoteJid", "participant"]) ||
     pickString(rootKey, ["remoteJid", "participant"]) ||
     pickString(sender, ["id", "jid"]) ||
     pickString(rootSender, ["id", "jid"]) ||
-    pickString(data, ["remoteJid", "participant", "from"]) ||
     pickString(root, ["remoteJid", "participant", "from"]) ||
     pickString(contextInfo, ["participant", "remoteJid"]) ||
     pickString(rootContextInfo, ["participant", "remoteJid"]) ||
@@ -286,5 +330,20 @@ export function isInboundMessageEvent(eventName: string | null): boolean {
     eventName === "MESSAGES_UPSERT_NOTIFY" ||
     eventName === "MESSAGES_UPSERT_APPEND" ||
     (eventName.includes("MESSAGE") && eventName.includes("UPSERT"))
+  );
+}
+
+export function isMessageUpdateEvent(eventName: string | null): boolean {
+  if (!eventName) {
+    return false;
+  }
+
+  return (
+    eventName === "MESSAGES_UPDATE" ||
+    eventName === "MESSAGE_UPDATE" ||
+    eventName === "MESSAGES_EDITED" ||
+    eventName === "MESSAGE_EDITED" ||
+    eventName.includes("UPDATE") ||
+    eventName.includes("EDIT")
   );
 }

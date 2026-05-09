@@ -543,6 +543,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         content: string | null;
         direction: "INBOUND" | "OUTBOUND";
         createdAt: Date;
+        editedAt?: Date | null;
         authorType: "user" | "bot";
         outboundStatusLabel: string | null;
         type?: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE";

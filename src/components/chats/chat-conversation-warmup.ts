@@ -17,7 +17,7 @@ function normalizeSelectedConversation(value: unknown): SharedInboxSelectedConve
 
   const data = value as {
     id?: unknown;
-    messages?: Array<{ createdAt?: string | Date } & Record<string, unknown>>;
+    messages?: Array<{ createdAt?: string | Date; editedAt?: string | Date | null } & Record<string, unknown>>;
   };
 
   if (typeof data.id !== "string" || !Array.isArray(data.messages)) {
@@ -31,6 +31,7 @@ function normalizeSelectedConversation(value: unknown): SharedInboxSelectedConve
       .map((message) => ({
         ...(message as SharedInboxSelectedConversation["messages"][number]),
         createdAt: new Date(message.createdAt || Date.now()),
+        editedAt: message.editedAt ? new Date(message.editedAt) : null,
       }))
       .sort((left, right) => {
         const diff = left.createdAt.getTime() - right.createdAt.getTime();
