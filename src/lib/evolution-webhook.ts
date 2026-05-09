@@ -40,6 +40,49 @@ export function hasEvolutionEditedMessagePayload(payload: unknown) {
   return Boolean(messageEdited || updateEditedMessage || asRecord(payloadRoot?.editedMessage));
 }
 
+function getDeletedMessageRecord(payload: unknown) {
+  const message = getMessageRecord(payload);
+  const payloadRoot = asRecord(payload);
+  const update = asRecord(payloadRoot?.update);
+  const updateMessage = asRecord(update?.message);
+  const payloadDeletedMessage = asRecord(payloadRoot?.deletedMessage);
+  const messageDeleted = asRecord(message?.deletedMessage);
+  const updateDeletedMessage = asRecord(updateMessage?.deletedMessage);
+  const protocolMessage = asRecord(message?.protocolMessage) ?? asRecord(updateMessage?.protocolMessage) ?? asRecord(payloadRoot?.protocolMessage);
+
+  if (protocolMessage && readString(protocolMessage.type)?.toUpperCase() === "REVOKE") {
+    return protocolMessage;
+  }
+
+  return (
+    asRecord(messageDeleted?.message) ||
+    messageDeleted ||
+    asRecord(updateDeletedMessage?.message) ||
+    updateDeletedMessage ||
+    asRecord(payloadDeletedMessage?.message) ||
+    payloadDeletedMessage
+  );
+}
+
+export function hasEvolutionDeletedMessagePayload(payload: unknown) {
+  const deletedMessage = getDeletedMessageRecord(payload);
+  const payloadRoot = asRecord(payload);
+  const update = asRecord(payloadRoot?.update);
+  const updateMessage = asRecord(update?.message);
+  const protocolMessage = asRecord(getMessageRecord(payload)?.protocolMessage);
+  const updateProtocolMessage = asRecord(updateMessage?.protocolMessage);
+  const normalizedEvent = readString(payloadRoot?.event)?.toUpperCase() ?? "";
+  const normalizedType = readString(payloadRoot?.type)?.toUpperCase() ?? "";
+
+  return Boolean(
+    deletedMessage ||
+      (protocolMessage && readString(protocolMessage.type)?.toUpperCase() === "REVOKE") ||
+      (updateProtocolMessage && readString(updateProtocolMessage.type)?.toUpperCase() === "REVOKE") ||
+      normalizedEvent.includes("DELETE") ||
+      normalizedType.includes("DELETE"),
+  );
+}
+
 function extractMessageTextFromRecord(message: UnknownRecord | null): string | null {
   const extendedText = asRecord(message?.extendedTextMessage);
   const buttonsResponseMessage = asRecord(message?.buttonsResponseMessage);
@@ -277,12 +320,19 @@ export function extractEvolutionMessageId(payload: unknown): string | null {
   const data = asRecord(root?.data);
   const key = asRecord(data?.key);
   const rootKey = asRecord(root?.key);
+  const message = getMessageRecord(payload);
+  const deletedMessage = getDeletedMessageRecord(payload);
+  const protocolMessage = asRecord(message?.protocolMessage) ?? asRecord(deletedMessage?.protocolMessage);
+  const protocolKey = asRecord(protocolMessage?.key);
+  const deletedKey = asRecord(deletedMessage?.key);
 
   return (
     pickString(data, ["keyId", "messageId", "message_id", "id"]) ||
     pickString(root, ["keyId", "messageId", "message_id", "id"]) ||
     pickString(key, ["id"]) ||
-    pickString(rootKey, ["id"])
+    pickString(rootKey, ["id"]) ||
+    pickString(protocolKey, ["id"]) ||
+    pickString(deletedKey, ["id"])
   );
 }
 
@@ -350,6 +400,8 @@ export function isMessageUpdateEvent(eventName: string | null): boolean {
     eventName === "MESSAGE_UPDATE" ||
     eventName === "MESSAGES_EDITED" ||
     eventName === "MESSAGE_EDITED" ||
+    eventName === "MESSAGES_DELETE" ||
+    eventName === "MESSAGE_DELETE" ||
     eventName.includes("UPDATE") ||
     eventName.includes("EDIT")
   );

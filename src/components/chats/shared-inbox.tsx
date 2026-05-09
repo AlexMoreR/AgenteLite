@@ -19,6 +19,7 @@ import {
   Search,
   SendHorizonal,
   Tag,
+  Trash2,
   UserRound,
   X,
 } from "lucide-react";
@@ -86,6 +87,7 @@ export type SharedInboxMessageItem = {
   direction: "INBOUND" | "OUTBOUND";
   createdAt: Date;
   editedAt?: Date | null;
+  deletedAt?: Date | null;
   authorType?: "user" | "bot";
   outboundStatusLabel?: string | null;
   type?: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE";
@@ -256,6 +258,10 @@ function getMessagePreviewText(message?: SharedInboxMessageItem | null) {
     return null;
   }
 
+  if (message.deletedAt) {
+    return "Mensaje eliminado";
+  }
+
   const content = message.content?.trim();
   if (content) {
     return content;
@@ -277,7 +283,7 @@ function normalizeLiveConversationSnapshot(value: unknown): LiveConversationSnap
 
   const data = value as {
     id?: unknown;
-    messages?: Array<{ createdAt?: string | Date; editedAt?: string | Date | null } & Record<string, unknown>>;
+    messages?: Array<{ createdAt?: string | Date; editedAt?: string | Date | null; deletedAt?: string | Date | null } & Record<string, unknown>>;
   };
 
   if (typeof data.id !== "string" || !Array.isArray(data.messages)) {
@@ -295,6 +301,7 @@ function normalizeLiveConversationSnapshot(value: unknown): LiveConversationSnap
         ...(message as SharedInboxMessageItem),
         createdAt: new Date(message.createdAt || Date.now()),
         editedAt: message.editedAt ? new Date(message.editedAt) : null,
+        deletedAt: message.deletedAt ? new Date(message.deletedAt) : null,
       }))
       .sort((a, b) => {
         const diff = a.createdAt.getTime() - b.createdAt.getTime();
@@ -835,6 +842,7 @@ const MessageBubble = memo(function MessageBubble({
     [message],
   );
   const isOptimistic = "isOptimistic" in message && Boolean((message as { isOptimistic?: boolean }).isOptimistic);
+  const isDeleted = Boolean(message.deletedAt);
 
   const handleImageError = () => {
     setImagePreviewIndex((current) => {
@@ -983,10 +991,22 @@ const MessageBubble = memo(function MessageBubble({
               {renderMessageText(message.content)}
             </div>
           ) : (
-            renderMessageText(message.content) || <p>-</p>
+            renderMessageText(message.content) || (
+              <p className={`text-[12px] italic ${outbound ? "text-white/75" : "text-slate-500"}`}>
+                {isDeleted ? "Mensaje eliminado" : "-"}
+              </p>
+            )
           )}
 
           <div className={`mt-0.5 flex items-center justify-end gap-1 text-[10px] ${outbound ? "text-white/80" : "text-slate-400"}`}>
+            {isDeleted ? (
+              <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-normal tracking-[0.08em] ${
+                outbound ? "bg-white/14 text-white/80" : "bg-rose-50 text-rose-600"
+              }`}>
+                <Trash2 className="h-2.5 w-2.5" />
+                Eliminado
+              </span>
+            ) : null}
             {message.editedAt ? (
               <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-normal tracking-[0.08em] ${
                 outbound ? "bg-white/14 text-white/80" : "bg-slate-100 text-slate-500"

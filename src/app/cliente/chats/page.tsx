@@ -206,6 +206,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
             content: true,
             direction: true,
             createdAt: true,
+            deletedAt: true,
             type: true,
           },
         },
@@ -243,6 +244,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           m."content" AS "content",
           m."direction" AS "direction",
           m."createdAt" AS "createdAt",
+          m."deletedAt" AS "deletedAt",
           m."type" AS "type"
         FROM "Message" m
         WHERE m."workspaceId" = ${membership.workspace.id}
@@ -254,6 +256,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         content: string | null;
         direction: "INBOUND" | "OUTBOUND";
         createdAt: Date;
+        deletedAt: Date | null;
         type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
       }>);
   if (autoTagNewLeads && contactIds.length > 0) {
@@ -418,7 +421,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       tags,
       avatarUrl,
       incomingCount: agentIncomingCountById.get(conversation.id) ?? 0,
-      lastMessage: latestAgentMessageByConversationId.get(conversation.id)?.content ?? null,
+      lastMessage: latestAgentMessageByConversationId.get(conversation.id)?.deletedAt ? "Mensaje eliminado" : latestAgentMessageByConversationId.get(conversation.id)?.content ?? null,
       lastMessageType: latestAgentMessageByConversationId.get(conversation.id)?.type ?? null,
       lastMessageDirection: latestAgentMessageByConversationId.get(conversation.id)?.direction ?? null,
       lastMessageAt: latestAgentMessageByConversationId.get(conversation.id)?.createdAt ?? null,
@@ -544,6 +547,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         direction: "INBOUND" | "OUTBOUND";
         createdAt: Date;
         editedAt?: Date | null;
+        deletedAt?: Date | null;
         authorType: "user" | "bot";
         outboundStatusLabel: string | null;
         type?: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE";
@@ -586,6 +590,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         content: message.content,
         direction: message.direction,
         createdAt: message.createdAt,
+        deletedAt: null,
         authorType: "user",
         outboundStatusLabel:
           message.direction === "OUTBOUND"

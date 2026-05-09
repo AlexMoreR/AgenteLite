@@ -5,6 +5,7 @@ import type { SharedInboxMessageItem, SharedInboxSelectedConversation } from "./
 type CachedMessageItem = Omit<SharedInboxMessageItem, "createdAt" | "editedAt"> & {
   createdAt: string;
   editedAt?: string | null;
+  deletedAt?: string | null;
 };
 
 type CachedConversation = Omit<SharedInboxSelectedConversation, "messages"> & {
@@ -208,6 +209,7 @@ function serializeConversation(conversation: SharedInboxSelectedConversation): C
       ...message,
       createdAt: message.createdAt.toISOString(),
       editedAt: message.editedAt ? message.editedAt.toISOString() : null,
+      deletedAt: message.deletedAt ? message.deletedAt.toISOString() : null,
     })),
     cachedAt: Date.now(),
   };
@@ -239,6 +241,12 @@ function toCachedMessageItem(
           ? message.editedAt
           : message.editedAt.toISOString()
         : null,
+    deletedAt:
+      "deletedAt" in message && message.deletedAt
+        ? typeof message.deletedAt === "string"
+          ? message.deletedAt
+          : message.deletedAt.toISOString()
+        : null,
   };
 }
 
@@ -248,6 +256,14 @@ function getMessageEditedAtTime(message: CachedMessageItem | SharedInboxSelected
   }
 
   return typeof message.editedAt === "string" ? new Date(message.editedAt).getTime() : message.editedAt.getTime();
+}
+
+function getMessageDeletedAtTime(message: CachedMessageItem | SharedInboxSelectedConversation["messages"][number]) {
+  if (!("deletedAt" in message) || !message.deletedAt) {
+    return null;
+  }
+
+  return typeof message.deletedAt === "string" ? new Date(message.deletedAt).getTime() : message.deletedAt.getTime();
 }
 
 function areMergedMessagesEqual(
@@ -263,7 +279,8 @@ function areMergedMessagesEqual(
     left.type === right.type &&
     left.mediaUrl === right.mediaUrl &&
     getMessageCreatedAtTime(left) === getMessageCreatedAtTime(right) &&
-    getMessageEditedAtTime(left) === getMessageEditedAtTime(right)
+    getMessageEditedAtTime(left) === getMessageEditedAtTime(right) &&
+    getMessageDeletedAtTime(left) === getMessageDeletedAtTime(right)
   );
 }
 
@@ -376,6 +393,7 @@ function hydrateConversation(conversation: CachedConversation): SharedInboxSelec
       ...message,
       createdAt: new Date(message.createdAt),
       editedAt: message.editedAt ? new Date(message.editedAt) : null,
+      deletedAt: message.deletedAt ? new Date(message.deletedAt) : null,
     })),
   };
 }

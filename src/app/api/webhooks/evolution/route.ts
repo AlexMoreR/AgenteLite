@@ -21,6 +21,7 @@ import {
   extractEvolutionPhoneNumber,
   extractEvolutionQrCode,
   extractEvolutionRemoteJid,
+  hasEvolutionDeletedMessagePayload,
   hasEvolutionEditedMessagePayload,
   isInboundMessageEvent,
   normalizePhoneFromJid,
@@ -211,7 +212,10 @@ export async function POST(request: Request) {
     });
   }
 
-  const isMessageEvent = isInboundMessageEvent(eventName) || hasEvolutionEditedMessagePayload(payload);
+  const isMessageEvent =
+    isInboundMessageEvent(eventName) ||
+    hasEvolutionEditedMessagePayload(payload) ||
+    hasEvolutionDeletedMessagePayload(payload);
 
   if (!isMessageEvent) {
     return NextResponse.json({
@@ -247,7 +251,8 @@ export async function POST(request: Request) {
   });
   const fromMe = extractEvolutionFromMe(payload);
   const messageWasEdited = hasEvolutionEditedMessagePayload(payload);
-  let shouldTouchConversation = !messageWasEdited;
+  const messageWasDeleted = hasEvolutionDeletedMessagePayload(payload);
+  let shouldTouchConversation = !messageWasEdited && !messageWasDeleted;
   const existingMessage = messageExternalId
     ? await prisma.message.findFirst({
         where: {
@@ -430,7 +435,38 @@ export async function POST(request: Request) {
       ...(fromMe ? { sentAt: new Date() } : {}),
     };
 
-    if (messageWasEdited && messageExternalId) {
+    if (messageWasDeleted && messageExternalId) {
+      const existingMessageRecord = await prisma.message.findFirst({
+        where: {
+          workspaceId: channel.workspaceId,
+          channelId: channel.id,
+          externalId: messageExternalId,
+        },
+        select: { id: true },
+      });
+
+      if (existingMessageRecord) {
+        await prisma.message.update({
+          where: { id: existingMessageRecord.id },
+          data: {
+            deletedAt: new Date(),
+            rawPayload: {
+              source: fromMe ? "instance" : "webhook",
+              evolution: payload,
+            } as never,
+          },
+        });
+      } else {
+        await prisma.message.create({
+          data: {
+            ...messageData,
+            content: messageText,
+            deletedAt: new Date(),
+          },
+        });
+        shouldTouchConversation = true;
+      }
+    } else if (messageWasEdited && messageExternalId) {
       const existingMessage = await prisma.message.findFirst({
         where: {
           workspaceId: channel.workspaceId,
@@ -566,9 +602,9 @@ export async function POST(request: Request) {
         });
       }
 
-      if (messageWasEdited) {
+      if (messageWasEdited || messageWasDeleted) {
         console.log("[EVOLUTION] auto_reply_skipped", {
-          reason: "edited_message",
+          reason: messageWasDeleted ? "deleted_message" : "edited_message",
           conversationId: conversation.id,
           agentId: channel.agentId,
           phoneNumber,

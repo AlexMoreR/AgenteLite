@@ -7,6 +7,7 @@ import { usePendingConversationSelection } from "./chat-selection-store";
 import {
   extractEvolutionPhoneNumber,
   extractEvolutionRemoteJid,
+  hasEvolutionDeletedMessagePayload,
   hasEvolutionEditedMessagePayload,
   normalizePhoneFromJid,
 } from "@/lib/evolution-webhook";
@@ -296,7 +297,7 @@ export function ChatsRealtimeSync({
 
       const snapshot = value as {
         id?: unknown;
-        messages?: Array<{ createdAt?: string; editedAt?: string | Date | null } & Record<string, unknown>>;
+        messages?: Array<{ createdAt?: string; editedAt?: string | Date | null; deletedAt?: string | Date | null } & Record<string, unknown>>;
       };
 
       if (typeof snapshot.id !== "string" || !Array.isArray(snapshot.messages)) {
@@ -310,6 +311,7 @@ export function ChatsRealtimeSync({
           ...message,
           createdAt: new Date(message.createdAt || Date.now()),
           editedAt: message.editedAt ? new Date(message.editedAt) : null,
+          deletedAt: message.deletedAt ? new Date(message.deletedAt) : null,
         })),
       };
     }
@@ -532,7 +534,8 @@ export function ChatsRealtimeSync({
           // sin necesidad de recrear los sockets cuando el usuario cambia de chat.
           const normalizedActiveInstanceName = activeInstanceNameRef.current?.trim() || "";
           const payload = pickSocketPayload(args);
-          const isEditedPayload = hasEvolutionEditedMessagePayload(payload);
+          const isEditedOrDeletedPayload =
+            hasEvolutionEditedMessagePayload(payload) || hasEvolutionDeletedMessagePayload(payload);
           const phoneNumber = extractPhoneNumberFromPayload(payload);
           const currentConversationKey = pendingSelectionRef.current?.key ?? selectedConversationKeyRef.current;
           const isOfficialConversationSelected = currentConversationKey?.startsWith("official:");
@@ -548,7 +551,7 @@ export function ChatsRealtimeSync({
           if (hasActiveAgentConversation) {
             scheduleLiveUpdate("active");
 
-            if (isEditedPayload) {
+            if (isEditedOrDeletedPayload) {
               return;
             }
 
@@ -576,7 +579,7 @@ export function ChatsRealtimeSync({
 
           if (isActiveInstance) {
             if (isOfficialConversationSelected) {
-              if (isEditedPayload) {
+              if (isEditedOrDeletedPayload) {
                 return;
               }
               schedulePageRefresh("active");
@@ -585,13 +588,13 @@ export function ChatsRealtimeSync({
 
             if (isSelectedAgentConversation) {
               scheduleLiveUpdate("active");
-              if (isEditedPayload) {
+              if (isEditedOrDeletedPayload) {
                 return;
               }
               return;
             }
 
-            if (isEditedPayload) {
+            if (isEditedOrDeletedPayload) {
               return;
             }
 
@@ -613,7 +616,7 @@ export function ChatsRealtimeSync({
 
           if (payloadInstanceName && payloadInstanceName === normalizedActiveInstanceName) {
             if (isOfficialConversationSelected) {
-              if (isEditedPayload) {
+              if (isEditedOrDeletedPayload) {
                 return;
               }
               schedulePageRefresh("active");
@@ -622,13 +625,13 @@ export function ChatsRealtimeSync({
 
             if (isSelectedAgentConversation) {
               scheduleLiveUpdate("active");
-              if (isEditedPayload) {
+              if (isEditedOrDeletedPayload) {
                 return;
               }
               return;
             }
 
-            if (isEditedPayload) {
+            if (isEditedOrDeletedPayload) {
               return;
             }
 
@@ -646,7 +649,7 @@ export function ChatsRealtimeSync({
                 scheduleLiveUpdate("background");
               }
 
-              if (isEditedPayload) {
+              if (isEditedOrDeletedPayload) {
                 return;
               }
 
@@ -665,14 +668,14 @@ export function ChatsRealtimeSync({
             }
 
             if (isOfficialConversationSelected) {
-              if (isEditedPayload) {
+              if (isEditedOrDeletedPayload) {
                 return;
               }
               schedulePageRefresh("background");
               return;
             }
 
-            if (isEditedPayload) {
+            if (isEditedOrDeletedPayload) {
               return;
             }
 
@@ -682,17 +685,17 @@ export function ChatsRealtimeSync({
 
           if (currentConversationKey?.startsWith("agent:")) {
             scheduleLiveUpdate("background");
-            if (isEditedPayload) {
+            if (isEditedOrDeletedPayload) {
               return;
             }
             schedulePageRefresh("background");
           } else if (isOfficialConversationSelected) {
-            if (isEditedPayload) {
+            if (isEditedOrDeletedPayload) {
               return;
             }
             schedulePageRefresh("background");
           } else if (/MESSAGE|CHAT/.test(normalizedEventName)) {
-            if (isEditedPayload) {
+            if (isEditedOrDeletedPayload) {
               return;
             }
             // Fallback para payloads que no dejan extraer el telefono pero sí son eventos

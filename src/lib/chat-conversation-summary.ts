@@ -21,6 +21,18 @@ function getAgentContactLabel(input: { name: string | null; phoneNumber: string 
   return input.name?.trim() || input.phoneNumber;
 }
 
+function getConversationPreviewText(message: { content: string | null; deletedAt?: Date | null } | null) {
+  if (!message) {
+    return null;
+  }
+
+  if (message.deletedAt) {
+    return "Mensaje eliminado";
+  }
+
+  return message.content ?? null;
+}
+
 export function getContactTags(
   input: Array<{
     name: string;
@@ -96,6 +108,7 @@ export async function getAgentConversationSummaryByConversationId(input: {
         content: true,
         direction: true,
         createdAt: true,
+        deletedAt: true,
         type: true,
       },
     }),
@@ -125,7 +138,7 @@ export async function getAgentConversationSummaryByConversationId(input: {
     tags: getContactTags(contactTagRows),
     avatarUrl: contact.avatarUrl ?? null,
     incomingCount,
-    lastMessage: lastMessage?.content ?? null,
+    lastMessage: getConversationPreviewText(lastMessage),
     lastMessageType: lastMessage?.type ?? null,
     lastMessageDirection: lastMessage?.direction ?? null,
     lastMessageAt: lastMessage?.createdAt ?? null,
@@ -209,6 +222,7 @@ export async function getAgentConversationSummaryByPhoneNumber(input: {
         content: true,
         direction: true,
         createdAt: true,
+        deletedAt: true,
         type: true,
       },
     }),
@@ -238,7 +252,7 @@ export async function getAgentConversationSummaryByPhoneNumber(input: {
     tags: getContactTags(contactTagRows),
     avatarUrl: contact.avatarUrl ?? null,
     incomingCount,
-    lastMessage: lastMessage?.content ?? null,
+    lastMessage: getConversationPreviewText(lastMessage),
     lastMessageType: lastMessage?.type ?? null,
     lastMessageDirection: lastMessage?.direction ?? null,
     lastMessageAt: lastMessage?.createdAt ?? null,

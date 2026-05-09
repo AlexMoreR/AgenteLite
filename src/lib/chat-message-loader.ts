@@ -7,6 +7,7 @@ export type AgentConversationMessageRecord = {
   direction: "INBOUND" | "OUTBOUND";
   createdAt: Date;
   editedAt: Date | null;
+  deletedAt: Date | null;
   type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
   mediaUrl: string | null;
   rawPayload: unknown;
@@ -112,6 +113,7 @@ export async function loadAgentConversationDetail(input: {
       direction: true,
       createdAt: true,
       editedAt: true,
+      deletedAt: true,
       rawPayload: true,
       type: true,
       mediaUrl: true,
