@@ -237,19 +237,114 @@ export function extractEvolutionPhoneNumber(payload: unknown): string | null {
   const sender = asRecord(root?.sender);
   const message = asRecord(root?.message);
   const contextInfo = asRecord(asRecord(message?.extendedTextMessage)?.contextInfo);
+  const rootSender = readString(root?.sender);
+  const dataSender = readString(data?.sender);
+  const rootFrom = readString(root?.from);
+  const dataFrom = readString(data?.from);
+  const rootParticipant = readString(root?.participant);
+  const dataParticipant = readString(data?.participant);
 
   return (
-    pickString(data, ["remoteJid", "participant", "from"]) ||
+    pickString(data, ["chatId", "remoteJidAlt", "remoteJid", "participant", "from"]) ||
     pickString(data, ["number", "phone", "phoneNumber", "owner", "ownerJid", "wuid"]) ||
+    dataSender ||
+    dataFrom ||
+    dataParticipant ||
     pickNestedString(data, [["me", "id"], ["instance", "owner"], ["instance", "ownerJid"], ["instance", "wuid"]]) ||
     pickString(instance, ["number", "phone", "phoneNumber", "owner", "ownerJid", "wuid"]) ||
     pickNestedString(instance, [["me", "id"]]) ||
-    pickString(key, ["remoteJid", "participant"]) ||
+    pickString(key, ["chatId", "remoteJidAlt", "remoteJid", "participant"]) ||
+    rootSender ||
+    rootFrom ||
+    rootParticipant ||
     pickString(sender, ["id", "jid"]) ||
     pickString(contextInfo, ["participant", "remoteJid"]) ||
-    pickString(root, ["number", "phone", "phoneNumber", "owner", "ownerJid", "wuid"]) ||
-    pickNestedString(root, [["me", "id"]])
+    pickString(root, ["chatId", "remoteJidAlt", "remoteJid", "number", "phone", "phoneNumber", "owner", "ownerJid", "wuid"]) ||
+    pickNestedString(root, [["me", "id"]]) ||
+    findDeepString(payload, (candidate) => /@\w+/i.test(candidate) && /\d{7,}/.test(candidate)) ||
+    findDeepString(payload, (candidate) => /\d{7,}/.test(candidate))
   );
+}
+
+export function extractEvolutionCallDirection(payload: unknown): "INBOUND" | "OUTBOUND" | null {
+  const root = asRecord(payload);
+  const data = asRecord(root?.data);
+
+  const fromMe =
+    data?.fromMe === true ||
+    root?.fromMe === true ||
+    String(data?.fromMe ?? "").toLowerCase() === "true" ||
+    String(root?.fromMe ?? "").toLowerCase() === "true";
+
+  if (typeof data?.fromMe === "boolean" || typeof root?.fromMe === "boolean" || String(data?.fromMe ?? "").trim() || String(root?.fromMe ?? "").trim()) {
+    return fromMe ? "OUTBOUND" : "INBOUND";
+  }
+
+  const direction = readString(data?.direction) || readString(root?.direction);
+  if (!direction) {
+    return null;
+  }
+
+  const normalized = direction.toUpperCase();
+  if (normalized.includes("OUT")) {
+    return "OUTBOUND";
+  }
+  if (normalized.includes("IN")) {
+    return "INBOUND";
+  }
+
+  return null;
+}
+
+function findDeepString(
+  value: unknown,
+  predicate: (candidate: string) => boolean,
+  visited = new WeakSet<object>(),
+): string | null {
+  if (typeof value === "string") {
+    return predicate(value) ? value : null;
+  }
+
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  if (visited.has(record)) {
+    return null;
+  }
+
+  visited.add(record);
+
+  for (const entry of Object.values(record)) {
+    const match = findDeepString(entry, predicate, visited);
+    if (match) {
+      return match;
+    }
+  }
+
+  return null;
+}
+
+export function extractEvolutionCallStatus(payload: unknown): string | null {
+  const root = asRecord(payload);
+  const data = asRecord(root?.data);
+  const rawStatus = readString(data?.status) || readString(root?.status) || readString(data?.callStatus) || readString(root?.callStatus);
+
+  return rawStatus ? rawStatus.toUpperCase() : null;
+}
+
+export function hasEvolutionCallPayload(payload: unknown) {
+  const eventName = extractEvolutionEventName(payload);
+  if (eventName === "CALL") {
+    return true;
+  }
+
+  const root = asRecord(payload);
+  const data = asRecord(root?.data);
+  const normalizedStatus = readString(data?.status)?.toUpperCase() ?? "";
+
+  return normalizedStatus.includes("CALL");
 }
 
 export function extractEvolutionMessageText(payload: unknown): string | null {
@@ -355,23 +450,41 @@ export function extractEvolutionRemoteJid(payload: unknown): string | null {
   const rootMessage = asRecord(root?.message);
   const contextInfo = asRecord(asRecord(message?.extendedTextMessage)?.contextInfo);
   const rootContextInfo = asRecord(asRecord(rootMessage?.extendedTextMessage)?.contextInfo);
+  const dataSender = readString(data?.sender);
+  const rootSenderValue = readString(root?.sender);
+  const dataFrom = readString(data?.from);
+  const rootFrom = readString(root?.from);
+  const dataParticipant = readString(data?.participant);
+  const rootParticipant = readString(root?.participant);
 
   return (
-    pickString(data, ["remoteJid", "participant", "from"]) ||
-    pickString(key, ["remoteJid", "participant"]) ||
-    pickString(rootKey, ["remoteJid", "participant"]) ||
+    pickString(data, ["chatId", "remoteJidAlt", "remoteJid", "participant", "from"]) ||
+    dataSender ||
+    dataFrom ||
+    dataParticipant ||
+    pickString(key, ["chatId", "remoteJidAlt", "remoteJid", "participant"]) ||
+    pickString(rootKey, ["chatId", "remoteJidAlt", "remoteJid", "participant"]) ||
     pickString(sender, ["id", "jid"]) ||
     pickString(rootSender, ["id", "jid"]) ||
-    pickString(root, ["remoteJid", "participant", "from"]) ||
+    rootSenderValue ||
+    rootFrom ||
+    rootParticipant ||
+    pickString(root, ["chatId", "remoteJidAlt", "remoteJid", "participant", "from"]) ||
     pickString(contextInfo, ["participant", "remoteJid"]) ||
     pickString(rootContextInfo, ["participant", "remoteJid"]) ||
-    pickString(root, ["remoteJid"])
+    pickString(root, ["chatId", "remoteJidAlt", "remoteJid"]) ||
+    findDeepString(payload, (candidate) => /@\w+/i.test(candidate))
   );
 }
 
 export function normalizePhoneFromJid(value: string | null): string | null {
   if (!value) return null;
-  const normalized = value.split("@")[0]?.replace(/\D/g, "") ?? "";
+  if (value.includes("@") && !value.endsWith("@s.whatsapp.net")) {
+    return null;
+  }
+  const jidPart = value.split("@")[0] ?? "";
+  const phonePart = jidPart.split(":")[0] ?? jidPart;
+  const normalized = phonePart.replace(/\D/g, "");
   if (!normalized || normalized.length < 7 || normalized.length > 15) return null;
   return normalized;
 }

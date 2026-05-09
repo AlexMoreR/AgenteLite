@@ -16,6 +16,8 @@ import {
   MessageCircle,
   MessageSquareText,
   Pencil,
+  PhoneIncoming,
+  PhoneOutgoing,
   Search,
   SendHorizonal,
   Tag,
@@ -547,6 +549,26 @@ function renderMessageText(content?: string | null, className = "") {
   return <p className={`whitespace-pre-wrap break-words ${className}`}>{renderWhatsAppText(content)}</p>;
 }
 
+function getCallMessageSummary(message: SharedInboxMessageItem) {
+  if (message.type !== "SYSTEM") {
+    return null;
+  }
+
+  const content = message.content?.trim();
+  if (!content || !/^llamada\s+/i.test(content)) {
+    return null;
+  }
+
+  const directionLabel = message.direction === "OUTBOUND" ? "saliente" : "entrante";
+  const statusText = content.replace(/^llamada\s+(entrante|saliente)\s*/i, "").trim();
+
+  return {
+    directionLabel,
+    statusText,
+    icon: message.direction === "OUTBOUND" ? PhoneOutgoing : PhoneIncoming,
+  };
+}
+
 function formatDateDivider(date: Date) {
   return chatDateLabelFormatter.format(date);
 }
@@ -853,6 +875,8 @@ const MessageBubble = memo(function MessageBubble({
 
   const hasImagePreview = isImageMessage && imagePreviewUrl !== null;
   const imagePreviewExhausted = isImageMessage && imagePreviewUrls.length > 0 && !hasImagePreview;
+  const callSummary = getCallMessageSummary(message);
+  const CallIcon = callSummary?.icon ?? null;
 
   return (
     <div
@@ -874,7 +898,23 @@ const MessageBubble = memo(function MessageBubble({
               : "border border-[rgba(148,163,184,0.12)] bg-white text-slate-800"
           } ${isOptimistic ? "opacity-85" : ""}`}
         >
-          {adPreview ? (
+          {callSummary ? (
+            <div className="space-y-2">
+              <div
+                className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-[12px] font-semibold ${
+                  outbound ? "bg-white/14 text-white" : "bg-slate-100 text-slate-700"
+                }`}
+              >
+                {CallIcon ? <CallIcon className={`h-4 w-4 ${outbound ? "text-white/85" : "text-[var(--primary)]"}`} /> : null}
+                <span>Llamada {callSummary.directionLabel}</span>
+                {callSummary.statusText ? (
+                  <span className={`font-normal ${outbound ? "text-white/75" : "text-slate-500"}`}>
+                    {callSummary.statusText}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          ) : adPreview ? (
             <div className="space-y-3">
               <div
                 className={`overflow-hidden rounded-[14px] border ${

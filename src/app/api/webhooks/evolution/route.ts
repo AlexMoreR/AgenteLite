@@ -10,6 +10,8 @@ import { prisma } from "@/lib/prisma";
 import { resolveEvolutionQuickResponseFlow } from "@/features/flows/services/resolveEvolutionQuickResponseFlow";
 import {
   extractEvolutionConnectionState,
+  extractEvolutionCallDirection,
+  extractEvolutionCallStatus,
   extractEvolutionEventName,
   extractEvolutionFromMe,
   extractEvolutionInstanceName,
@@ -21,6 +23,7 @@ import {
   extractEvolutionPhoneNumber,
   extractEvolutionQrCode,
   extractEvolutionRemoteJid,
+  hasEvolutionCallPayload,
   hasEvolutionDeletedMessagePayload,
   hasEvolutionEditedMessagePayload,
   isInboundMessageEvent,
@@ -88,6 +91,31 @@ function buildInboundExternalId(input: {
     .digest("hex");
 }
 
+function buildCallMessageContent(input: { direction: "INBOUND" | "OUTBOUND"; status: string | null }) {
+  const directionLabel = input.direction === "OUTBOUND" ? "saliente" : "entrante";
+  const statusLabel = input.status?.trim().toLowerCase() || "";
+
+  if (!statusLabel) {
+    return `Llamada ${directionLabel}`;
+  }
+
+  const statusMap: Record<string, string> = {
+    answered: "respondida",
+    accepted: "respondida",
+    connected: "respondida",
+    missed: "perdida",
+    rejected: "rechazada",
+    declined: "rechazada",
+    canceled: "cancelada",
+    cancelled: "cancelada",
+    ended: "finalizada",
+    completed: "finalizada",
+  };
+
+  const normalizedStatus = statusMap[statusLabel] ?? statusLabel;
+  return `Llamada ${directionLabel} ${normalizedStatus}`;
+}
+
 export async function POST(request: Request) {
   const payload = await request.json().catch(() => null);
 
@@ -112,6 +140,7 @@ export async function POST(request: Request) {
   const instanceName = extractEvolutionInstanceName(payload);
   const channelPhoneNumber = normalizePhoneFromJid(extractEvolutionPhoneNumber(payload));
   const isConnectionEvent = eventName === "QRCODE_UPDATED" || eventName === "CONNECTION_UPDATE";
+  const isCallEvent = hasEvolutionCallPayload(payload);
 
   let channel = instanceName
     ? await prisma.whatsAppChannel.findUnique({
@@ -214,6 +243,7 @@ export async function POST(request: Request) {
 
   const isMessageEvent =
     isInboundMessageEvent(eventName) ||
+    isCallEvent ||
     hasEvolutionEditedMessagePayload(payload) ||
     hasEvolutionDeletedMessagePayload(payload);
 
@@ -236,9 +266,15 @@ export async function POST(request: Request) {
   }
 
   const remoteJid = extractEvolutionRemoteJid(payload);
-  const phoneNumber = normalizePhoneFromJid(remoteJid);
-  const messageText = extractEvolutionMessageText(payload);
-  const messageType = extractEvolutionMessageType(payload);
+  let phoneNumber = normalizePhoneFromJid(remoteJid);
+  const callDirection = isCallEvent ? extractEvolutionCallDirection(payload) : null;
+  const fromMe = extractEvolutionFromMe(payload);
+  const direction = (callDirection ?? (fromMe ? "OUTBOUND" : "INBOUND")) as Prisma.MessageUncheckedCreateInput["direction"];
+  const callStatus = isCallEvent ? extractEvolutionCallStatus(payload) : null;
+  const messageText = isCallEvent
+    ? buildCallMessageContent({ direction, status: callStatus })
+    : extractEvolutionMessageText(payload);
+  const messageType = isCallEvent ? ("SYSTEM" as const) : extractEvolutionMessageType(payload);
   const mediaUrl = extractEvolutionMediaUrl(payload);
   const messageExternalId = extractEvolutionMessageId(payload);
   const inboundExternalId = buildInboundExternalId({
@@ -249,10 +285,43 @@ export async function POST(request: Request) {
     messageText,
     payload,
   });
-  const fromMe = extractEvolutionFromMe(payload);
   const messageWasEdited = hasEvolutionEditedMessagePayload(payload);
   const messageWasDeleted = hasEvolutionDeletedMessagePayload(payload);
   let shouldTouchConversation = !messageWasEdited && !messageWasDeleted;
+  const callFallbackConversation =
+    isCallEvent && !phoneNumber
+      ? await prisma.conversation.findFirst({
+          where: {
+            workspaceId: channel.workspaceId,
+            channelId: channel.id,
+            messages: {
+              some: {
+                type: {
+                  not: "SYSTEM",
+                },
+              },
+            },
+          },
+          orderBy: {
+            updatedAt: "desc",
+          },
+          select: {
+            id: true,
+            status: true,
+            contact: {
+              select: {
+                id: true,
+                name: true,
+                phoneNumber: true,
+              },
+            },
+          },
+        })
+      : null;
+
+  if (isCallEvent && !phoneNumber && callFallbackConversation?.contact.phoneNumber) {
+    phoneNumber = callFallbackConversation.contact.phoneNumber;
+  }
   const existingMessage = messageExternalId
     ? await prisma.message.findFirst({
         where: {
@@ -269,24 +338,7 @@ export async function POST(request: Request) {
       })
     : null;
 
-  console.log("[EVOLUTION] inbound_candidate", {
-    eventName,
-    instanceName,
-    channelId: channel.id,
-    fromMe,
-    phoneNumber,
-    hasMessageText: Boolean(messageText?.trim()),
-    messageType,
-    hasMediaUrl: Boolean(mediaUrl),
-    messageExternalId: inboundExternalId,
-  });
-
   if (!phoneNumber) {
-    console.log("[EVOLUTION] inbound_skipped", {
-      reason: "missing_phone",
-      eventName,
-      instanceName,
-    });
     return NextResponse.json({
       ok: true,
       message: "Inbound event logged without identifiable phone number",
@@ -295,8 +347,9 @@ export async function POST(request: Request) {
     });
   }
 
-  const existingContact =
-    existingMessage?.contactId
+  const existingContact = callFallbackConversation?.contact
+    ? callFallbackConversation.contact
+    : existingMessage?.contactId
       ? await prisma.contact.findFirst({
           where: {
             id: existingMessage.contactId,
@@ -363,7 +416,12 @@ export async function POST(request: Request) {
     );
   }
 
-  const existingConversation = existingMessage
+  const existingConversation = callFallbackConversation
+    ? {
+        id: callFallbackConversation.id,
+        status: callFallbackConversation.status,
+      }
+    : existingMessage
     ? await prisma.conversation.findFirst({
         where: {
           id: existingMessage.conversationId,
@@ -413,8 +471,7 @@ export async function POST(request: Request) {
     });
   }
   try {
-    const direction = (fromMe ? "OUTBOUND" : "INBOUND") as Prisma.MessageUncheckedCreateInput["direction"];
-    const status = (fromMe ? "SENT" : "RECEIVED") as Prisma.MessageUncheckedCreateInput["status"];
+    const status = (direction === "OUTBOUND" ? "SENT" : "RECEIVED") as Prisma.MessageUncheckedCreateInput["status"];
 
     const messageData = {
       workspaceId: channel.workspaceId,
@@ -429,10 +486,10 @@ export async function POST(request: Request) {
       content: messageText,
       mediaUrl,
       rawPayload: {
-        source: fromMe ? "instance" : "webhook",
+        source: direction === "OUTBOUND" ? "instance" : "webhook",
         evolution: payload,
       } as never,
-      ...(fromMe ? { sentAt: new Date() } : {}),
+      ...(direction === "OUTBOUND" ? { sentAt: new Date() } : {}),
     };
 
     if (messageWasDeleted && messageExternalId) {
@@ -451,7 +508,7 @@ export async function POST(request: Request) {
           data: {
             deletedAt: new Date(),
             rawPayload: {
-              source: fromMe ? "instance" : "webhook",
+              source: direction === "OUTBOUND" ? "instance" : "webhook",
               evolution: payload,
             } as never,
           },
@@ -462,6 +519,60 @@ export async function POST(request: Request) {
             ...messageData,
             content: messageText,
             deletedAt: new Date(),
+          },
+        });
+        shouldTouchConversation = true;
+      }
+    } else if (isCallEvent && messageExternalId) {
+      const callMessageWhere = {
+        channelId_externalId: {
+          channelId: channel.id,
+          externalId: messageExternalId,
+        },
+      } as const;
+
+      const existingCallMessage = await prisma.message.findUnique({
+        where: callMessageWhere,
+        select: {
+          id: true,
+          content: true,
+          direction: true,
+          type: true,
+          status: true,
+          mediaUrl: true,
+          deletedAt: true,
+        },
+      });
+
+      if (existingCallMessage) {
+        const callAlreadyStored =
+          existingCallMessage.content === messageText &&
+          existingCallMessage.direction === direction &&
+          existingCallMessage.type === messageType &&
+          existingCallMessage.status === status &&
+          existingCallMessage.mediaUrl === mediaUrl &&
+          existingCallMessage.deletedAt === null;
+
+        if (callAlreadyStored) {
+          shouldTouchConversation = false;
+        } else {
+          await prisma.message.upsert({
+            where: callMessageWhere,
+            create: messageData,
+            update: {
+              ...messageData,
+              content: messageText,
+            },
+          });
+          shouldTouchConversation = true;
+        }
+      } else {
+        await prisma.message.upsert({
+          where: callMessageWhere,
+          create: messageData,
+          update: {
+            ...messageData,
+            content: messageText,
           },
         });
         shouldTouchConversation = true;
@@ -541,14 +652,6 @@ export async function POST(request: Request) {
   `;
   const inboundMessageCount = Number(inboundMessageCountRows[0]?.total ?? 0);
 
-  console.log("[EVOLUTION] inbound_saved", {
-    conversationId: conversation.id,
-    contactId: contact.id,
-    agentId: channel.agentId,
-    phoneNumber,
-    direction: fromMe ? "OUTBOUND" : "INBOUND",
-  });
-
   const response = NextResponse.json({
     ok: true,
     message: "Inbound message processed",
@@ -603,16 +706,14 @@ export async function POST(request: Request) {
       }
 
       if (messageWasEdited || messageWasDeleted) {
-        console.log("[EVOLUTION] auto_reply_skipped", {
-          reason: messageWasDeleted ? "deleted_message" : "edited_message",
-          conversationId: conversation.id,
-          agentId: channel.agentId,
-          phoneNumber,
-        });
         return;
       }
 
-  if (fromMe && channel.agentId && channel.isActive && channel.evolutionInstanceName && messageText) {
+      if (isCallEvent) {
+        return;
+      }
+
+      if (fromMe && channel.agentId && channel.isActive && channel.evolutionInstanceName && messageText) {
     const ownerTriggeredFlow = await resolveEvolutionQuickResponseFlow({
       workspaceId: channel.workspaceId,
       channelId: channel.id,
@@ -732,26 +833,14 @@ export async function POST(request: Request) {
     }
   }
 
-  if (fromMe && channel.agentId) {
+  if (fromMe && channel.agentId && !isCallEvent) {
     await setConversationAutomationPaused({ conversationId: conversation.id, paused: true });
-    console.log("[EVOLUTION] automation_paused_by_owner", {
-      conversationId: conversation.id,
-      agentId: channel.agentId,
-      phoneNumber,
-    });
   }
 
-  if (!fromMe && channel.agentId) {
+      if (!fromMe && channel.agentId && !isCallEvent) {
     const workspaceAccess = await enforceWorkspacePlanAccess(channel.workspaceId);
 
     if (workspaceAccess.planState.blockClientArea) {
-      console.log("[EVOLUTION] auto_reply_skipped", {
-        reason: "workspace_plan_expired",
-        conversationId: conversation.id,
-        agentId: channel.agentId,
-        pausedAgents: workspaceAccess.pausedAgents,
-      });
-
       return NextResponse.json({
         ok: true,
         message: "Inbound message logged but auto reply blocked by expired plan",
@@ -1400,39 +1489,14 @@ export async function POST(request: Request) {
             },
           });
         }
-      } else {
-        console.log("[EVOLUTION] auto_reply_skipped", {
-          reason: "empty_reply",
-          conversationId: conversation.id,
-          agentId: agent.id,
-        });
+        } else {
+        // noop: no reply generated
       }
     } else {
-      console.log("[EVOLUTION] auto_reply_skipped", {
-        reason: !agent
-          ? "agent_not_found"
-          : !channel.isActive
-            ? "channel_inactive"
-          : conversationAutomationPaused
-            ? "conversation_paused_by_human"
-          : !agent.isActive
-            ? "agent_inactive"
-            : agent.status !== "ACTIVE"
-              ? `status_${agent.status}`
-              : !channel.evolutionInstanceName
-                ? "missing_instance"
-                : !messageText
-                  ? "missing_message_text"
-                  : "unknown",
-        conversationId: conversation.id,
-        agentId: channel.agentId,
-      });
+      // noop: auto-reply intentionally skipped
     }
   } else {
-    console.log("[EVOLUTION] auto_reply_skipped", {
-      reason: "channel_without_agent",
-      conversationId: conversation.id,
-    });
+    // noop: channel without agent
   }
 
     } catch (error) {
