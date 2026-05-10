@@ -184,13 +184,9 @@ export async function getAgentConversationSummaryByPhoneNumber(input: {
     }),
   ]);
 
-  console.log("[Summary] channel lookup", { instanceName: input.instanceName, workspaceId: input.workspaceId, found: Boolean(channel) });
   if (!channel) {
     return null;
   }
-
-
-  console.log("[Summary] contact lookup", { phoneVariants, found: Boolean(contact), contactPhone: contact?.phoneNumber });
   if (!contact) {
     return null;
   }
@@ -206,7 +202,6 @@ export async function getAgentConversationSummaryByPhoneNumber(input: {
     },
   });
 
-  console.log("[Summary] conversation lookup", { channelId: channel.id, contactId: contact.id, found: Boolean(conversation) });
   if (!conversation) {
     return null;
   }

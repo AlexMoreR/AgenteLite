@@ -6,6 +6,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { BadgeCheck, Facebook, Instagram, Mic, UserRound } from "lucide-react";
 import { WhatsAppGlyph } from "@/components/icons/whatsapp-glyph";
+import { Badge } from "@/components/ui/badge";
 import { warmConversationCache } from "./chat-conversation-warmup";
 import { setPendingConversationSelection } from "./chat-selection-store";
 import { readConversationFromCache } from "./chat-history-cache";
@@ -181,9 +182,9 @@ const ConversationListItem = memo(function ConversationListItem({
         {conversation.tags?.length ? (
           <div className="flex flex-wrap gap-1 pt-0.5">
             {conversation.tags.map((tag) => (
-              <span
+              <Badge
                 key={`${conversation.id}:${tag.label}`}
-                className="inline-flex max-w-full items-center rounded-[4px] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
+                className="max-w-full rounded-[4px] px-1.5 py-0.5 text-[10px] font-medium shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
                 style={{
                   ...getConversationTagBadgeStyle(tag.color),
                   color: "#ffffff",
@@ -191,7 +192,7 @@ const ConversationListItem = memo(function ConversationListItem({
                 title={tag.label}
               >
                 <span className="truncate">{tag.label.toUpperCase()}</span>
-              </span>
+              </Badge>
             ))}
           </div>
         ) : null}

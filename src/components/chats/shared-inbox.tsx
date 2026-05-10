@@ -35,6 +35,7 @@ import {
 import { ConversationList } from "@/components/chats/conversation-list";
 import { EditContactModal } from "@/components/chats/edit-contact-modal";
 import { EtiquetaModal } from "@/components/chats/etiqueta-modal";
+import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -900,8 +901,8 @@ const MessageBubble = memo(function MessageBubble({
         >
           {callSummary ? (
             <div className="space-y-2">
-              <div
-                className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-[12px] font-semibold ${
+              <Badge
+                className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-[12px] font-semibold normal-case tracking-normal shadow-none ${
                   outbound ? "bg-white/14 text-white" : "bg-slate-100 text-slate-700"
                 }`}
               >
@@ -912,7 +913,7 @@ const MessageBubble = memo(function MessageBubble({
                     {callSummary.statusText}
                   </span>
                 ) : null}
-              </div>
+              </Badge>
             </div>
           ) : adPreview ? (
             <div className="space-y-3">
@@ -1040,20 +1041,20 @@ const MessageBubble = memo(function MessageBubble({
 
           <div className={`mt-0.5 flex items-center justify-end gap-1 text-[10px] ${outbound ? "text-white/80" : "text-slate-400"}`}>
             {isDeleted ? (
-              <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-normal tracking-[0.08em] ${
+              <Badge className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-normal tracking-[0.08em] shadow-none ${
                 outbound ? "bg-white/14 text-white/80" : "bg-rose-50 text-rose-600"
               }`}>
                 <Trash2 className="h-2.5 w-2.5" />
                 Eliminado
-              </span>
+              </Badge>
             ) : null}
             {message.editedAt ? (
-              <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-normal tracking-[0.08em] ${
+              <Badge className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-normal tracking-[0.08em] shadow-none ${
                 outbound ? "bg-white/14 text-white/80" : "bg-slate-100 text-slate-500"
               }`}>
                 <Pencil className="h-2.5 w-2.5" />
                 Editado
-              </span>
+              </Badge>
             ) : null}
             {message.authorType === "bot" ? (
               <Bot className="h-3 w-3" />
@@ -1316,9 +1317,9 @@ const ConversationPanel = memo(function ConversationPanel({
                   {renderedConversation.tags?.length ? (
                     <div className="flex flex-wrap gap-1.5">
                       {renderedConversation.tags.map((tag) => (
-                        <span
+                        <Badge
                           key={`${renderedConversation.id}:${tag.label}`}
-                          className="inline-flex max-w-full items-center rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
+                          className="max-w-full px-2.5 py-1 text-[10px] shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
                           style={{
                             backgroundColor: tag.color,
                             color: "#ffffff",
@@ -1326,7 +1327,7 @@ const ConversationPanel = memo(function ConversationPanel({
                           title={tag.label}
                         >
                           <span className="truncate">{tag.label}</span>
-                        </span>
+                        </Badge>
                       ))}
                     </div>
                   ) : null}

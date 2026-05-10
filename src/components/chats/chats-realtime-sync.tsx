@@ -65,7 +65,7 @@ function shouldTriggerRefresh(eventName: string) {
     return false;
   }
 
-  return /MESSAGE|CHAT|CONTACT|PRESENCE|GROUP|INSTANCE|QRCODE|CONNECTION|STATUS|SESSION|READY/.test(normalized);
+  return /MESSAGE|CHAT|CALL|CONTACT|PRESENCE|GROUP|INSTANCE|QRCODE|CONNECTION|STATUS|SESSION|READY/.test(normalized);
 }
 
 type UnknownRecord = Record<string, unknown>;

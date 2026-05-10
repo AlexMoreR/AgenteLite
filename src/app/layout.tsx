@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import type { CSSProperties } from "react";
-import { Geist_Mono, Poppins } from "next/font/google";
+import { Geist_Mono, Poppins, Geist } from "next/font/google";
 import { auth } from "@/auth";
 import { AppShell } from "@/components/app-shell";
 import { Providers } from "@/components/providers";
@@ -17,6 +17,9 @@ import { enforceWorkspacePlanAccess } from "@/lib/workspace-plan-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import "./globals.css";
 import "@xyflow/react/dist/style.css";
+import { cn } from "@/lib/utils";
+
+const geist = Geist({subsets:['latin'],variable:'--font-sans'});
 
 const poppins = Poppins({
   variable: "--font-poppins",
@@ -161,7 +164,7 @@ export default async function RootLayout({
       : null;
 
   return (
-    <html lang="es-CO">
+    <html lang="es-CO" className={cn("font-sans", geist.variable)}>
       <body
         className={`${poppins.variable} ${geistMono.variable} antialiased`}
         style={
