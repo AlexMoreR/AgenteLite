@@ -2,9 +2,10 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   ArrowRight,
+  BarChart3,
   Copy,
   Mail,
   MessageCircle,
@@ -68,12 +69,10 @@ function getTagBadgeStyle(color?: string | null) {
 function ContactMetric({
   label,
   value,
-  helper,
   icon,
 }: {
   label: string;
   value: string;
-  helper: string;
   icon: ReactNode;
 }) {
   return (
@@ -82,7 +81,6 @@ function ContactMetric({
         <div className="space-y-2">
           <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">{label}</p>
           <p className="text-[1.45rem] font-semibold tracking-[-0.05em] text-slate-950">{value}</p>
-          <p className="text-xs leading-5 text-slate-500">{helper}</p>
         </div>
         <div className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_10%,white)] text-[var(--primary)]">
           {icon}
@@ -193,6 +191,7 @@ function ContactCard({
 
 export function ContactosWorkspace({ data }: { data: ContactosData }) {
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [activeView, setActiveView] = useState<"contacto" | "informe">("contacto");
   const selectedContact = data.selectedContact;
 
   async function copyToClipboard(value: string, field: string) {
@@ -203,6 +202,17 @@ export function ContactosWorkspace({ data }: { data: ContactosData }) {
 
   const selectedConversation = selectedContact?.recentConversations[0] ?? null;
   const selectedHref = selectedContact ? getConversationHref(selectedContact) : "";
+  const reportContacts = useMemo(
+    () =>
+      [...data.contacts]
+        .sort((left, right) => {
+          const leftAt = left.lastActivityAt ? new Date(left.lastActivityAt).getTime() : 0;
+          const rightAt = right.lastActivityAt ? new Date(right.lastActivityAt).getTime() : 0;
+          return rightAt - leftAt;
+        })
+        .slice(0, 6),
+    [data.contacts],
+  );
 
   return (
     <section className="space-y-2">
@@ -217,34 +227,118 @@ export function ContactosWorkspace({ data }: { data: ContactosData }) {
         {data.agentFilterName ? (
           <p className="text-xs font-medium text-slate-500">Filtrado por {data.agentFilterName}</p>
         ) : null}
+        <div className="flex items-center gap-1 rounded-2xl border border-[rgba(148,163,184,0.14)] bg-white p-1 shadow-[0_12px_30px_-26px_rgba(15,23,42,0.14)]">
+          {[
+            { key: "contacto" as const, label: "Contacto" },
+            { key: "informe" as const, label: "Informe" },
+          ].map((tab) => {
+            const active = activeView === tab.key;
+
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setActiveView(tab.key)}
+                className={`inline-flex h-10 items-center gap-2 rounded-xl px-4 text-sm font-medium transition ${
+                  active
+                    ? "bg-[var(--primary)] text-white shadow-[0_16px_30px_-20px_color-mix(in_srgb,var(--primary)_55%,black)]"
+                    : "text-slate-600 hover:bg-slate-50 hover:text-[var(--primary)]"
+                }`}
+              >
+                {tab.key === "informe" ? <BarChart3 className="h-4 w-4" /> : <MessageCircle className="h-4 w-4" />}
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <ContactMetric
-          label="Total"
-          value={String(data.stats.total)}
-          helper="Contactos visibles en el modulo."
-          icon={<Users2 className="h-5 w-5" />}
-        />
-        <ContactMetric
-          label="Con chats"
-          value={String(data.stats.withConversations)}
-          helper="Contactos que ya abrieron conversacion."
-          icon={<MessagesSquare className="h-5 w-5" />}
-        />
-        <ContactMetric
-          label="Sin chat"
-          value={String(data.stats.withoutConversations)}
-          helper="Utiles para campanas y seguimiento."
-          icon={<Sparkles className="h-5 w-5" />}
-        />
-        <ContactMetric
-          label="Con email"
-          value={String(data.stats.withEmail)}
-          helper="Listos para segmentacion multicanal."
-          icon={<Mail className="h-5 w-5" />}
-        />
-      </div>
+      {activeView === "informe" ? (
+        <div className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <ContactMetric
+              label="Total"
+              value={String(data.stats.total)}
+              icon={<Users2 className="h-5 w-5" />}
+            />
+            <ContactMetric
+              label="Con chats"
+              value={String(data.stats.withConversations)}
+              icon={<MessagesSquare className="h-5 w-5" />}
+            />
+            <ContactMetric
+              label="Sin chat"
+              value={String(data.stats.withoutConversations)}
+              icon={<Sparkles className="h-5 w-5" />}
+            />
+            <ContactMetric
+              label="Con email"
+              value={String(data.stats.withEmail)}
+              icon={<Mail className="h-5 w-5" />}
+            />
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
+            <div className="rounded-[24px] border border-[var(--line)] bg-white p-4 shadow-[0_16px_34px_-28px_rgba(15,23,42,0.16)] sm:p-5">
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-sm font-semibold text-slate-950">Contactos con más actividad</h2>
+                <span className="text-[11px] text-slate-500">Top 6</span>
+              </div>
+              <div className="mt-4 space-y-3">
+                {reportContacts.map((contact) => {
+                  const lastConversation = contact.recentConversations[0] ?? null;
+                  return (
+                    <div key={contact.id} className="flex items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-slate-950">{getContactDisplayName(contact)}</p>
+                        <p className="truncate text-xs text-slate-500">{contact.phoneNumber}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm font-semibold text-slate-900">{contact.totalConversations} chats</p>
+                        <p className="text-[11px] text-slate-500">
+                          {lastConversation ? formatDateLabel(lastConversation.lastMessageAt || lastConversation.updatedAt) : "Sin actividad"}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="rounded-[24px] border border-[var(--line)] bg-white p-4 shadow-[0_16px_34px_-28px_rgba(15,23,42,0.16)] sm:p-5">
+              <h2 className="text-sm font-semibold text-slate-950">Lectura rapida</h2>
+              <div className="mt-4 space-y-3 text-sm leading-6 text-slate-600">
+                <p>• {data.stats.withConversations} contactos ya conversaron y son los más listos para reactivación.</p>
+                <p>• {data.stats.withoutConversations} siguen sin chat y sirven para campañas o seguimiento inicial.</p>
+                <p>• {data.stats.withEmail} tienen email, así que puedes combinarlos con acciones multicanal.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <ContactMetric
+            label="Total"
+            value={String(data.stats.total)}
+            icon={<Users2 className="h-5 w-5" />}
+          />
+          <ContactMetric
+            label="Con chats"
+            value={String(data.stats.withConversations)}
+            icon={<MessagesSquare className="h-5 w-5" />}
+          />
+          <ContactMetric
+            label="Sin chat"
+            value={String(data.stats.withoutConversations)}
+            icon={<Sparkles className="h-5 w-5" />}
+          />
+          <ContactMetric
+            label="Con email"
+            value={String(data.stats.withEmail)}
+            icon={<Mail className="h-5 w-5" />}
+          />
+        </div>
+      )}
 
       <div className="grid gap-4 xl:grid-cols-[380px_minmax(0,1fr)]">
         <div className="rounded-[28px] border border-[var(--line)] bg-white shadow-[0_24px_54px_-42px_rgba(15,23,42,0.14)]">
