@@ -2,7 +2,7 @@
 
 import type { SharedInboxMessageItem, SharedInboxSelectedConversation } from "./shared-inbox";
 
-type CachedMessageItem = Omit<SharedInboxMessageItem, "createdAt" | "editedAt"> & {
+type CachedMessageItem = Omit<SharedInboxMessageItem, "createdAt" | "editedAt" | "deletedAt"> & {
   createdAt: string;
   editedAt?: string | null;
   deletedAt?: string | null;

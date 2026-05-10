@@ -237,6 +237,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         content: string | null;
         direction: "INBOUND" | "OUTBOUND";
         createdAt: Date;
+        deletedAt: Date | null;
         type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
       }>>`
         SELECT DISTINCT ON (m."conversationId")
