@@ -2,11 +2,13 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useMemo, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import {
   ArrowRight,
   BarChart3,
   Copy,
+  Download,
   Mail,
   MessageCircle,
   MessagesSquare,
@@ -18,6 +20,7 @@ import {
 } from "lucide-react";
 import type { ContactosContact, ContactosData } from "../types";
 import { cn } from "@/lib/utils";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 function getInitials(value: string) {
   const parts = value.trim().split(/\s+/).filter(Boolean).slice(0, 2);
@@ -50,6 +53,86 @@ function formatRelative(value: string) {
   return formatDateLabel(value);
 }
 
+function formatHeatmapHourLabel(hour: number) {
+  return `${String(hour).padStart(2, "0")}:00`;
+}
+
+function getHeatmapCellColor(count: number, maxCount: number) {
+  if (!count || maxCount <= 0) {
+    return "rgb(248 250 252)";
+  }
+
+  const ratio = Math.min(1, count / maxCount);
+  const mix = 14 + ratio * 76;
+  return `color-mix(in srgb, var(--primary) ${mix}%, white)`;
+}
+
+function escapeCsvCell(value: string | number | null | undefined) {
+  const normalized = value === null || value === undefined ? "" : String(value);
+  return `"${normalized.replace(/"/g, '""')}"`;
+}
+
+function buildContactsReportCsv(data: ContactosData) {
+  const lines: string[] = [];
+  const appendRow = (cells: Array<string | number | null | undefined>) => {
+    lines.push(cells.map(escapeCsvCell).join(","));
+  };
+
+  appendRow(["Reporte", data.workspaceName]);
+  appendRow(["Rango", `Últimos ${data.reportRangeDays} días`]);
+  appendRow(["Generado", new Intl.DateTimeFormat("es-CO", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date())]);
+  appendRow(["Total de contactos", data.stats.total]);
+  appendRow(["Con chats", data.stats.withConversations]);
+  appendRow(["Sin chat", data.stats.withoutConversations]);
+  appendRow(["Con email", data.stats.withEmail]);
+  lines.push("");
+
+  appendRow(["Resumen por día"]);
+  appendRow(["Día", "Fecha", "Total", ...Array.from({ length: 24 }, (_, hour) => formatHeatmapHourLabel(hour))]);
+  data.creationHeatmap.days.forEach((day) => {
+    appendRow([
+      day.dayLabel,
+      day.dateLabel,
+      day.total,
+      ...day.hours.map((hour) => hour.count),
+    ]);
+  });
+  lines.push("");
+
+  appendRow(["Top contactos"]);
+  appendRow(["Nombre", "Teléfono", "Chats", "Email", "Última actividad"]);
+  data.contacts
+    .slice()
+    .sort((left, right) => (right.totalConversations - left.totalConversations) || ((right.lastActivityAt ? new Date(right.lastActivityAt).getTime() : 0) - (left.lastActivityAt ? new Date(left.lastActivityAt).getTime() : 0)))
+    .slice(0, 10)
+    .forEach((contact) => {
+      appendRow([
+        contact.name ?? "",
+        contact.phoneNumber,
+        contact.totalConversations,
+        contact.email ?? "",
+        contact.lastActivityAt ? formatDateLabel(contact.lastActivityAt) : "Sin actividad",
+      ]);
+    });
+
+  return `${lines.join("\n")}\n`;
+}
+
+function downloadTextFile(filename: string, content: string, mimeType: string) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 function getContactDisplayName(contact: ContactosContact) {
   return contact.name?.trim() || contact.phoneNumber;
 }
@@ -57,6 +140,36 @@ function getContactDisplayName(contact: ContactosContact) {
 function getConversationHref(contact: ContactosContact) {
   const conversation = contact.recentConversations[0];
   return conversation ? `/cliente/chats?chatKey=agent:${conversation.id}` : "/cliente/chats";
+}
+
+function getContactosReportHref({
+  searchQuery,
+  agentFilterId,
+  selectedContactId,
+  range,
+}: {
+  searchQuery: string;
+  agentFilterId: string | null;
+  selectedContactId: string | null;
+  range: number;
+}) {
+  const params = new URLSearchParams();
+
+  if (searchQuery.trim()) {
+    params.set("q", searchQuery.trim());
+  }
+
+  if (agentFilterId) {
+    params.set("agentId", agentFilterId);
+  }
+
+  if (selectedContactId) {
+    params.set("contactId", selectedContactId);
+  }
+
+  params.set("range", String(range));
+
+  return `/cliente/contactos?${params.toString()}`;
 }
 
 function getTagBadgeStyle(color?: string | null) {
@@ -78,9 +191,9 @@ function ContactMetric({
   return (
     <div className="rounded-[24px] border border-[var(--line)] bg-white p-4 shadow-[0_16px_34px_-28px_rgba(15,23,42,0.16)]">
       <div className="flex items-start justify-between gap-3">
-        <div className="space-y-2">
+        <div className="space-y-1">
           <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">{label}</p>
-          <p className="text-[1.45rem] font-semibold tracking-[-0.05em] text-slate-950">{value}</p>
+          <p className="text-[1.35rem] font-semibold leading-none tracking-[-0.05em] text-slate-950">{value}</p>
         </div>
         <div className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_10%,white)] text-[var(--primary)]">
           {icon}
@@ -192,6 +305,7 @@ function ContactCard({
 export function ContactosWorkspace({ data }: { data: ContactosData }) {
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<"contacto" | "informe">("contacto");
+  const router = useRouter();
   const selectedContact = data.selectedContact;
 
   async function copyToClipboard(value: string, field: string) {
@@ -202,17 +316,46 @@ export function ContactosWorkspace({ data }: { data: ContactosData }) {
 
   const selectedConversation = selectedContact?.recentConversations[0] ?? null;
   const selectedHref = selectedContact ? getConversationHref(selectedContact) : "";
-  const reportContacts = useMemo(
-    () =>
-      [...data.contacts]
-        .sort((left, right) => {
-          const leftAt = left.lastActivityAt ? new Date(left.lastActivityAt).getTime() : 0;
-          const rightAt = right.lastActivityAt ? new Date(right.lastActivityAt).getTime() : 0;
-          return rightAt - leftAt;
-        })
-        .slice(0, 6),
-    [data.contacts],
-  );
+  const heatmapDays = data.creationHeatmap.days;
+  const heatmapMaxCount = data.creationHeatmap.maxCount;
+
+  function handleDownloadReport() {
+    const workspaceSlug = data.workspaceName
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "contactos";
+
+    const dateStamp = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Bogota",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    })
+      .format(new Date())
+      .replaceAll("/", "-");
+
+    const csv = buildContactsReportCsv(data);
+    downloadTextFile(`contactos-reporte-${workspaceSlug}-${dateStamp}.csv`, csv, "text/csv;charset=utf-8");
+  }
+
+  function handleReportRangeChange(range: string) {
+    const nextRange = Number(range);
+    if (!Number.isFinite(nextRange)) {
+      return;
+    }
+
+    router.push(
+      getContactosReportHref({
+        searchQuery: data.searchQuery,
+        agentFilterId: data.agentFilterId,
+        selectedContactId: data.selectedContactId,
+        range: nextRange,
+      }),
+    );
+  }
 
   return (
     <section className="space-y-2">
@@ -278,42 +421,98 @@ export function ContactosWorkspace({ data }: { data: ContactosData }) {
             />
           </div>
 
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
-            <div className="rounded-[24px] border border-[var(--line)] bg-white p-4 shadow-[0_16px_34px_-28px_rgba(15,23,42,0.16)] sm:p-5">
-              <div className="flex items-center justify-between gap-3">
-                <h2 className="text-sm font-semibold text-slate-950">Contactos con más actividad</h2>
-                <span className="text-[11px] text-slate-500">Top 6</span>
+          <div className="rounded-[28px] border border-[var(--line)] bg-white p-4 shadow-[0_16px_34px_-28px_rgba(15,23,42,0.16)] sm:p-5">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center gap-3">
+                  <h2 className="text-lg font-semibold tracking-[-0.04em] text-slate-950">Tráfico de creación</h2>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                    En vivo
+                  </span>
+                </div>
+                <p className="text-sm text-slate-500">Contactos creados por día y hora en el rango seleccionado.</p>
               </div>
-              <div className="mt-4 space-y-3">
-                {reportContacts.map((contact) => {
-                  const lastConversation = contact.recentConversations[0] ?? null;
-                  return (
-                    <div key={contact.id} className="flex items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-slate-950">{getContactDisplayName(contact)}</p>
-                        <p className="truncate text-xs text-slate-500">{contact.phoneNumber}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-sm font-semibold text-slate-900">{contact.totalConversations} chats</p>
-                        <p className="text-[11px] text-slate-500">
-                          {lastConversation ? formatDateLabel(lastConversation.lastMessageAt || lastConversation.updatedAt) : "Sin actividad"}
-                        </p>
-                      </div>
-                    </div>
-                  );
-                })}
+
+              <div className="flex flex-wrap gap-2">
+                <Select value={String(data.reportRangeDays)} onValueChange={handleReportRangeChange}>
+                  <SelectTrigger className="h-11 min-w-[170px] rounded-2xl border-slate-200 bg-slate-50 px-4 text-sm font-medium text-slate-700 shadow-none hover:border-[color:color-mix(in_srgb,var(--primary)_18%,white)] hover:text-[var(--primary)]">
+                    <SelectValue placeholder="Últimos 7 días" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem key={7} value="7">
+                      Últimos 7 días
+                    </SelectItem>
+                    <SelectItem key={14} value="14">
+                      Últimos 14 días
+                    </SelectItem>
+                    <SelectItem key={30} value="30">
+                      Últimos 30 días
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                <button
+                  type="button"
+                  className="inline-flex h-11 items-center rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-medium text-slate-700"
+                >
+                  All inboxes
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDownloadReport}
+                  className="inline-flex h-11 items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-medium text-slate-700 transition hover:border-[color:color-mix(in_srgb,var(--primary)_18%,white)] hover:text-[var(--primary)]"
+                >
+                  <Download className="h-4 w-4" />
+                  Descargar reporte
+                </button>
               </div>
             </div>
 
-            <div className="rounded-[24px] border border-[var(--line)] bg-white p-4 shadow-[0_16px_34px_-28px_rgba(15,23,42,0.16)] sm:p-5">
-              <h2 className="text-sm font-semibold text-slate-950">Lectura rapida</h2>
-              <div className="mt-4 space-y-3 text-sm leading-6 text-slate-600">
-                <p>• {data.stats.withConversations} contactos ya conversaron y son los más listos para reactivación.</p>
-                <p>• {data.stats.withoutConversations} siguen sin chat y sirven para campañas o seguimiento inicial.</p>
-                <p>• {data.stats.withEmail} tienen email, así que puedes combinarlos con acciones multicanal.</p>
+            <div className="mt-5 overflow-hidden rounded-[24px] border border-slate-100">
+              <div className="overflow-x-auto">
+                <div className="min-w-[980px] p-4">
+                  <div className="grid grid-cols-[112px_repeat(24,minmax(0,1fr))_72px] gap-1.5">
+                    <div />
+                    {Array.from({ length: 24 }, (_, hour) => (
+                      <div
+                        key={hour}
+                        className="pb-2 text-center text-[10px] font-medium tracking-[0.12em] text-slate-400"
+                      >
+                        {hour % 3 === 0 ? formatHeatmapHourLabel(hour) : ""}
+                      </div>
+                    ))}
+                    <div className="pb-2 text-center text-[10px] font-medium tracking-[0.12em] text-slate-400">Total</div>
+
+                    {heatmapDays.map((day) => (
+                      <div key={day.dayKey} className="contents">
+                        <div className="flex min-h-10 flex-col justify-center pr-3">
+                          <p className="truncate text-sm font-semibold text-slate-900">{day.dayLabel}</p>
+                          <p className="text-xs text-slate-500">{day.dateLabel}</p>
+                        </div>
+                        {day.hours.map((hour) => (
+                          <div
+                            key={`${day.dayKey}-${hour.hour}`}
+                            title={`${day.dateLabel} · ${formatHeatmapHourLabel(hour.hour)} · ${hour.count} contacto${hour.count === 1 ? "" : "s"}`}
+                            className="aspect-square min-h-6 rounded-[6px] border transition-transform duration-150 hover:scale-[1.04]"
+                            style={{
+                              backgroundColor: getHeatmapCellColor(hour.count, heatmapMaxCount),
+                              borderColor: hour.count > 0 ? "transparent" : "rgb(226 232 240)",
+                            }}
+                          />
+                        ))}
+                        <div className="flex items-center justify-end pr-1">
+                          <span className="inline-flex min-w-12 justify-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700">
+                            {day.total}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
             </div>
           </div>
+
         </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

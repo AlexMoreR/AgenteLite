@@ -25,12 +25,14 @@ export default async function ClienteContactosPage({ searchParams }: PageProps) 
   const searchQuery = typeof params.q === "string" ? params.q.trim() : "";
   const selectedContactId = typeof params.contactId === "string" ? params.contactId.trim() : "";
   const agentFilterId = typeof params.agentId === "string" ? params.agentId.trim() : "";
+  const reportRangeDays = typeof params.range === "string" ? Number(params.range) : undefined;
 
   const data = await getContactosData({
     userId: session.user.id,
     searchQuery,
     selectedContactId,
     agentFilterId,
+    reportRangeDays,
   });
 
   if (!data) {

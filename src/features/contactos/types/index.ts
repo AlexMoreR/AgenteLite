@@ -48,13 +48,40 @@ export type ContactosStats = {
   withEmail: number;
 };
 
+export type ContactosDailyCreationStat = {
+  dayKey: string;
+  label: string;
+  count: number;
+  firstCreatedAt: string;
+  lastCreatedAt: string;
+};
+
+export type ContactosCreationHeatmapDay = {
+  dayKey: string;
+  dayLabel: string;
+  dateLabel: string;
+  total: number;
+  hours: Array<{
+    hour: number;
+    count: number;
+  }>;
+};
+
+export type ContactosCreationHeatmap = {
+  maxCount: number;
+  days: ContactosCreationHeatmapDay[];
+};
+
 export type ContactosData = {
   workspaceId: string;
   workspaceName: string;
   searchQuery: string;
   agentFilterId: string | null;
   agentFilterName: string | null;
+  reportRangeDays: number;
   stats: ContactosStats;
+  dailyCreationStats: ContactosDailyCreationStat[];
+  creationHeatmap: ContactosCreationHeatmap;
   contacts: ContactosContact[];
   selectedContactId: string | null;
   selectedContact: ContactosContact | null;

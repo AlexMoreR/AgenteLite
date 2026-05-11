@@ -9,6 +9,7 @@ type ContactosQuery = {
   searchQuery?: string;
   selectedContactId?: string;
   agentFilterId?: string;
+  reportRangeDays?: number;
 };
 
 function normalize(value: string | null | undefined) {
@@ -19,11 +20,75 @@ function getContactLastActivity(contact: Pick<ContactosContact, "lastActivityAt"
   return contact.lastActivityAt ? new Date(contact.lastActivityAt).getTime() : new Date(contact.updatedAt).getTime();
 }
 
+function getBogotaDayKey(value: Date) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Bogota",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(value);
+}
+
+function getBogotaDateLabel(value: Date) {
+  return new Intl.DateTimeFormat("es-CO", {
+    day: "numeric",
+    month: "short",
+    timeZone: "America/Bogota",
+  }).format(value);
+}
+
+function getBogotaHourKey(value: Date) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Bogota",
+    hour: "2-digit",
+    hour12: false,
+  }).formatToParts(value);
+  const hour = parts.find((part) => part.type === "hour")?.value ?? "0";
+  return Number(hour);
+}
+
+function getBogotaShortWeekday(value: Date) {
+  return new Intl.DateTimeFormat("es-CO", {
+    weekday: "short",
+    timeZone: "America/Bogota",
+  })
+    .format(value)
+    .replace(/\.$/, "");
+}
+
+function buildBogotaHeatmapWindow(days = 7) {
+  const now = new Date();
+  const todayParts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Bogota",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+
+  const year = Number(todayParts.find((part) => part.type === "year")?.value ?? "1970");
+  const month = Number(todayParts.find((part) => part.type === "month")?.value ?? "1");
+  const day = Number(todayParts.find((part) => part.type === "day")?.value ?? "1");
+
+  return Array.from({ length: days }, (_, index) => {
+    const offset = days - index - 1;
+    return new Date(Date.UTC(year, month - 1, day - offset, 12, 0, 0));
+  });
+}
+
+function normalizeReportRangeDays(value: number | undefined) {
+  if (value === 14 || value === 30) {
+    return value;
+  }
+
+  return 7;
+}
+
 export async function getContactosData({
   userId,
   searchQuery = "",
   selectedContactId = "",
   agentFilterId = "",
+  reportRangeDays,
 }: ContactosQuery): Promise<ContactosData | null> {
   const membership = await prisma.workspaceMember.findFirst({
     where: { userId },
@@ -45,6 +110,7 @@ export async function getContactosData({
 
   const query = normalize(searchQuery);
   const agentId = agentFilterId.trim();
+  const normalizedReportRangeDays = normalizeReportRangeDays(reportRangeDays);
   const autoTagNewLeads =
     typeof membership.workspace.businessConfig === "object" &&
     membership.workspace.businessConfig !== null &&
@@ -225,6 +291,63 @@ export async function getContactosData({
     })
     .sort((left, right) => getContactLastActivity(right) - getContactLastActivity(left));
 
+  const dailyCreationStats = Object.values(
+    contacts.reduce<Record<string, { dayKey: string; label: string; count: number; firstCreatedAt: string; lastCreatedAt: string }>>(
+      (acc, contact) => {
+        const createdAt = new Date(contact.createdAt);
+        const dayKey = getBogotaDayKey(createdAt);
+        const current = acc[dayKey];
+
+        if (!current) {
+          acc[dayKey] = {
+            dayKey,
+            label: getBogotaDateLabel(createdAt),
+            count: 1,
+            firstCreatedAt: createdAt.toISOString(),
+            lastCreatedAt: createdAt.toISOString(),
+          };
+          return acc;
+        }
+
+        const currentFirst = new Date(current.firstCreatedAt);
+        const currentLast = new Date(current.lastCreatedAt);
+        acc[dayKey] = {
+          ...current,
+          count: current.count + 1,
+          firstCreatedAt: createdAt < currentFirst ? createdAt.toISOString() : current.firstCreatedAt,
+          lastCreatedAt: createdAt > currentLast ? createdAt.toISOString() : current.lastCreatedAt,
+        };
+        return acc;
+      },
+      {},
+    ),
+  ).sort((left, right) => right.dayKey.localeCompare(left.dayKey));
+
+  const heatmapDays = buildBogotaHeatmapWindow(normalizedReportRangeDays);
+  const creationHeatmapRows = heatmapDays.map((dayValue) => {
+    const dayKey = getBogotaDayKey(dayValue);
+    const dayContacts = contacts.filter((contact) => getBogotaDayKey(new Date(contact.createdAt)) === dayKey);
+    const hours = Array.from({ length: 24 }, (_, hour) => {
+      const count = dayContacts.filter((contact) => getBogotaHourKey(new Date(contact.createdAt)) === hour).length;
+      return {
+        hour,
+        count,
+      };
+    });
+
+    return {
+      dayKey,
+      dayLabel: getBogotaShortWeekday(dayValue),
+      dateLabel: getBogotaDateLabel(dayValue),
+      total: dayContacts.length,
+      hours,
+    };
+  });
+  const creationHeatmapMaxCount = Math.max(
+    0,
+    ...creationHeatmapRows.flatMap((row) => row.hours.map((hour) => hour.count)),
+  );
+
   const stats = {
     total: contacts.length,
     withConversations: contacts.filter((contact) => contact.totalConversations > 0).length,
@@ -258,7 +381,13 @@ export async function getContactosData({
     searchQuery,
     agentFilterId: agentId || null,
     agentFilterName,
+    reportRangeDays: normalizedReportRangeDays,
     stats,
+    dailyCreationStats,
+    creationHeatmap: {
+      maxCount: creationHeatmapMaxCount,
+      days: creationHeatmapRows,
+    },
     contacts,
     selectedContactId: selectedContact?.id ?? null,
     selectedContact,
