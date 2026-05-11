@@ -26,6 +26,8 @@ export default async function ClienteContactosPage({ searchParams }: PageProps) 
   const selectedContactId = typeof params.contactId === "string" ? params.contactId.trim() : "";
   const agentFilterId = typeof params.agentId === "string" ? params.agentId.trim() : "";
   const reportRangeDays = typeof params.range === "string" ? Number(params.range) : undefined;
+  const page = typeof params.page === "string" ? Number(params.page) : undefined;
+  const activeView = params.view === "informe" ? "informe" : "contacto";
 
   const data = await getContactosData({
     userId: session.user.id,
@@ -33,11 +35,13 @@ export default async function ClienteContactosPage({ searchParams }: PageProps) 
     selectedContactId,
     agentFilterId,
     reportRangeDays,
+    page,
+    includeReport: activeView === "informe",
   });
 
   if (!data) {
     redirect("/cliente");
   }
 
-  return <ContactosWorkspace data={data} />;
+  return <ContactosWorkspace data={data} activeView={activeView} />;
 }

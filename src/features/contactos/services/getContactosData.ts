@@ -4,12 +4,16 @@ import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
 import { getContactTags } from "@/lib/chat-conversation-summary";
 import type { ContactosContact, ContactosData } from "../types";
 
+const CONTACTS_PAGE_SIZE = 10;
+
 type ContactosQuery = {
   userId: string;
   searchQuery?: string;
   selectedContactId?: string;
   agentFilterId?: string;
   reportRangeDays?: number;
+  page?: number;
+  includeReport?: boolean;
 };
 
 function normalize(value: string | null | undefined) {
@@ -83,12 +87,154 @@ function normalizeReportRangeDays(value: number | undefined) {
   return 7;
 }
 
+function normalizeContactPage(value: number | undefined) {
+  if (!value || !Number.isFinite(value) || value < 1) {
+    return 1;
+  }
+
+  return Math.floor(value);
+}
+
+function buildContactWhere(input: { workspaceId: string; query: string; agentId: string }) {
+  const where: Prisma.ContactWhereInput = {
+    workspaceId: input.workspaceId,
+  };
+
+  if (input.agentId) {
+    where.conversations = {
+      some: {
+        agentId: input.agentId,
+      },
+    };
+  }
+
+  if (input.query) {
+    where.OR = [
+      {
+        name: {
+          contains: input.query,
+          mode: "insensitive",
+        },
+      },
+      {
+        phoneNumber: {
+          contains: input.query,
+          mode: "insensitive",
+        },
+      },
+      {
+        email: {
+          contains: input.query,
+          mode: "insensitive",
+        },
+      },
+      {
+        notes: {
+          contains: input.query,
+          mode: "insensitive",
+        },
+      },
+    ];
+  }
+
+  return where;
+}
+
+function buildContactSelect(agentId: string) {
+  return {
+    id: true,
+    name: true,
+    phoneNumber: true,
+    email: true,
+    notes: true,
+    avatarUrl: true,
+    createdAt: true,
+    updatedAt: true,
+    ContactTag: {
+      select: {
+        Tag: {
+          select: {
+            name: true,
+            color: true,
+          },
+        },
+      },
+    },
+    _count: {
+      select: {
+        conversations: true,
+        messages: true,
+      },
+    },
+    conversations: {
+      where: agentId
+        ? {
+            agentId,
+          }
+        : undefined,
+      orderBy: [{ lastMessageAt: "desc" }, { updatedAt: "desc" }],
+      take: 3,
+      select: {
+        id: true,
+        status: true,
+        automationPaused: true,
+        lastMessageAt: true,
+        startedAt: true,
+        updatedAt: true,
+        agent: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        channel: {
+          select: {
+            id: true,
+            name: true,
+            provider: true,
+          },
+        },
+        messages: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: {
+            content: true,
+            createdAt: true,
+            direction: true,
+            type: true,
+          },
+        },
+      },
+    },
+    contactMatches: {
+      orderBy: [{ detectedAt: "desc" }, { createdAt: "desc" }],
+      take: 5,
+      select: {
+        id: true,
+        matchType: true,
+        sourceType: true,
+        targetName: true,
+        detectedAt: true,
+        tag: {
+          select: {
+            id: true,
+            name: true,
+            color: true,
+          },
+        },
+      },
+    },
+  } satisfies Prisma.ContactSelect;
+}
+
 export async function getContactosData({
   userId,
   searchQuery = "",
   selectedContactId = "",
   agentFilterId = "",
   reportRangeDays,
+  page,
+  includeReport = false,
 }: ContactosQuery): Promise<ContactosData | null> {
   const membership = await prisma.workspaceMember.findFirst({
     where: { userId },
@@ -111,6 +257,12 @@ export async function getContactosData({
   const query = normalize(searchQuery);
   const agentId = agentFilterId.trim();
   const normalizedReportRangeDays = normalizeReportRangeDays(reportRangeDays);
+  const requestedPage = normalizeContactPage(page);
+  const contactWhere = buildContactWhere({
+    workspaceId: membership.workspace.id,
+    query,
+    agentId,
+  });
   const autoTagNewLeads =
     typeof membership.workspace.businessConfig === "object" &&
     membership.workspace.businessConfig !== null &&
@@ -124,106 +276,57 @@ export async function getContactosData({
       ? ((membership.workspace.businessConfig as { newLeadTagName?: string }).newLeadTagName ?? "").trim()
       : "";
 
+  const [totalContacts, withConversations, withEmail, reportContacts] = await Promise.all([
+    prisma.contact.count({
+      where: contactWhere,
+    }),
+    prisma.contact.count({
+      where: agentId
+        ? contactWhere
+        : {
+            ...contactWhere,
+            conversations: {
+              some: {},
+            },
+          },
+    }),
+    prisma.contact.count({
+      where: {
+        ...contactWhere,
+        AND: [
+          {
+            email: {
+              not: null,
+            },
+          },
+          {
+            email: {
+              not: "",
+            },
+          },
+        ],
+      },
+    }),
+    includeReport
+      ? prisma.contact.findMany({
+          where: contactWhere,
+          select: {
+            createdAt: true,
+          },
+        })
+      : Promise.resolve([] as Array<{ createdAt: Date }>),
+  ]);
+
+  const totalPages = Math.max(1, Math.ceil(totalContacts / CONTACTS_PAGE_SIZE));
+  const currentPage = Math.min(requestedPage, totalPages);
+
   const loadContacts = async () =>
     prisma.contact.findMany({
-      where: {
-        workspaceId: membership.workspace.id,
-        ...(agentId
-          ? {
-              conversations: {
-                some: {
-                  agentId,
-                },
-              },
-            }
-          : {}),
-      },
+      where: contactWhere,
       orderBy: [{ updatedAt: "desc" }],
-      take: 250,
-      select: {
-        id: true,
-        name: true,
-        phoneNumber: true,
-        email: true,
-        notes: true,
-        avatarUrl: true,
-        createdAt: true,
-        updatedAt: true,
-        ContactTag: {
-          select: {
-            Tag: {
-              select: {
-                name: true,
-                color: true,
-              },
-            },
-          },
-        },
-        _count: {
-          select: {
-            conversations: true,
-            messages: true,
-          },
-        },
-        conversations: {
-          where: agentId
-            ? {
-                agentId,
-              }
-            : undefined,
-          orderBy: [{ lastMessageAt: "desc" }, { updatedAt: "desc" }],
-          take: 3,
-          select: {
-            id: true,
-            status: true,
-            automationPaused: true,
-            lastMessageAt: true,
-            startedAt: true,
-            updatedAt: true,
-            agent: {
-              select: {
-                id: true,
-                name: true,
-              },
-            },
-            channel: {
-              select: {
-                id: true,
-                name: true,
-                provider: true,
-              },
-            },
-            messages: {
-              orderBy: { createdAt: "desc" },
-              take: 1,
-              select: {
-                content: true,
-                createdAt: true,
-                direction: true,
-                type: true,
-              },
-            },
-          },
-        },
-        contactMatches: {
-          orderBy: [{ detectedAt: "desc" }, { createdAt: "desc" }],
-          take: 5,
-          select: {
-            id: true,
-            matchType: true,
-            sourceType: true,
-            targetName: true,
-            detectedAt: true,
-            tag: {
-              select: {
-                id: true,
-                name: true,
-                color: true,
-              },
-            },
-          },
-        },
-      },
+      skip: (currentPage - 1) * CONTACTS_PAGE_SIZE,
+      take: CONTACTS_PAGE_SIZE,
+      select: buildContactSelect(agentId),
     });
 
   let rawContacts = await loadContacts();
@@ -339,72 +442,94 @@ export async function getContactosData({
     })
     .sort((left, right) => getContactLastActivity(right) - getContactLastActivity(left));
 
-  const dailyCreationStats = Object.values(
-    contacts.reduce<Record<string, { dayKey: string; label: string; count: number; firstCreatedAt: string; lastCreatedAt: string }>>(
-      (acc, contact) => {
-        const createdAt = new Date(contact.createdAt);
-        const dayKey = getBogotaDayKey(createdAt);
-        const current = acc[dayKey];
+  const dailyCreationStats = includeReport
+    ? Object.values(
+        reportContacts.reduce<Record<string, { dayKey: string; label: string; count: number; firstCreatedAt: string; lastCreatedAt: string }>>(
+          (acc, contact) => {
+            const createdAt = new Date(contact.createdAt);
+            const dayKey = getBogotaDayKey(createdAt);
+            const current = acc[dayKey];
 
-        if (!current) {
-          acc[dayKey] = {
-            dayKey,
-            label: getBogotaDateLabel(createdAt),
-            count: 1,
-            firstCreatedAt: createdAt.toISOString(),
-            lastCreatedAt: createdAt.toISOString(),
+            if (!current) {
+              acc[dayKey] = {
+                dayKey,
+                label: getBogotaDateLabel(createdAt),
+                count: 1,
+                firstCreatedAt: createdAt.toISOString(),
+                lastCreatedAt: createdAt.toISOString(),
+              };
+              return acc;
+            }
+
+            const currentFirst = new Date(current.firstCreatedAt);
+            const currentLast = new Date(current.lastCreatedAt);
+            acc[dayKey] = {
+              ...current,
+              count: current.count + 1,
+              firstCreatedAt: createdAt < currentFirst ? createdAt.toISOString() : current.firstCreatedAt,
+              lastCreatedAt: createdAt > currentLast ? createdAt.toISOString() : current.lastCreatedAt,
+            };
+            return acc;
+          },
+          {},
+        ),
+      ).sort((left, right) => right.dayKey.localeCompare(left.dayKey))
+    : [];
+
+  const heatmapDays = includeReport ? buildBogotaHeatmapWindow(normalizedReportRangeDays) : [];
+  const creationHeatmapRows = includeReport
+    ? heatmapDays.map((dayValue) => {
+        const dayKey = getBogotaDayKey(dayValue);
+        const dayContacts = reportContacts.filter((contact) => getBogotaDayKey(new Date(contact.createdAt)) === dayKey);
+        const hours = Array.from({ length: 24 }, (_, hour) => {
+          const count = dayContacts.filter((contact) => getBogotaHourKey(new Date(contact.createdAt)) === hour).length;
+          return {
+            hour,
+            count,
           };
-          return acc;
-        }
+        });
 
-        const currentFirst = new Date(current.firstCreatedAt);
-        const currentLast = new Date(current.lastCreatedAt);
-        acc[dayKey] = {
-          ...current,
-          count: current.count + 1,
-          firstCreatedAt: createdAt < currentFirst ? createdAt.toISOString() : current.firstCreatedAt,
-          lastCreatedAt: createdAt > currentLast ? createdAt.toISOString() : current.lastCreatedAt,
+        return {
+          dayKey,
+          dayLabel: getBogotaShortWeekday(dayValue),
+          dateLabel: getBogotaDateLabel(dayValue),
+          total: dayContacts.length,
+          hours,
         };
-        return acc;
-      },
-      {},
-    ),
-  ).sort((left, right) => right.dayKey.localeCompare(left.dayKey));
-
-  const heatmapDays = buildBogotaHeatmapWindow(normalizedReportRangeDays);
-  const creationHeatmapRows = heatmapDays.map((dayValue) => {
-    const dayKey = getBogotaDayKey(dayValue);
-    const dayContacts = contacts.filter((contact) => getBogotaDayKey(new Date(contact.createdAt)) === dayKey);
-    const hours = Array.from({ length: 24 }, (_, hour) => {
-      const count = dayContacts.filter((contact) => getBogotaHourKey(new Date(contact.createdAt)) === hour).length;
-      return {
-        hour,
-        count,
-      };
-    });
-
-    return {
-      dayKey,
-      dayLabel: getBogotaShortWeekday(dayValue),
-      dateLabel: getBogotaDateLabel(dayValue),
-      total: dayContacts.length,
-      hours,
-    };
-  });
-  const creationHeatmapMaxCount = Math.max(
-    0,
-    ...creationHeatmapRows.flatMap((row) => row.hours.map((hour) => hour.count)),
-  );
+      })
+    : [];
+  const creationHeatmapMaxCount = includeReport
+    ? Math.max(
+        0,
+        ...creationHeatmapRows.flatMap((row) => row.hours.map((hour) => hour.count)),
+      )
+    : 0;
 
   const stats = {
-    total: contacts.length,
-    withConversations: contacts.filter((contact) => contact.totalConversations > 0).length,
-    withoutConversations: contacts.filter((contact) => contact.totalConversations === 0).length,
-    withEmail: contacts.filter((contact) => Boolean(contact.email?.trim())).length,
+    total: totalContacts,
+    withConversations,
+    withoutConversations: totalContacts - withConversations,
+    withEmail,
   };
 
-  const selectedContact =
+  const selectedContactInPage =
     contacts.find((contact) => contact.id === selectedContactId) ||
+    null;
+
+  const selectedContactFromQuery =
+    !selectedContactInPage && selectedContactId
+      ? await prisma.contact.findFirst({
+          where: {
+            ...contactWhere,
+            id: selectedContactId,
+          },
+          select: buildContactSelect(agentId),
+        })
+      : null;
+
+  const selectedContact =
+    selectedContactInPage ||
+    selectedContactFromQuery ||
     contacts[0] ||
     null;
 
@@ -430,6 +555,16 @@ export async function getContactosData({
     agentFilterId: agentId || null,
     agentFilterName,
     reportRangeDays: normalizedReportRangeDays,
+    pagination: {
+      page: currentPage,
+      pageSize: CONTACTS_PAGE_SIZE,
+      total: totalContacts,
+      totalPages,
+      rangeStart: totalContacts === 0 ? 0 : (currentPage - 1) * CONTACTS_PAGE_SIZE + 1,
+      rangeEnd: totalContacts === 0 ? 0 : (currentPage - 1) * CONTACTS_PAGE_SIZE + contacts.length,
+      hasPreviousPage: currentPage > 1,
+      hasNextPage: currentPage < totalPages,
+    },
     stats,
     dailyCreationStats,
     creationHeatmap: {

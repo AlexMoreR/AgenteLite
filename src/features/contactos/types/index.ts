@@ -103,6 +103,16 @@ export type ContactosData = {
   agentFilterId: string | null;
   agentFilterName: string | null;
   reportRangeDays: number;
+  pagination: {
+    page: number;
+    pageSize: number;
+    total: number;
+    totalPages: number;
+    rangeStart: number;
+    rangeEnd: number;
+    hasPreviousPage: boolean;
+    hasNextPage: boolean;
+  };
   stats: ContactosStats;
   dailyCreationStats: ContactosDailyCreationStat[];
   creationHeatmap: ContactosCreationHeatmap;

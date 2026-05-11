@@ -144,16 +144,20 @@ function getConversationHref(contact: ContactosContact) {
   return conversation ? `/cliente/chats?chatKey=agent:${conversation.id}` : "/cliente/chats";
 }
 
-function getContactosReportHref({
+function getContactosHref({
   searchQuery,
   agentFilterId,
   selectedContactId,
   range,
+  page,
+  view,
 }: {
   searchQuery: string;
   agentFilterId: string | null;
   selectedContactId: string | null;
   range: number;
+  page: number;
+  view: "contacto" | "informe";
 }) {
   const params = new URLSearchParams();
 
@@ -170,6 +174,8 @@ function getContactosReportHref({
   }
 
   params.set("range", String(range));
+  params.set("page", String(page));
+  params.set("view", view);
 
   return `/cliente/contactos?${params.toString()}`;
 }
@@ -337,11 +343,11 @@ function ContactCard({
   );
 }
 
-export function ContactosWorkspace({ data }: { data: ContactosData }) {
+export function ContactosWorkspace({ data, activeView }: { data: ContactosData; activeView: "contacto" | "informe" }) {
   const [copiedField, setCopiedField] = useState<string | null>(null);
-  const [activeView, setActiveView] = useState<"contacto" | "informe">("contacto");
   const router = useRouter();
   const selectedContact = data.selectedContact;
+  const pagination = data.pagination;
 
   async function copyToClipboard(value: string, field: string) {
     await navigator.clipboard.writeText(value);
@@ -387,11 +393,26 @@ export function ContactosWorkspace({ data }: { data: ContactosData }) {
     }
 
     router.push(
-      getContactosReportHref({
+      getContactosHref({
         searchQuery: data.searchQuery,
         agentFilterId: data.agentFilterId,
         selectedContactId: data.selectedContactId,
         range: nextRange,
+        page: pagination.page,
+        view: activeView,
+      }),
+    );
+  }
+
+  function handlePageChange(nextPage: number) {
+    router.push(
+      getContactosHref({
+        searchQuery: data.searchQuery,
+        agentFilterId: data.agentFilterId,
+        selectedContactId: data.selectedContactId,
+        range: data.reportRangeDays,
+        page: nextPage,
+        view: activeView,
       }),
     );
   }
@@ -420,7 +441,18 @@ export function ContactosWorkspace({ data }: { data: ContactosData }) {
               <button
                 key={tab.key}
                 type="button"
-                onClick={() => setActiveView(tab.key)}
+                onClick={() =>
+                  router.push(
+                    getContactosHref({
+                      searchQuery: data.searchQuery,
+                      agentFilterId: data.agentFilterId,
+                      selectedContactId: data.selectedContactId,
+                      range: data.reportRangeDays,
+                      page: pagination.page,
+                      view: tab.key,
+                    }),
+                  )
+                }
                 className={`inline-flex h-10 items-center gap-2 rounded-xl px-4 text-sm font-medium transition ${
                   active
                     ? "bg-[var(--primary)] text-white shadow-[0_16px_30px_-20px_color-mix(in_srgb,var(--primary)_55%,black)]"
@@ -587,11 +619,14 @@ export function ContactosWorkspace({ data }: { data: ContactosData }) {
         </div>
       )}
 
-      <div className="grid gap-4 xl:grid-cols-[380px_minmax(0,1fr)]">
+      {activeView === "contacto" ? (
+        <div className="grid gap-4 xl:grid-cols-[380px_minmax(0,1fr)]">
         <div className="rounded-[28px] border border-[var(--line)] bg-white shadow-[0_24px_54px_-42px_rgba(15,23,42,0.14)]">
           <div className="border-b border-slate-100 p-4 sm:p-5">
             <form method="get" className="space-y-3">
               {data.agentFilterId ? <input type="hidden" name="agentId" value={data.agentFilterId} /> : null}
+              <input type="hidden" name="range" value={String(data.reportRangeDays)} />
+              <input type="hidden" name="view" value={activeView} />
               <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5">
                 <Search className="h-4 w-4 shrink-0 text-slate-400" />
                 <input
@@ -611,11 +646,14 @@ export function ContactosWorkspace({ data }: { data: ContactosData }) {
                   key={contact.id}
                   contact={contact}
                   isSelected={contact.id === data.selectedContactId}
-                  href={`/cliente/contactos?${new URLSearchParams([
-                    ...(data.searchQuery ? [["q", data.searchQuery]] : []),
-                    ...(data.agentFilterId ? [["agentId", data.agentFilterId]] : []),
-                    ["contactId", contact.id],
-                  ]).toString()}`}
+                  href={getContactosHref({
+                    searchQuery: data.searchQuery,
+                    agentFilterId: data.agentFilterId,
+                    selectedContactId: contact.id,
+                    range: data.reportRangeDays,
+                    page: pagination.page,
+                    view: activeView,
+                  })}
                 />
               ))
             ) : (
@@ -633,6 +671,35 @@ export function ContactosWorkspace({ data }: { data: ContactosData }) {
                 </div>
               </div>
             )}
+          </div>
+
+          <div className="flex flex-col gap-2 border-t border-slate-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+            <p className="text-xs text-slate-500">
+              Mostrando {pagination.rangeStart}-{pagination.rangeEnd} de {pagination.total}
+            </p>
+            <div className="flex items-center gap-2 self-end sm:self-auto">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => handlePageChange(Math.max(1, pagination.page - 1))}
+                disabled={!pagination.hasPreviousPage}
+              >
+                Anterior
+              </Button>
+              <span className="text-xs text-slate-600">
+                Pagina {pagination.page} de {pagination.totalPages}
+              </span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => handlePageChange(Math.min(pagination.totalPages, pagination.page + 1))}
+                disabled={!pagination.hasNextPage}
+              >
+                Siguiente
+              </Button>
+            </div>
           </div>
         </div>
 
@@ -888,7 +955,8 @@ export function ContactosWorkspace({ data }: { data: ContactosData }) {
             </div>
           )}
         </div>
-      </div>
+        </div>
+      ) : null}
     </section>
   );
 }
