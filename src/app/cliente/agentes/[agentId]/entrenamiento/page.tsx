@@ -115,6 +115,7 @@ export default async function AgentTrainingPage({ params }: PageProps) {
   const workspaceBusiness = parseWorkspaceBusinessConfig(agent.workspace.businessConfig);
 
   // Campos de negocio: workspace.businessConfig es la fuente de verdad
+  const instruction = training.instruction;
   const businessDescription = workspaceBusiness.businessDescription || training.businessDescription;
   const targetAudiences = workspaceBusiness.targetAudiences.length > 0 ? workspaceBusiness.targetAudiences : training.targetAudiences;
   const priceRangeMin = workspaceBusiness.priceRangeMin || training.priceRangeMin;
@@ -173,6 +174,23 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                   title="Contexto"
                   helpText="Aqui va la explicacion comercial que el agente usara para vender por WhatsApp. Es distinta al resumen general del negocio."
                 />
+                <label className="space-y-2">
+                  <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-slate-700">
+                    <span>Instrucción</span>
+                    <TrainingHelpPopover
+                      title="Instrucción"
+                      description="Agrega aqui una indicacion concreta que el agente deba seguir siempre. Se mostrara en el prompt como Instrucción:."
+                    />
+                  </span>
+                  <TrainingTextareaField
+                    name="instruction"
+                    rows={3}
+                    defaultValue={instruction}
+                    placeholder="Ej. Antes de hablar de precio, pide el codigo o referencia del producto que le gusto."
+                    className="flex min-h-[110px] w-full rounded-[20px] border border-[rgba(148,163,184,0.14)] bg-white px-3.5 py-3 text-[13px] leading-6 text-slate-800 shadow-[0_18px_32px_-34px_rgba(15,23,42,0.18)] outline-none transition placeholder:text-slate-400 focus:border-[var(--primary)]"
+                  />
+                </label>
+
                 <label className="space-y-2">
                   <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-slate-700">
                     <span>Que vendes y como lo explicarias en WhatsApp</span>

@@ -26,6 +26,16 @@ export type DetectedContactMatchCandidate = {
   confidence: number;
 };
 
+export type ConversationContactMatch = {
+  id: string;
+  matchType: ContactMatchType;
+  sourceType: ContactMatchSourceType;
+  targetId: string | null;
+  targetName: string;
+  targetSlug: string;
+  detectedAt: Date;
+};
+
 function normalizeText(value: string) {
   return value
     .normalize("NFD")
@@ -253,6 +263,44 @@ export async function recordContactMatch(input: RecordContactMatchInput) {
       },
     },
   });
+}
+
+export async function getLatestConversationMatch(input: {
+  workspaceId: string;
+  conversationId: string;
+  matchType?: ContactMatchType;
+}): Promise<ConversationContactMatch | null> {
+  const match = await prisma.contactMatch.findFirst({
+    where: {
+      workspaceId: input.workspaceId,
+      conversationId: input.conversationId,
+      ...(input.matchType ? { matchType: input.matchType } : {}),
+    },
+    orderBy: [
+      { detectedAt: "desc" },
+      { updatedAt: "desc" },
+    ],
+    select: {
+      id: true,
+      matchType: true,
+      sourceType: true,
+      targetId: true,
+      targetName: true,
+      targetSlug: true,
+      detectedAt: true,
+    },
+  });
+
+  return match ?? null;
+}
+
+export function buildConversationMatchContextNote(match: ConversationContactMatch) {
+  const targetName = match.targetName.trim();
+  if (!targetName) {
+    return null;
+  }
+
+  return `El cliente ya mostro interes en "${targetName}". Mantén ese hilo activo y no cambies de tema sin una señal clara.`;
 }
 
 export async function detectContactMatchesFromText(input: {

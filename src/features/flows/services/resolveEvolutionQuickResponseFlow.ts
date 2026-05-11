@@ -200,6 +200,7 @@ export async function resolveEvolutionQuickResponseFlow(input: {
         scenarioId: scenario.id,
         scenarioTitle: scenario.title.trim() || "Flujo",
         keyword: matchedKeyword,
+        replyEveryMessageEnabled: data.defaults.replyEveryMessageEnabled,
         reply: normalizeScenarioReply(reply),
       };
     }

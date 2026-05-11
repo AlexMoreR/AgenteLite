@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { getLatestConversationMatch } from "@/lib/contact-matches";
 import { getSiteUrl } from "@/lib/site";
 
 type ConversationLine = {
@@ -252,6 +253,8 @@ export async function resolveAgentKnowledgeBaseReply(input: {
   agentId: string;
   latestUserMessage: string | null | undefined;
   history?: ConversationLine[];
+  workspaceId?: string;
+  conversationId?: string;
 }): Promise<AgentKnowledgeBaseReply | null> {
   const latestUserMessage = input.latestUserMessage?.trim() || "";
   if (!latestUserMessage) {
@@ -271,15 +274,38 @@ export async function resolveAgentKnowledgeBaseReply(input: {
     return null;
   }
 
+  const latestConversationProductMatch =
+    input.workspaceId && input.conversationId
+      ? await getLatestConversationMatch({
+          workspaceId: input.workspaceId,
+          conversationId: input.conversationId,
+          matchType: "PRODUCT",
+        })
+      : null;
+
+  const conversationProduct = latestConversationProductMatch
+    ? products.find((product) => {
+        if (latestConversationProductMatch.targetId && product.id === latestConversationProductMatch.targetId) {
+          return true;
+        }
+
+        return normalizeText(product.name) === normalizeText(latestConversationProductMatch.targetName);
+      }) ?? null
+    : null;
+
   const selectedProduct =
-    selectBestKnowledgeProduct(latestUserMessage, products) ?? 
-    (isKnowledgeFollowUpRequest(latestUserMessage) && input.history?.length
-      ? selectProductFromHistory(input.history, products)
-      : isKnowledgeFollowUpRequest(latestUserMessage) && products.length === 1
-        ? products[0]
-      : isImageRequest(latestUserMessage) && products.length === 1
-        ? products[0]
-      : null);
+    selectBestKnowledgeProduct(latestUserMessage, products) ??
+    (isKnowledgeFollowUpRequest(latestUserMessage) && conversationProduct
+      ? conversationProduct
+      : isAffirmativeResponse(latestUserMessage) && conversationProduct
+        ? conversationProduct
+        : isKnowledgeFollowUpRequest(latestUserMessage) && input.history?.length
+          ? selectProductFromHistory(input.history, products)
+          : isKnowledgeFollowUpRequest(latestUserMessage) && products.length === 1
+            ? products[0]
+            : isImageRequest(latestUserMessage) && products.length === 1
+              ? products[0]
+              : null);
 
   const isPhotoRequest =
     isImageRequest(latestUserMessage) ||

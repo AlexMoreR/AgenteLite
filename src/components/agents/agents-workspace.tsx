@@ -19,6 +19,7 @@ import {
 import { createAgentAction, deleteAgentAction, toggleAgentStatusAction } from "@/app/actions/agent-actions";
 import { resetWorkspaceAction } from "@/app/actions/workspace-actions";
 import { TrainingHelpPopover } from "@/components/agents/training-help-popover";
+import { TrainingTextareaField } from "@/components/agents/training-textarea-field";
 import {
   forbiddenRuleOptions,
   getResponseLengthLabel,
@@ -475,6 +476,24 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
                                   placeholder="Ej. Marca de ropa deportiva femenina enfocada en comodidad, estilo y venta directa por WhatsApp."
                                 />
                               </div>
+                              </label>
+
+                              <label className="block space-y-2.5">
+                                <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-950">
+                                  <span>Instrucción</span>
+                                  <TrainingHelpPopover
+                                    title="Instrucción"
+                                    description="Agrega aqui una indicacion concreta que el agente deba seguir siempre. Se mostrara en el prompt como Instrucción:."
+                                  />
+                                </span>
+                                <div className="overflow-hidden rounded-[28px] border border-white bg-white px-5 py-3 shadow-[0_20px_42px_-34px_rgba(15,23,42,0.14)] transition focus-within:border-[var(--primary)] focus-within:ring-4 focus-within:ring-[color-mix(in_srgb,var(--primary)_12%,white)]">
+                                  <TrainingTextareaField
+                                    name="instruction"
+                                    rows={3}
+                                    className="flex min-h-[110px] w-full resize-none bg-white py-1 text-[15px] leading-7 text-slate-800 outline-none placeholder:text-slate-400"
+                                    placeholder="Ej. Antes de hablar de precio, pide el codigo o referencia del producto que le gusto."
+                                  />
+                                </div>
                               </label>
 
                               <label className="block space-y-2.5">

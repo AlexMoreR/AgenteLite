@@ -664,6 +664,8 @@ export async function POST(request: Request) {
         ? null
         : await resolveAgentKnowledgeBaseReply({
             agentId: linkedAgentChannel.agent.id,
+            workspaceId: config.workspaceId,
+            conversationId: message.conversationId,
             latestUserMessage: message.content,
             history: recentMessages,
           });

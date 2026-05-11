@@ -68,6 +68,7 @@ export type ResponseLength = (typeof responseLengthOptions)[number]["value"];
 export type AgentTrainingConfig = {
   assistantName: string;
   businessDescription: string;
+  instruction: string;
   targetAudiences: TargetAudience[];
   priceRangeMin: string;
   priceRangeMax: string;
@@ -132,6 +133,7 @@ export type AgentKnowledgePromptFlow = {
 export const defaultAgentTrainingConfig: AgentTrainingConfig = {
   assistantName: "",
   businessDescription: "",
+  instruction: "",
   targetAudiences: ["Mujer"],
   priceRangeMin: "",
   priceRangeMax: "",
@@ -341,12 +343,16 @@ export function buildAgentSystemPrompt(input: {
     training.youtube && `YouTube: ${training.youtube}`,
   ].filter(Boolean) as string[];
 
+  const instructionSection = training.instruction.trim()
+    ? `INSTRUCCIÓN\n- ${training.instruction.trim()}`
+    : null;
+
   const businessRules = [
     `Solo vendes esto: ${training.businessDescription}`,
     `Tu cliente ideal es: ${training.targetAudiences.join(", ")}`,
     `Rango de precios de referencia: ${formatPriceRange(training.priceRangeMin, training.priceRangeMax)}`,
     "No te salgas de esta informacion ni inventes catalogo adicional.",
-  ];
+  ].filter(Boolean) as string[];
 
   const strictRules = guardrails.length
     ? guardrails
@@ -378,10 +384,6 @@ export function buildAgentSystemPrompt(input: {
     ? `CONOCIMIENTO DE PRODUCTOS\n- ${knowledgeProducts.join("\n- ")}\n- Usa esta base para responder con precision sobre esos productos.\n- Nunca respondas solo con el nombre del producto si tienes descripcion o precio disponible.\n- Cuando hables de un producto, menciona la informacion util disponible y agrega un siguiente paso claro si ayuda a vender.\n- Si te preguntan por algo fuera de esta base, no lo inventes y aclara que debes confirmarlo.\n- IMPORTANTE: Cuando un producto tenga INSTRUCCION, esa instruccion define como debes manejar ese producto. Siguela por encima de cualquier otra consideracion.\n- ETAPAS: Si la INSTRUCCION tiene pasos numerados (1. 2. 3.), responde UNICAMENTE con el paso que corresponde al momento actual de la conversacion. Nunca adelantes pasos que dependen de la respuesta del cliente. Espera siempre la reaccion del cliente antes de avanzar al siguiente paso.`
     : null;
 
-  const productResponseRule = knowledgeProducts.length
-    ? "Cuando el cliente pregunta por primera vez sobre un producto: NO des el precio de inmediato. Primero genera interaccion genuina con una pregunta persuasiva de DOS alternativas concretas y relevantes que lo haga reflexionar sobre su necesidad (ej: '¿Lo buscas para un spa o para un salon de belleza?' o '¿Es para equipar tu negocio o ampliar lo que ya tienes?'). Esa pregunta debe sentirse natural, no banal, y obligar al cliente a responder para avanzar. Solo despues de que el cliente responda, entrega descripcion, detalles o precio segun corresponda. Si el cliente ya respondio una pregunta anterior o lleva mas de un intercambio, puedes dar el precio cuando sea el momento logico. No ofrezcas fotos ni imagenes del producto por texto — eso se gestiona por separado."
-    : "Si el cliente pregunta por un producto, responde con la informacion que tengas en el contexto sin repetir solo el nombre.";
-
   const knowledgeFlows = (input.knowledgeFlows ?? [])
     .map((flow) => {
       const title = flow.title.trim();
@@ -412,13 +414,13 @@ export function buildAgentSystemPrompt(input: {
     `ROL\nEres ${agentName}, vendedor virtual por WhatsApp de ${businessName}. Actuas como una persona real del negocio y tu trabajo es vender con claridad, precision y criterio comercial.`,
     `OBJETIVO\nTu objetivo es entender lo que necesita el cliente, responder solo dentro de la realidad del negocio y llevar la conversacion hacia una venta real o al siguiente paso correcto.`,
     `REGLAS NO NEGOCIABLES\n- ${nonNegotiables.join("\n- ")}`,
+    instructionSection,
     `CONTEXTO DEL NEGOCIO\n- ${businessRules.join("\n- ")}${contactLines.length ? `\n\nDATOS DE CONTACTO\n- ${contactLines.join("\n- ")}` : ""}`,
     `COMO HABLAS\n- ${voiceRules.join("\n- ")}`,
     `COMPORTAMIENTO DE VENTA\n- ${salesBehaviors.join("\n- ")}`,
     `DIRECTIVAS DE COMUNICACIÓN CON EL USUARIO\n- ${communicationDirectives.join("\n- ")}`,
     knowledgeSection,
     flowKnowledgeSection,
-    `REGLA DE RESPUESTA DE PRODUCTO\n- ${productResponseRule}`,
     `REFERENCIAS A FLUJOS\n- Si una instruccion de producto menciona un flujo con formato /nombre del flujo, interpretalo como una orden de aplicar ese flujo cuando la conversacion coincida.\n- Usa solo flujos que existan en CONOCIMIENTO DE FLUJOS. Si el flujo mencionado no esta disponible, no lo inventes y continua con una pregunta concreta para avanzar.`,
     `COSAS QUE NUNCA DEBES HACER\n- ${strictRules.join("\n- ")}`,
     `FORMA DE RESPONDER\n- Responde en texto plano para WhatsApp.\n- Prioriza mensajes claros, utiles y faciles de leer.\n- No des listas largas salvo que ayuden a vender o aclarar opciones.\n- Cuando puedas, termina con un siguiente paso concreto.`,
@@ -525,6 +527,7 @@ export function parseAgentTrainingConfig(value: unknown): AgentTrainingConfig | 
   return {
     assistantName: str("assistantName"),
     businessDescription: data.businessDescription,
+    instruction: str("instruction"),
     targetAudiences,
     priceRangeMin: str("priceRangeMin"),
     priceRangeMax: str("priceRangeMax"),

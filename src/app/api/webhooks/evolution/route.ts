@@ -38,6 +38,8 @@ import {
 } from "@/lib/evolution";
 import { resolveAgentKnowledgeBaseReply } from "@/lib/agent-knowledge-media";
 import { detectContactMatchesFromText, recordContactMatch } from "@/lib/contact-matches";
+import { buildConversationMatchContextNote, getLatestConversationMatch } from "@/lib/contact-matches";
+import { buildFlowExecutionContextNote, getConversationExecutedFlowSlugs, getFlowSlug } from "@/lib/flow-execution-history";
 import { enforceWorkspacePlanAccess } from "@/lib/workspace-plan-access";
 import { getEvolutionSettings } from "@/lib/system-settings";
 import { buildHandoffMessage, parseAgentTrainingConfig } from "@/lib/agent-training";
@@ -903,7 +905,7 @@ export async function POST(request: Request) {
       responseDelaySeconds,
     });
 
-      const quickResponseFlow = channel.isActive && !conversationAutomationPaused && channel.evolutionInstanceName && messageText
+      let quickResponseFlow = channel.isActive && !conversationAutomationPaused && channel.evolutionInstanceName && messageText
         ? await resolveEvolutionQuickResponseFlow({
             workspaceId: channel.workspaceId,
             channelId: channel.id,
@@ -948,6 +950,12 @@ export async function POST(request: Request) {
         type: m.type as "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "TEMPLATE" | "INTERACTIVE" | "SYSTEM" | undefined,
         mediaUrl: m.mediaUrl,
       }));
+
+      const executedFlowSlugs = await getConversationExecutedFlowSlugs({
+        workspaceId: channel.workspaceId,
+        conversationId: conversation.id,
+      });
+      const aiContextNotes = new Set<string>();
 
       const detectedContactMatches = await detectContactMatchesFromText({
         agentId: agent.id,
@@ -1003,7 +1011,21 @@ export async function POST(request: Request) {
         await setConversationAutomationPaused({ conversationId: conversation.id, paused: true });
       }
 
-      const hardFlowReply = shouldHandoffToHuman || quickResponseFlow
+      if (quickResponseFlow && !quickResponseFlow.replyEveryMessageEnabled) {
+        const quickFlowSlug = getFlowSlug(quickResponseFlow.scenarioTitle);
+        if (executedFlowSlugs.has(quickFlowSlug)) {
+          const note = buildFlowExecutionContextNote({
+            flowTitle: quickResponseFlow.scenarioTitle,
+            modeLabel: "flujo",
+          });
+          if (note) {
+            aiContextNotes.add(note);
+          }
+          quickResponseFlow = null;
+        }
+      }
+
+      let hardFlowReply = shouldHandoffToHuman || quickResponseFlow
         ? null
         : await resolveAgentProductFlowReply({
             agentId: agent.id,
@@ -1013,12 +1035,28 @@ export async function POST(request: Request) {
             includeOfficialApi: true,
           });
 
+      if (hardFlowReply) {
+        const hardFlowSlug = getFlowSlug(hardFlowReply.flowTitle);
+        if (executedFlowSlugs.has(hardFlowSlug)) {
+          const note = buildFlowExecutionContextNote({
+            flowTitle: hardFlowReply.flowTitle,
+            modeLabel: "flujo",
+          });
+          if (note) {
+            aiContextNotes.add(note);
+          }
+          hardFlowReply = null;
+        }
+      }
+
       const knowledgeBaseReply = hardFlowReply
         ? null
         : shouldHandoffToHuman
           ? null
           : await resolveAgentKnowledgeBaseReply({
               agentId: agent.id,
+              workspaceId: channel.workspaceId,
+              conversationId: conversation.id,
               latestUserMessage: messageText,
               history: recentMessages,
             });
@@ -1039,6 +1077,17 @@ export async function POST(request: Request) {
         replyText = knowledgeBaseReply.text ?? null;
         shouldComposeWelcome = Boolean(replyText);
       } else {
+        const latestConversationMatch = await getLatestConversationMatch({
+          workspaceId: channel.workspaceId,
+          conversationId: conversation.id,
+        });
+        const matchContextNote = latestConversationMatch ? buildConversationMatchContextNote(latestConversationMatch) : null;
+        if (matchContextNote) {
+          aiContextNotes.add(matchContextNote);
+        }
+        const aiLatestUserMessage = aiContextNotes.size > 0
+          ? `${Array.from(aiContextNotes).join("\n")}\n\nMensaje del cliente: ${messageText}`
+          : messageText;
         const agentTraining = parseAgentTrainingConfig(agent.trainingConfig);
         const effectiveSystemPrompt = agentTraining?.useCustomPrompt && agentTraining.customSystemPrompt?.trim()
           ? agentTraining.customSystemPrompt.trim()
@@ -1048,7 +1097,7 @@ export async function POST(request: Request) {
           systemPrompt: effectiveSystemPrompt,
           fallbackMessage: agent.fallbackMessage,
           history: recentMessages,
-          latestUserMessage: messageText,
+          latestUserMessage: aiLatestUserMessage,
         });
       }
 
