@@ -94,7 +94,7 @@ function extractOpenAIText(data: OpenAIResponsesApiResponse) {
 }
 
 async function generateWithOpenAI(input: GenerateAgentReplyInput, apiKey: string) {
-  const model = input.model?.trim() || "gpt-4.1-mini";
+  const model = input.model?.trim() || "gpt-4o-mini";
   const instructions = buildInstructions(input);
   const messages = buildMessages(input);
 

@@ -1147,7 +1147,7 @@ export async function createAgentAction(formData: FormData): Promise<void> {
       handoffMessage: buildHandoffMessage(),
       status: "ACTIVE",
       isActive: true,
-      model: "gpt-4.1-mini",
+      model: "gpt-4o-mini",
       maxTokens: 350,
     },
   });

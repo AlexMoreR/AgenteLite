@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import type { ContactosContact, ContactosData } from "../types";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 function getInitials(value: string) {
@@ -341,7 +342,11 @@ export function ContactosWorkspace({ data }: { data: ContactosData }) {
     downloadTextFile(`contactos-reporte-${workspaceSlug}-${dateStamp}.csv`, csv, "text/csv;charset=utf-8");
   }
 
-  function handleReportRangeChange(range: string) {
+  function handleReportRangeChange(range: string | null) {
+    if (range === null) {
+      return;
+    }
+
     const nextRange = Number(range);
     if (!Number.isFinite(nextRange)) {
       return;
@@ -431,15 +436,22 @@ export function ContactosWorkspace({ data }: { data: ContactosData }) {
                     En vivo
                   </span>
                 </div>
-                <p className="text-sm text-slate-500">Contactos creados por día y hora en el rango seleccionado.</p>
               </div>
 
               <div className="flex flex-wrap gap-2">
-                <Select value={String(data.reportRangeDays)} onValueChange={handleReportRangeChange}>
-                  <SelectTrigger className="h-11 min-w-[170px] rounded-2xl border-slate-200 bg-slate-50 px-4 text-sm font-medium text-slate-700 shadow-none hover:border-[color:color-mix(in_srgb,var(--primary)_18%,white)] hover:text-[var(--primary)]">
+                <Select
+                  value={String(data.reportRangeDays)}
+                  onValueChange={(value) => handleReportRangeChange(value)}
+                >
+                  <SelectTrigger className="h-11 min-w-[180px] rounded-2xl border-slate-200 bg-slate-50 px-4 text-sm font-medium text-slate-700 shadow-none transition hover:border-[color:color-mix(in_srgb,var(--primary)_18%,white)] hover:text-[var(--primary)] data-[state=open]:border-[var(--primary)] data-[state=open]:bg-white data-[state=open]:shadow-sm">
                     <SelectValue placeholder="Últimos 7 días" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent
+                    align="start"
+                    sideOffset={8}
+                    alignItemWithTrigger={false}
+                    className="min-w-[180px] rounded-2xl border border-slate-200 bg-white p-1 shadow-[0_18px_48px_-24px_rgba(15,23,42,0.24)]"
+                  >
                     <SelectItem key={7} value="7">
                       Últimos 7 días
                     </SelectItem>
@@ -451,20 +463,22 @@ export function ContactosWorkspace({ data }: { data: ContactosData }) {
                     </SelectItem>
                   </SelectContent>
                 </Select>
-                <button
+                <Button
                   type="button"
-                  className="inline-flex h-11 items-center rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-medium text-slate-700"
+                  variant="outline"
+                  className="h-11 rounded-2xl border-slate-200 bg-slate-50 px-4 text-sm font-medium text-slate-700 shadow-none hover:border-[color:color-mix(in_srgb,var(--primary)_18%,white)] hover:bg-slate-50 hover:text-[var(--primary)]"
                 >
                   All inboxes
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
+                  variant="outline"
                   onClick={handleDownloadReport}
-                  className="inline-flex h-11 items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-medium text-slate-700 transition hover:border-[color:color-mix(in_srgb,var(--primary)_18%,white)] hover:text-[var(--primary)]"
+                  className="h-11 rounded-2xl border-slate-200 bg-slate-50 px-4 text-sm font-medium text-slate-700 shadow-none transition hover:border-[color:color-mix(in_srgb,var(--primary)_18%,white)] hover:bg-slate-50 hover:text-[var(--primary)]"
                 >
                   <Download className="h-4 w-4" />
                   Descargar reporte
-                </button>
+                </Button>
               </div>
             </div>
 
