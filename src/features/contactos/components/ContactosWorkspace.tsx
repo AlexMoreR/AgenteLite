@@ -21,6 +21,7 @@ import {
 import type { ContactosContact, ContactosData } from "../types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 function getInitials(value: string) {
@@ -180,6 +181,19 @@ function getTagBadgeStyle(color?: string | null) {
   };
 }
 
+function getMatchSourceLabel(sourceType: "KNOWLEDGE" | "FLOW" | "QUICK_RESPONSE" | "AI") {
+  switch (sourceType) {
+    case "KNOWLEDGE":
+      return "Conocimiento";
+    case "FLOW":
+      return "Flujo";
+    case "QUICK_RESPONSE":
+      return "Respuesta rápida";
+    case "AI":
+      return "IA";
+  }
+}
+
 function ContactMetric({
   label,
   value,
@@ -287,6 +301,26 @@ function ContactCard({
                   <span className="truncate">{tag.label}</span>
                 </span>
               ))}
+            </div>
+          ) : null}
+
+          {contact.latestMatch ? (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Badge
+                variant="outline"
+                className="h-auto border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-700"
+              >
+                {contact.latestMatch.matchType === "FLOW" ? "Flujo" : "Producto"}
+              </Badge>
+              <Badge
+                variant="outline"
+                className="h-auto border-[color:color-mix(in_srgb,var(--primary)_16%,white)] bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--primary)]"
+              >
+                {contact.latestMatch.targetName}
+              </Badge>
+              <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-500">
+                {getMatchSourceLabel(contact.latestMatch.sourceType)}
+              </span>
             </div>
           ) : null}
 
@@ -686,6 +720,51 @@ export function ContactosWorkspace({ data }: { data: ContactosData }) {
                     <p>Creado: {formatDateLabel(selectedContact.createdAt)}</p>
                     <p>Ultima actividad: {formatDateLabel(selectedContact.lastActivityAt)}</p>
                   </div>
+
+                {selectedContact.latestMatch ? (
+                  <div className="mt-4 rounded-[20px] border border-slate-200 bg-white p-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Ultimo match</p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <Badge
+                          variant="outline"
+                          className="h-auto border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-700"
+                        >
+                          {selectedContact.latestMatch.targetName}
+                        </Badge>
+                        <span className="text-xs text-slate-500">
+                          {getMatchSourceLabel(selectedContact.latestMatch.sourceType)} ·{" "}
+                          {formatDateLabel(selectedContact.latestMatch.detectedAt)}
+                        </span>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {selectedContact.matchHistory.length > 0 ? (
+                    <div className="mt-3 rounded-[20px] border border-slate-200 bg-white p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Historial de matches</p>
+                        <span className="text-[11px] text-slate-500">{selectedContact.matchHistory.length}</span>
+                      </div>
+                      <div className="mt-3 space-y-2">
+                        {selectedContact.matchHistory.map((match) => (
+                          <div key={match.id} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2">
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-medium text-slate-950">{match.targetName}</p>
+                              <p className="text-[11px] text-slate-500">
+                                {getMatchSourceLabel(match.sourceType)} · {formatDateLabel(match.detectedAt)}
+                              </p>
+                            </div>
+                            <Badge
+                              variant="outline"
+                              className="h-auto border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-700"
+                            >
+                              {match.matchType === "FLOW" ? "Flujo" : "Producto"}
+                            </Badge>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
 
                 <div className="rounded-[24px] border border-slate-100 bg-slate-50 p-4">

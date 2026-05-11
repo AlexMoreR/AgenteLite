@@ -37,6 +37,7 @@ import {
   sendEvolutionTextMessageWithReconnect,
 } from "@/lib/evolution";
 import { resolveAgentKnowledgeBaseReply } from "@/lib/agent-knowledge-media";
+import { detectContactMatchesFromText, recordContactMatch } from "@/lib/contact-matches";
 import { enforceWorkspacePlanAccess } from "@/lib/workspace-plan-access";
 import { getEvolutionSettings } from "@/lib/system-settings";
 import { buildHandoffMessage, parseAgentTrainingConfig } from "@/lib/agent-training";
@@ -948,6 +949,29 @@ export async function POST(request: Request) {
         mediaUrl: m.mediaUrl,
       }));
 
+      const detectedContactMatches = await detectContactMatchesFromText({
+        agentId: agent.id,
+        workspaceId: channel.workspaceId,
+        messageText,
+        includeOfficialApi: true,
+      });
+      if (detectedContactMatches.length > 0) {
+        await Promise.allSettled(
+          detectedContactMatches.map((match) =>
+            recordContactMatch({
+              workspaceId: channel.workspaceId,
+              contactId: contact.id,
+              conversationId: conversation.id,
+              matchType: match.matchType,
+              sourceType: match.sourceType,
+              targetName: match.targetName,
+              targetId: match.targetId ?? null,
+              confidence: match.confidence,
+            }),
+          ),
+        );
+      }
+
       const notifyHumanAction = resolveNotifyHumanAction({
         trainingConfig: agent.trainingConfig,
         agentName: agent.name,
@@ -1060,6 +1084,64 @@ export async function POST(request: Request) {
           : knowledgeBaseReply
             ? "knowledge"
             : null;
+
+      const contactMatchTasks: Array<Promise<unknown>> = [];
+      if (quickResponseFlow?.scenarioTitle) {
+        contactMatchTasks.push(
+          recordContactMatch({
+            workspaceId: channel.workspaceId,
+            contactId: contact.id,
+            conversationId: conversation.id,
+            matchType: "FLOW",
+            sourceType: "QUICK_RESPONSE",
+            targetName: quickResponseFlow.scenarioTitle,
+            targetId: null,
+          }),
+        );
+      }
+      if (hardFlowReply?.flowTitle) {
+        contactMatchTasks.push(
+          recordContactMatch({
+            workspaceId: channel.workspaceId,
+            contactId: contact.id,
+            conversationId: conversation.id,
+            matchType: "FLOW",
+            sourceType: "FLOW",
+            targetName: hardFlowReply.flowTitle,
+            targetId: null,
+          }),
+        );
+      }
+      if (hardFlowReply?.productName) {
+        contactMatchTasks.push(
+          recordContactMatch({
+            workspaceId: channel.workspaceId,
+            contactId: contact.id,
+            conversationId: conversation.id,
+            matchType: "PRODUCT",
+            sourceType: "FLOW",
+            targetName: hardFlowReply.productName,
+            targetId: null,
+          }),
+        );
+      }
+      if (knowledgeBaseReply?.productName) {
+        contactMatchTasks.push(
+          recordContactMatch({
+            workspaceId: channel.workspaceId,
+            contactId: contact.id,
+            conversationId: conversation.id,
+            matchType: "PRODUCT",
+            sourceType: "KNOWLEDGE",
+            targetName: knowledgeBaseReply.productName,
+            targetId: null,
+          }),
+        );
+      }
+
+      if (contactMatchTasks.length > 0) {
+        await Promise.allSettled(contactMatchTasks);
+      }
 
       const generateContextualFollowUp = async (
         actionContext: string,

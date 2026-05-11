@@ -38,6 +38,30 @@ export type ContactosContact = {
   totalConversations: number;
   totalMessages: number;
   lastActivityAt: string | null;
+  latestMatch: {
+    id: string;
+    matchType: "PRODUCT" | "FLOW";
+    sourceType: "KNOWLEDGE" | "FLOW" | "QUICK_RESPONSE" | "AI";
+    targetName: string;
+    detectedAt: string;
+    tag: {
+      id: string;
+      name: string;
+      color: string;
+    } | null;
+  } | null;
+  matchHistory: Array<{
+    id: string;
+    matchType: "PRODUCT" | "FLOW";
+    sourceType: "KNOWLEDGE" | "FLOW" | "QUICK_RESPONSE" | "AI";
+    targetName: string;
+    detectedAt: string;
+    tag: {
+      id: string;
+      name: string;
+      color: string;
+    } | null;
+  }>;
   recentConversations: ContactosConversationSummary[];
 };
 

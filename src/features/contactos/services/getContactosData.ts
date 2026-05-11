@@ -205,6 +205,24 @@ export async function getContactosData({
             },
           },
         },
+        contactMatches: {
+          orderBy: [{ detectedAt: "desc" }, { createdAt: "desc" }],
+          take: 5,
+          select: {
+            id: true,
+            matchType: true,
+            sourceType: true,
+            targetName: true,
+            detectedAt: true,
+            tag: {
+              select: {
+                id: true,
+                name: true,
+                color: true,
+              },
+            },
+          },
+        },
       },
     });
 
@@ -258,6 +276,36 @@ export async function getContactosData({
       totalConversations: contact._count.conversations,
       totalMessages: contact._count.messages,
       lastActivityAt: contact.conversations[0]?.lastMessageAt?.toISOString() ?? null,
+      latestMatch: contact.contactMatches[0]
+        ? {
+            id: contact.contactMatches[0].id,
+            matchType: contact.contactMatches[0].matchType,
+            sourceType: contact.contactMatches[0].sourceType,
+            targetName: contact.contactMatches[0].targetName,
+            detectedAt: contact.contactMatches[0].detectedAt.toISOString(),
+            tag: contact.contactMatches[0].tag
+              ? {
+                  id: contact.contactMatches[0].tag.id,
+                  name: contact.contactMatches[0].tag.name,
+                  color: contact.contactMatches[0].tag.color,
+                }
+              : null,
+          }
+        : null,
+      matchHistory: contact.contactMatches.map((match) => ({
+        id: match.id,
+        matchType: match.matchType,
+        sourceType: match.sourceType,
+        targetName: match.targetName,
+        detectedAt: match.detectedAt.toISOString(),
+        tag: match.tag
+          ? {
+              id: match.tag.id,
+              name: match.tag.name,
+              color: match.tag.color,
+            }
+          : null,
+      })),
       recentConversations: contact.conversations.map((conversation) => ({
         id: conversation.id,
         status: conversation.status,

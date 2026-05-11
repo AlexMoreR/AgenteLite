@@ -10,6 +10,7 @@ import {
   sendOfficialApiTypingIndicator,
 } from "@/lib/official-api-messaging";
 import { resolveAgentKnowledgeBaseReply } from "@/lib/agent-knowledge-media";
+import { detectContactMatchesFromText, recordContactMatch } from "@/lib/contact-matches";
 import { prisma } from "@/lib/prisma";
 import { ensureOfficialApiConfigTable } from "@/lib/official-api-config";
 import { buildHandoffMessage } from "@/lib/agent-training";
@@ -606,6 +607,32 @@ export async function POST(request: Request) {
             LIMIT 8
           `
         : [];
+
+      if (linkedAgentChannel?.agent?.id) {
+        const detectedContactMatches = await detectContactMatchesFromText({
+          agentId: linkedAgentChannel.agent.id,
+          workspaceId: config.workspaceId,
+          messageText: message.content ?? "",
+          includeOfficialApi: true,
+        });
+        if (detectedContactMatches.length > 0) {
+          await Promise.allSettled(
+            detectedContactMatches.map((match) =>
+              recordContactMatch({
+                workspaceId: config.workspaceId,
+                contactId: message.contactId,
+                conversationId: message.conversationId,
+                matchType: match.matchType,
+                sourceType: match.sourceType,
+                targetName: match.targetName,
+                targetId: match.targetId ?? null,
+                confidence: match.confidence,
+              }),
+            ),
+          );
+        }
+      }
+
       const notifyHumanAction = linkedAgentChannel?.agent?.id
         ? resolveNotifyHumanAction({
             trainingConfig: linkedAgentChannel.agent.trainingConfig,
@@ -676,6 +703,51 @@ export async function POST(request: Request) {
                 image: chatbotReply.image,
               }
             : null;
+
+      const contactMatchTasks: Array<Promise<unknown>> = [];
+      if (agentProductFlowReply?.flowTitle) {
+        contactMatchTasks.push(
+          recordContactMatch({
+            workspaceId: config.workspaceId,
+            contactId: message.contactId,
+            conversationId: message.conversationId,
+            matchType: "FLOW",
+            sourceType: "FLOW",
+            targetName: agentProductFlowReply.flowTitle,
+            targetId: null,
+          }),
+        );
+      }
+      if (agentProductFlowReply?.productName) {
+        contactMatchTasks.push(
+          recordContactMatch({
+            workspaceId: config.workspaceId,
+            contactId: message.contactId,
+            conversationId: message.conversationId,
+            matchType: "PRODUCT",
+            sourceType: "FLOW",
+            targetName: agentProductFlowReply.productName,
+            targetId: null,
+          }),
+        );
+      }
+      if (agentKnowledgeBaseReply?.productName) {
+        contactMatchTasks.push(
+          recordContactMatch({
+            workspaceId: config.workspaceId,
+            contactId: message.contactId,
+            conversationId: message.conversationId,
+            matchType: "PRODUCT",
+            sourceType: "KNOWLEDGE",
+            targetName: agentKnowledgeBaseReply.productName,
+            targetId: null,
+          }),
+        );
+      }
+
+      if (contactMatchTasks.length > 0) {
+        await Promise.allSettled(contactMatchTasks);
+      }
 
       if (!reply || (!reply.image && !reply.text?.trim())) {
         continue;

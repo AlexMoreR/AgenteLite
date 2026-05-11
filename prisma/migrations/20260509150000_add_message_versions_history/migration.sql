@@ -1,0 +1,1 @@
+-- Intentionally left empty to restore migration history consistency.

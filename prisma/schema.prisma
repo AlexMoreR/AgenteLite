@@ -61,6 +61,7 @@ model Workspace {
   agentCopilotMessages AgentCopilotMessage[]
   contacts             Contact[]
   ContactTag           ContactTag[]
+  contactMatches       ContactMatch[]
   conversations        Conversation[]
   financeAgentConfig   FinanceAgentConfig?
   financeChatMessages  FinanceChatMessage[]
@@ -160,6 +161,7 @@ model Contact {
   avatarUrl     String?
   workspace     Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   ContactTag    ContactTag[]
+  contactMatches ContactMatch[]
   conversations Conversation[]
   messages      Message[]
 
@@ -186,6 +188,7 @@ model Conversation {
   contact            Contact            @relation(fields: [contactId], references: [id], onDelete: Cascade)
   workspace          Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   messages           Message[]
+  contactMatches     ContactMatch[]
 
   @@index([workspaceId, status])
   @@index([workspaceId, lastMessageAt])
@@ -587,10 +590,38 @@ model Tag {
   createdAt   DateTime     @default(now())
   updatedAt   DateTime
   ContactTag  ContactTag[]
+  contactMatches ContactMatch[]
   Workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@unique([workspaceId, slug])
   @@index([workspaceId, createdAt])
+}
+
+model ContactMatch {
+  id              String                @id @default(cuid())
+  workspaceId     String
+  contactId       String
+  conversationId  String?
+  tagId           String?
+  matchType       ContactMatchType
+  sourceType      ContactMatchSourceType
+  targetId        String?
+  targetName      String
+  targetSlug      String
+  dedupeKey       String
+  confidence      Int                   @default(100)
+  detectedAt      DateTime              @default(now())
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  workspace       Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contact         Contact               @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  conversation    Conversation?         @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  tag             Tag?                  @relation(fields: [tagId], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, dedupeKey])
+  @@index([workspaceId, contactId, detectedAt])
+  @@index([workspaceId, detectedAt])
+  @@index([workspaceId, matchType, targetSlug])
 }
 
 enum Role {
@@ -710,6 +741,18 @@ enum MessageType {
   BUTTON
   TEMPLATE
   SYSTEM
+}
+
+enum ContactMatchType {
+  PRODUCT
+  FLOW
+}
+
+enum ContactMatchSourceType {
+  KNOWLEDGE
+  FLOW
+  QUICK_RESPONSE
+  AI
 }
 
 enum MessageStatus {
