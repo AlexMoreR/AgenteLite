@@ -527,9 +527,74 @@ export async function getContactosData({
         })
       : null;
 
+  const selectedContactFromQueryMapped = selectedContactFromQuery
+    ? ({
+        id: selectedContactFromQuery.id,
+        name: selectedContactFromQuery.name,
+        phoneNumber: selectedContactFromQuery.phoneNumber,
+        email: selectedContactFromQuery.email,
+        notes: selectedContactFromQuery.notes,
+        avatarUrl: selectedContactFromQuery.avatarUrl,
+        tags: getContactTags(selectedContactFromQuery.ContactTag.map((item) => item.Tag)),
+        createdAt: selectedContactFromQuery.createdAt.toISOString(),
+        updatedAt: selectedContactFromQuery.updatedAt.toISOString(),
+        totalConversations: selectedContactFromQuery._count.conversations,
+        totalMessages: selectedContactFromQuery._count.messages,
+        lastActivityAt: selectedContactFromQuery.conversations[0]?.lastMessageAt?.toISOString() ?? null,
+        latestMatch: selectedContactFromQuery.contactMatches[0]
+          ? {
+              id: selectedContactFromQuery.contactMatches[0].id,
+              matchType: selectedContactFromQuery.contactMatches[0].matchType,
+              sourceType: selectedContactFromQuery.contactMatches[0].sourceType,
+              targetName: selectedContactFromQuery.contactMatches[0].targetName,
+              detectedAt: selectedContactFromQuery.contactMatches[0].detectedAt.toISOString(),
+              tag: selectedContactFromQuery.contactMatches[0].tag
+                ? {
+                    id: selectedContactFromQuery.contactMatches[0].tag.id,
+                    name: selectedContactFromQuery.contactMatches[0].tag.name,
+                    color: selectedContactFromQuery.contactMatches[0].tag.color,
+                  }
+                : null,
+            }
+          : null,
+        matchHistory: selectedContactFromQuery.contactMatches.map((match) => ({
+          id: match.id,
+          matchType: match.matchType,
+          sourceType: match.sourceType,
+          targetName: match.targetName,
+          detectedAt: match.detectedAt.toISOString(),
+          tag: match.tag
+            ? {
+                id: match.tag.id,
+                name: match.tag.name,
+                color: match.tag.color,
+              }
+            : null,
+        })),
+        recentConversations: selectedContactFromQuery.conversations.map((conversation) => ({
+          id: conversation.id,
+          status: conversation.status,
+          automationPaused: conversation.automationPaused,
+          lastMessageAt: conversation.lastMessageAt?.toISOString() ?? null,
+          startedAt: conversation.startedAt.toISOString(),
+          updatedAt: conversation.updatedAt.toISOString(),
+          agent: conversation.agent,
+          channel: conversation.channel,
+          lastMessage: conversation.messages[0]
+            ? {
+                content: conversation.messages[0].content,
+                createdAt: conversation.messages[0].createdAt.toISOString(),
+                direction: conversation.messages[0].direction,
+                type: conversation.messages[0].type,
+              }
+            : null,
+        })),
+      } satisfies ContactosContact)
+    : null;
+
   const selectedContact =
     selectedContactInPage ||
-    selectedContactFromQuery ||
+    selectedContactFromQueryMapped ||
     contacts[0] ||
     null;
 

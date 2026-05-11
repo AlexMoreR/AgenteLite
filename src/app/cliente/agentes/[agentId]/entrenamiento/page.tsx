@@ -169,12 +169,6 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                   />
                 </label>
 
-                <NewCustomerWelcomeField
-                  businessName={agent.workspace.name}
-                  defaultChecked={training.greetNewCustomers}
-                  defaultMessage={training.customWelcomeMessage || buildDefaultNewCustomerWelcomeMessage(agent.workspace.name)}
-                />
-
                 <SectionHeader
                   title="Contexto"
                   helpText="Aqui va la explicacion comercial que el agente usara para vender por WhatsApp. Es distinta al resumen general del negocio."
@@ -193,6 +187,12 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                     required
                   />
                 </label>
+
+                <NewCustomerWelcomeField
+                  businessName={agent.workspace.name}
+                  defaultChecked={training.greetNewCustomers}
+                  defaultMessage={training.customWelcomeMessage || buildDefaultNewCustomerWelcomeMessage(agent.workspace.name)}
+                />
 
                 <fieldset className="space-y-2.5">
                   <legend className="inline-flex items-center gap-1.5 text-[13px] font-medium text-slate-700">
