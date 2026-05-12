@@ -9,6 +9,13 @@ type TrainingSalesToneFieldProps = {
   helpText?: string;
 };
 
+const toneEmojiMap = {
+  "muy-formal": "💼",
+  "amigable-profesional": "✅",
+  "cercano-casual": "😊",
+  entusiasta: "✨",
+} as const;
+
 export function TrainingSalesToneField({
   defaultValue,
   helpText,
@@ -23,7 +30,7 @@ export function TrainingSalesToneField({
         <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Personalidad</span>
         {helpText ? <TrainingHelpPopover title="Personalidad" description={helpText} /> : null}
       </div>
-      <div className="mt-3 grid gap-2 md:grid-cols-3">
+      <div className="mt-3 grid gap-2 grid-cols-2 md:grid-cols-4">
         {toneOptions.map((option) => {
           const isActive = salesTone === option.value;
 
@@ -40,8 +47,12 @@ export function TrainingSalesToneField({
               }`}
               aria-pressed={isActive}
             >
-              <span className="text-[13px] font-semibold leading-5 text-slate-900">{option.label}</span>
-              <span className="text-[11px] leading-4.5 text-slate-500">{option.prompt}</span>
+              <span className="inline-flex items-center gap-2">
+                <span className="text-[13px] font-semibold leading-5 text-slate-900">{option.label}</span>
+                <span className="shrink-0 text-base leading-none" aria-hidden="true">
+                  {toneEmojiMap[option.value]}
+                </span>
+              </span>
             </button>
           );
         })}

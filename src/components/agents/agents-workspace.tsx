@@ -36,6 +36,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FormActionSwitch } from "@/components/ui/form-action-switch";
 
 type AgentCard = {
@@ -233,9 +234,6 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
   };
 
   const responseLengthLabel = getResponseLengthLabel(getResponseLengthFromValue(responseLengthValue));
-  const responseLengthPrompt =
-    responseLengthOptions.find((option) => option.value === getResponseLengthFromValue(responseLengthValue))?.prompt ??
-    responseLengthOptions[1].prompt;
 
   return (
     <>
@@ -586,11 +584,11 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
                             ))}
                           </div>
                           <div className="rounded-[28px] border border-[rgba(148,163,184,0.14)] bg-white p-5">
-                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                              <div>
-                                <div className="inline-flex items-center gap-2">
-                                  <p className="text-sm font-semibold text-slate-900">Longitud de respuesta</p>
-                                  <TrainingHelpPopover
+                              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                <div>
+                                  <div className="inline-flex items-center gap-2">
+                                    <p className="text-sm font-semibold text-slate-900">Longitud de respuesta</p>
+                                    <TrainingHelpPopover
                                     title="Longitud de respuesta"
                                     description="Controla si el agente respondera corto y directo o con mas contexto cuando explique y venda."
                                   />
@@ -599,13 +597,26 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
                               <span className="rounded-full bg-[color-mix(in_srgb,var(--primary)_10%,white)] px-3 py-1 text-sm font-semibold text-[var(--primary)]">{responseLengthLabel}</span>
                             </div>
                             <div className="mt-5">
-                              <input type="range" name="responseLengthValue" min="0" max="100" step="1" value={responseLengthValue} onChange={(event) => setResponseLengthValue(Number(event.target.value))} className="h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200 accent-[var(--primary)]" />
-                              <div className="mt-3 flex items-center justify-between text-xs font-medium uppercase tracking-[0.14em] text-slate-500">
-                                <span>Muy corto</span>
-                                <span>Equilibrado</span>
-                                <span>Detallado</span>
-                              </div>
-                              <p className="mt-3 text-sm leading-6 text-slate-600">{responseLengthPrompt}</p>
+                              <input type="hidden" name="responseLengthValue" value={responseLengthValue} />
+                              <Select
+                                value={getResponseLengthFromValue(responseLengthValue)}
+                                onValueChange={(value) =>
+                                  setResponseLengthValue(
+                                    value === "muy-corto" ? 0 : value === "detallado" ? 100 : 50,
+                                  )
+                                }
+                              >
+                                <SelectTrigger className="h-11 w-full rounded-[16px] border-[rgba(148,163,184,0.14)] bg-white px-3.5 text-sm text-slate-800 shadow-[0_18px_32px_-34px_rgba(15,23,42,0.18)]">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {responseLengthOptions.map((option) => (
+                                    <SelectItem key={option.value} value={option.value}>
+                                      {option.label}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
                             </div>
                           </div>
                           <div className="rounded-[28px] border border-[rgba(148,163,184,0.14)] bg-white p-5">

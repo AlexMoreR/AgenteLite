@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { Shield } from "lucide-react";
 import { BusinessNameHeader } from "@/components/agents/business-name-header";
 import { AgentTrainingAutosaveForm } from "@/components/agents/agent-training-autosave-form";
+import { AgentTrainingAutosaveStatus } from "@/components/agents/agent-training-autosave-form";
 import { auth } from "@/auth";
 import { AgentPanelShell } from "@/components/agents/agent-panel-shell";
 import { TrainingSalesToneField } from "@/components/agents/training-sales-tone-field";
@@ -28,7 +29,7 @@ import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { parseWorkspaceBusinessConfig } from "@/lib/workspace-business-config";
 
-import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
+import { FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 
 type PageProps = {
@@ -156,7 +157,6 @@ export default async function AgentTrainingPage({ params }: PageProps) {
   return (
     <AgentPanelShell agentId={agent.id}>
       <AgentTrainingAutosaveForm agentId={agent.id} className="space-y-4">
-        <input type="hidden" name="agentId" value={agent.id} />
         <input type="hidden" name="postCreateAction" value="probar" />
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1.18fr)_minmax(340px,0.82fr)]">
           <Card className="border border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcfd_100%)] p-4 shadow-[0_20px_44px_-38px_rgba(15,23,42,0.18)] sm:p-5 xl:col-span-2">
@@ -179,12 +179,14 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                 youtube={youtube}
               />
 
+              <AgentTrainingAutosaveStatus />
+
               <Accordion defaultValue={["shipping"]} className="">
                 <AccordionItem value="shipping">
-                  <AccordionTrigger className="py-3.5 text-[14px] font-semibold text-slate-900 hover:no-underline">
+                  <AccordionTrigger className="py-2 text-[14px] font-semibold text-slate-900 hover:no-underline">
                     ✨ Etapa 1: Presentación
                   </AccordionTrigger>
-                  <AccordionContent className="pb-4">
+                  <AccordionContent className="pb-2">
                     <div className="py-2">
                       <FieldLabel
                         htmlFor="input-field-username"
@@ -211,80 +213,83 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                     />
                   </AccordionContent>
                 </AccordionItem>
-                <AccordionItem value="shipping"></AccordionItem>
-              </Accordion>
-
-              <div className="space-y-3.5">
-                <SectionHeader
-                  title="Contexto"
-                  helpText="Aqui va la explicacion comercial que el agente usara para vender por WhatsApp. Es distinta al resumen general del negocio."
-                />
-                <label className="space-y-2">
-                  <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-slate-700">
-                    <span>Instrucción</span>
-                    <TrainingHelpPopover
-                      title="Instrucción"
-                      description="Agrega aqui una indicacion concreta que el agente deba seguir siempre. Se mostrara en el prompt como Instrucción:."
-                    />
-                  </span>
-                  <TrainingTextareaField
-                    name="instruction"
-                    rows={3}
-                    defaultValue={instruction}
-                    placeholder="Ej. Antes de hablar de precio, pide el codigo o referencia del producto que le gusto."
-                    className="flex min-h-[110px] w-full rounded-[20px] border border-[rgba(148,163,184,0.14)] bg-white px-3.5 py-3 text-[13px] leading-6 text-slate-800 shadow-[0_18px_32px_-34px_rgba(15,23,42,0.18)] outline-none transition placeholder:text-slate-400 focus:border-[var(--primary)]"
-                  />
-                </label>
-
-                <label className="space-y-2">
-                  <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-slate-700">
-                    <span>Que vendes y como lo explicarias en WhatsApp</span>
-                  </span>
-                  <TrainingTextareaField
-                    name="businessDescription"
-                    rows={4}
-                    defaultValue={businessDescription}
-                    placeholder="Escribe como se lo explicarias a un cliente por WhatsApp: que vendes, para quien y por que deberia interesarle."
-                    minLength={12}
-                    className="flex min-h-[138px] w-full rounded-[20px] border border-[rgba(148,163,184,0.14)] bg-white px-3.5 py-3 text-[13px] leading-6 text-slate-800 shadow-[0_18px_32px_-34px_rgba(15,23,42,0.18)] outline-none transition placeholder:text-slate-400 focus:border-[var(--primary)]"
-                    required
-                  />
-                </label>
-
-                <fieldset className="space-y-2.5">
-                  <legend className="inline-flex items-center gap-1.5 text-[13px] font-medium text-slate-700">
-                    <span>A que tipo de cliente le vendes</span>
-                    <TrainingHelpPopover
-                      title="Tipo de cliente"
-                      description="Selecciona los perfiles que mas te compran. Esto ayuda al agente a usar ejemplos y tono mas cercanos."
-                    />
-                  </legend>
-                  <p className="text-[12px] leading-5 text-slate-500">
-                    Marca las opciones que mas se parezcan a tu cliente ideal.
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {targetAudienceOptions.map((option) => (
-                      <label key={option} className="cursor-pointer">
-                        <input
-                          type="checkbox"
-                          name="targetAudiences"
-                          value={option}
-                          defaultChecked={targetAudiences.includes(option)}
-                          className="peer sr-only"
-                        />
-                        <span className="inline-flex min-h-9 items-center justify-center rounded-full border border-[rgba(148,163,184,0.14)] bg-white px-3 py-1.5 text-[12px] font-medium text-slate-700 shadow-[0_10px_18px_-26px_rgba(15,23,42,0.22)] transition hover:border-[color-mix(in_srgb,var(--primary)_30%,white)] peer-checked:border-[color-mix(in_srgb,var(--primary)_88%,white)] peer-checked:bg-[color-mix(in_srgb,var(--primary)_8%,white)] peer-checked:text-[var(--primary)]">
-                          {option}
+                <AccordionItem value="context">
+                  <AccordionTrigger className="py-2 text-[14px] font-semibold text-slate-900 hover:no-underline">
+                    🧠 Etapa 2: Contexto
+                  </AccordionTrigger>
+                  <AccordionContent className="pb-4">
+                    <div className="space-y-3.5 pt-2">
+                      <label className="space-y-2">
+                        <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-slate-700">
+                          <span>Instrucción</span>
+                          <TrainingHelpPopover
+                            title="Instrucción"
+                            description="Agrega aqui una indicacion concreta que el agente deba seguir siempre. Se mostrara en el prompt como Instrucción:."
+                          />
                         </span>
+                        <TrainingTextareaField
+                          name="instruction"
+                          rows={3}
+                          defaultValue={instruction}
+                          placeholder="Ej. Antes de hablar de precio, pide el codigo o referencia del producto que le gusto."
+                          className="flex min-h-[110px] w-full rounded-[20px] border border-[rgba(148,163,184,0.14)] bg-white px-3.5 py-3 text-[13px] leading-6 text-slate-800 shadow-[0_18px_32px_-34px_rgba(15,23,42,0.18)] outline-none transition placeholder:text-slate-400 focus:border-[var(--primary)]"
+                        />
                       </label>
-                    ))}
-                  </div>
-                </fieldset>
 
-                <TrainingSalesToneField
-                  defaultValue={training.salesTone}
-                  helpText="Aqui eliges la personalidad del agente al responder: mas formal, mas cercano o mas entusiasta."
-                />
-              </div>
+                      <label className="space-y-2">
+                        <span className="inline-flex items-center gap-1.5 text-[13px]  text-slate-700">
+                          <span>
+                            Que vendes y como lo explicarias en WhatsApp
+                          </span>
+                        </span>
+                        <TrainingTextareaField
+                          name="businessDescription"
+                          rows={4}
+                          defaultValue={businessDescription}
+                          placeholder="Escribe como se lo explicarias a un cliente por WhatsApp: que vendes, para quien y por que deberia interesarle."
+                          minLength={12}
+                          className="flex min-h-[138px] w-full rounded-[20px] border border-[rgba(148,163,184,0.14)] bg-white px-3.5 py-3 text-[13px] leading-6 text-slate-800 shadow-[0_18px_32px_-34px_rgba(15,23,42,0.18)] outline-none transition placeholder:text-slate-400 focus:border-[var(--primary)]"
+                          required
+                        />
+                      </label>
+
+                      <fieldset className="space-y-2.5">
+                        <legend className="inline-flex items-center gap-1.5 py-2 text-[13px] font-medium text-slate-700">
+                          <FieldLabel
+                            htmlFor="input-field-username"
+                            className="text-[13px] px-2 pb-2"
+                          >
+                            A que tipo de cliente le vendes
+                          </FieldLabel>
+                        </legend>
+                        <div className="flex flex-wrap gap-2">
+                          {targetAudienceOptions.map((option) => (
+                            <label key={option} className="cursor-pointer">
+                              <input
+                                type="checkbox"
+                                name="targetAudiences"
+                                value={option}
+                                defaultChecked={targetAudiences.includes(
+                                  option,
+                                )}
+                                className="peer sr-only"
+                              />
+                              <span className="inline-flex min-h-9 items-center justify-center rounded-full border border-[rgba(148,163,184,0.14)] bg-white px-3 py-1.5 text-[12px] font-medium text-slate-700 shadow-[0_10px_18px_-26px_rgba(15,23,42,0.22)] transition hover:border-[color-mix(in_srgb,var(--primary)_30%,white)] peer-checked:border-[color-mix(in_srgb,var(--primary)_88%,white)] peer-checked:bg-[color-mix(in_srgb,var(--primary)_8%,white)] peer-checked:text-[var(--primary)]">
+                                {option}
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                      </fieldset>
+
+                      <TrainingSalesToneField
+                        defaultValue={training.salesTone}
+                        helpText="Aqui eliges la personalidad del agente al responder: mas formal, mas cercano o mas entusiasta."
+                      />
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
 
               <div className="rounded-[22px] border border-[rgba(148,163,184,0.12)] bg-[linear-gradient(180deg,#ffffff_0%,#fafbfc_100%)] p-4">
                 <div className="min-w-0 space-y-3">

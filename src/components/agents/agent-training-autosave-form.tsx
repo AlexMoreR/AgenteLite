@@ -1,6 +1,13 @@
 "use client";
 
-import { type ReactNode, useActionState, useEffect, useRef } from "react";
+import {
+  createContext,
+  type ReactNode,
+  useActionState,
+  useContext,
+  useEffect,
+  useRef,
+} from "react";
 import { useRouter } from "next/navigation";
 import {
   autosaveAgentTrainingAction,
@@ -12,6 +19,55 @@ type AgentTrainingAutosaveFormProps = {
   className?: string;
   children: ReactNode;
 };
+
+type AgentTrainingAutosaveContextValue = {
+  pending: boolean;
+  state: AgentTrainingAutosaveState;
+};
+
+const AgentTrainingAutosaveContext =
+  createContext<AgentTrainingAutosaveContextValue | null>(null);
+
+function useAgentTrainingAutosaveContext() {
+  const context = useContext(AgentTrainingAutosaveContext);
+
+  if (!context) {
+    throw new Error(
+      "AgentTrainingAutosaveStatus must be used inside AgentTrainingAutosaveForm.",
+    );
+  }
+
+  return context;
+}
+
+export function AgentTrainingAutosaveStatus() {
+  const { pending, state } = useAgentTrainingAutosaveContext();
+
+  return (
+    <div
+      className={`flex items-center rounded-[16px] border px-3.5 py-2 text-[12px] shadow-[0_12px_24px_-18px_rgba(15,23,42,0.18)] ${
+        pending
+          ? "border-[color-mix(in_srgb,var(--primary)_24%,white)] bg-[color-mix(in_srgb,var(--primary)_8%,white)] text-[var(--primary)]"
+          : state.ok && state.savedAt
+            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+            : state.message
+              ? "border-rose-200 bg-rose-50 text-rose-700"
+              : "border-[rgba(148,163,184,0.14)] bg-white text-slate-500"
+      }`}
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      <span>
+        {pending
+          ? "Guardando entrenamiento..."
+          : state.ok && state.savedAt
+            ? "Entrenamiento guardado."
+            : state.message ||
+              "Los cambios se guardan automaticamente y tambien puedes usar el boton Guardar entrenamiento."}
+      </span>
+    </div>
+  );
+}
 
 export function AgentTrainingAutosaveForm({
   agentId,
@@ -88,57 +144,27 @@ export function AgentTrainingAutosaveForm({
   }, [router, state.ok, state.savedAt]);
 
   return (
-    <form
-      ref={formRef}
-      action={formAction}
-      className={className}
-      noValidate
-      onInputCapture={() => scheduleAutosave()}
-      onChangeCapture={() => scheduleAutosave()}
-      onClickCapture={(event) => {
-        if (!(event.target instanceof HTMLElement)) {
-          return;
-        }
+    <AgentTrainingAutosaveContext.Provider value={{ pending, state }}>
+      <form
+        ref={formRef}
+        action={formAction}
+        className={className}
+        noValidate
+        onInputCapture={() => scheduleAutosave()}
+        onChangeCapture={() => scheduleAutosave()}
+        onClickCapture={(event) => {
+          if (!(event.target instanceof HTMLElement)) {
+            return;
+          }
 
-        if (event.target.closest("[data-autosave-trigger='true']")) {
-          scheduleAutosave(120);
-        }
-      }}
+          if (event.target.closest("[data-autosave-trigger='true']")) {
+            scheduleAutosave(120);
+          }
+        }}
       >
         <input type="hidden" name="agentId" value={agentId} />
-        <div
-          className={`flex min-h-10 items-center justify-between rounded-[16px] border px-3.5 py-2 text-[12px] ${
-            pending
-              ? "border-[color-mix(in_srgb,var(--primary)_24%,white)] bg-[color-mix(in_srgb,var(--primary)_8%,white)] text-[var(--primary)]"
-              : state.ok && state.savedAt
-                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                : state.message
-                  ? "border-rose-200 bg-rose-50 text-rose-700"
-                  : "border-[rgba(148,163,184,0.14)] bg-white text-slate-500"
-          }`}
-          aria-live="polite"
-          aria-atomic="true"
-        >
-          <span>
-            {pending
-              ? "Guardando entrenamiento..."
-              : state.ok && state.savedAt
-                ? "Entrenamiento guardado."
-                : state.message || "Los cambios se guardan automaticamente y tambien puedes usar el boton Guardar entrenamiento."}
-          </span>
-        </div>
-        <div
-          className="sr-only"
-          aria-live="polite"
-        aria-atomic="true"
-      >
-        {pending
-          ? "Guardando entrenamiento"
-          : state.ok && state.savedAt
-            ? "Entrenamiento guardado"
-            : state.message}
-      </div>
-      {children}
-    </form>
+        {children}
+      </form>
+    </AgentTrainingAutosaveContext.Provider>
   );
 }
