@@ -79,6 +79,22 @@ function buildBogotaHeatmapWindow(days = 7) {
   });
 }
 
+function getBogotaWindowStart(days = 7) {
+  const now = new Date();
+  const todayParts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Bogota",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+
+  const year = Number(todayParts.find((part) => part.type === "year")?.value ?? "1970");
+  const month = Number(todayParts.find((part) => part.type === "month")?.value ?? "1");
+  const day = Number(todayParts.find((part) => part.type === "day")?.value ?? "1");
+
+  return new Date(Date.UTC(year, month - 1, day - (days - 1), 0, 0, 0));
+}
+
 function normalizeReportRangeDays(value: number | undefined) {
   if (value === 14 || value === 30) {
     return value;
@@ -309,7 +325,12 @@ export async function getContactosData({
     }),
     includeReport
       ? prisma.contact.findMany({
-          where: contactWhere,
+          where: {
+            ...contactWhere,
+            createdAt: {
+              gte: getBogotaWindowStart(normalizedReportRangeDays),
+            },
+          },
           select: {
             createdAt: true,
           },
@@ -319,6 +340,133 @@ export async function getContactosData({
 
   const totalPages = Math.max(1, Math.ceil(totalContacts / CONTACTS_PAGE_SIZE));
   const currentPage = Math.min(requestedPage, totalPages);
+
+  if (includeReport) {
+    const heatmapDays = buildBogotaHeatmapWindow(normalizedReportRangeDays);
+    const dailyCreationStatsByDay = new Map<
+      string,
+      {
+        dayKey: string;
+        label: string;
+        count: number;
+        firstCreatedAt: string;
+        lastCreatedAt: string;
+      }
+    >();
+    const creationHeatmapByDay = new Map<
+      string,
+      {
+        dayKey: string;
+        dayLabel: string;
+        dateLabel: string;
+        total: number;
+        hours: Array<{
+          hour: number;
+          count: number;
+        }>;
+      }
+    >();
+
+    for (const dayValue of heatmapDays) {
+      const dayKey = getBogotaDayKey(dayValue);
+      creationHeatmapByDay.set(dayKey, {
+        dayKey,
+        dayLabel: getBogotaShortWeekday(dayValue),
+        dateLabel: getBogotaDateLabel(dayValue),
+        total: 0,
+        hours: Array.from({ length: 24 }, (_, hour) => ({
+          hour,
+          count: 0,
+        })),
+      });
+    }
+
+    for (const contact of reportContacts) {
+      const createdAt = new Date(contact.createdAt);
+      const dayKey = getBogotaDayKey(createdAt);
+      const currentDaily = dailyCreationStatsByDay.get(dayKey);
+
+      if (!currentDaily) {
+        dailyCreationStatsByDay.set(dayKey, {
+          dayKey,
+          label: getBogotaDateLabel(createdAt),
+          count: 1,
+          firstCreatedAt: createdAt.toISOString(),
+          lastCreatedAt: createdAt.toISOString(),
+        });
+      } else {
+        const currentFirst = new Date(currentDaily.firstCreatedAt);
+        const currentLast = new Date(currentDaily.lastCreatedAt);
+        currentDaily.count += 1;
+        currentDaily.firstCreatedAt = createdAt < currentFirst ? createdAt.toISOString() : currentDaily.firstCreatedAt;
+        currentDaily.lastCreatedAt = createdAt > currentLast ? createdAt.toISOString() : currentDaily.lastCreatedAt;
+      }
+
+      const heatmapRow = creationHeatmapByDay.get(dayKey);
+      if (heatmapRow) {
+        const hour = getBogotaHourKey(createdAt);
+        heatmapRow.hours[hour].count += 1;
+        heatmapRow.total += 1;
+      }
+    }
+
+    const dailyCreationStats = Array.from(dailyCreationStatsByDay.values()).sort((left, right) =>
+      right.dayKey.localeCompare(left.dayKey),
+    );
+    const creationHeatmapRows = Array.from(creationHeatmapByDay.values());
+    const creationHeatmapMaxCount = creationHeatmapRows.reduce((max, row) => {
+      const rowMax = row.hours.reduce((hourMax, hour) => Math.max(hourMax, hour.count), 0);
+      return Math.max(max, rowMax);
+    }, 0);
+
+    let agentFilterName: string | null = null;
+    if (agentId) {
+      const agent = await prisma.agent.findFirst({
+        where: {
+          id: agentId,
+          workspaceId: membership.workspace.id,
+        },
+        select: {
+          name: true,
+        },
+      });
+
+      agentFilterName = agent?.name ?? null;
+    }
+
+    return {
+      workspaceId: membership.workspace.id,
+      workspaceName: membership.workspace.name,
+      searchQuery,
+      agentFilterId: agentId || null,
+      agentFilterName,
+      reportRangeDays: normalizedReportRangeDays,
+      pagination: {
+        page: currentPage,
+        pageSize: CONTACTS_PAGE_SIZE,
+        total: totalContacts,
+        totalPages,
+        rangeStart: totalContacts === 0 ? 0 : (currentPage - 1) * CONTACTS_PAGE_SIZE + 1,
+        rangeEnd: totalContacts === 0 ? 0 : (currentPage - 1) * CONTACTS_PAGE_SIZE + Math.min(CONTACTS_PAGE_SIZE, totalContacts),
+        hasPreviousPage: currentPage > 1,
+        hasNextPage: currentPage < totalPages,
+      },
+      stats: {
+        total: totalContacts,
+        withConversations,
+        withoutConversations: totalContacts - withConversations,
+        withEmail,
+      },
+      dailyCreationStats,
+      creationHeatmap: {
+        maxCount: creationHeatmapMaxCount,
+        days: creationHeatmapRows,
+      },
+      contacts: [],
+      selectedContactId: selectedContactId || null,
+      selectedContact: null,
+    };
+  }
 
   const loadContacts = async () =>
     prisma.contact.findMany({
@@ -441,69 +589,6 @@ export async function getContactosData({
       return haystack.includes(query);
     })
     .sort((left, right) => getContactLastActivity(right) - getContactLastActivity(left));
-
-  const dailyCreationStats = includeReport
-    ? Object.values(
-        reportContacts.reduce<Record<string, { dayKey: string; label: string; count: number; firstCreatedAt: string; lastCreatedAt: string }>>(
-          (acc, contact) => {
-            const createdAt = new Date(contact.createdAt);
-            const dayKey = getBogotaDayKey(createdAt);
-            const current = acc[dayKey];
-
-            if (!current) {
-              acc[dayKey] = {
-                dayKey,
-                label: getBogotaDateLabel(createdAt),
-                count: 1,
-                firstCreatedAt: createdAt.toISOString(),
-                lastCreatedAt: createdAt.toISOString(),
-              };
-              return acc;
-            }
-
-            const currentFirst = new Date(current.firstCreatedAt);
-            const currentLast = new Date(current.lastCreatedAt);
-            acc[dayKey] = {
-              ...current,
-              count: current.count + 1,
-              firstCreatedAt: createdAt < currentFirst ? createdAt.toISOString() : current.firstCreatedAt,
-              lastCreatedAt: createdAt > currentLast ? createdAt.toISOString() : current.lastCreatedAt,
-            };
-            return acc;
-          },
-          {},
-        ),
-      ).sort((left, right) => right.dayKey.localeCompare(left.dayKey))
-    : [];
-
-  const heatmapDays = includeReport ? buildBogotaHeatmapWindow(normalizedReportRangeDays) : [];
-  const creationHeatmapRows = includeReport
-    ? heatmapDays.map((dayValue) => {
-        const dayKey = getBogotaDayKey(dayValue);
-        const dayContacts = reportContacts.filter((contact) => getBogotaDayKey(new Date(contact.createdAt)) === dayKey);
-        const hours = Array.from({ length: 24 }, (_, hour) => {
-          const count = dayContacts.filter((contact) => getBogotaHourKey(new Date(contact.createdAt)) === hour).length;
-          return {
-            hour,
-            count,
-          };
-        });
-
-        return {
-          dayKey,
-          dayLabel: getBogotaShortWeekday(dayValue),
-          dateLabel: getBogotaDateLabel(dayValue),
-          total: dayContacts.length,
-          hours,
-        };
-      })
-    : [];
-  const creationHeatmapMaxCount = includeReport
-    ? Math.max(
-        0,
-        ...creationHeatmapRows.flatMap((row) => row.hours.map((hour) => hour.count)),
-      )
-    : 0;
 
   const stats = {
     total: totalContacts,

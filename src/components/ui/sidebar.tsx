@@ -93,17 +93,17 @@ export function Sidebar({
       <aside
         data-state={state}
         data-collapsible={collapsibleState}
-        className={cn(
-          "group/sidebar fixed inset-y-0 left-0 z-40 flex h-full flex-col border-r border-[var(--line)] bg-white transition-[transform,width] duration-200 md:sticky md:top-0 md:h-screen",
-          isMobile
-            ? openMobile
-              ? "w-[212px] translate-x-0"
-              : "w-[212px] -translate-x-full"
+          className={cn(
+            "group/sidebar fixed inset-y-0 left-0 z-40 flex h-full flex-col border-r border-[var(--line)] bg-white transition-[transform,width] duration-200 md:sticky md:top-0 md:h-screen",
+            isMobile
+              ? openMobile
+                ? "w-[212px] translate-x-0"
+                : "w-[212px] -translate-x-full"
             : openDesktop
               ? "md:w-[212px] md:translate-x-0"
               : "md:w-[64px] md:translate-x-0 md:overflow-hidden",
-          className,
-        )}
+            className,
+          )}
         {...props}
       >
         {children}
@@ -114,8 +114,9 @@ export function Sidebar({
 
 export function SidebarTrigger({
   className,
+  compact = false,
   ...props
-}: React.ButtonHTMLAttributes<HTMLButtonElement>) {
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & { compact?: boolean }) {
   const { toggleSidebar } = useSidebar();
 
   return (
@@ -123,12 +124,14 @@ export function SidebarTrigger({
       type="button"
       onClick={toggleSidebar}
       className={cn(
-        "inline-flex h-9 w-9 items-center justify-center rounded-md bg-transparent text-slate-700 transition hover:bg-slate-200/60 focus-visible:outline-none",
+        compact
+          ? "inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none"
+          : "inline-flex h-9 w-9 items-center justify-center rounded-md bg-transparent text-slate-700 transition hover:bg-slate-200/60 focus-visible:outline-none",
         className,
       )}
       {...props}
     >
-      <ArrowLeftRight className="h-4 w-4" />
+      <ArrowLeftRight className={compact ? "h-3.5 w-3.5" : "h-4 w-4"} />
       <span className="sr-only">Abrir menu lateral</span>
     </button>
   );

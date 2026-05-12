@@ -23,7 +23,10 @@ import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
+  SidebarHeader,
   SidebarRail,
+  SidebarTrigger,
+  useSidebar,
 } from "@/components/ui/sidebar";
 
 const roleHome = {
@@ -51,6 +54,7 @@ type AppSidebarProps = {
 };
 
 export function AppSidebar({ pathname, brandName, adminModuleAccess, chatSidebarItems, user, ...props }: AppSidebarProps & React.ComponentProps<typeof Sidebar>) {
+  const { openDesktop } = useSidebar();
   const dashboardHref = user.role ? roleHome[user.role] : "/";
   const isAdminConfigRoute = pathname.startsWith("/admin/configuracion");
   const isAdminCategoriesRoute = pathname.startsWith("/admin/categorias");
@@ -228,8 +232,15 @@ export function AppSidebar({ pathname, brandName, adminModuleAccess, chatSidebar
 
   return (
     <Sidebar collapsible="icon" {...props}>
-
-        <TeamSwitcher teams={teams} />
+      <SidebarHeader className="relative gap-2 px-3 pr-2 md:px-4 md:pr-2">
+        <div className="min-w-0 flex-1">
+          <TeamSwitcher teams={teams} />
+        </div>
+        <SidebarTrigger
+          compact={!openDesktop}
+          className="absolute right-0 top-1/2 z-10 -translate-y-1/2"
+        />
+      </SidebarHeader>
 
       <SidebarContent>
         <NavMain items={navMain} />

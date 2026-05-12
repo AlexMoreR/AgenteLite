@@ -16,8 +16,7 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { Navbar } from "@/components/navbar";
-import { Separator } from "@/components/ui/separator";
-import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import type { AdminModuleKey } from "@/lib/admin-module-access";
 import { cn } from "@/lib/utils";
 
@@ -305,12 +304,7 @@ export function AppShell({
                 isFinanzasAssistantPath && "hidden md:flex",
               )}
             >
-              <div className="flex items-center gap-2 px-4">
-                <SidebarTrigger className="-ml-1" />
-                <Separator
-                  orientation="vertical"
-                  className="mr-2 h-4"
-                />
+              <div className="flex items-center px-4">
                 <Breadcrumb>
                   <BreadcrumbList>
                     {breadcrumbItems.map((item, index) => (
