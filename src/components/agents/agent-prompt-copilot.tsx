@@ -16,7 +16,6 @@ type AgentCopilotPatch = {
   businessName?: string;
   businessDescription?: string;
   targetAudiences?: TargetAudience[];
-  priceRangeMin?: string;
   priceRangeMax?: string;
   salesTone?: SalesTone;
   responseLength?: ResponseLength;

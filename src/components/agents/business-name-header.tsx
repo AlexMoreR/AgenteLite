@@ -4,7 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Building2, Globe, Instagram, Mail, MapPin, Pencil, Phone, PlayCircle, X, Youtube } from "lucide-react";
+import { BookOpen, Building2, Copy, Globe, Instagram, Mail, MapPin, Pencil, Phone, PlayCircle, X, Youtube } from "lucide-react";
 import { saveAgentBusinessProfileAction } from "@/app/actions/agent-actions";
 
 type BusinessData = {
@@ -20,6 +20,65 @@ type BusinessData = {
   tiktok: string;
   youtube: string;
 };
+
+function PromptModal({
+  prompt,
+  onClose,
+}: {
+  prompt: string;
+  onClose: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  async function copyPrompt() {
+    await navigator.clipboard.writeText(prompt);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1800);
+  }
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center p-4 sm:items-center"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+      <div className="relative w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-[0_32px_64px_-24px_rgba(15,23,42,0.28)]">
+        <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
+          <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-900">
+            <BookOpen className="h-4 w-4 text-[var(--primary)]" />
+            Prompt actual
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={copyPrompt}
+              className="inline-flex h-7 items-center gap-1.5 rounded-[12px] border border-[rgba(148,163,184,0.2)] bg-white px-3 text-[12px] font-medium text-slate-600 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+            >
+              <Copy className="h-3.5 w-3.5" />
+              {copied ? "Copiado" : "Copiar prompt"}
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex h-7 w-7 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        <div className="space-y-4 px-5 py-5">
+          <pre className="max-h-[70vh] overflow-auto whitespace-pre-wrap rounded-[16px] border border-[rgba(148,163,184,0.12)] bg-slate-50 px-3.5 py-3 font-mono text-[11px] leading-5 text-slate-700">
+            {prompt || "(prompt vacio — configura el entrenamiento primero)"}
+          </pre>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
 
 function Field({ label, icon, value, onChange, placeholder }: {
   label: string;
@@ -197,6 +256,7 @@ export function BusinessNameHeader({
   agentId,
   businessName,
   businessSummary,
+  currentSystemPrompt,
   location,
   website,
   contactPhone,
@@ -209,6 +269,7 @@ export function BusinessNameHeader({
   agentId: string;
   businessName: string;
   businessSummary: string;
+  currentSystemPrompt: string;
   location: string;
   website: string;
   contactPhone: string;
@@ -229,6 +290,7 @@ export function BusinessNameHeader({
   const [tt, setTt] = useState(tiktok);
   const [yt, setYt] = useState(youtube);
   const [modalOpen, setModalOpen] = useState(false);
+  const [promptOpen, setPromptOpen] = useState(false);
 
   const initials = name.slice(0, 2).toUpperCase();
 
@@ -282,6 +344,7 @@ export function BusinessNameHeader({
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/20 text-sm font-bold text-white">
               {initials}
             </div>
+            
             <span className="truncate text-sm font-semibold text-white">{name}</span>
             <button
               type="button"
@@ -289,6 +352,15 @@ export function BusinessNameHeader({
               className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/20 text-white transition hover:bg-white/30"
             >
               <Pencil className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setPromptOpen(true)}
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/20 text-white transition hover:bg-white/30"
+              aria-label="Ver prompt actual"
+              title="Ver prompt actual"
+            >
+              <BookOpen className="h-3.5 w-3.5" />
             </button>
           </div>
 
@@ -307,6 +379,13 @@ export function BusinessNameHeader({
           data={{ agentId, businessName: name, businessSummary: summary, location: loc, website: web, contactPhone: phone, contactEmail: email, instagram: ig, facebook: fb, tiktok: tt, youtube: yt }}
           onSave={handleSave}
           onClose={() => setModalOpen(false)}
+        />
+      )}
+
+      {promptOpen && (
+        <PromptModal
+          prompt={currentSystemPrompt}
+          onClose={() => setPromptOpen(false)}
         />
       )}
     </>

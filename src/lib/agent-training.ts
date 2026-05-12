@@ -70,7 +70,6 @@ export type AgentTrainingConfig = {
   businessDescription: string;
   instruction: string;
   targetAudiences: TargetAudience[];
-  priceRangeMin: string;
   priceRangeMax: string;
   location: string;
   website: string;
@@ -135,7 +134,6 @@ export const defaultAgentTrainingConfig: AgentTrainingConfig = {
   businessDescription: "",
   instruction: "",
   targetAudiences: ["Mujer"],
-  priceRangeMin: "",
   priceRangeMax: "",
   location: "",
   website: "",
@@ -350,7 +348,7 @@ export function buildAgentSystemPrompt(input: {
   const businessRules = [
     `Solo vendes esto: ${training.businessDescription}`,
     `Tu cliente ideal es: ${training.targetAudiences.join(", ")}`,
-    `Rango de precios de referencia: ${formatPriceRange(training.priceRangeMin, training.priceRangeMax)}`,
+    `Rango de precios de referencia: ${formatPriceRange(training.priceRangeMax)}`,
     "No te salgas de esta informacion ni inventes catalogo adicional.",
   ].filter(Boolean) as string[];
 
@@ -411,7 +409,7 @@ export function buildAgentSystemPrompt(input: {
     : null;
 
   const sections = [
-    `ROL\nEres ${agentName}, vendedor virtual por WhatsApp de ${businessName}. Actuas como una persona real del negocio y tu trabajo es vender con claridad, precision y criterio comercial.`,
+    `ROL\nEres vendedor virtual por WhatsApp de ${businessName}. Actuas como una persona real del negocio y tu trabajo es vender con claridad, precision y criterio comercial.`,
     `OBJETIVO\nTu objetivo es entender lo que necesita el cliente, responder solo dentro de la realidad del negocio y llevar la conversacion hacia una venta real o al siguiente paso correcto.`,
     `REGLAS NO NEGOCIABLES\n- ${nonNegotiables.join("\n- ")}`,
     instructionSection,
@@ -475,7 +473,7 @@ export function summarizeTraining(training: AgentTrainingConfig) {
     audiences: training.targetAudiences.join(", "),
     tone: getToneLabel(training.salesTone),
     responseLength: getResponseLengthLabel(training.responseLength),
-    priceRange: formatPriceRange(training.priceRangeMin, training.priceRangeMax),
+    priceRange: formatPriceRange(training.priceRangeMax),
     styleExtras: [
       training.useEmojis ? "Emojis" : null,
       training.useExpressivePunctuation ? "Signos expresivos" : null,
@@ -529,7 +527,6 @@ export function parseAgentTrainingConfig(value: unknown): AgentTrainingConfig | 
     businessDescription: data.businessDescription,
     instruction: str("instruction"),
     targetAudiences,
-    priceRangeMin: str("priceRangeMin"),
     priceRangeMax: str("priceRangeMax"),
     location: str("location"),
     website: str("website"),
@@ -577,17 +574,8 @@ function normalizeAgentActionsConfig(value: unknown): AgentActionsConfig {
   };
 }
 
-function formatPriceRange(min: string, max: string) {
-  const minValue = min.trim();
+function formatPriceRange(max: string) {
   const maxValue = max.trim();
-
-  if (minValue && maxValue) {
-    return `Entre ${minValue} y ${maxValue}`;
-  }
-
-  if (minValue) {
-    return `Desde ${minValue}`;
-  }
 
   if (maxValue) {
     return `Hasta ${maxValue}`;

@@ -108,13 +108,14 @@ export default async function AgentTrainingPage({ params }: PageProps) {
       id: agentId,
       workspaceId: membership.workspace.id,
     },
-    select: {
-      id: true,
-      name: true,
-      description: true,
-      trainingConfig: true,
-      workspace: {
-        select: {
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        systemPrompt: true,
+        trainingConfig: true,
+        workspace: {
+          select: {
           name: true,
           businessConfig: true,
         },
@@ -141,8 +142,6 @@ export default async function AgentTrainingPage({ params }: PageProps) {
     workspaceBusiness.targetAudiences.length > 0
       ? workspaceBusiness.targetAudiences
       : training.targetAudiences;
-  const priceRangeMin =
-    workspaceBusiness.priceRangeMin || training.priceRangeMin;
   const priceRangeMax =
     workspaceBusiness.priceRangeMax || training.priceRangeMax;
   const location = workspaceBusiness.location || training.location;
@@ -160,18 +159,19 @@ export default async function AgentTrainingPage({ params }: PageProps) {
         <input type="hidden" name="postCreateAction" value="probar" />
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1.18fr)_minmax(340px,0.82fr)]">
           <Card className="border border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcfd_100%)] p-4 shadow-[0_20px_44px_-38px_rgba(15,23,42,0.18)] sm:p-5 xl:col-span-2">
-            <div className="space-y-5">
-              <BusinessNameHeader
-                agentId={agent.id}
-                businessName={agent.workspace.name}
-                businessSummary={
-                  workspaceBusiness.businessDescription ||
-                  agent.description ||
-                  ""
-                }
-                location={location}
-                website={website}
-                contactPhone={contactPhone}
+            <div className="space-y-2">
+                <BusinessNameHeader
+                  agentId={agent.id}
+                  businessName={agent.workspace.name}
+                  businessSummary={
+                    workspaceBusiness.businessDescription ||
+                    agent.description ||
+                    ""
+                  }
+                  currentSystemPrompt={agent.systemPrompt ?? ""}
+                  location={location}
+                  website={website}
+                  contactPhone={contactPhone}
                 contactEmail={contactEmail}
                 instagram={instagram}
                 facebook={facebook}
@@ -293,23 +293,6 @@ export default async function AgentTrainingPage({ params }: PageProps) {
 
               <div className="rounded-[22px] border border-[rgba(148,163,184,0.12)] bg-[linear-gradient(180deg,#ffffff_0%,#fafbfc_100%)] p-4">
                 <div className="min-w-0 space-y-3">
-                  <div className="space-y-0.5">
-                    <SectionHeader
-                      title="Ajuste fino"
-                      helpText="Si manejas un rango de precios, escribirlo ayuda a que el agente oriente mejor al cliente."
-                    />
-                  </div>
-                  <input
-                    type="hidden"
-                    name="priceRangeMin"
-                    value={priceRangeMin}
-                  />
-                  <input
-                    type="hidden"
-                    name="priceRangeMax"
-                    value={priceRangeMax}
-                  />
-
                   <TrainingResponseLengthField
                     defaultValue={training.responseLength}
                     helpText="Controla si el agente respondera corto y directo o con mas contexto cuando explique y venda."

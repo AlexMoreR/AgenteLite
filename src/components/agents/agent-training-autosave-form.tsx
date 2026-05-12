@@ -59,11 +59,11 @@ export function AgentTrainingAutosaveStatus() {
     >
       <span>
         {pending
-          ? "Guardando entrenamiento..."
+          ? "Guardando..."
           : state.ok && state.savedAt
-            ? "Entrenamiento guardado."
+            ? "Guardado."
             : state.message ||
-              "Los cambios se guardan automaticamente y tambien puedes usar el boton Guardar entrenamiento."}
+              "Guardado"}
       </span>
     </div>
   );
