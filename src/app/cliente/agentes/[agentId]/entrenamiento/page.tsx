@@ -189,7 +189,7 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                   <AccordionContent className="pb-2">
                     <div className="py-2">
                       <FieldLabel
-                        htmlFor="input-field-username"
+                        htmlFor="assistantName"
                         className="text-[13px] px-2 pb-2 font-light"
                       >
                         Nombre del asistente
@@ -198,7 +198,12 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                           description="Como quieres que se presente el agente con los clientes. Ejemplo: Magilus, Magi, Asesora Ingrid. Si lo dejas vacio usa el nombre del agente por defecto."
                         />
                       </FieldLabel>
-                      <Input placeholder="Nombre del asistente.." />
+                      <Input
+                        id="assistantName"
+                        name="assistantName"
+                        defaultValue={training.assistantName}
+                        placeholder="Nombre del asistente.."
+                      />
                     </div>
 
                     <NewCustomerWelcomeField
