@@ -5,6 +5,30 @@ type ConversationTurn = {
   mediaUrl?: string | null;
 };
 
+type OpenAIToolCall = {
+  id: string;
+  type: "function";
+  function: {
+    name: string;
+    arguments: string;
+  };
+};
+
+type OpenAIToolSpec = {
+  type: "function";
+  function: {
+    name: string;
+    description?: string;
+    parameters: Record<string, unknown>;
+  };
+};
+
+type OpenAIChatMessage =
+  | { role: "system" | "user" | "assistant"; content: string | null; tool_calls?: OpenAIToolCall[] }
+  | { role: "tool"; tool_call_id: string; content: string };
+
+type AgentToolHandler = (args: Record<string, unknown>) => Promise<string | Record<string, unknown> | null> | string | Record<string, unknown> | null;
+
 type GenerateAgentReplyInput = {
   model?: string | null;
   systemPrompt?: string | null;
@@ -13,6 +37,9 @@ type GenerateAgentReplyInput = {
   latestUserMessage: string;
   rawSystemPrompt?: boolean;
   temperature?: number;
+  tools?: OpenAIToolSpec[];
+  toolHandlers?: Record<string, AgentToolHandler>;
+  maxToolIterations?: number;
 };
 
 type OpenAIResponsesApiResponse = {
@@ -80,6 +107,10 @@ function buildMessages(input: GenerateAgentReplyInput) {
   return messages;
 }
 
+function buildChatMessages(input: GenerateAgentReplyInput) {
+  return buildMessages(input) as Array<{ role: "user" | "assistant"; content: string }>;
+}
+
 function extractOpenAIText(data: OpenAIResponsesApiResponse) {
   if (data.output_text?.trim()) {
     return data.output_text.trim();
@@ -120,6 +151,100 @@ async function generateWithOpenAI(input: GenerateAgentReplyInput, apiKey: string
 
   const data = (await response.json()) as OpenAIResponsesApiResponse;
   return extractOpenAIText(data);
+}
+
+async function generateWithOpenAIAndTools(input: GenerateAgentReplyInput, apiKey: string) {
+  const model = input.model?.trim() || "gpt-4o-mini";
+  const instructions = buildInstructions(input);
+  const messages: OpenAIChatMessage[] = [{ role: "system", content: instructions }, ...buildChatMessages(input)];
+  const tools = input.tools ?? [];
+  const maxIterations = Math.max(1, input.maxToolIterations ?? 4);
+
+  let remainingIterations = maxIterations;
+  while (remainingIterations-- > 0) {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        tools,
+        tool_choice: tools.length > 0 ? "auto" : undefined,
+        max_tokens: 512,
+        temperature: input.temperature ?? (input.rawSystemPrompt ? 0.2 : 0.7),
+      }),
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text().catch(() => "");
+      throw new Error(`OpenAI ${response.status}: ${errorBody || response.statusText}`);
+    }
+
+    const data = (await response.json()) as {
+      choices?: Array<{
+        finish_reason?: string;
+        message: {
+          role: "assistant";
+          content: string | null;
+          tool_calls?: OpenAIToolCall[];
+        };
+      }>;
+    };
+
+    const choice = data.choices?.[0];
+    const message = choice?.message;
+    if (!message) {
+      break;
+    }
+
+    messages.push(message);
+
+    const toolCalls = message.tool_calls ?? [];
+    if (choice?.finish_reason !== "tool_calls" || toolCalls.length === 0) {
+      return message.content?.trim() || "";
+    }
+
+    for (const toolCall of toolCalls) {
+      const handler = input.toolHandlers?.[toolCall.function.name];
+      let toolResult: string | Record<string, unknown> | null;
+
+      if (!handler) {
+        toolResult = {
+          ok: false,
+          error: `No hay un manejador disponible para la herramienta ${toolCall.function.name}.`,
+        };
+      } else {
+        let parsedArgs: Record<string, unknown> = {};
+        try {
+          const rawArgs = JSON.parse(toolCall.function.arguments || "{}") as unknown;
+          parsedArgs = rawArgs && typeof rawArgs === "object" && !Array.isArray(rawArgs) ? (rawArgs as Record<string, unknown>) : {};
+        } catch {
+          parsedArgs = {};
+        }
+
+        try {
+          toolResult = await handler(parsedArgs);
+        } catch (error) {
+          toolResult = {
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      }
+
+      messages.push({
+        role: "tool",
+        tool_call_id: toolCall.id,
+        content: typeof toolResult === "string" ? toolResult : JSON.stringify(toolResult ?? {}),
+      });
+    }
+  }
+
+  return "";
 }
 
 async function generateWithGemini(input: GenerateAgentReplyInput, apiKey: string) {
@@ -185,7 +310,10 @@ export async function generateAgentReply(input: GenerateAgentReplyInput) {
   if (openAiApiKey) {
     attempts.push({
       provider: "openai",
-      run: () => generateWithOpenAI(input, openAiApiKey),
+      run: () =>
+        input.tools?.length
+          ? generateWithOpenAIAndTools(input, openAiApiKey)
+          : generateWithOpenAI(input, openAiApiKey),
     });
   }
 

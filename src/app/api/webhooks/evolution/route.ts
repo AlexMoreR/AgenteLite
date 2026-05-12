@@ -43,7 +43,7 @@ import { buildFlowExecutionContextNote, getConversationExecutedFlowSlugs, getFlo
 import { enforceWorkspacePlanAccess } from "@/lib/workspace-plan-access";
 import { getEvolutionSettings } from "@/lib/system-settings";
 import { buildHandoffMessage, parseAgentTrainingConfig } from "@/lib/agent-training";
-import { resolveNotifyHumanAction } from "@/features/agent-actions";
+import { resolveNotifyHumanAction, NOTIFICAR_ASESOR_TOOL, sendNotificarAsesorNotification } from "@/features/agent-actions";
 import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
 
 function mapChannelStatus(eventName: string | null, rawState: string | null) {
@@ -1092,12 +1092,37 @@ export async function POST(request: Request) {
         const effectiveSystemPrompt = agentTraining?.useCustomPrompt && agentTraining.customSystemPrompt?.trim()
           ? agentTraining.customSystemPrompt.trim()
           : agent.systemPrompt;
+        const notificarAsesorToolHandlers = {
+          Notificar_asesor: async (args: Record<string, unknown>) =>
+            sendNotificarAsesorNotification({
+              trainingConfig: agent.trainingConfig,
+              agentName: agent.name,
+              customerPhoneNumber: phoneNumber,
+              customerName: contact.name,
+              latestUserMessage: messageText,
+              toolInput: args,
+              sendMessage: async (destinationPhoneNumber, text) => {
+                if (!channel.evolutionInstanceName) {
+                  throw new Error("La instancia de Evolution no esta disponible");
+                }
+
+                return sendEvolutionTextMessageWithReconnect({
+                  instanceName: channel.evolutionInstanceName,
+                  phoneNumber: destinationPhoneNumber,
+                  text,
+                  delayMs: 0,
+                });
+              },
+            }),
+        } satisfies Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
         replyText = await generateAgentReply({
           model: agent.model,
           systemPrompt: effectiveSystemPrompt,
           fallbackMessage: agent.fallbackMessage,
           history: recentMessages,
           latestUserMessage: aiLatestUserMessage,
+          tools: [NOTIFICAR_ASESOR_TOOL],
+          toolHandlers: notificarAsesorToolHandlers,
         });
       }
 
