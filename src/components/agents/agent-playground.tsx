@@ -93,7 +93,7 @@ export function AgentPlayground({ agentId, agentName }: AgentPlaygroundProps) {
 
   return (
     <div className="flex min-h-[calc(100dvh-8rem)] flex-1 flex-col md:min-h-0 md:gap-4">
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[22px] border border-[rgba(148,163,184,0.14)] bg-white shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)] md:rounded-[28px]">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[22px] border border-[rgba(148,163,184,0.14)] bg-[rgba(255,255,255,0.82)] shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)] md:rounded-[28px]">
         <div className="sticky top-0 z-10 border-b border-[rgba(148,163,184,0.12)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcff_100%)] px-4 py-3 backdrop-blur md:static md:px-5 md:py-4">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div className="flex min-w-0 items-center gap-3">
@@ -125,16 +125,7 @@ export function AgentPlayground({ agentId, agentName }: AgentPlaygroundProps) {
           </div>
         </div>
 
-        <div
-          className="flex-1 overflow-y-auto px-3 py-3 pb-28 md:min-h-0 md:px-4 md:py-4 md:pb-4"
-          style={{
-            backgroundColor: "#f3f4f6",
-            backgroundImage:
-              "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220' viewBox='0 0 220 220'%3E%3Cg fill='none' stroke='%23cbd5e1' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round' opacity='0.45'%3E%3Ccircle cx='28' cy='24' r='10'/%3E%3Cpath d='M62 18l8 14 14 2-10 10 2 14-14-7-12 7 2-14-10-10 14-2z'/%3E%3Cpath d='M122 18c10 0 18 8 18 18s-8 18-18 18-18-8-18-18 8-18 18-18z'/%3E%3Cpath d='M169 24l20 20M189 24l-20 20'/%3E%3Crect x='20' y='76' width='28' height='18' rx='6'/%3E%3Cpath d='M26 102c6-8 16-8 22 0'/%3E%3Cpath d='M76 74l10 18 20 3-14 14 3 20-19-10-18 10 3-20-14-14 20-3z'/%3E%3Cpath d='M130 78h28v18h-28z'/%3E%3Cpath d='M144 70v36M130 87h28'/%3E%3Cpath d='M176 76c10 0 18 8 18 18s-8 18-18 18-18-8-18-18 8-18 18-18z'/%3E%3Cpath d='M24 142c6-8 18-8 24 0 6 8 18 8 24 0'/%3E%3Cpath d='M86 144c0-8 6-14 14-14s14 6 14 14-6 14-14 14-14-6-14-14z'/%3E%3Cpath d='M128 136l24 24M152 136l-24 24'/%3E%3Cpath d='M174 132h26v26h-26z'/%3E%3Cpath d='M182 124v42M174 145h26'/%3E%3Ccircle cx='42' cy='188' r='16'/%3E%3Cpath d='M36 188h12M42 182v12'/%3E%3Cpath d='M92 180c8-10 22-10 30 0-8 10-22 10-30 0z'/%3E%3Cpath d='M140 180l12 12 18-18'/%3E%3Cpath d='M178 184c6-8 16-8 22 0'/%3E%3C/g%3E%3C/svg%3E\")",
-            backgroundPosition: "center",
-            backgroundSize: "220px 220px",
-          }}
-        >
+        <div className="flex-1 overflow-y-auto bg-transparent px-3 py-3 pb-28 md:min-h-0 md:px-4 md:py-4 md:pb-4">
           <div className="space-y-3">
             {messages.length > 0 ? (
               messages.map((message) => {
@@ -188,7 +179,7 @@ export function AgentPlayground({ agentId, agentName }: AgentPlaygroundProps) {
           </div>
         </div>
 
-        <div className="sticky bottom-0 z-10 border-t border-[rgba(148,163,184,0.12)] bg-white/95 px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3 backdrop-blur md:static md:bg-white md:px-3 md:py-3">
+        <div className="sticky bottom-0 z-10 border-t border-[rgba(148,163,184,0.12)] bg-[rgba(255,255,255,0.88)] px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3 backdrop-blur md:static md:bg-[rgba(255,255,255,0.88)] md:px-3 md:py-3">
           {error ? <p className="px-2 pb-2 text-sm text-rose-600">{error}</p> : null}
           <div className="flex items-end gap-2 md:gap-3">
             <textarea

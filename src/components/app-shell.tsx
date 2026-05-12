@@ -294,6 +294,7 @@ export function AppShell({
           <SidebarInset
             className={cn(
               "admin-print-inset",
+              isAgentWorkspacePath && "bg-[#F1F5F9]",
               isViewportLockedWorkspacePath && "chat-app-shell min-h-dvh h-dvh overflow-hidden md:min-h-0 md:h-dvh",
             )}
           >
@@ -329,7 +330,7 @@ export function AppShell({
               </div>
             </header>
               <main
-                className={cn(
+              className={cn(
                   "admin-print-main flex flex-1 flex-col",
                   isFullHeightWorkspacePath
                     ? cn(
@@ -337,6 +338,7 @@ export function AppShell({
                         isFinanzasPath ? "md:p-2" : "md:p-4",
                       )
                     : "p-3 md:p-4",
+                  isAgentWorkspacePath && "bg-transparent",
                   isViewportLockedWorkspacePath && "chat-app-main",
                 )}
               >
