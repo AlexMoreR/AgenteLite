@@ -4,7 +4,6 @@ import Link from "next/link";
 import { ArrowRight, Sparkles } from "lucide-react";
 import { auth } from "@/auth";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
-import { getAdminModuleAccess } from "@/lib/admin-module-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
 export const metadata: Metadata = {
@@ -27,11 +26,7 @@ export default async function ClientePage({ searchParams }: PageProps) {
   const membership = await getPrimaryWorkspaceForUser(session.user.id);
   const params = await searchParams;
   const okMessage = typeof params.ok === "string" ? params.ok : "";
-  const agentCount = membership?.workspace._count.agents ?? 0;
-  const channelCount = membership?.workspace._count.channels ?? 0;
   const hasWorkspace = Boolean(membership);
-  const moduleAccess = await getAdminModuleAccess(session.user.id, session.user.role);
-  const canSeeOfficialApiModule = session.user.role === "ADMIN" || moduleAccess.client_official_api;
   const firstName = session.user.name?.trim().split(/\s+/)[0] ?? "";
   const welcomeHeading = firstName ? `Bienvenido ${firstName}` : "Bienvenido";
 
@@ -75,83 +70,6 @@ export default async function ClientePage({ searchParams }: PageProps) {
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-4">
-        <DashboardModuleCard
-          title="Atencion IA"
-          description="Configura personalidad, tono comercial, reglas y activacion de tu asistente de atencion."
-          metric={hasWorkspace ? `${agentCount} creados` : "Requiere negocio configurado"}
-          href={hasWorkspace ? "/cliente/agentes" : "/cliente/onboarding?returnTo=/cliente/agentes"}
-          cta={hasWorkspace ? "Administrar atencion" : "Comenzar"}
-        />
-        <DashboardModuleCard
-          title="Contactos"
-          description="Centraliza los contactos del workspace, revisa su actividad y entra al chat cuando quieras retomar el hilo."
-          metric={hasWorkspace ? "Base comercial" : "Requiere negocio configurado"}
-          href={hasWorkspace ? "/cliente/contactos" : "/cliente/onboarding?returnTo=/cliente/contactos"}
-          cta={hasWorkspace ? "Abrir modulo" : "Comenzar"}
-        />
-        <DashboardModuleCard
-          title="Conexion"
-          description="Agrupa WhatsApp Business por Evolution API y la API oficial en un modulo separado del trabajo de agentes."
-          metric={
-            hasWorkspace
-              ? canSeeOfficialApiModule
-                ? `${channelCount} canales + API oficial`
-                : `${channelCount} canales`
-              : "Requiere negocio configurado"
-          }
-          href={hasWorkspace ? "/cliente/conexion" : "/cliente/onboarding?returnTo=/cliente/conexion"}
-          cta="Abrir modulo"
-        />
-        <DashboardModuleCard
-          title="Marketing IA"
-          description="Construye contexto, genera creativos y pasa a anuncios listos para Meta Ads Manager."
-          metric={hasWorkspace ? "Creativos + Ads Generator" : "Requiere negocio configurado"}
-          href={hasWorkspace ? "/cliente/marketing-ia" : "/cliente/onboarding?returnTo=/cliente/marketing-ia"}
-          cta="Abrir modulo"
-        />
-      </div>
     </section>
-  );
-}
-
-function DashboardModuleCard({
-  title,
-  description,
-  metric,
-  href,
-  cta,
-}: {
-  title: string;
-  description: string;
-  metric: string;
-  href: string;
-  cta: string;
-}) {
-  return (
-    <Link
-      href={href}
-      className="group relative overflow-hidden rounded-[26px] border border-[var(--line)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.95))] p-5 shadow-[0_24px_54px_-42px_rgba(15,23,42,0.14)] transition hover:-translate-y-0.5 hover:shadow-[0_28px_60px_-42px_rgba(15,23,42,0.18)]"
-    >
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(37,99,235,0.06),transparent_24%),radial-gradient(circle_at_bottom_left,rgba(14,165,233,0.05),transparent_28%)]" />
-
-      <div className="relative flex h-full flex-col gap-4">
-        <div className="flex items-start justify-end">
-          <span className="inline-flex rounded-full border border-[color:color-mix(in_srgb,var(--primary)_16%,white)] bg-white/88 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-            {metric}
-          </span>
-        </div>
-
-        <div className="space-y-2">
-          <h2 className="text-[1.05rem] font-semibold tracking-[-0.04em] text-slate-950">{title}</h2>
-          <p className="text-sm leading-6 text-slate-600">{description}</p>
-        </div>
-
-        <div className="mt-auto inline-flex items-center gap-2 text-sm font-medium text-[var(--primary)]">
-          {cta}
-          <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
-        </div>
-      </div>
-    </Link>
   );
 }

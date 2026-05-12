@@ -101,7 +101,7 @@ export function Sidebar({
                 : "w-[212px] -translate-x-full"
             : openDesktop
               ? "md:w-[212px] md:translate-x-0"
-              : "md:w-[64px] md:translate-x-0 md:overflow-hidden",
+              : "md:w-[64px] md:translate-x-0 md:overflow-visible",
             className,
           )}
         {...props}
@@ -126,7 +126,7 @@ export function SidebarTrigger({
       className={cn(
         compact
           ? "inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none"
-          : "inline-flex h-9 w-9 items-center justify-center rounded-md bg-transparent text-slate-700 transition hover:bg-slate-200/60 focus-visible:outline-none",
+          : "inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none",
         className,
       )}
       {...props}

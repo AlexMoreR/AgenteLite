@@ -2,19 +2,10 @@
 
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { Fragment } from "react";
 import type { Role } from "@prisma/client";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ClientPlanBlockModal } from "@/components/client-plan-block-modal";
 import { ClientPlanWarningBar } from "@/components/client-plan-warning-bar";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
 import { Navbar } from "@/components/navbar";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import type { AdminModuleKey } from "@/lib/admin-module-access";
@@ -87,164 +78,10 @@ export function AppShell({
   const isChatWorkspacePath = pathname.startsWith("/cliente/chats");
   const isFlowsWorkspacePath = pathname.startsWith("/cliente/flujos");
   const isFinanzasPath = pathname.startsWith("/cliente/finanzas");
-  const isFinanzasAssistantPath = pathname.startsWith("/cliente/finanzas/asistente");
   const isViewportLockedWorkspacePath = isChatWorkspacePath || isFinanzasPath || isAgentCopilotPath;
   const isFullHeightWorkspacePath = isAgentWorkspacePath || isChatWorkspacePath || isFlowsWorkspacePath || isFinanzasPath;
   const showClientPlanAlert = Boolean(user?.role === "CLIENTE" && pathname.startsWith("/cliente") && clientPlanAlert);
   const showClientPlanBlock = Boolean(user?.role === "CLIENTE" && pathname.startsWith("/cliente") && clientPlanBlock?.isExpired);
-  const currentPage = pathname === "/"
-    ? "Inicio"
-    : pathname.startsWith("/admin/cotizaciones")
-      ? "Cotizaciones"
-    : pathname.startsWith("/cliente/chats")
-      ? "Chats"
-    : pathname.startsWith("/cliente/contactos")
-      ? "Contactos"
-    : pathname.startsWith("/cliente/flujos")
-      ? "Flujos"
-    : pathname.startsWith("/cliente/conexion")
-      ? "Conexion"
-    : pathname.startsWith("/cliente/api-oficial")
-      ? "Conexion"
-    : pathname.startsWith("/cliente/marketing-ia/ads-generator")
-      ? "Ads Generator"
-    : pathname.startsWith("/cliente/marketing-ia/creativos") || pathname.startsWith("/cliente/marketing-ia/facebook-ads")
-      ? "Creativos"
-    : pathname.startsWith("/cliente/finanzas")
-      ? "Finanzas"
-    : pathname.startsWith("/cliente/marketing-ia")
-      ? "Marketing IA"
-    : pathname.startsWith("/cliente/agentes")
-      ? "Agentes"
-    : pathname.startsWith("/admin/categorias")
-      ? "Categorias"
-    : pathname.startsWith("/admin/proveedores")
-      ? "Proveedores"
-    : pathname.startsWith("/admin/configuracion")
-      ? "Configuracion"
-      : pathname.startsWith("/admin/productos")
-        ? "Productos"
-        : pathname.startsWith("/profile")
-          ? "Perfil"
-          : "Dashboard";
-
-  const breadcrumbItems = (() => {
-    if (pathname.startsWith("/admin/configuracion/usuarios")) {
-      return [
-        { label: "Configuracion", href: "/admin/configuracion", isCurrent: false },
-        { label: "Usuarios", href: "", isCurrent: true },
-      ];
-    }
-
-    if (pathname.startsWith("/admin/configuracion/negocio")) {
-      return [
-        { label: "Configuracion", href: "/admin/configuracion", isCurrent: false },
-        { label: "Configuracion negocio", href: "", isCurrent: true },
-      ];
-    }
-
-    if (pathname.startsWith("/admin/configuracion/permisos")) {
-      return [
-        { label: "Configuracion", href: "/admin/configuracion", isCurrent: false },
-        { label: "Control de modulos", href: "", isCurrent: true },
-      ];
-    }
-
-    if (pathname.startsWith("/admin/configuracion/whatsapp")) {
-      return [
-        { label: "Configuracion", href: "/admin/configuracion", isCurrent: false },
-        { label: "Configuracion WhatsApp", href: "", isCurrent: true },
-      ];
-    }
-
-    if (pathname.startsWith("/cliente/agentes")) {
-      return [{ label: "Agentes", href: "", isCurrent: true }];
-    }
-
-    if (pathname.startsWith("/cliente/chats")) {
-      return [{ label: "Chats", href: "", isCurrent: true }];
-    }
-
-    if (pathname.startsWith("/cliente/contactos")) {
-      return [{ label: "Contactos", href: "", isCurrent: true }];
-    }
-
-    if (pathname.startsWith("/cliente/flujos")) {
-      return [{ label: "Flujos", href: "", isCurrent: true }];
-    }
-
-    if (pathname.startsWith("/cliente/conexion/whatsapp-business/")) {
-      return [
-        { label: "Conexion", href: "/cliente/conexion", isCurrent: false },
-        { label: "Canal", href: "", isCurrent: true },
-      ];
-    }
-
-    if (pathname.startsWith("/cliente/conexion")) {
-      return [{ label: "Conexion", href: "", isCurrent: true }];
-    }
-
-    if (pathname.startsWith("/cliente/api-oficial")) {
-      return [
-        { label: "Conexion", href: "/cliente/conexion", isCurrent: false },
-        { label: "API oficial", href: "", isCurrent: true },
-      ];
-    }
-
-    if (pathname.startsWith("/cliente/finanzas")) {
-      return [{ label: "Finanzas", href: "", isCurrent: true }];
-    }
-
-    if (pathname.startsWith("/cliente/marketing-ia/creativos") || pathname.startsWith("/cliente/marketing-ia/facebook-ads")) {
-      return [
-        { label: "Marketing IA", href: "/cliente/marketing-ia", isCurrent: false },
-        { label: "Creativos", href: "", isCurrent: true },
-      ];
-    }
-
-    if (pathname.startsWith("/cliente/marketing-ia/ads-generator")) {
-      return [
-        { label: "Marketing IA", href: "/cliente/marketing-ia", isCurrent: false },
-        { label: "Ads Generator", href: "", isCurrent: true },
-      ];
-    }
-
-    if (pathname.startsWith("/cliente/marketing-ia")) {
-      return [{ label: "Marketing IA", href: "", isCurrent: true }];
-    }
-
-    if (pathname.startsWith("/admin/productos/new")) {
-      return [
-        { label: "Productos", href: "/admin/productos", isCurrent: false },
-        { label: "Nuevo", href: "", isCurrent: true },
-      ];
-    }
-
-    if (pathname.startsWith("/admin/productos/")) {
-      return [
-        { label: "Productos", href: "/admin/productos", isCurrent: false },
-        { label: "Producto", href: "", isCurrent: true },
-      ];
-    }
-
-    if (pathname.startsWith("/admin/productos")) {
-      return [{ label: "Productos", href: "", isCurrent: true }];
-    }
-
-    if (pathname.startsWith("/admin/categorias")) {
-      return [{ label: "Categorias", href: "", isCurrent: true }];
-    }
-
-    if (pathname.startsWith("/admin/proveedores")) {
-      return [{ label: "Proveedores", href: "", isCurrent: true }];
-    }
-
-    if (pathname.startsWith("/admin/cotizaciones")) {
-      return [{ label: "Cotizaciones", href: "", isCurrent: true }];
-    }
-
-    return [{ label: currentPage, href: "", isCurrent: true }];
-  })();
 
   if (showTopMenu) {
     return (
@@ -297,45 +134,19 @@ export function AppShell({
               isViewportLockedWorkspacePath && "chat-app-shell min-h-dvh h-dvh overflow-hidden md:min-h-0 md:h-dvh",
             )}
           >
-            <header
+            <main
               className={cn(
-                "admin-print-header flex h-12 shrink-0 items-center border-b border-[var(--line)] bg-white",
-                isChatWorkspacePath && "hidden md:flex",
-                isFinanzasAssistantPath && "hidden md:flex",
+                "admin-print-main flex flex-1 flex-col",
+                isFullHeightWorkspacePath
+                  ? cn(
+                      "min-h-0 overflow-hidden p-0",
+                      isFinanzasPath ? "md:p-2" : "md:p-4",
+                    )
+                  : "p-3 md:p-4",
+                isAgentWorkspacePath && "bg-transparent",
+                isViewportLockedWorkspacePath && "chat-app-main",
               )}
             >
-              <div className="flex items-center px-4">
-                <Breadcrumb>
-                  <BreadcrumbList>
-                    {breadcrumbItems.map((item, index) => (
-                      <Fragment key={`${item.label}-${index}`}>
-                        <BreadcrumbItem>
-                          {item.isCurrent ? (
-                            <BreadcrumbPage>{item.label}</BreadcrumbPage>
-                          ) : (
-                            <BreadcrumbLink href={item.href}>{item.label}</BreadcrumbLink>
-                          )}
-                        </BreadcrumbItem>
-                        {index < breadcrumbItems.length - 1 ? <BreadcrumbSeparator /> : null}
-                      </Fragment>
-                    ))}
-                  </BreadcrumbList>
-                </Breadcrumb>
-              </div>
-            </header>
-              <main
-              className={cn(
-                  "admin-print-main flex flex-1 flex-col",
-                  isFullHeightWorkspacePath
-                    ? cn(
-                        "min-h-0 overflow-hidden p-0",
-                        isFinanzasPath ? "md:p-2" : "md:p-4",
-                      )
-                    : "p-3 md:p-4",
-                  isAgentWorkspacePath && "bg-transparent",
-                  isViewportLockedWorkspacePath && "chat-app-main",
-                )}
-              >
               {showClientPlanAlert && clientPlanAlert ? <ClientPlanWarningBar {...clientPlanAlert} /> : null}
               {children}
             </main>

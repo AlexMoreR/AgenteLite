@@ -238,7 +238,7 @@ export function AppSidebar({ pathname, brandName, adminModuleAccess, chatSidebar
         </div>
         <SidebarTrigger
           compact={!openDesktop}
-          className="absolute right-0 top-1/2 z-10 -translate-y-1/2"
+          className="absolute right-[-12px] top-1/2 z-10 -translate-y-1/2"
         />
       </SidebarHeader>
 

@@ -18,15 +18,15 @@ export function TeamSwitcher({ teams }: { teams: Team[] }) {
         <SidebarMenuButton
           size="lg"
           className={cn(
-            "group-data-[collapsible=icon]/sidebar:h-7 group-data-[collapsible=icon]/sidebar:w-7 group-data-[collapsible=icon]/sidebar:min-w-7 group-data-[collapsible=icon]/sidebar:justify-center group-data-[collapsible=icon]/sidebar:px-0",
+            "group-data-[collapsible=icon]/sidebar:h-9 group-data-[collapsible=icon]/sidebar:w-9 group-data-[collapsible=icon]/sidebar:min-w-9 group-data-[collapsible=icon]/sidebar:justify-center group-data-[collapsible=icon]/sidebar:px-0",
           )}
         >
           <Image
             src="/magilus-logo.svg"
             alt={activeTeam.name}
-            width={32}
-            height={32}
-            className="h-8 w-8 shrink-0 object-contain group-data-[collapsible=icon]/sidebar:h-6 group-data-[collapsible=icon]/sidebar:w-6"
+            width={44}
+            height={44}
+            className="h-11 w-11 shrink-0 object-contain group-data-[collapsible=icon]/sidebar:h-8 group-data-[collapsible=icon]/sidebar:w-8"
           />
           <div className="grid flex-1 text-left text-sm leading-tight group-data-[collapsible=icon]/sidebar:hidden">
             <span className="truncate text-sm">{activeTeam.name}</span>
