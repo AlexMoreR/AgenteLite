@@ -9,6 +9,12 @@ import { TrainingHelpPopover } from "@/components/agents/training-help-popover";
 import { TrainingResponseLengthField } from "@/components/agents/training-response-length-field";
 import { NewCustomerWelcomeField } from "@/components/agents/new-customer-welcome-field";
 import { TrainingTextareaField } from "@/components/agents/training-textarea-field";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { Card } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -21,6 +27,9 @@ import {
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { parseWorkspaceBusinessConfig } from "@/lib/workspace-business-config";
+
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 
 type PageProps = {
   params: Promise<{ agentId: string }>;
@@ -36,8 +45,12 @@ function SectionHeader({
   return (
     <div className="flex items-center gap-2">
       <span className="h-4 w-1 rounded-full bg-[var(--primary)]" />
-      <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">{title}</span>
-      {helpText ? <TrainingHelpPopover title={title} description={helpText} /> : null}
+      <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+        {title}
+      </span>
+      {helpText ? (
+        <TrainingHelpPopover title={title} description={helpText} />
+      ) : null}
     </div>
   );
 }
@@ -75,7 +88,11 @@ function ToggleField({
 
 export default async function AgentTrainingPage({ params }: PageProps) {
   const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+  if (
+    !session?.user?.id ||
+    !session.user.role ||
+    !["ADMIN", "CLIENTE"].includes(session.user.role)
+  ) {
     redirect("/unauthorized");
   }
 
@@ -108,15 +125,25 @@ export default async function AgentTrainingPage({ params }: PageProps) {
     redirect("/cliente/agentes?error=Agente+no+encontrado");
   }
 
-  const training = parseAgentTrainingConfig(agent.trainingConfig) ?? defaultAgentTrainingConfig;
-  const workspaceBusiness = parseWorkspaceBusinessConfig(agent.workspace.businessConfig);
+  const training =
+    parseAgentTrainingConfig(agent.trainingConfig) ??
+    defaultAgentTrainingConfig;
+  const workspaceBusiness = parseWorkspaceBusinessConfig(
+    agent.workspace.businessConfig,
+  );
 
   // Campos de negocio: workspace.businessConfig es la fuente de verdad
   const instruction = training.instruction;
-  const businessDescription = workspaceBusiness.businessDescription || training.businessDescription;
-  const targetAudiences = workspaceBusiness.targetAudiences.length > 0 ? workspaceBusiness.targetAudiences : training.targetAudiences;
-  const priceRangeMin = workspaceBusiness.priceRangeMin || training.priceRangeMin;
-  const priceRangeMax = workspaceBusiness.priceRangeMax || training.priceRangeMax;
+  const businessDescription =
+    workspaceBusiness.businessDescription || training.businessDescription;
+  const targetAudiences =
+    workspaceBusiness.targetAudiences.length > 0
+      ? workspaceBusiness.targetAudiences
+      : training.targetAudiences;
+  const priceRangeMin =
+    workspaceBusiness.priceRangeMin || training.priceRangeMin;
+  const priceRangeMax =
+    workspaceBusiness.priceRangeMax || training.priceRangeMax;
   const location = workspaceBusiness.location || training.location;
   const website = workspaceBusiness.website || training.website;
   const contactPhone = workspaceBusiness.contactPhone || training.contactPhone;
@@ -132,12 +159,16 @@ export default async function AgentTrainingPage({ params }: PageProps) {
         <input type="hidden" name="agentId" value={agent.id} />
         <input type="hidden" name="postCreateAction" value="probar" />
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1.18fr)_minmax(340px,0.82fr)]">
-          <Card className="border border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcfd_100%)] p-4 shadow-[0_20px_44px_-38px_rgba(15,23,42,0.18)] sm:p-5">
+          <Card className="border border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcfd_100%)] p-4 shadow-[0_20px_44px_-38px_rgba(15,23,42,0.18)] sm:p-5 xl:col-span-2">
             <div className="space-y-5">
               <BusinessNameHeader
                 agentId={agent.id}
                 businessName={agent.workspace.name}
-                businessSummary={workspaceBusiness.businessDescription || agent.description || ""}
+                businessSummary={
+                  workspaceBusiness.businessDescription ||
+                  agent.description ||
+                  ""
+                }
                 location={location}
                 website={website}
                 contactPhone={contactPhone}
@@ -148,25 +179,42 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                 youtube={youtube}
               />
 
-              <div className="space-y-3.5">
-                <label className="space-y-1.5">
-                  <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-slate-700">
-                    <span>Nombre del asistente</span>
-                    <TrainingHelpPopover
-                      title="Nombre del asistente"
-                      description="Como quieres que se presente el agente con los clientes. Ejemplo: Magilus, Magi, Asesora Ingrid. Si lo dejas vacio usa el nombre del agente por defecto."
-                    />
-                  </span>
-                  <input
-                    type="text"
-                    name="assistantName"
-                    defaultValue={training.assistantName}
-                    placeholder={agent.name}
-                    maxLength={40}
-                    className="flex w-full rounded-[20px] border border-[rgba(148,163,184,0.14)] bg-white px-3.5 py-2.5 text-[13px] leading-6 text-slate-800 shadow-[0_18px_32px_-34px_rgba(15,23,42,0.18)] outline-none transition placeholder:text-slate-400 focus:border-[var(--primary)]"
-                  />
-                </label>
+              <Accordion defaultValue={["shipping"]} className="">
+                <AccordionItem value="shipping">
+                  <AccordionTrigger className="py-3.5 text-[14px] font-semibold text-slate-900 hover:no-underline">
+                    ✨ Etapa 1: Presentación
+                  </AccordionTrigger>
+                  <AccordionContent className="pb-4">
+                    <div className="py-2">
+                      <FieldLabel
+                        htmlFor="input-field-username"
+                        className="text-[13px] px-2 pb-2 font-light"
+                      >
+                        Nombre del asistente
+                        <TrainingHelpPopover
+                          title="Nombre del asistente"
+                          description="Como quieres que se presente el agente con los clientes. Ejemplo: Magilus, Magi, Asesora Ingrid. Si lo dejas vacio usa el nombre del agente por defecto."
+                        />
+                      </FieldLabel>
+                      <Input placeholder="Nombre del asistente.." />
+                    </div>
 
+                    <NewCustomerWelcomeField
+                      businessName={agent.workspace.name}
+                      defaultChecked={training.greetNewCustomers}
+                      defaultMessage={
+                        training.customWelcomeMessage ||
+                        buildDefaultNewCustomerWelcomeMessage(
+                          agent.workspace.name,
+                        )
+                      }
+                    />
+                  </AccordionContent>
+                </AccordionItem>
+                <AccordionItem value="shipping"></AccordionItem>
+              </Accordion>
+
+              <div className="space-y-3.5">
                 <SectionHeader
                   title="Contexto"
                   helpText="Aqui va la explicacion comercial que el agente usara para vender por WhatsApp. Es distinta al resumen general del negocio."
@@ -203,12 +251,6 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                   />
                 </label>
 
-                <NewCustomerWelcomeField
-                  businessName={agent.workspace.name}
-                  defaultChecked={training.greetNewCustomers}
-                  defaultMessage={training.customWelcomeMessage || buildDefaultNewCustomerWelcomeMessage(agent.workspace.name)}
-                />
-
                 <fieldset className="space-y-2.5">
                   <legend className="inline-flex items-center gap-1.5 text-[13px] font-medium text-slate-700">
                     <span>A que tipo de cliente le vendes</span>
@@ -217,7 +259,9 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                       description="Selecciona los perfiles que mas te compran. Esto ayuda al agente a usar ejemplos y tono mas cercanos."
                     />
                   </legend>
-                  <p className="text-[12px] leading-5 text-slate-500">Marca las opciones que mas se parezcan a tu cliente ideal.</p>
+                  <p className="text-[12px] leading-5 text-slate-500">
+                    Marca las opciones que mas se parezcan a tu cliente ideal.
+                  </p>
                   <div className="flex flex-wrap gap-2">
                     {targetAudienceOptions.map((option) => (
                       <label key={option} className="cursor-pointer">
@@ -244,19 +288,27 @@ export default async function AgentTrainingPage({ params }: PageProps) {
 
               <div className="rounded-[22px] border border-[rgba(148,163,184,0.12)] bg-[linear-gradient(180deg,#ffffff_0%,#fafbfc_100%)] p-4">
                 <div className="min-w-0 space-y-3">
-                    <div className="space-y-0.5">
-                      <SectionHeader
-                        title="Ajuste fino"
-                        helpText="Si manejas un rango de precios, escribirlo ayuda a que el agente oriente mejor al cliente."
-                      />
-                    </div>
-                    <input type="hidden" name="priceRangeMin" value={priceRangeMin} />
-                    <input type="hidden" name="priceRangeMax" value={priceRangeMax} />
-
-                    <TrainingResponseLengthField
-                      defaultValue={training.responseLength}
-                      helpText="Controla si el agente respondera corto y directo o con mas contexto cuando explique y venda."
+                  <div className="space-y-0.5">
+                    <SectionHeader
+                      title="Ajuste fino"
+                      helpText="Si manejas un rango de precios, escribirlo ayuda a que el agente oriente mejor al cliente."
                     />
+                  </div>
+                  <input
+                    type="hidden"
+                    name="priceRangeMin"
+                    value={priceRangeMin}
+                  />
+                  <input
+                    type="hidden"
+                    name="priceRangeMax"
+                    value={priceRangeMax}
+                  />
+
+                  <TrainingResponseLengthField
+                    defaultValue={training.responseLength}
+                    helpText="Controla si el agente respondera corto y directo o con mas contexto cuando explique y venda."
+                  />
                 </div>
               </div>
 
@@ -267,14 +319,54 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                     helpText="Activa aqui los comportamientos que quieres ver en la conversacion: como habla, como recomienda y como intenta cerrar la venta."
                   />
                   <div className="grid gap-2.5">
-                    <ToggleField name="useEmojis" title="Usar emojis" defaultChecked={training.useEmojis} helpText="Activalo si tu marca se comunica de forma cercana y natural. Si tu negocio es mas serio, puedes dejarlo apagado." />
-                    <ToggleField name="useExpressivePunctuation" title="Usar ! y ?" defaultChecked={training.useExpressivePunctuation} helpText="Permite respuestas con mas energia cuando encajen con la conversacion, sin sonar exagerado." />
-                    <ToggleField name="useTuteo" title="Tutear al cliente" defaultChecked={training.useTuteo} helpText="Enciendelo si tu negocio habla de forma cercana. Apagalo si prefieres una comunicacion mas formal o neutra." />
-                    <ToggleField name="useCustomerName" title="Llamarlo por nombre" defaultChecked={training.useCustomerName} helpText="Ayuda a que la conversacion se sienta mas personal cuando el cliente ya compartio su nombre." />
-                    <ToggleField name="askNameFirst" title="Preguntar el nombre al inicio" defaultChecked={training.askNameFirst} helpText="Sirve si quieres que el agente personalice desde el primer mensaje. Si prefieres ir directo al punto, puedes apagarlo." />
-                    <ToggleField name="offerBestSeller" title="Ofrecer el producto mas vendido" defaultChecked={training.offerBestSeller} helpText="Hace que el agente sugiera una opcion segura cuando el cliente no sabe cual elegir." />
-                    <ToggleField name="handlePriceObjections" title="Manejar objeciones de precio" defaultChecked={training.handlePriceObjections} helpText="Permite que el agente defienda el valor de tu oferta cuando el cliente dude por precio." />
-                    <ToggleField name="askForOrder" title="Pedir el pedido directamente" defaultChecked={training.askForOrder} helpText="Hace que el agente intente cerrar la venta con una pregunta directa cuando vea intencion de compra." />
+                    <ToggleField
+                      name="useEmojis"
+                      title="Usar emojis"
+                      defaultChecked={training.useEmojis}
+                      helpText="Activalo si tu marca se comunica de forma cercana y natural. Si tu negocio es mas serio, puedes dejarlo apagado."
+                    />
+                    <ToggleField
+                      name="useExpressivePunctuation"
+                      title="Usar ! y ?"
+                      defaultChecked={training.useExpressivePunctuation}
+                      helpText="Permite respuestas con mas energia cuando encajen con la conversacion, sin sonar exagerado."
+                    />
+                    <ToggleField
+                      name="useTuteo"
+                      title="Tutear al cliente"
+                      defaultChecked={training.useTuteo}
+                      helpText="Enciendelo si tu negocio habla de forma cercana. Apagalo si prefieres una comunicacion mas formal o neutra."
+                    />
+                    <ToggleField
+                      name="useCustomerName"
+                      title="Llamarlo por nombre"
+                      defaultChecked={training.useCustomerName}
+                      helpText="Ayuda a que la conversacion se sienta mas personal cuando el cliente ya compartio su nombre."
+                    />
+                    <ToggleField
+                      name="askNameFirst"
+                      title="Preguntar el nombre al inicio"
+                      defaultChecked={training.askNameFirst}
+                      helpText="Sirve si quieres que el agente personalice desde el primer mensaje. Si prefieres ir directo al punto, puedes apagarlo."
+                    />
+                    <ToggleField
+                      name="offerBestSeller"
+                      title="Ofrecer el producto mas vendido"
+                      defaultChecked={training.offerBestSeller}
+                      helpText="Hace que el agente sugiera una opcion segura cuando el cliente no sabe cual elegir."
+                    />
+                    <ToggleField
+                      name="handlePriceObjections"
+                      title="Manejar objeciones de precio"
+                      defaultChecked={training.handlePriceObjections}
+                      helpText="Permite que el agente defienda el valor de tu oferta cuando el cliente dude por precio."
+                    />
+                    <ToggleField
+                      name="askForOrder"
+                      title="Pedir el pedido directamente"
+                      defaultChecked={training.askForOrder}
+                      helpText="Hace que el agente intente cerrar la venta con una pregunta directa cuando vea intencion de compra."
+                    />
                   </div>
                 </div>
               </Card>
@@ -290,15 +382,22 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                   </div>
                   <div className="grid gap-2.5">
                     {forbiddenRuleOptions.map((rule) => (
-                      <label key={rule} className="flex items-center gap-2.5 rounded-[16px] border border-[rgba(148,163,184,0.12)] bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] px-3.5 py-2.5 transition hover:border-[color-mix(in_srgb,var(--primary)_28%,white)]">
+                      <label
+                        key={rule}
+                        className="flex items-center gap-2.5 rounded-[16px] border border-[rgba(148,163,184,0.12)] bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] px-3.5 py-2.5 transition hover:border-[color-mix(in_srgb,var(--primary)_28%,white)]"
+                      >
                         <input
                           type="checkbox"
                           name="forbiddenRules"
                           value={rule}
-                          defaultChecked={training.forbiddenRules.includes(rule)}
+                          defaultChecked={training.forbiddenRules.includes(
+                            rule,
+                          )}
                           className="h-4 w-4 rounded border-slate-300 text-[var(--primary)] focus:ring-[var(--primary)]"
                         />
-                        <span className="text-[13px] leading-5 text-slate-700">{rule}</span>
+                        <span className="text-[13px] leading-5 text-slate-700">
+                          {rule}
+                        </span>
                       </label>
                     ))}
                   </div>
@@ -321,7 +420,6 @@ export default async function AgentTrainingPage({ params }: PageProps) {
               </Card>
             </div>
           </Card>
-
         </div>
         <div className="flex justify-end">
           <button
