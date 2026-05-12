@@ -181,7 +181,7 @@ export default async function AgentTrainingPage({ params }: PageProps) {
 
               <AgentTrainingAutosaveStatus />
 
-              <Accordion defaultValue={["shipping"]} className="">
+              <Accordion defaultValue={["shipping"]} keepMounted className="">
                 <AccordionItem value="shipping">
                   <AccordionTrigger className="py-2 text-[14px] font-semibold text-slate-900 hover:no-underline">
                     ✨ Etapa 1: Presentación
