@@ -340,6 +340,9 @@ export async function getContactosData({
 
   const totalPages = Math.max(1, Math.ceil(totalContacts / CONTACTS_PAGE_SIZE));
   const currentPage = Math.min(requestedPage, totalPages);
+  let dailyCreationStats: ContactosData["dailyCreationStats"] = [];
+  let creationHeatmapRows: ContactosData["creationHeatmap"]["days"] = [];
+  let creationHeatmapMaxCount = 0;
 
   if (includeReport) {
     const heatmapDays = buildBogotaHeatmapWindow(normalizedReportRangeDays);
@@ -410,11 +413,11 @@ export async function getContactosData({
       }
     }
 
-    const dailyCreationStats = Array.from(dailyCreationStatsByDay.values()).sort((left, right) =>
+    dailyCreationStats = Array.from(dailyCreationStatsByDay.values()).sort((left, right) =>
       right.dayKey.localeCompare(left.dayKey),
     );
-    const creationHeatmapRows = Array.from(creationHeatmapByDay.values());
-    const creationHeatmapMaxCount = creationHeatmapRows.reduce((max, row) => {
+    creationHeatmapRows = Array.from(creationHeatmapByDay.values());
+    creationHeatmapMaxCount = creationHeatmapRows.reduce((max, row) => {
       const rowMax = row.hours.reduce((hourMax, hour) => Math.max(hourMax, hour.count), 0);
       return Math.max(max, rowMax);
     }, 0);
