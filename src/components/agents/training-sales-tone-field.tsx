@@ -7,6 +7,7 @@ import { toneOptions, type SalesTone } from "@/lib/agent-training";
 type TrainingSalesToneFieldProps = {
   defaultValue: SalesTone;
   helpText?: string;
+  showHeader?: boolean;
 };
 
 const toneEmojiMap = {
@@ -19,17 +20,20 @@ const toneEmojiMap = {
 export function TrainingSalesToneField({
   defaultValue,
   helpText,
+  showHeader = true,
 }: TrainingSalesToneFieldProps) {
   const [salesTone, setSalesTone] = useState<SalesTone>(defaultValue);
 
   return (
     <div className="rounded-[18px] border border-[color-mix(in_srgb,var(--primary)_12%,white)] bg-[color-mix(in_srgb,var(--primary)_5%,white)] px-3.5 py-3">
       <input type="hidden" name="salesTone" value={salesTone} />
-      <div className="flex items-center gap-2">
-        <span className="h-4 w-1 rounded-full bg-[var(--primary)]" />
-        <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Personalidad</span>
-        {helpText ? <TrainingHelpPopover title="Personalidad" description={helpText} /> : null}
-      </div>
+      {showHeader ? (
+        <div className="flex items-center gap-2">
+          <span className="h-4 w-1 rounded-full bg-[var(--primary)]" />
+          <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Personalidad</span>
+          {helpText ? <TrainingHelpPopover title="Personalidad" description={helpText} /> : null}
+        </div>
+      ) : null}
       <div className="mt-3 grid gap-2 grid-cols-2 md:grid-cols-4">
         {toneOptions.map((option) => {
           const isActive = salesTone === option.value;

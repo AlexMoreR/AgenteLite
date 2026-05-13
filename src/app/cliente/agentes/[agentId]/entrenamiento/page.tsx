@@ -1,4 +1,4 @@
-import { redirect } from "next/navigation";
+﻿import { redirect } from "next/navigation";
 import { Shield } from "lucide-react";
 import { BusinessNameHeader } from "@/components/agents/business-name-header";
 import { AgentTrainingAutosaveForm } from "@/components/agents/agent-training-autosave-form";
@@ -258,6 +258,20 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                         />
                       </label>
 
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+                <AccordionItem value="personality">
+                  <AccordionTrigger className="py-2 text-[14px] font-semibold text-slate-900 hover:no-underline">
+                    🎭 Etapa 3: Personalidad
+                  </AccordionTrigger>
+                  <AccordionContent className="pb-4">
+                    <div className="space-y-4">
+                      <TrainingSalesToneField
+                        defaultValue={training.salesTone}
+                        helpText="Aqui eliges la personalidad del agente al responder: mas formal, mas cercano o mas entusiasta."
+                        showHeader={false}
+                      />
                       <fieldset className="space-y-2.5">
                         <legend className="inline-flex items-center gap-1.5 py-2 text-[13px] font-medium text-slate-700">
                           <FieldLabel
@@ -286,131 +300,126 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                           ))}
                         </div>
                       </fieldset>
-
-                      <TrainingSalesToneField
-                        defaultValue={training.salesTone}
-                        helpText="Aqui eliges la personalidad del agente al responder: mas formal, mas cercano o mas entusiasta."
-                      />
-                    </div>
-                  </AccordionContent>
-                </AccordionItem>
-              </Accordion>
-
-              <div className="rounded-[22px] border border-[rgba(148,163,184,0.12)] bg-[linear-gradient(180deg,#ffffff_0%,#fafbfc_100%)] p-4">
-                <div className="min-w-0 space-y-3">
-                  <TrainingResponseLengthField
-                    defaultValue={training.responseLength}
-                    helpText="Controla si el agente respondera corto y directo o con mas contexto cuando explique y venda."
-                  />
-                </div>
-              </div>
-
-              <Card className="border border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcfd_100%)] p-4 shadow-[0_20px_44px_-38px_rgba(15,23,42,0.18)] sm:p-5">
-                <div className="space-y-3.5">
-                  <SectionHeader
-                    title="Estilo y cierre"
-                    helpText="Activa aqui los comportamientos que quieres ver en la conversacion: como habla, como recomienda y como intenta cerrar la venta."
-                  />
-                  <div className="grid gap-2.5">
-                    <ToggleField
-                      name="useEmojis"
-                      title="Usar emojis"
-                      defaultChecked={training.useEmojis}
-                      helpText="Activalo si tu marca se comunica de forma cercana y natural. Si tu negocio es mas serio, puedes dejarlo apagado."
+                    <TrainingResponseLengthField
+                      defaultValue={training.responseLength}
+                      helpText="Controla si el agente respondera corto y directo o con mas contexto cuando explique y venda."
                     />
-                    <ToggleField
-                      name="useExpressivePunctuation"
-                      title="Usar ! y ?"
-                      defaultChecked={training.useExpressivePunctuation}
-                      helpText="Permite respuestas con mas energia cuando encajen con la conversacion, sin sonar exagerado."
-                    />
-                    <ToggleField
-                      name="useTuteo"
-                      title="Tutear al cliente"
-                      defaultChecked={training.useTuteo}
-                      helpText="Enciendelo si tu negocio habla de forma cercana. Apagalo si prefieres una comunicacion mas formal o neutra."
-                    />
-                    <ToggleField
-                      name="useCustomerName"
-                      title="Llamarlo por nombre"
-                      defaultChecked={training.useCustomerName}
-                      helpText="Ayuda a que la conversacion se sienta mas personal cuando el cliente ya compartio su nombre."
-                    />
-                    <ToggleField
-                      name="askNameFirst"
-                      title="Preguntar el nombre al inicio"
-                      defaultChecked={training.askNameFirst}
-                      helpText="Sirve si quieres que el agente personalice desde el primer mensaje. Si prefieres ir directo al punto, puedes apagarlo."
-                    />
-                    <ToggleField
-                      name="offerBestSeller"
-                      title="Ofrecer el producto mas vendido"
-                      defaultChecked={training.offerBestSeller}
-                      helpText="Hace que el agente sugiera una opcion segura cuando el cliente no sabe cual elegir."
-                    />
-                    <ToggleField
-                      name="handlePriceObjections"
-                      title="Manejar objeciones de precio"
-                      defaultChecked={training.handlePriceObjections}
-                      helpText="Permite que el agente defienda el valor de tu oferta cuando el cliente dude por precio."
-                    />
-                    <ToggleField
-                      name="askForOrder"
-                      title="Pedir el pedido directamente"
-                      defaultChecked={training.askForOrder}
-                      helpText="Hace que el agente intente cerrar la venta con una pregunta directa cuando vea intencion de compra."
-                    />
-                  </div>
-                </div>
-              </Card>
-
-              <Card className="border border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcfd_100%)] p-4 shadow-[0_20px_44px_-38px_rgba(15,23,42,0.18)] sm:p-5">
-                <div className="space-y-3.5">
-                  <div className="flex items-center justify-between gap-3">
-                    <SectionHeader
-                      title="Reglas importantes"
-                      helpText="Estas reglas protegen al negocio para que el agente no invente informacion ni haga promesas incorrectas."
-                    />
-                    <Shield className="h-4.5 w-4.5 shrink-0 text-[var(--primary)]" />
-                  </div>
-                  <div className="grid gap-2.5">
-                    {forbiddenRuleOptions.map((rule) => (
-                      <label
-                        key={rule}
-                        className="flex items-center gap-2.5 rounded-[16px] border border-[rgba(148,163,184,0.12)] bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] px-3.5 py-2.5 transition hover:border-[color-mix(in_srgb,var(--primary)_28%,white)]"
-                      >
-                        <input
-                          type="checkbox"
-                          name="forbiddenRules"
-                          value={rule}
-                          defaultChecked={training.forbiddenRules.includes(
-                            rule,
-                          )}
-                          className="h-4 w-4 rounded border-slate-300 text-[var(--primary)] focus:ring-[var(--primary)]"
+                    <Card className="border border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcfd_100%)] p-4 shadow-[0_20px_44px_-38px_rgba(15,23,42,0.18)] sm:p-5">
+                      <div className="space-y-3.5">
+                        <SectionHeader
+                          title="Estilo y cierre"
+                          helpText="Activa aqui los comportamientos que quieres ver en la conversacion: como habla, como recomienda y como intenta cerrar la venta."
                         />
-                        <span className="text-[13px] leading-5 text-slate-700">
-                          {rule}
-                        </span>
-                      </label>
-                    ))}
+                        <div className="grid gap-2.5">
+                          <ToggleField
+                            name="useEmojis"
+                            title="Usar emojis"
+                            defaultChecked={training.useEmojis}
+                            helpText="Activalo si tu marca se comunica de forma cercana y natural. Si tu negocio es mas serio, puedes dejarlo apagado."
+                          />
+                          <ToggleField
+                            name="useExpressivePunctuation"
+                            title="Usar ! y ?"
+                            defaultChecked={training.useExpressivePunctuation}
+                            helpText="Permite respuestas con mas energia cuando encajen con la conversacion, sin sonar exagerado."
+                          />
+                          <ToggleField
+                            name="useTuteo"
+                            title="Tutear al cliente"
+                            defaultChecked={training.useTuteo}
+                            helpText="Enciendelo si tu negocio habla de forma cercana. Apagalo si prefieres una comunicacion mas formal o neutra."
+                          />
+                          <ToggleField
+                            name="useCustomerName"
+                            title="Llamarlo por nombre"
+                            defaultChecked={training.useCustomerName}
+                            helpText="Ayuda a que la conversacion se sienta mas personal cuando el cliente ya compartio su nombre."
+                          />
+                          <ToggleField
+                            name="askNameFirst"
+                            title="Preguntar el nombre al inicio"
+                            defaultChecked={training.askNameFirst}
+                            helpText="Sirve si quieres que el agente personalice desde el primer mensaje. Si prefieres ir directo al punto, puedes apagarlo."
+                          />
+                          <ToggleField
+                            name="offerBestSeller"
+                            title="Ofrecer el producto mas vendido"
+                            defaultChecked={training.offerBestSeller}
+                            helpText="Hace que el agente sugiera una opcion segura cuando el cliente no sabe cual elegir."
+                          />
+                          <ToggleField
+                            name="handlePriceObjections"
+                            title="Manejar objeciones de precio"
+                            defaultChecked={training.handlePriceObjections}
+                            helpText="Permite que el agente defienda el valor de tu oferta cuando el cliente dude por precio."
+                          />
+                          <ToggleField
+                            name="askForOrder"
+                            title="Pedir el pedido directamente"
+                            defaultChecked={training.askForOrder}
+                            helpText="Hace que el agente intente cerrar la venta con una pregunta directa cuando vea intencion de compra."
+                          />
+                        </div>
+                      </div>
+                    </Card>
                   </div>
-                  <label className="space-y-1.5">
-                    <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-slate-700">
-                      <span>Otras reglas especificas del negocio</span>
-                      <TrainingHelpPopover
-                        title="Otras reglas del negocio"
-                        description="Escribe aqui condiciones especiales que el agente deba respetar, por ejemplo politicas, tiempos o limites de atencion."
-                      />
-                    </span>
-                    <TrainingTextareaField
-                      name="customRules"
-                      rows={4}
-                      defaultValue={training.customRules}
-                      className="flex w-full rounded-[20px] border border-[rgba(148,163,184,0.16)] bg-white px-3.5 py-3 text-[13px] leading-6 text-slate-800 outline-none transition focus:border-[var(--primary)]"
-                    />
-                  </label>
-                </div>
-              </Card>
+                </AccordionContent>
+              </AccordionItem>
+              <AccordionItem value="rules">
+                <AccordionTrigger className="py-2 text-[14px] font-semibold text-slate-900 hover:no-underline">
+                  🛡️ Etapa 4: Regla
+                </AccordionTrigger>
+                <AccordionContent className="pb-4">
+                  <Card className="border border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcfd_100%)] p-4 shadow-[0_20px_44px_-38px_rgba(15,23,42,0.18)] sm:p-5">
+                    <div className="space-y-3.5">
+                      <div className="flex items-center justify-between gap-3">
+                        <SectionHeader
+                          title="Reglas importantes"
+                          helpText="Estas reglas protegen al negocio para que el agente no invente informacion ni haga promesas incorrectas."
+                        />
+                        <Shield className="h-4.5 w-4.5 shrink-0 text-[var(--primary)]" />
+                      </div>
+                      <div className="grid gap-2.5">
+                        {forbiddenRuleOptions.map((rule) => (
+                          <label
+                            key={rule}
+                            className="flex items-center gap-2.5 rounded-[16px] border border-[rgba(148,163,184,0.12)] bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] px-3.5 py-2.5 transition hover:border-[color-mix(in_srgb,var(--primary)_28%,white)]"
+                          >
+                            <input
+                              type="checkbox"
+                              name="forbiddenRules"
+                              value={rule}
+                              defaultChecked={training.forbiddenRules.includes(
+                                rule,
+                              )}
+                              className="h-4 w-4 rounded border-slate-300 text-[var(--primary)] focus:ring-[var(--primary)]"
+                            />
+                            <span className="text-[13px] leading-5 text-slate-700">
+                              {rule}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                      <label className="space-y-1.5">
+                        <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-slate-700">
+                          <span>Otras reglas especificas del negocio</span>
+                          <TrainingHelpPopover
+                            title="Otras reglas del negocio"
+                            description="Escribe aqui condiciones especiales que el agente deba respetar, por ejemplo politicas, tiempos o limites de atencion."
+                          />
+                        </span>
+                        <TrainingTextareaField
+                          name="customRules"
+                          rows={4}
+                          defaultValue={training.customRules}
+                          className="flex w-full rounded-[20px] border border-[rgba(148,163,184,0.16)] bg-white px-3.5 py-3 text-[13px] leading-6 text-slate-800 outline-none transition focus:border-[var(--primary)]"
+                        />
+                      </label>
+                    </div>
+                  </Card>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
             </div>
           </Card>
         </div>
