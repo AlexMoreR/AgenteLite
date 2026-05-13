@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { after } from "next/server";
 import { NextResponse } from "next/server";
-import { generateAgentReply } from "@/lib/agent-ai";
+import { analyzeImageForAgent, generateAgentReply } from "@/lib/agent-ai";
 import { resolveAgentProductFlowReply } from "@/lib/agent-product-flow";
 import { composeAgentWelcomeReply } from "@/lib/agent-reply-composer";
 import { getConversationAutomationPaused, setConversationAutomationPaused } from "@/lib/conversation-automation";
@@ -35,6 +35,7 @@ import {
   sendEvolutionImageMessage,
   sendEvolutionPresence,
   sendEvolutionTextMessageWithReconnect,
+  resolveEvolutionMessageMediaUrl,
 } from "@/lib/evolution";
 import { resolveAgentKnowledgeBaseReply } from "@/lib/agent-knowledge-media";
 import { detectContactMatchesFromText, recordContactMatch } from "@/lib/contact-matches";
@@ -647,6 +648,17 @@ export async function POST(request: Request) {
     });
   }
 
+  const resolvedCurrentMediaUrl =
+    messageType === "IMAGE" || messageType === "STICKER"
+      ? await resolveEvolutionMessageMediaUrl({
+          instanceName: channel.evolutionInstanceName,
+          messageId: messageExternalId,
+          mediaType: messageType,
+          mediaUrl,
+          rawPayload: payload,
+        })
+      : null;
+
   const inboundMessageCountRows = await prisma.$queryRaw<Array<{ total: bigint | number }>>`
     SELECT COUNT(*)::bigint AS "total"
     FROM "Message"
@@ -905,6 +917,8 @@ export async function POST(request: Request) {
       responseDelaySeconds,
     });
 
+      const hasInboundContent = Boolean((messageText ?? "").trim() || resolvedCurrentMediaUrl);
+
       let quickResponseFlow = channel.isActive && !conversationAutomationPaused && channel.evolutionInstanceName && messageText
         ? await resolveEvolutionQuickResponseFlow({
             workspaceId: channel.workspaceId,
@@ -917,7 +931,7 @@ export async function POST(request: Request) {
         channel.isActive &&
         !conversationAutomationPaused &&
         channel.evolutionInstanceName &&
-        messageText &&
+        hasInboundContent &&
         (quickResponseFlow || (agent?.isActive && agent.status === "ACTIVE"))
       ) {
       const existingOutbound = await prisma.message.findFirst({
@@ -944,12 +958,44 @@ export async function POST(request: Request) {
           type: true,
           mediaUrl: true,
         },
-      })).reverse().map((m) => ({
-        direction: m.direction,
-        content: m.content,
-        type: m.type as "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "TEMPLATE" | "INTERACTIVE" | "SYSTEM" | undefined,
-        mediaUrl: m.mediaUrl,
-      }));
+      }))
+        .reverse()
+        .map((m) => ({
+          direction: m.direction,
+          content: m.content,
+          type: m.type as "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "TEMPLATE" | "INTERACTIVE" | "SYSTEM" | undefined,
+          mediaUrl: m.mediaUrl,
+        }));
+      const recentMessagesForModel =
+        resolvedCurrentMediaUrl && recentMessages.length > 0
+          ? recentMessages.map((message, index) =>
+              index === recentMessages.length - 1 && (message.type === "IMAGE" || message.type === "STICKER")
+                ? { ...message, mediaUrl: resolvedCurrentMediaUrl }
+                : message,
+            )
+          : recentMessages;
+      const latestIncomingImageAnalysis =
+        resolvedCurrentMediaUrl && (messageType === "IMAGE" || messageType === "STICKER")
+          ? await analyzeImageForAgent({
+              imageUrl: resolvedCurrentMediaUrl,
+              model: agent.model,
+            })
+          : null;
+
+      if (latestIncomingImageAnalysis) {
+        console.log("[EVOLUTION] image_analysis", {
+          conversationId: conversation.id,
+          agentId: agent.id,
+          messageType,
+          analysis: latestIncomingImageAnalysis,
+        });
+      } else if (resolvedCurrentMediaUrl && (messageType === "IMAGE" || messageType === "STICKER")) {
+        console.log("[EVOLUTION] image_analysis_missing", {
+          conversationId: conversation.id,
+          agentId: agent.id,
+          messageType,
+        });
+      }
 
       const executedFlowSlugs = await getConversationExecutedFlowSlugs({
         workspaceId: channel.workspaceId,
@@ -960,7 +1006,7 @@ export async function POST(request: Request) {
       const detectedContactMatches = await detectContactMatchesFromText({
         agentId: agent.id,
         workspaceId: channel.workspaceId,
-        messageText,
+        messageText: messageText ?? "",
         includeOfficialApi: true,
       });
       if (detectedContactMatches.length > 0) {
@@ -986,7 +1032,7 @@ export async function POST(request: Request) {
         customerPhoneNumber: phoneNumber,
         customerName: contact.name,
         latestUserMessage: messageText,
-        history: recentMessages,
+        history: recentMessagesForModel,
       });
       const notifyHumanPromise = notifyHumanAction && channel.evolutionInstanceName
         ? sendEvolutionTextMessageWithReconnect({
@@ -1031,7 +1077,7 @@ export async function POST(request: Request) {
             agentId: agent.id,
             workspaceId: channel.workspaceId,
             latestUserMessage: messageText,
-            history: recentMessages,
+            history: recentMessagesForModel,
             includeOfficialApi: true,
           });
 
@@ -1058,7 +1104,7 @@ export async function POST(request: Request) {
               workspaceId: channel.workspaceId,
               conversationId: conversation.id,
               latestUserMessage: messageText,
-              history: recentMessages,
+              history: recentMessagesForModel,
             });
 
       let shouldComposeWelcome = true;
@@ -1088,6 +1134,10 @@ export async function POST(request: Request) {
         const aiLatestUserMessage = aiContextNotes.size > 0
           ? `${Array.from(aiContextNotes).join("\n")}\n\nMensaje del cliente: ${messageText}`
           : messageText;
+        const aiLatestUserMessageWithImageContext =
+          latestIncomingImageAnalysis
+            ? `${aiLatestUserMessage}\n\nAnalisis visual de la imagen del cliente: ${latestIncomingImageAnalysis}`
+            : aiLatestUserMessage;
         const agentTraining = parseAgentTrainingConfig(agent.trainingConfig);
         const effectiveSystemPrompt = agentTraining?.useCustomPrompt && agentTraining.customSystemPrompt?.trim()
           ? agentTraining.customSystemPrompt.trim()
@@ -1119,8 +1169,8 @@ export async function POST(request: Request) {
           model: agent.model,
           systemPrompt: effectiveSystemPrompt,
           fallbackMessage: agent.fallbackMessage,
-          history: recentMessages,
-          latestUserMessage: aiLatestUserMessage,
+          history: recentMessagesForModel,
+          latestUserMessage: aiLatestUserMessageWithImageContext,
           tools: [NOTIFICAR_ASESOR_TOOL],
           toolHandlers: notificarAsesorToolHandlers,
         });
@@ -1352,7 +1402,7 @@ export async function POST(request: Request) {
           const lastStep = hardFlowReply.steps[hardFlowReply.steps.length - 1];
           if (hardFlowReply.aiFollowUpEnabled && lastStep?.kind !== "text") {
             const ctx = `El flujo "${hardFlowReply.flowTitle}" fue ejecutado para "${hardFlowReply.productName || "el producto"}".`;
-            const followUp = await generateContextualFollowUp(ctx, recentMessages);
+            const followUp = await generateContextualFollowUp(ctx, recentMessagesForModel);
             if (followUp && channel.evolutionInstanceName) {
               const followOutbound = await sendEvolutionTextMessageWithReconnect({
                 instanceName: channel.evolutionInstanceName,
@@ -1534,7 +1584,7 @@ export async function POST(request: Request) {
                     ? `La imagen del flujo ya fue enviada para "${imageReplyProductName || "el producto"}".`
                     : `La imagen del producto ya fue enviada para "${imageReplyProductName || "el producto"}".`;
                 followUpText = await generateContextualFollowUp(imageContext, [
-                  ...recentMessages,
+                  ...recentMessagesForModel,
                   {
                     direction: "OUTBOUND",
                     type: "IMAGE",
@@ -1554,7 +1604,7 @@ export async function POST(request: Request) {
             const flowHasTextReply = Boolean(quickResponseFlow?.reply.text?.trim());
             if (!followUpText && quickResponseFlow && flowFollowUpContext && !flowHasTextReply) {
               followUpText = await generateContextualFollowUp(flowFollowUpContext, [
-                ...recentMessages,
+                ...recentMessagesForModel,
                 {
                   direction: "OUTBOUND",
                   type: "TEXT",
