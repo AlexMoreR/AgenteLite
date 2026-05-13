@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition, type FormEvent, type ReactNode, type RefObject } from "react";
 import { useRouter } from "next/navigation";
@@ -27,6 +26,7 @@ import {
 } from "lucide-react";
 import { ChatScrollAnchor } from "@/components/agents/chat-scroll-anchor";
 import { ChatSelectionOverlay } from "@/components/chats/chat-selection-overlay";
+import { ContactAvatar } from "@/components/chats/contact-avatar";
 import {
   mergeConversationSnapshots,
   readConversationFromCache,
@@ -232,12 +232,6 @@ type SharedInboxProps = {
   emptySelectionDescription: string;
   messageScrollBehavior?: "bottom" | "preserve";
 };
-
-function getInitials(value: string) {
-  const parts = value.trim().split(/\s+/).filter(Boolean).slice(0, 2);
-  const initials = parts.map((part) => part.charAt(0).toUpperCase()).join("");
-  return initials || "CT";
-}
 
 function countIncomingMessagesSinceLastOutbound(messages: SharedInboxMessageItem[]) {
   let incomingCount = 0;
@@ -1267,20 +1261,12 @@ const ConversationPanel = memo(function ConversationPanel({
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <div className="shrink-0 cursor-default">
-                        {renderedConversation.avatarUrl ? (
-                          <Image
-                            src={renderedConversation.avatarUrl}
-                            alt={renderedConversation.label}
-                            width={40}
-                            height={40}
-                            unoptimized
-                            className="h-10 w-10 rounded-2xl object-cover"
-                          />
-                        ) : (
-                          <div className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-100 text-sm font-semibold text-slate-700">
-                            {getInitials(renderedConversation.label)}
-                          </div>
-                        )}
+                        <ContactAvatar
+                          avatarUrl={renderedConversation.avatarUrl}
+                          label={renderedConversation.label}
+                          className="h-10 w-10 rounded-2xl border border-[rgba(148,163,184,0.12)] bg-slate-100 text-slate-500"
+                          fallbackClassName="rounded-2xl bg-slate-100 text-sm font-semibold text-slate-700"
+                        />
                       </div>
                     </TooltipTrigger>
                     {renderedConversation.secondaryLabel ? (

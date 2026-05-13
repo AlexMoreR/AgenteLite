@@ -2,11 +2,11 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useTransition, type RefObject } from "react";
 import { useRouter } from "next/navigation";
-import Image from "next/image";
 import Link from "next/link";
-import { BadgeCheck, Facebook, Instagram, Mic, UserRound } from "lucide-react";
+import { BadgeCheck, Facebook, Instagram, Mic } from "lucide-react";
 import { WhatsAppGlyph } from "@/components/icons/whatsapp-glyph";
 import { Badge } from "@/components/ui/badge";
+import { ContactAvatar } from "./contact-avatar";
 import { warmConversationCache } from "./chat-conversation-warmup";
 import { setPendingConversationSelection } from "./chat-selection-store";
 import { readConversationFromCache } from "./chat-history-cache";
@@ -81,6 +81,10 @@ function getConversationTagBadgeStyle(color?: string | null) {
   };
 }
 
+function getConversationAvatarClassName() {
+  return "h-10 w-10 rounded-2xl border border-[rgba(148,163,184,0.12)] bg-slate-100 text-slate-500 md:h-11 md:w-11";
+}
+
 const ConversationListItem = memo(function ConversationListItem({
   conversation,
   isSelected,
@@ -131,20 +135,12 @@ const ConversationListItem = memo(function ConversationListItem({
       />
 
       <div className="relative h-10 w-10 shrink-0 md:h-11 md:w-11">
-        {conversation.avatarUrl ? (
-          <Image
-            src={conversation.avatarUrl}
-            alt={conversation.label ?? ""}
-            width={40}
-            height={40}
-            unoptimized
-            className="h-10 w-10 rounded-2xl object-cover md:h-11 md:w-11"
-          />
-        ) : (
-          <div className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-100 text-slate-500 md:h-11 md:w-11">
-            <UserRound className="h-4.5 w-4.5 md:h-5 md:w-5" />
-          </div>
-        )}
+        <ContactAvatar
+          avatarUrl={conversation.avatarUrl}
+          label={conversation.label ?? conversation.secondaryLabel ?? ""}
+          className={getConversationAvatarClassName()}
+          fallbackClassName="rounded-2xl bg-slate-100 text-slate-500 text-[13px] font-semibold"
+        />
 
         {incomingCountLabel ? (
           <span className="absolute -top-1 -right-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#2563eb] px-1 shadow-[0_1px_4px_rgba(15,23,42,0.18)]">

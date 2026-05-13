@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
@@ -23,11 +22,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-
-function getInitials(value: string) {
-  const parts = value.trim().split(/\s+/).filter(Boolean).slice(0, 2);
-  return parts.map((part) => part.charAt(0).toUpperCase()).join("") || "CT";
-}
+import { ContactAvatar } from "@/components/chats/contact-avatar";
 
 function formatDateLabel(value: string | null) {
   if (!value) {
@@ -247,20 +242,12 @@ function ContactCard({
       )}
     >
       <div className="flex items-start gap-3">
-        {contact.avatarUrl ? (
-          <Image
-            src={contact.avatarUrl}
-            alt={name}
-            width={44}
-            height={44}
-            unoptimized
-            className="h-11 w-11 shrink-0 rounded-2xl object-cover"
-          />
-        ) : (
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-sm font-semibold text-slate-700">
-            {getInitials(name)}
-          </div>
-        )}
+        <ContactAvatar
+          avatarUrl={contact.avatarUrl}
+          label={name}
+          className="h-11 w-11 shrink-0 rounded-2xl border border-[rgba(148,163,184,0.12)] bg-slate-100 text-slate-500"
+          fallbackClassName="rounded-2xl bg-slate-100 text-sm font-semibold text-slate-700"
+        />
 
         <div className="min-w-0 flex-1 space-y-2">
           <div className="flex items-start justify-between gap-3">
@@ -709,20 +696,12 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
               <div className="border-b border-slate-100 p-4 sm:p-5">
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                   <div className="flex min-w-0 items-start gap-3">
-                    {selectedContact.avatarUrl ? (
-                      <Image
-                        src={selectedContact.avatarUrl}
-                        alt={getContactDisplayName(selectedContact)}
-                        width={56}
-                        height={56}
-                        unoptimized
-                        className="h-14 w-14 shrink-0 rounded-[22px] object-cover"
-                      />
-                    ) : (
-                      <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-[22px] bg-slate-100 text-base font-semibold text-slate-700">
-                        {getInitials(getContactDisplayName(selectedContact))}
-                      </div>
-                    )}
+                    <ContactAvatar
+                      avatarUrl={selectedContact.avatarUrl}
+                      label={getContactDisplayName(selectedContact)}
+                      className="h-14 w-14 shrink-0 rounded-[22px] border border-[rgba(148,163,184,0.12)] bg-slate-100 text-slate-500"
+                      fallbackClassName="rounded-[22px] bg-slate-100 text-base font-semibold text-slate-700"
+                    />
 
                     <div className="min-w-0 space-y-1.5">
                       <div className="flex flex-wrap items-center gap-2">
