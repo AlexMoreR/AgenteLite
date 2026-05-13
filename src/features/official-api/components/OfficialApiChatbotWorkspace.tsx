@@ -60,6 +60,12 @@ import {
 } from "@/components/reactflow/base-node";
 import { cn } from "@/lib/utils";
 import { useRouter } from "next/navigation";
+import {
+  normalizeBuilderEdgesForSave,
+  normalizeBuilderNodePositionsForSave,
+  normalizeBuilderNodesForSave,
+  normalizeBuilderScenariosForSave,
+} from "@/features/official-api/services/normalizeBuilderStateForSave";
 import type {
   OfficialApiChatbotBuilderNode,
   OfficialApiChatbotData,
@@ -603,18 +609,6 @@ function getOrderedNodeTitle(node: BuilderNode, index: number) {
     return "Enviar mensaje";
   }
   return trimmedTitle || `Paso ${index + 1}`;
-}
-
-function normalizeNodesByScenarioForSave(nodesByScenarioId: OfficialApiChatbotNodesByScenarioId) {
-  return Object.fromEntries(
-    Object.entries(nodesByScenarioId).map(([scenarioId, scenarioNodes]) => [
-      scenarioId,
-      scenarioNodes.map((node, index) => ({
-        ...node,
-        title: getOrderedNodeTitle(node, index),
-      })),
-    ]),
-  ) satisfies OfficialApiChatbotNodesByScenarioId;
 }
 
 function mergeKeywords(existingMeta: string, nextKeyword: string) {
@@ -1163,7 +1157,10 @@ export function OfficialApiChatbotWorkspace({
     edgesByScenarioId: EdgesByScenarioId;
     successMessage?: string;
   }) => {
-    const normalizedNodesByScenarioId = normalizeNodesByScenarioForSave(input.nodesByScenarioId);
+    const normalizedNodesByScenarioId = normalizeBuilderNodesForSave(input.nodesByScenarioId);
+    const normalizedScenarios = normalizeBuilderScenariosForSave(input.scenarios);
+    const normalizedNodePositionsByScenarioId = normalizeBuilderNodePositionsForSave(input.nodePositionsByScenarioId);
+    const normalizedEdgesByScenarioId = normalizeBuilderEdgesForSave(normalizedNodesByScenarioId, input.edgesByScenarioId);
     const activeNodes = normalizedNodesByScenarioId[input.selectedScenarioId] ?? [];
     const response = await fetch(saveEndpoint, {
       method: "POST",
@@ -1180,10 +1177,10 @@ export function OfficialApiChatbotWorkspace({
         fallbackEnabled,
         replyEveryMessageEnabled,
         selectedScenarioId: input.selectedScenarioId,
-        scenarios: input.scenarios,
+        scenarios: normalizedScenarios,
         nodesByScenarioId: normalizedNodesByScenarioId,
-        nodePositionsByScenarioId: input.nodePositionsByScenarioId,
-        edgesByScenarioId: input.edgesByScenarioId,
+        nodePositionsByScenarioId: normalizedNodePositionsByScenarioId,
+        edgesByScenarioId: normalizedEdgesByScenarioId,
       }),
     });
 
