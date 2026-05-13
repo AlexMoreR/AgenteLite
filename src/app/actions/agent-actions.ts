@@ -186,6 +186,11 @@ const saveAgentActionsSchema = z.object({
   }
 });
 
+function getRequiredFormValue(formData: FormData, key: string) {
+  const value = formData.get(key);
+  return typeof value === "string" ? value.trim() : "";
+}
+
 export type AgentTrainingAutosaveState = {
   ok: boolean;
   message: string;
@@ -2283,8 +2288,8 @@ export async function toggleAgentStatusAction(formData: FormData): Promise<void>
   }
 
   const parsed = toggleAgentStatusSchema.safeParse({
-    agentId: formData.get("agentId"),
-    returnTo: formData.get("returnTo"),
+    agentId: getRequiredFormValue(formData, "agentId"),
+    returnTo: getRequiredFormValue(formData, "returnTo"),
   });
 
   if (!parsed.success) {

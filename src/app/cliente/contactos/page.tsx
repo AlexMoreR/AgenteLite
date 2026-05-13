@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { ContactosWorkspace, getContactosData } from "@/features/contactos";
+import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 
 export const metadata: Metadata = {
   robots: {
@@ -28,6 +29,8 @@ export default async function ClienteContactosPage({ searchParams }: PageProps) 
   const reportRangeDays = typeof params.range === "string" ? Number(params.range) : undefined;
   const page = typeof params.page === "string" ? Number(params.page) : undefined;
   const activeView = params.view === "informe" ? "informe" : "contacto";
+  const okMessage = typeof params.ok === "string" ? params.ok : "";
+  const errorMessage = typeof params.error === "string" ? params.error : "";
 
   const data = await getContactosData({
     userId: session.user.id,
@@ -43,5 +46,15 @@ export default async function ClienteContactosPage({ searchParams }: PageProps) 
     redirect("/cliente");
   }
 
-  return <ContactosWorkspace data={data} activeView={activeView} />;
+  return (
+    <>
+      <QueryFeedbackToast
+        okMessage={okMessage}
+        errorMessage={errorMessage}
+        okTitle="Contactos actualizados"
+        errorTitle="No pudimos completar la accion"
+      />
+      <ContactosWorkspace data={data} activeView={activeView} />
+    </>
+  );
 }

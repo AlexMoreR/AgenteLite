@@ -9,10 +9,12 @@ import {
   Copy,
   Download,
   Mail,
+  MoreVertical,
   MessageCircle,
   MessagesSquare,
   Phone,
   Search,
+  Trash2,
   Sparkles,
   Users2,
   Clock3,
@@ -21,6 +23,13 @@ import type { ContactosContact, ContactosData } from "../types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { deleteContactAction } from "@/app/actions/chats-actions";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ContactAvatar } from "@/components/chats/contact-avatar";
 
@@ -173,6 +182,17 @@ function getContactosHref({
   params.set("view", view);
 
   return `/cliente/contactos?${params.toString()}`;
+}
+
+function getContactosListHref(data: ContactosData) {
+  return getContactosHref({
+    searchQuery: data.searchQuery,
+    agentFilterId: data.agentFilterId,
+    selectedContactId: null,
+    range: data.reportRangeDays,
+    page: data.pagination.page,
+    view: "contacto",
+  });
 }
 
 function getTagBadgeStyle(color?: string | null) {
@@ -332,6 +352,7 @@ function ContactCard({
 
 export function ContactosWorkspace({ data, activeView }: { data: ContactosData; activeView: "contacto" | "informe" }) {
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const router = useRouter();
   const selectedContact = data.selectedContact;
   const pagination = data.pagination;
@@ -344,6 +365,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
 
   const selectedConversation = selectedContact?.recentConversations[0] ?? null;
   const selectedHref = selectedContact ? getConversationHref(selectedContact) : "";
+  const deleteReturnTo = getContactosListHref(data);
   const heatmapDays = data.creationHeatmap.days;
   const heatmapMaxCount = data.creationHeatmap.maxCount;
 
@@ -749,6 +771,26 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                       Abrir chat
                       <MessageCircle className="h-4 w-4" />
                     </Link>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
+                          aria-label="Acciones del contacto"
+                        >
+                          <MoreVertical className="h-4 w-4" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="min-w-44 rounded-2xl">
+                        <DropdownMenuItem
+                          onSelect={() => setDeleteModalOpen(true)}
+                          className="gap-2 text-rose-600 focus:text-rose-700"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          Eliminar contacto
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </div>
               </div>
@@ -934,6 +976,50 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
             </div>
           )}
         </div>
+        </div>
+          ) : null}
+
+      {selectedContact && deleteModalOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-[2px]"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Eliminar contacto"
+          onClick={() => setDeleteModalOpen(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-[28px] border border-rose-200 bg-white shadow-[0_28px_90px_-40px_rgba(15,23,42,0.5)]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="border-b border-slate-100 px-5 py-4">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-rose-600">Accion irreversible</p>
+              <h3 className="mt-1 text-lg font-semibold tracking-[-0.03em] text-slate-950">Eliminar contacto</h3>
+            </div>
+            <form action={deleteContactAction} className="space-y-4 px-5 py-5">
+              <input type="hidden" name="contactId" value={selectedContact.id} />
+              <input type="hidden" name="returnTo" value={deleteReturnTo} />
+              <p className="text-sm leading-6 text-slate-600">
+                Se eliminará <span className="font-medium text-slate-900">{getContactDisplayName(selectedContact)}</span>
+                y todo su historial: conversaciones, mensajes, etiquetas y registros asociados a este contacto dentro del
+                workspace.
+              </p>
+              <div className="flex flex-wrap justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setDeleteModalOpen(false)}
+                  className="h-10 rounded-2xl border border-slate-200 px-4 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="h-10 rounded-2xl bg-rose-600 px-4 text-sm font-semibold text-white transition hover:bg-rose-700"
+                >
+                  Eliminar contacto
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       ) : null}
     </section>

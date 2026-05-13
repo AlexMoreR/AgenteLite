@@ -18,6 +18,11 @@ const updateContactSchema = z.object({
   name: z.string().trim().max(120),
 });
 
+const deleteContactSchema = z.object({
+  contactId: z.string().trim().min(1, "Contacto invalido"),
+  returnTo: z.string().trim().max(500).optional(),
+});
+
 type UpdateContactActionState =
   | { error: string; success?: false }
   | { success: true; contactId: string; name: string };
@@ -64,6 +69,84 @@ export async function updateContactAction(
     contactId: contact.id,
     name: parsed.data.name.trim(),
   };
+}
+
+export async function deleteContactAction(formData: FormData): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+    redirect("/unauthorized");
+  }
+
+  const parsed = deleteContactSchema.safeParse({
+    contactId: formData.get("contactId"),
+    returnTo: formData.get("returnTo"),
+  });
+
+  if (!parsed.success) {
+    redirect("/cliente/contactos?error=Contacto+invalido");
+  }
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    redirect("/cliente/contactos?error=Workspace+no+encontrado");
+  }
+
+  const contact = await prisma.contact.findFirst({
+    where: {
+      id: parsed.data.contactId,
+      workspaceId: membership.workspace.id,
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  if (!contact) {
+    redirect("/cliente/contactos?error=Contacto+no+encontrado");
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.message.deleteMany({
+      where: {
+        workspaceId: membership.workspace.id,
+        contactId: contact.id,
+      },
+    });
+
+    await tx.contactTag.deleteMany({
+      where: {
+        workspaceId: membership.workspace.id,
+        contactId: contact.id,
+      },
+    });
+
+    await tx.contactMatch.deleteMany({
+      where: {
+        workspaceId: membership.workspace.id,
+        contactId: contact.id,
+      },
+    });
+
+    await tx.conversation.deleteMany({
+      where: {
+        workspaceId: membership.workspace.id,
+        contactId: contact.id,
+      },
+    });
+
+    await tx.contact.delete({
+      where: {
+        id: contact.id,
+      },
+    });
+  });
+
+  revalidatePath("/cliente/contactos");
+  revalidatePath("/cliente/chats");
+  revalidatePath("/cliente/api-oficial/contactos");
+
+  const safeReturnTo = normalizeInternalPath(parsed.data.returnTo, "/cliente/contactos");
+  redirect(`${safeReturnTo}${safeReturnTo.includes("?") ? "&" : "?"}ok=Contacto+eliminado`);
 }
 
 const sendUnifiedChatReplySchema = z.object({

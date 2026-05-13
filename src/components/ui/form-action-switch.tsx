@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 
@@ -24,27 +24,32 @@ export function FormActionSwitch({
   switchClassName,
   wrapperClassName,
 }: FormActionSwitchProps) {
-  const formRef = useRef<HTMLFormElement>(null);
   const [optimisticChecked, setOptimisticChecked] = useState(checked);
 
   useEffect(() => {
     setOptimisticChecked(checked);
   }, [checked]);
 
+  const submitToggle = async () => {
+    const formData = new FormData();
+    for (const field of hiddenFields) {
+      formData.append(field.name, field.value);
+    }
+
+    await action(formData);
+  };
+
   return (
-    <form ref={formRef} action={action} className={cn("inline-flex", wrapperClassName)}>
-      {hiddenFields.map((field, index) => (
-        <input key={`${field.name}-${index}`} type="hidden" name={field.name} value={field.value} />
-      ))}
+    <div className={cn("inline-flex", wrapperClassName)}>
       <Switch
         checked={optimisticChecked}
         onCheckedChange={() => {
           setOptimisticChecked((current) => !current);
-          formRef.current?.requestSubmit();
+          void submitToggle();
         }}
         aria-label={ariaLabel}
         className={switchClassName}
       />
-    </form>
+    </div>
   );
 }
