@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { after } from "next/server";
 import { NextResponse } from "next/server";
-import { analyzeImageForAgent, generateAgentReply } from "@/lib/agent-ai";
+import { analyzeImageForAgent, generateAgentReply, transcribeAudioForAgent } from "@/lib/agent-ai";
 import { resolveAgentProductFlowReply } from "@/lib/agent-product-flow";
 import { composeAgentWelcomeReply } from "@/lib/agent-reply-composer";
 import { getConversationAutomationPaused, setConversationAutomationPaused } from "@/lib/conversation-automation";
@@ -649,7 +649,7 @@ export async function POST(request: Request) {
   }
 
   const resolvedCurrentMediaUrl =
-    messageType === "IMAGE" || messageType === "STICKER"
+    messageType === "IMAGE" || messageType === "STICKER" || messageType === "AUDIO"
       ? await resolveEvolutionMessageMediaUrl({
           instanceName: channel.evolutionInstanceName,
           messageId: messageExternalId,
@@ -917,13 +917,47 @@ export async function POST(request: Request) {
       responseDelaySeconds,
     });
 
-      const hasInboundContent = Boolean((messageText ?? "").trim() || resolvedCurrentMediaUrl);
+      const latestIncomingAudioTranscript =
+        resolvedCurrentMediaUrl && messageType === "AUDIO"
+          ? await transcribeAudioForAgent({
+              audioUrl: resolvedCurrentMediaUrl,
+              model: agent.model,
+            })
+          : null;
 
-      let quickResponseFlow = channel.isActive && !conversationAutomationPaused && channel.evolutionInstanceName && messageText
+      if (resolvedCurrentMediaUrl && messageType === "AUDIO") {
+        console.log("[EVOLUTION] audio_input", {
+          conversationId: conversation.id,
+          agentId: agent.id,
+          messageType,
+          mediaUrl: resolvedCurrentMediaUrl,
+        });
+      }
+
+      if (latestIncomingAudioTranscript) {
+        console.log("[EVOLUTION] audio_transcription", {
+          conversationId: conversation.id,
+          agentId: agent.id,
+          messageType,
+          transcript: latestIncomingAudioTranscript,
+        });
+      } else if (resolvedCurrentMediaUrl && messageType === "AUDIO") {
+        console.log("[EVOLUTION] audio_transcription_missing", {
+          conversationId: conversation.id,
+          agentId: agent.id,
+          messageType,
+          mediaUrl: resolvedCurrentMediaUrl,
+        });
+      }
+
+      const inboundTextForProcessing = ((messageText ?? "").trim() || latestIncomingAudioTranscript || "").trim();
+      const hasInboundContent = Boolean(inboundTextForProcessing || resolvedCurrentMediaUrl);
+
+      let quickResponseFlow = channel.isActive && !conversationAutomationPaused && channel.evolutionInstanceName && inboundTextForProcessing
         ? await resolveEvolutionQuickResponseFlow({
             workspaceId: channel.workspaceId,
             channelId: channel.id,
-            manualMessage: messageText,
+            manualMessage: inboundTextForProcessing,
           })
         : null;
 
@@ -1006,7 +1040,7 @@ export async function POST(request: Request) {
       const detectedContactMatches = await detectContactMatchesFromText({
         agentId: agent.id,
         workspaceId: channel.workspaceId,
-        messageText: messageText ?? "",
+        messageText: inboundTextForProcessing,
         includeOfficialApi: true,
       });
       if (detectedContactMatches.length > 0) {
@@ -1031,7 +1065,7 @@ export async function POST(request: Request) {
         agentName: agent.name,
         customerPhoneNumber: phoneNumber,
         customerName: contact.name,
-        latestUserMessage: messageText,
+        latestUserMessage: inboundTextForProcessing,
         history: recentMessagesForModel,
       });
       const notifyHumanPromise = notifyHumanAction && channel.evolutionInstanceName
@@ -1076,7 +1110,7 @@ export async function POST(request: Request) {
         : await resolveAgentProductFlowReply({
             agentId: agent.id,
             workspaceId: channel.workspaceId,
-            latestUserMessage: messageText,
+            latestUserMessage: inboundTextForProcessing,
             history: recentMessagesForModel,
             includeOfficialApi: true,
           });
@@ -1103,7 +1137,7 @@ export async function POST(request: Request) {
               agentId: agent.id,
               workspaceId: channel.workspaceId,
               conversationId: conversation.id,
-              latestUserMessage: messageText,
+              latestUserMessage: inboundTextForProcessing,
               history: recentMessagesForModel,
             });
 
@@ -1132,8 +1166,8 @@ export async function POST(request: Request) {
           aiContextNotes.add(matchContextNote);
         }
         const aiLatestUserMessage = aiContextNotes.size > 0
-          ? `${Array.from(aiContextNotes).join("\n")}\n\nMensaje del cliente: ${messageText}`
-          : messageText;
+          ? `${Array.from(aiContextNotes).join("\n")}\n\nMensaje del cliente: ${inboundTextForProcessing}`
+          : inboundTextForProcessing;
         const aiLatestUserMessageWithImageContext =
           latestIncomingImageAnalysis
             ? `${aiLatestUserMessage}\n\nAnalisis visual de la imagen del cliente: ${latestIncomingImageAnalysis}`
@@ -1149,7 +1183,7 @@ export async function POST(request: Request) {
               agentName: agent.name,
               customerPhoneNumber: phoneNumber,
               customerName: contact.name,
-              latestUserMessage: messageText,
+              latestUserMessage: inboundTextForProcessing,
               toolInput: args,
               sendMessage: async (destinationPhoneNumber, text) => {
                 if (!channel.evolutionInstanceName) {

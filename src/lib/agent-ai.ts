@@ -422,14 +422,14 @@ async function resolveAudioBufferAndMimeType(audioUrl: string) {
   }
 }
 
-async function transcribeWithOpenAI(audioUrl: string, apiKey: string, model?: string | null) {
+async function transcribeWithOpenAI(audioUrl: string, apiKey: string) {
   const resolved = await resolveAudioBufferAndMimeType(audioUrl);
   if (!resolved) {
     return null;
   }
 
   const formData = new FormData();
-  formData.append("model", model?.trim() || "whisper-1");
+  formData.append("model", "whisper-1");
   formData.append("file", new Blob([resolved.bytes], { type: resolved.mimeType }), `audio.${audioExtensionFromMimeType(resolved.mimeType)}`);
   formData.append("response_format", "json");
 
@@ -454,7 +454,7 @@ export async function transcribeAudioForAgent(input: AudioTranscriptionInput) {
   const openAiApiKey = process.env.OPENAI_API_KEY?.trim();
   if (openAiApiKey) {
     try {
-      const text = await transcribeWithOpenAI(input.audioUrl, openAiApiKey, input.model);
+      const text = await transcribeWithOpenAI(input.audioUrl, openAiApiKey);
       if (text) {
         return text;
       }

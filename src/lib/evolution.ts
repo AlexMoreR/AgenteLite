@@ -517,7 +517,11 @@ export async function resolveEvolutionMessageMediaUrl(input: {
   const payloadMessageId = input.rawPayload ? extractEvolutionMessageIdFromPayload(input.rawPayload) : null;
   const resolvedMessageId = payloadMessageId || input.messageId?.trim() || null;
 
-  if (input.instanceName?.trim() && resolvedMessageId && (input.mediaType === "IMAGE" || input.mediaType === "STICKER")) {
+  if (
+    input.instanceName?.trim() &&
+    resolvedMessageId &&
+    (input.mediaType === "IMAGE" || input.mediaType === "STICKER" || input.mediaType === "AUDIO")
+  ) {
     const resolved = await fetchEvolutionMediaDataUrl({
       instanceName: input.instanceName.trim(),
       messageId: resolvedMessageId,
