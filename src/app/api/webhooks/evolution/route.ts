@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { after } from "next/server";
 import { NextResponse } from "next/server";
@@ -118,6 +118,10 @@ function buildCallMessageContent(input: { direction: "INBOUND" | "OUTBOUND"; sta
 
   const normalizedStatus = statusMap[statusLabel] ?? statusLabel;
   return `Llamada ${directionLabel} ${normalizedStatus}`;
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export async function POST(request: Request) {
@@ -659,6 +663,20 @@ export async function POST(request: Request) {
         })
       : null;
 
+  if (messageType === "AUDIO") {
+    console.log("[EVOLUTION] audio_resolution", {
+      conversationId: conversation.id,
+      agentId: channel.agentId,
+      messageExternalId,
+      hasResolvedMediaUrl: Boolean(resolvedCurrentMediaUrl),
+      resolvedMediaUrlType: resolvedCurrentMediaUrl?.startsWith("data:")
+        ? "data"
+        : resolvedCurrentMediaUrl
+          ? "url"
+          : "none",
+    });
+  }
+
   const inboundMessageCountRows = await prisma.$queryRaw<Array<{ total: bigint | number }>>`
     SELECT COUNT(*)::bigint AS "total"
     FROM "Message"
@@ -917,6 +935,60 @@ export async function POST(request: Request) {
       responseDelaySeconds,
     });
 
+    const existingBatchState = await prisma.conversation.findUnique({
+      where: { id: conversation.id },
+      select: {
+        autoReplyBatchStartedAt: true,
+        autoReplyBatchDueAt: true,
+        autoReplyBatchToken: true,
+      },
+    });
+
+    const batchStartedAt =
+      existingBatchState?.autoReplyBatchDueAt && existingBatchState.autoReplyBatchDueAt > new Date()
+        ? existingBatchState.autoReplyBatchStartedAt ?? new Date()
+        : new Date();
+    const batchDueAt = new Date(Date.now() + responseDelayMs);
+    const batchToken = randomUUID();
+
+    await prisma.conversation.update({
+      where: { id: conversation.id },
+      data: {
+        autoReplyBatchStartedAt: batchStartedAt,
+        autoReplyBatchDueAt: batchDueAt,
+        autoReplyBatchToken: batchToken,
+      },
+    });
+
+    if (responseDelayMs > 0) {
+      await sleep(responseDelayMs);
+    }
+
+    const liveBatchState = await prisma.conversation.findUnique({
+      where: { id: conversation.id },
+      select: {
+        autoReplyBatchStartedAt: true,
+        autoReplyBatchDueAt: true,
+        autoReplyBatchToken: true,
+      },
+    });
+
+    if (
+      !liveBatchState ||
+      liveBatchState.autoReplyBatchToken !== batchToken ||
+      !liveBatchState.autoReplyBatchDueAt ||
+      liveBatchState.autoReplyBatchDueAt > new Date()
+    ) {
+      console.log("[EVOLUTION] reply_batch_skipped", {
+        conversationId: conversation.id,
+        agentId: agent.id,
+        currentToken: batchToken,
+        latestToken: liveBatchState?.autoReplyBatchToken ?? null,
+        dueAt: liveBatchState?.autoReplyBatchDueAt?.toISOString() ?? null,
+      });
+      return;
+    }
+
       const latestIncomingAudioTranscript =
         resolvedCurrentMediaUrl && messageType === "AUDIO"
           ? await transcribeAudioForAgent({
@@ -950,8 +1022,99 @@ export async function POST(request: Request) {
         });
       }
 
-      const inboundTextForProcessing = ((messageText ?? "").trim() || latestIncomingAudioTranscript || "").trim();
+      let latestIncomingImageAnalysis: string | null = null;
+      latestIncomingImageAnalysis =
+        resolvedCurrentMediaUrl && (messageType === "IMAGE" || messageType === "STICKER")
+          ? await analyzeImageForAgent({
+              imageUrl: resolvedCurrentMediaUrl,
+              model: agent.model,
+            })
+          : null;
+
+      if (latestIncomingImageAnalysis) {
+        console.log("[EVOLUTION] image_analysis", {
+          conversationId: conversation.id,
+          agentId: agent.id,
+          messageType,
+          analysis: latestIncomingImageAnalysis,
+        });
+      } else if (resolvedCurrentMediaUrl && (messageType === "IMAGE" || messageType === "STICKER")) {
+        console.log("[EVOLUTION] image_analysis_missing", {
+          conversationId: conversation.id,
+          agentId: agent.id,
+          messageType,
+          });
+      }
+
+      const batchWindowStart = liveBatchState.autoReplyBatchStartedAt ?? new Date(Date.now() - responseDelayMs);
+      const batchWindowEnd = liveBatchState.autoReplyBatchDueAt ?? new Date();
+      const batchedInboundMessages = await prisma.message.findMany({
+        where: {
+          conversationId: conversation.id,
+          direction: "INBOUND",
+          deletedAt: null,
+          createdAt: {
+            gte: batchWindowStart,
+            lte: batchWindowEnd,
+          },
+        },
+        orderBy: {
+          createdAt: "asc",
+        },
+        select: {
+          content: true,
+          type: true,
+          createdAt: true,
+        },
+      });
+      const batchedInboundText = batchedInboundMessages
+        .map((item, index) => {
+          const textContent = (item.content ?? "").trim();
+          if (textContent) {
+            return textContent;
+          }
+
+          if (index === batchedInboundMessages.length - 1) {
+            if (item.type === "AUDIO" && latestIncomingAudioTranscript) {
+              return latestIncomingAudioTranscript.trim();
+            }
+
+            if ((item.type === "IMAGE" || item.type === "STICKER") && latestIncomingImageAnalysis) {
+              return latestIncomingImageAnalysis.trim();
+            }
+          }
+
+          if (item.type === "AUDIO") {
+            return "[AUDIO]";
+          }
+
+          if (item.type === "IMAGE" || item.type === "STICKER") {
+            return "[IMAGEN]";
+          }
+
+          if (item.type === "DOCUMENT") {
+            return "[DOCUMENTO]";
+          }
+
+          return "";
+        })
+        .filter((value) => value.trim().length > 0)
+        .join("\n");
+
+      const inboundTextForProcessing = (batchedInboundText.trim() || messageText?.trim() || latestIncomingAudioTranscript || "").trim();
       const hasInboundContent = Boolean(inboundTextForProcessing || resolvedCurrentMediaUrl);
+
+      await prisma.conversation.updateMany({
+        where: {
+          id: conversation.id,
+          autoReplyBatchToken: batchToken,
+        },
+        data: {
+          autoReplyBatchStartedAt: null,
+          autoReplyBatchDueAt: null,
+          autoReplyBatchToken: null,
+        },
+      });
 
       let quickResponseFlow = channel.isActive && !conversationAutomationPaused && channel.evolutionInstanceName && inboundTextForProcessing
         ? await resolveEvolutionQuickResponseFlow({
@@ -1008,29 +1171,6 @@ export async function POST(request: Request) {
                 : message,
             )
           : recentMessages;
-      const latestIncomingImageAnalysis =
-        resolvedCurrentMediaUrl && (messageType === "IMAGE" || messageType === "STICKER")
-          ? await analyzeImageForAgent({
-              imageUrl: resolvedCurrentMediaUrl,
-              model: agent.model,
-            })
-          : null;
-
-      if (latestIncomingImageAnalysis) {
-        console.log("[EVOLUTION] image_analysis", {
-          conversationId: conversation.id,
-          agentId: agent.id,
-          messageType,
-          analysis: latestIncomingImageAnalysis,
-        });
-      } else if (resolvedCurrentMediaUrl && (messageType === "IMAGE" || messageType === "STICKER")) {
-        console.log("[EVOLUTION] image_analysis_missing", {
-          conversationId: conversation.id,
-          agentId: agent.id,
-          messageType,
-        });
-      }
-
       const executedFlowSlugs = await getConversationExecutedFlowSlugs({
         workspaceId: channel.workspaceId,
         conversationId: conversation.id,

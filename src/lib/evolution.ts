@@ -517,10 +517,26 @@ export async function resolveEvolutionMessageMediaUrl(input: {
   const payloadMessageId = input.rawPayload ? extractEvolutionMessageIdFromPayload(input.rawPayload) : null;
   const resolvedMessageId = payloadMessageId || input.messageId?.trim() || null;
 
+  if (input.mediaType === "AUDIO") {
+    if (input.instanceName?.trim() && resolvedMessageId) {
+      const resolved = await fetchEvolutionMediaDataUrl({
+        instanceName: input.instanceName.trim(),
+        messageId: resolvedMessageId,
+        mediaType: input.mediaType,
+      });
+
+      if (resolved) {
+        return resolved;
+      }
+    }
+
+    return null;
+  }
+
   if (
     input.instanceName?.trim() &&
     resolvedMessageId &&
-    (input.mediaType === "IMAGE" || input.mediaType === "STICKER" || input.mediaType === "AUDIO")
+    (input.mediaType === "IMAGE" || input.mediaType === "STICKER")
   ) {
     const resolved = await fetchEvolutionMediaDataUrl({
       instanceName: input.instanceName.trim(),

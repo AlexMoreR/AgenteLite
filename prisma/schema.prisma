@@ -177,6 +177,9 @@ model Conversation {
   contactId          String
   status             ConversationStatus @default(OPEN)
   lastMessageAt      DateTime?
+  autoReplyBatchStartedAt DateTime?
+  autoReplyBatchDueAt     DateTime?
+  autoReplyBatchToken     String?
   startedAt          DateTime           @default(now())
   closedAt           DateTime?
   createdAt          DateTime           @default(now())
@@ -193,8 +196,10 @@ model Conversation {
   @@index([workspaceId, status])
   @@index([workspaceId, lastMessageAt])
   @@index([workspaceId, lastMessageAt, updatedAt])
+  @@index([workspaceId, autoReplyBatchDueAt])
   @@index([workspaceId, channelId, contactId])
   @@index([contactId, lastMessageAt])
+  @@index([channelId, autoReplyBatchDueAt])
   @@index([channelId, lastMessageAt])
 }
 
