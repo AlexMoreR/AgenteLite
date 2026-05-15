@@ -396,20 +396,40 @@ export async function POST(request: Request) {
   }
 
   if (!contact) {
-    contact = await prisma.contact.upsert({
-      where: {
-        workspaceId_phoneNumber: {
+    try {
+      contact = await prisma.contact.upsert({
+        where: {
+          workspaceId_phoneNumber: {
+            workspaceId: channel.workspaceId,
+            phoneNumber,
+          },
+        },
+        update: {},
+        create: {
           workspaceId: channel.workspaceId,
           phoneNumber,
         },
-      },
-      update: {},
-      create: {
-        workspaceId: channel.workspaceId,
-        phoneNumber,
-      },
-      select: { id: true, name: true, phoneNumber: true },
-    });
+        select: { id: true, name: true, phoneNumber: true },
+      });
+    } catch (error) {
+      const isDuplicateContact =
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === "P2002";
+
+      if (!isDuplicateContact) {
+        throw error;
+      }
+
+      contact = await prisma.contact.findUnique({
+        where: {
+          workspaceId_phoneNumber: {
+            workspaceId: channel.workspaceId,
+            phoneNumber,
+          },
+        },
+        select: { id: true, name: true, phoneNumber: true },
+      });
+    }
   }
 
   if (!contact) {
