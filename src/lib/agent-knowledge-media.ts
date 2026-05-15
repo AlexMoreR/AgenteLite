@@ -19,11 +19,6 @@ type AgentKnowledgeMediaProduct = {
   instructions: string | null;
 };
 
-type AgentKnowledgeImageReply = {
-  url: string;
-  productName: string;
-};
-
 type AgentKnowledgeBaseReply = {
   text: string | null;
   image: {
@@ -32,45 +27,6 @@ type AgentKnowledgeBaseReply = {
   } | null;
   productName: string;
 };
-
-function buildKnowledgeImageCaption(productName: string) {
-  const normalizedName = productName.trim() || "este producto";
-  return `Te comparto la foto de ${normalizedName}.`;
-}
-
-function buildImageClarificationText(products: AgentKnowledgeMediaProduct[]) {
-  const productNames = products
-    .map((product) => product.name.trim())
-    .filter(Boolean)
-    .slice(0, 3);
-
-  if (productNames.length === 0) {
-    return "Claro. ¿De cuál producto quieres la foto?";
-  }
-
-  if (productNames.length === 1) {
-    return `Claro. ¿Quieres la foto de ${productNames[0]}?`;
-  }
-
-  return `Claro. ¿De cuál producto quieres la foto? Tengo ${productNames.join(", ")}.`;
-}
-
-const IMAGE_REQUEST_PATTERNS = [
-  /\bfoto\b/i,
-  /\bfotos\b/i,
-  /\bimagen\b/i,
-  /\bimagenes\b/i,
-  /\bmuestr(?:a|ame|ame la|amelo)\b/i,
-  /\bensena(?:me)?\b/i,
-];
-
-const AFFIRMATIVE_RESPONSE_PATTERNS = [
-  /^\s*si\s*[!.]?\s*$/i,
-  /^\s*si,\s*$/i,
-  /^\s*claro\s*[!.]?\s*$/i,
-  /^\s*dale\s*[!.]?\s*$/i,
-  /^\s*por favor\s*[!.]?\s*$/i,
-];
 
 const PRODUCT_STOP_WORDS = new Set([
   "de",
@@ -120,15 +76,6 @@ function resolveKnowledgeImageUrl(value: string | null | undefined) {
   return null;
 }
 
-function isImageRequest(messageText: string) {
-  return IMAGE_REQUEST_PATTERNS.some((pattern) => pattern.test(normalizeText(messageText)));
-}
-
-function isAffirmativeResponse(messageText: string) {
-  const trimmed = messageText.trim();
-  return AFFIRMATIVE_RESPONSE_PATTERNS.some((pattern) => pattern.test(trimmed));
-}
-
 const KNOWLEDGE_REQUEST_PATTERNS = [
   /\bdetalle(?:s)?\b/i,
   /\binformacion\b/i,
@@ -149,19 +96,9 @@ function isKnowledgeFollowUpRequest(messageText: string) {
   return KNOWLEDGE_REQUEST_PATTERNS.some((pattern) => pattern.test(normalizeText(messageText)));
 }
 
-function historyRequestsImage(history: ConversationLine[]) {
-  const recentMessages = [...history]
-    .map((item) => ({ direction: item.direction, content: item.content?.trim() || "" }))
-    .filter((item) => item.content.length > 0)
-    .reverse()
-    .slice(0, 6);
-
-  const latestOutbound = recentMessages.find((item) => item.direction === "OUTBOUND");
-  if (!latestOutbound) {
-    return false;
-  }
-
-  return IMAGE_REQUEST_PATTERNS.some((pattern) => pattern.test(normalizeText(latestOutbound.content)));
+function isAffirmativeResponse(messageText: string) {
+  const trimmed = messageText.trim();
+  return /^(si|claro|dale|por favor)[!.]?$|^si,\s*$/i.test(trimmed);
 }
 
 async function listAgentKnowledgeMediaProducts(agentId: string): Promise<AgentKnowledgeMediaProduct[]> {
@@ -303,87 +240,11 @@ export async function resolveAgentKnowledgeBaseReply(input: {
           ? selectProductFromHistory(input.history, products)
           : isKnowledgeFollowUpRequest(latestUserMessage) && products.length === 1
             ? products[0]
-            : isImageRequest(latestUserMessage) && products.length === 1
-              ? products[0]
-              : null);
-
-  const isPhotoRequest =
-    isImageRequest(latestUserMessage) ||
-    (isAffirmativeResponse(latestUserMessage) && input.history?.length ? historyRequestsImage(input.history) : false);
-  if (isPhotoRequest && !selectedProduct) {
-    return {
-      text: buildImageClarificationText(products),
-      image: null,
-      productName: "",
-    };
-  }
+            : null);
 
   if (!selectedProduct) {
     return null;
   }
 
-  const imageUrl = selectedProduct.thumbnailUrl;
-
-  if (isPhotoRequest && imageUrl) {
-    return {
-      text: null,
-      image: {
-        url: imageUrl,
-        caption: buildKnowledgeImageCaption(selectedProduct.name),
-      },
-      productName: selectedProduct.name,
-    };
-  }
-
-  if (isPhotoRequest) {
-    return {
-      text: buildImageClarificationText([selectedProduct]),
-      image: null,
-      productName: selectedProduct.name,
-    };
-  }
-
   return null;
-}
-
-export async function resolveAgentKnowledgeImageReply(input: {
-  agentId: string;
-  latestUserMessage: string | null | undefined;
-}): Promise<AgentKnowledgeImageReply | null> {
-  const latestUserMessage = input.latestUserMessage?.trim() || "";
-  if (!latestUserMessage || !isImageRequest(latestUserMessage)) {
-    return null;
-  }
-
-  const products = (await listAgentKnowledgeMediaProducts(input.agentId))
-    .map((product) => {
-      const resolvedUrl = resolveKnowledgeImageUrl(product.thumbnailUrl);
-      return resolvedUrl
-        ? {
-            ...product,
-            thumbnailUrl: resolvedUrl,
-          }
-        : null;
-    })
-    .filter((product): product is AgentKnowledgeMediaProduct & { thumbnailUrl: string } => Boolean(product));
-
-  if (!products.length) {
-    return null;
-  }
-
-  const selectedProduct = selectBestKnowledgeProduct(latestUserMessage, products) ?? (products.length === 1 ? products[0] : null);
-
-  if (!selectedProduct?.thumbnailUrl) {
-    return null;
-  }
-
-  return {
-    url: selectedProduct.thumbnailUrl,
-    productName: selectedProduct.name,
-  };
-}
-
-export function buildKnowledgeImageReplyText(productName: string) {
-  const normalizedName = productName.trim() || "este producto";
-  return `Claro, te comparto una foto de ${normalizedName}.`;
 }
