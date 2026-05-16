@@ -231,6 +231,7 @@ export function buildAgentTrainingConfig(input: AgentTrainingConfig): AgentTrain
         destinationPhoneNumber: notify.destinationPhoneNumber.trim(),
         instruction: notify.instruction.trim(),
         pauseConversationAfterNotify: Boolean(notify.pauseConversationAfterNotify),
+        autoNotifyOnUnknownProduct: Boolean(notify.autoNotifyOnUnknownProduct),
       },
     },
   };

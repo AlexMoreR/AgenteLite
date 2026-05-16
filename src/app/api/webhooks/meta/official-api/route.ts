@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { resolveAgentProductFlowReply } from "@/lib/agent-product-flow";
+import { composeAgentWelcomeReply } from "@/lib/agent-reply-composer";
 import { resolveOfficialApiAutomationReply } from "@/lib/official-api-chatbot";
 import {
   sendOfficialApiDirectTextMessage,
@@ -175,15 +176,16 @@ async function findOfficialApiLinkedAgent(workspaceId: string) {
       },
     },
     orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
-    select: {
-      agent: {
-        select: {
-          id: true,
-          name: true,
-          trainingConfig: true,
+      select: {
+        agent: {
+          select: {
+            id: true,
+            name: true,
+            welcomeMessage: true,
+            trainingConfig: true,
+          },
         },
       },
-    },
   });
 }
 
@@ -725,7 +727,7 @@ export async function POST(request: Request) {
             conversationId: message.conversationId,
             inboundText: message.content,
           });
-      const reply = agentProductFlowReply
+            const reply = agentProductFlowReply
         ? {
             text: agentProductFlowReply.steps.find((s) => s.kind === "text")?.content?.trim() || null,
             image: agentProductFlowReply.steps.find((s): s is Extract<(typeof agentProductFlowReply.steps)[number], { kind: "image" }> => s.kind === "image") ?? null,
@@ -734,21 +736,25 @@ export async function POST(request: Request) {
         : agentKnowledgeBaseReply
           ? agentKnowledgeBaseReply
           : autoUnknownProductNotifyAction
-          ? {
-              text: "Ya en un momento te atenderÃ¡ un asesor para ayudarte con esa solicitud.",
-              image: null,
-            }
-          : shouldHandoffToHuman
             ? {
-                text: buildHandoffMessage(),
+                text: composeAgentWelcomeReply({
+                  welcomeMessage: linkedAgentChannel?.agent?.welcomeMessage ?? null,
+                  reply: "Ya en un momento te atenderá un asesor para ayudarte con esa solicitud.",
+                  hasConversationHistory: recentMessages.length > 1,
+                }),
                 image: null,
               }
-            : chatbotReply
-            ? {
-                text: chatbotReply.text?.trim() || null,
-                image: chatbotReply.image,
-              }
-            : null;
+            : shouldHandoffToHuman
+              ? {
+                  text: buildHandoffMessage(),
+                  image: null,
+                }
+              : chatbotReply
+                ? {
+                    text: chatbotReply.text?.trim() || null,
+                    image: chatbotReply.image,
+                  }
+                : null;
 
       const contactMatchTasks: Array<Promise<unknown>> = [];
       if (agentProductFlowReply?.flowTitle) {
@@ -919,3 +925,4 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, matched: true, stored: false }, { status: 200 });
   }
 }
+

@@ -3,6 +3,7 @@ import type {
   OfficialApiChatbotBuilderNode,
 } from "@/features/official-api/types/official-api";
 import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowItems";
+import { detectUnknownProductIntent } from "@/features/agent-actions/domain/notify-intent";
 import { getOfficialApiChatbotBuilderState } from "@/lib/official-api-chatbot";
 import { defaultAgentTrainingConfig, parseAgentTrainingConfig } from "@/lib/agent-training";
 import { generateAgentReply } from "@/lib/agent-ai";
@@ -529,9 +530,18 @@ export async function resolveAgentProductFlowReply(input: {
 
   const recentText = `${normalizedLatest} ${conversationContext.recentContext}`.trim();
   const mentionsKnownProduct = allKnowledgeProducts.some((row) => {
-    const productTokens = tokenize(`${row.productName} ${row.productDescription ?? ""}`);
-    return productTokens.length > 0 && productTokens.some((token) => textMatchesToken(recentText, token));
+      const productTokens = tokenize(`${row.productName} ${row.productDescription ?? ""}`);
+      return productTokens.length > 0 && productTokens.some((token) => textMatchesToken(recentText, token));
   });
+
+  if (
+    training.actions.notify.enabled &&
+    training.actions.notify.autoNotifyOnUnknownProduct &&
+    detectUnknownProductIntent(latestText) &&
+    !mentionsKnownProduct
+  ) {
+    return null;
+  }
 
   if (selectedFlows.length > 0 && !mentionsKnownProduct) {
     const aiSelectedFlowId = await selectFlowByAI({
@@ -562,7 +572,6 @@ export async function resolveAgentProductFlowReply(input: {
 
 
   const flowByNormalizedTitle = new Map(flowTargets.map((flow) => [normalizeText(flow.title), flow]));
-  const selectedFlowIdList = Array.from(selectedFlowIds);
 
   for (const row of knowledgeRows) {
     const instructions = row.instructions?.trim() || "";
