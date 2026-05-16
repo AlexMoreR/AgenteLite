@@ -9,12 +9,16 @@ import {
   sendOfficialApiTextMessage,
   sendOfficialApiTypingIndicator,
 } from "@/lib/official-api-messaging";
+import { setConversationAutomationPaused } from "@/lib/conversation-automation";
 import { resolveAgentKnowledgeBaseReply } from "@/lib/agent-knowledge-media";
 import { detectContactMatchesFromText, recordContactMatch } from "@/lib/contact-matches";
 import { prisma } from "@/lib/prisma";
 import { ensureOfficialApiConfigTable } from "@/lib/official-api-config";
-import { buildHandoffMessage } from "@/lib/agent-training";
-import { resolveNotifyHumanAction } from "@/features/agent-actions";
+import { buildHandoffMessage, parseAgentTrainingConfig } from "@/lib/agent-training";
+import {
+  resolveNotifyHumanAction,
+  resolveUnknownProductNotifyAction,
+} from "@/features/agent-actions";
 
 type MetaWebhookPayload = {
   object?: string;
@@ -633,6 +637,10 @@ export async function POST(request: Request) {
         }
       }
 
+      const agentTraining = linkedAgentChannel?.agent?.id
+        ? parseAgentTrainingConfig(linkedAgentChannel.agent.trainingConfig)
+        : null;
+
       const notifyHumanAction = linkedAgentChannel?.agent?.id
         ? resolveNotifyHumanAction({
             trainingConfig: linkedAgentChannel.agent.trainingConfig,
@@ -679,7 +687,38 @@ export async function POST(request: Request) {
             includeOfficialApi: true,
           });
 
-      const chatbotReply = shouldHandoffToHuman
+      const autoUnknownProductNotifyAction =
+        linkedAgentChannel?.agent?.id &&
+        !shouldHandoffToHuman &&
+        !agentProductFlowReply &&
+        !agentKnowledgeBaseReply &&
+        agentTraining?.actions.notify.autoNotifyOnUnknownProduct
+          ? resolveUnknownProductNotifyAction({
+              trainingConfig: linkedAgentChannel.agent.trainingConfig,
+              agentName: linkedAgentChannel.agent.name,
+              customerPhoneNumber: message.waId,
+              customerName: message.contactName,
+              latestUserMessage: message.content,
+            })
+          : null;
+      const autoUnknownProductNotifyPromise = autoUnknownProductNotifyAction
+        ? sendOfficialApiDirectTextMessage({
+            config,
+            to: autoUnknownProductNotifyAction.destinationPhoneNumber,
+            message: autoUnknownProductNotifyAction.message,
+          }).catch((error) => {
+            console.warn("[official-api] auto_unknown_product_notification_failed", {
+              configId: config.id,
+              conversationId: message.conversationId,
+              contactId: message.contactId,
+              destinationPhoneNumber: autoUnknownProductNotifyAction.destinationPhoneNumber,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            return null;
+          })
+        : null;
+
+      const chatbotReply = shouldHandoffToHuman || Boolean(autoUnknownProductNotifyAction)
         ? null
         : await resolveOfficialApiAutomationReply({
             configId: config.id,
@@ -694,6 +733,11 @@ export async function POST(request: Request) {
           }
         : agentKnowledgeBaseReply
           ? agentKnowledgeBaseReply
+          : autoUnknownProductNotifyAction
+          ? {
+              text: "Ya en un momento te atenderá un asesor para ayudarte con esa solicitud.",
+              image: null,
+            }
           : shouldHandoffToHuman
             ? {
                 text: buildHandoffMessage(),
@@ -749,6 +793,16 @@ export async function POST(request: Request) {
 
       if (contactMatchTasks.length > 0) {
         await Promise.allSettled(contactMatchTasks);
+      }
+
+      if (autoUnknownProductNotifyPromise) {
+        await autoUnknownProductNotifyPromise;
+        if (agentTraining?.actions.notify.pauseConversationAfterNotify) {
+          await setConversationAutomationPaused({
+            conversationId: message.conversationId,
+            paused: true,
+          });
+        }
       }
 
       if (!reply || (!reply.image && !reply.text?.trim())) {

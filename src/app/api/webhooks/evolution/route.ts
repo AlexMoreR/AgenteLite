@@ -44,7 +44,12 @@ import { buildFlowExecutionContextNote, getConversationExecutedFlowSlugs, getFlo
 import { enforceWorkspacePlanAccess } from "@/lib/workspace-plan-access";
 import { getEvolutionSettings } from "@/lib/system-settings";
 import { buildHandoffMessage, parseAgentTrainingConfig } from "@/lib/agent-training";
-import { resolveNotifyHumanAction, NOTIFICAR_ASESOR_TOOL, sendNotificarAsesorNotification } from "@/features/agent-actions";
+import {
+  resolveNotifyHumanAction,
+  resolveUnknownProductNotifyAction,
+  NOTIFICAR_ASESOR_TOOL,
+  sendNotificarAsesorNotification,
+} from "@/features/agent-actions";
 import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
 
 function mapChannelStatus(eventName: string | null, rawState: string | null) {
@@ -1220,6 +1225,8 @@ export async function POST(request: Request) {
         );
       }
 
+      const agentTraining = parseAgentTrainingConfig(agent.trainingConfig);
+
       const notifyHumanAction = resolveNotifyHumanAction({
         trainingConfig: agent.trainingConfig,
         agentName: agent.name,
@@ -1301,6 +1308,52 @@ export async function POST(request: Request) {
               history: recentMessagesForModel,
             });
 
+      const autoUnknownProductNotifyAction =
+        !shouldHandoffToHuman && !hardFlowReply && !knowledgeBaseReply && agentTraining?.actions.notify.autoNotifyOnUnknownProduct
+          ? resolveUnknownProductNotifyAction({
+              trainingConfig: agent.trainingConfig,
+              agentName: agent.name,
+              customerPhoneNumber: phoneNumber,
+              customerName: contact.name,
+              latestUserMessage: inboundTextForProcessing,
+            })
+          : null;
+      const autoUnknownProductNotifyPromise = autoUnknownProductNotifyAction && channel.evolutionInstanceName
+        ? sendNotificarAsesorNotification({
+            trainingConfig: agent.trainingConfig,
+            agentName: agent.name,
+            customerPhoneNumber: phoneNumber,
+            customerName: contact.name,
+            latestUserMessage: inboundTextForProcessing,
+            toolInput: {
+              motivo: "Cliente pidió un producto o catálogo que no existe en la base de conocimiento",
+              prioridad: "media",
+              resumen_cliente: inboundTextForProcessing,
+              ultimo_mensaje: inboundTextForProcessing,
+            },
+            sendMessage: async (destinationPhoneNumber, text) => {
+              if (!channel.evolutionInstanceName) {
+                throw new Error("La instancia de Evolution no esta disponible");
+              }
+
+              return sendEvolutionTextMessageWithReconnect({
+                instanceName: channel.evolutionInstanceName,
+                phoneNumber: destinationPhoneNumber,
+                text,
+                delayMs: 0,
+              });
+            },
+          }).catch((error) => {
+            console.warn("[EVOLUTION] auto_unknown_product_notification_failed", {
+              conversationId: conversation.id,
+              agentId: agent.id,
+              phoneNumber,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            return null;
+          })
+        : null;
+
       let shouldComposeWelcome = true;
 
       if (shouldHandoffToHuman) {
@@ -1312,6 +1365,9 @@ export async function POST(request: Request) {
       } else if (hardFlowReply) {
         // steps executed directly in the flow engine block below
         replyText = null;
+        shouldComposeWelcome = false;
+      } else if (autoUnknownProductNotifyAction) {
+        replyText = "Ya en un momento te atenderá un asesor para ayudarte con esa solicitud.";
         shouldComposeWelcome = false;
       } else if (knowledgeBaseReply) {
         replyText = knowledgeBaseReply.text ?? null;
@@ -1332,7 +1388,6 @@ export async function POST(request: Request) {
           latestIncomingImageAnalysis
             ? `${aiLatestUserMessage}\n\nAnalisis visual de la imagen del cliente: ${latestIncomingImageAnalysis}`
             : aiLatestUserMessage;
-        const agentTraining = parseAgentTrainingConfig(agent.trainingConfig);
         const effectiveSystemPrompt = agentTraining?.useCustomPrompt && agentTraining.customSystemPrompt?.trim()
           ? agentTraining.customSystemPrompt.trim()
           : agent.systemPrompt;
@@ -1631,6 +1686,12 @@ export async function POST(request: Request) {
           }
 
           if (notifyHumanPromise) await notifyHumanPromise;
+          const autoUnknownProductNotifyResult = autoUnknownProductNotifyPromise
+            ? await autoUnknownProductNotifyPromise
+            : null;
+          if (autoUnknownProductNotifyResult?.ok && agentTraining?.actions.notify.pauseConversationAfterNotify) {
+            await setConversationAutomationPaused({ conversationId: conversation.id, paused: true });
+          }
           await prisma.conversation.update({
             where: { id: conversation.id },
             data: { lastMessageAt: new Date(), status: "OPEN" },
@@ -1841,6 +1902,12 @@ export async function POST(request: Request) {
 
             if (notifyHumanPromise) {
               await notifyHumanPromise;
+            }
+            const autoUnknownProductNotifyResult = autoUnknownProductNotifyPromise
+              ? await autoUnknownProductNotifyPromise
+              : null;
+            if (autoUnknownProductNotifyResult?.ok && agentTraining?.actions.notify.pauseConversationAfterNotify) {
+              await setConversationAutomationPaused({ conversationId: conversation.id, paused: true });
             }
 
             await prisma.conversation.update({

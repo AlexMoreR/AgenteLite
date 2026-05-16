@@ -169,6 +169,7 @@ const saveAgentActionsSchema = z.object({
   notifyPhoneNumber: z.string().trim().max(60, "El numero es demasiado largo"),
   notifyInstruction: z.string().trim().max(500, "La intencion es demasiado larga"),
   notifyPauseConversationAfterNotify: z.boolean(),
+  notifyAutoNotifyOnUnknownProduct: z.boolean(),
 }).superRefine((data, ctx) => {
   if (data.notifyEnabled && data.notifyInstruction.trim().length < 3) {
     ctx.addIssue({
@@ -2066,6 +2067,7 @@ export async function saveAgentActionsAction(formData: FormData): Promise<void> 
     notifyPhoneNumber: formData.get("notifyPhoneNumber"),
     notifyInstruction: formData.get("notifyInstruction"),
     notifyPauseConversationAfterNotify: formData.get("notifyPauseConversationAfterNotify") === "on",
+    notifyAutoNotifyOnUnknownProduct: formData.get("notifyAutoNotifyOnUnknownProduct") === "on",
   });
 
   const fallbackAgentId = String(formData.get("agentId") || "");
@@ -2098,14 +2100,15 @@ export async function saveAgentActionsAction(formData: FormData): Promise<void> 
     ...currentTraining,
     actions: {
       ...currentTraining.actions,
-      notify: {
-        enabled: parsed.data.notifyEnabled,
-        destinationPhoneNumber: parsed.data.notifyPhoneNumber.trim(),
-        instruction: parsed.data.notifyInstruction.trim(),
-        pauseConversationAfterNotify: parsed.data.notifyPauseConversationAfterNotify,
+        notify: {
+          enabled: parsed.data.notifyEnabled,
+          destinationPhoneNumber: parsed.data.notifyPhoneNumber.trim(),
+          instruction: parsed.data.notifyInstruction.trim(),
+          pauseConversationAfterNotify: parsed.data.notifyPauseConversationAfterNotify,
+          autoNotifyOnUnknownProduct: parsed.data.notifyAutoNotifyOnUnknownProduct,
+        },
       },
-    },
-  });
+    });
 
   await prisma.agent.update({
     where: { id: agent.id },
@@ -2160,6 +2163,8 @@ export async function deleteAgentActionsAction(formData: FormData): Promise<void
         enabled: false,
         destinationPhoneNumber: "",
         instruction: "",
+        pauseConversationAfterNotify: false,
+        autoNotifyOnUnknownProduct: false,
       },
     },
   });

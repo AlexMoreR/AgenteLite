@@ -106,6 +106,7 @@ export type AgentNotifyActionConfig = {
   destinationPhoneNumber: string;
   instruction: string;
   pauseConversationAfterNotify: boolean;
+  autoNotifyOnUnknownProduct: boolean;
 };
 
 export type AgentActionsConfig = {
@@ -167,6 +168,7 @@ export const defaultAgentTrainingConfig: AgentTrainingConfig = {
       destinationPhoneNumber: "",
       instruction: "",
       pauseConversationAfterNotify: false,
+      autoNotifyOnUnknownProduct: false,
     },
   },
   useCustomPrompt: false,
@@ -426,6 +428,9 @@ export function buildAgentSystemPrompt(input: {
     training.actions.notify.enabled
       ? `HERRAMIENTA DISPONIBLE\n- Si el cliente pide hablar con un asesor, necesita validacion humana o la conversación requiere seguimiento comercial, usa la herramienta Notificar_asesor.\n- No la uses para dudas que puedas resolver por tu cuenta.\n- Cuando la uses, entrega un motivo claro y un resumen breve del caso.`
       : null,
+    training.actions.notify.autoNotifyOnUnknownProduct
+      ? `REGLA EXTRA DE ESCALAMIENTO\n- Si el cliente pregunta por un producto o catalogo que no existe en la base de conocimiento, deriva inmediatamente a un asesor y no respondas con una negacion.`
+      : null,
     `COSAS QUE NUNCA DEBES HACER\n- ${strictRules.join("\n- ")}`,
     `FORMA DE RESPONDER\n- Responde en texto plano para WhatsApp.\n- Prioriza mensajes claros, utiles y faciles de leer.\n- No des listas largas salvo que ayuden a vender o aclarar opciones.\n- Cuando puedas, termina con un siguiente paso concreto.`,
   ].filter(Boolean) as string[];
@@ -495,6 +500,7 @@ export function summarizeTraining(training: AgentTrainingConfig) {
       training.sendPaymentLink ? "Envia link de pago" : null,
       training.handoffToHuman ? "Escala a humano" : null,
       training.actions.notify.pauseConversationAfterNotify ? "Apaga la automatizacion al notificar" : null,
+      training.actions.notify.autoNotifyOnUnknownProduct ? "Notifica si no conoce el producto" : null,
       training.actions.notify.enabled ? "Notifica a asesor humano" : null,
     ].filter(Boolean) as string[],
   };
@@ -578,6 +584,7 @@ function normalizeAgentActionsConfig(value: unknown): AgentActionsConfig {
       destinationPhoneNumber: typeof notify.destinationPhoneNumber === "string" ? notify.destinationPhoneNumber.trim() : "",
       instruction: typeof notify.instruction === "string" ? notify.instruction.trim() : "",
       pauseConversationAfterNotify: Boolean(notify.pauseConversationAfterNotify),
+      autoNotifyOnUnknownProduct: Boolean(notify.autoNotifyOnUnknownProduct),
     },
   };
 }

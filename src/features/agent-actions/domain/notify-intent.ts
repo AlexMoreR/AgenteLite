@@ -29,6 +29,26 @@ const FOLLOW_UP_HINT_PATTERNS = [
   /\bayuda\b/i,
 ];
 
+const UNKNOWN_PRODUCT_HINT_PATTERNS = [
+  /\bcatalogo\b/i,
+  /\bcat[aá]logo\b/i,
+  /\bproducto\b/i,
+  /\bproductos\b/i,
+  /\bmodelo\b/i,
+  /\bmodelos\b/i,
+  /\breferencia\b/i,
+  /\breferencias\b/i,
+  /\bcotizar\b/i,
+  /\bcotizacion\b/i,
+  /\bcotizaci[oó]n\b/i,
+  /\bbusco\b/i,
+  /\bquiero\b/i,
+  /\bnecesito\b/i,
+  /\bmanejan\b/i,
+  /\bvenden\b/i,
+  /\btienen\b/i,
+];
+
 function normalizeText(value: string) {
   return value
     .normalize("NFD")
@@ -75,4 +95,14 @@ export function detectNotifyHumanIntent(input: {
   }
 
   return false;
+}
+
+export function detectUnknownProductIntent(latestUserMessage: string | null | undefined) {
+  const latestText = latestUserMessage?.trim() || "";
+  if (!latestText) {
+    return false;
+  }
+
+  const normalizedLatest = normalizeText(latestText);
+  return UNKNOWN_PRODUCT_HINT_PATTERNS.some((pattern) => pattern.test(normalizedLatest));
 }
