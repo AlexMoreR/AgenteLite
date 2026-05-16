@@ -745,7 +745,7 @@ export async function POST(request: Request) {
             ? {
                 text: composeAgentWelcomeReply({
                   welcomeMessage: linkedAgentChannel?.agent?.welcomeMessage ?? null,
-                  reply: "Ya en un momento te atenderá un asesor para ayudarte con esa solicitud.",
+                  reply: "Ya en un momento te atendera un asesor para ayudarte con esa solicitud.",
                   hasConversationHistory: recentMessages.length > 1,
                 }),
                 image: null,

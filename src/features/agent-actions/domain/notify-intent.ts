@@ -46,6 +46,7 @@ const UNKNOWN_PRODUCT_HINT_PATTERNS = [
   /\bnecesito\b/i,
   /\bmanejan\b/i,
   /\bvenden\b/i,
+  /\btiene\b/i,
   /\btienen\b/i,
 ];
 
