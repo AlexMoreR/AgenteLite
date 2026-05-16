@@ -8,7 +8,6 @@ import {
   useEffect,
   useRef,
 } from "react";
-import { useRouter } from "next/navigation";
 import {
   autosaveAgentTrainingAction,
   type AgentTrainingAutosaveState,
@@ -74,7 +73,6 @@ export function AgentTrainingAutosaveForm({
   className,
   children,
 }: AgentTrainingAutosaveFormProps) {
-  const router = useRouter();
   const initialState: AgentTrainingAutosaveState = {
     ok: true,
     message: "",
@@ -136,12 +134,6 @@ export function AgentTrainingAutosaveForm({
   }, [pending]);
 
   useEffect(() => () => clearAutosaveTimer(), []);
-
-  useEffect(() => {
-    if (state.ok && state.savedAt) {
-      router.refresh();
-    }
-  }, [router, state.ok, state.savedAt]);
 
   return (
     <AgentTrainingAutosaveContext.Provider value={{ pending, state }}>

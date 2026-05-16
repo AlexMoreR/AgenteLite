@@ -1,7 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
-
 type TrainingTextareaFieldProps = {
   name: string;
   defaultValue?: string;
@@ -9,6 +7,7 @@ type TrainingTextareaFieldProps = {
   rows?: number;
   className?: string;
   minLength?: number;
+  maxLength?: number;
   required?: boolean;
 };
 
@@ -19,22 +18,17 @@ export function TrainingTextareaField({
   rows = 4,
   className,
   minLength,
+  maxLength,
   required,
 }: TrainingTextareaFieldProps) {
-  const [value, setValue] = useState(defaultValue);
-
-  useEffect(() => {
-    setValue(defaultValue);
-  }, [defaultValue]);
-
   return (
     <textarea
       name={name}
       rows={rows}
-      value={value}
-      onChange={(e) => setValue(e.target.value)}
+      defaultValue={defaultValue}
       placeholder={placeholder}
       minLength={minLength}
+      maxLength={maxLength}
       required={required}
       className={className}
     />

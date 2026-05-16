@@ -205,11 +205,11 @@ function BusinessModal({ data, onSave, onClose }: {
             <textarea
               value={summary}
               onChange={(e) => setSummary(e.target.value)}
-              rows={3}
+              rows={4}
+              maxLength={10000}
               placeholder="Escribe un resumen general del negocio, su enfoque y lo que lo hace especial."
-              className="flex w-full resize-none rounded-[16px] border border-[rgba(148,163,184,0.14)] bg-white px-3.5 py-3 text-[13px] leading-6 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-[var(--primary)]"
+              className="flex w-full min-h-[120px] resize-y rounded-[16px] border border-[rgba(148,163,184,0.14)] bg-white px-3.5 py-3 text-[13px] leading-6 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-[var(--primary)]"
             />
-            <p className="text-[12px] text-slate-400">Este resumen describe el negocio. No reemplaza la forma comercial en que vendes por WhatsApp.</p>
           </div>
 
           <div className="h-px bg-slate-100" />

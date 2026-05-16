@@ -53,8 +53,8 @@ import { resolveEvolutionQuickResponseFlow } from "@/features/flows/services/res
 const createAgentSchema = z.object({
   assistantName: z.string().trim().max(40).default(""),
   businessName: z.string().trim().min(2, "Nombre del negocio invalido").max(120, "Nombre demasiado largo"),
-  businessSummary: z.string().trim().max(500, "Resumen demasiado largo").default(""),
-  instruction: z.string().trim().max(1000, "La instruccion es demasiado larga").default(""),
+  businessSummary: z.string().trim().max(10000, "Resumen demasiado largo").default(""),
+  instruction: z.string().trim().max(100000, "La instruccion es demasiado larga").default(""),
   businessDescription: z
     .string()
     .trim()
@@ -88,7 +88,7 @@ const createAgentSchema = z.object({
   sendPaymentLink: z.boolean(),
   handoffToHuman: z.boolean(),
   forbiddenRules: z.array(z.string()).max(10, "Demasiadas reglas"),
-  customRules: z.string().trim().max(600, "Las reglas personalizadas son demasiado largas"),
+  customRules: z.string().trim().max(10000, "Las reglas personalizadas son demasiado largas"),
   postCreateAction: z.enum(["probar", "conectar"]),
 });
 
@@ -140,7 +140,7 @@ const updateAgentTrainingSchema = createAgentSchema.extend({
 const saveAgentBusinessProfileSchema = z.object({
   agentId: z.string().trim().min(1, "Agente invalido"),
   businessName: z.string().trim().min(2, "Nombre del negocio invalido").max(120, "Nombre demasiado largo"),
-  businessSummary: z.string().trim().max(500, "Resumen demasiado largo").default(""),
+  businessSummary: z.string().trim().max(10000, "Resumen demasiado largo").default(""),
   location: z.string().trim().max(200).default(""),
   website: z.string().trim().max(200).default(""),
   contactPhone: z.string().trim().max(60).default(""),
@@ -209,8 +209,8 @@ const agentCopilotHistorySchema = z
 
 const agentCopilotPatchSchema = z.object({
   businessName: z.string().trim().min(2, "Nombre del negocio invalido").max(120, "Nombre demasiado largo").optional(),
-  businessSummary: z.string().trim().max(500, "Resumen demasiado largo").optional(),
-  instruction: z.string().trim().max(1000, "La instruccion es demasiado larga").optional(),
+  businessSummary: z.string().trim().max(10000, "Resumen demasiado largo").optional(),
+  instruction: z.string().trim().max(100000, "La instruccion es demasiado larga").optional(),
   businessDescription: z
     .string()
     .trim()
@@ -242,7 +242,7 @@ const agentCopilotPatchSchema = z.object({
   sendPaymentLink: z.boolean().optional(),
   handoffToHuman: z.boolean().optional(),
   forbiddenRules: z.array(z.enum(forbiddenRuleOptions)).max(10, "Demasiadas reglas").optional(),
-  customRules: z.string().trim().max(600, "Las reglas personalizadas son demasiado largas").optional(),
+  customRules: z.string().trim().max(10000, "Las reglas personalizadas son demasiado largas").optional(),
 });
 
 const runAgentPromptCopilotSchema = z.object({
@@ -891,7 +891,7 @@ function normalizeTrainingUpdateInput(
       input.businessSummary || options.agentDescription?.trim() || fallbackBusinessDescription,
       500,
     ),
-    instruction: clamp(input.instruction, 1000),
+    instruction: clamp(input.instruction, 100000),
     businessDescription:
       trimmedBusinessDescription.length >= 12 ? clamp(input.businessDescription, 500) : clamp(fallbackBusinessDescription, 500),
     targetAudiences:
@@ -910,7 +910,7 @@ function normalizeTrainingUpdateInput(
     tiktok: clamp(input.tiktok, 100),
     youtube: clamp(input.youtube, 100),
     customWelcomeMessage: clamp(input.customWelcomeMessage, 500),
-    customRules: clamp(input.customRules, 600),
+    customRules: clamp(input.customRules, 10000),
     salesTone: normalizedSalesTone,
     responseLengthValue:
       input.responseLengthValue.trim() || String(getResponseLengthSliderValue(currentTraining.responseLength)),

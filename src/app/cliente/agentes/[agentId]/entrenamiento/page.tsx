@@ -236,6 +236,7 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                           name="instruction"
                           rows={3}
                           defaultValue={instruction}
+                          maxLength={100000}
                           placeholder="Ej. Antes de hablar de precio, pide el codigo o referencia del producto que le gusto."
                           className="flex min-h-[110px] w-full rounded-[20px] border border-[rgba(148,163,184,0.14)] bg-white px-3.5 py-3 text-[13px] leading-6 text-slate-800 shadow-[0_18px_32px_-34px_rgba(15,23,42,0.18)] outline-none transition placeholder:text-slate-400 focus:border-[var(--primary)]"
                         />
@@ -412,6 +413,7 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                           name="customRules"
                           rows={4}
                           defaultValue={training.customRules}
+                          maxLength={10000}
                           className="flex w-full rounded-[20px] border border-[rgba(148,163,184,0.16)] bg-white px-3.5 py-3 text-[13px] leading-6 text-slate-800 outline-none transition focus:border-[var(--primary)]"
                         />
                       </label>
