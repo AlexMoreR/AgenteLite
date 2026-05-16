@@ -22,6 +22,7 @@ type KnowledgeProductInstructionModalProps = {
   price: string;
   thumbnailUrl: string | null;
   instructions: string;
+  followUpFlowId: string | null;
   isSelected: boolean;
   flows: FlowOption[];
 };
@@ -46,12 +47,14 @@ export function KnowledgeProductInstructionModal({
   price,
   thumbnailUrl,
   instructions,
+  followUpFlowId,
   isSelected,
   flows,
 }: KnowledgeProductInstructionModalProps) {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<"edit" | "preview">("edit");
   const [instructionValue, setInstructionValue] = useState(instructions);
+  const [followUpFlowValue, setFollowUpFlowValue] = useState(followUpFlowId ?? "");
   const [slashSearch, setSlashSearch] = useState<{
     start: number;
     end: number;
@@ -176,13 +179,14 @@ export function KnowledgeProductInstructionModal({
   return (
     <>
       <button
-        type="button"
-        onClick={() => {
-          setInstructionValue(instructions);
-          setSlashSearch(null);
-          setView("edit");
-          setOpen(true);
-        }}
+      type="button"
+      onClick={() => {
+        setInstructionValue(instructions);
+        setFollowUpFlowValue(followUpFlowId ?? "");
+        setSlashSearch(null);
+        setView("edit");
+        setOpen(true);
+      }}
         className="min-w-0 flex-1 rounded-lg px-1 py-1 text-left transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[color-mix(in_srgb,var(--primary)_14%,white)]"
       >
         <div className="flex flex-wrap items-center gap-1.5">
@@ -238,6 +242,7 @@ export function KnowledgeProductInstructionModal({
                 <form action={saveAgentKnowledgeProductInstructionAction} className="min-h-0 overflow-y-auto px-5 py-5">
                   <input type="hidden" name="agentId" value={agentId} />
                   <input type="hidden" name="productId" value={productId} />
+                  <input type="hidden" name="followUpFlowId" value={followUpFlowValue} />
 
                   <div className="flex items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1 w-fit mb-4">
                     <button
@@ -310,6 +315,27 @@ export function KnowledgeProductInstructionModal({
                         placeholder="Entrena tu agente con la informacion de tu producto"
                         className="mt-2 min-h-56 w-full resize-y rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm leading-6 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-[var(--primary)] focus:ring-4 focus:ring-[color-mix(in_srgb,var(--primary)_12%,white)]"
                       />
+
+                      <div className="mt-4 grid gap-4">
+                        <label className="block">
+                          <span className="text-sm font-semibold text-slate-900">Flujo hijo opcional:</span>
+                          <select
+                            value={followUpFlowValue}
+                            onChange={(event) => setFollowUpFlowValue(event.target.value)}
+                            className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-[var(--primary)] focus:ring-4 focus:ring-[color-mix(in_srgb,var(--primary)_12%,white)]"
+                          >
+                            <option value="">Sin flujo hijo</option>
+                            {flows.map((flow) => (
+                              <option key={flow.id} value={flow.id}>
+                                {flow.badge} · /{flow.title}
+                              </option>
+                            ))}
+                          </select>
+                          <p className="mt-2 text-xs leading-5 text-slate-500">
+                            Este flujo se usara como siguiente paso del producto cuando el contexto lo indique.
+                          </p>
+                        </label>
+                      </div>
                     </label>
                   ) : (
                     <div className="space-y-3">

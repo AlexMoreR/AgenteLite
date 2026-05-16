@@ -3,7 +3,11 @@ import { Prisma } from "@prisma/client";
 import { after } from "next/server";
 import { NextResponse } from "next/server";
 import { analyzeImageForAgent, generateAgentReply, transcribeAudioForAgent } from "@/lib/agent-ai";
-import { resolveAgentProductFlowReply } from "@/lib/agent-product-flow";
+import {
+  buildActiveProductContextNote,
+  resolveAgentProductFlowReply,
+  type ActiveProductContext,
+} from "@/lib/agent-product-flow";
 import { composeAgentWelcomeReply } from "@/lib/agent-reply-composer";
 import { getConversationAutomationPaused, setConversationAutomationPaused } from "@/lib/conversation-automation";
 import { prisma } from "@/lib/prisma";
@@ -47,9 +51,13 @@ import { enforceWorkspacePlanAccess } from "@/lib/workspace-plan-access";
 import { getEvolutionSettings } from "@/lib/system-settings";
 import { buildHandoffMessage, parseAgentTrainingConfig } from "@/lib/agent-training";
 import {
+  CONSULTAR_FLUJOS_TOOL,
+  CONSULTAR_PRODUCTOS_TOOL,
   resolveNotifyHumanAction,
   resolveUnknownProductNotifyAction,
   NOTIFICAR_ASESOR_TOOL,
+  executeConsultarFlujosTool,
+  executeConsultarProductosTool,
   sendNotificarAsesorNotification,
 } from "@/features/agent-actions";
 import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
@@ -323,6 +331,7 @@ export async function POST(request: Request) {
           select: {
             id: true,
             status: true,
+            activeProductContext: true,
             contact: {
               select: {
                 id: true,
@@ -465,6 +474,7 @@ export async function POST(request: Request) {
         select: {
           id: true,
           status: true,
+          activeProductContext: true,
         },
       })
     : await prisma.conversation.findFirst({
@@ -479,11 +489,12 @@ export async function POST(request: Request) {
         select: {
           id: true,
           status: true,
+          activeProductContext: true,
         },
       });
 
   const conversation = existingConversation
-    ? { id: existingConversation.id }
+    ? { id: existingConversation.id, activeProductContext: existingConversation.activeProductContext }
     : await prisma.conversation.create({
         data: {
           workspaceId: channel.workspaceId,
@@ -493,7 +504,7 @@ export async function POST(request: Request) {
           status: "OPEN",
           lastMessageAt: new Date(),
         },
-        select: { id: true },
+        select: { id: true, activeProductContext: true },
       });
 
   if (!messageWasEdited && existingConversation && !["OPEN", "PENDING"].includes(existingConversation.status)) {
@@ -1257,6 +1268,12 @@ export async function POST(request: Request) {
         conversationId: conversation.id,
       });
       const aiContextNotes = new Set<string>();
+      const activeProductContextNote = buildActiveProductContextNote(
+        (existingConversation?.activeProductContext as ActiveProductContext | null | undefined) ?? null,
+      );
+      if (activeProductContextNote) {
+        aiContextNotes.add(activeProductContextNote);
+      }
 
       const detectedContactMatches = await detectContactMatchesFromText({
         agentId: agent.id,
@@ -1328,7 +1345,7 @@ export async function POST(request: Request) {
         }
       }
 
-      let hardFlowReply = shouldHandoffToHuman || quickResponseFlow
+      const hardFlowResolution = shouldHandoffToHuman || quickResponseFlow
         ? null
         : await resolveAgentProductFlowReply({
             agentId: agent.id,
@@ -1337,9 +1354,26 @@ export async function POST(request: Request) {
             history: recentMessagesForModel,
             includeOfficialApi: true,
           });
+      let hardFlowReply = hardFlowResolution?.steps
+        ? hardFlowResolution
+        : null;
+
+      if (hardFlowResolution?.activeProductContext) {
+        await prisma.conversation.update({
+          where: { id: conversation.id },
+          data: {
+            activeProductContext: hardFlowResolution.activeProductContext as Prisma.InputJsonValue,
+          },
+        });
+
+        const activeProductContextNote = buildActiveProductContextNote(hardFlowResolution.activeProductContext);
+        if (activeProductContextNote) {
+          aiContextNotes.add(activeProductContextNote);
+        }
+      }
 
       if (hardFlowReply) {
-        const hardFlowSlug = getFlowSlug(hardFlowReply.flowTitle);
+        const hardFlowSlug = getFlowSlug(hardFlowReply.flowTitle ?? "");
         if (executedFlowSlugs.has(hardFlowSlug)) {
           const note = buildFlowExecutionContextNote({
             flowTitle: hardFlowReply.flowTitle,
@@ -1447,7 +1481,7 @@ export async function POST(request: Request) {
         const effectiveSystemPrompt = agentTraining?.useCustomPrompt && agentTraining.customSystemPrompt?.trim()
           ? agentTraining.customSystemPrompt.trim()
           : agent.systemPrompt;
-        const notificarAsesorToolHandlers = {
+        const toolHandlers = {
           Notificar_asesor: async (args: Record<string, unknown>) => {
             const result = await sendNotificarAsesorNotification({
               trainingConfig: agent.trainingConfig,
@@ -1476,6 +1510,24 @@ export async function POST(request: Request) {
 
             return result;
           },
+          consultar_productos: async (args: Record<string, unknown>) => {
+            const result = await executeConsultarProductosTool({
+              agentId: agent.id,
+              toolInput: args,
+            });
+
+            return result ?? { found: false, matches: [], bestMatch: null, recommendation: "No hay coincidencias suficientes." };
+          },
+          consultar_flujos: async (args: Record<string, unknown>) => {
+            const result = await executeConsultarFlujosTool({
+              workspaceId: channel.workspaceId,
+              includeOfficialApi: true,
+              toolInput: args,
+              allowedFlowIds: agentTraining?.knowledgeFlowIds?.length ? agentTraining.knowledgeFlowIds : undefined,
+            });
+
+            return result ?? { found: false, matches: [], bestMatch: null, recommendation: "No hay coincidencias suficientes." };
+          },
         } satisfies Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
         replyText = await generateAgentReply({
           model: agent.model,
@@ -1483,8 +1535,8 @@ export async function POST(request: Request) {
           fallbackMessage: agent.fallbackMessage,
           history: recentMessagesForModel,
           latestUserMessage: aiLatestUserMessageWithImageContext,
-          tools: [NOTIFICAR_ASESOR_TOOL],
-          toolHandlers: notificarAsesorToolHandlers,
+          tools: [NOTIFICAR_ASESOR_TOOL, CONSULTAR_PRODUCTOS_TOOL, CONSULTAR_FLUJOS_TOOL],
+          toolHandlers,
         });
       }
 

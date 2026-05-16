@@ -161,6 +161,7 @@ const saveAgentKnowledgeProductInstructionSchema = z.object({
   agentId: z.string().trim().min(1, "Agente invalido"),
   productId: z.string().trim().min(1, "Producto invalido"),
   instructions: z.string().trim().max(5000, "La instruccion es demasiado larga"),
+  followUpFlowId: z.string().trim().optional(),
 });
 
 const saveAgentActionsSchema = z.object({
@@ -362,6 +363,15 @@ function isMissingAgentKnowledgeInstructionsColumnError(error: unknown) {
   );
 }
 
+function isMissingAgentKnowledgeFollowUpColumnsError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes('column "followUpFlowId" does not exist') ||
+    message.includes('columna "followUpFlowId" no existe') ||
+    message.includes("42703")
+  );
+}
+
 async function getAgentKnowledgePromptProducts(agentId: string) {
   try {
     return await prisma.$queryRaw<Array<AgentKnowledgePromptProduct>>`
@@ -373,7 +383,8 @@ async function getAgentKnowledgePromptProducts(agentId: string) {
         p."thumbnailUrl",
         p."price"::text AS "price",
         c."name" AS "categoryName",
-        akp."instructions"
+        akp."instructions",
+        akp."followUpFlowId"
       FROM "AgentKnowledgeProduct" akp
       INNER JOIN "Product" p ON p."id" = akp."productId"
       LEFT JOIN "Category" c ON c."id" = p."categoryId"
@@ -382,17 +393,18 @@ async function getAgentKnowledgePromptProducts(agentId: string) {
       LIMIT 30
     `;
   } catch (error) {
-    if (isMissingAgentKnowledgeInstructionsColumnError(error)) {
+    if (isMissingAgentKnowledgeInstructionsColumnError(error) || isMissingAgentKnowledgeFollowUpColumnsError(error)) {
       return await prisma.$queryRaw<Array<AgentKnowledgePromptProduct>>`
-        SELECT
-          p."code",
-          p."slug",
-          p."name",
-          p."description",
-          p."thumbnailUrl",
-          p."price"::text AS "price",
-          c."name" AS "categoryName"
-        FROM "AgentKnowledgeProduct" akp
+          SELECT
+            p."code",
+            p."slug",
+            p."name",
+            p."description",
+            p."thumbnailUrl",
+            p."price"::text AS "price",
+            c."name" AS "categoryName",
+            NULL::text AS "followUpFlowId"
+          FROM "AgentKnowledgeProduct" akp
         INNER JOIN "Product" p ON p."id" = akp."productId"
         LEFT JOIN "Category" c ON c."id" = p."categoryId"
         WHERE akp."agentId" = ${agentId}
@@ -427,6 +439,7 @@ async function getAgentKnowledgePromptFlows(
   return createdFlows
     .filter((flow) => selectedIds.has(flow.id))
     .map((flow) => ({
+      id: flow.id,
       title: flow.title,
       intent: flow.intent,
       description: flow.description,
@@ -1818,13 +1831,16 @@ export async function saveAgentKnowledgeProductsAction(formData: FormData): Prom
 
   try {
     await prisma.$transaction(async (tx) => {
-      const existingRows = await tx.$queryRaw<Array<{ productId: string; instructions: string | null }>>`
-        SELECT "productId", "instructions"
+      const existingRows = await tx.$queryRaw<Array<{ productId: string; instructions: string | null; followUpFlowId: string | null }>>`
+        SELECT "productId", "instructions", "followUpFlowId"
         FROM "AgentKnowledgeProduct"
         WHERE "agentId" = ${agent.id}
       `;
       const instructionByProductId = new Map(
         existingRows.map((row) => [row.productId, row.instructions]),
+      );
+      const followUpFlowByProductId = new Map(
+        existingRows.map((row) => [row.productId, (row as { followUpFlowId?: string | null }).followUpFlowId ?? null]),
       );
 
       await tx.$executeRaw`
@@ -1834,14 +1850,15 @@ export async function saveAgentKnowledgeProductsAction(formData: FormData): Prom
 
       for (const productId of uniqueProductIds) {
         const instructions = instructionByProductId.get(productId) ?? null;
+        const followUpFlowId = followUpFlowByProductId.get(productId) ?? null;
         await tx.$executeRaw`
-          INSERT INTO "AgentKnowledgeProduct" ("agentId", "productId", "instructions", "updatedAt")
-          VALUES (${agent.id}, ${productId}, ${instructions}, NOW())
+          INSERT INTO "AgentKnowledgeProduct" ("agentId", "productId", "instructions", "followUpFlowId", "updatedAt")
+          VALUES (${agent.id}, ${productId}, ${instructions}, ${followUpFlowId}, NOW())
         `;
       }
     });
   } catch (error) {
-    if (isMissingAgentKnowledgeInstructionsColumnError(error)) {
+    if (isMissingAgentKnowledgeInstructionsColumnError(error) || isMissingAgentKnowledgeFollowUpColumnsError(error)) {
       await prisma.$transaction(async (tx) => {
         await tx.$executeRaw`
           DELETE FROM "AgentKnowledgeProduct"
@@ -1903,6 +1920,7 @@ export async function saveAgentKnowledgeProductInstructionAction(formData: FormD
     agentId: formData.get("agentId"),
     productId: formData.get("productId"),
     instructions: formData.get("instructions"),
+    followUpFlowId: formData.get("followUpFlowId"),
   });
 
   const fallbackAgentId = String(formData.get("agentId") || "");
@@ -1945,18 +1963,31 @@ export async function saveAgentKnowledgeProductInstructionAction(formData: FormD
     redirect(`/cliente/agentes/${agent.id}/conocimiento?error=Producto+no+encontrado`);
   }
 
+  const training = parseAgentTrainingConfig(agent.trainingConfig) ?? defaultAgentTrainingConfig;
+  const canUseOfficialApi = await canAccessOfficialApiModule(session.user.id, session.user.role);
+  const availableFlowTargets = await getCreatedFlowItems({
+    workspaceId: membership.workspace.id,
+    includeOfficialApi: canUseOfficialApi,
+  });
+  const availableFlowIdSet = new Set(availableFlowTargets.map((flow) => flow.id));
+  const normalizedFollowUpFlowId = parsed.data.followUpFlowId?.trim() || "";
+  if (normalizedFollowUpFlowId && !availableFlowIdSet.has(normalizedFollowUpFlowId)) {
+    redirect(`/cliente/agentes/${agent.id}/conocimiento?error=El+flujo+hijo+seleccionado+no+es+valido`);
+  }
+
   try {
     await prisma.$executeRaw`
-      INSERT INTO "AgentKnowledgeProduct" ("agentId", "productId", "instructions", "updatedAt")
-      VALUES (${agent.id}, ${product.id}, ${parsed.data.instructions || null}, CURRENT_TIMESTAMP)
+      INSERT INTO "AgentKnowledgeProduct" ("agentId", "productId", "instructions", "followUpFlowId", "updatedAt")
+      VALUES (${agent.id}, ${product.id}, ${parsed.data.instructions || null}, ${parsed.data.followUpFlowId?.trim() || null}, CURRENT_TIMESTAMP)
       ON CONFLICT ("agentId", "productId")
       DO UPDATE SET
         "instructions" = EXCLUDED."instructions",
+        "followUpFlowId" = EXCLUDED."followUpFlowId",
         "updatedAt" = CURRENT_TIMESTAMP
     `;
   } catch (error) {
-    if (isMissingAgentKnowledgeInstructionsColumnError(error)) {
-      redirect(`/cliente/agentes/${agent.id}/conocimiento?error=Debes+aplicar+la+migracion+de+instrucciones`);
+    if (isMissingAgentKnowledgeInstructionsColumnError(error) || isMissingAgentKnowledgeFollowUpColumnsError(error)) {
+      redirect(`/cliente/agentes/${agent.id}/conocimiento?error=Debes+aplicar+la+migracion+de+conocimiento+de+productos`);
     }
 
     if (!isMissingAgentKnowledgeTableError(error)) {
@@ -1966,18 +1997,12 @@ export async function saveAgentKnowledgeProductInstructionAction(formData: FormD
     redirect(`/cliente/agentes/${agent.id}/conocimiento?error=Debes+aplicar+la+migracion+de+conocimiento`);
   }
 
-  const training = parseAgentTrainingConfig(agent.trainingConfig) ?? defaultAgentTrainingConfig;
-  const canUseOfficialApi = await canAccessOfficialApiModule(session.user.id, session.user.role);
-  const availableFlowTargets = await getCreatedFlowItems({
-    workspaceId: membership.workspace.id,
-    includeOfficialApi: canUseOfficialApi,
-  });
   const mentionedFlowIds = availableFlowTargets
     .filter((flow) => parsed.data.instructions.toLowerCase().includes(`/${flow.title.toLowerCase()}`))
     .map((flow) => flow.id);
   const nextTraining = buildAgentTrainingConfig({
     ...training,
-    knowledgeFlowIds: Array.from(new Set([...training.knowledgeFlowIds, ...mentionedFlowIds])),
+    knowledgeFlowIds: Array.from(new Set([...training.knowledgeFlowIds, ...mentionedFlowIds, ...(normalizedFollowUpFlowId ? [normalizedFollowUpFlowId] : [])])),
   });
   const knowledgeProducts = await getAgentKnowledgePromptProducts(agent.id);
   const knowledgeFlows = await getAgentKnowledgePromptFlows(canUseOfficialApi, membership.workspace.id, nextTraining.knowledgeFlowIds);

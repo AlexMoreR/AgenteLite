@@ -46,6 +46,11 @@ type UnifiedConversation = {
   lastMessageType?: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
   lastMessageDirection?: "INBOUND" | "OUTBOUND" | null;
   lastMessageAt?: Date | null;
+  activeProductContext?: ActiveProductContextSummary | null;
+};
+
+type ActiveProductContextSummary = {
+  productName?: string | null;
 };
 
 function getAgentContactLabel(input: { name: string | null; phoneNumber: string }) {
@@ -56,15 +61,16 @@ function getOfficialContactLabel(input: { name: string | null; phoneNumber: stri
   return input.name?.trim() || input.phoneNumber?.trim() || input.waId;
 }
 
-function getContactTags(
-  input: Array<{ name: string; color: string }>,
-) {
-  return input
-    .filter((tag): tag is { name: string; color: string } => Boolean(tag?.name?.trim()))
-    .map((tag) => ({
-      label: tag.name,
-      color: tag.color,
-    }));
+function getConversationContextTags(input: ActiveProductContextSummary | null | undefined) {
+  const productName = input?.productName?.trim();
+  if (!productName) {
+    return [];
+  }
+
+  return [{
+    label: productName,
+    color: "#2563eb",
+  }];
 }
 
 function parseChatKey(input: string): { source: "agent" | "official"; conversationId: string } | null {
@@ -189,6 +195,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         agentId: true,
         channelId: true,
         automationPaused: true,
+        activeProductContext: true,
         contact: {
           select: {
             id: true,
@@ -294,20 +301,6 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     });
   }
 
-  const contactTagRowsPromise = contactIds.length
-    ? prisma.$queryRaw<Array<{ contactId: string; name: string; color: string }>>`
-        SELECT
-          ct."contactId" AS "contactId",
-          t."name" AS "name",
-          t."color" AS "color"
-        FROM "ContactTag" ct
-        INNER JOIN "Tag" t ON t."id" = ct."tagId"
-        WHERE ct."workspaceId" = ${membership.workspace.id}
-          AND ct."contactId" IN (${Prisma.join(contactIds)})
-        ORDER BY ct."createdAt" ASC
-      `
-    : Promise.resolve([] as Array<{ contactId: string; name: string; color: string }>);
-
   const agentIncomingCountRowsPromise = activeAgentConversationIds.length
     ? prisma.$queryRaw<Array<{
         conversationId: string;
@@ -352,21 +345,13 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         incomingCount: number;
       }>);
 
-  const [contactTagRows, agentIncomingCountRows, latestAgentMessageRows] = await Promise.all([
-    contactTagRowsPromise,
+  const [agentIncomingCountRows, latestAgentMessageRows] = await Promise.all([
     agentIncomingCountRowsPromise,
     latestAgentMessageRowsPromise,
   ]);
   const latestAgentMessageByConversationId = new Map(
     latestAgentMessageRows.map((row) => [row.conversationId, row]),
   );
-
-  const contactTagsByContactId = new Map<string, Array<{ name: string; color: string }>>();
-  for (const row of contactTagRows) {
-    const current = contactTagsByContactId.get(row.contactId) || [];
-    current.push({ name: row.name, color: row.color });
-    contactTagsByContactId.set(row.contactId, current);
-  }
 
   const agentIncomingCountById = new Map(agentIncomingCountRows.map((row) => [row.conversationId, row.incomingCount]));
 
@@ -408,7 +393,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   const agentRows: UnifiedConversation[] = activeAgentConversations.map((conversation) => {
     const linkedChannel = conversation.channelId ? channelsById.get(conversation.channelId) || null : null;
     const avatarUrl = conversation.contact.avatarUrl ?? null;
-    const tags = getContactTags(contactTagsByContactId.get(conversation.contact.id) || []);
+    const tags = getConversationContextTags(conversation.activeProductContext as ActiveProductContextSummary | null | undefined);
 
     return {
       key: `agent:${conversation.id}`,
@@ -426,6 +411,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       lastMessageType: latestAgentMessageByConversationId.get(conversation.id)?.type ?? null,
       lastMessageDirection: latestAgentMessageByConversationId.get(conversation.id)?.direction ?? null,
       lastMessageAt: latestAgentMessageByConversationId.get(conversation.id)?.createdAt ?? null,
+      activeProductContext: conversation.activeProductContext ?? null,
     };
   });
 
@@ -559,7 +545,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
 
   if (selectedUnified?.source === "agent") {
     const selectedContactId = selectedUnified.contactId ?? null;
-    const selectedTags = selectedContactId ? getContactTags(contactTagsByContactId.get(selectedContactId) || []) : [];
+    const selectedTags = getConversationContextTags(selectedUnified.activeProductContext ?? null);
 
     selectedConversation = {
       id: selectedUnified.conversationId,

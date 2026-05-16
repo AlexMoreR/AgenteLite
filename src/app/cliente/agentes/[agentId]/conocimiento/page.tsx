@@ -41,6 +41,15 @@ function isMissingAgentKnowledgeInstructionsColumnError(error: unknown) {
   );
 }
 
+function isMissingAgentKnowledgeFollowUpColumnsError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes('column "followUpFlowId" does not exist') ||
+    message.includes('columna "followUpFlowId" no existe') ||
+    message.includes("42703")
+  );
+}
+
 export default async function AgentKnowledgePage({ params, searchParams }: PageProps) {
   const session = await auth();
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
@@ -103,17 +112,23 @@ export default async function AgentKnowledgePage({ params, searchParams }: PageP
 
   let selectedProductIds = new Set<string>();
   let productInstructionById = new Map<string, string>();
+  let productFollowUpFlowById = new Map<string, string | null>();
   try {
-    const selectedRows = await prisma.$queryRaw<Array<{ productId: string; instructions: string | null }>>`
-      SELECT "productId", "instructions"
+    const selectedRows = await prisma.$queryRaw<Array<{
+      productId: string;
+      instructions: string | null;
+      followUpFlowId: string | null;
+    }>>`
+      SELECT "productId", "instructions", "followUpFlowId"
       FROM "AgentKnowledgeProduct"
       WHERE "agentId" = ${agent.id}
       ORDER BY "createdAt" ASC
     `;
     selectedProductIds = new Set(selectedRows.map((row) => row.productId));
     productInstructionById = new Map(selectedRows.map((row) => [row.productId, row.instructions ?? ""]));
+    productFollowUpFlowById = new Map(selectedRows.map((row) => [row.productId, row.followUpFlowId ?? null]));
   } catch (error) {
-    if (isMissingAgentKnowledgeInstructionsColumnError(error)) {
+    if (isMissingAgentKnowledgeInstructionsColumnError(error) || isMissingAgentKnowledgeFollowUpColumnsError(error)) {
       const selectedRows = await prisma.$queryRaw<Array<{ productId: string }>>`
         SELECT "productId"
         FROM "AgentKnowledgeProduct"
@@ -230,6 +245,7 @@ export default async function AgentKnowledgePage({ params, searchParams }: PageP
                           price={formatMoney(String(product.price), "COP")}
                           thumbnailUrl={product.thumbnailUrl}
                           instructions={productInstructionById.get(product.id) ?? ""}
+                          followUpFlowId={productFollowUpFlowById.get(product.id) ?? null}
                           isSelected={selectedProductIds.has(product.id)}
                           flows={flowTargets.map((flow) => ({
                             id: flow.id,

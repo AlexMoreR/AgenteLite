@@ -1,9 +1,12 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import type {
   OfficialApiChatbotBuilderEdge,
   OfficialApiChatbotBuilderNode,
 } from "@/features/official-api/types/official-api";
 import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowItems";
 import { detectUnknownProductIntent } from "@/features/agent-actions/domain/notify-intent";
+import { consultFlowsByWorkspace } from "@/features/agent-actions/services/consult-flujos";
+import { consultProductsByAgent } from "@/features/agent-actions/services/consult-productos";
 import { getOfficialApiChatbotBuilderState } from "@/lib/official-api-chatbot";
 import { defaultAgentTrainingConfig, parseAgentTrainingConfig } from "@/lib/agent-training";
 import { generateAgentReply } from "@/lib/agent-ai";
@@ -33,6 +36,26 @@ type FlowReplyPayload = {
   aiFollowUpEnabled: boolean;
 };
 
+export type ActiveProductContext = {
+  productId: string;
+  productName: string;
+  code: string | null;
+  slug: string | null;
+  description: string | null;
+  price: string | null;
+  categoryName: string | null;
+  instructions: string | null;
+  followUpFlowId: string | null;
+};
+
+type ProductFlowResolution = {
+  steps: FlowStep[] | null;
+  flowTitle: string | null;
+  productName: string | null;
+  aiFollowUpEnabled: boolean;
+  activeProductContext: ActiveProductContext | null;
+};
+
 function normalizeText(value: string) {
   return value
     .normalize("NFD")
@@ -53,82 +76,6 @@ function isAffirmationMessage(normalizedText: string): boolean {
   const words = normalizedText.split(" ").filter(Boolean);
   if (words.length > 4) return false;
   return words.every((w) => AFFIRMATION_WORDS.has(w) || w.length <= 2);
-}
-
-function tokenize(value: string) {
-  const stopWords = new Set([
-    "si",
-    "un",
-    "una",
-    "el",
-    "la",
-    "los",
-    "las",
-    "de",
-    "del",
-    "por",
-    "para",
-    "con",
-    "este",
-    "esta",
-    "flujo",
-    "ejecuta",
-    "cliente",
-    "pregunta",
-  ]);
-
-  return normalizeText(value)
-    .split(" ")
-    .filter((word) => word.length >= 4 && !stopWords.has(word));
-}
-
-function levenshteinDistance(left: string, right: string) {
-  if (left === right) {
-    return 0;
-  }
-
-  if (left.length === 0) {
-    return right.length;
-  }
-
-  if (right.length === 0) {
-    return left.length;
-  }
-
-  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
-  const current = Array.from({ length: right.length + 1 }, () => 0);
-
-  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
-    current[0] = leftIndex;
-    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
-      const cost = left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1;
-      current[rightIndex] = Math.min(
-        current[rightIndex - 1] + 1,
-        previous[rightIndex] + 1,
-        previous[rightIndex - 1] + cost,
-      );
-    }
-
-    for (let index = 0; index <= right.length; index += 1) {
-      previous[index] = current[index];
-    }
-  }
-
-  return previous[right.length];
-}
-
-function textMatchesToken(normalizedText: string, token: string) {
-  if (normalizedText.includes(token)) {
-    return true;
-  }
-
-  if (token.length < 6) {
-    return false;
-  }
-
-  return normalizedText
-    .split(" ")
-    .some((word) => Math.abs(word.length - token.length) <= 2 && levenshteinDistance(word, token) <= 2);
 }
 
 function extractFlowReferences(instructions: string, availableFlowTitles: string[]): FlowReference[] {
@@ -485,13 +432,13 @@ export async function resolveAgentProductFlowReply(input: {
   latestUserMessage: string | null;
   history?: ConversationLine[];
   includeOfficialApi: boolean;
-}) {
+}): Promise<ProductFlowResolution | null> {
   const latestText = input.latestUserMessage?.trim() || "";
   if (!latestText) {
     return null;
   }
 
-  const [agent, flowTargets, knowledgeRows, allKnowledgeProducts] = await Promise.all([
+  const [agent, flowTargets] = await Promise.all([
     prisma.agent.findFirst({
       where: {
         id: input.agentId,
@@ -505,35 +452,6 @@ export async function resolveAgentProductFlowReply(input: {
       workspaceId: input.workspaceId,
       includeOfficialApi: input.includeOfficialApi,
     }),
-    prisma.$queryRaw<Array<{
-      productId: string;
-      productName: string;
-      productDescription: string | null;
-      instructions: string | null;
-    }>>`
-      SELECT
-        akp."productId",
-        p."name" AS "productName",
-        p."description" AS "productDescription",
-        akp."instructions"
-      FROM "AgentKnowledgeProduct" akp
-      INNER JOIN "Product" p ON p."id" = akp."productId"
-      WHERE akp."agentId" = ${input.agentId}
-        AND akp."instructions" IS NOT NULL
-        AND LENGTH(TRIM(akp."instructions")) > 0
-      ORDER BY akp."updatedAt" DESC, akp."createdAt" DESC
-    `,
-    prisma.$queryRaw<Array<{
-      productName: string;
-      productDescription: string | null;
-    }>>`
-      SELECT
-        p."name" AS "productName",
-        p."description" AS "productDescription"
-      FROM "AgentKnowledgeProduct" akp
-      INNER JOIN "Product" p ON p."id" = akp."productId"
-      WHERE akp."agentId" = ${input.agentId}
-    `,
   ]);
 
   if (!agent || !flowTargets.length) {
@@ -542,133 +460,152 @@ export async function resolveAgentProductFlowReply(input: {
 
   const training = parseAgentTrainingConfig(agent.trainingConfig) ?? defaultAgentTrainingConfig;
   const selectedFlowIds = new Set(training.knowledgeFlowIds);
-
-  const flowById = new Map(flowTargets.map((flow) => [flow.id, flow]));
   const selectedFlows = flowTargets.filter((flow) => selectedFlowIds.has(flow.id));
-
-  const conversationContext = buildConversationContext(latestText, input.history ?? []);
-  const normalizedLatest = conversationContext.latestText;
-  const normalizedRecentContext = conversationContext.recentContext;
-
-  const recentText = `${normalizedLatest} ${conversationContext.recentContext}`.trim();
-  const mentionsKnownProduct = allKnowledgeProducts.some((row) => {
-      const productTokens = tokenize(`${row.productName} ${row.productDescription ?? ""}`);
-      return productTokens.length > 0 && productTokens.some((token) => textMatchesToken(recentText, token));
+  const flowCandidates = selectedFlows.length > 0 ? selectedFlows : flowTargets;
+  const matchedProducts = await consultProductsByAgent({
+    agentId: input.agentId,
+    query: latestText,
+    limit: 3,
   });
+  const matchedProduct = matchedProducts.bestMatch;
+  const candidateFlowIds = new Set(flowCandidates.map((flow) => flow.id));
+  const matchedFlows = flowCandidates.length > 0
+    ? await consultFlowsByWorkspace({
+        workspaceId: input.workspaceId,
+        includeOfficialApi: input.includeOfficialApi,
+        query: latestText,
+        limit: 3,
+        allowedFlowIds: flowCandidates.map((flow) => flow.id),
+      })
+    : null;
 
   if (
     training.actions.notify.enabled &&
     training.actions.notify.autoNotifyOnUnknownProduct &&
     detectUnknownProductIntent(latestText) &&
-    !mentionsKnownProduct
+    !matchedProduct
   ) {
     return null;
   }
 
-  if (selectedFlows.length > 0 && !mentionsKnownProduct) {
-    const aiSelectedFlowId = await selectFlowByAI({
-      flows: selectedFlows.map((f) => ({ id: f.id, title: f.title, intent: f.intent })),
-      latestUserMessage: latestText,
-      history: input.history ?? [],
-    });
+  if (matchedProduct) {
+    const instructions = matchedProduct.instructions?.trim() || "";
+    const explicitFollowUpFlowId = matchedProduct.followUpFlowId?.trim() || "";
+    const normalizedLatestText = normalizeText(latestText);
+    const activeProductContext: ActiveProductContext = {
+      productId: matchedProduct.productId,
+      productName: matchedProduct.name,
+      code: matchedProduct.code ?? null,
+      slug: matchedProduct.slug ?? null,
+      description: matchedProduct.description ?? null,
+      price: matchedProduct.price ?? null,
+      categoryName: matchedProduct.categoryName ?? null,
+      instructions: matchedProduct.instructions ?? null,
+      followUpFlowId: matchedProduct.followUpFlowId ?? null,
+    };
 
-    const aiSelectedFlow = aiSelectedFlowId ? flowById.get(aiSelectedFlowId) : null;
+    if (explicitFollowUpFlowId) {
+      const shouldExecuteFollowUp = isAffirmationMessage(normalizedLatestText);
+      if (shouldExecuteFollowUp && candidateFlowIds.has(explicitFollowUpFlowId)) {
+        const reply = await getFlowReply({
+          workspaceId: input.workspaceId,
+          flowId: explicitFollowUpFlowId,
+          includeOfficialApi: input.includeOfficialApi,
+        });
 
-    if (aiSelectedFlow) {
+        if (reply) {
+          const referencedFlow = flowTargets.find((flow) => flow.id === explicitFollowUpFlowId);
+          return {
+            steps: reply.steps,
+            flowTitle: referencedFlow?.title ?? matchedProduct.name,
+            productName: matchedProduct.name,
+            aiFollowUpEnabled: reply.aiFollowUpEnabled,
+            activeProductContext,
+          };
+        }
+      }
+
+      return {
+        steps: null,
+        flowTitle: null,
+        productName: matchedProduct.name,
+        aiFollowUpEnabled: false,
+        activeProductContext,
+      };
+    }
+
+    const flowTitles = flowCandidates.map((flow) => flow.title);
+    const references = extractFlowReferences(instructions, flowTitles);
+    const flowByNormalizedTitle = new Map(flowTargets.map((flow) => [normalizeText(flow.title), flow]));
+    const referencedFlowIds = references
+      .map((reference) => flowByNormalizedTitle.get(normalizeText(reference.title))?.id)
+      .filter((value): value is string => Boolean(value) && candidateFlowIds.has(value));
+
+    if (referencedFlowIds.length > 0) {
       const reply = await getFlowReply({
         workspaceId: input.workspaceId,
-        flowId: aiSelectedFlow.id,
+        flowId: referencedFlowIds[0],
         includeOfficialApi: input.includeOfficialApi,
       });
 
       if (reply) {
+        const referencedFlow = flowTargets.find((flow) => flow.id === referencedFlowIds[0]);
         return {
           steps: reply.steps,
-          flowTitle: aiSelectedFlow.title,
-          productName: null,
+          flowTitle: referencedFlow?.title ?? matchedProduct.name,
+          productName: matchedProduct.name,
           aiFollowUpEnabled: reply.aiFollowUpEnabled,
+          activeProductContext,
         };
       }
     }
+
+    return {
+      steps: null,
+      flowTitle: null,
+      productName: matchedProduct.name,
+      aiFollowUpEnabled: false,
+      activeProductContext,
+    };
   }
 
-
-  const flowByNormalizedTitle = new Map(flowTargets.map((flow) => [normalizeText(flow.title), flow]));
-
-  for (const row of knowledgeRows) {
-    const instructions = row.instructions?.trim() || "";
-    const references = extractFlowReferences(instructions, flowTargets.map((flow) => flow.title));
-    const referencedFlowIds = references
-      .map((reference) => flowByNormalizedTitle.get(normalizeText(reference.title))?.id)
-      .filter((value): value is string => Boolean(value));
-    // Only trigger a flow when the product instructions explicitly reference one.
-    // Without an explicit reference, the AI handles the product query directly.
-    if (referencedFlowIds.length === 0) {
-      continue;
-    }
-
-    const candidateFlowIds = referencedFlowIds;
-
-    const productTokens = tokenize(`${row.productName} ${row.productDescription ?? ""}`);
-    const latestMentionsProduct =
-      productTokens.some((token) => normalizedLatest.includes(token));
-    const productGate = productTokens.length === 0 || latestMentionsProduct || referencedFlowIds.length > 0;
-
-    if (!productGate) {
-      continue;
-    }
-
-    let bestMatch: { flow: (typeof selectedFlows)[number]; score: number } | null = null;
-
-    for (const flowId of candidateFlowIds) {
-      const flow = flowById.get(flowId);
-      if (!flow) {
-        continue;
-      }
-
-      const { score, hasLatestMatch } = scoreFlowIntentMatch({
-        flow: {
-          title: flow.title,
-          intent: flow.intent,
-          description: flow.description,
-        },
-        latestText: normalizedLatest,
-        recentContext: normalizedRecentContext,
-        fullContext: conversationContext.fullContext,
-      });
-
-      if (!hasLatestMatch) continue;
-
-      const referenceBonus = references.some((reference) => normalizeText(reference.title) === normalizeText(flow.title)) ? 2 : 0;
-      const combinedScore = score + referenceBonus;
-
-      if (!bestMatch || combinedScore > bestMatch.score) {
-        bestMatch = {
-          flow,
-          score: combinedScore,
-        };
-      }
-    }
-
-    if (!bestMatch || bestMatch.score < FLOW_MATCH_THRESHOLD) {
-      continue;
-    }
-
+  const bestFlow = matchedFlows?.bestMatch;
+  if (bestFlow) {
     const reply = await getFlowReply({
       workspaceId: input.workspaceId,
-      flowId: bestMatch.flow.id,
+      flowId: bestFlow.flowId,
       includeOfficialApi: input.includeOfficialApi,
     });
 
     if (reply) {
       return {
         steps: reply.steps,
-        flowTitle: bestMatch.flow.title,
-        productName: row.productName,
+        flowTitle: bestFlow.title,
+        productName: null,
         aiFollowUpEnabled: reply.aiFollowUpEnabled,
+        activeProductContext: null,
       };
     }
   }
 
   return null;
+}
+
+export function buildActiveProductContextNote(activeProductContext: ActiveProductContext | null | undefined) {
+  if (!activeProductContext) {
+    return null;
+  }
+
+  const lines = [
+    `Producto activo: ${activeProductContext.productName}`,
+    activeProductContext.code ? `Código: ${activeProductContext.code}` : null,
+    activeProductContext.slug ? `Slug: ${activeProductContext.slug}` : null,
+    activeProductContext.categoryName ? `Categoría: ${activeProductContext.categoryName}` : null,
+    activeProductContext.description ? `Descripción: ${activeProductContext.description}` : null,
+    activeProductContext.price ? `Precio: ${activeProductContext.price}` : null,
+    activeProductContext.instructions ? `Instrucción: ${activeProductContext.instructions}` : null,
+    activeProductContext.followUpFlowId ? `Flujo hijo: ${activeProductContext.followUpFlowId}` : null,
+  ].filter(Boolean);
+
+  return lines.length > 0 ? `CONTEXTO DEL PRODUCTO ACTIVO\n- ${lines.join("\n- ")}` : null;
 }

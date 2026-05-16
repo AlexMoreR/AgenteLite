@@ -114,6 +114,7 @@ export type AgentActionsConfig = {
 };
 
 export type AgentKnowledgePromptProduct = {
+  followUpFlowId?: string | null;
   code?: string | null;
   slug?: string | null;
   name: string;
@@ -125,6 +126,7 @@ export type AgentKnowledgePromptProduct = {
 };
 
 export type AgentKnowledgePromptFlow = {
+  id: string;
   title: string;
   intent?: string | null;
   description?: string | null;
@@ -370,11 +372,23 @@ export function buildAgentSystemPrompt(input: {
       }
 
       const summary = [`Producto: ${name}`];
+      if (product.code?.trim()) {
+        summary.push(`Codigo: ${product.code.trim()}`);
+      }
+      if (product.slug?.trim()) {
+        summary.push(`Slug: ${product.slug.trim()}`);
+      }
       if (product.description?.trim()) {
         summary.push(`Descripcion: ${product.description.trim()}`);
       }
       if (product.price?.trim()) {
         summary.push(`Precio de referencia: ${product.price.trim()}`);
+      }
+      if (product.followUpFlowId?.trim()) {
+        const followUpFlow = (input.knowledgeFlows ?? []).find((flow) => flow.id === product.followUpFlowId?.trim());
+        if (followUpFlow?.title.trim()) {
+          summary.push(`FLUJO HIJO: /${followUpFlow.title.trim()}`);
+        }
       }
       if (product.instructions?.trim()) {
         summary.push(`INSTRUCCION: ${product.instructions.trim()}`);
@@ -385,8 +399,17 @@ export function buildAgentSystemPrompt(input: {
     .filter((item): item is string => Boolean(item));
 
   const knowledgeSection = knowledgeProducts.length
-    ? `CONOCIMIENTO DE PRODUCTOS\n- ${knowledgeProducts.join("\n- ")}\n- Usa esta base para responder con precision sobre esos productos.\n- Nunca respondas solo con el nombre del producto si tienes descripcion o precio disponible.\n- Cuando hables de un producto, menciona la informacion util disponible y agrega un siguiente paso claro si ayuda a vender.\n- Si te preguntan por algo fuera de esta base, no lo inventes y aclara que debes confirmarlo.\n- IMPORTANTE: Cuando un producto tenga INSTRUCCION, esa instruccion define como debes manejar ese producto. Siguela por encima de cualquier otra consideracion.\n- IMPORTANTE: No asumas envio de fotos por palabras como \"foto\" o \"imagenes\"; solo comparte imagenes cuando la instruccion del producto o el prompt lo pidan de forma explicita.\n- ETAPAS: Si la INSTRUCCION tiene pasos numerados (1. 2. 3.), responde UNICAMENTE con el paso que corresponde al momento actual de la conversacion. Nunca adelantes pasos que dependen de la respuesta del cliente. Espera siempre la reaccion del cliente antes de avanzar al siguiente paso.`
+    ? `CONOCIMIENTO DE PRODUCTOS\n- ${knowledgeProducts.join("\n- ")}\n- Usa esta base para responder con precision sobre esos productos.\n- Nunca respondas solo con el nombre del producto si tienes descripcion o precio disponible.\n- Cuando hables de un producto, menciona la informacion util disponible y agrega un siguiente paso claro si ayuda a vender.\n- Si te preguntan por algo fuera de esta base, no lo inventes y aclara que debes confirmarlo.\n- IMPORTANTE: Cuando un producto tenga INSTRUCCION, esa instruccion define como debes manejar ese producto. Siguela por encima de cualquier otra consideracion.\n- IMPORTANTE: Si un producto tiene FLUJO HIJO y DISPARADORES, usa esa relacion como un siguiente paso explicito y no como un salto inmediato.\n- IMPORTANTE: No asumas envio de fotos por palabras como \"foto\" o \"imagenes\"; solo comparte imagenes cuando la instruccion del producto o el prompt lo pidan de forma explicita.\n- ETAPAS: Si la INSTRUCCION tiene pasos numerados (1. 2. 3.), responde UNICAMENTE con el paso que corresponde al momento actual de la conversacion. Nunca adelantes pasos que dependen de la respuesta del cliente. Espera siempre la reaccion del cliente antes de avanzar al siguiente paso.`
     : null;
+
+  const consultationToolsSection = [
+    "HERRAMIENTAS DE CONSULTA",
+    "- Si el cliente pregunta por un producto, consulta primero la herramienta consultar_productos antes de responder.",
+    "- Si la consulta habla de catalogo, opciones, modelos, referencias o quieres validar si existe un recorrido, usa consultar_flujos.",
+    "- Si consultar_productos no encuentra un producto claro, no inventes; usa consultar_flujos o sigue con una sola pregunta breve segun el contexto.",
+    "- Si consultar_flujos no encuentra un recorrido claro, sigue con el agente normal o deriva a un asesor segun corresponda.",
+    "- No mezcles informacion de varios productos o flujos en una sola respuesta si la consulta no fue clara.",
+  ].join("\n");
 
   const knowledgeFlows = (input.knowledgeFlows ?? [])
     .map((flow) => {
@@ -423,6 +446,7 @@ export function buildAgentSystemPrompt(input: {
     `COMO HABLAS\n- ${voiceRules.join("\n- ")}`,
     `COMPORTAMIENTO DE VENTA\n- ${salesBehaviors.join("\n- ")}`,
     `DIRECTIVAS DE COMUNICACIÓN CON EL USUARIO\n- ${communicationDirectives.join("\n- ")}`,
+    consultationToolsSection,
     knowledgeSection,
     flowKnowledgeSection,
     `REFERENCIAS A FLUJOS\n- Si una instruccion de producto menciona un flujo con formato /nombre del flujo, interpretalo como una orden de aplicar ese flujo cuando la conversacion coincida.\n- Usa solo flujos que existan en CONOCIMIENTO DE FLUJOS. Si el flujo mencionado no esta disponible, no lo inventes y continua con una pregunta concreta para avanzar.`,

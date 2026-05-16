@@ -186,6 +186,7 @@ model Conversation {
   updatedAt          DateTime           @updatedAt
   automationPaused   Boolean            @default(false)
   automationPausedAt DateTime?
+  activeProductContext Json?
   agent              Agent?             @relation(fields: [agentId], references: [id])
   channel            WhatsAppChannel?   @relation(fields: [channelId], references: [id])
   contact            Contact            @relation(fields: [contactId], references: [id], onDelete: Cascade)
@@ -231,6 +232,7 @@ model AgentKnowledgeProduct {
   productId    String
   createdAt    DateTime @default(now())
   instructions String?
+  followUpFlowId String?
   updatedAt    DateTime @updatedAt
   agent        Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
   product      Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
@@ -436,6 +438,7 @@ model OfficialApiConversation {
   lastMessageAt    DateTime?
   createdAt        DateTime                      @default(now())
   updatedAt        DateTime                      @updatedAt
+  activeProductContext Json?
   config           OfficialApiClientConfig       @relation(fields: [configId], references: [id], onDelete: Cascade)
   contact          OfficialApiContact            @relation(fields: [contactId], references: [id], onDelete: Cascade)
   messages         OfficialApiMessage[]

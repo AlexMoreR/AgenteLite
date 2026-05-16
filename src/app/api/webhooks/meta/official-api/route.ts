@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { resolveAgentProductFlowReply } from "@/lib/agent-product-flow";
@@ -449,8 +450,9 @@ async function syncInboundMessages(configId: string, payload: MetaWebhookPayload
         "updatedAt" = CURRENT_TIMESTAMP
     `;
 
-    const conversationRows = await prisma.$queryRaw<Array<{ id: string }>>`
+    const conversationRows = await prisma.$queryRaw<Array<{ id: string; activeProductContext: unknown }>>`
       SELECT "id"
+      , "activeProductContext"
       FROM "OfficialApiConversation"
       WHERE "configId" = ${configId}
         AND "externalThreadId" = ${message.waId}
@@ -681,7 +683,7 @@ export async function POST(request: Request) {
             latestUserMessage: message.content,
             history: recentMessages,
           });
-      const agentProductFlowReply = shouldHandoffToHuman || !linkedAgentChannel?.agent?.id
+      const agentProductFlowResolution = shouldHandoffToHuman || !linkedAgentChannel?.agent?.id
         ? null
         : await resolveAgentProductFlowReply({
             agentId: linkedAgentChannel.agent.id,
@@ -690,6 +692,18 @@ export async function POST(request: Request) {
             history: recentMessages,
             includeOfficialApi: true,
           });
+      const agentProductFlowReply = agentProductFlowResolution?.steps
+        ? agentProductFlowResolution
+        : null;
+
+      if (agentProductFlowResolution?.activeProductContext) {
+        await prisma.$executeRaw`
+          UPDATE "OfficialApiConversation"
+          SET "activeProductContext" = ${agentProductFlowResolution.activeProductContext as Prisma.InputJsonValue},
+              "updatedAt" = CURRENT_TIMESTAMP
+          WHERE "id" = ${conversation.id}
+        `;
+      }
 
       const autoUnknownProductNotifyAction =
         linkedAgentChannel?.agent?.id &&
