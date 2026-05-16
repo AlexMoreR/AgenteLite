@@ -31,10 +31,12 @@ import {
 } from "@/lib/evolution-webhook";
 import {
   ensureEvolutionInstanceReady,
+  sendEvolutionAudioMessage,
   sendEvolutionDocumentMessage,
   sendEvolutionImageMessage,
   sendEvolutionPresence,
   sendEvolutionTextMessageWithReconnect,
+  sendEvolutionVideoMessage,
   resolveEvolutionMessageMediaUrl,
 } from "@/lib/evolution";
 import { resolveAgentKnowledgeBaseReply } from "@/lib/agent-knowledge-media";
@@ -819,6 +821,60 @@ export async function POST(request: Request) {
               sentAt: new Date(),
               rawPayload: imageOutbound.raw as never,
             },
+              });
+            }
+
+        if (ownerTriggeredFlow.reply.audio) {
+          const audioOutbound = await sendEvolutionAudioMessage({
+            instanceName: channel.evolutionInstanceName,
+            phoneNumber,
+            audioUrl: ownerTriggeredFlow.reply.audio.url,
+            caption: ownerTriggeredFlow.reply.audio.caption,
+            delayMs: 0,
+          });
+          await prisma.message.create({
+            data: {
+              workspaceId: channel.workspaceId,
+              conversationId: conversation.id,
+              channelId: channel.id,
+              contactId: contact.id,
+              agentId: channel.agentId,
+              externalId: audioOutbound.externalId,
+              direction: "OUTBOUND",
+              type: "AUDIO",
+              status: "SENT",
+              content: ownerTriggeredFlow.reply.audio.caption,
+              mediaUrl: ownerTriggeredFlow.reply.audio.url,
+              sentAt: new Date(),
+              rawPayload: audioOutbound.raw as never,
+            },
+          });
+        }
+
+        if (ownerTriggeredFlow.reply.video) {
+          const videoOutbound = await sendEvolutionVideoMessage({
+            instanceName: channel.evolutionInstanceName,
+            phoneNumber,
+            videoUrl: ownerTriggeredFlow.reply.video.url,
+            caption: ownerTriggeredFlow.reply.video.caption,
+            delayMs: 0,
+          });
+          await prisma.message.create({
+            data: {
+              workspaceId: channel.workspaceId,
+              conversationId: conversation.id,
+              channelId: channel.id,
+              contactId: contact.id,
+              agentId: channel.agentId,
+              externalId: videoOutbound.externalId,
+              direction: "OUTBOUND",
+              type: "VIDEO",
+              status: "SENT",
+              content: ownerTriggeredFlow.reply.video.caption,
+              mediaUrl: ownerTriggeredFlow.reply.video.url,
+              sentAt: new Date(),
+              rawPayload: videoOutbound.raw as never,
+            },
           });
         }
 
@@ -1453,6 +1509,8 @@ export async function POST(request: Request) {
       });
 
       const quickResponseImageReply = shouldHandoffToHuman ? null : quickResponseFlow?.reply.image ?? null;
+      const quickResponseAudioReply = shouldHandoffToHuman ? null : quickResponseFlow?.reply.audio ?? null;
+      const quickResponseVideoReply = shouldHandoffToHuman ? null : quickResponseFlow?.reply.video ?? null;
       const knowledgeImageReply = shouldHandoffToHuman ? null : knowledgeBaseReply?.image ?? null;
       const imageReply = quickResponseImageReply ?? knowledgeImageReply;
       const documentReplies = shouldHandoffToHuman ? [] : (quickResponseFlow?.reply.documents ?? []);
@@ -1625,6 +1683,56 @@ export async function POST(request: Request) {
                   rawPayload: imageOutbound.raw as never,
                 },
               });
+            } else if (step.kind === "audio") {
+              const audioOutbound = await sendEvolutionAudioMessage({
+                instanceName: channel.evolutionInstanceName,
+                phoneNumber,
+                audioUrl: step.url,
+                caption: step.caption,
+                delayMs: 0,
+              });
+              await prisma.message.create({
+                data: {
+                  workspaceId: channel.workspaceId,
+                  conversationId: conversation.id,
+                  channelId: channel.id,
+                  contactId: contact.id,
+                  agentId: agent.id,
+                  externalId: audioOutbound.externalId,
+                  direction: "OUTBOUND",
+                  type: "AUDIO",
+                  status: "SENT",
+                  content: step.caption,
+                  mediaUrl: step.url,
+                  sentAt: new Date(),
+                  rawPayload: audioOutbound.raw as never,
+                },
+              });
+            } else if (step.kind === "video") {
+              const videoOutbound = await sendEvolutionVideoMessage({
+                instanceName: channel.evolutionInstanceName,
+                phoneNumber,
+                videoUrl: step.url,
+                caption: step.caption,
+                delayMs: 0,
+              });
+              await prisma.message.create({
+                data: {
+                  workspaceId: channel.workspaceId,
+                  conversationId: conversation.id,
+                  channelId: channel.id,
+                  contactId: contact.id,
+                  agentId: agent.id,
+                  externalId: videoOutbound.externalId,
+                  direction: "OUTBOUND",
+                  type: "VIDEO",
+                  status: "SENT",
+                  content: step.caption,
+                  mediaUrl: step.url,
+                  sentAt: new Date(),
+                  rawPayload: videoOutbound.raw as never,
+                },
+              });
             } else if (step.kind === "document") {
               const docOutbound = await sendEvolutionDocumentMessage({
                 instanceName: channel.evolutionInstanceName,
@@ -1732,7 +1840,7 @@ export async function POST(request: Request) {
             },
           });
         }
-      } else if (replyText || quickResponseImageReply || knowledgeImageReply || documentReplies.length > 0) {
+      } else if (replyText || quickResponseImageReply || quickResponseAudioReply || quickResponseVideoReply || knowledgeImageReply || documentReplies.length > 0) {
         let followUpText: string | null = null;
         try {
           console.log("[EVOLUTION] auto_reply_sending", {
@@ -1787,6 +1895,62 @@ export async function POST(request: Request) {
               });
             };
 
+            const sendVideo = async (videoUrl: string, caption: string | null) => {
+              if (!channel.evolutionInstanceName) return;
+              const outbound = await sendEvolutionVideoMessage({
+                instanceName: channel.evolutionInstanceName,
+                phoneNumber,
+                videoUrl,
+                caption,
+                delayMs: 0,
+              });
+              await prisma.message.create({
+                data: {
+                  workspaceId: channel.workspaceId,
+                  conversationId: conversation.id,
+                  channelId: channel.id,
+                  contactId: contact.id,
+                  agentId: agent.id,
+                  externalId: outbound.externalId,
+                  direction: "OUTBOUND",
+                  type: "VIDEO",
+                  status: "SENT",
+                  content: caption,
+                  mediaUrl: videoUrl,
+                  sentAt: new Date(),
+                  rawPayload: outbound.raw as never,
+                },
+              });
+            };
+
+            const sendAudio = async (audioUrl: string, caption: string | null) => {
+              if (!channel.evolutionInstanceName) return;
+              const outbound = await sendEvolutionAudioMessage({
+                instanceName: channel.evolutionInstanceName,
+                phoneNumber,
+                audioUrl,
+                caption,
+                delayMs: 0,
+              });
+              await prisma.message.create({
+                data: {
+                  workspaceId: channel.workspaceId,
+                  conversationId: conversation.id,
+                  channelId: channel.id,
+                  contactId: contact.id,
+                  agentId: agent.id,
+                  externalId: outbound.externalId,
+                  direction: "OUTBOUND",
+                  type: "AUDIO",
+                  status: "SENT",
+                  content: caption,
+                  mediaUrl: audioUrl,
+                  sentAt: new Date(),
+                  rawPayload: outbound.raw as never,
+                },
+              });
+            };
+
             for (const doc of documentReplies) {
               const docOutbound = await sendEvolutionDocumentMessage({
                 instanceName: channel.evolutionInstanceName,
@@ -1813,6 +1977,15 @@ export async function POST(request: Request) {
                   rawPayload: docOutbound.raw as never,
                 },
               });
+            }
+
+            const quickResponseVideo = quickResponseVideoReply;
+            if (quickResponseVideo?.url) {
+              await sendVideo(quickResponseVideo.url, quickResponseVideo.caption);
+            }
+
+            if (quickResponseAudioReply?.url) {
+              await sendAudio(quickResponseAudioReply.url, quickResponseAudioReply.caption);
             }
 
             if (imageReply) {

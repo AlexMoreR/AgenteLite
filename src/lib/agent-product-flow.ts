@@ -22,6 +22,8 @@ type FlowReference = {
 type FlowStep =
   | { kind: "text"; content: string }
   | { kind: "image"; url: string; caption: string | null }
+  | { kind: "audio"; url: string; caption: string | null }
+  | { kind: "video"; url: string; caption: string | null }
   | { kind: "document"; url: string; caption: string | null; fileName: string | null };
 
 export type { FlowStep };
@@ -235,6 +237,16 @@ function getScenarioReplyFromState(input: {
       if (isValidHttpUrl(url)) {
         steps.push({ kind: "image", url, caption: node.body.trim() || null });
       }
+    } else if (node.kind === "audio") {
+      const url = node.meta.trim();
+      if (isValidHttpUrl(url)) {
+        steps.push({ kind: "audio", url, caption: node.body.trim() || null });
+      }
+    } else if (node.kind === "video") {
+      const url = node.meta.trim();
+      if (isValidHttpUrl(url)) {
+        steps.push({ kind: "video", url, caption: node.body.trim() || null });
+      }
     } else if (node.kind === "document") {
       const url = node.meta.trim();
       if (isValidHttpUrl(url)) {
@@ -251,6 +263,16 @@ function getScenarioReplyFromState(input: {
         const url = node.meta.trim();
         if (isValidHttpUrl(url)) {
           steps.push({ kind: "image", url, caption: node.body.trim() || null });
+        }
+      } else if (node.kind === "audio") {
+        const url = node.meta.trim();
+        if (isValidHttpUrl(url)) {
+          steps.push({ kind: "audio", url, caption: node.body.trim() || null });
+        }
+      } else if (node.kind === "video") {
+        const url = node.meta.trim();
+        if (isValidHttpUrl(url)) {
+          steps.push({ kind: "video", url, caption: node.body.trim() || null });
         }
       } else if (node.kind === "document") {
         const url = node.meta.trim();

@@ -893,6 +893,197 @@ export async function sendEvolutionImageMessage(input: {
   }
 }
 
+function inferAudioMimeTypeFromUrl(audioUrl: string) {
+  try {
+    const pathname = new URL(audioUrl).pathname.toLowerCase();
+    if (pathname.endsWith(".mp3")) return "audio/mpeg";
+    if (pathname.endsWith(".m4a")) return "audio/mp4";
+    if (pathname.endsWith(".wav")) return "audio/wav";
+    if (pathname.endsWith(".webm")) return "audio/webm";
+    if (pathname.endsWith(".ogg") || pathname.endsWith(".oga")) return "audio/ogg";
+  } catch {
+    // fall through
+  }
+
+  return "audio/ogg";
+}
+
+export async function sendEvolutionAudioMessage(input: {
+  instanceName: string;
+  phoneNumber: string;
+  audioUrl: string;
+  caption?: string | null;
+  delayMs?: number;
+}) {
+  const normalizedCaption = input.caption?.trim() || "";
+  const normalizedFileName = (() => {
+    try {
+      const pathname = new URL(input.audioUrl).pathname;
+      const rawName = pathname.split("/").pop()?.trim() || "";
+      return rawName || "audio.ogg";
+    } catch {
+      return "audio.ogg";
+    }
+  })();
+
+  try {
+    const response = await evolutionRequest<EvolutionSendMediaResponse>(`/message/sendMedia/${input.instanceName}`, {
+      method: "POST",
+      body: JSON.stringify({
+        number: input.phoneNumber,
+        mediatype: "audio",
+        mimetype: inferAudioMimeTypeFromUrl(input.audioUrl),
+        caption: normalizedCaption,
+        media: input.audioUrl,
+        fileName: normalizedFileName,
+        delay: input.delayMs ?? 1200,
+      }),
+    });
+
+    const externalId =
+      response.key?.id ||
+      response.message?.key?.id ||
+      response.data?.key?.id ||
+      response.data?.id ||
+      response.id ||
+      response.messageId ||
+      null;
+
+    return {
+      externalId,
+      raw: response,
+    };
+  } catch (firstError) {
+    const response = await evolutionRequest<EvolutionSendMediaResponse>(`/message/sendMedia/${input.instanceName}`, {
+      method: "POST",
+      body: JSON.stringify({
+        number: input.phoneNumber,
+        mediaMessage: {
+          mediaType: "audio",
+          fileName: normalizedFileName,
+          caption: normalizedCaption,
+          media: input.audioUrl,
+        },
+        options: {
+          delay: input.delayMs ?? 1200,
+          presence: "composing",
+        },
+      }),
+    }).catch(() => {
+      throw firstError;
+    });
+
+    const externalId =
+      response.key?.id ||
+      response.message?.key?.id ||
+      response.data?.key?.id ||
+      response.data?.id ||
+      response.id ||
+      response.messageId ||
+      null;
+
+  return {
+    externalId,
+    raw: response,
+  };
+  }
+}
+
+function inferVideoMimeTypeFromUrl(videoUrl: string) {
+  try {
+    const pathname = new URL(videoUrl).pathname.toLowerCase();
+    if (pathname.endsWith(".mp4")) return "video/mp4";
+    if (pathname.endsWith(".mov")) return "video/quicktime";
+    if (pathname.endsWith(".webm")) return "video/webm";
+    if (pathname.endsWith(".m4v")) return "video/x-m4v";
+  } catch {
+    // fall through
+  }
+
+  return "video/mp4";
+}
+
+export async function sendEvolutionVideoMessage(input: {
+  instanceName: string;
+  phoneNumber: string;
+  videoUrl: string;
+  caption?: string | null;
+  delayMs?: number;
+}) {
+  const normalizedCaption = input.caption?.trim() || "";
+  const normalizedFileName = (() => {
+    try {
+      const pathname = new URL(input.videoUrl).pathname;
+      const rawName = pathname.split("/").pop()?.trim() || "";
+      return rawName || "video.mp4";
+    } catch {
+      return "video.mp4";
+    }
+  })();
+
+  try {
+    const response = await evolutionRequest<EvolutionSendMediaResponse>(`/message/sendMedia/${input.instanceName}`, {
+      method: "POST",
+      body: JSON.stringify({
+        number: input.phoneNumber,
+        mediatype: "video",
+        mimetype: inferVideoMimeTypeFromUrl(input.videoUrl),
+        caption: normalizedCaption,
+        media: input.videoUrl,
+        fileName: normalizedFileName,
+        delay: input.delayMs ?? 1200,
+      }),
+    });
+
+    const externalId =
+      response.key?.id ||
+      response.message?.key?.id ||
+      response.data?.key?.id ||
+      response.data?.id ||
+      response.id ||
+      response.messageId ||
+      null;
+
+    return {
+      externalId,
+      raw: response,
+    };
+  } catch (firstError) {
+    const response = await evolutionRequest<EvolutionSendMediaResponse>(`/message/sendMedia/${input.instanceName}`, {
+      method: "POST",
+      body: JSON.stringify({
+        number: input.phoneNumber,
+        mediaMessage: {
+          mediaType: "video",
+          fileName: normalizedFileName,
+          caption: normalizedCaption,
+          media: input.videoUrl,
+        },
+        options: {
+          delay: input.delayMs ?? 1200,
+          presence: "composing",
+        },
+      }),
+    }).catch(() => {
+      throw firstError;
+    });
+
+    const externalId =
+      response.key?.id ||
+      response.message?.key?.id ||
+      response.data?.key?.id ||
+      response.data?.id ||
+      response.id ||
+      response.messageId ||
+      null;
+
+    return {
+      externalId,
+      raw: response,
+    };
+  }
+}
+
 export async function sendEvolutionDocumentMessage(input: {
   instanceName: string;
   phoneNumber: string;

@@ -73,6 +73,126 @@ export async function sendOfficialApiTypingIndicator(input: {
   return { ok: true as const };
 }
 
+export async function sendOfficialApiAudioMessage(input: {
+  config: OfficialApiMessagingConfig;
+  conversationId: string;
+  contactId: string;
+  to: string;
+  audioUrl: string;
+  caption?: string | null;
+  source: "manual" | "automation";
+}) {
+  if (!input.config.accessToken?.trim() || !input.config.phoneNumberId?.trim()) {
+    return { ok: false as const, error: "La API oficial no tiene credenciales activas." };
+  }
+
+  const normalizedCaption = input.caption?.trim() || null;
+  const response = await fetch(
+    `https://graph.facebook.com/v23.0/${encodeURIComponent(input.config.phoneNumberId)}/messages`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${input.config.accessToken}`,
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        to: input.to,
+        type: "audio",
+        audio: {
+          link: input.audioUrl,
+        },
+      }),
+      cache: "no-store",
+    },
+  );
+
+  const payload = (await response.json().catch(() => null)) as
+    | {
+        messages?: Array<{
+          id?: string;
+        }>;
+        error?: {
+          message?: string;
+        };
+      }
+    | null;
+
+  if (!response.ok) {
+    if (isMetaGraphAuthError(payload)) {
+      await updateOfficialApiConnectionStatus({
+        configId: input.config.id,
+        status: "ERROR",
+      });
+    }
+
+    return {
+      ok: false as const,
+      error: isMetaGraphAuthError(payload)
+        ? "El access token de Meta ya no es valido. Pide al administrador reconectar la API oficial."
+        : getMetaGraphErrorMessage(payload, "No se pudo enviar el audio con la API oficial."),
+    };
+  }
+
+  const now = new Date();
+  await prisma.$executeRaw`
+    INSERT INTO "OfficialApiMessage" (
+      "id",
+      "configId",
+      "conversationId",
+      "contactId",
+      "externalMessageId",
+      "direction",
+      "type",
+      "status",
+      "content",
+      "mediaUrl",
+      "rawPayload",
+      "sentAt",
+      "createdAt",
+      "updatedAt"
+    )
+    VALUES (
+      ${randomUUID()},
+      ${input.config.id},
+      ${input.conversationId},
+      ${input.contactId},
+      ${payload?.messages?.[0]?.id ?? null},
+      'OUTBOUND'::"OfficialApiMessageDirection",
+      'AUDIO'::"OfficialApiMessageType",
+      'SENT'::"OfficialApiMessageStatus",
+      ${normalizedCaption},
+      ${input.audioUrl},
+      ${JSON.stringify({
+        source: input.source,
+        meta: payload,
+      })},
+      ${now},
+      ${now},
+      ${now}
+    )
+  `;
+
+  await prisma.$executeRaw`
+    UPDATE "OfficialApiConversation"
+    SET
+      "lastMessageAt" = ${now},
+      "status" = 'OPEN'::"OfficialApiConversationStatus",
+      "updatedAt" = CURRENT_TIMESTAMP
+    WHERE "id" = ${input.conversationId}
+  `;
+
+  await prisma.$executeRaw`
+    UPDATE "OfficialApiContact"
+    SET
+      "lastMessageAt" = ${now},
+      "updatedAt" = CURRENT_TIMESTAMP
+    WHERE "id" = ${input.contactId}
+  `;
+
+  return { ok: true as const };
+}
+
 export async function sendOfficialApiTextMessage(input: {
   config: OfficialApiMessagingConfig;
   conversationId: string;
@@ -250,6 +370,127 @@ export async function sendOfficialApiDirectTextMessage(input: {
     ok: true as const,
     messageId: payload?.messages?.[0]?.id ?? null,
   };
+}
+
+export async function sendOfficialApiVideoMessage(input: {
+  config: OfficialApiMessagingConfig;
+  conversationId: string;
+  contactId: string;
+  to: string;
+  videoUrl: string;
+  caption?: string | null;
+  source: "manual" | "automation";
+}) {
+  if (!input.config.accessToken?.trim() || !input.config.phoneNumberId?.trim()) {
+    return { ok: false as const, error: "La API oficial no tiene credenciales activas." };
+  }
+
+  const normalizedCaption = input.caption?.trim() || null;
+  const response = await fetch(
+    `https://graph.facebook.com/v23.0/${encodeURIComponent(input.config.phoneNumberId)}/messages`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${input.config.accessToken}`,
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        to: input.to,
+        type: "video",
+        video: {
+          link: input.videoUrl,
+          ...(normalizedCaption ? { caption: normalizedCaption } : {}),
+        },
+      }),
+      cache: "no-store",
+    },
+  );
+
+  const payload = (await response.json().catch(() => null)) as
+    | {
+        messages?: Array<{
+          id?: string;
+        }>;
+        error?: {
+          message?: string;
+        };
+      }
+    | null;
+
+  if (!response.ok) {
+    if (isMetaGraphAuthError(payload)) {
+      await updateOfficialApiConnectionStatus({
+        configId: input.config.id,
+        status: "ERROR",
+      });
+    }
+
+    return {
+      ok: false as const,
+      error: isMetaGraphAuthError(payload)
+        ? "El access token de Meta ya no es valido. Pide al administrador reconectar la API oficial."
+        : getMetaGraphErrorMessage(payload, "No se pudo enviar el video con la API oficial."),
+    };
+  }
+
+  const now = new Date();
+  await prisma.$executeRaw`
+    INSERT INTO "OfficialApiMessage" (
+      "id",
+      "configId",
+      "conversationId",
+      "contactId",
+      "externalMessageId",
+      "direction",
+      "type",
+      "status",
+      "content",
+      "mediaUrl",
+      "rawPayload",
+      "sentAt",
+      "createdAt",
+      "updatedAt"
+    )
+    VALUES (
+      ${randomUUID()},
+      ${input.config.id},
+      ${input.conversationId},
+      ${input.contactId},
+      ${payload?.messages?.[0]?.id ?? null},
+      'OUTBOUND'::"OfficialApiMessageDirection",
+      'VIDEO'::"OfficialApiMessageType",
+      'SENT'::"OfficialApiMessageStatus",
+      ${normalizedCaption},
+      ${input.videoUrl},
+      ${JSON.stringify({
+        source: input.source,
+        meta: payload,
+      })},
+      ${now},
+      ${now},
+      ${now}
+    )
+  `;
+
+  await prisma.$executeRaw`
+    UPDATE "OfficialApiConversation"
+    SET
+      "lastMessageAt" = ${now},
+      "status" = 'OPEN'::"OfficialApiConversationStatus",
+      "updatedAt" = CURRENT_TIMESTAMP
+    WHERE "id" = ${input.conversationId}
+  `;
+
+  await prisma.$executeRaw`
+    UPDATE "OfficialApiContact"
+    SET
+      "lastMessageAt" = ${now},
+      "updatedAt" = CURRENT_TIMESTAMP
+    WHERE "id" = ${input.contactId}
+  `;
+
+  return { ok: true as const };
 }
 
 export async function sendOfficialApiImageMessage(input: {

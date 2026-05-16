@@ -5,10 +5,12 @@ import { resolveAgentProductFlowReply } from "@/lib/agent-product-flow";
 import { composeAgentWelcomeReply } from "@/lib/agent-reply-composer";
 import { resolveOfficialApiAutomationReply } from "@/lib/official-api-chatbot";
 import {
+  sendOfficialApiAudioMessage,
   sendOfficialApiDirectTextMessage,
   sendOfficialApiImageMessage,
   sendOfficialApiTextMessage,
   sendOfficialApiTypingIndicator,
+  sendOfficialApiVideoMessage,
 } from "@/lib/official-api-messaging";
 import { setConversationAutomationPaused } from "@/lib/conversation-automation";
 import { resolveAgentKnowledgeBaseReply } from "@/lib/agent-knowledge-media";
@@ -732,6 +734,10 @@ export async function POST(request: Request) {
             text: agentProductFlowReply.steps.find((s) => s.kind === "text")?.content?.trim() || null,
             image: agentProductFlowReply.steps.find((s): s is Extract<(typeof agentProductFlowReply.steps)[number], { kind: "image" }> => s.kind === "image") ?? null,
             images: agentProductFlowReply.steps.filter((s): s is Extract<(typeof agentProductFlowReply.steps)[number], { kind: "image" }> => s.kind === "image"),
+            audio: agentProductFlowReply.steps.find((s): s is Extract<(typeof agentProductFlowReply.steps)[number], { kind: "audio" }> => s.kind === "audio") ?? null,
+            audios: agentProductFlowReply.steps.filter((s): s is Extract<(typeof agentProductFlowReply.steps)[number], { kind: "audio" }> => s.kind === "audio"),
+            video: agentProductFlowReply.steps.find((s): s is Extract<(typeof agentProductFlowReply.steps)[number], { kind: "video" }> => s.kind === "video") ?? null,
+            videos: agentProductFlowReply.steps.filter((s): s is Extract<(typeof agentProductFlowReply.steps)[number], { kind: "video" }> => s.kind === "video"),
           }
         : agentKnowledgeBaseReply
           ? agentKnowledgeBaseReply
@@ -743,16 +749,19 @@ export async function POST(request: Request) {
                   hasConversationHistory: recentMessages.length > 1,
                 }),
                 image: null,
+                video: null,
               }
             : shouldHandoffToHuman
               ? {
                   text: buildHandoffMessage(),
                   image: null,
+                  video: null,
                 }
               : chatbotReply
                 ? {
                     text: chatbotReply.text?.trim() || null,
                     image: chatbotReply.image,
+                    video: null,
                   }
                 : null;
 
@@ -848,6 +857,66 @@ export async function POST(request: Request) {
           message: primaryText,
           source: "automation",
         });
+      }
+
+      const audiosToSend = (reply as { audio?: { url: string; caption: string | null } | null; audios?: Array<{ url: string; caption: string | null }> }).audios ?? ((reply as { audio?: { url: string; caption: string | null } | null }).audio ? [(reply as { audio?: { url: string; caption: string | null } | null }).audio!] : []);
+      for (const audio of audiosToSend) {
+        if (!audio?.url) continue;
+        try {
+          const audioResult = await sendOfficialApiAudioMessage({
+            config,
+            conversationId: message.conversationId,
+            contactId: message.contactId,
+            to: message.waId,
+            audioUrl: audio.url,
+            caption: audio.caption,
+            source: "automation",
+          });
+          if (!audioResult.ok) {
+            console.warn("[official-api] audio node failed, continuing flow", {
+              configId: config.id,
+              conversationId: message.conversationId,
+              contactId: message.contactId,
+              error: audioResult.error,
+            });
+          }
+        } catch {
+          console.warn("[official-api] audio node threw error, continuing flow", {
+            configId: config.id,
+            conversationId: message.conversationId,
+            contactId: message.contactId,
+          });
+        }
+      }
+
+      const videosToSend = (reply as { video?: { url: string; caption: string | null } | null; videos?: Array<{ url: string; caption: string | null }> }).videos ?? ((reply as { video?: { url: string; caption: string | null } | null }).video ? [(reply as { video?: { url: string; caption: string | null } | null }).video!] : []);
+      for (const video of videosToSend) {
+        if (!video?.url) continue;
+        try {
+          const videoResult = await sendOfficialApiVideoMessage({
+            config,
+            conversationId: message.conversationId,
+            contactId: message.contactId,
+            to: message.waId,
+            videoUrl: video.url,
+            caption: video.caption,
+            source: "automation",
+          });
+          if (!videoResult.ok) {
+            console.warn("[official-api] video node failed, continuing flow", {
+              configId: config.id,
+              conversationId: message.conversationId,
+              contactId: message.contactId,
+              error: videoResult.error,
+            });
+          }
+        } catch {
+          console.warn("[official-api] video node threw error, continuing flow", {
+            configId: config.id,
+            conversationId: message.conversationId,
+            contactId: message.contactId,
+          });
+        }
       }
 
       let imageSent = false;

@@ -20,6 +20,14 @@ type QuickResponseFlowReply = {
     url: string;
     caption: string | null;
   } | null;
+  audio: {
+    url: string;
+    caption: string | null;
+  } | null;
+  video: {
+    url: string;
+    caption: string | null;
+  } | null;
   imageFirst: boolean;
   documents: Array<{
     url: string;
@@ -119,6 +127,18 @@ function getScenarioReplyFromState(input: {
   const image = imageUrl && isValidHttpUrl(imageUrl)
     ? { url: imageUrl, caption: imageCaption }
     : null;
+  const audioNode = candidateNodes.find((node) => node.kind === "audio") ?? nodes.find((node) => node.kind === "audio");
+  const audioUrl = audioNode?.meta.trim() || "";
+  const audioCaption = audioNode?.body.trim() || null;
+  const audio = audioUrl && isValidHttpUrl(audioUrl)
+    ? { url: audioUrl, caption: audioCaption }
+    : null;
+  const videoNode = candidateNodes.find((node) => node.kind === "video") ?? nodes.find((node) => node.kind === "video");
+  const videoUrl = videoNode?.meta.trim() || "";
+  const videoCaption = videoNode?.body.trim() || null;
+  const video = videoUrl && isValidHttpUrl(videoUrl)
+    ? { url: videoUrl, caption: videoCaption }
+    : null;
 
   const documentNodes = candidateNodes.filter((node) => node.kind === "document" && isValidHttpUrl(node.meta.trim()));
   const documents = documentNodes.map((node) => {
@@ -129,7 +149,7 @@ function getScenarioReplyFromState(input: {
 
   const text = replyNode?.body.trim() || null;
 
-  if (!text && !image && !documents.length) {
+  if (!text && !image && !audio && !video && !documents.length) {
     return null;
   }
 
@@ -140,6 +160,8 @@ function getScenarioReplyFromState(input: {
   return {
     text,
     image,
+    audio,
+    video,
     imageFirst,
     documents,
   };
@@ -153,6 +175,8 @@ function normalizeScenarioReply(reply: QuickResponseFlowReply): QuickResponseFlo
   return {
     text: shouldSkipTextBecauseCaptionMatches ? null : text,
     image: reply.image ? { url: reply.image.url, caption: imageCaption } : null,
+    audio: reply.audio ? { url: reply.audio.url, caption: reply.audio.caption?.trim() || null } : null,
+    video: reply.video ? { url: reply.video.url, caption: reply.video.caption?.trim() || null } : null,
     imageFirst: reply.imageFirst,
     documents: reply.documents,
   };

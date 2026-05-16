@@ -46,6 +46,10 @@ export type OfficialApiAutomationReply = {
     url: string;
     caption: string | null;
   } | null;
+  video: {
+    url: string;
+    caption: string | null;
+  } | null;
 };
 
 const BUILDER_RULE_NAME = "__builder_config__";
@@ -315,6 +319,9 @@ function selectRuntimeNodes(state: OfficialApiChatbotBuilderState) {
   const imageNode =
     orderedNodes.find((node) => node.kind === "image") ??
     activeNodes.find((node) => node.kind === "image");
+  const videoNode =
+    orderedNodes.find((node) => node.kind === "video") ??
+    activeNodes.find((node) => node.kind === "video");
 
   return {
     welcomeNode,
@@ -324,6 +331,7 @@ function selectRuntimeNodes(state: OfficialApiChatbotBuilderState) {
     captureNode,
     handoffNode,
     imageNode,
+    videoNode,
   };
 }
 
@@ -657,7 +665,7 @@ export async function resolveOfficialApiAutomationReply(input: {
   const welcomeRule = activeRules.find((rule) => rule.name === WELCOME_RULE_NAME);
   const afterHoursRule = activeRules.find((rule) => rule.name === AFTER_HOURS_RULE_NAME);
   const fallbackRule = activeRules.find((rule) => rule.isFallback);
-  const { welcomeNode, fallbackNode, replyNode, routerNode, imageNode } = selectRuntimeNodes(state);
+  const { welcomeNode, fallbackNode, replyNode, routerNode, imageNode, videoNode } = selectRuntimeNodes(state);
   const imageMeta = imageNode?.meta?.trim() || "";
   const imageBody = imageNode?.body?.trim() || "";
   const imageUrl = imageMeta || (isValidHttpUrl(imageBody) ? imageBody : "");
@@ -669,16 +677,27 @@ export async function resolveOfficialApiAutomationReply(input: {
           caption: imageCaption,
         }
       : null;
+  const videoMeta = videoNode?.meta?.trim() || "";
+  const videoBody = videoNode?.body?.trim() || "";
+  const videoUrl = videoMeta || (isValidHttpUrl(videoBody) ? videoBody : "");
+  const videoCaption = videoBody && videoBody !== videoUrl ? videoBody : null;
+  const videoReply =
+    videoUrl && isValidHttpUrl(videoUrl)
+      ? {
+          url: videoUrl,
+          caption: videoCaption,
+        }
+      : null;
   const buildReply = (text: string | null): OfficialApiAutomationReply => {
     const normalizedText = text?.trim() || null;
     const shouldSkipTextBecauseCaptionMatches =
       Boolean(normalizedText) &&
-      Boolean(imageReply?.caption) &&
-      normalizedText === imageReply?.caption;
+      [imageReply?.caption, videoReply?.caption].some((caption) => Boolean(caption) && normalizedText === caption);
 
     return {
       text: shouldSkipTextBecauseCaptionMatches ? null : normalizedText,
       image: imageReply,
+      video: videoReply,
     };
   };
   const directReply = replyNode?.body?.trim() || "";
