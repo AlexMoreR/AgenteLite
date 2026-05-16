@@ -5,6 +5,9 @@ import { getContactTags } from "@/lib/chat-conversation-summary";
 import type { ContactosContact, ContactosData } from "../types";
 
 const CONTACTS_PAGE_SIZE = 10;
+const BOGOTA_TIMEZONE_OFFSET_MS = 5 * 60 * 60 * 1000;
+const SPANISH_MONTHS_SHORT = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+const SPANISH_WEEKDAYS_SHORT = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
 
 type ContactosQuery = {
   userId: string;
@@ -24,54 +27,44 @@ function getContactLastActivity(contact: Pick<ContactosContact, "lastActivityAt"
   return contact.lastActivityAt ? new Date(contact.lastActivityAt).getTime() : new Date(contact.updatedAt).getTime();
 }
 
+function toBogotaDate(value: Date) {
+  return new Date(value.getTime() - BOGOTA_TIMEZONE_OFFSET_MS);
+}
+
+function getBogotaDateParts(value: Date) {
+  const bogotaDate = toBogotaDate(value);
+  return {
+    year: bogotaDate.getUTCFullYear(),
+    month: bogotaDate.getUTCMonth() + 1,
+    day: bogotaDate.getUTCDate(),
+    hour: bogotaDate.getUTCHours(),
+    weekday: bogotaDate.getUTCDay(),
+  };
+}
+
 function getBogotaDayKey(value: Date) {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Bogota",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(value);
+  const parts = getBogotaDateParts(value);
+  return `${String(parts.year).padStart(4, "0")}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
 }
 
 function getBogotaDateLabel(value: Date) {
-  return new Intl.DateTimeFormat("es-CO", {
-    day: "numeric",
-    month: "short",
-    timeZone: "America/Bogota",
-  }).format(value);
+  const parts = getBogotaDateParts(value);
+  return `${parts.day} ${SPANISH_MONTHS_SHORT[parts.month - 1] ?? ""}`;
 }
 
 function getBogotaHourKey(value: Date) {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/Bogota",
-    hour: "2-digit",
-    hour12: false,
-  }).formatToParts(value);
-  const hour = parts.find((part) => part.type === "hour")?.value ?? "0";
-  return Number(hour);
+  return getBogotaDateParts(value).hour;
 }
 
 function getBogotaShortWeekday(value: Date) {
-  return new Intl.DateTimeFormat("es-CO", {
-    weekday: "short",
-    timeZone: "America/Bogota",
-  })
-    .format(value)
-    .replace(/\.$/, "");
+  return SPANISH_WEEKDAYS_SHORT[getBogotaDateParts(value).weekday] ?? "";
 }
 
 function buildBogotaHeatmapWindow(days = 7) {
-  const now = new Date();
-  const todayParts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Bogota",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(now);
-
-  const year = Number(todayParts.find((part) => part.type === "year")?.value ?? "1970");
-  const month = Number(todayParts.find((part) => part.type === "month")?.value ?? "1");
-  const day = Number(todayParts.find((part) => part.type === "day")?.value ?? "1");
+  const todayParts = getBogotaDateParts(new Date());
+  const year = todayParts.year;
+  const month = todayParts.month;
+  const day = todayParts.day;
 
   return Array.from({ length: days }, (_, index) => {
     const offset = days - index - 1;
@@ -80,17 +73,10 @@ function buildBogotaHeatmapWindow(days = 7) {
 }
 
 function getBogotaWindowStart(days = 7) {
-  const now = new Date();
-  const todayParts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Bogota",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(now);
-
-  const year = Number(todayParts.find((part) => part.type === "year")?.value ?? "1970");
-  const month = Number(todayParts.find((part) => part.type === "month")?.value ?? "1");
-  const day = Number(todayParts.find((part) => part.type === "day")?.value ?? "1");
+  const todayParts = getBogotaDateParts(new Date());
+  const year = todayParts.year;
+  const month = todayParts.month;
+  const day = todayParts.day;
 
   return new Date(Date.UTC(year, month - 1, day - (days - 1), 0, 0, 0));
 }

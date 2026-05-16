@@ -33,17 +33,20 @@ import { deleteContactAction } from "@/app/actions/chats-actions";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ContactAvatar } from "@/components/chats/contact-avatar";
 
+const contactDateFormatter = new Intl.DateTimeFormat("es-CO", {
+  timeZone: "America/Bogota",
+  day: "numeric",
+  month: "short",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
 function formatDateLabel(value: string | null) {
   if (!value) {
     return "Sin actividad";
   }
 
-  return new Intl.DateTimeFormat("es-CO", {
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
+  return contactDateFormatter.format(new Date(value)).replace(/\u00A0/g, " ");
 }
 
 function formatRelative(value: string) {
