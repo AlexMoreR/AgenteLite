@@ -168,6 +168,7 @@ const saveAgentActionsSchema = z.object({
   notifyEnabled: z.boolean(),
   notifyPhoneNumber: z.string().trim().max(60, "El numero es demasiado largo"),
   notifyInstruction: z.string().trim().max(500, "La intencion es demasiado larga"),
+  notifyPauseConversationAfterNotify: z.boolean(),
 }).superRefine((data, ctx) => {
   if (data.notifyEnabled && data.notifyInstruction.trim().length < 3) {
     ctx.addIssue({
@@ -2064,6 +2065,7 @@ export async function saveAgentActionsAction(formData: FormData): Promise<void> 
     notifyEnabled: formData.get("notifyEnabled") === "on",
     notifyPhoneNumber: formData.get("notifyPhoneNumber"),
     notifyInstruction: formData.get("notifyInstruction"),
+    notifyPauseConversationAfterNotify: formData.get("notifyPauseConversationAfterNotify") === "on",
   });
 
   const fallbackAgentId = String(formData.get("agentId") || "");
@@ -2100,6 +2102,7 @@ export async function saveAgentActionsAction(formData: FormData): Promise<void> 
         enabled: parsed.data.notifyEnabled,
         destinationPhoneNumber: parsed.data.notifyPhoneNumber.trim(),
         instruction: parsed.data.notifyInstruction.trim(),
+        pauseConversationAfterNotify: parsed.data.notifyPauseConversationAfterNotify,
       },
     },
   });

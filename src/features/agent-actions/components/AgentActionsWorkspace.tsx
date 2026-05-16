@@ -7,6 +7,7 @@ import { deleteAgentActionsAction, saveAgentActionsAction } from "@/app/actions/
 import { defaultAgentTrainingConfig, type AgentTrainingConfig } from "@/lib/agent-training";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,6 +30,7 @@ function getActionDraft(training: AgentTrainingConfig) {
     actionType: "notify" as ActionType,
     instruction: notifyAction.instruction,
     phoneNumber: notifyAction.destinationPhoneNumber,
+    pauseConversationAfterNotify: Boolean(notifyAction.pauseConversationAfterNotify),
   };
 }
 
@@ -38,12 +40,16 @@ export function AgentActionsWorkspace({ agentId, training }: AgentActionsWorkspa
   const [actionType, setActionType] = useState<ActionType>("notify");
   const [instruction, setInstruction] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
+  const [pauseConversationAfterNotify, setPauseConversationAfterNotify] = useState(false);
   const deleteFormRef = useRef<HTMLFormElement>(null);
   const notifyAction = training.actions?.notify ?? defaultAgentTrainingConfig.actions.notify;
   const titleId = useId();
   const portalTarget = typeof document === "undefined" ? null : document.body;
   const hasExistingAction =
-    Boolean(notifyAction.enabled) || Boolean(notifyAction.instruction.trim()) || Boolean(notifyAction.destinationPhoneNumber.trim());
+    Boolean(notifyAction.enabled) ||
+    Boolean(notifyAction.instruction.trim()) ||
+    Boolean(notifyAction.destinationPhoneNumber.trim()) ||
+    Boolean(notifyAction.pauseConversationAfterNotify);
 
   useEffect(() => {
     if (!open) {
@@ -65,11 +71,13 @@ export function AgentActionsWorkspace({ agentId, training }: AgentActionsWorkspa
       actionType: "notify" as ActionType,
       instruction: "",
       phoneNumber: "",
+      pauseConversationAfterNotify: false,
     };
 
     setActionType(actionDraft.actionType);
     setInstruction(actionDraft.instruction);
     setPhoneNumber(actionDraft.phoneNumber);
+    setPauseConversationAfterNotify(Boolean(actionDraft.pauseConversationAfterNotify));
     setMode(nextMode);
     setOpen(true);
   };
@@ -128,10 +136,17 @@ export function AgentActionsWorkspace({ agentId, training }: AgentActionsWorkspa
                         </p>
                       </td>
                       <td className="px-4 py-4">
-                        <span className="inline-flex items-center gap-1.5 rounded-full bg-[color-mix(in_srgb,var(--primary)_10%,white)] px-3 py-1 text-xs font-medium text-[var(--primary)]">
-                          <Sparkles className="h-3.5 w-3.5" />
-                          {notifyAction.enabled ? "Activa" : "Inactiva"}
-                        </span>
+                        <div className="space-y-2">
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-[color-mix(in_srgb,var(--primary)_10%,white)] px-3 py-1 text-xs font-medium text-[var(--primary)]">
+                            <Sparkles className="h-3.5 w-3.5" />
+                            {notifyAction.enabled ? "Activa" : "Inactiva"}
+                          </span>
+                          <p className="text-xs leading-5 text-slate-500">
+                            {notifyAction.pauseConversationAfterNotify
+                              ? "Apaga la automatizacion tras notificar."
+                              : "La conversacion sigue activa tras notificar."}
+                          </p>
+                        </div>
                       </td>
                       <td className="px-4 py-4">
                         <DropdownMenu>
@@ -229,6 +244,11 @@ export function AgentActionsWorkspace({ agentId, training }: AgentActionsWorkspa
                 <form action={saveAgentActionsAction} className="min-h-0 overflow-y-auto px-5 py-5">
                   <input type="hidden" name="agentId" value={agentId} />
                   <input type="hidden" name="notifyEnabled" value={actionType === "notify" ? "on" : "off"} />
+                  <input
+                    type="hidden"
+                    name="notifyPauseConversationAfterNotify"
+                    value={pauseConversationAfterNotify ? "on" : "off"}
+                  />
 
                   <div className="space-y-4">
                     <label className="block space-y-2">
@@ -278,6 +298,20 @@ export function AgentActionsWorkspace({ agentId, training }: AgentActionsWorkspa
                         </p>
                       </label>
                     ) : null}
+
+                    <label className="flex items-center justify-between gap-4 rounded-[18px] border border-[rgba(148,163,184,0.14)] bg-slate-50/80 px-4 py-3.5">
+                      <div className="space-y-1">
+                        <span className="block text-sm font-semibold text-slate-900">Apagar agente despues de notificar</span>
+                        <span className="block text-xs leading-5 text-slate-500">
+                          Pausa la automatizacion de la conversacion cuando se ejecute <span className="font-medium text-slate-700">Notificar_asesor</span>.
+                        </span>
+                      </div>
+                      <Switch
+                        checked={Boolean(pauseConversationAfterNotify)}
+                        onCheckedChange={setPauseConversationAfterNotify}
+                        aria-label="Apagar agente despues de notificar"
+                      />
+                    </label>
                   </div>
 
                   <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">

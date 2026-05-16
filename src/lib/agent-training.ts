@@ -105,6 +105,7 @@ export type AgentNotifyActionConfig = {
   enabled: boolean;
   destinationPhoneNumber: string;
   instruction: string;
+  pauseConversationAfterNotify: boolean;
 };
 
 export type AgentActionsConfig = {
@@ -165,6 +166,7 @@ export const defaultAgentTrainingConfig: AgentTrainingConfig = {
       enabled: false,
       destinationPhoneNumber: "",
       instruction: "",
+      pauseConversationAfterNotify: false,
     },
   },
   useCustomPrompt: false,
@@ -226,6 +228,7 @@ export function buildAgentTrainingConfig(input: AgentTrainingConfig): AgentTrain
         enabled: Boolean(notify.enabled),
         destinationPhoneNumber: notify.destinationPhoneNumber.trim(),
         instruction: notify.instruction.trim(),
+        pauseConversationAfterNotify: Boolean(notify.pauseConversationAfterNotify),
       },
     },
   };
@@ -491,6 +494,7 @@ export function summarizeTraining(training: AgentTrainingConfig) {
       training.askForOrder ? "Pide el pedido directamente" : null,
       training.sendPaymentLink ? "Envia link de pago" : null,
       training.handoffToHuman ? "Escala a humano" : null,
+      training.actions.notify.pauseConversationAfterNotify ? "Apaga la automatizacion al notificar" : null,
       training.actions.notify.enabled ? "Notifica a asesor humano" : null,
     ].filter(Boolean) as string[],
   };
@@ -573,6 +577,7 @@ function normalizeAgentActionsConfig(value: unknown): AgentActionsConfig {
       enabled: Boolean(notify.enabled),
       destinationPhoneNumber: typeof notify.destinationPhoneNumber === "string" ? notify.destinationPhoneNumber.trim() : "",
       instruction: typeof notify.instruction === "string" ? notify.instruction.trim() : "",
+      pauseConversationAfterNotify: Boolean(notify.pauseConversationAfterNotify),
     },
   };
 }

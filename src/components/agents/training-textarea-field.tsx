@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 type TrainingTextareaFieldProps = {
   name: string;
@@ -22,6 +22,10 @@ export function TrainingTextareaField({
   required,
 }: TrainingTextareaFieldProps) {
   const [value, setValue] = useState(defaultValue);
+
+  useEffect(() => {
+    setValue(defaultValue);
+  }, [defaultValue]);
 
   return (
     <textarea

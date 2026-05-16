@@ -1337,8 +1337,8 @@ export async function POST(request: Request) {
           ? agentTraining.customSystemPrompt.trim()
           : agent.systemPrompt;
         const notificarAsesorToolHandlers = {
-          Notificar_asesor: async (args: Record<string, unknown>) =>
-            sendNotificarAsesorNotification({
+          Notificar_asesor: async (args: Record<string, unknown>) => {
+            const result = await sendNotificarAsesorNotification({
               trainingConfig: agent.trainingConfig,
               agentName: agent.name,
               customerPhoneNumber: phoneNumber,
@@ -1357,7 +1357,14 @@ export async function POST(request: Request) {
                   delayMs: 0,
                 });
               },
-            }),
+            });
+
+            if (result.ok && agentTraining?.actions.notify.pauseConversationAfterNotify) {
+              await setConversationAutomationPaused({ conversationId: conversation.id, paused: true });
+            }
+
+            return result;
+          },
         } satisfies Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
         replyText = await generateAgentReply({
           model: agent.model,
