@@ -464,6 +464,7 @@ export async function POST(request: Request) {
     ? {
         id: callFallbackConversation.id,
         status: callFallbackConversation.status,
+        activeProductContext: callFallbackConversation.activeProductContext ?? null,
       }
     : existingMessage
     ? await prisma.conversation.findFirst({
@@ -493,8 +494,8 @@ export async function POST(request: Request) {
         },
       });
 
-  const conversation = existingConversation
-    ? { id: existingConversation.id, activeProductContext: existingConversation.activeProductContext }
+  const conversation: { id: string; activeProductContext: Prisma.InputJsonValue | null } = existingConversation
+    ? { id: existingConversation.id, activeProductContext: existingConversation.activeProductContext ?? null }
     : await prisma.conversation.create({
         data: {
           workspaceId: channel.workspaceId,
