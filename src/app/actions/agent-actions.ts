@@ -2804,8 +2804,9 @@ export async function simulateAgentReplyAction(input: {
       });
 
   if (hardFlowReply) {
-    const firstText = hardFlowReply.steps.find((s) => s.kind === "text");
-    const imageSteps = hardFlowReply.steps.filter((s): s is Extract<typeof s, { kind: "image" }> => s.kind === "image");
+    const hardFlowSteps = hardFlowReply.steps ?? [];
+    const firstText = hardFlowSteps.find((s) => s.kind === "text");
+    const imageSteps = hardFlowSteps.filter((s): s is Extract<typeof s, { kind: "image" }> => s.kind === "image");
     return {
       ok: true,
       reply: firstText?.content ?? "",

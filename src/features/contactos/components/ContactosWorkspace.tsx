@@ -27,6 +27,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { deleteContactAction } from "@/app/actions/chats-actions";
@@ -88,7 +89,7 @@ function buildContactsReportCsv(data: ContactosData) {
   };
 
   appendRow(["Reporte", data.workspaceName]);
-  appendRow(["Rango", `Últimos ${data.reportRangeDays} días`]);
+  appendRow(["Rango", `Ãšltimos ${data.reportRangeDays} dÃ­as`]);
   appendRow(["Generado", new Intl.DateTimeFormat("es-CO", {
     dateStyle: "medium",
     timeStyle: "short",
@@ -99,8 +100,8 @@ function buildContactsReportCsv(data: ContactosData) {
   appendRow(["Con email", data.stats.withEmail]);
   lines.push("");
 
-  appendRow(["Resumen por día"]);
-  appendRow(["Día", "Fecha", "Total", ...Array.from({ length: 24 }, (_, hour) => formatHeatmapHourLabel(hour))]);
+  appendRow(["Resumen por dÃ­a"]);
+  appendRow(["DÃ­a", "Fecha", "Total", ...Array.from({ length: 24 }, (_, hour) => formatHeatmapHourLabel(hour))]);
   data.creationHeatmap.days.forEach((day) => {
     appendRow([
       day.dayLabel,
@@ -112,7 +113,7 @@ function buildContactsReportCsv(data: ContactosData) {
   lines.push("");
 
   appendRow(["Top contactos"]);
-  appendRow(["Nombre", "Teléfono", "Chats", "Email", "Última actividad"]);
+  appendRow(["Nombre", "TelÃ©fono", "Chats", "Email", "Ãšltima actividad"]);
   data.contacts
     .slice()
     .sort((left, right) => (right.totalConversations - left.totalConversations) || ((right.lastActivityAt ? new Date(right.lastActivityAt).getTime() : 0) - (left.lastActivityAt ? new Date(left.lastActivityAt).getTime() : 0)))
@@ -212,7 +213,7 @@ function getMatchSourceLabel(sourceType: "KNOWLEDGE" | "FLOW" | "QUICK_RESPONSE"
     case "FLOW":
       return "Flujo";
     case "QUICK_RESPONSE":
-      return "Respuesta rápida";
+      return "Respuesta rÃ¡pida";
     case "AI":
       return "IA";
   }
@@ -508,7 +509,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center gap-3">
-                  <h2 className="text-lg font-semibold tracking-[-0.04em] text-slate-950">Tráfico de creación</h2>
+                  <h2 className="text-lg font-semibold tracking-[-0.04em] text-slate-950">TrÃ¡fico de creaciÃ³n</h2>
                   <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                     En vivo
@@ -522,7 +523,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                   onValueChange={(value) => handleReportRangeChange(value)}
                 >
                   <SelectTrigger className="h-11 min-w-[180px] rounded-2xl border-slate-200 bg-slate-50 px-4 text-sm font-medium text-slate-700 shadow-none transition hover:border-[color:color-mix(in_srgb,var(--primary)_18%,white)] hover:text-[var(--primary)] data-[state=open]:border-[var(--primary)] data-[state=open]:bg-white data-[state=open]:shadow-sm">
-                    <SelectValue placeholder="Últimos 7 días" />
+                    <SelectValue placeholder="Ãšltimos 7 dÃ­as" />
                   </SelectTrigger>
                   <SelectContent
                     align="start"
@@ -531,13 +532,13 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                     className="min-w-[180px] rounded-2xl border border-slate-200 bg-white p-1 shadow-[0_18px_48px_-24px_rgba(15,23,42,0.24)]"
                   >
                     <SelectItem key={7} value="7">
-                      Últimos 7 días
+                      Ãšltimos 7 dÃ­as
                     </SelectItem>
                     <SelectItem key={14} value="14">
-                      Últimos 14 días
+                      Ãšltimos 14 dÃ­as
                     </SelectItem>
                     <SelectItem key={30} value="30">
-                      Últimos 30 días
+                      Ãšltimos 30 dÃ­as
                     </SelectItem>
                   </SelectContent>
                 </Select>
@@ -584,7 +585,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                         {day.hours.map((hour) => (
                           <div
                             key={`${day.dayKey}-${hour.hour}`}
-                            title={`${day.dateLabel} · ${formatHeatmapHourLabel(hour.hour)} · ${hour.count} contacto${hour.count === 1 ? "" : "s"}`}
+                            title={`${day.dateLabel} Â· ${formatHeatmapHourLabel(hour.hour)} Â· ${hour.count} contacto${hour.count === 1 ? "" : "s"}`}
                             className="aspect-square min-h-6 rounded-[6px] border transition-transform duration-150 hover:scale-[1.04]"
                             style={{
                               backgroundColor: getHeatmapCellColor(hour.count, heatmapMaxCount),
@@ -785,6 +786,19 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                         </button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="min-w-44 rounded-2xl">
+                        <DropdownMenuItem asChild className="gap-2">
+                          <a href={`/api/contactos/${selectedContact.id}/export-ejecucion?mode=simple`}>
+                            <Download className="h-4 w-4" />
+                            Exportar ejecución simple
+                          </a>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem asChild className="gap-2">
+                          <a href={`/api/contactos/${selectedContact.id}/export-ejecucion?mode=full`}>
+                            <Download className="h-4 w-4" />
+                            Exportar ejecución avanzada
+                          </a>
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
                         <DropdownMenuItem
                           onSelect={() => setDeleteModalOpen(true)}
                           className="gap-2 text-rose-600 focus:text-rose-700"
@@ -823,7 +837,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                           {selectedContact.latestMatch.targetName}
                         </Badge>
                         <span className="text-xs text-slate-500">
-                          {getMatchSourceLabel(selectedContact.latestMatch.sourceType)} ·{" "}
+                          {getMatchSourceLabel(selectedContact.latestMatch.sourceType)} Â·{" "}
                           {formatDateLabel(selectedContact.latestMatch.detectedAt)}
                         </span>
                       </div>
@@ -842,7 +856,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                             <div className="min-w-0">
                               <p className="truncate text-sm font-medium text-slate-950">{match.targetName}</p>
                               <p className="text-[11px] text-slate-500">
-                                {getMatchSourceLabel(match.sourceType)} · {formatDateLabel(match.detectedAt)}
+                                {getMatchSourceLabel(match.sourceType)} Â· {formatDateLabel(match.detectedAt)}
                               </p>
                             </div>
                             <Badge
@@ -910,7 +924,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                                 {conversation.agent?.name ?? "Chat sin agente asignado"}
                               </p>
                               <p className="text-xs text-slate-500">
-                                {conversation.channel?.name ?? "Canal"} · {conversation.status}
+                                {conversation.channel?.name ?? "Canal"} Â· {conversation.status}
                               </p>
                             </div>
                             <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] text-slate-500">
@@ -1002,7 +1016,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
               <input type="hidden" name="contactId" value={selectedContact.id} />
               <input type="hidden" name="returnTo" value={deleteReturnTo} />
               <p className="text-sm leading-6 text-slate-600">
-                Se eliminará <span className="font-medium text-slate-900">{getContactDisplayName(selectedContact)}</span>
+                Se eliminarÃ¡ <span className="font-medium text-slate-900">{getContactDisplayName(selectedContact)}</span>
                 y todo su historial: conversaciones, mensajes, etiquetas y registros asociados a este contacto dentro del
                 workspace.
               </p>
