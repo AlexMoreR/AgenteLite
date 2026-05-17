@@ -44,7 +44,7 @@ import {
   resolveEvolutionMessageMediaUrl,
 } from "@/lib/evolution";
 import { resolveAgentKnowledgeBaseReply } from "@/lib/agent-knowledge-media";
-import { detectContactMatchesFromText, recordContactMatch } from "@/lib/contact-matches";
+import { recordContactMatch } from "@/lib/contact-matches";
 import { buildConversationMatchContextNote, getLatestConversationMatch } from "@/lib/contact-matches";
 import { buildFlowExecutionContextNote, getConversationExecutedFlowSlugs, getFlowSlug } from "@/lib/flow-execution-history";
 import { enforceWorkspacePlanAccess } from "@/lib/workspace-plan-access";
@@ -1276,29 +1276,6 @@ export async function POST(request: Request) {
         aiContextNotes.add(activeProductContextNote);
       }
 
-      const detectedContactMatches = await detectContactMatchesFromText({
-        agentId: agent.id,
-        workspaceId: channel.workspaceId,
-        messageText: inboundTextForProcessing,
-        includeOfficialApi: true,
-      });
-      if (detectedContactMatches.length > 0) {
-        await Promise.allSettled(
-          detectedContactMatches.map((match) =>
-            recordContactMatch({
-              workspaceId: channel.workspaceId,
-              contactId: contact.id,
-              conversationId: conversation.id,
-              matchType: match.matchType,
-              sourceType: match.sourceType,
-              targetName: match.targetName,
-              targetId: match.targetId ?? null,
-              confidence: match.confidence,
-            }),
-          ),
-        );
-      }
-
       const agentTraining = parseAgentTrainingConfig(agent.trainingConfig);
 
       const notifyHumanAction = resolveNotifyHumanAction({
@@ -1373,6 +1350,7 @@ export async function POST(request: Request) {
         }
       }
 
+      const hasActiveProductContext = Boolean(hardFlowResolution?.activeProductContext);
       if (hardFlowReply) {
         const hardFlowSlug = getFlowSlug(hardFlowReply.flowTitle ?? "");
         if (executedFlowSlugs.has(hardFlowSlug)) {
@@ -1400,7 +1378,11 @@ export async function POST(request: Request) {
             });
 
       const autoUnknownProductNotifyAction =
-        !shouldHandoffToHuman && !hardFlowReply && !knowledgeBaseReply && agentTraining?.actions.notify.autoNotifyOnUnknownProduct
+        !shouldHandoffToHuman &&
+        !hasActiveProductContext &&
+        !hardFlowReply &&
+        !knowledgeBaseReply &&
+        agentTraining?.actions.notify.autoNotifyOnUnknownProduct
           ? resolveUnknownProductNotifyAction({
               trainingConfig: agent.trainingConfig,
               agentName: agent.name,

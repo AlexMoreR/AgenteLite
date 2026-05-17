@@ -15,7 +15,7 @@ import {
 } from "@/lib/official-api-messaging";
 import { setConversationAutomationPaused } from "@/lib/conversation-automation";
 import { resolveAgentKnowledgeBaseReply } from "@/lib/agent-knowledge-media";
-import { detectContactMatchesFromText, recordContactMatch } from "@/lib/contact-matches";
+import { recordContactMatch } from "@/lib/contact-matches";
 import { prisma } from "@/lib/prisma";
 import { ensureOfficialApiConfigTable } from "@/lib/official-api-config";
 import { buildHandoffMessage, parseAgentTrainingConfig } from "@/lib/agent-training";
@@ -618,31 +618,6 @@ export async function POST(request: Request) {
           `
         : [];
 
-      if (linkedAgentChannel?.agent?.id) {
-        const detectedContactMatches = await detectContactMatchesFromText({
-          agentId: linkedAgentChannel.agent.id,
-          workspaceId: config.workspaceId,
-          messageText: message.content ?? "",
-          includeOfficialApi: true,
-        });
-        if (detectedContactMatches.length > 0) {
-          await Promise.allSettled(
-            detectedContactMatches.map((match) =>
-              recordContactMatch({
-                workspaceId: config.workspaceId,
-                contactId: message.contactId,
-                conversationId: message.conversationId,
-                matchType: match.matchType,
-                sourceType: match.sourceType,
-                targetName: match.targetName,
-                targetId: match.targetId ?? null,
-                confidence: match.confidence,
-              }),
-            ),
-          );
-        }
-      }
-
       const agentTraining = linkedAgentChannel?.agent?.id
         ? parseAgentTrainingConfig(linkedAgentChannel.agent.trainingConfig)
         : null;
@@ -705,9 +680,11 @@ export async function POST(request: Request) {
         `;
       }
 
+      const hasActiveProductContext = Boolean(agentProductFlowResolution?.activeProductContext);
       const autoUnknownProductNotifyAction =
         linkedAgentChannel?.agent?.id &&
         !shouldHandoffToHuman &&
+        !hasActiveProductContext &&
         !agentProductFlowReply &&
         !agentKnowledgeBaseReply &&
         agentTraining?.actions.notify.autoNotifyOnUnknownProduct

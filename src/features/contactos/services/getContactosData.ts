@@ -206,6 +206,7 @@ function buildContactSelect(agentId: string) {
             type: true,
           },
         },
+        activeProductContext: true,
       },
     },
     contactMatches: {
@@ -553,6 +554,14 @@ export async function getContactosData({
         lastMessageAt: conversation.lastMessageAt?.toISOString() ?? null,
         startedAt: conversation.startedAt.toISOString(),
         updatedAt: conversation.updatedAt.toISOString(),
+        activeProductContext: conversation.activeProductContext && typeof conversation.activeProductContext === "object" && !Array.isArray(conversation.activeProductContext)
+          ? {
+              productName:
+                typeof (conversation.activeProductContext as { productName?: unknown }).productName === "string"
+                  ? ((conversation.activeProductContext as { productName?: string }).productName ?? "").trim()
+                  : null,
+            }
+          : null,
         agent: conversation.agent,
         channel: conversation.channel,
         lastMessage: conversation.messages[0]
@@ -652,6 +661,14 @@ export async function getContactosData({
           lastMessageAt: conversation.lastMessageAt?.toISOString() ?? null,
           startedAt: conversation.startedAt.toISOString(),
           updatedAt: conversation.updatedAt.toISOString(),
+          activeProductContext: conversation.activeProductContext && typeof conversation.activeProductContext === "object" && !Array.isArray(conversation.activeProductContext)
+            ? {
+                productName:
+                  typeof (conversation.activeProductContext as { productName?: unknown }).productName === "string"
+                    ? ((conversation.activeProductContext as { productName?: string }).productName ?? "").trim()
+                    : null,
+              }
+            : null,
           agent: conversation.agent,
           channel: conversation.channel,
           lastMessage: conversation.messages[0]

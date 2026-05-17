@@ -4,7 +4,6 @@ import type {
   OfficialApiChatbotBuilderNode,
 } from "@/features/official-api/types/official-api";
 import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowItems";
-import { detectUnknownProductIntent } from "@/features/agent-actions/domain/notify-intent";
 import { consultFlowsByWorkspace } from "@/features/agent-actions/services/consult-flujos";
 import { consultProductsByAgent } from "@/features/agent-actions/services/consult-productos";
 import { getOfficialApiChatbotBuilderState } from "@/lib/official-api-chatbot";
@@ -514,15 +513,6 @@ export async function resolveAgentProductFlowReply(input: {
         allowedFlowIds: flowCandidates.map((flow) => flow.id),
       })
     : null;
-
-  if (
-    training.actions.notify.enabled &&
-    training.actions.notify.autoNotifyOnUnknownProduct &&
-    detectUnknownProductIntent(latestText) &&
-    !matchedProduct
-  ) {
-    return null;
-  }
 
   if (matchedProduct) {
     const instructions = matchedProduct.instructions?.trim() || "";

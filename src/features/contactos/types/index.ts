@@ -5,6 +5,9 @@ export type ContactosConversationSummary = {
   lastMessageAt: string | null;
   startedAt: string;
   updatedAt: string;
+  activeProductContext?: {
+    productName?: string | null;
+  } | null;
   agent: {
     id: string;
     name: string;

@@ -147,6 +147,10 @@ function getContactDisplayName(contact: ContactosContact) {
   return contact.name?.trim() || contact.phoneNumber;
 }
 
+function getCurrentProductName(contact: ContactosContact) {
+  return contact.recentConversations[0]?.activeProductContext?.productName?.trim() || null;
+}
+
 function getConversationHref(contact: ContactosContact) {
   const conversation = contact.recentConversations[0];
   return conversation ? `/cliente/chats?chatKey=agent:${conversation.id}` : "/cliente/chats";
@@ -254,6 +258,8 @@ function ContactCard({
 }) {
   const name = getContactDisplayName(contact);
   const lastConversation = contact.recentConversations[0] ?? null;
+  const activeProductName = lastConversation?.activeProductContext?.productName?.trim() || null;
+  const latestMatchName = contact.latestMatch?.targetName?.trim() || null;
 
   return (
     <Link
@@ -306,18 +312,25 @@ function ContactCard({
             )}
           </div>
 
-          {contact.tags.length ? (
+          {activeProductName ? (
             <div className="flex flex-wrap gap-1.5">
-              {contact.tags.map((tag) => (
-                <span
-                  key={`${contact.id}:${tag.label}`}
-                  className="inline-flex max-w-full items-center rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-white shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
-                  style={getTagBadgeStyle(tag.color)}
-                  title={tag.label}
-                >
-                  <span className="truncate">{tag.label}</span>
-                </span>
-              ))}
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-[color:color-mix(in_srgb,var(--primary)_16%,white)] bg-[color:color-mix(in_srgb,var(--primary)_6%,white)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--primary)]">
+                <span className="h-1.5 w-1.5 rounded-full bg-[var(--primary)]" />
+                Activo
+              </span>
+              <span className="inline-flex max-w-full items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-700">
+                <span className="truncate">{activeProductName}</span>
+              </span>
+            </div>
+          ) : latestMatchName ? (
+            <div className="flex flex-wrap gap-1.5">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-700">
+                <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+                Historial
+              </span>
+              <span className="inline-flex max-w-full items-center rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-600">
+                <span className="truncate">{latestMatchName}</span>
+              </span>
             </div>
           ) : null}
 
@@ -825,6 +838,23 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                     <p>Creado: {formatDateLabel(selectedContact.createdAt)}</p>
                     <p>Ultima actividad: {formatDateLabel(selectedContact.lastActivityAt)}</p>
                   </div>
+
+                  {getCurrentProductName(selectedContact) ? (
+                    <div className="mt-4 rounded-[20px] border border-[color:color-mix(in_srgb,var(--primary)_14%,white)] bg-white p-3">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Producto activo</p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <Badge
+                          variant="outline"
+                          className="h-auto border-[color:color-mix(in_srgb,var(--primary)_16%,white)] bg-[color:color-mix(in_srgb,var(--primary)_6%,white)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--primary)]"
+                        >
+                          {getCurrentProductName(selectedContact)}
+                        </Badge>
+                        <span className="text-xs text-slate-500">
+                          Lo que está activo ahora en la conversación
+                        </span>
+                      </div>
+                    </div>
+                  ) : null}
 
                 {selectedContact.latestMatch ? (
                   <div className="mt-4 rounded-[20px] border border-slate-200 bg-white p-3">
