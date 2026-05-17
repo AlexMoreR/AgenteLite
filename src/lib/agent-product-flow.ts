@@ -66,6 +66,34 @@ function normalizeText(value: string) {
     .trim();
 }
 
+function tokenize(value: string) {
+  const stopWords = new Set([
+    "el",
+    "la",
+    "los",
+    "las",
+    "de",
+    "del",
+    "por",
+    "para",
+    "con",
+    "un",
+    "una",
+    "flujo",
+    "flujos",
+    "catalogo",
+    "catlogo",
+    "quiero",
+    "necesito",
+    "tiene",
+    "tienen",
+  ]);
+
+  return normalizeText(value)
+    .split(" ")
+    .filter((word) => word.length >= 3 && !stopWords.has(word));
+}
+
 const AFFIRMATION_WORDS = new Set([
   "si", "ok", "dale", "bueno", "claro", "listo", "perfecto",
   "quiero", "enviame", "mandame", "mandalo", "envialo", "adelante",
