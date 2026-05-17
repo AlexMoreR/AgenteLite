@@ -1377,7 +1377,7 @@ export async function POST(request: Request) {
         const hardFlowSlug = getFlowSlug(hardFlowReply.flowTitle ?? "");
         if (executedFlowSlugs.has(hardFlowSlug)) {
           const note = buildFlowExecutionContextNote({
-            flowTitle: hardFlowReply.flowTitle,
+            flowTitle: hardFlowReply.flowTitle ?? "flujo",
             modeLabel: "flujo",
           });
           if (note) {
