@@ -139,6 +139,18 @@ function scoreFlow(query: string, flow: ConsultFlowItem) {
   };
 }
 
+function toConsultFlowItem(flow: Awaited<ReturnType<typeof getCreatedFlowItems>>[number]): ConsultFlowItem {
+  return {
+    id: flow.id,
+    sourceType: flow.sourceType,
+    sourceLabel: flow.badge === "Meta" ? "API oficial" : "API no oficial",
+    title: flow.title,
+    intent: flow.intent,
+    description: flow.description,
+    badge: flow.badge,
+  };
+}
+
 export async function consultFlowsByWorkspace(input: {
   workspaceId: string;
   includeOfficialApi: boolean;
@@ -162,14 +174,15 @@ export async function consultFlowsByWorkspace(input: {
 
   const matches = candidateFlows
     .map((flow) => {
-      const scored = scoreFlow(query, flow as ConsultFlowItem);
+      const consultFlow = toConsultFlowItem(flow);
+      const scored = scoreFlow(query, consultFlow);
       return {
-        flowId: flow.id,
-        sourceType: flow.sourceType,
-        sourceLabel: flow.badge === "Meta" ? "API oficial" : "API no oficial",
-        title: flow.title,
-        intent: flow.intent,
-        description: flow.description,
+        flowId: consultFlow.id,
+        sourceType: consultFlow.sourceType,
+        sourceLabel: consultFlow.sourceLabel,
+        title: consultFlow.title,
+        intent: consultFlow.intent,
+        description: consultFlow.description,
         score: scored.score,
         confidence: scored.confidence,
         reason: scored.reason,
