@@ -743,15 +743,16 @@ export async function POST(request: Request) {
             conversationId: message.conversationId,
             inboundText: message.content,
           });
-            const reply = agentProductFlowReply
+      const agentProductFlowSteps = agentProductFlowReply?.steps ?? [];
+      const reply = agentProductFlowReply
         ? {
-            text: agentProductFlowReply.steps.find((s) => s.kind === "text")?.content?.trim() || null,
-            image: agentProductFlowReply.steps.find((s): s is Extract<(typeof agentProductFlowReply.steps)[number], { kind: "image" }> => s.kind === "image") ?? null,
-            images: agentProductFlowReply.steps.filter((s): s is Extract<(typeof agentProductFlowReply.steps)[number], { kind: "image" }> => s.kind === "image"),
-            audio: agentProductFlowReply.steps.find((s): s is Extract<(typeof agentProductFlowReply.steps)[number], { kind: "audio" }> => s.kind === "audio") ?? null,
-            audios: agentProductFlowReply.steps.filter((s): s is Extract<(typeof agentProductFlowReply.steps)[number], { kind: "audio" }> => s.kind === "audio"),
-            video: agentProductFlowReply.steps.find((s): s is Extract<(typeof agentProductFlowReply.steps)[number], { kind: "video" }> => s.kind === "video") ?? null,
-            videos: agentProductFlowReply.steps.filter((s): s is Extract<(typeof agentProductFlowReply.steps)[number], { kind: "video" }> => s.kind === "video"),
+            text: agentProductFlowSteps.find((s) => s.kind === "text")?.content?.trim() || null,
+            image: agentProductFlowSteps.find((s): s is Extract<(typeof agentProductFlowSteps)[number], { kind: "image" }> => s.kind === "image") ?? null,
+            images: agentProductFlowSteps.filter((s): s is Extract<(typeof agentProductFlowSteps)[number], { kind: "image" }> => s.kind === "image"),
+            audio: agentProductFlowSteps.find((s): s is Extract<(typeof agentProductFlowSteps)[number], { kind: "audio" }> => s.kind === "audio") ?? null,
+            audios: agentProductFlowSteps.filter((s): s is Extract<(typeof agentProductFlowSteps)[number], { kind: "audio" }> => s.kind === "audio"),
+            video: agentProductFlowSteps.find((s): s is Extract<(typeof agentProductFlowSteps)[number], { kind: "video" }> => s.kind === "video") ?? null,
+            videos: agentProductFlowSteps.filter((s): s is Extract<(typeof agentProductFlowSteps)[number], { kind: "video" }> => s.kind === "video"),
           }
         : agentKnowledgeBaseReply
           ? agentKnowledgeBaseReply
