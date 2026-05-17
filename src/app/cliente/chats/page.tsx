@@ -53,6 +53,20 @@ type ActiveProductContextSummary = {
   productName?: string | null;
 };
 
+function toActiveProductContextSummary(input: unknown): ActiveProductContextSummary | null {
+  if (!input || typeof input !== "object") {
+    return null;
+  }
+
+  const value = input as { productName?: unknown };
+  const productName = typeof value.productName === "string" ? value.productName.trim() : "";
+  if (!productName) {
+    return null;
+  }
+
+  return { productName };
+}
+
 function getAgentContactLabel(input: { name: string | null; phoneNumber: string }) {
   return input.name?.trim() || input.phoneNumber;
 }
@@ -393,7 +407,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   const agentRows: UnifiedConversation[] = activeAgentConversations.map((conversation) => {
     const linkedChannel = conversation.channelId ? channelsById.get(conversation.channelId) || null : null;
     const avatarUrl = conversation.contact.avatarUrl ?? null;
-    const tags = getConversationContextTags(conversation.activeProductContext as ActiveProductContextSummary | null | undefined);
+    const activeProductContext = toActiveProductContextSummary(conversation.activeProductContext);
+    const tags = getConversationContextTags(activeProductContext);
 
     return {
       key: `agent:${conversation.id}`,
@@ -411,7 +426,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       lastMessageType: latestAgentMessageByConversationId.get(conversation.id)?.type ?? null,
       lastMessageDirection: latestAgentMessageByConversationId.get(conversation.id)?.direction ?? null,
       lastMessageAt: latestAgentMessageByConversationId.get(conversation.id)?.createdAt ?? null,
-      activeProductContext: conversation.activeProductContext ?? null,
+      activeProductContext,
     };
   });
 
