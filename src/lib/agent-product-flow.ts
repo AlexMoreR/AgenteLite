@@ -575,7 +575,13 @@ export async function resolveAgentProductFlowReply(input: {
     const flowByNormalizedTitle = new Map(flowTargets.map((flow) => [normalizeText(flow.title), flow]));
     const referencedFlowIds = references
       .map((reference) => flowByNormalizedTitle.get(normalizeText(reference.title))?.id)
-      .filter((value): value is string => Boolean(value) && candidateFlowIds.has(value));
+      .filter((value): value is string => {
+        if (typeof value !== "string") {
+          return false;
+        }
+
+        return candidateFlowIds.has(value);
+      });
 
     if (referencedFlowIds.length > 0) {
       const reply = await getFlowReply({
