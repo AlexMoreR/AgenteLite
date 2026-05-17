@@ -94,6 +94,14 @@ function tokenize(value: string) {
     .filter((word) => word.length >= 3 && !stopWords.has(word));
 }
 
+function textMatchesToken(text: string, token: string) {
+  if (!text || !token) {
+    return false;
+  }
+
+  return text === token || text.includes(token) || token.includes(text);
+}
+
 const AFFIRMATION_WORDS = new Set([
   "si", "ok", "dale", "bueno", "claro", "listo", "perfecto",
   "quiero", "enviame", "mandame", "mandalo", "envialo", "adelante",
