@@ -1655,7 +1655,8 @@ export async function POST(request: Request) {
           .catch(() => null);
 
       // ── Flow engine: execute hardFlowReply steps in exact order ──────────────
-      if (hardFlowReply && hardFlowReply.steps.length > 0) {
+      const hardFlowSteps = hardFlowReply?.steps ?? [];
+      if (hardFlowReply && hardFlowSteps.length > 0) {
         try {
           console.log("[EVOLUTION] auto_reply_sending", {
             conversationId: conversation.id,
@@ -1663,7 +1664,7 @@ export async function POST(request: Request) {
             phoneNumber,
             instanceName: channel.evolutionInstanceName,
             mode: "hard_flow",
-            steps: hardFlowReply.steps.map((s) => s.kind),
+            steps: hardFlowSteps.map((s) => s.kind),
           });
 
           try {
@@ -1678,7 +1679,7 @@ export async function POST(request: Request) {
           }
 
           let welcomeApplied = false;
-          for (const step of hardFlowReply.steps) {
+          for (const step of hardFlowSteps) {
             if (step.kind === "text") {
               let content = step.content;
               if (!welcomeApplied) {
@@ -1816,7 +1817,7 @@ export async function POST(request: Request) {
           }
 
           // AI follow-up: only if enabled AND the flow's last step is not a text (the flow already closes)
-          const lastStep = hardFlowReply.steps[hardFlowReply.steps.length - 1];
+          const lastStep = hardFlowSteps[hardFlowSteps.length - 1];
           if (hardFlowReply.aiFollowUpEnabled && lastStep?.kind !== "text") {
             const ctx = `El flujo "${hardFlowReply.flowTitle}" fue ejecutado para "${hardFlowReply.productName || "el producto"}".`;
             const followUp = await generateContextualFollowUp(ctx, recentMessagesForModel);
@@ -1863,7 +1864,7 @@ export async function POST(request: Request) {
             agentId: agent.id,
             phoneNumber,
             mode: "hard_flow",
-            stepsCount: hardFlowReply.steps.length,
+            stepsCount: hardFlowSteps.length,
           });
         } catch (error) {
           const errorMessage = error instanceof Error ? (error.stack || error.message) : JSON.stringify(error);
@@ -1888,7 +1889,7 @@ export async function POST(request: Request) {
               direction: "OUTBOUND",
               type: "TEXT",
               status: "FAILED",
-              content: hardFlowReply.steps.find((s) => s.kind === "text")?.content ?? null,
+              content: hardFlowSteps.find((s) => s.kind === "text")?.content ?? null,
               failedAt: new Date(),
             },
           });
