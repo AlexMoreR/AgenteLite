@@ -50,6 +50,23 @@ function isMissingAgentKnowledgeFollowUpColumnsError(error: unknown) {
   );
 }
 
+function isMissingAgentKnowledgeFunnelColumnsError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes('column "funnelOpening" does not exist') ||
+    message.includes('column "funnelQualification" does not exist') ||
+    message.includes('column "funnelPresentation" does not exist') ||
+    message.includes('column "funnelFaq" does not exist') ||
+    message.includes('column "funnelClosing" does not exist') ||
+    message.includes('columna "funnelOpening" no existe') ||
+    message.includes('columna "funnelQualification" no existe') ||
+    message.includes('columna "funnelPresentation" no existe') ||
+    message.includes('columna "funnelFaq" no existe') ||
+    message.includes('columna "funnelClosing" no existe') ||
+    message.includes("42703")
+  );
+}
+
 export default async function AgentKnowledgePage({ params, searchParams }: PageProps) {
   const session = await auth();
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
@@ -113,13 +130,23 @@ export default async function AgentKnowledgePage({ params, searchParams }: PageP
   let selectedProductIds = new Set<string>();
   let productInstructionById = new Map<string, string>();
   let productFollowUpFlowById = new Map<string, string | null>();
+  let productFunnelOpeningById = new Map<string, string | null>();
+  let productFunnelQualificationById = new Map<string, string | null>();
+  let productFunnelPresentationById = new Map<string, string | null>();
+  let productFunnelFaqById = new Map<string, string | null>();
+  let productFunnelClosingById = new Map<string, string | null>();
   try {
     const selectedRows = await prisma.$queryRaw<Array<{
       productId: string;
       instructions: string | null;
       followUpFlowId: string | null;
+      funnelOpening: string | null;
+      funnelQualification: string | null;
+      funnelPresentation: string | null;
+      funnelFaq: string | null;
+      funnelClosing: string | null;
     }>>`
-      SELECT "productId", "instructions", "followUpFlowId"
+      SELECT "productId", "instructions", "followUpFlowId", "funnelOpening", "funnelQualification", "funnelPresentation", "funnelFaq", "funnelClosing"
       FROM "AgentKnowledgeProduct"
       WHERE "agentId" = ${agent.id}
       ORDER BY "createdAt" ASC
@@ -127,8 +154,17 @@ export default async function AgentKnowledgePage({ params, searchParams }: PageP
     selectedProductIds = new Set(selectedRows.map((row) => row.productId));
     productInstructionById = new Map(selectedRows.map((row) => [row.productId, row.instructions ?? ""]));
     productFollowUpFlowById = new Map(selectedRows.map((row) => [row.productId, row.followUpFlowId ?? null]));
+    productFunnelOpeningById = new Map(selectedRows.map((row) => [row.productId, row.funnelOpening ?? null]));
+    productFunnelQualificationById = new Map(selectedRows.map((row) => [row.productId, row.funnelQualification ?? null]));
+    productFunnelPresentationById = new Map(selectedRows.map((row) => [row.productId, row.funnelPresentation ?? null]));
+    productFunnelFaqById = new Map(selectedRows.map((row) => [row.productId, row.funnelFaq ?? null]));
+    productFunnelClosingById = new Map(selectedRows.map((row) => [row.productId, row.funnelClosing ?? null]));
   } catch (error) {
-    if (isMissingAgentKnowledgeInstructionsColumnError(error) || isMissingAgentKnowledgeFollowUpColumnsError(error)) {
+    if (
+      isMissingAgentKnowledgeInstructionsColumnError(error) ||
+      isMissingAgentKnowledgeFollowUpColumnsError(error) ||
+      isMissingAgentKnowledgeFunnelColumnsError(error)
+    ) {
       const selectedRows = await prisma.$queryRaw<Array<{ productId: string }>>`
         SELECT "productId"
         FROM "AgentKnowledgeProduct"
@@ -245,6 +281,11 @@ export default async function AgentKnowledgePage({ params, searchParams }: PageP
                           price={formatMoney(String(product.price), "COP")}
                           thumbnailUrl={product.thumbnailUrl}
                           instructions={productInstructionById.get(product.id) ?? ""}
+                          funnelOpening={productFunnelOpeningById.get(product.id) ?? null}
+                          funnelQualification={productFunnelQualificationById.get(product.id) ?? null}
+                          funnelPresentation={productFunnelPresentationById.get(product.id) ?? null}
+                          funnelFaq={productFunnelFaqById.get(product.id) ?? null}
+                          funnelClosing={productFunnelClosingById.get(product.id) ?? null}
                           followUpFlowId={productFollowUpFlowById.get(product.id) ?? null}
                           isSelected={selectedProductIds.has(product.id)}
                           flows={flowTargets.map((flow) => ({

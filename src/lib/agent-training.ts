@@ -19,8 +19,8 @@ export const toneOptions = [
   },
   {
     value: "amigable-profesional",
-    label: "Amigable y profesional",
-    prompt: "Habla de forma amable, profesional y clara.",
+    label: "Profesional y directo",
+    prompt: "Habla de forma profesional, directa y clara. Prioriza la solución, evita charla casual y mantén un tono comercial.",
   },
   {
     value: "cercano-casual",
@@ -122,6 +122,11 @@ export type AgentKnowledgePromptProduct = {
   price?: string | null;
   categoryName?: string | null;
   thumbnailUrl?: string | null;
+  funnelOpening?: string | null;
+  funnelQualification?: string | null;
+  funnelPresentation?: string | null;
+  funnelFaq?: string | null;
+  funnelClosing?: string | null;
   instructions?: string | null;
 };
 
@@ -186,7 +191,7 @@ function getResponseLengthPrompt(value: ResponseLength) {
 }
 
 export function getToneLabel(value: SalesTone) {
-  return toneOptions.find((item) => item.value === value)?.label ?? "Amigable y profesional";
+  return toneOptions.find((item) => item.value === value)?.label ?? "Profesional y directo";
 }
 
 export function getResponseLengthLabel(value: ResponseLength) {
@@ -241,7 +246,7 @@ export function buildAgentTrainingConfig(input: AgentTrainingConfig): AgentTrain
 
 export function buildDefaultNewCustomerWelcomeMessage(businessName: string) {
   const normalizedBusinessName = businessName.trim() || "[nombre del negocio]";
-  return `Bienvenido/a a *${normalizedBusinessName}*\n\nQue te podemos ayudar el dia de hoy?`;
+  return `Bienvenido/a a *${normalizedBusinessName}*\n\nDime qué producto buscas y te comparto la opción adecuada.`;
 }
 
 function resolveWelcomeMessageTemplate(message: string, businessName: string) {
@@ -273,8 +278,8 @@ export function buildAgentSystemPrompt(input: {
       ? "Si ya conoces el nombre del cliente, usalo de forma natural para personalizar la conversacion."
       : "No inventes ni forces el nombre del cliente si no lo conoces.",
     training.useEmojis
-      ? "Usa emojis de forma natural y frecuente cuando ayuden a sonar cercano y comercial, sin saturar cada linea."
-      : "No uses emojis salvo que el contexto lo haga estrictamente necesario.",
+      ? "Usa emojis solo cuando aporten claridad comercial; no los uses para sonar afectuoso o informal."
+      : "No uses emojis salvo que aporten claridad real al mensaje.",
     training.useExpressivePunctuation
       ? "Usa signos expresivos como ! y ? cuando refuercen la cercania y el cierre comercial."
       : "No abuses de signos expresivos; prioriza claridad y limpieza.",
@@ -372,6 +377,16 @@ export function buildAgentSystemPrompt(input: {
       }
 
       const summary = [`Producto: ${name}`];
+      const funnelLines = [
+        product.funnelOpening?.trim() ? `Embudo - Apertura: ${product.funnelOpening.trim()}` : null,
+        product.funnelQualification?.trim() ? `Embudo - Calificacion: ${product.funnelQualification.trim()}` : null,
+        product.funnelPresentation?.trim() ? `Embudo - Presentacion: ${product.funnelPresentation.trim()}` : null,
+        product.funnelFaq?.trim() ? `Embudo - FAQ: ${product.funnelFaq.trim()}` : null,
+        product.funnelClosing?.trim() ? `Embudo - Cierre: ${product.funnelClosing.trim()}` : null,
+      ].filter(Boolean);
+      if (funnelLines.length > 0) {
+        summary.push(funnelLines.join(" / "));
+      }
       if (product.code?.trim()) {
         summary.push(`Codigo: ${product.code.trim()}`);
       }
@@ -399,7 +414,7 @@ export function buildAgentSystemPrompt(input: {
     .filter((item): item is string => Boolean(item));
 
   const knowledgeSection = knowledgeProducts.length
-    ? `CONOCIMIENTO DE PRODUCTOS\n- ${knowledgeProducts.join("\n- ")}\n- Usa esta base para responder con precision sobre esos productos.\n- Nunca respondas solo con el nombre del producto si tienes descripcion o precio disponible.\n- Cuando hables de un producto, menciona la informacion util disponible y agrega un siguiente paso claro si ayuda a vender.\n- Si te preguntan por algo fuera de esta base, no lo inventes y aclara que debes confirmarlo.\n- IMPORTANTE: Cuando un producto tenga INSTRUCCION, esa instruccion define como debes manejar ese producto. Siguela por encima de cualquier otra consideracion.\n- IMPORTANTE: Si un producto tiene FLUJO HIJO y DISPARADORES, usa esa relacion como un siguiente paso explicito y no como un salto inmediato.\n- IMPORTANTE: No asumas envio de fotos por palabras como \"foto\" o \"imagenes\"; solo comparte imagenes cuando la instruccion del producto o el prompt lo pidan de forma explicita.\n- ETAPAS: Si la INSTRUCCION tiene pasos numerados (1. 2. 3.), responde UNICAMENTE con el paso que corresponde al momento actual de la conversacion. Nunca adelantes pasos que dependen de la respuesta del cliente. Espera siempre la reaccion del cliente antes de avanzar al siguiente paso.`
+    ? `CONOCIMIENTO DE PRODUCTOS\n- ${knowledgeProducts.join("\n- ")}\n- Usa esta base para responder con precision sobre esos productos.\n- Nunca respondas solo con el nombre del producto si tienes descripcion o precio disponible.\n- Cuando hables de un producto, menciona la informacion util disponible y agrega un siguiente paso claro si ayuda a vender.\n- Si te preguntan por algo fuera de esta base, no lo inventes y aclara que debes confirmarlo.\n- IMPORTANTE: Cuando un producto tenga un EMBUDO, ese embudo define como debes manejar ese producto. Siguelo por encima de cualquier otra consideracion.\n- IMPORTANTE: Si un producto tiene FLUJO HIJO, usa esa relacion como un siguiente paso explicito y no como un salto inmediato.\n- IMPORTANTE: No asumas envio de fotos por palabras como \"foto\" o \"imagenes\"; solo comparte imagenes cuando el embudo del producto o el prompt lo pidan de forma explicita.\n- ETAPAS: Si el EMBUDO tiene pasos numerados (1. 2. 3.), responde UNICAMENTE con el paso que corresponde al momento actual de la conversacion. Nunca adelantes pasos que dependen de la respuesta del cliente. Espera siempre la reaccion del cliente antes de avanzar al siguiente paso.`
     : null;
 
   const consultationToolsSection = [
@@ -449,7 +464,7 @@ export function buildAgentSystemPrompt(input: {
     consultationToolsSection,
     knowledgeSection,
     flowKnowledgeSection,
-    `REFERENCIAS A FLUJOS\n- Si una instruccion de producto menciona un flujo con formato /nombre del flujo, interpretalo como una orden de aplicar ese flujo cuando la conversacion coincida.\n- Usa solo flujos que existan en CONOCIMIENTO DE FLUJOS. Si el flujo mencionado no esta disponible, no lo inventes y continua con una pregunta concreta para avanzar.`,
+    `REFERENCIAS A FLUJOS\n- Si un embudo de producto menciona un flujo con formato /nombre del flujo, interpretalo como una orden de aplicar ese flujo cuando la conversacion coincida.\n- Usa solo flujos que existan en CONOCIMIENTO DE FLUJOS. Si el flujo mencionado no esta disponible, no lo inventes y continua con una pregunta concreta para avanzar.`,
     training.actions.notify.enabled
       ? `HERRAMIENTA DISPONIBLE\n- Si el cliente pide hablar con un asesor, necesita validacion humana o la conversación requiere seguimiento comercial, usa la herramienta Notificar_asesor.\n- No la uses para dudas que puedas resolver por tu cuenta.\n- Cuando la uses, entrega un motivo claro y un resumen breve del caso.`
       : null,

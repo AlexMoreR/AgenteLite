@@ -1,8 +1,8 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Eye, FileText, Pencil, X } from "lucide-react";
+import { ChevronDown, Eye, FileText, Pencil, X } from "lucide-react";
 import { saveAgentKnowledgeProductInstructionAction } from "@/app/actions/agent-actions";
 
 type FlowOption = {
@@ -13,6 +13,53 @@ type FlowOption = {
   description: string;
 };
 
+type FunnelFields = {
+  opening: string;
+  qualification: string;
+  presentation: string;
+  faq: string;
+  closing: string;
+};
+
+function buildFunnelTemplate(productName: string) {
+  const safeName = productName.trim() || "el producto";
+  return [
+    "EMBUDO DE VENTAS",
+    "",
+    "1. Apertura",
+    `- Presenta ${safeName} de forma breve y cercana.`,
+    "- Haz una sola pregunta de calificacion para entender la necesidad.",
+    "",
+    "2. Calificacion",
+    "- Identifica el uso real, el espacio y la urgencia de compra.",
+    "- Si el cliente ya dijo lo que necesita, avanza sin repetir.",
+    "",
+    "3. Presentacion",
+    "- Resalta solo los beneficios y datos que ayuden a vender.",
+    "- No inventes informacion ni adelantes pasos.",
+    "",
+    "4. Preguntas frecuentes / objeciones",
+    "- Responde precio, peso, medidas, color, envio o disponibilidad segun la base.",
+    "- Si no existe el dato, deriva o confirma.",
+    "",
+    "5. Cierre",
+    "- Pide el siguiente paso concreto: fotos, reserva, color o asesor.",
+  ].join("\n");
+}
+
+function composeFunnelInstructions(fields: FunnelFields, notes: string) {
+  const blocks = [
+    fields.opening.trim() ? `Apertura: ${fields.opening.trim()}` : null,
+    fields.qualification.trim() ? `Calificacion: ${fields.qualification.trim()}` : null,
+    fields.presentation.trim() ? `Presentacion: ${fields.presentation.trim()}` : null,
+    fields.faq.trim() ? `Preguntas frecuentes / objeciones: ${fields.faq.trim()}` : null,
+    fields.closing.trim() ? `Cierre: ${fields.closing.trim()}` : null,
+    notes.trim() ? `Notas heredadas: ${notes.trim()}` : null,
+  ].filter(Boolean);
+
+  return blocks.join("\n\n");
+}
+
 type KnowledgeProductInstructionModalProps = {
   agentId: string;
   productId: string;
@@ -22,6 +69,11 @@ type KnowledgeProductInstructionModalProps = {
   price: string;
   thumbnailUrl: string | null;
   instructions: string;
+  funnelOpening: string | null;
+  funnelQualification: string | null;
+  funnelPresentation: string | null;
+  funnelFaq: string | null;
+  funnelClosing: string | null;
   followUpFlowId: string | null;
   isSelected: boolean;
   flows: FlowOption[];
@@ -33,7 +85,7 @@ function SubmitButton() {
       type="submit"
       className="inline-flex h-10 items-center justify-center rounded-xl bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
     >
-      Guardar instruccion
+      Guardar embudo
     </button>
   );
 }
@@ -47,13 +99,26 @@ export function KnowledgeProductInstructionModal({
   price,
   thumbnailUrl,
   instructions,
+  funnelOpening,
+  funnelQualification,
+  funnelPresentation,
+  funnelFaq,
+  funnelClosing,
   followUpFlowId,
   isSelected,
   flows,
 }: KnowledgeProductInstructionModalProps) {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<"edit" | "preview">("edit");
+  const [expandedStep, setExpandedStep] = useState<keyof FunnelFields | null>("opening");
   const [instructionValue, setInstructionValue] = useState(instructions);
+  const [funnelFields, setFunnelFields] = useState<FunnelFields>({
+    opening: funnelOpening ?? "",
+    qualification: funnelQualification ?? "",
+    presentation: funnelPresentation ?? "",
+    faq: funnelFaq ?? "",
+    closing: funnelClosing ?? "",
+  });
   const [followUpFlowValue, setFollowUpFlowValue] = useState(followUpFlowId ?? "");
   const [slashSearch, setSlashSearch] = useState<{
     start: number;
@@ -64,6 +129,10 @@ export function KnowledgeProductInstructionModal({
   const titleId = useId();
   const portalTarget = typeof document === "undefined" ? null : document.body;
   const normalizedQuery = slashSearch?.query.trim().toLowerCase() ?? "";
+  const composedInstructions = useMemo(
+    () => composeFunnelInstructions(funnelFields, instructionValue),
+    [funnelFields, instructionValue],
+  );
   const filteredFlows = useMemo(() => {
     if (!slashSearch) {
       return [];
@@ -143,11 +212,61 @@ export function KnowledgeProductInstructionModal({
   };
 
   const flowTitleSet = useMemo(() => new Set(flows.map((f) => f.title)), [flows]);
+  const funnelSteps = useMemo(
+    () => [
+      {
+        key: "opening" as const,
+        emoji: "👋",
+        title: "Paso 1. Apertura",
+        subtitle: "Presentación inicial y pregunta de arranque.",
+        placeholder: "Qué debe decir el agente al empezar.",
+        value: funnelFields.opening,
+        onChange: (nextValue: string) => setFunnelFields((current) => ({ ...current, opening: nextValue })),
+      },
+      {
+        key: "qualification" as const,
+        emoji: "🧭",
+        title: "Paso 2. Calificación",
+        subtitle: "Pregunta para entender la necesidad real.",
+        placeholder: "Qué pregunta debe hacer para entender la necesidad.",
+        value: funnelFields.qualification,
+        onChange: (nextValue: string) => setFunnelFields((current) => ({ ...current, qualification: nextValue })),
+      },
+      {
+        key: "presentation" as const,
+        emoji: "💡",
+        title: "Paso 3. Presentación",
+        subtitle: "Beneficios y datos que ayudan a vender.",
+        placeholder: "Qué beneficios o datos del producto debe mostrar.",
+        value: funnelFields.presentation,
+        onChange: (nextValue: string) => setFunnelFields((current) => ({ ...current, presentation: nextValue })),
+      },
+      {
+        key: "faq" as const,
+        emoji: "❓",
+        title: "Paso 4. FAQ / objeciones",
+        subtitle: "Respuestas a dudas frecuentes y objeciones.",
+        placeholder: "Precio, peso, medidas, color, envío, disponibilidad.",
+        value: funnelFields.faq,
+        onChange: (nextValue: string) => setFunnelFields((current) => ({ ...current, faq: nextValue })),
+      },
+      {
+        key: "closing" as const,
+        emoji: "✅",
+        title: "Paso 5. Cierre",
+        subtitle: "Siguiente paso para avanzar la venta.",
+        placeholder: "Qué debe hacer para avanzar: fotos, reserva, color, visita o asesor.",
+        value: funnelFields.closing,
+        onChange: (nextValue: string) => setFunnelFields((current) => ({ ...current, closing: nextValue })),
+      },
+    ],
+    [funnelFields],
+  );
 
   const renderPreview = (text: string) => {
     if (!text.trim()) {
       return (
-        <p className="text-sm text-slate-400">Sin instruccion guardada. El agente usara solo la informacion base del producto.</p>
+      <p className="text-sm text-slate-400">Sin embudo guardado. El agente usara solo la informacion base del producto.</p>
       );
     }
     const parts = text.split(/(\/\S+)/g);
@@ -182,6 +301,13 @@ export function KnowledgeProductInstructionModal({
       type="button"
       onClick={() => {
         setInstructionValue(instructions);
+        setFunnelFields({
+          opening: funnelOpening ?? "",
+          qualification: funnelQualification ?? "",
+          presentation: funnelPresentation ?? "",
+          faq: funnelFaq ?? "",
+          closing: funnelClosing ?? "",
+        });
         setFollowUpFlowValue(followUpFlowId ?? "");
         setSlashSearch(null);
         setView("edit");
@@ -200,9 +326,9 @@ export function KnowledgeProductInstructionModal({
             </span>
           ) : null}
           {instructions.trim() ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-amber-100">
+              <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-amber-100">
               <FileText className="h-3 w-3" />
-              Instruccion
+              Embudo
             </span>
           ) : null}
         </div>
@@ -243,6 +369,12 @@ export function KnowledgeProductInstructionModal({
                   <input type="hidden" name="agentId" value={agentId} />
                   <input type="hidden" name="productId" value={productId} />
                   <input type="hidden" name="followUpFlowId" value={followUpFlowValue} />
+                  <input type="hidden" name="funnelOpening" value={funnelFields.opening} />
+                  <input type="hidden" name="funnelQualification" value={funnelFields.qualification} />
+                  <input type="hidden" name="funnelPresentation" value={funnelFields.presentation} />
+                  <input type="hidden" name="funnelFaq" value={funnelFields.faq} />
+                  <input type="hidden" name="funnelClosing" value={funnelFields.closing} />
+                  <input type="hidden" name="instructions" value={composedInstructions} />
 
                   <div className="flex items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1 w-fit mb-4">
                     <button
@@ -255,7 +387,7 @@ export function KnowledgeProductInstructionModal({
                       }`}
                     >
                       <Pencil className="h-3 w-3" />
-                      Instruccion
+                      Embudo
                     </button>
                     <button
                       type="button"
@@ -272,8 +404,48 @@ export function KnowledgeProductInstructionModal({
                   </div>
 
                   {view === "edit" ? (
-                    <label className="block">
-                      <span className="text-sm font-semibold text-slate-900">Instruccion:</span>
+                    <div className="block">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-slate-900">Embudo:</span>
+                        <span className="rounded-full bg-[color-mix(in_srgb,var(--primary)_8%,white)] px-2 py-0.5 text-[10px] font-medium text-[var(--primary)]">
+                          👣 Paso a paso
+                        </span>
+                      </div>
+                      <div className="mt-3 grid gap-3">
+                        {funnelSteps.map((step) => {
+                          const isExpanded = expandedStep === step.key;
+                          return (
+                            <div key={step.key} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_12px_34px_-28px_rgba(15,23,42,0.35)]">
+                              <button
+                                type="button"
+                                onClick={() => setExpandedStep(isExpanded ? null : step.key)}
+                                className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left transition hover:bg-slate-50"
+                              >
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-base">{step.emoji}</span>
+                                    <span className="text-sm font-semibold text-slate-900">{step.title}</span>
+                                  </div>
+                                  <p className="mt-1 text-xs leading-5 text-slate-500">{step.subtitle}</p>
+                                </div>
+                                <ChevronDown className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+                              </button>
+
+                              {isExpanded ? (
+                                <div className="border-t border-slate-100 px-4 py-4">
+                                  <textarea
+                                    value={step.value}
+                                    onChange={(event) => step.onChange(event.target.value)}
+                                    rows={3}
+                                    placeholder={step.placeholder}
+                                    className="min-h-24 w-full resize-y rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm leading-6 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-[var(--primary)] focus:ring-4 focus:ring-[color-mix(in_srgb,var(--primary)_12%,white)]"
+                                  />
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
                       {slashSearch ? (
                         <div className="mt-2 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_18px_40px_-28px_rgba(15,23,42,0.35)]">
                           {flows.length === 0 ? (
@@ -300,9 +472,20 @@ export function KnowledgeProductInstructionModal({
                           )}
                         </div>
                       ) : null}
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setInstructionValue(buildFunnelTemplate(productName))}
+                          className="inline-flex h-9 items-center justify-center rounded-xl border border-[color-mix(in_srgb,var(--primary)_18%,white)] bg-[color-mix(in_srgb,var(--primary)_6%,white)] px-3 text-xs font-medium text-[var(--primary)] transition hover:bg-[color-mix(in_srgb,var(--primary)_10%,white)]"
+                        >
+                          Convertir a embudo
+                        </button>
+                        <span className="text-xs text-slate-500">
+                          Usa esta base para ordenar el producto por pasos.
+                        </span>
+                      </div>
                       <textarea
                         ref={textareaRef}
-                        name="instructions"
                         value={instructionValue}
                         onChange={(event) => {
                           const nextValue = event.target.value;
@@ -312,13 +495,13 @@ export function KnowledgeProductInstructionModal({
                         onClick={(event) => updateSlashSearch(instructionValue, event.currentTarget.selectionStart)}
                         onKeyUp={(event) => updateSlashSearch(instructionValue, event.currentTarget.selectionStart)}
                         rows={10}
-                        placeholder="Entrena tu agente con la informacion de tu producto"
+                        placeholder="Notas adicionales del producto mientras migras al embudo."
                         className="mt-2 min-h-56 w-full resize-y rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm leading-6 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-[var(--primary)] focus:ring-4 focus:ring-[color-mix(in_srgb,var(--primary)_12%,white)]"
                       />
 
                       <div className="mt-4 grid gap-4">
                         <label className="block">
-                          <span className="text-sm font-semibold text-slate-900">Flujo hijo opcional:</span>
+                          <span className="text-sm font-semibold text-slate-900">Flujo hijo del embudo:</span>
                           <select
                             value={followUpFlowValue}
                             onChange={(event) => setFollowUpFlowValue(event.target.value)}
@@ -332,11 +515,11 @@ export function KnowledgeProductInstructionModal({
                             ))}
                           </select>
                           <p className="mt-2 text-xs leading-5 text-slate-500">
-                            Este flujo se usara como siguiente paso del producto cuando el contexto lo indique.
+                            Este flujo se usara como siguiente paso del embudo cuando el contexto lo indique.
                           </p>
                         </label>
                       </div>
-                    </label>
+                    </div>
                   ) : (
                     <div className="space-y-3">
                       <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-400">
@@ -366,11 +549,11 @@ export function KnowledgeProductInstructionModal({
                           </div>
                         ) : null}
                         <div className="border-t border-slate-100 px-4 py-3">
-                          <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">Instruccion para el agente</p>
-                          {instructionValue.trim() ? (
-                            renderPreview(instructionValue)
+                          <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">Embudo para el agente</p>
+                          {composedInstructions.trim() ? (
+                            renderPreview(composedInstructions)
                           ) : (
-                            <p className="text-sm text-slate-400">Sin instruccion — el agente usara solo los datos del producto.</p>
+                            <p className="text-sm text-slate-400">Sin embudo — el agente usara solo los datos del producto.</p>
                           )}
                         </div>
                       </div>

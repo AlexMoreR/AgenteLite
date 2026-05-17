@@ -160,8 +160,13 @@ const saveAgentKnowledgeProductsSchema = z.object({
 const saveAgentKnowledgeProductInstructionSchema = z.object({
   agentId: z.string().trim().min(1, "Agente invalido"),
   productId: z.string().trim().min(1, "Producto invalido"),
-  instructions: z.string().trim().max(5000, "La instruccion es demasiado larga"),
-  followUpFlowId: z.string().trim().optional(),
+  funnelOpening: z.preprocess((value) => (value == null ? "" : value), z.string().trim().max(2000, "La apertura es demasiado larga")).default(""),
+  funnelQualification: z.preprocess((value) => (value == null ? "" : value), z.string().trim().max(2000, "La calificacion es demasiado larga")).default(""),
+  funnelPresentation: z.preprocess((value) => (value == null ? "" : value), z.string().trim().max(2000, "La presentacion es demasiado larga")).default(""),
+  funnelFaq: z.preprocess((value) => (value == null ? "" : value), z.string().trim().max(2000, "Las preguntas frecuentes son demasiado largas")).default(""),
+  funnelClosing: z.preprocess((value) => (value == null ? "" : value), z.string().trim().max(2000, "El cierre es demasiado largo")).default(""),
+  instructions: z.preprocess((value) => (value == null ? "" : value), z.string().trim().max(5000, "La instruccion es demasiado larga")).default(""),
+  followUpFlowId: z.preprocess((value) => (value == null ? "" : value), z.string().trim()).optional(),
 });
 
 const saveAgentActionsSchema = z.object({
@@ -383,6 +388,11 @@ async function getAgentKnowledgePromptProducts(agentId: string) {
         p."thumbnailUrl",
         p."price"::text AS "price",
         c."name" AS "categoryName",
+        akp."funnelOpening",
+        akp."funnelQualification",
+        akp."funnelPresentation",
+        akp."funnelFaq",
+        akp."funnelClosing",
         akp."instructions",
         akp."followUpFlowId"
       FROM "AgentKnowledgeProduct" akp
@@ -403,6 +413,12 @@ async function getAgentKnowledgePromptProducts(agentId: string) {
             p."thumbnailUrl",
             p."price"::text AS "price",
             c."name" AS "categoryName",
+            NULL::text AS "funnelOpening",
+            NULL::text AS "funnelQualification",
+            NULL::text AS "funnelPresentation",
+            NULL::text AS "funnelFaq",
+            NULL::text AS "funnelClosing",
+            NULL::text AS "instructions",
             NULL::text AS "followUpFlowId"
           FROM "AgentKnowledgeProduct" akp
         INNER JOIN "Product" p ON p."id" = akp."productId"
@@ -537,7 +553,7 @@ function summarizeAgentCopilotChanges(changes: AgentCopilotPatch) {
 
   if (changes.businessName) items.push(`Nombre del negocio: ${changes.businessName}`);
   if (changes.businessSummary !== undefined) items.push(changes.businessSummary ? "Resumen del negocio actualizado" : "Resumen del negocio eliminado");
-  if (changes.instruction !== undefined) items.push(changes.instruction ? "Instruccion actualizada" : "Instruccion eliminada");
+  if (changes.instruction !== undefined) items.push(changes.instruction ? "Embudo actualizado" : "Embudo eliminado");
   if (changes.businessDescription) items.push("Descripcion comercial actualizada");
   if (changes.location !== undefined) items.push(`Ubicacion: ${changes.location || "eliminada"}`);
   if (changes.website !== undefined) items.push(`Sitio web: ${changes.website || "eliminado"}`);
@@ -693,7 +709,7 @@ function buildAgentCopilotFallbackSuggestion(input: {
     normalizedIntent.includes("nuevo cliente")
   ) {
     changes.greetNewCustomers = true;
-    changes.customWelcomeMessage = `Hola, soy el asistente de ${input.businessName}. Cuéntame qué estás buscando y te ayudo a elegir la mejor opción.`;
+    changes.customWelcomeMessage = `Hola, soy el asistente de ${input.businessName}. Dime qué producto buscas y te comparto la opción adecuada.`;
   }
 
   const appliedChanges = Object.keys(changes).length;
@@ -1831,14 +1847,28 @@ export async function saveAgentKnowledgeProductsAction(formData: FormData): Prom
 
   try {
     await prisma.$transaction(async (tx) => {
-      const existingRows = await tx.$queryRaw<Array<{ productId: string; instructions: string | null; followUpFlowId: string | null }>>`
-        SELECT "productId", "instructions", "followUpFlowId"
+      const existingRows = await tx.$queryRaw<Array<{
+        productId: string;
+        instructions: string | null;
+        funnelOpening: string | null;
+        funnelQualification: string | null;
+        funnelPresentation: string | null;
+        funnelFaq: string | null;
+        funnelClosing: string | null;
+        followUpFlowId: string | null;
+      }>>`
+        SELECT "productId", "instructions", "funnelOpening", "funnelQualification", "funnelPresentation", "funnelFaq", "funnelClosing", "followUpFlowId"
         FROM "AgentKnowledgeProduct"
         WHERE "agentId" = ${agent.id}
       `;
       const instructionByProductId = new Map(
         existingRows.map((row) => [row.productId, row.instructions]),
       );
+      const funnelOpeningByProductId = new Map(existingRows.map((row) => [row.productId, row.funnelOpening ?? null]));
+      const funnelQualificationByProductId = new Map(existingRows.map((row) => [row.productId, row.funnelQualification ?? null]));
+      const funnelPresentationByProductId = new Map(existingRows.map((row) => [row.productId, row.funnelPresentation ?? null]));
+      const funnelFaqByProductId = new Map(existingRows.map((row) => [row.productId, row.funnelFaq ?? null]));
+      const funnelClosingByProductId = new Map(existingRows.map((row) => [row.productId, row.funnelClosing ?? null]));
       const followUpFlowByProductId = new Map(
         existingRows.map((row) => [row.productId, (row as { followUpFlowId?: string | null }).followUpFlowId ?? null]),
       );
@@ -1850,10 +1880,37 @@ export async function saveAgentKnowledgeProductsAction(formData: FormData): Prom
 
       for (const productId of uniqueProductIds) {
         const instructions = instructionByProductId.get(productId) ?? null;
+        const funnelOpening = funnelOpeningByProductId.get(productId) ?? null;
+        const funnelQualification = funnelQualificationByProductId.get(productId) ?? null;
+        const funnelPresentation = funnelPresentationByProductId.get(productId) ?? null;
+        const funnelFaq = funnelFaqByProductId.get(productId) ?? null;
+        const funnelClosing = funnelClosingByProductId.get(productId) ?? null;
         const followUpFlowId = followUpFlowByProductId.get(productId) ?? null;
         await tx.$executeRaw`
-          INSERT INTO "AgentKnowledgeProduct" ("agentId", "productId", "instructions", "followUpFlowId", "updatedAt")
-          VALUES (${agent.id}, ${productId}, ${instructions}, ${followUpFlowId}, NOW())
+          INSERT INTO "AgentKnowledgeProduct" (
+            "agentId",
+            "productId",
+            "instructions",
+            "funnelOpening",
+            "funnelQualification",
+            "funnelPresentation",
+            "funnelFaq",
+            "funnelClosing",
+            "followUpFlowId",
+            "updatedAt"
+          )
+          VALUES (
+            ${agent.id},
+            ${productId},
+            ${instructions},
+            ${funnelOpening},
+            ${funnelQualification},
+            ${funnelPresentation},
+            ${funnelFaq},
+            ${funnelClosing},
+            ${followUpFlowId},
+            NOW()
+          )
         `;
       }
     });
@@ -1919,13 +1976,18 @@ export async function saveAgentKnowledgeProductInstructionAction(formData: FormD
   const parsed = saveAgentKnowledgeProductInstructionSchema.safeParse({
     agentId: formData.get("agentId"),
     productId: formData.get("productId"),
+    funnelOpening: formData.get("funnelOpening"),
+    funnelQualification: formData.get("funnelQualification"),
+    funnelPresentation: formData.get("funnelPresentation"),
+    funnelFaq: formData.get("funnelFaq"),
+    funnelClosing: formData.get("funnelClosing"),
     instructions: formData.get("instructions"),
     followUpFlowId: formData.get("followUpFlowId"),
   });
 
   const fallbackAgentId = String(formData.get("agentId") || "");
   if (!parsed.success) {
-    redirect(`/cliente/agentes/${fallbackAgentId}/conocimiento?error=No+se+pudo+guardar+la+instruccion`);
+    redirect(`/cliente/agentes/${fallbackAgentId}/conocimiento?error=No+se+pudo+guardar+el+embudo`);
   }
 
   const membership = await getPrimaryWorkspaceForUser(session.user.id);
@@ -1975,13 +2037,51 @@ export async function saveAgentKnowledgeProductInstructionAction(formData: FormD
     redirect(`/cliente/agentes/${agent.id}/conocimiento?error=El+flujo+hijo+seleccionado+no+es+valido`);
   }
 
+  const composedInstructions = [
+    parsed.data.funnelOpening?.trim() ? `Apertura: ${parsed.data.funnelOpening.trim()}` : null,
+    parsed.data.funnelQualification?.trim() ? `Calificacion: ${parsed.data.funnelQualification.trim()}` : null,
+    parsed.data.funnelPresentation?.trim() ? `Presentacion: ${parsed.data.funnelPresentation.trim()}` : null,
+    parsed.data.funnelFaq?.trim() ? `Preguntas frecuentes / objeciones: ${parsed.data.funnelFaq.trim()}` : null,
+    parsed.data.funnelClosing?.trim() ? `Cierre: ${parsed.data.funnelClosing.trim()}` : null,
+    parsed.data.instructions?.trim() ? `Notas heredadas: ${parsed.data.instructions.trim()}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
   try {
     await prisma.$executeRaw`
-      INSERT INTO "AgentKnowledgeProduct" ("agentId", "productId", "instructions", "followUpFlowId", "updatedAt")
-      VALUES (${agent.id}, ${product.id}, ${parsed.data.instructions || null}, ${parsed.data.followUpFlowId?.trim() || null}, CURRENT_TIMESTAMP)
+      INSERT INTO "AgentKnowledgeProduct" (
+        "agentId",
+        "productId",
+        "instructions",
+        "funnelOpening",
+        "funnelQualification",
+        "funnelPresentation",
+        "funnelFaq",
+        "funnelClosing",
+        "followUpFlowId",
+        "updatedAt"
+      )
+      VALUES (
+        ${agent.id},
+        ${product.id},
+        ${composedInstructions || null},
+        ${parsed.data.funnelOpening?.trim() || null},
+        ${parsed.data.funnelQualification?.trim() || null},
+        ${parsed.data.funnelPresentation?.trim() || null},
+        ${parsed.data.funnelFaq?.trim() || null},
+        ${parsed.data.funnelClosing?.trim() || null},
+        ${parsed.data.followUpFlowId?.trim() || null},
+        CURRENT_TIMESTAMP
+      )
       ON CONFLICT ("agentId", "productId")
       DO UPDATE SET
         "instructions" = EXCLUDED."instructions",
+        "funnelOpening" = EXCLUDED."funnelOpening",
+        "funnelQualification" = EXCLUDED."funnelQualification",
+        "funnelPresentation" = EXCLUDED."funnelPresentation",
+        "funnelFaq" = EXCLUDED."funnelFaq",
+        "funnelClosing" = EXCLUDED."funnelClosing",
         "followUpFlowId" = EXCLUDED."followUpFlowId",
         "updatedAt" = CURRENT_TIMESTAMP
     `;
@@ -1998,7 +2098,7 @@ export async function saveAgentKnowledgeProductInstructionAction(formData: FormD
   }
 
   const mentionedFlowIds = availableFlowTargets
-    .filter((flow) => parsed.data.instructions.toLowerCase().includes(`/${flow.title.toLowerCase()}`))
+    .filter((flow) => composedInstructions.toLowerCase().includes(`/${flow.title.toLowerCase()}`))
     .map((flow) => flow.id);
   const nextTraining = buildAgentTrainingConfig({
     ...training,
@@ -2024,7 +2124,7 @@ export async function saveAgentKnowledgeProductInstructionAction(formData: FormD
   revalidatePath(`/cliente/agentes/${agent.id}`);
   revalidatePath(`/cliente/agentes/${agent.id}/conocimiento`);
   revalidatePath(`/cliente/agentes/${agent.id}/probar`);
-  redirect(`/cliente/agentes/${agent.id}/conocimiento?ok=Instruccion+del+producto+actualizada`);
+  redirect(`/cliente/agentes/${agent.id}/conocimiento?ok=Embudo+del+producto+actualizado`);
 }
 
 export async function saveAgentAdvancedPromptAction(formData: FormData): Promise<void> {
