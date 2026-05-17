@@ -2,10 +2,10 @@ import { parseConsultarProductosToolInput, consultProductsByAgent } from "../ser
 
 export const CONSULTAR_PRODUCTOS_TOOL = {
   type: "function",
-  function: {
-    name: "consultar_productos",
-    description:
-      "Busca el producto mas probable dentro del catalogo del agente y devuelve los datos utiles y su instruccion si existe.",
+    function: {
+      name: "consultar_productos",
+      description:
+      "Busca el producto mas probable dentro del catalogo del agente usando nombre, codigo, slug y categoria, y devuelve los datos utiles del producto.",
     parameters: {
       type: "object",
       additionalProperties: false,

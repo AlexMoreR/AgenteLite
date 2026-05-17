@@ -96,11 +96,9 @@ function getProductScore(input: { query: string; row: ProductRow }) {
   const query = normalizeText(input.query);
   const queryTokens = tokenize(query);
   const name = normalizeOptional(input.row.productName);
-  const description = normalizeOptional(input.row.productDescription);
   const category = normalizeOptional(input.row.categoryName);
   const code = normalizeOptional(input.row.code);
   const slug = normalizeOptional(input.row.slug);
-  const instructions = normalizeOptional(input.row.instructions);
 
   let score = 0;
   const reasons: string[] = [];
@@ -125,46 +123,24 @@ function getProductScore(input: { query: string; row: ProductRow }) {
 
   if (queryTokens.length > 0) {
     const nameTokens = tokenize(input.row.productName);
-    const descriptionTokens = tokenize(input.row.productDescription ?? "");
     const categoryTokens = tokenize(input.row.categoryName ?? "");
-    const instructionTokens = tokenize(input.row.instructions ?? "");
 
     const nameOverlap = nameTokens.filter((token) => queryTokens.some((queryToken) => token === queryToken || queryToken.includes(token) || token.includes(queryToken))).length;
-    const descriptionOverlap = descriptionTokens.filter((token) => queryTokens.some((queryToken) => token === queryToken || queryToken.includes(token) || token.includes(queryToken))).length;
     const categoryOverlap = categoryTokens.filter((token) => queryTokens.some((queryToken) => token === queryToken || queryToken.includes(token) || token.includes(queryToken))).length;
-    const instructionOverlap = instructionTokens.filter((token) => queryTokens.some((queryToken) => token === queryToken || queryToken.includes(token) || token.includes(queryToken))).length;
 
     if (nameOverlap > 0) {
       score += nameOverlap * 8;
       reasons.push("Coincidencia parcial por nombre");
     }
-    if (descriptionOverlap > 0) {
-      score += descriptionOverlap * 3;
-      reasons.push("Coincidencia parcial por descripcion");
-    }
     if (categoryOverlap > 0) {
       score += categoryOverlap * 2;
       reasons.push("Coincidencia por categoria");
     }
-    if (instructionOverlap > 0) {
-      score += instructionOverlap * 2;
-      reasons.push("Coincidencia por instruccion");
-    }
-  }
-
-  if (query && description && description.includes(query)) {
-    score += 12;
-    reasons.push("Coincidencia por descripcion completa");
   }
 
   if (query && category && category.includes(query)) {
     score += 8;
     reasons.push("Coincidencia por categoria completa");
-  }
-
-  if (query && instructions && instructions.includes(query)) {
-    score += 8;
-    reasons.push("Coincidencia por instruccion completa");
   }
 
   const confidence = Math.max(0, Math.min(100, score));
@@ -271,7 +247,7 @@ export async function consultProductsByAgent(input: {
     bestMatch,
     matches,
     recommendation: bestMatch
-      ? "Usa el producto encontrado y su instruccion si aplica."
+      ? "Usa el producto encontrado y su contexto si aplica."
       : "No hay un producto claro. Considera consultar flujos o seguir con una respuesta general.",
   };
 }

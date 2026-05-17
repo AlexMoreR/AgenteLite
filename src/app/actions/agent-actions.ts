@@ -165,7 +165,7 @@ const saveAgentKnowledgeProductInstructionSchema = z.object({
   funnelPresentation: z.preprocess((value) => (value == null ? "" : value), z.string().trim().max(2000, "La presentacion es demasiado larga")).default(""),
   funnelFaq: z.preprocess((value) => (value == null ? "" : value), z.string().trim().max(2000, "Las preguntas frecuentes son demasiado largas")).default(""),
   funnelClosing: z.preprocess((value) => (value == null ? "" : value), z.string().trim().max(2000, "El cierre es demasiado largo")).default(""),
-  instructions: z.preprocess((value) => (value == null ? "" : value), z.string().trim().max(5000, "La instruccion es demasiado larga")).default(""),
+  instructions: z.preprocess((value) => (value == null ? "" : value), z.string().trim().max(20000, "El embudo es demasiado largo")).default(""),
   followUpFlowId: z.preprocess((value) => (value == null ? "" : value), z.string().trim()).optional(),
 });
 
