@@ -701,7 +701,7 @@ export async function POST(request: Request) {
           UPDATE "OfficialApiConversation"
           SET "activeProductContext" = ${agentProductFlowResolution.activeProductContext as Prisma.InputJsonValue},
               "updatedAt" = CURRENT_TIMESTAMP
-          WHERE "id" = ${conversation.id}
+          WHERE "id" = ${message.conversationId}
         `;
       }
 
