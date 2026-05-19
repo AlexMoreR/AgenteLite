@@ -703,6 +703,10 @@ export function OfficialApiChatbotWorkspace({
   const [isEditingWorkflowIntent, setIsEditingWorkflowIntent] = useState(false);
   const [editingWorkflowIntentDraft, setEditingWorkflowIntentDraft] = useState("");
   const [editingWorkflowIntentScenarioId, setEditingWorkflowIntentScenarioId] = useState("");
+  const [editingWorkflowType, setEditingWorkflowType] = useState<OfficialApiChatbotScenarioFlowType | "">("");
+  const [editingWorkflowMatchType, setEditingWorkflowMatchType] = useState<OfficialApiChatbotScenarioMatchType>("exacta");
+  const [editingWorkflowKeywords, setEditingWorkflowKeywords] = useState<string[]>([]);
+  const [editingWorkflowKeywordDraft, setEditingWorkflowKeywordDraft] = useState("");
   const [isUploadingNodeImage, setIsUploadingNodeImage] = useState(false);
   const [nodeImageUploadError, setNodeImageUploadError] = useState("");
   const [openMenuScenarioId, setOpenMenuScenarioId] = useState("");
@@ -757,6 +761,10 @@ export function OfficialApiChatbotWorkspace({
     setOpenMenuScenarioId("");
     setEditingWorkflowIntentScenarioId(scenario.id);
     setEditingWorkflowIntentDraft(scenario.intent || "");
+    setEditingWorkflowType(scenario.flowType ?? "ia");
+    setEditingWorkflowMatchType(scenario.matchType ?? "exacta");
+    setEditingWorkflowKeywords(Array.isArray(scenario.keywords) ? scenario.keywords.slice(0, 20) : []);
+    setEditingWorkflowKeywordDraft("");
     setIsEditingWorkflowIntent(true);
   }
 
@@ -780,29 +788,66 @@ export function OfficialApiChatbotWorkspace({
     setNewWorkflowKeywords((current) => current.filter((keyword) => keyword !== keywordToRemove));
   }
 
+  function addEditingWorkflowKeyword(rawValue: string) {
+    const keyword = rawValue.trim();
+    if (!keyword) {
+      return;
+    }
+
+    setEditingWorkflowKeywords((current) => {
+      if (current.length >= 20 || current.some((existing) => existing.toLowerCase() === keyword.toLowerCase())) {
+        return current;
+      }
+
+      return [...current, keyword];
+    });
+    setEditingWorkflowKeywordDraft("");
+  }
+
+  function removeEditingWorkflowKeyword(keywordToRemove: string) {
+    setEditingWorkflowKeywords((current) => current.filter((keyword) => keyword !== keywordToRemove));
+  }
+
   function closeEditWorkflowIntentModal() {
     setIsEditingWorkflowIntent(false);
     setEditingWorkflowIntentScenarioId("");
     setEditingWorkflowIntentDraft("");
+    setEditingWorkflowType("");
+    setEditingWorkflowMatchType("exacta");
+    setEditingWorkflowKeywords([]);
+    setEditingWorkflowKeywordDraft("");
   }
 
   function saveWorkflowIntent() {
     const scenarioId = editingWorkflowIntentScenarioId.trim();
-    const intent = editingWorkflowIntentDraft.trim();
+    const intent =
+      editingWorkflowType === "chatbot"
+        ? editingWorkflowKeywords.length > 0
+          ? `Palabras clave: ${editingWorkflowKeywords.join(", ")}`
+          : "Flujo de chatbot por palabras clave."
+        : editingWorkflowIntentDraft.trim();
     if (!scenarioId) {
       closeEditWorkflowIntentModal();
       return;
     }
 
-    if (!intent) {
+    if (!editingWorkflowType || (editingWorkflowType === "ia" && !intent)) {
       toast.error("Completa la intención", {
-        description: "Escribe una intención antes de guardarla.",
+        description: "Selecciona un tipo y completa la información antes de guardarla.",
       });
       return;
     }
 
     const nextScenarios = scenarios.map((scenario) =>
-      scenario.id === scenarioId ? { ...scenario, intent } : scenario,
+      scenario.id === scenarioId
+        ? {
+            ...scenario,
+            intent: intent || "Intención personalizada creada desde el builder.",
+            flowType: editingWorkflowType || "ia",
+            matchType: editingWorkflowType === "chatbot" ? editingWorkflowMatchType : undefined,
+            keywords: editingWorkflowType === "chatbot" ? editingWorkflowKeywords : [],
+          }
+        : scenario,
     );
 
     setScenarios(nextScenarios);
@@ -1802,7 +1847,6 @@ export function OfficialApiChatbotWorkspace({
                   <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-[11px] font-semibold tracking-[0.08em] text-slate-600">
                     {getWorkflowTypeLabel(scenario.flowType)}
                   </span>
-                  <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">Borrador</span>
                 </div>
                 <div className="relative ml-3 flex items-center gap-2">
                   <Button
@@ -2326,8 +2370,7 @@ export function OfficialApiChatbotWorkspace({
                         />
                         <Button
                           type="button"
-                          variant="outline"
-                          className="h-11 shrink-0 px-4"
+                          className="h-11 shrink-0 border-[var(--primary)] bg-[var(--primary)] px-4 text-white hover:bg-[color-mix(in_srgb,var(--primary)_88%,black)] hover:text-white"
                           aria-label="Guardar palabra clave"
                           onClick={() => addWorkflowKeyword(newWorkflowKeywordDraft)}
                         >
@@ -2348,11 +2391,7 @@ export function OfficialApiChatbotWorkspace({
                             </button>
                           ))}
                         </div>
-                      ) : (
-                        <p className="text-xs leading-5 text-slate-500">
-                          Agrega las frases que deben activar el chatbot, por ejemplo: camillas, catalogo de camillas o tiene camillas.
-                        </p>
-                      )}
+                      ) : null}
                     </div>
                   </div>
                 ) : null}
@@ -2520,18 +2559,127 @@ export function OfficialApiChatbotWorkspace({
               </div>
 
               <div className="space-y-4 px-6 py-5">
-                <label className="block space-y-2">
-                  <span className="text-sm font-medium text-slate-900">Intención del flujo</span>
-                  <textarea
-                    value={editingWorkflowIntentDraft}
-                    onChange={(event) => setEditingWorkflowIntentDraft(event.target.value)}
-                    className="field-textarea min-h-28"
-                    placeholder="Describe qué intención debe detectar el agente y qué debe lograr."
-                  />
-                  <p className="text-xs leading-5 text-slate-500">
-                    Usa una frase concreta que le sirva al agente para reconocer la intención correcta.
-                  </p>
-                </label>
+                <div className="space-y-3">
+                  <span className="text-sm font-medium text-slate-900">Tipo</span>
+                  <p className="text-xs leading-5 text-slate-500">Define como se activa el flujo.</p>
+                  {editingWorkflowType === "" ? (
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      {workflowTypeOptions.map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => setEditingWorkflowType(option.value)}
+                          className={cn(
+                            "min-h-[104px] rounded-2xl border px-4 py-4 text-center transition",
+                            "border-slate-200 bg-white hover:border-slate-300",
+                          )}
+                        >
+                          <div className="flex flex-col items-center gap-1">
+                            <p className="text-sm font-semibold text-slate-950">{option.title}</p>
+                            <p className="text-xs leading-5 text-slate-600">{option.description}</p>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="rounded-2xl border border-blue-200 bg-blue-50/60 px-4 py-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-slate-950">
+                            {workflowTypeOptions.find((option) => option.value === editingWorkflowType)?.title ?? "IA"}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingWorkflowType("");
+                            setEditingWorkflowIntentDraft("");
+                            setEditingWorkflowMatchType("exacta");
+                            setEditingWorkflowKeywords([]);
+                            setEditingWorkflowKeywordDraft("");
+                          }}
+                          className="text-sm font-medium text-[var(--primary)] transition hover:opacity-80"
+                        >
+                          Cambiar
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {editingWorkflowType === "ia" ? (
+                  <label className="block space-y-2">
+                    <span className="text-sm font-medium text-slate-900">IA</span>
+                    <textarea
+                      value={editingWorkflowIntentDraft}
+                      onChange={(event) => setEditingWorkflowIntentDraft(event.target.value)}
+                      className="field-textarea min-h-28"
+                      placeholder="Describe qué intención debe detectar el agente y qué debe lograr."
+                    />
+                    <p className="text-xs leading-5 text-slate-500">
+                      Usa una frase concreta que le sirva al agente para reconocer la intención correcta.
+                    </p>
+                  </label>
+                ) : editingWorkflowType === "chatbot" ? (
+                  <div className="space-y-4">
+                    <label className="block space-y-2">
+                      <span className="text-sm font-medium text-slate-900">CHATBOT</span>
+                      <select
+                        value={editingWorkflowMatchType}
+                        onChange={(event) =>
+                          setEditingWorkflowMatchType(event.target.value === "contiene" ? "contiene" : "exacta")
+                        }
+                        className="field-input h-11"
+                      >
+                        <option value="exacta">Exacta</option>
+                        <option value="contiene">Contiene</option>
+                      </select>
+                    </label>
+
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-sm font-medium text-slate-900">Palabras clave (opcional, hasta 20)</span>
+                        <span className="text-xs text-slate-500">{editingWorkflowKeywords.length}/20</span>
+                      </div>
+                      <div className="flex gap-2">
+                        <Input
+                          value={editingWorkflowKeywordDraft}
+                          onChange={(event) => setEditingWorkflowKeywordDraft(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              event.preventDefault();
+                              addEditingWorkflowKeyword(editingWorkflowKeywordDraft);
+                            }
+                          }}
+                          placeholder="Escribe una palabra o frase y presiona Enter"
+                        />
+                        <Button
+                          type="button"
+                          className="h-11 shrink-0 border-[var(--primary)] bg-[var(--primary)] px-4 text-white hover:bg-[color-mix(in_srgb,var(--primary)_88%,black)] hover:text-white"
+                          aria-label="Guardar palabra clave"
+                          onClick={() => addEditingWorkflowKeyword(editingWorkflowKeywordDraft)}
+                        >
+                          <Save className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      {editingWorkflowKeywords.length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                          {editingWorkflowKeywords.map((keyword) => (
+                            <button
+                              type="button"
+                              key={keyword}
+                              onClick={() => removeEditingWorkflowKeyword(keyword)}
+                              className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-700 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
+                            >
+                              {keyword}
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
               </div>
 
               <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-6 py-4">
