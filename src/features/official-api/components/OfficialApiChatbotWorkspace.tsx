@@ -72,6 +72,7 @@ import type {
   OfficialApiChatbotData,
   OfficialApiChatbotNodesByScenarioId,
   OfficialApiChatbotScenarioFlowType,
+  OfficialApiChatbotScenarioMatchType,
   OfficialApiChatbotScenario,
 } from "@/features/official-api/types/official-api";
 import { toast } from "sonner";
