@@ -112,10 +112,16 @@ export type OfficialApiChatbotScenarioMessage = {
   content: string;
 };
 
+export type OfficialApiChatbotScenarioFlowType = "ia" | "chatbot";
+export type OfficialApiChatbotScenarioMatchType = "exacta" | "contiene";
+
 export type OfficialApiChatbotScenario = {
   id: string;
   title: string;
   intent: string;
+  flowType?: OfficialApiChatbotScenarioFlowType;
+  matchType?: OfficialApiChatbotScenarioMatchType;
+  keywords?: string[];
   messages: OfficialApiChatbotScenarioMessage[];
 };
 

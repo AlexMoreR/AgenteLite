@@ -2,6 +2,8 @@ import type {
   OfficialApiChatbotBuilderNode,
   OfficialApiChatbotEdgesByScenarioId,
   OfficialApiChatbotNodesByScenarioId,
+  OfficialApiChatbotScenarioFlowType,
+  OfficialApiChatbotScenarioMatchType,
   OfficialApiChatbotScenario,
   OfficialApiChatbotNodePositionsByScenarioId,
 } from "@/features/official-api/types/official-api";
@@ -38,6 +40,25 @@ function sanitizeText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function sanitizeFlowType(value: unknown): OfficialApiChatbotScenarioFlowType {
+  return value === "chatbot" ? "chatbot" : "ia";
+}
+
+function sanitizeMatchType(value: unknown): OfficialApiChatbotScenarioMatchType {
+  return value === "contiene" ? "contiene" : "exacta";
+}
+
+function sanitizeKeywords(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((keyword) => sanitizeText(keyword))
+    .filter((keyword) => keyword.length > 0)
+    .slice(0, 20);
+}
+
 export function normalizeBuilderScenariosForSave(
   scenarios: OfficialApiChatbotScenario[],
 ): OfficialApiChatbotScenario[] {
@@ -60,6 +81,9 @@ export function normalizeBuilderScenariosForSave(
             sanitizeText(scenario.intent) ||
             sanitizeText((scenario as OfficialApiChatbotScenario & { summary?: string | null }).summary) ||
             "Intencion personalizada del builder.",
+          flowType: sanitizeFlowType(scenario.flowType),
+          matchType: sanitizeMatchType(scenario.matchType),
+          keywords: sanitizeKeywords(scenario.keywords),
           messages,
         };
       })

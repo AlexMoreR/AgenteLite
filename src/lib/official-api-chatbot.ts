@@ -4,6 +4,8 @@ import type {
   OfficialApiChatbotEdgesByScenarioId,
   OfficialApiChatbotNodePositionsByScenarioId,
   OfficialApiChatbotNodesByScenarioId,
+  OfficialApiChatbotScenarioFlowType,
+  OfficialApiChatbotScenarioMatchType,
   OfficialApiChatbotScenario,
 } from "@/features/official-api/types/official-api";
 import { randomUUID } from "node:crypto";
@@ -27,6 +29,20 @@ export type OfficialApiChatbotBuilderState = {
 
 function getScenarioIntent(scenario: { intent?: string | null; summary?: string | null }) {
   return (scenario.intent ?? scenario.summary ?? "").trim();
+}
+
+function getScenarioFlowType(scenario: { flowType?: unknown }): OfficialApiChatbotScenarioFlowType {
+  return scenario.flowType === "chatbot" ? "chatbot" : "ia";
+}
+
+function getScenarioMatchType(scenario: { matchType?: unknown }): OfficialApiChatbotScenarioMatchType {
+  return scenario.matchType === "contiene" ? "contiene" : "exacta";
+}
+
+function getScenarioKeywords(scenario: { keywords?: unknown }): string[] {
+  return Array.isArray(scenario.keywords)
+    ? scenario.keywords.map((keyword) => String(keyword).trim()).filter((keyword) => keyword.length > 0).slice(0, 20)
+    : [];
 }
 
 export type StoredOfficialApiAutomationRule = {
@@ -414,10 +430,13 @@ export async function getOfficialApiChatbotBuilderState(
       ...parsed,
       scenarios:
         Array.isArray(parsed.scenarios) && parsed.scenarios.length > 0
-          ? parsed.scenarios.map((scenario, index) => ({
+            ? parsed.scenarios.map((scenario, index) => ({
               id: scenario.id?.trim() || `workflow-${index + 1}`,
               title: scenario.title?.trim() || `Workflow ${index + 1}`,
               intent: getScenarioIntent(scenario) || "Intencion personalizada del builder.",
+              flowType: getScenarioFlowType(scenario),
+              matchType: getScenarioMatchType(scenario),
+              keywords: getScenarioKeywords(scenario),
               messages: Array.isArray(scenario.messages) ? scenario.messages : [],
             }))
           : defaultBuilderState.scenarios,

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type MouseEvent } from "react";
 import {
+  BrainCircuit,
   Bot,
   Route,
   X,
@@ -70,6 +71,7 @@ import type {
   OfficialApiChatbotBuilderNode,
   OfficialApiChatbotData,
   OfficialApiChatbotNodesByScenarioId,
+  OfficialApiChatbotScenarioFlowType,
   OfficialApiChatbotScenario,
 } from "@/features/official-api/types/official-api";
 import { toast } from "sonner";
@@ -102,6 +104,33 @@ type EdgeAppearance = {
   markerColor: string;
   curvature: number;
 };
+
+const workflowTypeOptions: Array<{
+  value: OfficialApiChatbotScenarioFlowType;
+  title: string;
+  description: string;
+  icon: typeof Bot;
+  accentClassName: string;
+}> = [
+  {
+    value: "ia",
+    title: "🧠 IA",
+    description: "Detecta intenciones",
+    icon: BrainCircuit,
+    accentClassName: "border-blue-200 bg-blue-50 text-blue-700 ring-blue-200",
+  },
+  {
+    value: "chatbot",
+    title: "🤖 CHATBOT",
+    description: "Por palabras clave",
+    icon: Bot,
+    accentClassName: "border-emerald-200 bg-emerald-50 text-emerald-700 ring-emerald-200",
+  },
+];
+
+function getWorkflowTypeLabel(flowType?: OfficialApiChatbotScenarioFlowType | null) {
+  return flowType === "chatbot" ? "CHATBOT" : "IA";
+}
 
 function ChatbotFlowNode({ data, selected }: NodeProps<Node<FlowNodeData>>) {
   const preview = data.kind === "image"
@@ -667,6 +696,10 @@ export function OfficialApiChatbotWorkspace({
   const [isCreatingWorkflow, setIsCreatingWorkflow] = useState(false);
   const [newWorkflowTitle, setNewWorkflowTitle] = useState("");
   const [newWorkflowIntent, setNewWorkflowIntent] = useState("");
+  const [newWorkflowType, setNewWorkflowType] = useState<OfficialApiChatbotScenarioFlowType | "">("");
+  const [newWorkflowMatchType, setNewWorkflowMatchType] = useState<"exacta" | "contiene">("exacta");
+  const [newWorkflowKeywords, setNewWorkflowKeywords] = useState<string[]>([]);
+  const [newWorkflowKeywordDraft, setNewWorkflowKeywordDraft] = useState("");
   const [isEditingWorkflowIntent, setIsEditingWorkflowIntent] = useState(false);
   const [editingWorkflowIntentDraft, setEditingWorkflowIntentDraft] = useState("");
   const [editingWorkflowIntentScenarioId, setEditingWorkflowIntentScenarioId] = useState("");
@@ -703,6 +736,10 @@ export function OfficialApiChatbotWorkspace({
   function openCreateWorkflowModal() {
     setNewWorkflowTitle("");
     setNewWorkflowIntent("");
+    setNewWorkflowType("");
+    setNewWorkflowMatchType("exacta");
+    setNewWorkflowKeywords([]);
+    setNewWorkflowKeywordDraft("");
     setIsCreatingWorkflow(true);
   }
 
@@ -710,6 +747,10 @@ export function OfficialApiChatbotWorkspace({
     setIsCreatingWorkflow(false);
     setNewWorkflowTitle("");
     setNewWorkflowIntent("");
+    setNewWorkflowType("");
+    setNewWorkflowMatchType("exacta");
+    setNewWorkflowKeywords([]);
+    setNewWorkflowKeywordDraft("");
   }
 
   function openEditWorkflowIntentModal(scenario: OfficialApiChatbotScenario) {
@@ -717,6 +758,26 @@ export function OfficialApiChatbotWorkspace({
     setEditingWorkflowIntentScenarioId(scenario.id);
     setEditingWorkflowIntentDraft(scenario.intent || "");
     setIsEditingWorkflowIntent(true);
+  }
+
+  function addWorkflowKeyword(rawValue: string) {
+    const keyword = rawValue.trim();
+    if (!keyword) {
+      return;
+    }
+
+    setNewWorkflowKeywords((current) => {
+      if (current.length >= 20 || current.some((existing) => existing.toLowerCase() === keyword.toLowerCase())) {
+        return current;
+      }
+
+      return [...current, keyword];
+    });
+    setNewWorkflowKeywordDraft("");
+  }
+
+  function removeWorkflowKeyword(keywordToRemove: string) {
+    setNewWorkflowKeywords((current) => current.filter((keyword) => keyword !== keywordToRemove));
   }
 
   function closeEditWorkflowIntentModal() {
@@ -1069,7 +1130,19 @@ export function OfficialApiChatbotWorkspace({
 
   function createWorkflow() {
     const title = newWorkflowTitle.trim();
-    const intent = newWorkflowIntent.trim();
+    if (!newWorkflowType) {
+      toast.error("Selecciona el tipo", {
+        description: "Haz clic en IA o CHATBOT para mostrar sus campos.",
+      });
+      return;
+    }
+
+    const intent =
+      newWorkflowType === "chatbot"
+        ? newWorkflowKeywords.length > 0
+          ? `Palabras clave: ${newWorkflowKeywords.join(", ")}`
+          : "Flujo de chatbot por palabras clave."
+        : newWorkflowIntent.trim();
     if (!title) {
       toast.error("Completa el flujo", {
         description: "Agrega el nombre antes de crear el flujo.",
@@ -1081,6 +1154,9 @@ export function OfficialApiChatbotWorkspace({
       id: createWorkflowId(),
       title,
       intent: intent || "Intención personalizada creada desde el builder.",
+      flowType: newWorkflowType,
+      matchType: newWorkflowType === "chatbot" ? newWorkflowMatchType : undefined,
+      keywords: newWorkflowType === "chatbot" ? newWorkflowKeywords : [],
       messages: [],
     };
 
@@ -1723,6 +1799,9 @@ export function OfficialApiChatbotWorkspace({
                     <FileText className="h-4 w-4" />
                   </span>
                   <span className="truncate text-base font-semibold text-slate-800">{scenario.title}</span>
+                  <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-[11px] font-semibold tracking-[0.08em] text-slate-600">
+                    {getWorkflowTypeLabel(scenario.flowType)}
+                  </span>
                   <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">Borrador</span>
                 </div>
                 <div className="relative ml-3 flex items-center gap-2">
@@ -2043,6 +2122,9 @@ export function OfficialApiChatbotWorkspace({
                   {selectedScenario ? (
                     <div className="space-y-3 rounded-[26px] border border-slate-200 bg-white p-4">
                       <p className="text-sm font-semibold text-slate-900">Flujo seleccionado</p>
+                      <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
+                        Tipo: {getWorkflowTypeLabel(selectedScenario.flowType)}
+                      </div>
                       <label className="block space-y-2">
                         <span className="text-sm font-medium text-slate-900">Nombre del flujo</span>
                         <Input
@@ -2051,43 +2133,30 @@ export function OfficialApiChatbotWorkspace({
                         />
                       </label>
                       <label className="block space-y-2">
-                        <span className="text-sm font-medium text-slate-900">Intención del flujo</span>
+                        <span className="text-sm font-medium text-slate-900">Contenido</span>
                         <textarea
-                          value={selectedScenario.intent}
-                          onChange={(event) => updateSelectedWorkflow({ intent: event.target.value })}
-                          className="field-textarea min-h-24"
+                          value={selectedNode.body}
+                          onChange={(event) => updateNode(selectedNode.id, { body: event.target.value })}
+                          className="field-textarea min-h-28"
+                          placeholder="Contenido del nodo"
                         />
                       </label>
+
+                      {selectedNode.kind === "condition" ? (
+                        <label className="block space-y-2">
+                          <span className="text-sm font-medium text-slate-900">Meta / keywords</span>
+                          <Input
+                            value={selectedNode.meta}
+                            onChange={(event) => updateNode(selectedNode.id, { meta: event.target.value })}
+                          />
+                        </label>
+                      ) : null}
                     </div>
-                  ) : null}
-
-                  <label className="block space-y-2">
-                    <span className="text-sm font-medium text-slate-900">Titulo del nodo</span>
-                    <Input
-                      value={selectedNode.title}
-                      onChange={(event) => updateNode(selectedNode.id, { title: event.target.value })}
-                    />
-                  </label>
-
-                  <label className="block space-y-2">
-                    <span className="text-sm font-medium text-slate-900">Contenido</span>
-                    <textarea
-                      value={selectedNode.body}
-                      onChange={(event) => updateNode(selectedNode.id, { body: event.target.value })}
-                      className="field-textarea min-h-28"
-                      placeholder="Contenido del nodo"
-                    />
-                  </label>
-
-                  {selectedNode.kind === "condition" ? (
-                    <label className="block space-y-2">
-                      <span className="text-sm font-medium text-slate-900">Meta / keywords</span>
-                      <Input
-                        value={selectedNode.meta}
-                        onChange={(event) => updateNode(selectedNode.id, { meta: event.target.value })}
-                      />
-                    </label>
-                  ) : null}
+                  ) : (
+                    <div className="rounded-[26px] border border-dashed border-slate-300 bg-slate-50/70 p-4 text-sm leading-6 text-slate-600">
+                      Crea tu primer flujo para desbloquear el lienzo y empezar a agregar nodos.
+                    </div>
+                  )}
                 </>
               ) : selectedScenario ? (
                 <div className="rounded-[26px] border border-dashed border-slate-300 bg-slate-50/70 p-4 text-sm leading-6 text-slate-600">
@@ -2098,117 +2167,9 @@ export function OfficialApiChatbotWorkspace({
                   Crea tu primer flujo para desbloquear el lienzo y empezar a agregar nodos.
                 </div>
               )}
-
-              <label className="block space-y-2">
-                <span className="text-sm font-medium text-slate-900">Horario del flujo</span>
-                <Input value={businessHours} onChange={(event) => setBusinessHours(event.target.value)} />
-              </label>
-
-              <div className="grid gap-3">
-                <div className="rounded-[22px] border border-slate-200 bg-slate-50/80 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-sm font-medium text-slate-900">Captura de lead</span>
-                    <Switch checked={captureLeadEnabled} onCheckedChange={setCaptureLeadEnabled} aria-label="Captura de lead" />
-                  </div>
-                </div>
-                <div className="rounded-[22px] border border-slate-200 bg-slate-50/80 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-sm font-medium text-slate-900">Transferencia humana</span>
-                    <Switch checked={handoffEnabled} onCheckedChange={setHandoffEnabled} aria-label="Transferencia humana" />
-                  </div>
-                </div>
-                <div className="rounded-[22px] border border-slate-200 bg-slate-50/80 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-sm font-medium text-slate-900">Fallback seguro</span>
-                    <Switch checked={fallbackEnabled} onCheckedChange={setFallbackEnabled} aria-label="Fallback seguro" />
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-3 rounded-[26px] border border-slate-200 bg-white p-4">
-                <div className="flex items-center gap-2">
-                  <FileText className="h-4 w-4 text-sky-600" />
-                  <p className="text-sm font-semibold text-slate-900">Plantillas</p>
-                </div>
-                {data.templates.slice(0, 2).map((template) => (
-                  <div key={template.id} className="rounded-[20px] border border-slate-200 bg-slate-50/80 p-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-semibold text-slate-900">{template.title}</p>
-                        <p className="mt-2 text-sm leading-6 text-slate-600">{template.message}</p>
-                      </div>
-                      <Button type="button" variant="outline" size="sm" onClick={() => handleCopyTemplate(template.id, template.message)}>
-                        <Copy className="h-3.5 w-3.5" />
-                        {copiedTemplateId === template.id ? "Copiado" : "Copiar"}
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="space-y-3 rounded-[26px] border border-slate-200 bg-slate-50/70 p-4">
-                <p className="text-sm font-semibold text-slate-900">Metricas del bot</p>
-                {data.metrics.slice(0, 3).map((metric) => (
-                  <div key={metric.id} className="rounded-[20px] border border-white bg-white p-3">
-                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{metric.label}</p>
-                    <p className="mt-2 text-xl font-semibold tracking-[-0.04em] text-slate-950">{metric.value}</p>
-                    <p className="mt-1 text-sm leading-6 text-slate-600">{metric.helper}</p>
-                  </div>
-                ))}
-              </div>
             </div>
           </aside>
         </div>
-        {isCreatingWorkflow ? (
-          <div className="absolute inset-0 z-20 flex items-center justify-center bg-slate-950/20 p-6 backdrop-blur-[2px]">
-            <div className="w-full max-w-md overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_30px_80px_-48px_rgba(15,23,42,0.32)]">
-              <div className="relative border-b border-slate-200 px-6 py-7 text-center">
-                <button
-                  type="button"
-                  onClick={closeCreateWorkflowModal}
-                  className="absolute right-4 top-4 inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
-                  aria-label="Cerrar modal"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--primary)_10%,white)]">
-                  <Inbox className="h-6 w-6 text-[var(--primary)]" />
-                </div>
-                <p className="mt-4 text-xl font-semibold text-slate-950">Crear flujo</p>
-                <p className="mt-1 text-sm leading-6 text-slate-500">Empieza creando el nombre de tu flujo.</p>
-              </div>
-
-              <div className="space-y-5 px-6 py-6">
-                <label className="block space-y-2">
-                  <span className="text-sm font-medium text-slate-900">Nombre del flujo</span>
-                  <Input
-                    value={newWorkflowTitle}
-                    onChange={(event) => setNewWorkflowTitle(event.target.value)}
-                    placeholder="Ej. Bienvenida principal"
-                  />
-                  <p className="text-xs leading-5 text-slate-500">Usa un nombre claro y facil de identificar.</p>
-                </label>
-
-                <label className="block space-y-2">
-                  <span className="text-sm font-medium text-slate-900">Intención del flujo</span>
-                  <textarea
-                    value={newWorkflowIntent}
-                    onChange={(event) => setNewWorkflowIntent(event.target.value)}
-                    className="field-textarea min-h-24"
-                    placeholder="Ej. Intención de precio: cuando el cliente pide precios, compara opciones o quiere avanzar a compra."
-                  />
-                  <p className="text-xs leading-5 text-slate-500">
-                    Describe qué intención debe detectar el agente, qué dispara su uso y qué resultado debe conseguir. Si lo dejas vacío, se guardará una intención base.
-                  </p>
-                </label>
-
-                <Button type="button" className="h-11 w-full rounded-xl" onClick={createWorkflow}>
-                  Continuar
-                </Button>
-              </div>
-            </div>
-          </div>
-        ) : null}
         {scenarioPendingDelete ? (
           <div className="absolute inset-0 z-30 flex items-center justify-center bg-slate-950/25 p-6 backdrop-blur-[2px]">
             <div className="w-full max-w-md overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_30px_80px_-48px_rgba(15,23,42,0.32)]">
@@ -2232,6 +2193,172 @@ export function OfficialApiChatbotWorkspace({
                 </Button>
                 <Button type="button" className="bg-rose-600 text-white hover:bg-rose-700" onClick={confirmDeleteWorkflow}>
                   Eliminar
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+        {isCreatingWorkflow ? (
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-slate-950/20 p-6 backdrop-blur-[2px]">
+            <div className="w-full max-w-md overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_30px_80px_-48px_rgba(15,23,42,0.32)]">
+              <div className="relative border-b border-slate-200 px-6 py-7 text-center">
+                <button
+                  type="button"
+                  onClick={closeCreateWorkflowModal}
+                  className="absolute right-4 top-4 inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                  aria-label="Cerrar modal"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--primary)_10%,white)]">
+                  <Inbox className="h-6 w-6 text-[var(--primary)]" />
+                </div>
+                <p className="mt-4 text-xl font-semibold text-slate-950">Crear flujo</p>
+              </div>
+
+              <div className="space-y-5 px-6 py-6">
+                <label className="block space-y-2">
+                  <span className="text-sm font-medium text-slate-900">Nombre del flujo</span>
+                  <Input
+                    value={newWorkflowTitle}
+                    onChange={(event) => setNewWorkflowTitle(event.target.value)}
+                    placeholder="Ej. Bienvenida principal"
+                  />
+                  <p className="text-xs leading-5 text-slate-500">Usa un nombre claro y facil de identificar.</p>
+                </label>
+
+                <div className="space-y-3">
+                  <span className="text-sm font-medium text-slate-900">Tipo</span>
+                  <p className="text-xs leading-5 text-slate-500">Define como se activa el flujo.</p>
+                  {newWorkflowType === "" ? (
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      {workflowTypeOptions.map((option) => {
+                        return (
+                          <button
+                            key={option.value}
+                            type="button"
+                            onClick={() => setNewWorkflowType(option.value)}
+                            className={cn(
+                              "min-h-[104px] rounded-2xl border px-4 py-4 text-center transition",
+                              "border-slate-200 bg-white hover:border-slate-300",
+                            )}
+                          >
+                            <div className="flex flex-col items-center gap-1">
+                              <p className="text-sm font-semibold text-slate-950">{option.title}</p>
+                              <p className="text-xs leading-5 text-slate-600">{option.description}</p>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="rounded-2xl border border-blue-200 bg-blue-50/60 px-4 py-3">
+                      {(() => {
+                        const selectedOption =
+                          workflowTypeOptions.find((option) => option.value === newWorkflowType) ?? workflowTypeOptions[0];
+
+                        return (
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold text-slate-950">{selectedOption.title}</p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setNewWorkflowType("");
+                                setNewWorkflowIntent("");
+                                setNewWorkflowMatchType("exacta");
+                                setNewWorkflowKeywords([]);
+                                setNewWorkflowKeywordDraft("");
+                              }}
+                              className="text-sm font-medium text-[var(--primary)] transition hover:opacity-80"
+                            >
+                              Cambiar
+                            </button>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
+                </div>
+
+                {newWorkflowType === "ia" ? (
+                  <label className="block space-y-2">
+                    <span className="text-sm font-medium text-slate-900">IA</span>
+                    <textarea
+                      value={newWorkflowIntent}
+                      onChange={(event) => setNewWorkflowIntent(event.target.value)}
+                      className="field-textarea min-h-24"
+                      placeholder="El usuario quiere comprar o pregunta por precios o disponibilidad"
+                    />
+                    <p className="text-xs leading-5 text-slate-500">Detecta intenciones.</p>
+                  </label>
+                ) : newWorkflowType === "chatbot" ? (
+                  <div className="space-y-4">
+                    <label className="block space-y-2">
+                      <span className="text-sm font-medium text-slate-900">CHATBOT</span>
+                      <select
+                        value={newWorkflowMatchType}
+                        onChange={(event) => setNewWorkflowMatchType(event.target.value === "contiene" ? "contiene" : "exacta")}
+                        className="field-input h-11"
+                      >
+                        <option value="exacta">Exacta</option>
+                        <option value="contiene">Contiene</option>
+                      </select>
+                    </label>
+
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-sm font-medium text-slate-900">Palabras clave (opcional, hasta 20)</span>
+                        <span className="text-xs text-slate-500">{newWorkflowKeywords.length}/20</span>
+                      </div>
+                      <div className="flex gap-2">
+                        <Input
+                          value={newWorkflowKeywordDraft}
+                          onChange={(event) => setNewWorkflowKeywordDraft(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              event.preventDefault();
+                              addWorkflowKeyword(newWorkflowKeywordDraft);
+                            }
+                          }}
+                          placeholder="Escribe una palabra o frase y presiona Enter"
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-11 shrink-0 px-4"
+                          aria-label="Guardar palabra clave"
+                          onClick={() => addWorkflowKeyword(newWorkflowKeywordDraft)}
+                        >
+                          <Save className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      {newWorkflowKeywords.length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                          {newWorkflowKeywords.map((keyword) => (
+                            <button
+                              type="button"
+                              key={keyword}
+                              onClick={() => removeWorkflowKeyword(keyword)}
+                              className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-700 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
+                            >
+                              {keyword}
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs leading-5 text-slate-500">
+                          Agrega las frases que deben activar el chatbot, por ejemplo: camillas, catalogo de camillas o tiene camillas.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ) : null}
+
+                <Button type="button" className="h-11 w-full rounded-xl" onClick={createWorkflow}>
+                  Continuar
                 </Button>
               </div>
             </div>
