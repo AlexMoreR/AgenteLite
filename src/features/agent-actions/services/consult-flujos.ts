@@ -12,6 +12,7 @@ type ConsultFlowItem = {
   flowType: "ia" | "chatbot";
   matchType: "exacta" | "contiene";
   keywords: string[];
+  isChildFlow: boolean;
 };
 
 export type ConsultFlowMatch = {
@@ -195,6 +196,7 @@ function toConsultFlowItem(flow: Awaited<ReturnType<typeof getCreatedFlowItems>>
     flowType: flow.flowType,
     matchType: flow.matchType,
     keywords: flow.keywords,
+    isChildFlow: flow.isChildFlow,
   };
 }
 
@@ -222,6 +224,9 @@ export async function consultFlowsByWorkspace(input: {
   const matches = candidateFlows
     .map((flow) => {
       const consultFlow = toConsultFlowItem(flow);
+      if (consultFlow.isChildFlow) {
+        return null;
+      }
       const scored = scoreFlow(query, consultFlow);
       return {
         flowId: consultFlow.id,
@@ -235,6 +240,7 @@ export async function consultFlowsByWorkspace(input: {
         reason: scored.reason,
       } satisfies ConsultFlowMatch;
     })
+    .filter((match): match is ConsultFlowMatch => Boolean(match))
     .filter((match) => match.score >= 16)
     .sort((left, right) => right.score - left.score)
     .slice(0, limit);

@@ -19,6 +19,7 @@ export type CreatedFlowItem = {
   flowType: CreatedFlowType;
   matchType: CreatedFlowMatchType;
   keywords: string[];
+  isChildFlow: boolean;
 };
 
 function buildFlowItemId(input: { sourceType: CreatedFlowSourceType; sourceId: string; scenarioId: string }) {
@@ -67,6 +68,24 @@ export async function getCreatedFlowItems(input: {
       },
     }),
   ]);
+  const childFlowRows = await prisma.agentKnowledgeProduct.findMany({
+    where: {
+      agent: {
+        workspaceId: input.workspaceId,
+      },
+      followUpFlowId: {
+        not: null,
+      },
+    },
+    select: {
+      followUpFlowId: true,
+    },
+  });
+  const childFlowIds = new Set(
+    childFlowRows
+      .map((row) => row.followUpFlowId?.trim() || "")
+      .filter(Boolean),
+  );
 
   const items: CreatedFlowItem[] = [];
 
@@ -91,6 +110,7 @@ export async function getCreatedFlowItems(input: {
         flowType: sanitizeFlowType(scenario.flowType),
         matchType: sanitizeMatchType(scenario.matchType),
         keywords: sanitizeKeywords(scenario.keywords),
+        isChildFlow: childFlowIds.has(scenario.id),
       });
     }
   }
@@ -150,6 +170,7 @@ export async function getCreatedFlowItems(input: {
         flowType: sanitizeFlowType(scenario.flowType),
         matchType: sanitizeMatchType(scenario.matchType),
         keywords: sanitizeKeywords(scenario.keywords),
+        isChildFlow: childFlowIds.has(scenarioId),
       });
     }
   }
