@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
@@ -89,7 +89,7 @@ function buildContactsReportCsv(data: ContactosData) {
   };
 
   appendRow(["Reporte", data.workspaceName]);
-  appendRow(["Rango", `Ãšltimos ${data.reportRangeDays} dÃ­as`]);
+  appendRow(["Rango", `Últimos ${data.reportRangeDays} días`]);
   appendRow(["Generado", new Intl.DateTimeFormat("es-CO", {
     dateStyle: "medium",
     timeStyle: "short",
@@ -100,8 +100,8 @@ function buildContactsReportCsv(data: ContactosData) {
   appendRow(["Con email", data.stats.withEmail]);
   lines.push("");
 
-  appendRow(["Resumen por dÃ­a"]);
-  appendRow(["DÃ­a", "Fecha", "Total", ...Array.from({ length: 24 }, (_, hour) => formatHeatmapHourLabel(hour))]);
+  appendRow(["Resumen por día"]);
+  appendRow(["Día", "Fecha", "Total", ...Array.from({ length: 24 }, (_, hour) => formatHeatmapHourLabel(hour))]);
   data.creationHeatmap.days.forEach((day) => {
     appendRow([
       day.dayLabel,
@@ -113,7 +113,7 @@ function buildContactsReportCsv(data: ContactosData) {
   lines.push("");
 
   appendRow(["Top contactos"]);
-  appendRow(["Nombre", "TelÃ©fono", "Chats", "Email", "Ãšltima actividad"]);
+  appendRow(["Nombre", "Teléfono", "Chats", "Email", "Última actividad"]);
   data.contacts
     .slice()
     .sort((left, right) => (right.totalConversations - left.totalConversations) || ((right.lastActivityAt ? new Date(right.lastActivityAt).getTime() : 0) - (left.lastActivityAt ? new Date(left.lastActivityAt).getTime() : 0)))
@@ -217,7 +217,7 @@ function getMatchSourceLabel(sourceType: "KNOWLEDGE" | "FLOW" | "QUICK_RESPONSE"
     case "FLOW":
       return "Flujo";
     case "QUICK_RESPONSE":
-      return "Respuesta rÃ¡pida";
+      return "Respuesta rápida";
     case "AI":
       return "IA";
   }
@@ -275,8 +275,8 @@ function ContactCard({
         <ContactAvatar
           avatarUrl={contact.avatarUrl}
           label={name}
-          className="h-9 w-9 shrink-0 rounded-xl border border-[rgba(148,163,184,0.12)] bg-slate-100 text-slate-500"
-          fallbackClassName="rounded-xl bg-slate-100 text-xs font-semibold text-slate-700"
+          className="h-11 w-11 shrink-0 rounded-xl border border-[rgba(148,163,184,0.12)] bg-slate-100 text-slate-500"
+          fallbackClassName="rounded-xl bg-slate-100 text-sm font-semibold text-slate-700"
         />
 
         <div className="min-w-0 flex-1 space-y-1">
@@ -438,28 +438,25 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
   return (
     <section className="space-y-2">
       <div className="space-y-1">
-        <div className="flex items-start gap-3">
-          <Users2 className="mt-1 h-5 w-5 shrink-0 text-[var(--primary)]" />
-          <h1 className="text-2xl font-semibold tracking-[-0.05em] text-slate-950">Contactos</h1>
-        </div>
-        <p className="max-w-3xl text-sm text-slate-600">
-          Organiza los contactos.
-        </p>
-        {data.agentFilterName ? (
-          <p className="text-xs font-medium text-slate-500">Filtrado por {data.agentFilterName}</p>
-        ) : null}
-        <div className="flex items-center gap-1 rounded-2xl border border-[rgba(148,163,184,0.14)] bg-white p-1 shadow-[0_12px_30px_-26px_rgba(15,23,42,0.14)]">
-          {[
-            { key: "contacto" as const, label: "Contacto" },
-            { key: "informe" as const, label: "Informe" },
-          ].map((tab) => {
-            const active = activeView === tab.key;
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Users2 className="h-5 w-5 shrink-0 text-[var(--primary)]" />
+            <h1 className="text-2xl font-semibold tracking-[-0.05em] text-slate-950">Contactos</h1>
+          </div>
 
-            return (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
               <button
-                key={tab.key}
                 type="button"
-                onClick={() =>
+                className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-[rgba(148,163,184,0.18)] bg-white text-slate-600 transition hover:bg-slate-50 hover:text-[var(--primary)]"
+                aria-label="Más opciones de contactos"
+              >
+                <MoreVertical className="h-4 w-4" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-44 rounded-2xl">
+              <DropdownMenuItem
+                onSelect={() =>
                   router.push(
                     getContactosHref({
                       searchQuery: data.searchQuery,
@@ -467,27 +464,30 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                       selectedContactId: data.selectedContactId,
                       range: data.reportRangeDays,
                       page: pagination.page,
-                      view: tab.key,
+                      view: "informe",
                     }),
                   )
                 }
-                className={`inline-flex h-10 items-center gap-2 rounded-xl px-4 text-sm font-medium transition ${
-                  active
-                    ? "bg-[var(--primary)] text-white shadow-[0_16px_30px_-20px_color-mix(in_srgb,var(--primary)_55%,black)]"
-                    : "text-slate-600 hover:bg-slate-50 hover:text-[var(--primary)]"
-                }`}
+                className="gap-2"
               >
-                {tab.key === "informe" ? <BarChart3 className="h-4 w-4" /> : <MessageCircle className="h-4 w-4" />}
-                {tab.label}
-              </button>
-            );
-          })}
+                <BarChart3 className="h-4 w-4" />
+                Informe
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
+        <p className="max-w-3xl text-sm text-slate-600">
+          Organiza los contactos.
+        </p>
+        {data.agentFilterName ? (
+          <p className="text-xs font-medium text-slate-500">Filtrado por {data.agentFilterName}</p>
+        ) : null}
+
       </div>
 
       {activeView === "informe" ? (
         <div className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             <ContactMetric
               label="Total"
               value={String(data.stats.total)}
@@ -503,18 +503,13 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
               value={String(data.stats.withoutConversations)}
               icon={<Sparkles className="h-5 w-5" />}
             />
-            <ContactMetric
-              label="Con email"
-              value={String(data.stats.withEmail)}
-              icon={<Mail className="h-5 w-5" />}
-            />
           </div>
 
           <div className="rounded-[28px] border border-[var(--line)] bg-white p-4 shadow-[0_16px_34px_-28px_rgba(15,23,42,0.16)] sm:p-5">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center gap-3">
-                  <h2 className="text-lg font-semibold tracking-[-0.04em] text-slate-950">TrÃ¡fico de creaciÃ³n</h2>
+                  <h2 className="text-lg font-semibold tracking-[-0.04em] text-slate-950">Tráfico de creación</h2>
                   <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                     En vivo
@@ -528,7 +523,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                   onValueChange={(value) => handleReportRangeChange(value)}
                 >
                   <SelectTrigger className="h-11 min-w-[180px] rounded-2xl border-slate-200 bg-slate-50 px-4 text-sm font-medium text-slate-700 shadow-none transition hover:border-[color:color-mix(in_srgb,var(--primary)_18%,white)] hover:text-[var(--primary)] data-[state=open]:border-[var(--primary)] data-[state=open]:bg-white data-[state=open]:shadow-sm">
-                    <SelectValue placeholder="Ãšltimos 7 dÃ­as" />
+                    <SelectValue placeholder="Últimos 7 días" />
                   </SelectTrigger>
                   <SelectContent
                     align="start"
@@ -537,13 +532,13 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                     className="min-w-[180px] rounded-2xl border border-slate-200 bg-white p-1 shadow-[0_18px_48px_-24px_rgba(15,23,42,0.24)]"
                   >
                     <SelectItem key={7} value="7">
-                      Ãšltimos 7 dÃ­as
+                      Últimos 7 días
                     </SelectItem>
                     <SelectItem key={14} value="14">
-                      Ãšltimos 14 dÃ­as
+                      Últimos 14 días
                     </SelectItem>
                     <SelectItem key={30} value="30">
-                      Ãšltimos 30 dÃ­as
+                      Últimos 30 días
                     </SelectItem>
                   </SelectContent>
                 </Select>
@@ -590,7 +585,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                         {day.hours.map((hour) => (
                           <div
                             key={`${day.dayKey}-${hour.hour}`}
-                            title={`${day.dateLabel} Â· ${formatHeatmapHourLabel(hour.hour)} Â· ${hour.count} contacto${hour.count === 1 ? "" : "s"}`}
+                            title={`${day.dateLabel} · ${formatHeatmapHourLabel(hour.hour)} · ${hour.count} contacto${hour.count === 1 ? "" : "s"}`}
                             className="aspect-square min-h-6 rounded-[6px] border transition-transform duration-150 hover:scale-[1.04]"
                             style={{
                               backgroundColor: getHeatmapCellColor(hour.count, heatmapMaxCount),
@@ -613,7 +608,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
 
         </div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           <ContactMetric
             label="Total"
             value={String(data.stats.total)}
@@ -629,17 +624,12 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
             value={String(data.stats.withoutConversations)}
             icon={<Sparkles className="h-5 w-5" />}
           />
-          <ContactMetric
-            label="Con email"
-            value={String(data.stats.withEmail)}
-            icon={<Mail className="h-5 w-5" />}
-          />
-        </div>
+          </div>
       )}
 
       {activeView === "contacto" ? (
         <div className="grid gap-4 xl:grid-cols-[380px_minmax(0,1fr)]">
-        <div className="rounded-[28px] border border-[var(--line)] bg-white shadow-[0_24px_54px_-42px_rgba(15,23,42,0.14)]">
+        <div className="flex h-full flex-col rounded-[28px] border border-[var(--line)] bg-white shadow-[0_24px_54px_-42px_rgba(15,23,42,0.14)]">
           <div className="border-b border-slate-100 p-4 sm:p-5">
             <form method="get" className="space-y-3">
               {data.agentFilterId ? <input type="hidden" name="agentId" value={data.agentFilterId} /> : null}
@@ -657,7 +647,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
             </form>
           </div>
 
-          <div className="max-h-[calc(100vh-18rem)] space-y-2 overflow-y-auto p-3 sm:p-4">
+          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3 sm:p-4">
             {data.contacts.length > 0 ? (
               data.contacts.map((contact) => (
                 <ContactCard
@@ -691,7 +681,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
             )}
           </div>
 
-          <div className="flex flex-col gap-2 border-t border-slate-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+          <div className="mt-auto flex flex-col gap-2 border-t border-slate-100 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
             <p className="text-xs text-slate-500">
               Mostrando {pagination.rangeStart}-{pagination.rangeEnd} de {pagination.total}
             </p>
@@ -724,19 +714,19 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
         <div className="rounded-[28px] border border-[var(--line)] bg-white shadow-[0_24px_54px_-42px_rgba(15,23,42,0.14)]">
           {selectedContact ? (
             <div className="flex h-full flex-col">
-              <div className="border-b border-slate-100 p-4 sm:p-5">
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="flex min-w-0 items-start gap-3">
+              <div className="border-b border-slate-100 p-3.5 sm:p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="flex min-w-0 items-start gap-2.5">
                     <ContactAvatar
                       avatarUrl={selectedContact.avatarUrl}
                       label={getContactDisplayName(selectedContact)}
-                      className="h-14 w-14 shrink-0 rounded-[22px] border border-[rgba(148,163,184,0.12)] bg-slate-100 text-slate-500"
-                      fallbackClassName="rounded-[22px] bg-slate-100 text-base font-semibold text-slate-700"
+                      className="h-12 w-12 shrink-0 rounded-[20px] border border-[rgba(148,163,184,0.12)] bg-slate-100 text-slate-500"
+                      fallbackClassName="rounded-[20px] bg-slate-100 text-sm font-semibold text-slate-700"
                     />
 
-                    <div className="min-w-0 space-y-1.5">
+                    <div className="min-w-0 space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h2 className="text-[1.15rem] font-semibold tracking-[-0.04em] text-slate-950">
+                        <h2 className="text-[1.05rem] font-semibold tracking-[-0.02em] text-slate-950">
                           {getContactDisplayName(selectedContact)}
                         </h2>
                         {selectedConversation?.automationPaused ? (
@@ -745,14 +735,14 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                           </span>
                         ) : null}
                       </div>
-                      <p className="text-sm text-slate-500">{selectedContact.phoneNumber}</p>
-                      {selectedContact.email ? <p className="text-sm text-slate-500">{selectedContact.email}</p> : null}
+                      <p className="text-sm leading-5 tracking-[-0.015em] text-slate-500">{selectedContact.phoneNumber}</p>
+                      {selectedContact.email ? <p className="text-sm leading-5 tracking-[-0.015em] text-slate-500">{selectedContact.email}</p> : null}
                       {selectedContact.tags.length ? (
-                        <div className="flex flex-wrap gap-1.5 pt-1">
+                        <div className="flex flex-wrap gap-1 pt-0.5">
                           {selectedContact.tags.map((tag) => (
                             <span
                               key={`${selectedContact.id}:${tag.label}`}
-                              className="inline-flex max-w-full items-center rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-white shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
+                              className="inline-flex max-w-full items-center rounded-full px-2.5 py-0.75 text-[10px] font-semibold uppercase tracking-[0.08em] text-white shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
                               style={getTagBadgeStyle(tag.color)}
                               title={tag.label}
                             >
@@ -859,7 +849,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                           {selectedContact.latestMatch.targetName}
                         </Badge>
                         <span className="text-xs text-slate-500">
-                          {getMatchSourceLabel(selectedContact.latestMatch.sourceType)} Â·{" "}
+                          {getMatchSourceLabel(selectedContact.latestMatch.sourceType)} ·{" "}
                           {formatDateLabel(selectedContact.latestMatch.detectedAt)}
                         </span>
                       </div>
@@ -878,7 +868,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                             <div className="min-w-0">
                               <p className="truncate text-sm font-medium text-slate-950">{match.targetName}</p>
                               <p className="text-[11px] text-slate-500">
-                                {getMatchSourceLabel(match.sourceType)} Â· {formatDateLabel(match.detectedAt)}
+                                {getMatchSourceLabel(match.sourceType)} · {formatDateLabel(match.detectedAt)}
                               </p>
                             </div>
                             <Badge
@@ -946,7 +936,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                                 {conversation.agent?.name ?? "Chat sin agente asignado"}
                               </p>
                               <p className="text-xs text-slate-500">
-                                {conversation.channel?.name ?? "Canal"} Â· {conversation.status}
+                                {conversation.channel?.name ?? "Canal"} · {conversation.status}
                               </p>
                             </div>
                             <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] text-slate-500">
@@ -1038,7 +1028,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
               <input type="hidden" name="contactId" value={selectedContact.id} />
               <input type="hidden" name="returnTo" value={deleteReturnTo} />
               <p className="text-sm leading-6 text-slate-600">
-                Se eliminarÃ¡ <span className="font-medium text-slate-900">{getContactDisplayName(selectedContact)}</span>
+                Se eliminará <span className="font-medium text-slate-900">{getContactDisplayName(selectedContact)}</span>
                 y todo su historial: conversaciones, mensajes, etiquetas y registros asociados a este contacto dentro del
                 workspace.
               </p>
