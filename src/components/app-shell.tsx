@@ -48,7 +48,7 @@ function MobileSidebarTrigger() {
     return null;
   }
 
-  return <SidebarTrigger compact className="fixed left-3 top-3 z-50 md:hidden" />;
+  return <SidebarTrigger compact className="fixed left-0 top-1/2 z-50 -translate-y-1/2 md:hidden" />;
 }
 
 export function AppShell({
