@@ -1249,7 +1249,7 @@ const ConversationPanel = memo(function ConversationPanel({
 
   return (
     <Card
-      className={`${renderedConversation || selectedConversationId ? "flex" : "hidden md:flex"} chat-inbox-panel min-h-0 flex-1 overflow-hidden border border-[rgba(148,163,184,0.14)] bg-white p-0 shadow-none md:h-full md:shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)]`}
+      className={`${renderedConversation || selectedConversationId ? "flex" : "hidden md:flex"} chat-inbox-panel min-h-0 flex-1 overflow-hidden rounded-none border border-[rgba(148,163,184,0.14)] bg-white p-0 shadow-none md:h-full md:shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)]`}
     >
       {renderedConversation ? (
         <div className="flex min-h-0 h-full w-full flex-1 flex-col">
