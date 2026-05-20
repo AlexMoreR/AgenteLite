@@ -280,9 +280,106 @@ function buildAutoReplyBufferText(
     .join("\n");
 }
 
-function getConversationBufferLockValue(conversationId: string) {
-  const hash = createHash("sha256").update(`auto-reply-buffer:${conversationId}`).digest();
-  return hash.readBigInt64BE(0);
+async function readConversationBufferState(conversationId: string) {
+  return prisma.conversation.findUnique({
+    where: { id: conversationId },
+    select: {
+      autoReplyBuffer: true,
+      autoReplyBatchDueAt: true,
+      autoReplyBatchToken: true,
+    },
+  });
+}
+
+async function appendConversationBuffer(args: {
+  conversationId: string;
+  bufferedMessage: AutoReplyBufferMessage;
+  responseDelayMs: number;
+}) {
+  const now = new Date();
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const liveConversationState = await readConversationBufferState(args.conversationId);
+    const existingBuffer = parseAutoReplyBuffer(liveConversationState?.autoReplyBuffer ?? null);
+    const currentBufferStillOpen =
+      Boolean(existingBuffer) &&
+      liveConversationState?.autoReplyBatchToken === existingBuffer?.token &&
+      Boolean(liveConversationState?.autoReplyBatchDueAt && liveConversationState.autoReplyBatchDueAt > now);
+
+    const nextBuffer: AutoReplyBufferState = currentBufferStillOpen && existingBuffer
+      ? {
+          token: existingBuffer.token,
+          startedAt: existingBuffer.startedAt,
+          dueAt: new Date(now.getTime() + args.responseDelayMs).toISOString(),
+          messages: [...existingBuffer.messages, args.bufferedMessage],
+        }
+      : {
+          token: randomUUID(),
+          startedAt: now.toISOString(),
+          dueAt: new Date(now.getTime() + args.responseDelayMs).toISOString(),
+          messages: [args.bufferedMessage],
+        };
+
+    const updateResult = await prisma.conversation.updateMany({
+      where: {
+        id: args.conversationId,
+        autoReplyBatchToken: liveConversationState?.autoReplyBatchToken ?? null,
+        autoReplyBatchDueAt: liveConversationState?.autoReplyBatchDueAt ?? null,
+      },
+      data: {
+        autoReplyBuffer: nextBuffer as unknown as Prisma.InputJsonValue,
+        autoReplyBatchStartedAt: new Date(nextBuffer.startedAt),
+        autoReplyBatchDueAt: new Date(nextBuffer.dueAt),
+        autoReplyBatchToken: nextBuffer.token,
+      },
+    });
+
+    if (updateResult.count > 0) {
+      return nextBuffer;
+    }
+
+    await sleep(25);
+  }
+
+  throw new Error("Unable to append conversation buffer after multiple retries");
+}
+
+async function finalizeConversationBuffer(args: { conversationId: string; batchToken: string }) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const liveConversationState = await readConversationBufferState(args.conversationId);
+    const currentBuffer = parseAutoReplyBuffer(liveConversationState?.autoReplyBuffer ?? null);
+
+    if (
+      !currentBuffer ||
+      liveConversationState?.autoReplyBatchToken !== args.batchToken ||
+      !liveConversationState?.autoReplyBatchDueAt ||
+      liveConversationState.autoReplyBatchDueAt > new Date()
+    ) {
+      return null;
+    }
+
+    const updateResult = await prisma.conversation.updateMany({
+      where: {
+        id: args.conversationId,
+        autoReplyBatchToken: args.batchToken,
+        autoReplyBatchDueAt: liveConversationState.autoReplyBatchDueAt,
+      },
+      data: {
+        autoReplyBuffer: null,
+        autoReplyBatchStartedAt: null,
+        autoReplyBatchDueAt: null,
+        autoReplyBatchToken: null,
+      },
+    });
+
+    if (updateResult.count > 0) {
+      return { currentBuffer };
+    }
+
+    await sleep(25);
+  }
+
+  return null;
 }
 
 export async function POST(request: Request) {
@@ -1174,7 +1271,6 @@ export async function POST(request: Request) {
       responseDelaySeconds,
     });
 
-    const bufferLockValue = getConversationBufferLockValue(conversation.id);
     const bufferNow = new Date();
     const bufferedMessage: AutoReplyBufferMessage = {
       content: (messageText ?? "").trim(),
@@ -1182,49 +1278,10 @@ export async function POST(request: Request) {
       createdAt: bufferNow.toISOString(),
     };
 
-    const bufferedState = await prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${bufferLockValue}::bigint)`;
-
-      const liveConversationState = await tx.conversation.findUnique({
-        where: { id: conversation.id },
-        select: {
-          autoReplyBuffer: true,
-          autoReplyBatchDueAt: true,
-          autoReplyBatchToken: true,
-        },
-      });
-
-      const existingBuffer = parseAutoReplyBuffer(liveConversationState?.autoReplyBuffer ?? null);
-      const currentBufferStillOpen =
-        Boolean(existingBuffer) &&
-        liveConversationState?.autoReplyBatchToken === existingBuffer?.token &&
-        Boolean(liveConversationState?.autoReplyBatchDueAt && liveConversationState.autoReplyBatchDueAt > bufferNow);
-
-      const nextBuffer: AutoReplyBufferState = currentBufferStillOpen && existingBuffer
-        ? {
-            token: existingBuffer.token,
-            startedAt: existingBuffer.startedAt,
-            dueAt: new Date(bufferNow.getTime() + responseDelayMs).toISOString(),
-            messages: [...existingBuffer.messages, bufferedMessage],
-          }
-        : {
-            token: randomUUID(),
-            startedAt: bufferNow.toISOString(),
-            dueAt: new Date(bufferNow.getTime() + responseDelayMs).toISOString(),
-            messages: [bufferedMessage],
-          };
-
-      await tx.conversation.update({
-        where: { id: conversation.id },
-        data: {
-          autoReplyBuffer: nextBuffer as unknown as Prisma.InputJsonValue,
-          autoReplyBatchStartedAt: new Date(nextBuffer.startedAt),
-          autoReplyBatchDueAt: new Date(nextBuffer.dueAt),
-          autoReplyBatchToken: nextBuffer.token,
-        },
-      });
-
-      return nextBuffer;
+    const bufferedState = await appendConversationBuffer({
+      conversationId: conversation.id,
+      bufferedMessage,
+      responseDelayMs,
     });
 
     const batchToken = bufferedState.token;
@@ -1235,45 +1292,9 @@ export async function POST(request: Request) {
       await sleep(responseDelayMs);
     }
 
-    const latestBatchState = await prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${bufferLockValue}::bigint)`;
-
-      const liveConversationState = await tx.conversation.findUnique({
-        where: { id: conversation.id },
-        select: {
-          autoReplyBuffer: true,
-          autoReplyBatchDueAt: true,
-          autoReplyBatchToken: true,
-        },
-      });
-
-      const currentBuffer = parseAutoReplyBuffer(liveConversationState?.autoReplyBuffer ?? null);
-
-      if (
-        !currentBuffer ||
-        liveConversationState?.autoReplyBatchToken !== batchToken ||
-        !liveConversationState?.autoReplyBatchDueAt ||
-        liveConversationState.autoReplyBatchDueAt > new Date()
-      ) {
-        return null;
-      }
-
-      await tx.conversation.updateMany({
-        where: {
-          id: conversation.id,
-          autoReplyBatchToken: batchToken,
-        },
-        data: {
-          autoReplyBuffer: null,
-          autoReplyBatchStartedAt: null,
-          autoReplyBatchDueAt: null,
-          autoReplyBatchToken: null,
-        },
-      });
-
-      return {
-        currentBuffer,
-      };
+    const latestBatchState = await finalizeConversationBuffer({
+      conversationId: conversation.id,
+      batchToken,
     });
 
     if (!latestBatchState) {
