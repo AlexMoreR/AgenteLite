@@ -309,6 +309,10 @@ export async function consultProductsByAgent(input: {
   const query = input.query.trim();
   const limit = Math.max(1, Math.min(5, input.limit ?? 3));
 
+  if (process.env.NODE_ENV !== "production") {
+    console.info("[consultar_productos] query concatenada recibida:", JSON.stringify(query));
+  }
+
   const matches = rows
     .map((row) => {
       const scored = getProductScore({ query, row });
@@ -333,6 +337,28 @@ export async function consultProductsByAgent(input: {
     .slice(0, limit);
 
   const bestMatch = matches[0] ?? null;
+
+  if (process.env.NODE_ENV !== "production") {
+    console.info("[consultar_productos] resultado", {
+      query,
+      found: Boolean(bestMatch),
+      bestMatch: bestMatch
+        ? {
+            name: bestMatch.name,
+            score: bestMatch.score,
+            confidence: bestMatch.confidence,
+            reason: bestMatch.reason,
+          }
+        : null,
+      matches: matches.map((match) => ({
+        name: match.name,
+        score: match.score,
+        confidence: match.confidence,
+        reason: match.reason,
+      })),
+    });
+  }
+
   return {
     query,
     found: Boolean(bestMatch),

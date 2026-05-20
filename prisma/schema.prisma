@@ -180,6 +180,7 @@ model Conversation {
   autoReplyBatchStartedAt DateTime?
   autoReplyBatchDueAt     DateTime?
   autoReplyBatchToken     String?
+  autoReplyBuffer    Json?
   startedAt          DateTime           @default(now())
   closedAt           DateTime?
   createdAt          DateTime           @default(now())
