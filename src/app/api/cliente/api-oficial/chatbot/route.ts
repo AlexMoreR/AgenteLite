@@ -21,6 +21,9 @@ const builderSchema = z.object({
       id: z.string().trim().min(1).max(120),
       title: z.string().trim().min(1).max(120),
       intent: z.string().trim().max(4096).optional(),
+      flowType: z.enum(["ia", "chatbot"]).optional(),
+      matchType: z.enum(["exacta", "contiene"]).optional(),
+      keywords: z.array(z.string().trim().min(1).max(120)).max(20).optional(),
       summary: z.string().trim().max(4096).optional(),
       messages: z.array(
         z.object({

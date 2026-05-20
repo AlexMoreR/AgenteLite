@@ -160,6 +160,15 @@ const saveAgentKnowledgeProductsSchema = z.object({
 const saveAgentKnowledgeProductInstructionSchema = z.object({
   agentId: z.string().trim().min(1, "Agente invalido"),
   productId: z.string().trim().min(1, "Producto invalido"),
+  activationMode: z.preprocess(
+    (value) => (typeof value === "string" && value.trim() ? value : "default"),
+    z.enum(["default", "ia", "chatbot"]),
+  ),
+  activationMatchType: z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "contiene" ? value : "exacta"),
+    z.enum(["exacta", "contiene"]),
+  ).default("exacta"),
+  activationKeywords: z.preprocess((value) => (typeof value === "string" ? value : ""), z.string().trim().max(2000, "Las palabras clave son demasiado largas")).default(""),
   funnelOpening: z.preprocess((value) => (value == null ? "" : value), z.string().trim().max(2000, "La apertura es demasiado larga")).default(""),
   funnelQualification: z.preprocess((value) => (value == null ? "" : value), z.string().trim().max(2000, "La calificacion es demasiado larga")).default(""),
   funnelPresentation: z.preprocess((value) => (value == null ? "" : value), z.string().trim().max(2000, "La presentacion es demasiado larga")).default(""),
@@ -1976,6 +1985,9 @@ export async function saveAgentKnowledgeProductInstructionAction(formData: FormD
   const parsed = saveAgentKnowledgeProductInstructionSchema.safeParse({
     agentId: formData.get("agentId"),
     productId: formData.get("productId"),
+    activationMode: formData.get("activationMode"),
+    activationMatchType: formData.get("activationMatchType"),
+    activationKeywords: formData.get("activationKeywords"),
     funnelOpening: formData.get("funnelOpening"),
     funnelQualification: formData.get("funnelQualification"),
     funnelPresentation: formData.get("funnelPresentation"),
@@ -2038,6 +2050,11 @@ export async function saveAgentKnowledgeProductInstructionAction(formData: FormD
   }
 
   const composedInstructions = [
+    `Activacion: ${parsed.data.activationMode}`,
+    parsed.data.activationMode === "chatbot" ? `Coincidencia: ${parsed.data.activationMatchType}` : null,
+    parsed.data.activationMode === "chatbot" && parsed.data.activationKeywords.trim()
+      ? `Palabras clave: ${parsed.data.activationKeywords.trim()}`
+      : null,
     parsed.data.funnelOpening?.trim() ? `Apertura: ${parsed.data.funnelOpening.trim()}` : null,
     parsed.data.funnelQualification?.trim() ? `Calificacion: ${parsed.data.funnelQualification.trim()}` : null,
     parsed.data.funnelPresentation?.trim() ? `Presentacion: ${parsed.data.funnelPresentation.trim()}` : null,

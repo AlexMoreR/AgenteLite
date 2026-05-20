@@ -9,6 +9,9 @@ type ConsultFlowItem = {
   intent: string;
   description: string;
   badge: string;
+  flowType: "ia" | "chatbot";
+  matchType: "exacta" | "contiene";
+  keywords: string[];
 };
 
 export type ConsultFlowMatch = {
@@ -78,15 +81,56 @@ function tokenize(value: string) {
     .filter((word) => word.length >= 3 && !stopWords.has(word));
 }
 
+function includesNormalized(haystack: string, needle: string) {
+  return haystack === needle || haystack.includes(needle) || needle.includes(haystack);
+}
+
 function scoreFlow(query: string, flow: ConsultFlowItem) {
   const normalizedQuery = normalizeText(query);
   const queryTokens = tokenize(query);
   const title = normalizeText(flow.title);
   const intent = normalizeText(flow.intent);
   const description = normalizeText(flow.description);
+  const keywords = flow.keywords.map((keyword) => normalizeText(keyword)).filter(Boolean);
 
   let score = 0;
   const reasons: string[] = [];
+
+  if (flow.flowType === "chatbot") {
+    if (keywords.length === 0) {
+      return {
+        score: 0,
+        confidence: 0,
+        reason: "Sin palabras clave",
+      };
+    }
+
+    const exactKeywordMatch = keywords.some((keyword) => normalizedQuery === keyword);
+    const containsKeywordMatch = keywords.some((keyword) => includesNormalized(normalizedQuery, keyword));
+    const keywordMatch = flow.matchType === "contiene" ? containsKeywordMatch : exactKeywordMatch;
+
+    if (!keywordMatch) {
+      return {
+        score: 0,
+        confidence: 0,
+        reason: "Sin coincidencia por palabras clave",
+      };
+    }
+
+    const matchedKeywords = keywords.filter((keyword) =>
+      flow.matchType === "contiene" ? includesNormalized(normalizedQuery, keyword) : normalizedQuery === keyword,
+    );
+
+    score += Math.max(50, matchedKeywords.length * 15);
+    reasons.push(flow.matchType === "contiene" ? "Coincidencia por palabras clave" : "Coincidencia exacta por palabras clave");
+
+    const confidence = Math.max(0, Math.min(100, score));
+    return {
+      score,
+      confidence,
+      reason: reasons[0] ?? "Coincidencia debil",
+    };
+  }
 
   if (title && normalizedQuery === title) {
     score += 55;
@@ -148,6 +192,9 @@ function toConsultFlowItem(flow: Awaited<ReturnType<typeof getCreatedFlowItems>>
     intent: flow.intent,
     description: flow.description,
     badge: flow.badge,
+    flowType: flow.flowType,
+    matchType: flow.matchType,
+    keywords: flow.keywords,
   };
 }
 

@@ -3,6 +3,8 @@ import { getOfficialApiChatbotBuilderState } from "@/lib/official-api-chatbot";
 import { getOfficialApiConfigByWorkspaceId, hasOfficialApiBaseCredentials } from "@/lib/official-api-config";
 
 type CreatedFlowSourceType = "official-api" | "evolution";
+type CreatedFlowType = "ia" | "chatbot";
+type CreatedFlowMatchType = "exacta" | "contiene";
 
 export type CreatedFlowItem = {
   id: string;
@@ -14,6 +16,9 @@ export type CreatedFlowItem = {
   description: string;
   badge: string;
   href: string;
+  flowType: CreatedFlowType;
+  matchType: CreatedFlowMatchType;
+  keywords: string[];
 };
 
 function buildFlowItemId(input: { sourceType: CreatedFlowSourceType; sourceId: string; scenarioId: string }) {
@@ -22,6 +27,25 @@ function buildFlowItemId(input: { sourceType: CreatedFlowSourceType; sourceId: s
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function sanitizeFlowType(value: unknown): CreatedFlowType {
+  return value === "chatbot" ? "chatbot" : "ia";
+}
+
+function sanitizeMatchType(value: unknown): CreatedFlowMatchType {
+  return value === "contiene" ? "contiene" : "exacta";
+}
+
+function sanitizeKeywords(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((keyword) => (typeof keyword === "string" ? keyword.trim() : ""))
+    .filter((keyword) => keyword.length > 0)
+    .slice(0, 20);
 }
 
 export async function getCreatedFlowItems(input: {
@@ -64,6 +88,9 @@ export async function getCreatedFlowItems(input: {
         description: scenario.intent,
         badge: "Meta",
         href: `/cliente/flujos/${encodeURIComponent(scenario.id)}?sourceType=official-api`,
+        flowType: sanitizeFlowType(scenario.flowType),
+        matchType: sanitizeMatchType(scenario.matchType),
+        keywords: sanitizeKeywords(scenario.keywords),
       });
     }
   }
@@ -83,6 +110,9 @@ export async function getCreatedFlowItems(input: {
         title?: unknown;
         intent?: unknown;
         summary?: unknown;
+        flowType?: unknown;
+        matchType?: unknown;
+        keywords?: unknown;
       };
 
       const scenarioId = typeof scenario.id === "string" ? scenario.id.trim() : "";
@@ -117,6 +147,9 @@ export async function getCreatedFlowItems(input: {
         description: description || `Flujo creado en ${channel.name}.`,
         badge: "Evolution",
         href: `/cliente/flujos/${encodeURIComponent(scenarioId)}?sourceType=evolution&sourceId=${encodeURIComponent(channel.id)}`,
+        flowType: sanitizeFlowType(scenario.flowType),
+        matchType: sanitizeMatchType(scenario.matchType),
+        keywords: sanitizeKeywords(scenario.keywords),
       });
     }
   }

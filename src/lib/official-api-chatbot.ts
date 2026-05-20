@@ -396,6 +396,11 @@ function getScenarioRule(state: OfficialApiChatbotBuilderState) {
   };
 }
 
+function getScenarioRuleName(scenarioId: string) {
+  const scenarioSlug = normalizeText(scenarioId.trim()).replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  return scenarioSlug ? `intent_${scenarioSlug}` : "intent_custom";
+}
+
 export async function listOfficialApiAutomationRules(configId: string): Promise<StoredOfficialApiAutomationRule[]> {
   return prisma.$queryRaw<StoredOfficialApiAutomationRule[]>`
     SELECT
@@ -470,6 +475,9 @@ export async function saveOfficialApiChatbotBuilderState(
             id: scenario.id.trim() || `workflow-${index + 1}`,
             title: scenario.title.trim() || `Workflow ${index + 1}`,
             intent: scenario.intent.trim() || "Intencion personalizada del builder.",
+            flowType: getScenarioFlowType(scenario),
+            matchType: getScenarioMatchType(scenario),
+            keywords: getScenarioKeywords(scenario),
             messages: Array.isArray(scenario.messages) ? scenario.messages : [],
           }))
         : defaultBuilderState.scenarios,
@@ -484,7 +492,15 @@ export async function saveOfficialApiChatbotBuilderState(
 
   const { welcomeNode, fallbackNode, routerNode, replyNode } = selectRuntimeNodes(normalizedState);
   const baseScenarioRule = getScenarioRule(normalizedState);
-  const scenarioTrigger = routerNode?.meta?.trim() || "";
+  const selectedScenarioForRule =
+    normalizedState.scenarios.find((scenario) => scenario.id === normalizedState.selectedScenarioId) ??
+    normalizedState.scenarios[0] ??
+    null;
+  const selectedScenarioKeywords = Array.isArray(selectedScenarioForRule?.keywords)
+    ? selectedScenarioForRule.keywords.map((keyword) => normalizeText(keyword)).filter(Boolean)
+    : [];
+  const scenarioTrigger =
+    selectedScenarioForRule?.flowType === "chatbot" ? selectedScenarioKeywords.join(", ") : routerNode?.meta?.trim() || "";
   const scenarioResponseBase = replyNode?.body?.trim() || "";
   const scenarioRule = {
     ...baseScenarioRule,
@@ -738,6 +754,24 @@ export async function resolveOfficialApiAutomationReply(input: {
   const matchedRule = activeRules.find((rule) => {
     if (rule.isFallback || rule.name.startsWith("__")) {
       return false;
+    }
+
+    const scenarioForRule = state.scenarios.find((scenario) => getScenarioRuleName(scenario.id) === rule.name) ?? null;
+    if (scenarioForRule?.flowType === "chatbot") {
+      const scenarioKeywords = Array.isArray(scenarioForRule.keywords)
+        ? scenarioForRule.keywords.map((keyword) => normalizeText(keyword)).filter(Boolean)
+        : [];
+
+      if (scenarioKeywords.length === 0) {
+        return false;
+      }
+
+      const scenarioMatchType = scenarioForRule.matchType === "contiene" ? "contiene" : "exacta";
+      return scenarioKeywords.some((keyword) =>
+        scenarioMatchType === "contiene"
+          ? normalizedInbound.includes(keyword)
+          : normalizedInbound === keyword,
+      );
     }
 
     return extractKeywords(rule.triggerText).some((keyword) => normalizedInbound.includes(keyword));

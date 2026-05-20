@@ -14,6 +14,9 @@ type ProductRow = {
   followUpFlowId: string | null;
 };
 
+type ProductActivationMode = "default" | "ia" | "chatbot";
+type ProductActivationMatchType = "exacta" | "contiene";
+
 export type ConsultProductMatch = {
   productId: string;
   code: string | null;
@@ -92,13 +95,53 @@ function normalizeOptional(value: string | null | undefined) {
   return trimmed ? normalizeText(trimmed) : "";
 }
 
+function parseActivationMode(instructions: string | null): ProductActivationMode {
+  const match = instructions?.match(/Activacion:\s*(default|ia|chatbot)/i);
+  return (match?.[1]?.toLowerCase() as ProductActivationMode | undefined) ?? "default";
+}
+
+function parseActivationKeywords(instructions: string | null): string[] {
+  const match = instructions?.match(/Palabras clave:\s*([^\n]+)/i);
+  if (!match?.[1]) {
+    return [];
+  }
+
+  return match[1]
+    .split(",")
+    .map((keyword) => keyword.trim())
+    .filter(Boolean)
+    .slice(0, 20);
+}
+
+function parseActivationMatchType(instructions: string | null): ProductActivationMatchType {
+  const match = instructions?.match(/Coincidencia:\s*(exacta|contiene)/i);
+  return (match?.[1]?.toLowerCase() as ProductActivationMatchType | undefined) ?? "exacta";
+}
+
+function includesNormalized(haystack: string, needle: string) {
+  return haystack === needle || haystack.includes(needle) || needle.includes(haystack);
+}
+
+function extractPriceTokens(value: string | null | undefined) {
+  const normalized = normalizeOptional(value);
+  return normalized ? normalized.replace(/[^\d]/g, "") : "";
+}
+
 function getProductScore(input: { query: string; row: ProductRow }) {
   const query = normalizeText(input.query);
   const queryTokens = tokenize(query);
   const name = normalizeOptional(input.row.productName);
+  const description = normalizeOptional(input.row.productDescription);
   const category = normalizeOptional(input.row.categoryName);
   const code = normalizeOptional(input.row.code);
   const slug = normalizeOptional(input.row.slug);
+  const instructions = input.row.instructions ?? "";
+  const activationMode = parseActivationMode(instructions);
+  const activationMatchType = parseActivationMatchType(instructions);
+  const activationKeywords = parseActivationKeywords(instructions);
+  const priceTokens = extractPriceTokens(input.row.price);
+  const queryPriceTokens = query.replace(/[^\d]/g, "");
+  const normalizedKeywords = activationKeywords.map((keyword) => normalizeText(keyword)).filter(Boolean);
 
   let score = 0;
   const reasons: string[] = [];
@@ -116,31 +159,80 @@ function getProductScore(input: { query: string; row: ProductRow }) {
   if (name && query === name) {
     score += 50;
     reasons.push("Coincidencia exacta por nombre");
-  } else if (name && (name.includes(query) || query.includes(name))) {
+  } else if (activationMode !== "chatbot" && name && (name.includes(query) || query.includes(name))) {
     score += 32;
     reasons.push("Coincidencia fuerte por nombre");
+  }
+
+  if (activationMode === "chatbot") {
+    const exactKeywordMatch = normalizedKeywords.some((keyword) => keyword === query);
+    const containsKeywordMatch = normalizedKeywords.some((keyword) => includesNormalized(keyword, query));
+    const keywordMatch = activationMatchType === "contiene" ? containsKeywordMatch : exactKeywordMatch;
+
+    if (keywordMatch) {
+      const matchedKeywords = normalizedKeywords.filter((keyword) =>
+        activationMatchType === "contiene" ? includesNormalized(keyword, query) : keyword === query,
+      );
+      score += Math.max(12, matchedKeywords.length * 10);
+      reasons.push(activationMatchType === "contiene" ? "Coincidencia por palabras clave" : "Coincidencia exacta por palabras clave");
+    }
+
+    if (!keywordMatch && !(code && query === code) && !(slug && query === slug) && !(name && query === name)) {
+      return {
+        score: 0,
+        confidence: 0,
+        reason: "Sin coincidencia por palabras clave",
+      };
+    }
   }
 
   if (queryTokens.length > 0) {
     const nameTokens = tokenize(input.row.productName);
     const categoryTokens = tokenize(input.row.categoryName ?? "");
+    const descriptionTokens = tokenize(input.row.productDescription ?? "");
+    const instructionTokens = tokenize(instructions);
+    const keywordTokens = activationKeywords.flatMap((keyword) => tokenize(keyword));
 
     const nameOverlap = nameTokens.filter((token) => queryTokens.some((queryToken) => token === queryToken || queryToken.includes(token) || token.includes(queryToken))).length;
     const categoryOverlap = categoryTokens.filter((token) => queryTokens.some((queryToken) => token === queryToken || queryToken.includes(token) || token.includes(queryToken))).length;
+    const descriptionOverlap = descriptionTokens.filter((token) => queryTokens.some((queryToken) => token === queryToken || queryToken.includes(token) || token.includes(queryToken))).length;
+    const instructionOverlap = instructionTokens.filter((token) => queryTokens.some((queryToken) => token === queryToken || queryToken.includes(token) || token.includes(queryToken))).length;
+    const keywordOverlap = keywordTokens.filter((token) => queryTokens.some((queryToken) => token === queryToken || queryToken.includes(token) || token.includes(queryToken))).length;
 
-    if (nameOverlap > 0) {
+    if (activationMode !== "chatbot" && nameOverlap > 0) {
       score += nameOverlap * 8;
       reasons.push("Coincidencia parcial por nombre");
     }
-    if (categoryOverlap > 0) {
+    if (activationMode !== "chatbot" && categoryOverlap > 0) {
       score += categoryOverlap * 2;
       reasons.push("Coincidencia por categoria");
     }
+    if (activationMode !== "chatbot" && descriptionOverlap > 0) {
+      score += descriptionOverlap * (activationMode === "default" ? 5 : 3);
+      reasons.push("Coincidencia parcial por descripcion");
+    }
+    if (activationMode === "ia" && instructionOverlap > 0) {
+      score += instructionOverlap * 4;
+      reasons.push("Coincidencia por embudo");
+    }
+    if (activationMode === "chatbot" && activationMatchType === "contiene" && keywordOverlap > 0) {
+      score += keywordOverlap * 10;
+    }
   }
 
-  if (query && category && category.includes(query)) {
+  if (activationMode !== "chatbot" && query && category && category.includes(query)) {
     score += 8;
     reasons.push("Coincidencia por categoria completa");
+  }
+
+  if (activationMode !== "chatbot" && query && description && description.includes(query)) {
+    score += activationMode === "default" ? 18 : 10;
+    reasons.push("Coincidencia por descripcion completa");
+  }
+
+  if (activationMode !== "chatbot" && queryPriceTokens && priceTokens && queryPriceTokens === priceTokens) {
+    score += activationMode === "default" ? 22 : 8;
+    reasons.push("Coincidencia por precio");
   }
 
   const confidence = Math.max(0, Math.min(100, score));
