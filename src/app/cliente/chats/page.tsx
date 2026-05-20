@@ -470,9 +470,9 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
 
   const merged = [...agentRows, ...officialRows]
     .filter((item) => {
-      if (!selectedConnectionParam) return true;
-      if (selectedConnectionParam.startsWith("channel:")) {
-        const channelId = selectedConnectionParam.slice("channel:".length);
+      if (!selectedConnectionKey) return true;
+      if (selectedConnectionKey.startsWith("channel:")) {
+        const channelId = selectedConnectionKey.slice("channel:".length);
         return item.channelId === channelId;
       }
       return true;

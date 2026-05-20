@@ -1118,6 +1118,7 @@ type ConversationPanelProps = {
   onEditContact: () => void;
   onOpenTags: () => void;
   onComposerDraft: (message: string) => void;
+  onLoadOlderMessages: () => void | Promise<void>;
   renderedConversation: SharedInboxSelectedConversation | null;
   renderedMessages: SharedInboxMessageItem[];
   selectedConversationId: string;
@@ -1142,6 +1143,7 @@ const ConversationPanel = memo(function ConversationPanel({
   onEditContact,
   onOpenTags,
   onComposerDraft,
+  onLoadOlderMessages,
   renderedConversation,
   renderedMessages,
   selectedConversationId,
@@ -1366,7 +1368,17 @@ const ConversationPanel = memo(function ConversationPanel({
                           <div className="flex justify-center px-3 py-1.5 text-[11px] font-medium text-slate-500">
                             Cargando historial...
                           </div>
-                        ) : null}
+                        ) : (
+                          <div className="flex justify-center">
+                            <button
+                              type="button"
+                              onClick={() => void onLoadOlderMessages()}
+                              className="inline-flex items-center rounded-full border border-[rgba(148,163,184,0.16)] bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-800"
+                            >
+                              Cargar mensajes anteriores
+                            </button>
+                          </div>
+                        )}
                       </div>
                     ) : null}
                   </div>
@@ -2489,11 +2501,12 @@ export function SharedInbox({
         messagesScrollRef={messagesScrollRef}
         unreadCount={unreadCount}
         onScrollToBottom={scrollToBottom}
-        onEditContact={handleOpenEditContact}
-        onOpenTags={handleOpenEtiquetaModal}
-        onComposerDraft={handleComposerDraft}
-        renderedConversation={renderedConversation}
-        renderedMessages={renderedMessages}
+      onEditContact={handleOpenEditContact}
+      onOpenTags={handleOpenEtiquetaModal}
+      onComposerDraft={handleComposerDraft}
+      onLoadOlderMessages={loadOlderMessages}
+      renderedConversation={renderedConversation}
+      renderedMessages={renderedMessages}
       selectedConversationId={selectedConversationId}
       selectedConversationScrollKey={selectedConversationScrollKey}
       emptySelectionTitle={emptySelectionTitle}

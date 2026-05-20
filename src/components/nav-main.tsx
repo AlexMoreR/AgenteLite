@@ -30,6 +30,7 @@ export type NavMainItem = {
     url: string;
     helper?: string;
     kind?: "general" | "evolution" | "official";
+    isActive?: boolean;
   }[];
 };
 
@@ -47,7 +48,8 @@ export function NavMain({ items }: { items: NavMainItem[] }) {
 
 function NavMainMenuItem({ item }: { item: NavMainItem }) {
   const [manualOpen, setManualOpen] = useState(false);
-  const open = Boolean(item.isActive || manualOpen);
+  const hasActiveChild = Boolean(item.items?.some((subitem) => subitem.isActive));
+  const open = Boolean(item.isActive || hasActiveChild || manualOpen);
 
   if (!item.expandable || !item.items?.length) {
     return (
@@ -90,7 +92,13 @@ function NavMainMenuItem({ item }: { item: NavMainItem }) {
             <SidebarMenuSub className="ml-3 gap-1 border-l border-slate-200 pl-2">
               {item.items.map((subitem) => (
                 <SidebarMenuSubItem key={`${item.title}-${subitem.title}`}>
-                  <SidebarMenuSubButton asChild className="h-auto rounded-lg px-2.5 py-2 hover:bg-slate-50">
+                  <SidebarMenuSubButton
+                    asChild
+                    isActive={subitem.isActive}
+                    className={`h-auto rounded-lg px-2.5 py-2 ${
+                      subitem.isActive ? "bg-slate-100 text-slate-950" : "hover:bg-slate-50"
+                    }`}
+                  >
                     <Link href={subitem.url} className="flex min-h-8 items-center gap-2.5">
                       <span
                         className={`inline-flex h-4 w-4 shrink-0 items-center justify-center ${
@@ -109,7 +117,13 @@ function NavMainMenuItem({ item }: { item: NavMainItem }) {
                           <MessageSquareText className="h-4 w-4" />
                         )}
                       </span>
-                      <span className="block flex-1 truncate text-[13px] font-medium text-slate-700">{subitem.title}</span>
+                      <span
+                        className={`block flex-1 truncate text-[13px] font-medium ${
+                          subitem.isActive ? "text-slate-950" : "text-slate-700"
+                        }`}
+                      >
+                        {subitem.title}
+                      </span>
                     </Link>
                   </SidebarMenuSubButton>
                 </SidebarMenuSubItem>

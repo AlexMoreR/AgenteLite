@@ -202,14 +202,22 @@ function trimStore(store: ConversationCacheStore) {
   };
 }
 
+function normalizeSerializableDate(value: Date | string | null | undefined) {
+  if (!value) {
+    return null;
+  }
+
+  return typeof value === "string" ? value : value.toISOString();
+}
+
 function serializeConversation(conversation: SharedInboxSelectedConversation): CachedConversation {
   return {
     ...conversation,
     messages: conversation.messages.map((message) => ({
       ...message,
-      createdAt: message.createdAt.toISOString(),
-      editedAt: message.editedAt ? message.editedAt.toISOString() : null,
-      deletedAt: message.deletedAt ? message.deletedAt.toISOString() : null,
+      createdAt: normalizeSerializableDate(message.createdAt) ?? new Date().toISOString(),
+      editedAt: normalizeSerializableDate(message.editedAt),
+      deletedAt: normalizeSerializableDate(message.deletedAt),
     })),
     cachedAt: Date.now(),
   };

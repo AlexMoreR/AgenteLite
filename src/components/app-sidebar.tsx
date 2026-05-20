@@ -37,6 +37,7 @@ const roleHome = {
 
 type AppSidebarProps = {
   pathname: string;
+  currentConnectionKey?: string;
   brandName: string;
   adminModuleAccess: Record<AdminModuleKey, boolean>;
   chatSidebarItems: Array<{
@@ -53,7 +54,15 @@ type AppSidebarProps = {
   };
 };
 
-export function AppSidebar({ pathname, brandName, adminModuleAccess, chatSidebarItems, user, ...props }: AppSidebarProps & React.ComponentProps<typeof Sidebar>) {
+export function AppSidebar({
+  pathname,
+  currentConnectionKey = "",
+  brandName,
+  adminModuleAccess,
+  chatSidebarItems,
+  user,
+  ...props
+}: AppSidebarProps & React.ComponentProps<typeof Sidebar>) {
   const { openDesktop } = useSidebar();
   const dashboardHref = user.role ? roleHome[user.role] : "/";
   const isAdminConfigRoute = pathname.startsWith("/admin/configuracion");
@@ -154,15 +163,24 @@ export function AppSidebar({ pathname, brandName, adminModuleAccess, chatSidebar
   }
 
   if (user.role === "ADMIN" || user.role === "CLIENTE") {
+    const isChatsGeneralActive = pathname.startsWith("/cliente/chats") && !currentConnectionKey;
+    const mappedChatSidebarItems = chatSidebarItems.map((item) => {
+      const itemConnection = new URL(item.url, "http://localhost").searchParams.get("connection")?.trim() || "";
+      return {
+        ...item,
+        isActive: Boolean(currentConnectionKey) && currentConnectionKey === itemConnection,
+      };
+    });
+
     navMain.push({
       title: "Chats",
       url: "/cliente/chats",
       icon: MessageCircle,
-      isActive: pathname.startsWith("/cliente/chats"),
+      isActive: isChatsGeneralActive,
       expandable: true,
       items: [
-        { title: "Bandeja", url: "/cliente/chats", helper: "General", kind: "general" },
-        ...chatSidebarItems,
+        { title: "Bandeja", url: "/cliente/chats", helper: "General", kind: "general", isActive: isChatsGeneralActive },
+        ...mappedChatSidebarItems,
       ],
     });
 

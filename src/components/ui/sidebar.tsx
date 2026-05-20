@@ -306,12 +306,17 @@ export function SidebarMenuSubItem({
 export function SidebarMenuSubButton({
   className,
   asChild = false,
+  isActive = false,
   ...props
-}: React.ButtonHTMLAttributes<HTMLButtonElement> & { asChild?: boolean }) {
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & { asChild?: boolean; isActive?: boolean }) {
   const Comp = asChild ? Slot : "button";
   return (
     <Comp
-      className={cn("inline-flex h-8 w-full items-center rounded-md px-2 text-sm text-slate-700 transition hover:bg-slate-100", className)}
+      className={cn(
+        "inline-flex h-8 w-full items-center rounded-md px-2 text-sm transition",
+        isActive ? "bg-slate-100 text-slate-950" : "text-slate-700 hover:bg-slate-100",
+        className,
+      )}
       {...props}
     />
   );

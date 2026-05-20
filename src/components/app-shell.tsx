@@ -1,6 +1,6 @@
 "use client";
 
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import type { Role } from "@prisma/client";
 import { AppSidebar } from "@/components/app-sidebar";
@@ -52,7 +52,9 @@ export function AppShell({
 }: AppShellProps) {
   const { data } = useSession();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const user = data?.user ?? initialUser;
+  const currentConnectionKey = searchParams.get("connection")?.trim() || "";
   const firstSegment = pathname.split("/").filter(Boolean)[0] ?? "";
   const reservedStoreSegments = new Set([
     "admin",
@@ -116,6 +118,7 @@ export function AppShell({
         >
           <AppSidebar
             pathname={pathname}
+            currentConnectionKey={currentConnectionKey}
             user={{
               name: user.name,
               email: user.email,
