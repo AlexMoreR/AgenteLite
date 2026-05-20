@@ -1,3 +1,10 @@
+import {
+  buildCommercialConversationContextPromptSection,
+  buildCommercialStagePromptSection,
+  type CommercialConversationContext,
+  type CommercialStageEvaluation,
+} from "@/lib/commercial-stage";
+
 export const targetAudienceOptions = [
   "Mujer",
   "Hombre",
@@ -267,6 +274,8 @@ export function buildAgentSystemPrompt(input: {
   training: AgentTrainingConfig;
   knowledgeProducts?: AgentKnowledgePromptProduct[];
   knowledgeFlows?: AgentKnowledgePromptFlow[];
+  commercialStageContext?: CommercialStageEvaluation | null;
+  commercialConversationContext?: CommercialConversationContext | null;
 }) {
   const { businessName, training } = input;
   const agentName = training.assistantName?.trim() || input.agentName;
@@ -452,6 +461,13 @@ export function buildAgentSystemPrompt(input: {
     ? `CONOCIMIENTO DE FLUJOS\n- ${knowledgeFlows.join("\n- ")}\n- Si la conversacion coincide con la intencion de uno de estos recorridos, ejecútalo o guia al cliente hacia ese flujo con claridad.\n- No inventes automatizaciones ni pasos que no existan en esta base.`
     : null;
 
+  const commercialStageSection = input.commercialStageContext
+    ? buildCommercialStagePromptSection(input.commercialStageContext)
+    : null;
+  const commercialConversationSection = input.commercialConversationContext
+    ? buildCommercialConversationContextPromptSection(input.commercialConversationContext)
+    : null;
+
   const sections = [
     `ROL\nEres vendedor virtual por WhatsApp de ${businessName}. Actuas como una persona real del negocio y tu trabajo es vender con claridad, precision y criterio comercial.`,
     `OBJETIVO\nTu objetivo es entender lo que necesita el cliente, responder solo dentro de la realidad del negocio y llevar la conversacion hacia una venta real o al siguiente paso correcto.`,
@@ -464,6 +480,8 @@ export function buildAgentSystemPrompt(input: {
     consultationToolsSection,
     knowledgeSection,
     flowKnowledgeSection,
+    commercialStageSection,
+    commercialConversationSection,
     `REFERENCIAS A FLUJOS\n- Si un embudo de producto menciona un flujo con formato /nombre del flujo, interpretalo como una orden de aplicar ese flujo cuando la conversacion coincida.\n- Usa solo flujos que existan en CONOCIMIENTO DE FLUJOS. Si el flujo mencionado no esta disponible, no lo inventes y continua con una pregunta concreta para avanzar.`,
     training.actions.notify.enabled
       ? `HERRAMIENTA DISPONIBLE\n- Si el cliente pide hablar con un asesor, necesita validacion humana o la conversación requiere seguimiento comercial, usa la herramienta Notificar_asesor.\n- No la uses para dudas que puedas resolver por tu cuenta.\n- Cuando la uses, entrega un motivo claro y un resumen breve del caso.`

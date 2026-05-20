@@ -63,6 +63,10 @@ const chatTimeFormatter = new Intl.DateTimeFormat("es-CO", {
   timeZone: CHAT_TIME_ZONE,
 });
 
+function formatChatTime(value: Date) {
+  return chatTimeFormatter.format(value).replace(/\u00a0/g, " ");
+}
+
 export type SharedInboxConversationItem = {
   id: string;
   source: "agent" | "official";
@@ -1055,7 +1059,7 @@ const MessageBubble = memo(function MessageBubble({
             ) : (
               <UserRound className="h-3 w-3" />
             )}
-            <span>{chatTimeFormatter.format(message.createdAt)}</span>
+            <span>{formatChatTime(message.createdAt)}</span>
             {outbound && message.outboundStatusLabel ? (
               message.outboundStatusLabel === "entregado" ? (
                 <CheckCheck className="ml-1 h-3 w-3 shrink-0" aria-hidden="true" />

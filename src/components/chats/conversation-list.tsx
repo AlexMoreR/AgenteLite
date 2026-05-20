@@ -20,6 +20,10 @@ const conversationTimeFormatter = new Intl.DateTimeFormat("es-CO", {
   timeZone: "America/Bogota",
 });
 
+function formatConversationTime(value: Date) {
+  return conversationTimeFormatter.format(value).replace(/\u00a0/g, " ");
+}
+
 function renderChannelBadgeIcon(channelType?: SharedInboxConversationItem["channelType"]) {
   if (channelType === "whatsapp_official") return <BadgeCheck className="h-3.5 w-3.5 shrink-0 text-white" />;
   if (channelType === "instagram") return <Instagram className="h-3.5 w-3.5 shrink-0 text-white" />;
@@ -165,7 +169,7 @@ const ConversationListItem = memo(function ConversationListItem({
             </p>
           </div>
           <span className="shrink-0 text-[10px] text-slate-500 md:text-[10px]">
-            {conversation.lastMessageAt ? conversationTimeFormatter.format(conversation.lastMessageAt) : ""}
+            {conversation.lastMessageAt ? formatConversationTime(conversation.lastMessageAt) : ""}
           </span>
         </div>
 

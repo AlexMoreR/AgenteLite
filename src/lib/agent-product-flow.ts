@@ -8,6 +8,7 @@ import { consultFlowsByWorkspace } from "@/features/agent-actions/services/consu
 import { consultProductsByAgent } from "@/features/agent-actions/services/consult-productos";
 import { getOfficialApiChatbotBuilderState } from "@/lib/official-api-chatbot";
 import { defaultAgentTrainingConfig, parseAgentTrainingConfig } from "@/lib/agent-training";
+import type { CommercialConversationContext } from "@/lib/commercial-stage";
 import { generateAgentReply } from "@/lib/agent-ai";
 import { prisma } from "@/lib/prisma";
 
@@ -99,6 +100,10 @@ function textMatchesToken(text: string, token: string) {
   }
 
   return text === token || text.includes(token) || token.includes(text);
+}
+
+function includesAny(text: string, phrases: string[]) {
+  return phrases.some((phrase) => text.includes(phrase));
 }
 
 const AFFIRMATION_WORDS = new Set([
@@ -467,9 +472,43 @@ export async function resolveAgentProductFlowReply(input: {
   latestUserMessage: string | null;
   history?: ConversationLine[];
   includeOfficialApi: boolean;
+  commercialContext?: CommercialConversationContext | null;
 }): Promise<ProductFlowResolution | null> {
   const latestText = input.latestUserMessage?.trim() || "";
   if (!latestText) {
+    return null;
+  }
+
+  const normalizedLatestText = normalizeText(latestText);
+  const commercialContext = input.commercialContext ?? null;
+  const isAdvancedCommercialContext = Boolean(
+    commercialContext &&
+      (commercialContext.currentStage === "EXPOSICION" ||
+        commercialContext.currentStage === "NEGOCIACION" ||
+        commercialContext.currentStage === "ACUERDO" ||
+        commercialContext.currentStage === "POSTVENTA" ||
+        commercialContext.shownPrice ||
+        commercialContext.shownProductMedia ||
+        commercialContext.askedCityOrShipping ||
+        commercialContext.presentedValue),
+  );
+  const looksLikePurchasePause =
+    commercialContext?.objectionDetected ||
+    includesAny(normalizedLatestText, [
+      "manana",
+      "luego",
+      "despues",
+      "mas tarde",
+      "lo voy a pensar",
+      "lo reviso",
+      "estoy comparando",
+      "no paso dinero",
+      "no confio",
+      "tengo dudas",
+      "me da miedo",
+    ].map((phrase) => normalizeText(phrase)));
+
+  if (isAdvancedCommercialContext && looksLikePurchasePause) {
     return null;
   }
 
@@ -517,7 +556,6 @@ export async function resolveAgentProductFlowReply(input: {
   if (matchedProduct) {
     const instructions = matchedProduct.instructions?.trim() || "";
     const explicitFollowUpFlowId = matchedProduct.followUpFlowId?.trim() || "";
-    const normalizedLatestText = normalizeText(latestText);
     const activeProductContext: ActiveProductContext = {
       productId: matchedProduct.productId,
       productName: matchedProduct.name,

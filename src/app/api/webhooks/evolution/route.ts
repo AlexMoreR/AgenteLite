@@ -47,6 +47,16 @@ import { resolveAgentKnowledgeBaseReply } from "@/lib/agent-knowledge-media";
 import { recordContactMatch } from "@/lib/contact-matches";
 import { buildConversationMatchContextNote, getLatestConversationMatch } from "@/lib/contact-matches";
 import { buildFlowExecutionContextNote, getConversationExecutedFlowSlugs, getFlowSlug } from "@/lib/flow-execution-history";
+import {
+  buildCommercialConversationContext,
+  buildCommercialConversationContextPromptSection,
+  buildCommercialStagePromptSection,
+  buildNegotiationAdvanceReply,
+  classifyCommercialStage,
+  parseCommercialConversationContext,
+  shouldOverrideCommercialReply,
+  shouldPrioritizeCommercialStageOverFaq,
+} from "@/lib/commercial-stage";
 import { enforceWorkspacePlanAccess } from "@/lib/workspace-plan-access";
 import { getEvolutionSettings } from "@/lib/system-settings";
 import { buildHandoffMessage, parseAgentTrainingConfig } from "@/lib/agent-training";
@@ -332,6 +342,7 @@ export async function POST(request: Request) {
             id: true,
             status: true,
             activeProductContext: true,
+            commercialContext: true,
             contact: {
               select: {
                 id: true,
@@ -461,10 +472,11 @@ export async function POST(request: Request) {
   }
 
   const existingConversation = callFallbackConversation
-    ? {
+      ? {
         id: callFallbackConversation.id,
         status: callFallbackConversation.status,
         activeProductContext: callFallbackConversation.activeProductContext ?? null,
+        commercialContext: null,
       }
     : existingMessage
     ? await prisma.conversation.findFirst({
@@ -476,6 +488,7 @@ export async function POST(request: Request) {
           id: true,
           status: true,
           activeProductContext: true,
+          commercialContext: true,
         },
       })
     : await prisma.conversation.findFirst({
@@ -491,11 +504,16 @@ export async function POST(request: Request) {
           id: true,
           status: true,
           activeProductContext: true,
+          commercialContext: true,
         },
       });
 
-  const conversation: { id: string; activeProductContext: Prisma.InputJsonValue | null } = existingConversation
-    ? { id: existingConversation.id, activeProductContext: existingConversation.activeProductContext ?? null }
+  const conversation: { id: string; activeProductContext: Prisma.InputJsonValue | null; commercialContext: Prisma.InputJsonValue | null } = existingConversation
+    ? {
+        id: existingConversation.id,
+        activeProductContext: existingConversation.activeProductContext ?? null,
+        commercialContext: existingConversation.commercialContext ?? null,
+      }
     : await prisma.conversation.create({
         data: {
           workspaceId: channel.workspaceId,
@@ -505,7 +523,7 @@ export async function POST(request: Request) {
           status: "OPEN",
           lastMessageAt: new Date(),
         },
-        select: { id: true, activeProductContext: true },
+        select: { id: true, activeProductContext: true, commercialContext: true },
       });
 
   if (!messageWasEdited && existingConversation && !["OPEN", "PENDING"].includes(existingConversation.status)) {
@@ -1323,6 +1341,8 @@ export async function POST(request: Request) {
         }
       }
 
+      const previousCommercialContext = parseCommercialConversationContext(conversation.commercialContext);
+
       const hardFlowResolution = shouldHandoffToHuman || quickResponseFlow
         ? null
         : await resolveAgentProductFlowReply({
@@ -1331,24 +1351,48 @@ export async function POST(request: Request) {
             latestUserMessage: inboundTextForProcessing,
             history: recentMessagesForModel,
             includeOfficialApi: true,
+            commercialContext: previousCommercialContext,
           });
       let hardFlowReply = hardFlowResolution?.steps
         ? hardFlowResolution
         : null;
 
+      const previousCommercialStage = previousCommercialContext?.currentStage ?? null;
+      const commercialStageResolution = classifyCommercialStage({
+        latestUserMessage: inboundTextForProcessing,
+        history: recentMessagesForModel,
+        activeProductContext: hardFlowResolution?.activeProductContext ?? (existingConversation?.activeProductContext as ActiveProductContext | null | undefined) ?? null,
+        previousStage: previousCommercialStage,
+        commercialContext: previousCommercialContext,
+      });
+      const commercialConversationContext = buildCommercialConversationContext({
+        stage: commercialStageResolution,
+        latestUserMessage: inboundTextForProcessing,
+        history: recentMessagesForModel,
+        activeProductContext: hardFlowResolution?.activeProductContext ?? (existingConversation?.activeProductContext as ActiveProductContext | null | undefined) ?? null,
+        previousContext: previousCommercialContext,
+      });
+      const conversationUpdateData: Prisma.ConversationUpdateInput = {
+        commercialContext: commercialConversationContext as unknown as Prisma.InputJsonValue,
+      };
       if (hardFlowResolution?.activeProductContext) {
-        await prisma.conversation.update({
-          where: { id: conversation.id },
-          data: {
-            activeProductContext: hardFlowResolution.activeProductContext as Prisma.InputJsonValue,
-          },
-        });
+        conversationUpdateData.activeProductContext = hardFlowResolution.activeProductContext as Prisma.InputJsonValue;
+      }
 
+      await prisma.conversation.update({
+        where: { id: conversation.id },
+        data: conversationUpdateData,
+      });
+
+      if (hardFlowResolution?.activeProductContext) {
         const activeProductContextNote = buildActiveProductContextNote(hardFlowResolution.activeProductContext);
         if (activeProductContextNote) {
           aiContextNotes.add(activeProductContextNote);
         }
       }
+
+      aiContextNotes.add(buildCommercialStagePromptSection(commercialStageResolution));
+      aiContextNotes.add(buildCommercialConversationContextPromptSection(commercialConversationContext));
 
       const hasActiveProductContext = Boolean(hardFlowResolution?.activeProductContext);
       if (hardFlowReply) {
@@ -1369,6 +1413,8 @@ export async function POST(request: Request) {
         ? null
         : shouldHandoffToHuman
           ? null
+          : shouldPrioritizeCommercialStageOverFaq(commercialStageResolution.currentStage)
+            ? null
           : await resolveAgentKnowledgeBaseReply({
               agentId: agent.id,
               workspaceId: channel.workspaceId,
@@ -1426,6 +1472,8 @@ export async function POST(request: Request) {
             return null;
           })
         : null;
+      const commercialStagePrompt = buildCommercialStagePromptSection(commercialStageResolution);
+      const commercialContextPrompt = buildCommercialConversationContextPromptSection(commercialConversationContext);
 
       let shouldComposeWelcome = true;
 
@@ -1462,8 +1510,8 @@ export async function POST(request: Request) {
             ? `${aiLatestUserMessage}\n\nAnalisis visual de la imagen del cliente: ${latestIncomingImageAnalysis}`
             : aiLatestUserMessage;
         const effectiveSystemPrompt = agentTraining?.useCustomPrompt && agentTraining.customSystemPrompt?.trim()
-          ? agentTraining.customSystemPrompt.trim()
-          : agent.systemPrompt;
+          ? `${agentTraining.customSystemPrompt.trim()}\n\n${commercialStagePrompt}\n\n${commercialContextPrompt}`
+          : `${agent.systemPrompt}\n\n${commercialStagePrompt}\n\n${commercialContextPrompt}`;
         const toolHandlers = {
           Notificar_asesor: async (args: Record<string, unknown>) => {
             const result = await sendNotificarAsesorNotification({
@@ -1521,6 +1569,13 @@ export async function POST(request: Request) {
           tools: [NOTIFICAR_ASESOR_TOOL, CONSULTAR_PRODUCTOS_TOOL, CONSULTAR_FLUJOS_TOOL],
           toolHandlers,
         });
+
+        if (shouldOverrideCommercialReply(replyText ?? "", commercialConversationContext)) {
+          replyText = buildNegotiationAdvanceReply({
+            latestUserMessage: inboundTextForProcessing,
+            activeProductContext: (hardFlowResolution?.activeProductContext ?? (existingConversation?.activeProductContext as ActiveProductContext | null | undefined) ?? null),
+          });
+        }
       }
 
       if (shouldComposeWelcome) {
@@ -1627,7 +1682,7 @@ export async function POST(request: Request) {
       ) =>
         generateAgentReply({
           model: agent.model,
-          systemPrompt: `${agent.systemPrompt ?? ""}\n\nACCION: ${actionContext} Genera UNICAMENTE una pregunta corta de seguimiento (maximo 1 linea) para avanzar al siguiente paso. PROHIBIDO: listar productos, mencionar nombres de modelos, dar precios o describir caracteristicas. Revisa el historial de la conversacion y NO preguntes por algo que ya fue respondido (precio, detalles, imagen). Pregunta unicamente sobre lo que aun no se ha cubierto o el siguiente paso logico para cerrar la venta.`,
+          systemPrompt: `${agent.systemPrompt ?? ""}\n\n${commercialStagePrompt}\n\nACCION: ${actionContext} Genera UNICAMENTE una pregunta corta de seguimiento (maximo 1 linea) para avanzar al siguiente paso. PROHIBIDO: listar productos, mencionar nombres de modelos, dar precios o describir caracteristicas. Revisa el historial de la conversacion y NO preguntes por algo que ya fue respondido (precio, detalles, imagen). Pregunta unicamente sobre lo que aun no se ha cubierto o el siguiente paso logico para cerrar la venta.`,
           rawSystemPrompt: true,
           fallbackMessage: null,
           history,
