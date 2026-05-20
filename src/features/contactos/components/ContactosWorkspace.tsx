@@ -438,17 +438,19 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
   return (
     <section className="space-y-2">
       <div className="space-y-1">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0 flex items-center gap-2 max-md:pl-10">
             <Users2 className="h-5 w-5 shrink-0 text-[var(--primary)]" />
-            <h1 className="text-2xl font-semibold tracking-[-0.05em] text-slate-950">Contactos</h1>
+            <h1 className="truncate text-[22px] font-semibold tracking-[-0.05em] text-slate-950 md:text-2xl">
+              Contactos
+            </h1>
           </div>
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
-                className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-[rgba(148,163,184,0.18)] bg-white text-slate-600 transition hover:bg-slate-50 hover:text-[var(--primary)]"
+                className="relative z-20 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-[rgba(148,163,184,0.18)] bg-white text-slate-600 transition hover:bg-slate-50 hover:text-[var(--primary)]"
                 aria-label="Más opciones de contactos"
               >
                 <MoreVertical className="h-4 w-4" />

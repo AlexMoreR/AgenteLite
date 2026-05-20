@@ -7,7 +7,7 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { ClientPlanBlockModal } from "@/components/client-plan-block-modal";
 import { ClientPlanWarningBar } from "@/components/client-plan-warning-bar";
 import { Navbar } from "@/components/navbar";
-import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import { SidebarInset, SidebarProvider, SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import type { AdminModuleKey } from "@/lib/admin-module-access";
 import { cn } from "@/lib/utils";
 
@@ -40,6 +40,16 @@ type AppShellProps = {
     paymentHref: string;
   } | null;
 };
+
+function MobileSidebarTrigger() {
+  const { openMobile } = useSidebar();
+
+  if (openMobile) {
+    return null;
+  }
+
+  return <SidebarTrigger compact className="fixed left-3 top-3 z-50 md:hidden" />;
+}
 
 export function AppShell({
   children,
@@ -132,14 +142,15 @@ export function AppShell({
           />
           <SidebarInset
             className={cn(
-              "admin-print-inset",
+              "admin-print-inset rounded-none",
               isAgentWorkspacePath && "bg-[#F1F5F9]",
               isViewportLockedWorkspacePath && "chat-app-shell min-h-dvh h-dvh overflow-hidden md:min-h-0 md:h-dvh",
             )}
           >
+            <MobileSidebarTrigger />
             <main
               className={cn(
-                "admin-print-main flex flex-1 flex-col",
+                "admin-print-main flex flex-1 flex-col rounded-none",
                 isFullHeightWorkspacePath
                   ? cn(
                       "min-h-0 overflow-hidden p-0",

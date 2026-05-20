@@ -145,6 +145,38 @@ function buildCallMessageContent(input: { direction: "INBOUND" | "OUTBOUND"; sta
   return `Llamada ${directionLabel} ${normalizedStatus}`;
 }
 
+async function persistEvolutionMessage(args: { data: Prisma.MessageUncheckedCreateInput }) {
+  const { data } = args;
+  const externalId = typeof data.externalId === "string" ? data.externalId.trim() : "";
+
+  if (externalId && typeof data.channelId === "string" && data.channelId.trim()) {
+    await prisma.message.upsert({
+      where: {
+        channelId_externalId: {
+          channelId: data.channelId,
+          externalId,
+        },
+      },
+      create: {
+        ...data,
+        externalId,
+      },
+      update: {
+        ...data,
+        externalId,
+      },
+    });
+    return;
+  }
+
+  await prisma.message.create({
+    data: {
+      ...data,
+      externalId: externalId || null,
+    },
+  });
+}
+
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -579,7 +611,7 @@ export async function POST(request: Request) {
           },
         });
       } else {
-        await prisma.message.create({
+        await persistEvolutionMessage({
           data: {
             ...messageData,
             content: messageText,
@@ -661,7 +693,7 @@ export async function POST(request: Request) {
           },
         });
       } else {
-        await prisma.message.create({
+        await persistEvolutionMessage({
           data: {
             ...messageData,
             editedAt: new Date(),
@@ -670,7 +702,7 @@ export async function POST(request: Request) {
         shouldTouchConversation = true;
       }
     } else {
-      await prisma.message.create({
+      await persistEvolutionMessage({
         data: messageData,
       });
     }
@@ -835,7 +867,7 @@ export async function POST(request: Request) {
             caption: ownerTriggeredFlow.reply.image.caption,
             delayMs: 0,
           });
-          await prisma.message.create({
+          await persistEvolutionMessage({
             data: {
               workspaceId: channel.workspaceId,
               conversationId: conversation.id,
@@ -862,7 +894,7 @@ export async function POST(request: Request) {
             caption: ownerTriggeredFlow.reply.audio.caption,
             delayMs: 0,
           });
-          await prisma.message.create({
+          await persistEvolutionMessage({
             data: {
               workspaceId: channel.workspaceId,
               conversationId: conversation.id,
@@ -889,7 +921,7 @@ export async function POST(request: Request) {
             caption: ownerTriggeredFlow.reply.video.caption,
             delayMs: 0,
           });
-          await prisma.message.create({
+          await persistEvolutionMessage({
             data: {
               workspaceId: channel.workspaceId,
               conversationId: conversation.id,
@@ -917,7 +949,7 @@ export async function POST(request: Request) {
             fileName: doc.fileName,
             delayMs: 0,
           });
-          await prisma.message.create({
+          await persistEvolutionMessage({
             data: {
               workspaceId: channel.workspaceId,
               conversationId: conversation.id,
@@ -943,7 +975,7 @@ export async function POST(request: Request) {
             text: ownerTriggeredFlow.reply.text,
             delayMs: 0,
           });
-          await prisma.message.create({
+          await persistEvolutionMessage({
             data: {
               workspaceId: channel.workspaceId,
               conversationId: conversation.id,
@@ -1733,7 +1765,7 @@ export async function POST(request: Request) {
                 text: content,
                 delayMs: 0,
               });
-              await prisma.message.create({
+              await persistEvolutionMessage({
                 data: {
                   workspaceId: channel.workspaceId,
                   conversationId: conversation.id,
@@ -1757,7 +1789,7 @@ export async function POST(request: Request) {
                 caption: step.caption,
                 delayMs: 0,
               });
-              await prisma.message.create({
+              await persistEvolutionMessage({
                 data: {
                   workspaceId: channel.workspaceId,
                   conversationId: conversation.id,
@@ -1782,7 +1814,7 @@ export async function POST(request: Request) {
                 caption: step.caption,
                 delayMs: 0,
               });
-              await prisma.message.create({
+              await persistEvolutionMessage({
                 data: {
                   workspaceId: channel.workspaceId,
                   conversationId: conversation.id,
@@ -1807,7 +1839,7 @@ export async function POST(request: Request) {
                 caption: step.caption,
                 delayMs: 0,
               });
-              await prisma.message.create({
+              await persistEvolutionMessage({
                 data: {
                   workspaceId: channel.workspaceId,
                   conversationId: conversation.id,
@@ -1833,7 +1865,7 @@ export async function POST(request: Request) {
                 fileName: step.fileName,
                 delayMs: 0,
               });
-              await prisma.message.create({
+              await persistEvolutionMessage({
                 data: {
                   workspaceId: channel.workspaceId,
                   conversationId: conversation.id,
@@ -1865,7 +1897,7 @@ export async function POST(request: Request) {
                 text: followUp,
                 delayMs: 600,
               });
-              await prisma.message.create({
+              await persistEvolutionMessage({
                 data: {
                   workspaceId: channel.workspaceId,
                   conversationId: conversation.id,
@@ -1916,7 +1948,7 @@ export async function POST(request: Request) {
             });
           }
           console.error(`[EVOLUTION] auto_reply_failed conversationId=${conversation.id} agentId=${agent.id} phone=${phoneNumber} instance=${channel.evolutionInstanceName} error=${errorMessage}`);
-          await prisma.message.create({
+          await persistEvolutionMessage({
             data: {
               workspaceId: channel.workspaceId,
               conversationId: conversation.id,
@@ -1968,7 +2000,7 @@ export async function POST(request: Request) {
                 text: replyText,
                 delayMs: 0,
               });
-              await prisma.message.create({
+              await persistEvolutionMessage({
                 data: {
                   workspaceId: channel.workspaceId,
                   conversationId: conversation.id,
@@ -1995,7 +2027,7 @@ export async function POST(request: Request) {
                 caption,
                 delayMs: 0,
               });
-              await prisma.message.create({
+              await persistEvolutionMessage({
                 data: {
                   workspaceId: channel.workspaceId,
                   conversationId: conversation.id,
@@ -2023,7 +2055,7 @@ export async function POST(request: Request) {
                 caption,
                 delayMs: 0,
               });
-              await prisma.message.create({
+              await persistEvolutionMessage({
                 data: {
                   workspaceId: channel.workspaceId,
                   conversationId: conversation.id,
@@ -2051,7 +2083,7 @@ export async function POST(request: Request) {
                 fileName: doc.fileName,
                 delayMs: 0,
               });
-              await prisma.message.create({
+              await persistEvolutionMessage({
                 data: {
                   workspaceId: channel.workspaceId,
                   conversationId: conversation.id,
@@ -2087,7 +2119,7 @@ export async function POST(request: Request) {
                 caption: imageReply.caption,
                 delayMs: 0,
               });
-              await prisma.message.create({
+              await persistEvolutionMessage({
                 data: {
                   workspaceId: channel.workspaceId,
                   conversationId: conversation.id,
@@ -2146,7 +2178,7 @@ export async function POST(request: Request) {
                 text: followUpText,
                 delayMs: 600,
               });
-              await prisma.message.create({
+              await persistEvolutionMessage({
                 data: {
                   workspaceId: channel.workspaceId,
                   conversationId: conversation.id,
@@ -2211,7 +2243,7 @@ export async function POST(request: Request) {
             `[EVOLUTION] auto_reply_failed conversationId=${conversation.id} agentId=${agent.id} phone=${phoneNumber} instance=${channel.evolutionInstanceName} error=${errorMessage}`,
           );
 
-          await prisma.message.create({
+          await persistEvolutionMessage({
             data: {
               workspaceId: channel.workspaceId,
               conversationId: conversation.id,
@@ -2256,3 +2288,4 @@ export async function GET() {
     message: "Evolution webhook endpoint is ready",
   });
 }
+
