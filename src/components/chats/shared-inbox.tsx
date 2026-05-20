@@ -217,6 +217,7 @@ export type SharedInboxSidebarItem = {
 type SharedInboxProps = {
   searchAction: string;
   selectedConversationId: string;
+  mobileConversationActive?: boolean;
   searchQuery: string;
   selectedConnectionKey?: string;
   sidebarItems?: SharedInboxSidebarItem[];
@@ -1249,7 +1250,7 @@ const ConversationPanel = memo(function ConversationPanel({
 
   return (
     <Card
-      className={`${renderedConversation || selectedConversationId ? "flex" : "hidden md:flex"} chat-inbox-panel min-h-0 flex-1 overflow-hidden rounded-none border border-[rgba(148,163,184,0.14)] bg-white p-0 shadow-none md:h-full md:shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)]`}
+      className={`${selectedConversationId ? "flex md:flex" : "!hidden md:flex"} chat-inbox-panel min-h-0 flex-1 overflow-hidden rounded-none border border-[rgba(148,163,184,0.14)] bg-white p-0 shadow-none md:h-full md:shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)]`}
     >
       {renderedConversation ? (
         <div className="flex min-h-0 h-full w-full flex-1 flex-col">
@@ -1474,6 +1475,7 @@ const ConversationPanel = memo(function ConversationPanel({
 export function SharedInbox({
   searchAction,
   selectedConversationId,
+  mobileConversationActive = false,
   searchQuery,
   selectedConnectionKey = "",
   sidebarItems = [],
@@ -2195,7 +2197,6 @@ export function SharedInbox({
     [renderedConversation],
   );
   const hasSettledConversation = Boolean(renderedConversation && currentSelectedConversation && renderedConversation.id === currentSelectedConversation.id);
-  const hasMobileSelection = Boolean(renderedConversation || pendingConversation || selectedConversationId);
   const canLoadOlderMessages = Boolean(renderedConversation?.loadMoreCursor && renderedConversation.hasMoreMessages);
   const loadOlderMessagesRef = useRef(loadOlderMessages);
   loadOlderMessagesRef.current = loadOlderMessages;
@@ -2435,7 +2436,7 @@ export function SharedInbox({
       ) : null}
 
       <Card
-        className={`${hasMobileSelection ? "hidden md:flex" : "flex"} chat-inbox-sidebar min-h-0 flex-1 overflow-hidden border border-[rgba(148,163,184,0.14)] bg-white p-0 shadow-none md:h-full md:shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)]`}
+      className={`${mobileConversationActive ? "hidden md:flex" : "flex"} chat-inbox-sidebar min-h-0 flex-1 overflow-hidden border border-[rgba(148,163,184,0.14)] bg-white p-0 shadow-none md:h-full md:shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)]`}
       >
         <div className="flex min-h-0 w-full flex-col">
           <div className="shrink-0 border-b border-[rgba(148,163,184,0.12)] bg-white px-3 py-2.5 md:px-3 md:py-3">
@@ -2491,6 +2492,7 @@ export function SharedInbox({
       </Card>
 
       <ConversationPanel
+        key={mobileConversationActive ? (selectedConversationId || "selected") : "empty"}
         backHref={backHref}
         composer={composer}
         composerHiddenFields={composerHiddenFields}
@@ -2501,19 +2503,19 @@ export function SharedInbox({
         messagesScrollRef={messagesScrollRef}
         unreadCount={unreadCount}
         onScrollToBottom={scrollToBottom}
-      onEditContact={handleOpenEditContact}
-      onOpenTags={handleOpenEtiquetaModal}
-      onComposerDraft={handleComposerDraft}
-      onLoadOlderMessages={loadOlderMessages}
-      renderedConversation={renderedConversation}
-      renderedMessages={renderedMessages}
-      selectedConversationId={selectedConversationId}
-      selectedConversationScrollKey={selectedConversationScrollKey}
-      emptySelectionTitle={emptySelectionTitle}
-      emptySelectionDescription={emptySelectionDescription}
-      headerActions={headerActions}
-      headerBadge={headerBadge}
-    />
+        onEditContact={handleOpenEditContact}
+        onOpenTags={handleOpenEtiquetaModal}
+        onComposerDraft={handleComposerDraft}
+        onLoadOlderMessages={loadOlderMessages}
+        renderedConversation={renderedConversation}
+        renderedMessages={renderedMessages}
+        selectedConversationId={selectedConversationId}
+        selectedConversationScrollKey={selectedConversationScrollKey}
+        emptySelectionTitle={emptySelectionTitle}
+        emptySelectionDescription={emptySelectionDescription}
+        headerActions={headerActions}
+        headerBadge={headerBadge}
+      />
     </div>
 
     {renderedConversation?.contactId ? (

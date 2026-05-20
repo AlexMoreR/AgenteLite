@@ -635,6 +635,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       <SharedInbox
         searchAction="/cliente/chats"
         selectedConversationId={selectedUnified?.key ?? ""}
+        mobileConversationActive={Boolean(selectedChatKeyParam)}
         selectedConnectionKey={selectedConnectionKey}
         searchQuery={searchQuery}
         messageScrollBehavior={scrollMode === CHAT_MESSAGE_SCROLL_PRESERVE_QUERY ? "preserve" : "bottom"}
