@@ -1351,7 +1351,11 @@ const ConversationPanel = memo(function ConversationPanel({
                   backgroundSize: "220px 220px",
                 }}
               >
-                <div className="flex min-h-full flex-col">
+                <div
+                  className={`flex min-h-full flex-col transition-opacity duration-150 ease-out ${
+                    !hasSettledConversation ? "opacity-85" : "opacity-100"
+                  }`}
+                >
                   <div className="shrink-0">
                     {canLoadOlderMessages ? (
                       <div className="pb-1">
