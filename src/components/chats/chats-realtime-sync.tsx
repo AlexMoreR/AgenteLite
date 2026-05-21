@@ -599,7 +599,7 @@ export function ChatsRealtimeSync({
             }
 
             if (phoneNumber) {
-              scheduleListUpdate("background", instanceName ?? normalizedActiveInstanceName, payload);
+              scheduleListUpdate("active", instanceName ?? normalizedActiveInstanceName, payload);
               return;
             }
 
@@ -636,7 +636,7 @@ export function ChatsRealtimeSync({
             }
 
             if (phoneNumber) {
-              scheduleListUpdate("background", payloadInstanceName, payload);
+              scheduleListUpdate("active", payloadInstanceName, payload);
               return;
             }
 
@@ -660,7 +660,7 @@ export function ChatsRealtimeSync({
               // desactualizado varios segundos; scheduleListUpdate es directo y rápido.
               const listInstanceName = payloadInstanceName || normalizedActiveInstanceName;
               if (listInstanceName) {
-                scheduleListUpdate("background", listInstanceName, payload);
+                scheduleListUpdate("active", listInstanceName, payload);
               } else {
                 schedulePageRefresh("background");
               }
@@ -679,7 +679,7 @@ export function ChatsRealtimeSync({
               return;
             }
 
-            scheduleListUpdate("background", payloadInstanceName || (instanceName ?? normalizedActiveInstanceName) || "", payload);
+            scheduleListUpdate("active", payloadInstanceName || (instanceName ?? normalizedActiveInstanceName) || "", payload);
             return;
           }
 

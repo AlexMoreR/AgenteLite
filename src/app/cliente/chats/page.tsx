@@ -359,10 +359,23 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         incomingCount: number;
       }>);
 
-  const [agentIncomingCountRows, latestAgentMessageRows] = await Promise.all([
+  const [agentIncomingCountRowsResult, latestAgentMessageRowsResult] = await Promise.allSettled([
     agentIncomingCountRowsPromise,
     latestAgentMessageRowsPromise,
   ]);
+  const agentIncomingCountRows =
+    agentIncomingCountRowsResult.status === "fulfilled" ? agentIncomingCountRowsResult.value : [];
+  const latestAgentMessageRows =
+    latestAgentMessageRowsResult.status === "fulfilled" ? latestAgentMessageRowsResult.value : [];
+
+  if (process.env.NODE_ENV !== "production") {
+    if (agentIncomingCountRowsResult.status === "rejected") {
+      console.warn("[CHATS PAGE] agentIncomingCountRowsPromise failed", agentIncomingCountRowsResult.reason);
+    }
+    if (latestAgentMessageRowsResult.status === "rejected") {
+      console.warn("[CHATS PAGE] latestAgentMessageRowsPromise failed", latestAgentMessageRowsResult.reason);
+    }
+  }
   const latestAgentMessageByConversationId = new Map(
     latestAgentMessageRows.map((row) => [row.conversationId, row]),
   );

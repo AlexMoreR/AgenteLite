@@ -2181,12 +2181,27 @@ export function SharedInbox({
         return;
       }
 
+      const now = new Date();
+      const optimisticListSnapshot = {
+        id: renderedConversation.id,
+        label: renderedConversation.label,
+        secondaryLabel: renderedConversation.secondaryLabel,
+        tags: renderedConversation.tags ?? [],
+        avatarUrl: renderedConversation.avatarUrl ?? null,
+        incomingCount: 0,
+        lastMessage: message,
+        lastMessageType: "TEXT" as const,
+        lastMessageDirection: "OUTBOUND" as const,
+        lastMessageAt: now,
+        channelType: selectedConversationId.startsWith("official:") ? "whatsapp_official" : "whatsapp",
+      };
+
       setOptimisticOutgoingMessage({
         id: `optimistic:${renderedConversation.id}:${Date.now()}`,
         conversationId: renderedConversation.id,
         content: message,
         direction: "OUTBOUND",
-        createdAt: new Date(),
+        createdAt: now,
         authorType: "user",
         outboundStatusLabel: "enviando",
         type: "TEXT",
@@ -2194,8 +2209,20 @@ export function SharedInbox({
         rawPayload: { optimistic: true },
         isOptimistic: true,
       });
+
+      window.dispatchEvent(
+        new CustomEvent("chat-list-update", {
+          detail: {
+            conversation: optimisticListSnapshot,
+          },
+        }),
+      );
+
+      window.setTimeout(() => {
+        router.refresh();
+      }, 750);
     },
-    [renderedConversation],
+    [renderedConversation, router, selectedConversationId],
   );
   const hasSettledConversation = Boolean(renderedConversation && currentSelectedConversation && renderedConversation.id === currentSelectedConversation.id);
   const canLoadOlderMessages = Boolean(renderedConversation?.loadMoreCursor && renderedConversation.hasMoreMessages);
