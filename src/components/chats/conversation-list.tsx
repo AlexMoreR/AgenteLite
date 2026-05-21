@@ -3,7 +3,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useTransition, type RefObject } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { BadgeCheck, Facebook, Instagram, Mic } from "lucide-react";
+import { BadgeCheck, Facebook, Instagram, LoaderCircle, Mic } from "lucide-react";
 import { WhatsAppGlyph } from "@/components/icons/whatsapp-glyph";
 import { Badge } from "@/components/ui/badge";
 import { ContactAvatar } from "./contact-avatar";
@@ -11,6 +11,16 @@ import { warmConversationCache } from "./chat-conversation-warmup";
 import { setPendingConversationSelection } from "./chat-selection-store";
 import { readConversationFromCache } from "./chat-history-cache";
 import type { SharedInboxConversationItem } from "./shared-inbox";
+
+const CHAT_LIST_DEBUG = process.env.NODE_ENV !== "production";
+
+function debugConversationList(...args: unknown[]) {
+  if (!CHAT_LIST_DEBUG) {
+    return;
+  }
+
+  console.log("[ConversationList]", ...args);
+}
 
 // Instancia única compartida por todos los items — new Intl.DateTimeFormat() es costoso
 // y no debería crearse dentro del render de cada fila en cada actualización.
@@ -204,15 +214,20 @@ const ConversationListItem = memo(function ConversationListItem({
 const ESTIMATED_ROW_HEIGHT = 96;
 const VIRTUALIZATION_THRESHOLD = 36;
 const OVERSCAN_ROWS = 6;
-
 export function ConversationList({
   conversations,
   selectedConversationId,
   scrollContainerRef,
+  hasMoreConversations = false,
+  isLoadingMoreConversations = false,
+  onLoadMoreConversations,
 }: {
   conversations: SharedInboxConversationItem[];
   selectedConversationId: string;
   scrollContainerRef?: RefObject<HTMLDivElement | null>;
+  hasMoreConversations?: boolean;
+  isLoadingMoreConversations?: boolean;
+  onLoadMoreConversations?: () => void | Promise<void>;
 }) {
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -220,7 +235,9 @@ export function ConversationList({
   const [scrollTop, setScrollTop] = useState(0);
   const navigationFrameRef = useRef<number | null>(null);
   const scrollFrameRef = useRef<number | null>(null);
+  const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
   const prefetchedHrefsRef = useRef(new Set<string>());
+  const loadMoreRequestedForCountRef = useRef<number | null>(null);
   const router = useRouter();
   const effectiveSelectedId = isPending && pendingId ? pendingId : selectedConversationId;
 
@@ -291,7 +308,7 @@ export function ConversationList({
     }
 
     function updateScrollTop() {
-      if (scrollFrameRef.current !== null) {
+    if (scrollFrameRef.current !== null) {
         return;
       }
 
@@ -299,6 +316,31 @@ export function ConversationList({
         scrollFrameRef.current = null;
         const nextScrollTop = scrollContainer.scrollTop;
         setScrollTop((current) => (current === nextScrollTop ? current : nextScrollTop));
+
+        const distFromBottom = scrollContainer.scrollHeight - nextScrollTop - scrollContainer.clientHeight;
+        const nearBottom = distFromBottom <= 240;
+        if (nearBottom) {
+          debugConversationList("near bottom", {
+            distFromBottom,
+            count: conversations.length,
+            hasMoreConversations,
+            isLoadingMoreConversations,
+          });
+        }
+        if (
+          nearBottom &&
+          hasMoreConversations &&
+          !isLoadingMoreConversations &&
+          onLoadMoreConversations &&
+          loadMoreRequestedForCountRef.current !== conversations.length
+        ) {
+          debugConversationList("trigger load more", {
+            count: conversations.length,
+            distFromBottom,
+          });
+          loadMoreRequestedForCountRef.current = conversations.length;
+          void onLoadMoreConversations();
+        }
       });
     }
 
@@ -318,7 +360,66 @@ export function ConversationList({
       scrollContainer.removeEventListener("scroll", updateScrollTop);
       resizeObserver.disconnect();
     };
-  }, [scrollContainerRef]);
+  }, [conversations.length, hasMoreConversations, isLoadingMoreConversations, onLoadMoreConversations, scrollContainerRef]);
+
+  useEffect(() => {
+    loadMoreRequestedForCountRef.current = null;
+  }, [conversations.length, selectedConversationId]);
+
+  useEffect(() => {
+    const container = scrollContainerRef?.current;
+    const sentinel = loadMoreSentinelRef.current;
+
+    if (!container || !sentinel) {
+      return;
+    }
+
+    if (!hasMoreConversations || isLoadingMoreConversations || !onLoadMoreConversations) {
+      debugConversationList("sentinel skipped", {
+        hasMoreConversations,
+        isLoadingMoreConversations,
+        hasObserver: Boolean(onLoadMoreConversations),
+      });
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (
+          entry?.isIntersecting &&
+          hasMoreConversations &&
+          !isLoadingMoreConversations &&
+          onLoadMoreConversations &&
+          loadMoreRequestedForCountRef.current !== conversations.length
+        ) {
+          debugConversationList("sentinel intersected", {
+            count: conversations.length,
+            isIntersecting: entry.isIntersecting,
+          });
+          loadMoreRequestedForCountRef.current = conversations.length;
+          void onLoadMoreConversations();
+        }
+      },
+      {
+        root: container,
+        rootMargin: "160px 0px 160px 0px",
+        threshold: 0,
+      },
+    );
+
+    observer.observe(sentinel);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [
+    conversations.length,
+    hasMoreConversations,
+    isLoadingMoreConversations,
+    onLoadMoreConversations,
+    scrollContainerRef,
+  ]);
 
   const virtualizedWindow = useMemo(() => {
     if (conversations.length <= VIRTUALIZATION_THRESHOLD || viewportHeight <= 0) {
@@ -354,7 +455,7 @@ export function ConversationList({
 
       {(conversations.length > VIRTUALIZATION_THRESHOLD ? visibleConversations : conversations).map((conversation) => (
                 <ConversationListItem
-          key={conversation.id}
+          key={conversation.id || conversation.href}
           conversation={conversation}
           isSelected={effectiveSelectedId === conversation.id}
           onPreviewSelect={handlePreviewSelect}
@@ -363,9 +464,17 @@ export function ConversationList({
         />
       ))}
 
+      {isLoadingMoreConversations ? (
+        <div className="flex items-center justify-center py-3" aria-live="polite" aria-label="Cargando más conversaciones">
+          <LoaderCircle className="h-5 w-5 animate-spin text-slate-400" />
+        </div>
+      ) : null}
+
       {virtualizedWindow.bottomSpacer > 0 ? (
         <div aria-hidden="true" style={{ height: virtualizedWindow.bottomSpacer }} />
       ) : null}
+
+      {hasMoreConversations ? <div ref={loadMoreSentinelRef} aria-hidden="true" className="h-px w-full" /> : null}
     </>
   );
 }

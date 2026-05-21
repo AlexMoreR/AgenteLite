@@ -10,6 +10,7 @@ import { FormActionSwitch } from "@/components/ui/form-action-switch";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { Card } from "@/components/ui/card";
 import { OfficialApiLockedState, getOfficialApiChatsData } from "@/features/official-api";
+import { dedupeAndSortConversationListRows } from "@/lib/chat-conversation-list";
 import { canAccessOfficialApiModule } from "@/lib/admin-module-access";
 import { fetchEvolutionProfilePictureUrl } from "@/lib/evolution";
 import { getEvolutionSettings } from "@/lib/system-settings";
@@ -151,7 +152,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   const scrollMode = typeof params.scroll === "string" ? params.scroll : "";
 
   const selectedChatRef = parseChatKey(selectedChatKeyParam);
-  const conversationListTake = searchQuery || selectedChatRef ? 120 : 60;
+  const conversationListTake = searchQuery || selectedChatRef ? 40 : 20;
 
   const canUseOfficialApiPromise = canAccessOfficialApiModule(session.user.id, session.user.role);
   const officialDataPromise = canUseOfficialApiPromise.then((canUseOfficialApi) =>
@@ -165,7 +166,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       : null,
   );
 
-  const [canUseOfficialApi, evolutionSettings, channels, agentConversations] = await Promise.all([
+  const [canUseOfficialApi, evolutionSettings, channels, agentConversationsRaw] = await Promise.all([
     canUseOfficialApiPromise,
     getEvolutionSettings(),
     prisma.whatsAppChannel.findMany({
@@ -189,21 +190,9 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     prisma.conversation.findMany({
       where: {
         workspaceId: membership.workspace.id,
-        OR: [
-          {
-            agentId: { not: null },
-          },
-          {
-            channel: {
-              is: {
-                provider: "EVOLUTION",
-              },
-            },
-          },
-        ],
       },
       orderBy: [{ lastMessageAt: "desc" }, { updatedAt: "desc" }],
-      take: conversationListTake,
+      take: conversationListTake + 1,
       select: {
         id: true,
         agentId: true,
@@ -245,6 +234,9 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   );
 
   // Excluir conversaciones cuyo canal fue eliminado
+  const hasMoreConversationItems = agentConversationsRaw.length > conversationListTake;
+  const agentConversations = agentConversationsRaw.slice(0, conversationListTake);
+
   const activeAgentConversations = agentConversations.filter((conv) => {
     if (!conv.channelId) return true;
     return channelsById.has(conv.channelId);
@@ -468,20 +460,9 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     }
   }
 
-  const inferredConnectionKey =
-    selectedChatRef?.source === "agent"
-      ? selectedAgentConversation?.channelId
-        ? `channel:${selectedAgentConversation.channelId}`
-        : ""
-      : selectedChatRef?.source === "official"
-        ? officialChannel?.id
-          ? `channel:${officialChannel.id}`
-          : ""
-        : "";
+  const selectedConnectionKey = selectedConnectionParam;
 
-  const selectedConnectionKey = selectedConnectionParam || inferredConnectionKey;
-
-  const merged = [...agentRows, ...officialRows]
+  const merged = dedupeAndSortConversationListRows([...agentRows, ...officialRows])
     .filter((item) => {
       if (!selectedConnectionKey) return true;
       if (selectedConnectionKey.startsWith("channel:")) {
@@ -498,11 +479,6 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         item.secondaryLabel.toLowerCase().includes(q) ||
         (item.lastMessage || "").toLowerCase().includes(q)
       );
-    })
-    .sort((a, b) => {
-      const left = a.lastMessageAt ? a.lastMessageAt.getTime() : 0;
-      const right = b.lastMessageAt ? b.lastMessageAt.getTime() : 0;
-      return right - left;
     });
 
   const selectedUnified = selectedChatKeyParam
@@ -650,6 +626,9 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         selectedConversationId={selectedUnified?.key ?? ""}
         mobileConversationActive={Boolean(selectedChatKeyParam)}
         selectedConnectionKey={selectedConnectionKey}
+        initialConversationBatchSize={conversationListTake}
+        initialHasMoreConversations={hasMoreConversationItems}
+        conversationListApiPath="/api/cliente/chats/list"
         searchQuery={searchQuery}
         messageScrollBehavior={scrollMode === CHAT_MESSAGE_SCROLL_PRESERVE_QUERY ? "preserve" : "bottom"}
         conversations={merged.map((item) => ({

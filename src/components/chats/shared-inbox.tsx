@@ -46,6 +46,16 @@ import {
 } from "./chat-selection-store";
 
 const CHAT_TIME_ZONE = "America/Bogota";
+const CONVERSATION_LIST_LOAD_BATCH_SIZE = 10;
+const CHAT_LIST_DEBUG = process.env.NODE_ENV !== "production";
+
+function debugConversationList(...args: unknown[]) {
+  if (!CHAT_LIST_DEBUG) {
+    return;
+  }
+
+  console.log("[SharedInbox][list]", ...args);
+}
 
 const chatDateFormatter = new Intl.DateTimeFormat("en-CA", {
   timeZone: CHAT_TIME_ZONE,
@@ -66,6 +76,14 @@ const chatTimeFormatter = new Intl.DateTimeFormat("es-CO", {
 function formatChatTime(value: Date) {
   return chatTimeFormatter.format(value).replace(/\u00a0/g, " ");
 }
+
+type SharedInboxConversationItemLike = Partial<Omit<SharedInboxConversationItem, "lastMessageAt">> & {
+  id?: string;
+  key?: string;
+  conversationId?: string;
+  href?: string;
+  lastMessageAt?: Date | string | null;
+};
 
 export type SharedInboxConversationItem = {
   id: string;
@@ -220,6 +238,9 @@ type SharedInboxProps = {
   mobileConversationActive?: boolean;
   searchQuery: string;
   selectedConnectionKey?: string;
+  conversationListApiPath?: string;
+  initialConversationBatchSize?: number;
+  initialHasMoreConversations?: boolean;
   sidebarItems?: SharedInboxSidebarItem[];
   conversations: SharedInboxConversationItem[];
   selectedConversation: SharedInboxSelectedConversation | null;
@@ -333,6 +354,69 @@ function normalizeLiveConversationListSnapshot(value: unknown): LiveConversation
   };
 }
 
+function getConversationLastMessageTimestamp(value: Date | string | null | undefined) {
+  if (!value) {
+    return 0;
+  }
+
+  const date = value instanceof Date ? value : new Date(value);
+  const timestamp = date.getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function normalizeConversationItem(item: SharedInboxConversationItemLike, fallbackHref = ""): SharedInboxConversationItem {
+  const resolvedId =
+    typeof item.id === "string" && item.id.trim()
+      ? item.id
+      : typeof item.key === "string" && item.key.trim()
+        ? item.key
+        : typeof item.conversationId === "string" && item.conversationId.trim()
+          ? item.conversationId
+          : "";
+  const lastMessageAt = item.lastMessageAt ? new Date(item.lastMessageAt) : null;
+  return {
+    ...item,
+    id: resolvedId,
+    source: item.source === "official" ? "official" : "agent",
+    label: item.label ?? "",
+    secondaryLabel: item.secondaryLabel ?? "",
+    lastMessage: item.lastMessage ?? null,
+    href: item.href?.trim() || fallbackHref,
+    lastMessageAt: lastMessageAt && Number.isFinite(lastMessageAt.getTime()) ? lastMessageAt : null,
+  };
+}
+
+function normalizeConversationItems(
+  items: SharedInboxConversationItemLike[],
+  fallbackHrefFactory: (item: SharedInboxConversationItemLike) => string = () => "",
+): SharedInboxConversationItem[] {
+  return items.map((item) => normalizeConversationItem(item, fallbackHrefFactory(item)));
+}
+
+function buildConversationItemHrefFromParams(
+  searchAction: string,
+  selectedConnectionKey: string,
+  searchQuery: string,
+  conversation: SharedInboxConversationItemLike,
+) {
+  const chatKey =
+    (typeof conversation.id === "string" && conversation.id.trim()) ||
+    (typeof conversation.key === "string" && conversation.key.trim()) ||
+    (typeof conversation.conversationId === "string" && conversation.conversationId.trim()) ||
+    "";
+
+  if (!chatKey) {
+    return "";
+  }
+
+  const params = new URLSearchParams();
+  params.set("chatKey", chatKey);
+  if (selectedConnectionKey) params.set("connection", selectedConnectionKey);
+  if (searchQuery.trim()) params.set("q", searchQuery.trim());
+  const qs = params.toString();
+  return qs ? `${searchAction}?${qs}` : searchAction;
+}
+
 function extractConversationIdFromKey(value: string) {
   const normalized = value.trim();
   if (!normalized) {
@@ -429,8 +513,8 @@ function buildConversationItemFromListSnapshot(
 
 function sortConversationItems(items: SharedInboxConversationItem[]) {
   return [...items].sort((left, right) => {
-    const leftAt = left.lastMessageAt ? left.lastMessageAt.getTime() : 0;
-    const rightAt = right.lastMessageAt ? right.lastMessageAt.getTime() : 0;
+    const leftAt = getConversationLastMessageTimestamp(left.lastMessageAt);
+    const rightAt = getConversationLastMessageTimestamp(right.lastMessageAt);
     return rightAt - leftAt;
   });
 }
@@ -443,8 +527,8 @@ function mergeConversationListItem(
     return next;
   }
 
-  const existingAt = existing.lastMessageAt ? existing.lastMessageAt.getTime() : 0;
-  const nextAt = next.lastMessageAt ? next.lastMessageAt.getTime() : 0;
+  const existingAt = getConversationLastMessageTimestamp(existing.lastMessageAt);
+  const nextAt = getConversationLastMessageTimestamp(next.lastMessageAt);
 
   if (existingAt <= nextAt) {
     return next;
@@ -499,12 +583,65 @@ function areConversationListItemsEqual(
     left.lastMessage === right.lastMessage &&
     left.lastMessageType === right.lastMessageType &&
     left.lastMessageDirection === right.lastMessageDirection &&
-    (left.lastMessageAt?.getTime() ?? 0) === (right.lastMessageAt?.getTime() ?? 0) &&
+    getConversationLastMessageTimestamp(left.lastMessageAt) === getConversationLastMessageTimestamp(right.lastMessageAt) &&
     left.incomingCount === right.incomingCount &&
     left.channelType === right.channelType &&
     left.href === right.href &&
     areTagListsEqual(left.tags ?? [], right.tags ?? [])
   );
+}
+
+function areMessageItemsEqual(
+  left: SharedInboxMessageItem,
+  right: SharedInboxMessageItem,
+) {
+  return (
+    left.id === right.id &&
+    left.content === right.content &&
+    left.direction === right.direction &&
+    left.authorType === right.authorType &&
+    left.outboundStatusLabel === right.outboundStatusLabel &&
+    left.type === right.type &&
+    left.mediaUrl === right.mediaUrl &&
+    left.rawPayload === right.rawPayload &&
+    left.createdAt.getTime() === right.createdAt.getTime() &&
+    (left.editedAt?.getTime() ?? 0) === (right.editedAt?.getTime() ?? 0) &&
+    (left.deletedAt?.getTime() ?? 0) === (right.deletedAt?.getTime() ?? 0)
+  );
+}
+
+function areSelectedConversationsEqual(
+  left: SharedInboxSelectedConversation,
+  right: SharedInboxSelectedConversation,
+) {
+  return (
+    left.id === right.id &&
+    left.label === right.label &&
+    left.secondaryLabel === right.secondaryLabel &&
+    left.contactId === right.contactId &&
+    left.contactName === right.contactName &&
+    left.avatarUrl === right.avatarUrl &&
+    left.automationPaused === right.automationPaused &&
+    left.loadMoreHref === right.loadMoreHref &&
+    left.loadMoreCursor === right.loadMoreCursor &&
+    left.hasMoreMessages === right.hasMoreMessages &&
+    left.cacheKey === right.cacheKey &&
+    areTagListsEqual(left.tags ?? [], right.tags ?? []) &&
+    left.messages.length === right.messages.length &&
+    left.messages.every((message, index) => areMessageItemsEqual(message, right.messages[index]!))
+  );
+}
+
+function mergeConversationSnapshotIfChanged(
+  existing: SharedInboxSelectedConversation | null,
+  next: SharedInboxSelectedConversation | null,
+) {
+  const merged = mergeConversationSnapshots(existing, next);
+  if (!existing || !merged) {
+    return merged;
+  }
+
+  return areSelectedConversationsEqual(existing, merged) ? existing : merged;
 }
 
 function updateConversationItemByContact(
@@ -1631,6 +1768,9 @@ export function SharedInbox({
   mobileConversationActive = false,
   searchQuery,
   selectedConnectionKey = "",
+  conversationListApiPath = "/api/cliente/chats/list",
+  initialConversationBatchSize = 20,
+  initialHasMoreConversations,
   sidebarItems = [],
   conversations,
   selectedConversation,
@@ -1644,7 +1784,15 @@ export function SharedInbox({
   emptySelectionDescription,
   messageScrollBehavior = "bottom",
 }: SharedInboxProps) {
-  const [conversationItems, setConversationItems] = useState<SharedInboxConversationItem[]>(conversations);
+  const [conversationItems, setConversationItems] = useState<SharedInboxConversationItem[]>(() =>
+    normalizeConversationItems(conversations, (item) =>
+      buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item),
+    ),
+  );
+  const [hasMoreConversationItems, setHasMoreConversationItems] = useState(
+    initialHasMoreConversations ?? conversations.length >= initialConversationBatchSize,
+  );
+  const [isLoadingMoreConversationItems, setIsLoadingMoreConversationItems] = useState(false);
   const [optimisticConversation, setOptimisticConversation] = useState<SharedInboxSelectedConversation | null>(null);
   const [liveConversation, setLiveConversation] = useState<SharedInboxSelectedConversation | null>(null);
   const [optimisticOutgoingMessage, setOptimisticOutgoingMessage] = useState<OptimisticDraftMessage | null>(null);
@@ -1676,9 +1824,15 @@ export function SharedInbox({
   const selectedConversationRef = useRef(selectedConversation);
   const router = useRouter();
   const [searchInputValue, setSearchInputValue] = useState(searchQuery);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const listQueryKeyRef = useRef(`${searchQuery.trim()}::${selectedConnectionKey.trim()}`);
 
   useEffect(() => {
+    if (searchInputRef.current && document.activeElement === searchInputRef.current) {
+      return;
+    }
+
     setSearchInputValue(searchQuery);
   }, [searchQuery]);
 
@@ -1715,6 +1869,115 @@ export function SharedInbox({
     router.replace(buildSearchUrl(""));
   }, [buildSearchUrl, router]);
 
+  const loadMoreConversationItems = useCallback(async () => {
+    if (isLoadingMoreConversationItems || !hasMoreConversationItems) {
+      return;
+    }
+
+    const offset = conversationItems.length;
+    if (offset <= 0) {
+      return;
+    }
+
+    debugConversationList("loadMore start", {
+      offset,
+      currentCount: conversationItems.length,
+      hasMoreConversationItems,
+      searchQuery: searchQuery.trim(),
+      selectedConnectionKey: selectedConnectionKey.trim(),
+    });
+
+    setIsLoadingMoreConversationItems(true);
+
+    try {
+      const params = new URLSearchParams();
+      params.set("offset", String(offset));
+      params.set("limit", String(CONVERSATION_LIST_LOAD_BATCH_SIZE));
+
+      if (searchQuery.trim()) {
+        params.set("q", searchQuery.trim());
+      }
+
+      if (selectedConnectionKey.trim()) {
+        params.set("connection", selectedConnectionKey.trim());
+      }
+
+      const response = await fetch(`${conversationListApiPath}?${params.toString()}`, {
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        debugConversationList("loadMore response not ok", {
+          status: response.status,
+          offset,
+        });
+        return;
+      }
+
+      const payload = (await response.json().catch(() => null)) as
+        | { ok?: boolean; conversations?: SharedInboxConversationItem[]; hasMore?: boolean }
+        | null;
+
+      if (!payload?.ok || !Array.isArray(payload.conversations)) {
+        debugConversationList("loadMore invalid payload", {
+          offset,
+          payloadKeys: payload ? Object.keys(payload) : null,
+        });
+        return;
+      }
+
+      const normalizedPayloadConversations = normalizeConversationItems(payload.conversations, (item) =>
+        buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item),
+      );
+      debugConversationList("loadMore payload", {
+        offset,
+        received: normalizedPayloadConversations.length,
+        hasMore: payload.hasMore,
+      });
+
+      setConversationItems((current) => {
+        const currentById = new Map(current.map((item) => [item.id, item]));
+        const merged = [
+          ...current,
+          ...normalizedPayloadConversations.map((conversation) =>
+            mergeConversationListItem(conversation, currentById.get(conversation.id) ?? null),
+          ),
+        ];
+        const deduped = Array.from(new Map(merged.map((item) => [item.id, item])).values());
+        const sorted = sortConversationItems(deduped);
+
+        if (
+          current.length === sorted.length &&
+          current.every((item, index) => areConversationListItemsEqual(item, sorted[index]))
+        ) {
+          return current;
+        }
+
+        return sorted;
+      });
+
+      setHasMoreConversationItems(Boolean(payload.hasMore));
+      debugConversationList("loadMore applied", {
+        offset,
+        nextHasMore: Boolean(payload.hasMore),
+      });
+    } catch {
+      // Background pagination is opportunistic; failures should not block the UI.
+      debugConversationList("loadMore failed", { offset });
+    } finally {
+      setIsLoadingMoreConversationItems(false);
+    }
+  }, [
+    conversationItems.length,
+    conversationListApiPath,
+    hasMoreConversationItems,
+    isLoadingMoreConversationItems,
+    searchAction,
+    searchQuery,
+    selectedConnectionKey,
+  ]);
+
   const pendingConversation = usePendingConversationSelection();
 
   useEffect(() => {
@@ -1722,6 +1985,49 @@ export function SharedInbox({
       saveConversationToCache(selectedConversation);
     }
   }, [selectedConversation]);
+
+  useEffect(() => {
+    const nextListQueryKey = `${searchQuery.trim()}::${selectedConnectionKey.trim()}`;
+    const queryChanged = listQueryKeyRef.current !== nextListQueryKey;
+    listQueryKeyRef.current = nextListQueryKey;
+
+    if (queryChanged) {
+      setHasMoreConversationItems(initialHasMoreConversations ?? conversations.length >= initialConversationBatchSize);
+      setConversationItems(
+        normalizeConversationItems(conversations, (item) =>
+          buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item),
+        ),
+      );
+      return;
+    }
+
+    setConversationItems((current) => {
+      if (current.length === 0) {
+        return sortConversationItems(
+          normalizeConversationItems(conversations, (item) =>
+            buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item),
+          ),
+        );
+      }
+
+      const currentById = new Map(current.map((item) => [item.id, item]));
+      const merged = normalizeConversationItems(conversations, (item) =>
+        buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item),
+      ).map((conversation) =>
+        mergeConversationListItem(conversation, currentById.get(conversation.id) ?? null),
+      );
+      const sorted = sortConversationItems(merged);
+
+      if (
+        current.length === sorted.length &&
+        current.every((item, index) => areConversationListItemsEqual(item, sorted[index]))
+      ) {
+        return current;
+      }
+
+      return sorted;
+    });
+  }, [conversations, initialConversationBatchSize, initialHasMoreConversations, searchAction, searchQuery, selectedConnectionKey]);
 
   useEffect(() => {
     selectedConversationRef.current = selectedConversation;
@@ -1751,27 +2057,6 @@ export function SharedInbox({
     selectedConversationCache && conversationIdMatchesKey(selectedConversationKey, selectedConversationCache.id)
       ? selectedConversationCache
       : null;
-  useEffect(() => {
-    setConversationItems((current) => {
-      if (current.length === 0) {
-        return sortConversationItems(conversations);
-      }
-
-      const currentById = new Map(current.map((item) => [item.id, item]));
-      const merged = conversations.map((conversation) => mergeConversationListItem(conversation, currentById.get(conversation.id) ?? null));
-      const sorted = sortConversationItems(merged);
-
-      if (
-        current.length === sorted.length &&
-        current.every((item, index) => areConversationListItemsEqual(item, sorted[index]))
-      ) {
-        return current;
-      }
-
-      return sorted;
-    });
-  }, [conversations]);
-
   useEffect(() => {
     if (!optimisticOutgoingMessage) {
       return;
@@ -1817,7 +2102,7 @@ export function SharedInbox({
         const base = (current && current.id === snapshot.id)
           ? current
           : (selectedConversationRef.current ?? null);
-        return mergeConversationSnapshots(base, snapshot);
+        return mergeConversationSnapshotIfChanged(base, snapshot);
       });
       setConversationItems((current) => {
         const currentItem = findConversationItemBySnapshotId(current, snapshot.id) ?? undefined;
@@ -1830,11 +2115,7 @@ export function SharedInbox({
           conversationIdMatchesKey(item.id, snapshot.id) ? { ...item, ...updatedItem } : item,
         );
 
-        const sorted = nextItems.sort((left, right) => {
-          const leftAt = left.lastMessageAt ? left.lastMessageAt.getTime() : 0;
-          const rightAt = right.lastMessageAt ? right.lastMessageAt.getTime() : 0;
-          return rightAt - leftAt;
-        });
+        const sorted = sortConversationItems(nextItems);
 
         if (
           current.length === sorted.length &&
@@ -1859,11 +2140,11 @@ export function SharedInbox({
         return;
       }
 
-      setConversationItems((current) => {
-        const currentItem = findConversationItemBySnapshotId(current, snapshot.id) ?? undefined;
-        const updatedItem = buildConversationItemFromListSnapshot(snapshot, currentItem);
-        if (currentItem && areConversationListItemsEqual(currentItem, updatedItem)) {
-          return current;
+        setConversationItems((current) => {
+          const currentItem = findConversationItemBySnapshotId(current, snapshot.id) ?? undefined;
+          const updatedItem = buildConversationItemFromListSnapshot(snapshot, currentItem);
+          if (currentItem && areConversationListItemsEqual(currentItem, updatedItem)) {
+            return current;
         }
 
         const nextItems = current.map((item) =>
@@ -2036,7 +2317,7 @@ export function SharedInbox({
             : (selectedConversationRef.current && conversationIdMatchesKey(selectedConversationRef.current.id, snapshot.id)
                 ? selectedConversationRef.current
                 : selectedConversationRef.current ?? null);
-          return mergeConversationSnapshots(base, snapshot);
+          return mergeConversationSnapshotIfChanged(base, snapshot);
         });
       } catch {
         // Intentional no-op: si falla, la vista cacheada/preview sigue siendo usable.
@@ -2088,7 +2369,7 @@ export function SharedInbox({
               : (selectedConversationRef.current && conversationIdMatchesKey(selectedConversationRef.current.id, snapshot.id)
                   ? selectedConversationRef.current
                   : selectedConversationRef.current ?? null);
-            return mergeConversationSnapshots(base, snapshot);
+            return mergeConversationSnapshotIfChanged(base, snapshot);
           });
         })
         .catch(() => null);
@@ -2262,7 +2543,7 @@ export function SharedInbox({
           : (selectedConversationRef.current && conversationIdMatchesKey(selectedConversationRef.current.id, snapshot.id)
               ? selectedConversationRef.current
               : selectedConversation ?? null);
-        return mergeConversationSnapshots(base, snapshot);
+        return mergeConversationSnapshotIfChanged(base, snapshot);
       });
     } catch {
       // Ignore loading failures so scroll never gets blocked.
@@ -2713,6 +2994,7 @@ export function SharedInbox({
               {selectedConnectionKey ? <input type="hidden" name="connection" value={selectedConnectionKey} /> : null}
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
+                ref={searchInputRef}
                 type="text"
                 name="q"
                 value={searchInputValue}
@@ -2741,6 +3023,9 @@ export function SharedInbox({
                 conversations={conversationItems}
                 selectedConversationId={selectedConversationId}
                 scrollContainerRef={conversationListScrollRef}
+                hasMoreConversations={hasMoreConversationItems}
+                isLoadingMoreConversations={isLoadingMoreConversationItems}
+                onLoadMoreConversations={loadMoreConversationItems}
               />
             ) : (
               <div className="px-5 py-12 text-center">

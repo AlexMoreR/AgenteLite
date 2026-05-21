@@ -382,6 +382,69 @@ async function finalizeConversationBuffer(args: { conversationId: string; batchT
   return null;
 }
 
+async function resolveConversationWithLock(args: {
+  workspaceId: string;
+  channelId: string;
+  contactId: string;
+  agentId: string | null;
+}) {
+  const lockKey = `${args.workspaceId}:${args.channelId}:${args.contactId}`;
+
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
+
+    const existingConversation = await tx.conversation.findFirst({
+      where: {
+        workspaceId: args.workspaceId,
+        channelId: args.channelId,
+        contactId: args.contactId,
+      },
+      orderBy: {
+        updatedAt: "desc",
+      },
+      select: {
+        id: true,
+        status: true,
+        activeProductContext: true,
+        commercialContext: true,
+      },
+    });
+
+    if (existingConversation) {
+      return {
+        id: existingConversation.id,
+        status: existingConversation.status,
+        activeProductContext: existingConversation.activeProductContext ?? null,
+        commercialContext: existingConversation.commercialContext ?? null,
+      };
+    }
+
+    const createdConversation = await tx.conversation.create({
+      data: {
+        workspaceId: args.workspaceId,
+        channelId: args.channelId,
+        agentId: args.agentId,
+        contactId: args.contactId,
+        status: "OPEN",
+        lastMessageAt: new Date(),
+      },
+      select: {
+        id: true,
+        status: true,
+        activeProductContext: true,
+        commercialContext: true,
+      },
+    });
+
+    return {
+      id: createdConversation.id,
+      status: createdConversation.status,
+      activeProductContext: createdConversation.activeProductContext ?? null,
+      commercialContext: createdConversation.commercialContext ?? null,
+    };
+  });
+}
+
 export async function POST(request: Request) {
   const payload = await request.json().catch(() => null);
 
@@ -704,42 +767,41 @@ export async function POST(request: Request) {
     );
   }
 
-  const existingConversation = callFallbackConversation
-      ? {
+  let existingConversation = callFallbackConversation
+    ? {
         id: callFallbackConversation.id,
         status: callFallbackConversation.status,
         activeProductContext: callFallbackConversation.activeProductContext ?? null,
         commercialContext: null,
       }
-    : existingMessage
-    ? await prisma.conversation.findFirst({
-        where: {
-          id: existingMessage.conversationId,
-          workspaceId: channel.workspaceId,
-        },
-        select: {
-          id: true,
-          status: true,
-          activeProductContext: true,
-          commercialContext: true,
-        },
-      })
-    : await prisma.conversation.findFirst({
-        where: {
+      : existingMessage
+      ? await prisma.conversation.findFirst({
+          where: {
+            id: existingMessage.conversationId,
+            workspaceId: channel.workspaceId,
+          },
+          select: {
+            id: true,
+            status: true,
+            activeProductContext: true,
+            commercialContext: true,
+          },
+        })
+      : await resolveConversationWithLock({
           workspaceId: channel.workspaceId,
           channelId: channel.id,
           contactId: contact.id,
-        },
-        orderBy: {
-          updatedAt: "desc",
-        },
-        select: {
-          id: true,
-          status: true,
-          activeProductContext: true,
-          commercialContext: true,
-        },
-      });
+          agentId: channel.agentId ?? null,
+        });
+
+  if (!existingConversation) {
+    existingConversation = await resolveConversationWithLock({
+      workspaceId: channel.workspaceId,
+      channelId: channel.id,
+      contactId: contact.id,
+      agentId: channel.agentId ?? null,
+    });
+  }
 
   const conversation: { id: string; activeProductContext: Prisma.InputJsonValue | null; commercialContext: Prisma.InputJsonValue | null } = existingConversation
     ? {
@@ -747,17 +809,11 @@ export async function POST(request: Request) {
         activeProductContext: existingConversation.activeProductContext ?? null,
         commercialContext: existingConversation.commercialContext ?? null,
       }
-    : await prisma.conversation.create({
-        data: {
-          workspaceId: channel.workspaceId,
-          channelId: channel.id,
-          agentId: channel.agentId ?? null,
-          contactId: contact.id,
-          status: "OPEN",
-          lastMessageAt: new Date(),
-        },
-        select: { id: true, activeProductContext: true, commercialContext: true },
-      });
+    : {
+        id: "",
+        activeProductContext: null,
+        commercialContext: null,
+      };
 
   if (!messageWasEdited && existingConversation && !["OPEN", "PENDING"].includes(existingConversation.status)) {
     await prisma.conversation.update({
