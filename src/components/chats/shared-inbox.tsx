@@ -2207,6 +2207,8 @@ export function SharedInbox({
   loadMoreHrefRef.current = renderedConversation?.loadMoreHref ?? null;
   const messageScrollBehaviorRef = useRef(messageScrollBehavior);
   messageScrollBehaviorRef.current = messageScrollBehavior;
+  const settledConversationBottomScrollAppliedRef = useRef("");
+  const settledConversationBottomScrollTimeoutRef = useRef<number | null>(null);
   const composerHiddenFields = composer
     ? buildComposerHiddenFields(
         composer.hiddenFields,
@@ -2234,6 +2236,11 @@ export function SharedInbox({
     lastScrollTopRef.current = 0;
     historyLoadArmedRef.current = false;
     historyLoadConsumedRef.current = false;
+    settledConversationBottomScrollAppliedRef.current = "";
+    if (settledConversationBottomScrollTimeoutRef.current !== null) {
+      window.clearTimeout(settledConversationBottomScrollTimeoutRef.current);
+      settledConversationBottomScrollTimeoutRef.current = null;
+    }
   }, [selectedConversationId]);
 
   // Track whether the user is near the bottom of the message list and only arm
@@ -2369,6 +2376,84 @@ export function SharedInbox({
       setUnreadCount((prev) => prev + added);
     }
   }, [selectedConversationScrollKey, messageScrollBehavior]);
+
+  useLayoutEffect(() => {
+    if (messageScrollBehavior !== "bottom") {
+      return;
+    }
+
+    if (!hasSettledConversation || !renderedConversation || renderedMessages.length <= 1) {
+      return;
+    }
+
+    if (settledConversationBottomScrollAppliedRef.current === selectedConversationId) {
+      return;
+    }
+
+    const container = messagesScrollRef.current;
+    if (!container) {
+      return;
+    }
+
+    settledConversationBottomScrollAppliedRef.current = selectedConversationId;
+
+    const frame = window.requestAnimationFrame(() => {
+      container.scrollTop = container.scrollHeight;
+      isNearBottomRef.current = true;
+      setUnreadCount(0);
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [
+    hasSettledConversation,
+    messageScrollBehavior,
+    renderedConversation,
+    renderedMessages.length,
+    selectedConversationId,
+  ]);
+
+  useEffect(() => {
+    if (messageScrollBehavior !== "bottom") {
+      return;
+    }
+
+    if (!hasSettledConversation || !renderedConversation || renderedMessages.length <= 1) {
+      return;
+    }
+
+    if (!selectedConversationId) {
+      return;
+    }
+
+    if (settledConversationBottomScrollTimeoutRef.current !== null) {
+      window.clearTimeout(settledConversationBottomScrollTimeoutRef.current);
+    }
+
+    settledConversationBottomScrollTimeoutRef.current = window.setTimeout(() => {
+      const container = messagesScrollRef.current;
+      if (!container) {
+        return;
+      }
+
+      container.scrollTop = container.scrollHeight;
+      isNearBottomRef.current = true;
+      setUnreadCount(0);
+      settledConversationBottomScrollTimeoutRef.current = null;
+    }, 180);
+
+    return () => {
+      if (settledConversationBottomScrollTimeoutRef.current !== null) {
+        window.clearTimeout(settledConversationBottomScrollTimeoutRef.current);
+        settledConversationBottomScrollTimeoutRef.current = null;
+      }
+    };
+  }, [
+    hasSettledConversation,
+    messageScrollBehavior,
+    renderedConversation,
+    renderedMessages.length,
+    selectedConversationId,
+  ]);
 
   const scrollToBottom = useCallback(() => {
     const container = messagesScrollRef.current;
