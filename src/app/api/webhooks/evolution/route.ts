@@ -365,7 +365,7 @@ async function finalizeConversationBuffer(args: { conversationId: string; batchT
         autoReplyBatchDueAt: liveConversationState.autoReplyBatchDueAt,
       },
       data: {
-        autoReplyBuffer: null,
+        autoReplyBuffer: Prisma.DbNull,
         autoReplyBatchStartedAt: null,
         autoReplyBatchDueAt: null,
         autoReplyBatchToken: null,
