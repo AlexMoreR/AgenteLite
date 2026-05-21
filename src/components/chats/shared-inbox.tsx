@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition, type FormEvent, type ReactNode, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { useFormStatus } from "react-dom";
 import {
@@ -837,6 +838,8 @@ const MessageBubble = memo(function MessageBubble({
   previousMessage: SharedInboxMessageItem | undefined;
 }) {
   const [imagePreviewIndex, setImagePreviewIndex] = useState(0);
+  const [isImageViewerOpen, setIsImageViewerOpen] = useState(false);
+  const portalTarget = typeof document === "undefined" ? null : document.body;
   const outbound = message.direction === "OUTBOUND";
   const currentDateKey = chatDateFormatter.format(message.createdAt);
   const previousDateKey = previousMessage ? chatDateFormatter.format(previousMessage.createdAt) : null;
@@ -864,6 +867,9 @@ const MessageBubble = memo(function MessageBubble({
   );
   const isOptimistic = "isOptimistic" in message && Boolean((message as { isOptimistic?: boolean }).isOptimistic);
   const isDeleted = Boolean(message.deletedAt);
+  const hasImagePreview = isImageMessage && imagePreviewUrl !== null;
+  const imagePreviewExhausted = isImageMessage && imagePreviewUrls.length > 0 && !hasImagePreview;
+  const showInlineImageTimestamp = hasImagePreview;
 
   const handleImageError = () => {
     setImagePreviewIndex((current) => {
@@ -872,8 +878,37 @@ const MessageBubble = memo(function MessageBubble({
     });
   };
 
-  const hasImagePreview = isImageMessage && imagePreviewUrl !== null;
-  const imagePreviewExhausted = isImageMessage && imagePreviewUrls.length > 0 && !hasImagePreview;
+  const openImageViewer = useCallback(() => {
+    if (hasImagePreview) {
+      setIsImageViewerOpen(true);
+    }
+  }, [hasImagePreview]);
+
+  const closeImageViewer = useCallback(() => {
+    setIsImageViewerOpen(false);
+  }, []);
+
+  useEffect(() => {
+    if (!isImageViewerOpen) {
+      return undefined;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsImageViewerOpen(false);
+      }
+    };
+
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isImageViewerOpen]);
+
   const callSummary = getCallMessageSummary(message);
   const CallIcon = callSummary?.icon ?? null;
 
@@ -915,66 +950,174 @@ const MessageBubble = memo(function MessageBubble({
             </div>
           ) : adPreview ? (
             <div className="space-y-3">
-              <div
-                className={`overflow-hidden rounded-[14px] border ${
-                  outbound ? "border-white/20 bg-white/10" : "border-[rgba(148,163,184,0.16)] bg-slate-50"
-                }`}
-              >
-                {adPreview.thumbnailUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={isMediaSourceUrl(adPreview.thumbnailUrl) ? toProxiedMediaUrl(adPreview.thumbnailUrl) : ""}
-                    alt={adPreview.title}
-                    className="h-auto max-h-[220px] w-full object-cover"
-                  />
-                ) : null}
-                <div className="space-y-1.5 px-3 py-3">
-                  <div className="flex items-center gap-2 text-[11px]">
-                    {adPreview.sourceApp === "facebook" ? (
-                      <Facebook className={`h-3.5 w-3.5 ${outbound ? "text-white/80" : "text-blue-600"}`} />
+              {adPreview.sourceUrl ? (
+                <a
+                  href={adPreview.sourceUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  title={adPreview.sourceUrl}
+                  className={`group flex w-full max-w-[280px] items-center gap-3 overflow-hidden rounded-2xl border px-2.5 py-2 text-left transition ${
+                    outbound
+                      ? "border-white/14 bg-white/10 hover:bg-white/14"
+                      : "border-[rgba(148,163,184,0.16)] bg-[#1f7a4d]/[0.14] hover:bg-[#1f7a4d]/[0.18]"
+                  }`}
+                >
+                  <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-xl border border-black/5 bg-white">
+                    {adPreview.thumbnailUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={isMediaSourceUrl(adPreview.thumbnailUrl) ? toProxiedMediaUrl(adPreview.thumbnailUrl) : ""}
+                        alt={adPreview.title}
+                        className="h-full w-full object-cover"
+                      />
                     ) : (
-                      <MessageCircle className={`h-3.5 w-3.5 ${outbound ? "text-white/80" : "text-emerald-600"}`} />
+                      <div className="flex h-full w-full items-center justify-center bg-slate-100">
+                        {adPreview.sourceApp === "facebook" ? (
+                          <Facebook className="h-4 w-4 text-blue-600" />
+                        ) : (
+                          <MessageCircle className="h-4 w-4 text-emerald-600" />
+                        )}
+                      </div>
                     )}
-                    <span className={outbound ? "text-white/80" : "text-slate-500"}>
-                      {adPreview.sourceApp === "facebook" ? "Anuncio de Facebook" : "Referencia de anuncio"}
-                    </span>
                   </div>
-                  <div className="space-y-1">
-                    <p className="line-clamp-2 text-[13px] font-semibold leading-5">{adPreview.title}</p>
-                    {adPreview.body ? (
-                      <p className={`line-clamp-2 text-[12px] leading-5 ${outbound ? "text-white/85" : "text-slate-600"}`}>
-                        {adPreview.body}
-                      </p>
-                    ) : null}
+
+                  <div className="min-w-0 flex-1 space-y-0.5">
+                    <div className="flex items-center gap-1.5">
+                      {adPreview.sourceApp === "facebook" ? (
+                        <Facebook className={`h-3.5 w-3.5 ${outbound ? "text-white/80" : "text-blue-600"}`} />
+                      ) : (
+                        <MessageCircle className={`h-3.5 w-3.5 ${outbound ? "text-white/80" : "text-emerald-600"}`} />
+                      )}
+                      <span className={`text-[11px] font-medium ${outbound ? "text-white/75" : "text-slate-500"}`}>
+                        {adPreview.sourceApp === "facebook" ? "Anuncio de Facebook" : "Referencia de anuncio"}
+                      </span>
+                    </div>
+                    <p className={`truncate text-[13px] font-semibold leading-5 ${outbound ? "text-white" : "text-slate-900"}`}>
+                      {adPreview.title}
+                    </p>
+                    <p className={`text-[11px] font-medium ${outbound ? "text-white/80" : "text-slate-500"}`}>
+                      Ver detalles
+                    </p>
                   </div>
-                  {adPreview.sourceUrl ? (
-                    <a
-                      href={adPreview.sourceUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className={`inline-flex text-[11px] underline underline-offset-2 ${
-                        outbound ? "text-white/85" : "text-slate-500"
-                      }`}
-                    >
-                      {adPreview.sourceUrl.replace(/^https?:\/\//, "")}
-                    </a>
-                  ) : null}
+                </a>
+              ) : (
+                <div
+                  className={`flex w-full max-w-[280px] items-center gap-3 overflow-hidden rounded-2xl border px-2.5 py-2 ${
+                    outbound
+                      ? "border-white/14 bg-white/10"
+                      : "border-[rgba(148,163,184,0.16)] bg-[#1f7a4d]/[0.14]"
+                  }`}
+                >
+                  <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-xl border border-black/5 bg-white">
+                    {adPreview.thumbnailUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={isMediaSourceUrl(adPreview.thumbnailUrl) ? toProxiedMediaUrl(adPreview.thumbnailUrl) : ""}
+                        alt={adPreview.title}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center bg-slate-100">
+                        {adPreview.sourceApp === "facebook" ? (
+                          <Facebook className="h-4 w-4 text-blue-600" />
+                        ) : (
+                          <MessageCircle className="h-4 w-4 text-emerald-600" />
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="min-w-0 flex-1 space-y-0.5">
+                    <div className="flex items-center gap-1.5">
+                      {adPreview.sourceApp === "facebook" ? (
+                        <Facebook className={`h-3.5 w-3.5 ${outbound ? "text-white/80" : "text-blue-600"}`} />
+                      ) : (
+                        <MessageCircle className={`h-3.5 w-3.5 ${outbound ? "text-white/80" : "text-emerald-600"}`} />
+                      )}
+                      <span className={`text-[11px] font-medium ${outbound ? "text-white/75" : "text-slate-500"}`}>
+                        {adPreview.sourceApp === "facebook" ? "Anuncio de Facebook" : "Referencia de anuncio"}
+                      </span>
+                    </div>
+                    <p className={`truncate text-[13px] font-semibold leading-5 ${outbound ? "text-white" : "text-slate-900"}`}>
+                      {adPreview.title}
+                    </p>
+                    <p className={`text-[11px] font-medium ${outbound ? "text-white/80" : "text-slate-500"}`}>
+                      Ver detalles
+                    </p>
+                  </div>
                 </div>
-              </div>
+              )}
               {renderMessageText(message.content)}
             </div>
           ) : hasImagePreview ? (
-            <div className="space-y-2">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={imagePreviewUrl}
-                alt={message.content?.trim() || "Imagen del chat"}
-                loading="lazy"
-                decoding="async"
-                onError={handleImageError}
-                className="max-h-[320px] w-full rounded-xl object-cover"
-              />
+            <div className="space-y-2 max-w-[360px]">
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={openImageViewer}
+                  className="group block w-full cursor-zoom-in overflow-hidden rounded-xl"
+                  aria-label="Abrir imagen en pantalla completa"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={imagePreviewUrl}
+                    alt={message.content?.trim() || "Imagen del chat"}
+                    loading="lazy"
+                    decoding="async"
+                    onError={handleImageError}
+                    className="max-h-[260px] w-full rounded-xl object-cover transition duration-200 group-hover:scale-[1.01]"
+                  />
+                  <span className="pointer-events-none absolute inset-0 rounded-xl ring-1 ring-inset ring-black/5 transition group-hover:bg-black/5" />
+                </button>
+                {showInlineImageTimestamp ? (
+                  <div
+                    className={`absolute right-2 bottom-2 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] leading-none backdrop-blur-sm ${
+                      outbound ? "bg-black/45 text-white" : "bg-black/45 text-white"
+                    }`}
+                  >
+                    {message.authorType === "bot" ? (
+                      <Bot className="h-3 w-3" />
+                    ) : (
+                      <UserRound className="h-3 w-3" />
+                    )}
+                    {formatChatTime(message.createdAt)}
+                  </div>
+                ) : null}
+              </div>
               {renderMessageText(message.content)}
+              {portalTarget && isImageViewerOpen && hasImagePreview
+                ? createPortal(
+                    <div
+                      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/90 px-3 py-3 backdrop-blur-sm"
+                      role="dialog"
+                      aria-modal="true"
+                      aria-label="Vista previa de imagen"
+                      onClick={closeImageViewer}
+                    >
+                      <div
+                        className="relative flex h-full w-full items-center justify-center"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <button
+                          type="button"
+                          onClick={closeImageViewer}
+                          className="absolute right-2 top-2 z-10 inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20"
+                          aria-label="Cerrar imagen"
+                        >
+                          <X className="h-5 w-5" />
+                        </button>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={imagePreviewUrl}
+                          alt={message.content?.trim() || "Imagen del chat"}
+                          className="max-h-[calc(100dvh-1.5rem)] max-w-[calc(100dvw-1.5rem)] select-none object-contain shadow-[0_24px_80px_-24px_rgba(0,0,0,0.65)]"
+                          draggable={false}
+                        />
+                      </div>
+                    </div>,
+                    portalTarget,
+                  )
+                : null}
             </div>
           ) : imagePreviewExhausted ? (
             <div className="space-y-2">
@@ -1054,12 +1197,14 @@ const MessageBubble = memo(function MessageBubble({
                 Editado
               </Badge>
             ) : null}
-            {message.authorType === "bot" ? (
-              <Bot className="h-3 w-3" />
-            ) : (
-              <UserRound className="h-3 w-3" />
-            )}
-            <span>{formatChatTime(message.createdAt)}</span>
+            {!showInlineImageTimestamp ? (
+              message.authorType === "bot" ? (
+                <Bot className="h-3 w-3" />
+              ) : (
+                <UserRound className="h-3 w-3" />
+              )
+            ) : null}
+            {!showInlineImageTimestamp ? <span>{formatChatTime(message.createdAt)}</span> : null}
             {outbound && message.outboundStatusLabel ? (
               message.outboundStatusLabel === "entregado" ? (
                 <CheckCheck className="ml-1 h-3 w-3 shrink-0" aria-hidden="true" />
@@ -1154,7 +1299,6 @@ const ConversationPanel = memo(function ConversationPanel({
   headerBadge,
 }: ConversationPanelProps) {
   const canLoadOlderMessages = Boolean(renderedConversation?.loadMoreCursor && renderedConversation.hasMoreMessages);
-  const shouldAnchorMessagesToBottom = Boolean(renderedConversation && renderedMessages.length <= 1);
   const [viewportHeight, setViewportHeight] = useState(0);
   const [scrollTop, setScrollTop] = useState(0);
   const scrollFrameRef = useRef<number | null>(null);
@@ -1207,6 +1351,10 @@ const ConversationPanel = memo(function ConversationPanel({
       totalMessageHeight: nextHeights.reduce((sum, height) => sum + height, 0),
     };
   }, [renderedMessages]);
+
+  const shouldAnchorMessagesToBottom = Boolean(
+    renderedConversation && renderedMessages.length > 0 && viewportHeight > 0 && totalMessageHeight < viewportHeight,
+  );
 
   const virtualizedMessages = useMemo(() => {
     if (renderedMessages.length <= MESSAGE_VIRTUALIZATION_THRESHOLD || viewportHeight <= 0) {
