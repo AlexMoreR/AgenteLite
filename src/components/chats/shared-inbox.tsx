@@ -45,7 +45,6 @@ import {
 } from "./chat-selection-store";
 
 const CHAT_TIME_ZONE = "America/Bogota";
-const SELECTED_CONVERSATION_PENDING_CLEAR_DELAY_MS = 4000;
 
 const chatDateFormatter = new Intl.DateTimeFormat("en-CA", {
   timeZone: CHAT_TIME_ZONE,
@@ -1604,11 +1603,6 @@ export function SharedInbox({
     selectedConversationCache && conversationIdMatchesKey(selectedConversationKey, selectedConversationCache.id)
       ? selectedConversationCache
       : null;
-  const hasReadySelectedConversation =
-    Boolean(currentSelectedConversation && conversationIdMatchesKey(selectedConversationId, currentSelectedConversation.id)) ||
-    Boolean(cachedConversationForCurrentSelection) ||
-    Boolean(liveConversation && conversationIdMatchesKey(selectedConversationId, liveConversation.id));
-
   useEffect(() => {
     setConversationItems((current) => {
       if (current.length === 0) {
@@ -1917,29 +1911,6 @@ export function SharedInbox({
   ]);
 
   useEffect(() => {
-    if (!pendingConversation?.id || pendingConversation.id !== selectedConversationId) {
-      return;
-    }
-
-    historyLoadArmedRef.current = false;
-    lastScrollTopRef.current = 0;
-    setIsLoadingOlderMessages(false);
-
-    if (hasReadySelectedConversation) {
-      clearPendingConversationSelection();
-      setOptimisticConversation(null);
-      return;
-    }
-
-    const timer = window.setTimeout(() => {
-      clearPendingConversationSelection();
-      setOptimisticConversation(null);
-    }, SELECTED_CONVERSATION_PENDING_CLEAR_DELAY_MS);
-
-    return () => window.clearTimeout(timer);
-  }, [hasReadySelectedConversation, pendingConversation?.id, selectedConversationId]);
-
-  useEffect(() => {
     const normalizedSelectedConversationId = (pendingConversation?.chatKey ?? selectedConversationId).trim();
 
     if (!normalizedSelectedConversationId.startsWith("agent:")) {
@@ -1998,6 +1969,11 @@ export function SharedInbox({
       selectedConversationCache,
     ],
   );
+  const hasLoadedSelectedConversationContent = Boolean(
+    liveOrCachedConversation &&
+      conversationIdMatchesKey(selectedConversationId, liveOrCachedConversation.id) &&
+      liveOrCachedConversation.messages.length > 0,
+  );
   const pendingConversationPreview = useMemo(
     () => {
       if (!pendingConversation) {
@@ -2053,6 +2029,21 @@ export function SharedInbox({
 
     return liveOrCachedConversation;
   }, [liveOrCachedConversation, pendingConversationPreview]);
+
+  useEffect(() => {
+    if (!pendingConversation?.id || pendingConversation.id !== selectedConversationId) {
+      return;
+    }
+
+    historyLoadArmedRef.current = false;
+    lastScrollTopRef.current = 0;
+    setIsLoadingOlderMessages(false);
+
+    if (hasLoadedSelectedConversationContent) {
+      clearPendingConversationSelection();
+      setOptimisticConversation(null);
+    }
+  }, [hasLoadedSelectedConversationContent, pendingConversation?.id, selectedConversationId]);
 
   useEffect(() => {
     if (!renderedConversation) {
@@ -2361,6 +2352,13 @@ export function SharedInbox({
 
     // First messages arriving (0 → N): always jump to bottom regardless of scroll position.
     if (prevCount === 0) {
+      jumpToBottom(false);
+      return;
+    }
+
+    // Transition from a lightweight preview (usually 1 message) to the real chat:
+    // use a hard jump so the final hydration doesn't leave the viewport slightly above.
+    if (prevCount <= 1) {
       jumpToBottom(false);
       return;
     }
