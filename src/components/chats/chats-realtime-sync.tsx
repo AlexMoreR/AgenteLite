@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -31,9 +31,9 @@ const ACTIVE_REFRESH_MIN_GAP_MS = 350;
 const BACKGROUND_REFRESH_MIN_GAP_MS = 4000;
 const PAGE_REFRESH_DELAY_MS = 250;
 const PAGE_REFRESH_MIN_GAP_MS = 1200;
-// El live-update de la conversación activa puede ir rápido (180ms) porque solo
+// El live-update de la conversacion activa puede ir rapido (180ms) porque solo
 // lee mensajes ya guardados por el webhook en ese momento. El summary de lista
-// necesita más margen: el webhook puede tardar 500-1000ms en escribir el mensaje
+// necesita mas margen: el webhook puede tardar 500-1000ms en escribir el mensaje
 // antes de que la query de summary lo vea.
 const LIST_REFRESH_DELAY_MS = 1200;
 const LIST_REFRESH_MIN_GAP_MS = 2000;
@@ -106,8 +106,8 @@ function pickString(source: UnknownRecord | null, keys: string[]): string | null
   return null;
 }
 
-// Solo @s.whatsapp.net es un JID de contacto individual válido.
-// @g.us = grupo, @lid = identificador interno de Meta (no es número), otros = desconocidos.
+// Solo @s.whatsapp.net es un JID de contacto individual valido.
+// @g.us = grupo, @lid = identificador interno de Meta (no es numero), otros = desconocidos.
 function isIndividualJid(jid: string | null): boolean {
   return Boolean(jid && jid.endsWith("@s.whatsapp.net"));
 }
@@ -124,7 +124,7 @@ function extractPhoneNumberFromPayload(payload: unknown): string | null {
     return normalizePhoneFromJid(remoteJid);
   }
 
-  // Fallback: buscar en otros campos del payload, filtrando también JIDs no individuales.
+  // Fallback: buscar en otros campos del payload, filtrando tambien JIDs no individuales.
   const root = asRecord(payload);
   const data = asRecord(root?.data);
   const message = asRecord(data?.message);
@@ -196,8 +196,8 @@ export function ChatsRealtimeSync({
   const lastListUpdateAtByKeyRef = useRef(new Map<string, number>());
   const pageRefreshTimerRef = useRef<number | null>(null);
   const lastPageRefreshAtRef = useRef(0);
-  // Refs para valores volátiles: evitan que el useEffect de sockets se re-ejecute
-  // (y desconecte/reconecte todos los sockets) cada vez que cambia la conversación activa.
+  // Refs para valores volatiles: evitan que el useEffect de sockets se re-ejecute
+  // (y desconecte/reconecte todos los sockets) cada vez que cambia la conversacion activa.
   const selectedConversationKeyRef = useRef(selectedConversationKey);
   selectedConversationKeyRef.current = selectedConversationKey;
   const selectedConversationPhoneNumberRef = useRef(selectedConversationPhoneNumber);
@@ -231,7 +231,7 @@ export function ChatsRealtimeSync({
     const normalizedBaseUrl = normalizeBaseUrl(apiBaseUrl);
     const normalizedInstanceNames = normalizedInstanceNamesKey ? normalizedInstanceNamesKey.split("\u0000") : [];
     // Socket base (null) solo en globalEventsEnabled: Evolution global emite todos los eventos
-    // en la raíz. En modo no-global solo conectar por instancia evita conexiones fallidas al
+    // en la raiz. En modo no-global solo conectar por instancia evita conexiones fallidas al
     // base URL que no acepta socket.io sin path de instancia.
     const socketTargets: Array<string | null> = Array.from(new Set([
       ...(globalEventsEnabled ? ([null] as Array<string | null>) : []),
@@ -449,7 +449,7 @@ export function ChatsRealtimeSync({
             lastLiveUpdateAtRef.current = Date.now();
           }
           if (priority === "active") {
-            // Segundo intento ~3000ms después: captura la respuesta del agente IA cuya
+            // Segundo intento ~3000ms despues: captura la respuesta del agente IA cuya
             // escritura en DB llega tarde respecto al socket event (fromMe: true).
             clearLiveUpdateFollowUpTimer();
             liveUpdateFollowUpTimerRef.current = window.setTimeout(() => {
@@ -499,8 +499,8 @@ export function ChatsRealtimeSync({
             lastListUpdateAtByKeyRef.current.set(updateKey, Date.now());
           }
 
-          // Segundo intento ~2500ms después para capturar casos donde el webhook
-          // todavía no había escrito el mensaje al DB en el primer intento (race condition).
+          // Segundo intento ~2500ms despues para capturar casos donde el webhook
+          // todavia no habia escrito el mensaje al DB en el primer intento (race condition).
           const existingFollowUpTimer = listUpdateFollowUpTimerRefs.current.get(updateKey);
           if (existingFollowUpTimer !== undefined) {
             window.clearTimeout(existingFollowUpTimer);
@@ -551,7 +551,7 @@ export function ChatsRealtimeSync({
       socket.onAny((eventName, ...args) => {
         if (typeof eventName === "string" && shouldTriggerRefresh(eventName)) {
           const normalizedEventName = normalizeEventName(eventName);
-          // Leer refs en el momento del evento — siempre reflejan la conversación actual
+          // Leer refs en el momento del evento - siempre reflejan la conversacion actual
           // sin necesidad de recrear los sockets cuando el usuario cambia de chat.
           const normalizedActiveInstanceName = activeInstanceNameRef.current?.trim() || "";
           const payload = pickSocketPayload(args);
@@ -571,27 +571,28 @@ export function ChatsRealtimeSync({
 
           if (hasActiveAgentConversation) {
             scheduleLiveUpdate("active");
+            if (!phoneNumber) {
+              scheduleListUpdate(
+                "active",
+                instanceName ?? normalizedActiveInstanceName,
+                payload,
+                currentConversationKey || undefined,
+              );
+              return;
+            }
 
             if (isEditedOrDeletedPayload) {
               return;
             }
 
-            if (phoneNumber) {
-              // Solo el chat seleccionado necesita forzar `chatKey`.
-              // Si el evento pertenece a otra conversación, dejamos que el
-              // summary se resuelva por `instanceName + phoneNumber` para que
-              // la lista refleje el chat correcto.
-              scheduleListUpdate(
-                "active",
-                instanceName ?? normalizedActiveInstanceName,
-                payload,
-                isSelectedAgentConversation ? currentConversationKey || undefined : undefined,
-              );
-            } else {
-              // Si no se pudo extraer el número, igual refrescamos pronto la
-              // vista activa para no dejar la bandeja "congelada" varios segundos.
-              schedulePageRefresh("active");
-            }
+            // Con número disponible, actualizamos solo el resumen de la lista.
+            // El chat activo ya quedó cubierto por `scheduleLiveUpdate("active")`.
+            scheduleListUpdate(
+              "active",
+              instanceName ?? normalizedActiveInstanceName,
+              payload,
+              isSelectedAgentConversation ? currentConversationKey || undefined : undefined,
+            );
             return;
           }
 
@@ -677,10 +678,10 @@ export function ChatsRealtimeSync({
               }
 
               // En modo global el payload incluye instanceName: usar ese valor para la
-              // query del summary, igual que el path no-global (línea de abajo).
+              // query del summary, igual que el path no-global (linea de abajo).
               // schedulePageRefresh("background") se reemplaza por scheduleListUpdate
-              // porque page-refresh tiene min-gap de 4000ms y dejaría el preview
-              // desactualizado varios segundos; scheduleListUpdate es directo y rápido.
+              // porque page-refresh tiene min-gap de 4000ms y dejaria el preview
+              // desactualizado varios segundos; scheduleListUpdate es directo y rapido.
               const listInstanceName = payloadInstanceName || normalizedActiveInstanceName;
               if (listInstanceName) {
                 scheduleListUpdate("active", listInstanceName, payload);
@@ -721,7 +722,7 @@ export function ChatsRealtimeSync({
             if (isEditedOrDeletedPayload) {
               return;
             }
-            // Fallback para payloads que no dejan extraer el telefono pero sí son eventos
+            // Fallback para payloads que no dejan extraer el telefono pero si son eventos
             // de mensaje reales. Un refresh de background mantiene la lista viva.
             schedulePageRefresh("background");
           }
@@ -757,5 +758,4 @@ export function ChatsRealtimeSync({
 
   return null;
 }
-
 

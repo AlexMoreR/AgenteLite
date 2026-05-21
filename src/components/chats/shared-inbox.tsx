@@ -2045,6 +2045,8 @@ export function SharedInbox({
     };
   }, []);
 
+  // Clave efectiva del chat activo. Sirve para sincronizar el panel y para
+  // evitar que el listado se reordene cuando el evento pertenece al chat abierto.
   const selectedConversationKey = (pendingConversation?.chatKey ?? selectedConversationId).trim();
   const selectedConversationCache = useMemo(
     () => (hasHydrated && selectedConversationKey ? readConversationFromCache(selectedConversationKey) : null),
@@ -2140,11 +2142,11 @@ export function SharedInbox({
         return;
       }
 
-        setConversationItems((current) => {
-          const currentItem = findConversationItemBySnapshotId(current, snapshot.id) ?? undefined;
-          const updatedItem = buildConversationItemFromListSnapshot(snapshot, currentItem);
-          if (currentItem && areConversationListItemsEqual(currentItem, updatedItem)) {
-            return current;
+      setConversationItems((current) => {
+        const currentItem = findConversationItemBySnapshotId(current, snapshot.id) ?? undefined;
+        const updatedItem = buildConversationItemFromListSnapshot(snapshot, currentItem);
+        if (currentItem && areConversationListItemsEqual(currentItem, updatedItem)) {
+          return current;
         }
 
         const nextItems = current.map((item) =>
