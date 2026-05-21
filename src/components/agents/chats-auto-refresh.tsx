@@ -84,15 +84,14 @@ export function ChatsAutoRefresh({
       const chatKey = selectedConversationKeyRef.current?.trim() ?? "";
 
       if (chatKey.startsWith("agent:")) {
-        if (realtimeEnabled) {
-          return;
-        }
-
         const wasRecentlyUpdated =
           lastLiveUpdateKeyRef.current === chatKey &&
           Date.now() - lastLiveUpdateAtRef.current < intervalMs;
 
-        if (wasRecentlyUpdated) {
+        // Aunque exista realtime, mantenemos un fallback de polling.
+        // Si el websocket falla o no emite el evento esperado, esto evita
+        // que la conversación quede congelada sin refrescarse.
+        if (realtimeEnabled && wasRecentlyUpdated) {
           return;
         }
 
@@ -101,14 +100,14 @@ export function ChatsAutoRefresh({
 
         inFlightRef.current = true;
         try {
-          const response = await fetch(`/api/cliente/chats/live?chatKey=${encodeURIComponent(chatKey)}`, {
-            credentials: "same-origin",
-            cache: "no-store",
-          });
+        const response = await fetch(`/api/cliente/chats/live?chatKey=${encodeURIComponent(chatKey)}`, {
+          credentials: "same-origin",
+          cache: "no-store",
+        });
 
-          if (!response.ok) {
-            return;
-          }
+        if (!response.ok) {
+          return;
+        }
 
           const payload = (await response.json().catch(() => null)) as
             | { ok?: boolean; conversation?: unknown }

@@ -187,16 +187,13 @@ export function ChatsRealtimeSync({
   const liveUpdateInFlightRef = useRef(false);
   const liveUpdateQueuedRef = useRef(false);
   const lastLiveUpdateAtRef = useRef(0);
-  const listUpdateTimerRef = useRef<number | null>(null);
-  const listUpdateFollowUpTimerRef = useRef<number | null>(null);
-  const listUpdateInFlightRef = useRef(false);
-  const listUpdatePendingRef = useRef<{
-    priority: RefreshPriority;
-    instanceName: string;
-    payload: unknown;
-    chatKey?: string;
-  } | null>(null);
-  const lastListUpdateAtRef = useRef(0);
+  const listUpdateTimerRefs = useRef(new Map<string, number>());
+  const listUpdateFollowUpTimerRefs = useRef(new Map<string, number>());
+  const listUpdateInFlightKeysRef = useRef(new Set<string>());
+  const listUpdatePendingByKeyRef = useRef(
+    new Map<string, { priority: RefreshPriority; instanceName: string; payload: unknown; chatKey?: string }>(),
+  );
+  const lastListUpdateAtByKeyRef = useRef(new Map<string, number>());
   const pageRefreshTimerRef = useRef<number | null>(null);
   const lastPageRefreshAtRef = useRef(0);
   // Refs para valores volátiles: evitan que el useEffect de sockets se re-ejecute
@@ -246,6 +243,10 @@ export function ChatsRealtimeSync({
     }
 
     const sockets: Socket[] = [];
+    const listUpdateTimers = listUpdateTimerRefs.current;
+    const listUpdateFollowUpTimers = listUpdateFollowUpTimerRefs.current;
+    const listUpdatePendingByKey = listUpdatePendingByKeyRef.current;
+    const listUpdateInFlightKeys = listUpdateInFlightKeysRef.current;
 
     function clearLiveUpdateTimer() {
       if (liveUpdateTimerRef.current) {
@@ -258,20 +259,6 @@ export function ChatsRealtimeSync({
       if (liveUpdateFollowUpTimerRef.current) {
         window.clearTimeout(liveUpdateFollowUpTimerRef.current);
         liveUpdateFollowUpTimerRef.current = null;
-      }
-    }
-
-    function clearListUpdateTimer() {
-      if (listUpdateTimerRef.current) {
-        window.clearTimeout(listUpdateTimerRef.current);
-        listUpdateTimerRef.current = null;
-      }
-    }
-
-    function clearListUpdateFollowUpTimer() {
-      if (listUpdateFollowUpTimerRef.current) {
-        window.clearTimeout(listUpdateFollowUpTimerRef.current);
-        listUpdateFollowUpTimerRef.current = null;
       }
     }
 
@@ -351,7 +338,6 @@ export function ChatsRealtimeSync({
         if (!conversation) {
           return false;
         }
-
         lastLiveUpdateAtRef.current = Date.now();
         window.dispatchEvent(
           new CustomEvent("chat-live-update", {
@@ -375,18 +361,29 @@ export function ChatsRealtimeSync({
       }
     }
 
-    async function runListUpdate(input: { priority: RefreshPriority; instanceName: string; payload: unknown; chatKey?: string }) {
+    async function runListUpdate(input: {
+      priority: RefreshPriority;
+      instanceName: string;
+      payload: unknown;
+      chatKey?: string;
+      updateKey: string;
+    }) {
       const phoneNumber = extractPhoneNumberFromPayload(input.payload);
       if (!phoneNumber && !input.chatKey) {
         return false;
       }
 
-      if (listUpdateInFlightRef.current) {
-        listUpdatePendingRef.current = input;
+      if (listUpdateInFlightKeysRef.current.has(input.updateKey)) {
+        listUpdatePendingByKeyRef.current.set(input.updateKey, {
+          priority: input.priority,
+          instanceName: input.instanceName,
+          payload: input.payload,
+          chatKey: input.chatKey,
+        });
         return true;
       }
 
-      listUpdateInFlightRef.current = true;
+      listUpdateInFlightKeysRef.current.add(input.updateKey);
 
       const summaryUrl = input.chatKey
         ? `/api/cliente/chats/summary?chatKey=${encodeURIComponent(input.chatKey)}`
@@ -414,7 +411,6 @@ export function ChatsRealtimeSync({
         if (!conversation) {
           return false;
         }
-
         window.dispatchEvent(
           new CustomEvent("chat-list-update", {
             detail: {
@@ -427,13 +423,13 @@ export function ChatsRealtimeSync({
       } catch {
         return false;
       } finally {
-        listUpdateInFlightRef.current = false;
+        listUpdateInFlightKeysRef.current.delete(input.updateKey);
 
-        const pendingUpdate = listUpdatePendingRef.current;
-        listUpdatePendingRef.current = null;
+        const pendingUpdate = listUpdatePendingByKeyRef.current.get(input.updateKey);
+        listUpdatePendingByKeyRef.current.delete(input.updateKey);
 
         if (pendingUpdate) {
-          scheduleListUpdate(pendingUpdate.priority, pendingUpdate.instanceName, pendingUpdate.payload);
+          scheduleListUpdate(pendingUpdate.priority, pendingUpdate.instanceName, pendingUpdate.payload, pendingUpdate.chatKey);
         }
       }
     }
@@ -468,32 +464,61 @@ export function ChatsRealtimeSync({
       }, Math.max(0, targetAt - now));
     };
 
+    const clearListTimersForKey = (updateKey: string) => {
+      const timer = listUpdateTimerRefs.current.get(updateKey);
+      if (timer !== undefined) {
+        window.clearTimeout(timer);
+        listUpdateTimerRefs.current.delete(updateKey);
+      }
+
+      const followUpTimer = listUpdateFollowUpTimerRefs.current.get(updateKey);
+      if (followUpTimer !== undefined) {
+        window.clearTimeout(followUpTimer);
+        listUpdateFollowUpTimerRefs.current.delete(updateKey);
+      }
+    };
+
     const scheduleListUpdate = (priority: RefreshPriority, instanceName: string, payload: unknown, chatKey?: string) => {
+      const phoneNumber = extractPhoneNumberFromPayload(payload);
+      const updateKey = chatKey?.trim() || (phoneNumber ? `${instanceName}:${phoneNumber}` : "");
+      if (!updateKey) {
+        return;
+      }
+
       const now = Date.now();
       const minGap = priority === "active" ? LIST_REFRESH_MIN_GAP_MS : BACKGROUND_REFRESH_MIN_GAP_MS;
       const preferredDelay = priority === "active" ? LIST_REFRESH_DELAY_MS : BACKGROUND_REFRESH_DELAY_MS;
-      const earliestAllowedAt = lastListUpdateAtRef.current + minGap;
+      const earliestAllowedAt = (lastListUpdateAtByKeyRef.current.get(updateKey) ?? 0) + minGap;
       const targetAt = Math.max(now + preferredDelay, earliestAllowedAt);
 
-      clearListUpdateTimer();
-      clearListUpdateFollowUpTimer();
-      listUpdateTimerRef.current = window.setTimeout(() => {
-        void runListUpdate({ priority, instanceName, payload, chatKey }).then((success) => {
+      clearListTimersForKey(updateKey);
+
+      const primaryTimer = window.setTimeout(() => {
+        void runListUpdate({ priority, instanceName, payload, chatKey, updateKey }).then((success) => {
           if (success) {
-            lastListUpdateAtRef.current = Date.now();
+            lastListUpdateAtByKeyRef.current.set(updateKey, Date.now());
           }
+
           // Segundo intento ~2500ms después para capturar casos donde el webhook
           // todavía no había escrito el mensaje al DB en el primer intento (race condition).
-          clearListUpdateFollowUpTimer();
-          listUpdateFollowUpTimerRef.current = window.setTimeout(() => {
-            void runListUpdate({ priority: "background", instanceName, payload, chatKey }).then((retrySuccess) => {
+          const existingFollowUpTimer = listUpdateFollowUpTimerRefs.current.get(updateKey);
+          if (existingFollowUpTimer !== undefined) {
+            window.clearTimeout(existingFollowUpTimer);
+          }
+
+          const followUpTimer = window.setTimeout(() => {
+            void runListUpdate({ priority: "background", instanceName, payload, chatKey, updateKey }).then((retrySuccess) => {
               if (retrySuccess) {
-                lastListUpdateAtRef.current = Date.now();
+                lastListUpdateAtByKeyRef.current.set(updateKey, Date.now());
               }
             });
           }, 2500);
+
+          listUpdateFollowUpTimerRefs.current.set(updateKey, followUpTimer);
         });
       }, Math.max(0, targetAt - now));
+
+      listUpdateTimerRefs.current.set(updateKey, primaryTimer);
     };
 
     const schedulePageRefresh = (priority: RefreshPriority) => {
@@ -524,10 +549,6 @@ export function ChatsRealtimeSync({
       });
 
       socket.onAny((eventName, ...args) => {
-        if (process.env.NODE_ENV !== "production") {
-          console.log("[EVO WS]", eventName, args);
-        }
-
         if (typeof eventName === "string" && shouldTriggerRefresh(eventName)) {
           const normalizedEventName = normalizeEventName(eventName);
           // Leer refs en el momento del evento — siempre reflejan la conversación actual
@@ -567,7 +588,9 @@ export function ChatsRealtimeSync({
                 isSelectedAgentConversation ? currentConversationKey || undefined : undefined,
               );
             } else {
-              schedulePageRefresh("background");
+              // Si no se pudo extraer el número, igual refrescamos pronto la
+              // vista activa para no dejar la bandeja "congelada" varios segundos.
+              schedulePageRefresh("active");
             }
             return;
           }
@@ -603,7 +626,7 @@ export function ChatsRealtimeSync({
               return;
             }
 
-            schedulePageRefresh("background");
+            schedulePageRefresh("active");
             return;
           }
 
@@ -640,7 +663,7 @@ export function ChatsRealtimeSync({
               return;
             }
 
-            schedulePageRefresh("background");
+            schedulePageRefresh("active");
             return;
           }
           if (phoneNumber) {
@@ -662,7 +685,7 @@ export function ChatsRealtimeSync({
               if (listInstanceName) {
                 scheduleListUpdate("active", listInstanceName, payload);
               } else {
-                schedulePageRefresh("background");
+                schedulePageRefresh("active");
               }
               return;
             }
@@ -711,13 +734,19 @@ export function ChatsRealtimeSync({
     return () => {
       clearLiveUpdateTimer();
       clearLiveUpdateFollowUpTimer();
-      clearListUpdateTimer();
-      clearListUpdateFollowUpTimer();
+      for (const timer of listUpdateTimers.values()) {
+        window.clearTimeout(timer);
+      }
+      for (const timer of listUpdateFollowUpTimers.values()) {
+        window.clearTimeout(timer);
+      }
+      listUpdateTimers.clear();
+      listUpdateFollowUpTimers.clear();
+      listUpdatePendingByKey.clear();
+      listUpdateInFlightKeys.clear();
       clearPageRefreshTimer();
       liveUpdateQueuedRef.current = false;
       liveUpdateInFlightRef.current = false;
-      listUpdatePendingRef.current = null;
-      listUpdateInFlightRef.current = false;
 
       for (const socket of sockets) {
         socket.removeAllListeners();
