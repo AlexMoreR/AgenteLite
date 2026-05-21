@@ -3,7 +3,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useTransition, type RefObject } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { BadgeCheck, Facebook, Instagram, LoaderCircle, Mic } from "lucide-react";
+import { BadgeCheck, Facebook, FileText, Image as ImageIcon, Instagram, LoaderCircle, Mic, Video } from "lucide-react";
 import { WhatsAppGlyph } from "@/components/icons/whatsapp-glyph";
 import { Badge } from "@/components/ui/badge";
 import { ContactAvatar } from "./contact-avatar";
@@ -54,7 +54,7 @@ function getConversationPreview(conversation: SharedInboxConversationItem) {
   const content = conversation.lastMessage?.trim();
   if (content) return content;
   if (conversation.lastMessageType === "AUDIO") return "Audio";
-  if (conversation.lastMessageType === "IMAGE") return "Imagen";
+  if (conversation.lastMessageType === "IMAGE") return "Foto";
   if (conversation.lastMessageType === "VIDEO") return "Video";
   if (conversation.lastMessageType === "STICKER") return "Sticker";
   if (conversation.lastMessageType === "DOCUMENT") return "Documento";
@@ -67,6 +67,30 @@ function renderConversationPreview(conversation: SharedInboxConversationItem) {
       <span className="inline-flex items-center gap-1.5">
         <Mic className="h-3.5 w-3.5 shrink-0" />
         <span>Audio</span>
+      </span>
+    );
+  }
+  if (conversation.lastMessageType === "IMAGE" && !conversation.lastMessage?.trim()) {
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        <ImageIcon className="h-3.5 w-3.5 shrink-0" />
+        <span>Foto</span>
+      </span>
+    );
+  }
+  if (conversation.lastMessageType === "VIDEO" && !conversation.lastMessage?.trim()) {
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        <Video className="h-3.5 w-3.5 shrink-0" />
+        <span>Video</span>
+      </span>
+    );
+  }
+  if (conversation.lastMessageType === "DOCUMENT" && !conversation.lastMessage?.trim()) {
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        <FileText className="h-3.5 w-3.5 shrink-0" />
+        <span>Documento</span>
       </span>
     );
   }
