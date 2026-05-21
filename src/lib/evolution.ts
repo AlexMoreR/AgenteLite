@@ -420,6 +420,7 @@ function extractRenderableImageUrlFromPayload(payload: unknown) {
   const candidate =
     readString(imageMessage?.directPath) ||
     readString(imageMessage?.url) ||
+    readString(imageMessage?.URL) ||
     readString(data?.mediaUrl) ||
     readString(data?.media) ||
     readString(data?.url);
@@ -445,6 +446,7 @@ function extractRenderableMediaUrlFromPayload(payload: unknown, mediaType: "IMAG
 
   const candidate =
     readString(mediaMessage?.url) ||
+    readString(mediaMessage?.URL) ||
     readString(mediaMessage?.directPath) ||
     readString(data?.mediaUrl) ||
     readString(data?.media) ||

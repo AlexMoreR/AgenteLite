@@ -3,7 +3,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useTransition, type RefObject } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { BadgeCheck, Facebook, FileText, Image as ImageIcon, Instagram, LoaderCircle, Mic, Video } from "lucide-react";
+import { BadgeCheck, Facebook, FileText, Image as ImageIcon, Instagram, LoaderCircle, Mic, Sticker, Video } from "lucide-react";
 import { WhatsAppGlyph } from "@/components/icons/whatsapp-glyph";
 import { Badge } from "@/components/ui/badge";
 import { ContactAvatar } from "./contact-avatar";
@@ -95,7 +95,12 @@ function renderConversationPreview(conversation: SharedInboxConversationItem) {
     );
   }
   if (conversation.lastMessageType === "STICKER" && !conversation.lastMessage?.trim()) {
-    return "Sticker";
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        <Sticker className="h-3.5 w-3.5 shrink-0" />
+        <span>Sticker</span>
+      </span>
+    );
   }
   return getConversationPreview(conversation);
 }

@@ -168,7 +168,10 @@ type ConversationTagsUpdateDetail = {
 function buildPendingConversationPreview(
   pendingConversation: PendingChatSelection,
 ): SharedInboxSelectedConversation {
-  const lastMessage = pendingConversation.lastMessage?.trim() || "";
+  const lastMessage =
+    pendingConversation.lastMessage?.trim() ||
+    getMediaPreviewLabel(pendingConversation.lastMessageType) ||
+    "";
   const direction = pendingConversation.lastMessageDirection || "INBOUND";
   const createdAt = pendingConversation.lastMessageAt ? new Date(pendingConversation.lastMessageAt) : new Date();
   const previewMessages = lastMessage
@@ -195,6 +198,15 @@ function buildPendingConversationPreview(
     messages: previewMessages,
     cacheKey: pendingConversation.cacheKey ?? pendingConversation.id,
   };
+}
+
+function getMediaPreviewLabel(type?: SharedInboxMessageItem["type"] | null) {
+  if (type === "AUDIO") return "Audio";
+  if (type === "IMAGE") return "Foto";
+  if (type === "VIDEO") return "Video";
+  if (type === "STICKER") return "Sticker";
+  if (type === "DOCUMENT") return "Documento";
+  return null;
 }
 
 function buildComposerHiddenFields(
@@ -289,12 +301,6 @@ function getMessagePreviewText(message?: SharedInboxMessageItem | null) {
   if (content) {
     return content;
   }
-
-  if (message.type === "AUDIO") return "Audio";
-  if (message.type === "IMAGE") return "Imagen";
-  if (message.type === "VIDEO") return "Video";
-  if (message.type === "STICKER") return "Sticker";
-  if (message.type === "DOCUMENT") return "Documento";
 
   return null;
 }
@@ -490,6 +496,14 @@ function buildConversationItemFromListSnapshot(
   snapshot: LiveConversationListSnapshot,
   existing?: SharedInboxConversationItem | null,
 ): SharedInboxConversationItem {
+  const lastMessage = snapshot.lastMessage?.trim() || null;
+  const isMediaPreviewType =
+    snapshot.lastMessageType === "AUDIO" ||
+    snapshot.lastMessageType === "IMAGE" ||
+    snapshot.lastMessageType === "VIDEO" ||
+    snapshot.lastMessageType === "STICKER" ||
+    snapshot.lastMessageType === "DOCUMENT";
+
   return {
     id: existing?.id ?? snapshot.id,
     source: existing?.source ?? (snapshot.channelType === "whatsapp_official" ? "official" : "agent"),
@@ -501,7 +515,7 @@ function buildConversationItemFromListSnapshot(
     channelType: snapshot.channelType ?? existing?.channelType,
     incomingCount: snapshot.incomingCount ?? existing?.incomingCount ?? 0,
     avatarUrl: snapshot.avatarUrl ?? existing?.avatarUrl ?? null,
-    lastMessage: snapshot.lastMessage ?? existing?.lastMessage ?? null,
+    lastMessage: lastMessage || (isMediaPreviewType ? null : existing?.lastMessage ?? null),
     lastMessageType: snapshot.lastMessageType ?? existing?.lastMessageType ?? null,
     lastMessageDirection: snapshot.lastMessageDirection ?? existing?.lastMessageDirection ?? null,
     // No usar existing como fallback para lastMessageAt: si el snapshot trae null pero existing
@@ -534,10 +548,17 @@ function mergeConversationListItem(
     return next;
   }
 
+  const nextHasMediaPreviewType =
+    next.lastMessageType === "AUDIO" ||
+    next.lastMessageType === "IMAGE" ||
+    next.lastMessageType === "VIDEO" ||
+    next.lastMessageType === "STICKER" ||
+    next.lastMessageType === "DOCUMENT";
+
   return {
     ...next,
     incomingCount: Math.max(existing.incomingCount ?? 0, next.incomingCount ?? 0),
-    lastMessage: existing.lastMessage ?? next.lastMessage ?? null,
+    lastMessage: nextHasMediaPreviewType ? next.lastMessage ?? null : existing.lastMessage ?? next.lastMessage ?? null,
     lastMessageType: existing.lastMessageType ?? next.lastMessageType ?? null,
     lastMessageDirection: existing.lastMessageDirection ?? next.lastMessageDirection ?? null,
     lastMessageAt: existing.lastMessageAt ?? next.lastMessageAt ?? null,
@@ -772,6 +793,7 @@ function extractMediaUrlFromPayload(message: SharedInboxMessageItem, type: "IMAG
 
   const candidate =
     getNestedString(nestedMessage, "url") ||
+    getNestedString(nestedMessage, "URL") ||
     getNestedString(nestedMessage, "directPath") ||
     getNestedString(data, "mediaUrl") ||
     getNestedString(data, "media") ||
@@ -915,6 +937,7 @@ function collectImagePreviewUrls(message: SharedInboxMessageItem) {
   const imageMessage = getNestedRecord(messageData, "imageMessage");
   const directImageUrl =
     getNestedString(imageMessage, "url") ||
+    getNestedString(imageMessage, "URL") ||
     getNestedString(imageMessage, "directPath") ||
     getNestedString(data, "mediaUrl") ||
     getNestedString(data, "media") ||

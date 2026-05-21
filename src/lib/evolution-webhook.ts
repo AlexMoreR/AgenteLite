@@ -396,10 +396,15 @@ export function extractEvolutionMediaUrl(payload: unknown): string | null {
   return (
     pickNestedString(target, [
       ["imageMessage", "url"],
+      ["imageMessage", "URL"],
       ["audioMessage", "url"],
+      ["audioMessage", "URL"],
       ["stickerMessage", "url"],
+      ["stickerMessage", "URL"],
       ["videoMessage", "url"],
+      ["videoMessage", "URL"],
       ["documentMessage", "url"],
+      ["documentMessage", "URL"],
       ["imageMessage", "directPath"],
       ["audioMessage", "directPath"],
       ["stickerMessage", "directPath"],
