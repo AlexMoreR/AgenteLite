@@ -1155,6 +1155,7 @@ const ConversationPanel = memo(function ConversationPanel({
   headerBadge,
 }: ConversationPanelProps) {
   const canLoadOlderMessages = Boolean(renderedConversation?.loadMoreCursor && renderedConversation.hasMoreMessages);
+  const shouldAnchorMessagesToBottom = Boolean(renderedConversation && renderedMessages.length <= 1);
   const [viewportHeight, setViewportHeight] = useState(0);
   const [scrollTop, setScrollTop] = useState(0);
   const scrollFrameRef = useRef<number | null>(null);
@@ -1383,6 +1384,7 @@ const ConversationPanel = memo(function ConversationPanel({
                       </div>
                     ) : null}
                   </div>
+                  {shouldAnchorMessagesToBottom ? <div aria-hidden="true" className="flex-1" /> : null}
                   {virtualizedMessages.topSpacer > 0 ? (
                     <div aria-hidden="true" style={{ height: virtualizedMessages.topSpacer }} />
                   ) : null}
@@ -1993,14 +1995,18 @@ export function SharedInbox({
     ],
   );
   const pendingConversationPreview = useMemo(
-    () =>
-      pendingConversation &&
-      pendingConversation.id === selectedConversationId &&
-      optimisticConversation &&
-      conversationIdMatchesKey(pendingConversation.id, optimisticConversation.id)
-        ? optimisticConversation
-        : null,
-    [optimisticConversation, pendingConversation, selectedConversationId],
+    () => {
+      if (!pendingConversation) {
+        return null;
+      }
+
+      if (optimisticConversation && conversationIdMatchesKey(pendingConversation.id, optimisticConversation.id)) {
+        return optimisticConversation;
+      }
+
+      return buildPendingConversationPreview(pendingConversation);
+    },
+    [optimisticConversation, pendingConversation],
   );
 
   const renderedConversation = useMemo(() => {
