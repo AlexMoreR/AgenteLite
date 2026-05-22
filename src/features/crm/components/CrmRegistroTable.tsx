@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import * as React from "react";
-import { ArrowDown, ArrowUp, ArrowUpDown, Copy, Eye, FileText, Hash, MoreHorizontal, Search, Tag, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, CalendarDays, ChartNoAxesCombined, Copy, Eye, FileText, Hash, MoreHorizontal, Search, Tag, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
@@ -427,17 +427,17 @@ export function CrmRegistroTable({
         <Table className="min-w-[1120px]">
           <TableHeader>
             <TableRow className="bg-slate-50/70 hover:bg-slate-50/70">
-              <TableHead className="px-[10px] py-[6px] normal-case tracking-normal">
+              <TableHead className="px-2 py-1 normal-case tracking-normal">
                 <HeaderLabel
                   active={sortKey === "fecha"}
                   direction={sortDirection}
                   onClick={() => toggleSort("fecha")}
-                  icon={<Tag className="h-3.5 w-3.5" />}
+                  icon={<CalendarDays className="h-3.5 w-3.5" />}
                 >
                   Fecha
                 </HeaderLabel>
               </TableHead>
-              <TableHead className="px-[10px] py-[6px] normal-case tracking-normal">
+              <TableHead className="px-2 py-1 normal-case tracking-normal">
                 <HeaderLabel
                   active={sortKey === "numero"}
                   direction={sortDirection}
@@ -447,7 +447,7 @@ export function CrmRegistroTable({
                   Numero
                 </HeaderLabel>
               </TableHead>
-              <TableHead className="px-[10px] py-[6px] normal-case tracking-normal">
+              <TableHead className="px-2 py-1 normal-case tracking-normal">
                 <HeaderLabel
                   active={sortKey === "nombre"}
                   direction={sortDirection}
@@ -457,35 +457,35 @@ export function CrmRegistroTable({
                   Nombre
                 </HeaderLabel>
               </TableHead>
-              <TableHead className="px-[10px] py-[6px] normal-case tracking-normal">
+              <TableHead className="px-2 py-1 normal-case tracking-normal">
                 <span className="inline-flex items-center gap-2 text-[13px] font-normal text-slate-600">
                   <Tag className="h-3.5 w-3.5 text-slate-500" />
                   Etiquetas
                 </span>
               </TableHead>
-              <TableHead className="px-[10px] py-[6px] normal-case tracking-normal">
+              <TableHead className="px-2 py-1 normal-case tracking-normal">
                 <span className="inline-flex items-center gap-2 text-[13px] font-normal text-slate-600">
                   <FileText className="h-3.5 w-3.5 text-slate-500" />
                   Detalle
                 </span>
               </TableHead>
-              <TableHead className="px-[10px] py-[6px] normal-case tracking-normal">
+              <TableHead className="px-2 py-1 normal-case tracking-normal">
                 <HeaderLabel
                   active={sortKey === "estado"}
                   direction={sortDirection}
                   onClick={() => toggleSort("estado")}
-                  icon={<ArrowUpDown className="h-3.5 w-3.5" />}
+                  icon={<ChartNoAxesCombined className="h-3.5 w-3.5" />}
                 >
                   Estado
                 </HeaderLabel>
               </TableHead>
-              <TableHead className="px-[10px] py-[6px] normal-case tracking-normal">Acciones</TableHead>
+              <TableHead className="px-2 py-1 normal-case tracking-normal">Acciones</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {pagedRecords.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="px-[10px] py-[6px] text-center text-slate-500">
+                <TableCell colSpan={7} className="px-2 py-1 text-center text-slate-500">
                   No hay registros para el filtro actual.
                 </TableCell>
               </TableRow>
@@ -495,7 +495,7 @@ export function CrmRegistroTable({
 
                 return (
                   <TableRow key={record.id}>
-                    <TableCell className="px-[10px] py-[6px] text-[13px] text-slate-600">
+                    <TableCell className="px-2 py-1 text-[13px] text-slate-600">
                       <HoverCard>
                         <HoverCardTrigger className="inline-flex cursor-help items-center">
                           {formatCrmDateShort(record.date)}
@@ -508,8 +508,8 @@ export function CrmRegistroTable({
                         </HoverCardContent>
                       </HoverCard>
                     </TableCell>
-                    <TableCell className="px-[10px] py-[6px] text-[13px] font-medium text-slate-900">{record.number}</TableCell>
-                    <TableCell className="px-[10px] py-[6px] text-[13px] text-slate-700">{record.name}</TableCell>
+                    <TableCell className="px-2 py-1 text-[13px] font-medium text-slate-900">{record.number}</TableCell>
+                    <TableCell className="px-2 py-1 text-[13px] text-slate-700">{record.name}</TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1.5">
                         {record.tags.map((tag) => (
@@ -523,7 +523,7 @@ export function CrmRegistroTable({
                         ))}
                       </div>
                     </TableCell>
-                    <TableCell className="max-w-[18rem] px-[10px] py-[6px] text-[13px] leading-5 text-slate-600">
+                    <TableCell className="max-w-[18rem] px-2 py-1 text-[13px] leading-5 text-slate-600">
                       <HoverCard>
                         <HoverCardTrigger className="block w-full cursor-help truncate text-left">
                           {record.detail}
@@ -534,7 +534,7 @@ export function CrmRegistroTable({
                         </HoverCardContent>
                       </HoverCard>
                     </TableCell>
-                    <TableCell className="px-[10px] py-[6px]">
+                    <TableCell className="px-2 py-1">
                       <Select
                         value={record.status}
                         onValueChange={(value) => handleChangeStatus(record.id, value as CrmStage)}
