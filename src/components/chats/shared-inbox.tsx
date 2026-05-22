@@ -534,6 +534,59 @@ function sortConversationItems(items: SharedInboxConversationItem[]) {
   });
 }
 
+function insertConversationItemByTimestamp(
+  items: SharedInboxConversationItem[],
+  item: SharedInboxConversationItem,
+) {
+  const itemAt = getConversationLastMessageTimestamp(item.lastMessageAt);
+  let insertIndex = 0;
+
+  while (insertIndex < items.length && getConversationLastMessageTimestamp(items[insertIndex]?.lastMessageAt) > itemAt) {
+    insertIndex += 1;
+  }
+
+  return [
+    ...items.slice(0, insertIndex),
+    item,
+    ...items.slice(insertIndex),
+  ];
+}
+
+function updateConversationItemInSortedList(
+  current: SharedInboxConversationItem[],
+  snapshotId: string,
+  nextItem: SharedInboxConversationItem,
+) {
+  const currentIndex = current.findIndex((item) => conversationIdMatchesKey(item.id, snapshotId));
+  if (currentIndex === -1) {
+    const nextItems = insertConversationItemByTimestamp(current, nextItem);
+    return nextItems.length === current.length && current.every((item, index) => areConversationListItemsEqual(item, nextItems[index]!))
+      ? current
+      : nextItems;
+  }
+
+  const currentItem = current[currentIndex];
+  if (areConversationListItemsEqual(currentItem, nextItem)) {
+    return current;
+  }
+
+  const currentAt = getConversationLastMessageTimestamp(currentItem.lastMessageAt);
+  const nextAt = getConversationLastMessageTimestamp(nextItem.lastMessageAt);
+
+  if (currentAt === nextAt) {
+    const nextItems = [...current];
+    nextItems[currentIndex] = nextItem;
+    return nextItems;
+  }
+
+  const withoutCurrent = current.filter((_, index) => index !== currentIndex);
+  const nextItems = insertConversationItemByTimestamp(withoutCurrent, nextItem);
+
+  return nextItems.length === current.length && current.every((item, index) => areConversationListItemsEqual(item, nextItems[index]!))
+    ? current
+    : nextItems;
+}
+
 function mergeConversationListItem(
   next: SharedInboxConversationItem,
   existing?: SharedInboxConversationItem | null,
@@ -773,9 +826,36 @@ function uniquePush(values: string[], candidate?: string | null) {
   values.push(normalized);
 }
 
+type MediaUrlType = "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT";
+
+const mediaUrlExtractionCache = new WeakMap<object, Map<MediaUrlType, string | null>>();
+const imagePreviewUrlCache = new WeakMap<object, string[]>();
+
+function getMediaUrlExtractionCacheEntry(rawPayload: unknown) {
+  if (!isObjectRecord(rawPayload)) {
+    return null;
+  }
+
+  let cacheEntry = mediaUrlExtractionCache.get(rawPayload);
+
+  if (!cacheEntry) {
+    cacheEntry = new Map<MediaUrlType, string | null>();
+    mediaUrlExtractionCache.set(rawPayload, cacheEntry);
+  }
+
+  return cacheEntry;
+}
+
 function extractMediaUrlFromPayload(message: SharedInboxMessageItem, type: "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT") {
   if (typeof message.mediaUrl === "string" && isMediaSourceUrl(message.mediaUrl)) {
     return toProxiedMediaUrl(message.mediaUrl);
+  }
+
+  const cacheEntry = getMediaUrlExtractionCacheEntry(message.rawPayload);
+  const cachedValue = cacheEntry?.get(type);
+
+  if (cachedValue !== undefined) {
+    return cachedValue;
   }
 
   const rootPayload = getNestedRecord(message.rawPayload, "evolution") ?? (isObjectRecord(message.rawPayload) ? message.rawPayload : null);
@@ -802,7 +882,11 @@ function extractMediaUrlFromPayload(message: SharedInboxMessageItem, type: "IMAG
     message.mediaUrl ||
     null;
 
-  return typeof candidate === "string" && isMediaSourceUrl(candidate) ? toProxiedMediaUrl(candidate) : null;
+  const resolvedUrl = typeof candidate === "string" && isMediaSourceUrl(candidate) ? toProxiedMediaUrl(candidate) : null;
+
+  cacheEntry?.set(type, resolvedUrl);
+
+  return resolvedUrl;
 }
 
 function AudioMessageCard({
@@ -925,6 +1009,14 @@ function bytesLikeToBase64(value: unknown) {
 }
 
 function collectImagePreviewUrls(message: SharedInboxMessageItem) {
+  if (isObjectRecord(message.rawPayload)) {
+    const cachedPreviewUrls = imagePreviewUrlCache.get(message.rawPayload);
+
+    if (cachedPreviewUrls) {
+      return cachedPreviewUrls;
+    }
+  }
+
   const previewUrls: string[] = [];
 
   if (typeof message.mediaUrl === "string" && isMediaSourceUrl(message.mediaUrl)) {
@@ -958,6 +1050,10 @@ function collectImagePreviewUrls(message: SharedInboxMessageItem) {
 
   if (base64) {
     uniquePush(previewUrls, `data:image/jpeg;base64,${base64}`);
+  }
+
+  if (isObjectRecord(message.rawPayload)) {
+    imagePreviewUrlCache.set(message.rawPayload, previewUrls);
   }
 
   return previewUrls;
@@ -2150,24 +2246,7 @@ export function SharedInbox({
       setConversationItems((current) => {
         const currentItem = findConversationItemBySnapshotId(current, snapshot.id) ?? undefined;
         const updatedItem = buildConversationItemFromSnapshot(snapshot, currentItem);
-        if (currentItem && areConversationListItemsEqual(currentItem, updatedItem)) {
-          return current;
-        }
-
-        const nextItems = current.map((item) =>
-          conversationIdMatchesKey(item.id, snapshot.id) ? { ...item, ...updatedItem } : item,
-        );
-
-        const sorted = sortConversationItems(nextItems);
-
-        if (
-          current.length === sorted.length &&
-          current.every((item, index) => areConversationListItemsEqual(item, sorted[index]))
-        ) {
-          return current;
-        }
-
-        return sorted;
+        return updateConversationItemInSortedList(current, snapshot.id, updatedItem);
       });
     }
 
@@ -2186,23 +2265,7 @@ export function SharedInbox({
       setConversationItems((current) => {
         const currentItem = findConversationItemBySnapshotId(current, snapshot.id) ?? undefined;
         const updatedItem = buildConversationItemFromListSnapshot(snapshot, currentItem);
-        if (currentItem && areConversationListItemsEqual(currentItem, updatedItem)) {
-          return current;
-        }
-
-        const nextItems = current.map((item) =>
-          conversationIdMatchesKey(item.id, snapshot.id) ? { ...item, ...updatedItem } : item,
-        );
-        const sorted = sortConversationItems(nextItems);
-
-        if (
-          current.length === sorted.length &&
-          current.every((item, index) => areConversationListItemsEqual(item, sorted[index]))
-        ) {
-          return current;
-        }
-
-        return sorted;
+        return updateConversationItemInSortedList(current, snapshot.id, updatedItem);
       });
     }
 
