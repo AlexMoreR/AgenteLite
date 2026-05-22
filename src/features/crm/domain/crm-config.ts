@@ -1,0 +1,83 @@
+import type { CrmRecord, CrmStage, CrmStageMeta } from "../types";
+
+export const CRM_STAGE_ORDER: CrmStage[] = [
+  "NUEVO",
+  "CALIFICADO",
+  "PROPUESTA",
+  "NEGOCIACION",
+  "GANADO",
+  "PERDIDO",
+];
+
+export const CRM_STAGE_META: Record<CrmStage, CrmStageMeta> = {
+  NUEVO: {
+    value: "NUEVO",
+    label: "Nuevo",
+    accentClassName: "text-sky-700",
+    borderClassName: "border-sky-200",
+    backgroundClassName: "bg-sky-50",
+  },
+  CALIFICADO: {
+    value: "CALIFICADO",
+    label: "Calificado",
+    accentClassName: "text-cyan-700",
+    borderClassName: "border-cyan-200",
+    backgroundClassName: "bg-cyan-50",
+  },
+  PROPUESTA: {
+    value: "PROPUESTA",
+    label: "Propuesta",
+    accentClassName: "text-violet-700",
+    borderClassName: "border-violet-200",
+    backgroundClassName: "bg-violet-50",
+  },
+  NEGOCIACION: {
+    value: "NEGOCIACION",
+    label: "Negociación",
+    accentClassName: "text-amber-700",
+    borderClassName: "border-amber-200",
+    backgroundClassName: "bg-amber-50",
+  },
+  GANADO: {
+    value: "GANADO",
+    label: "Ganado",
+    accentClassName: "text-emerald-700",
+    borderClassName: "border-emerald-200",
+    backgroundClassName: "bg-emerald-50",
+  },
+  PERDIDO: {
+    value: "PERDIDO",
+    label: "Perdido",
+    accentClassName: "text-rose-700",
+    borderClassName: "border-rose-200",
+    backgroundClassName: "bg-rose-50",
+  },
+};
+
+export function getCrmStageLabel(stage: CrmStage) {
+  return CRM_STAGE_META[stage].label;
+}
+
+export function getCrmStageMeta(stage: CrmStage) {
+  return CRM_STAGE_META[stage];
+}
+
+export function groupCrmRecordsByStage(records: CrmRecord[]) {
+  return CRM_STAGE_ORDER.map((stage) => ({
+    stage,
+    title: CRM_STAGE_META[stage].label,
+    records: records.filter((record) => record.status === stage),
+  }));
+}
+
+export function sortCrmRecords(records: CrmRecord[]) {
+  return [...records].sort((left, right) => {
+    const stageDiff = CRM_STAGE_ORDER.indexOf(left.status) - CRM_STAGE_ORDER.indexOf(right.status);
+
+    if (stageDiff !== 0) {
+      return stageDiff;
+    }
+
+    return new Date(right.date).getTime() - new Date(left.date).getTime();
+  });
+}

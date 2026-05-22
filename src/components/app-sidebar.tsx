@@ -6,6 +6,7 @@ import {
   FileText,
   LayoutDashboard,
   Megaphone,
+  KanbanSquare,
   MessageCircle,
   Package,
   Settings,
@@ -73,6 +74,7 @@ export function AppSidebar({
   const isClientAgentsRoute = pathname.startsWith("/cliente/agentes");
   const isClientChatsRoute = pathname.startsWith("/cliente/chats");
   const isClientContactsRoute = pathname.startsWith("/cliente/contactos");
+  const isClientCrmRoute = pathname.startsWith("/cliente/crm");
   const isClientFlowsRoute = pathname.startsWith("/cliente/flujos");
   const isClientMarketingRoute = pathname.startsWith("/cliente/marketing-ia");
   const isClientFinanzasRoute = pathname.startsWith("/cliente/finanzas");
@@ -94,6 +96,7 @@ export function AppSidebar({
           !isClientAgentsRoute &&
           !isClientChatsRoute &&
           !isClientContactsRoute &&
+          !isClientCrmRoute &&
           !isClientFlowsRoute &&
           !isClientMarketingRoute &&
           !isClientFinanzasRoute &&
@@ -190,6 +193,14 @@ export function AppSidebar({
       icon: Users2,
       isActive: pathname.startsWith("/cliente/contactos"),
       items: [{ title: "Base", url: "/cliente/contactos" }],
+    });
+
+    navMain.push({
+      title: "CRM",
+      url: "/cliente/crm",
+      icon: KanbanSquare,
+      isActive: pathname.startsWith("/cliente/crm"),
+      items: [{ title: "Registro", url: "/cliente/crm" }],
     });
 
     navMain.push({
