@@ -76,9 +76,16 @@ function downloadTextFile(filename: string, content: string, mimeType: string) {
   URL.revokeObjectURL(url);
 }
 
-export function CrmRegistroTable({ records }: { records: CrmRecord[] }) {
+export function CrmRegistroTable({
+  records,
+  referenceNow,
+}: {
+  records: CrmRecord[];
+  referenceNow: string;
+}) {
   const [query, setQuery] = React.useState("");
   const [statusFilter, setStatusFilter] = React.useState<CrmStage | "__all__">("__all__");
+  const [dateRangeFilter, setDateRangeFilter] = React.useState<"1" | "7" | "15" | "30" | "__all__">("1");
   const [sortKey, setSortKey] = React.useState<SortKey>("fecha");
   const [sortDirection, setSortDirection] = React.useState<SortDirection>("desc");
   const [page, setPage] = React.useState(1);
@@ -98,8 +105,11 @@ export function CrmRegistroTable({ records }: { records: CrmRecord[] }) {
 
   const filteredRecords = React.useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
+    const maxAgeDays = dateRangeFilter === "__all__" ? null : Number(dateRangeFilter);
+    const now = new Date(referenceNow).getTime();
 
     return records.filter((record) => {
+      const recordAgeDays = (now - new Date(record.date).getTime()) / (1000 * 60 * 60 * 24);
       const haystack = [
         record.number,
         record.name,
@@ -112,10 +122,11 @@ export function CrmRegistroTable({ records }: { records: CrmRecord[] }) {
 
       const queryMatches = !normalizedQuery || haystack.includes(normalizedQuery);
       const statusMatches = statusFilter === "__all__" || record.status === statusFilter;
+      const dateMatches = maxAgeDays === null || recordAgeDays <= maxAgeDays;
 
-      return queryMatches && statusMatches;
+      return queryMatches && statusMatches && dateMatches;
     });
-  }, [query, records, statusFilter]);
+  }, [dateRangeFilter, query, records, referenceNow, statusFilter]);
 
   const sortedRecords = React.useMemo(() => {
     const list = [...filteredRecords];
@@ -144,7 +155,7 @@ export function CrmRegistroTable({ records }: { records: CrmRecord[] }) {
 
   React.useEffect(() => {
     setPage(1);
-  }, [query, statusFilter]);
+  }, [query, statusFilter, dateRangeFilter]);
 
   React.useEffect(() => {
     if (page > totalPages) {
@@ -170,6 +181,7 @@ export function CrmRegistroTable({ records }: { records: CrmRecord[] }) {
   const clearFilters = () => {
     setQuery("");
     setStatusFilter("__all__");
+    setDateRangeFilter("1");
   };
 
   const handleCopy = async (value: string, field: string) => {
@@ -243,6 +255,18 @@ export function CrmRegistroTable({ records }: { records: CrmRecord[] }) {
                 {status.label}
               </option>
             ))}
+          </select>
+          <select
+            value={dateRangeFilter}
+            onChange={(event) => setDateRangeFilter(event.target.value as "__all__" | "1" | "7" | "15" | "30")}
+            className="h-9 w-full rounded-lg border border-[var(--line)] bg-white px-2.5 text-sm text-slate-700 outline-none transition focus:border-[var(--line-strong)] sm:min-w-40 sm:w-auto"
+            aria-label="Filtrar por rango de dias"
+          >
+            <option value="1">1 Dia</option>
+            <option value="7">7 Dias</option>
+            <option value="15">15 Dias</option>
+            <option value="30">30 Dias</option>
+            <option value="__all__">Todos</option>
           </select>
           <Button
             type="button"

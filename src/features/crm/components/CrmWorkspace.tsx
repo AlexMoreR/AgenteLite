@@ -1,13 +1,11 @@
 "use client";
 
 import { useMemo, type ReactNode } from "react";
-import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CrmKanbanBoard } from "./CrmKanbanBoard";
 import { CrmRegistroTable } from "./CrmRegistroTable";
 import type { CrmData } from "../types";
-import { getCrmStageMeta } from "../domain/crm-config";
 import { Users2, KanbanSquare, TrendingUp, CheckCircle2, CircleSlash2 } from "lucide-react";
 
 function MetricCard({
@@ -61,8 +59,6 @@ export function CrmWorkspace({ data }: { data: CrmData }) {
 
   return (
     <section className="space-y-5">
-
-
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <MetricCard label="Total" value={String(data.stats.total)} icon={<Users2 className="h-5 w-5" />} />
         <MetricCard label="En proceso" value={String(activeRecords)} icon={<TrendingUp className="h-5 w-5" />} />
@@ -81,7 +77,7 @@ export function CrmWorkspace({ data }: { data: CrmData }) {
         </div>
 
         <TabsContent value="registro" className="space-y-3">
-          <CrmRegistroTable records={data.records} />
+          <CrmRegistroTable records={data.records} referenceNow={data.generatedAt} />
         </TabsContent>
 
         <TabsContent value="kanban">
