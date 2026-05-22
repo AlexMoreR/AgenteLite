@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
-import { CrmWorkspace, getCrmData } from "@/features/crm";
+import { getCrmData } from "@/features/crm";
+import { CrmWorkspaceClient } from "@/features/crm/components/CrmWorkspaceClient";
 
 export const metadata: Metadata = {
   robots: {
@@ -23,5 +24,5 @@ export default async function ClienteCrmPage() {
     redirect("/cliente");
   }
 
-  return <CrmWorkspace data={data} />;
+  return <CrmWorkspaceClient data={data} />;
 }

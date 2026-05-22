@@ -7,9 +7,11 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { getCrmStageMeta, getCrmStageLabel } from "../domain/crm-config";
+import { updateCrmStageAction } from "@/app/actions/crm-actions";
+import { CRM_STAGE_ORDER, getCrmStageMeta, getCrmStageLabel } from "../domain/crm-config";
 import type { CrmRecord, CrmStage } from "../types";
 
 type SortKey = "numero" | "nombre" | "fecha" | "estado";
@@ -130,22 +132,15 @@ export function CrmRegistroTable({
   const [sortDirection, setSortDirection] = React.useState<SortDirection>("desc");
   const [page, setPage] = React.useState(1);
   const [copiedField, setCopiedField] = React.useState<string | null>(null);
+  const [savingContactIds, setSavingContactIds] = React.useState<Record<string, boolean>>({});
 
   React.useEffect(() => {
     setEditableRecords(records);
   }, [records]);
 
   const statusOptions = React.useMemo(() => {
-    const seen = new Map<CrmStage, string>();
-
-    for (const record of editableRecords) {
-      if (!seen.has(record.status)) {
-        seen.set(record.status, getRecordStateLabel(record));
-      }
-    }
-
-    return Array.from(seen.entries()).map(([value, label]) => ({ value, label }));
-  }, [editableRecords]);
+    return CRM_STAGE_ORDER.map((value) => ({ value, label: getCrmStageLabel(value) }));
+  }, []);
 
   const filteredRecords = React.useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -234,10 +229,30 @@ export function CrmRegistroTable({
     window.setTimeout(() => setCopiedField((current) => (current === field ? null : current)), 1200);
   };
 
-  const handleChangeStatus = (recordId: string, nextStatus: CrmStage) => {
+  const handleChangeStatus = async (recordId: string, nextStatus: CrmStage) => {
+    const previousRecord = editableRecords.find((record) => record.id === recordId);
+    if (!previousRecord) {
+      return;
+    }
+
     setEditableRecords((current) =>
       current.map((record) => (record.id === recordId ? { ...record, status: nextStatus } : record)),
     );
+
+    setSavingContactIds((current) => ({ ...current, [recordId]: true }));
+
+    const result = await updateCrmStageAction({
+      contactId: recordId,
+      status: nextStatus,
+    });
+
+    setSavingContactIds((current) => ({ ...current, [recordId]: false }));
+
+    if ("error" in result) {
+      setEditableRecords((current) =>
+        current.map((record) => (record.id === recordId ? { ...record, status: previousRecord.status } : record)),
+      );
+    }
   };
 
   const exportCsv = () => {
@@ -520,18 +535,26 @@ export function CrmRegistroTable({
                       </HoverCard>
                     </TableCell>
                     <TableCell className="px-[10px] py-[6px]">
-                      <select
+                      <Select
                         value={record.status}
-                        onChange={(event) => handleChangeStatus(record.id, event.target.value as CrmStage)}
-                        aria-label={`Cambiar estado de ${record.name}`}
-                        className={`h-8 min-w-28 cursor-pointer rounded-md border pr-10 pl-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] outline-none transition focus:border-[var(--line-strong)] ${meta.borderClassName} ${meta.backgroundClassName} ${meta.accentClassName}`}
+                        onValueChange={(value) => handleChangeStatus(record.id, value as CrmStage)}
+                        disabled={savingContactIds[record.id]}
                       >
-                        {statusOptions.map((status) => (
-                          <option key={status.value} value={status.value}>
-                            {status.label}
-                          </option>
-                        ))}
-                      </select>
+                        <SelectTrigger
+                          size="sm"
+                          aria-label={`Cambiar estado de ${record.name}`}
+                          className={`h-8 min-w-28 rounded-sm border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] ${meta.borderClassName} ${meta.backgroundClassName} ${meta.accentClassName}`}
+                        >
+                          <SelectValue placeholder={meta.label} />
+                        </SelectTrigger>
+                        <SelectContent align="end" className="min-w-36 rounded-lg">
+                          {statusOptions.map((status) => (
+                            <SelectItem key={status.value} value={status.value}>
+                              {status.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </TableCell>
                     <TableCell className="px-[10px] py-[6px]">
                       <div className="flex items-center gap-1">

@@ -58,16 +58,16 @@ export function CrmWorkspace({ data }: { data: CrmData }) {
   );
 
   return (
-    <section className="space-y-5">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    <section className="space-y-3">
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard label="Total" value={String(data.stats.total)} icon={<Users2 className="h-5 w-5" />} />
         <MetricCard label="En proceso" value={String(activeRecords)} icon={<TrendingUp className="h-5 w-5" />} />
         <MetricCard label="Ganados" value={String(wonRecords)} icon={<CheckCircle2 className="h-5 w-5" />} />
         <MetricCard label="Perdidos" value={String(lostRecords)} icon={<CircleSlash2 className="h-5 w-5" />} />
       </div>
 
-      <Tabs defaultValue="registro" className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+      <Tabs defaultValue="registro" className="space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <TabsList className="gap-1">
             <TabsTrigger value="registro">Registro</TabsTrigger>
             <TabsTrigger value="kanban">Kanban</TabsTrigger>
