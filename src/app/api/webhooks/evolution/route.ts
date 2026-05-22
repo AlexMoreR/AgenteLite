@@ -388,61 +388,74 @@ async function resolveConversationWithLock(args: {
   contactId: string;
   agentId: string | null;
 }) {
-  const lockKey = `${args.workspaceId}:${args.channelId}:${args.contactId}`;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const existingConversation = await prisma.conversation.findFirst({
+        where: {
+          workspaceId: args.workspaceId,
+          channelId: args.channelId,
+          contactId: args.contactId,
+        },
+        orderBy: {
+          updatedAt: "desc",
+        },
+        select: {
+          id: true,
+          status: true,
+          activeProductContext: true,
+          commercialContext: true,
+        },
+      });
 
-  return prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
+      if (existingConversation) {
+        return {
+          id: existingConversation.id,
+          status: existingConversation.status,
+          activeProductContext: existingConversation.activeProductContext ?? null,
+          commercialContext: existingConversation.commercialContext ?? null,
+        };
+      }
 
-    const existingConversation = await tx.conversation.findFirst({
-      where: {
-        workspaceId: args.workspaceId,
-        channelId: args.channelId,
-        contactId: args.contactId,
-      },
-      orderBy: {
-        updatedAt: "desc",
-      },
-      select: {
-        id: true,
-        status: true,
-        activeProductContext: true,
-        commercialContext: true,
-      },
-    });
+      const createdConversation = await prisma.conversation.create({
+        data: {
+          workspaceId: args.workspaceId,
+          channelId: args.channelId,
+          agentId: args.agentId,
+          contactId: args.contactId,
+          status: "OPEN",
+          lastMessageAt: new Date(),
+        },
+        select: {
+          id: true,
+          status: true,
+          activeProductContext: true,
+          commercialContext: true,
+        },
+      });
 
-    if (existingConversation) {
       return {
-        id: existingConversation.id,
-        status: existingConversation.status,
-        activeProductContext: existingConversation.activeProductContext ?? null,
-        commercialContext: existingConversation.commercialContext ?? null,
+        id: createdConversation.id,
+        status: createdConversation.status,
+        activeProductContext: createdConversation.activeProductContext ?? null,
+        commercialContext: createdConversation.commercialContext ?? null,
       };
+    } catch (error) {
+      const isDuplicateConversation =
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === "P2002";
+
+      if (isDuplicateConversation && attempt < 2) {
+        await sleep(50 * (attempt + 1));
+        continue;
+      }
+
+      if (!isDuplicateConversation || attempt === 2) {
+        throw error;
+      }
     }
+  }
 
-    const createdConversation = await tx.conversation.create({
-      data: {
-        workspaceId: args.workspaceId,
-        channelId: args.channelId,
-        agentId: args.agentId,
-        contactId: args.contactId,
-        status: "OPEN",
-        lastMessageAt: new Date(),
-      },
-      select: {
-        id: true,
-        status: true,
-        activeProductContext: true,
-        commercialContext: true,
-      },
-    });
-
-    return {
-      id: createdConversation.id,
-      status: createdConversation.status,
-      activeProductContext: createdConversation.activeProductContext ?? null,
-      commercialContext: createdConversation.commercialContext ?? null,
-    };
-  });
+  return null;
 }
 
 export async function POST(request: Request) {
@@ -669,6 +682,15 @@ export async function POST(request: Request) {
       })
     : null;
 
+  if (existingMessage && !messageWasEdited && !messageWasDeleted) {
+    return NextResponse.json({
+      ok: true,
+      message: "Duplicate inbound event ignored",
+      instanceName,
+      event: eventName,
+    });
+  }
+
   if (!phoneNumber) {
     return NextResponse.json({
       ok: true,
@@ -775,18 +797,12 @@ export async function POST(request: Request) {
         commercialContext: null,
       }
       : existingMessage
-      ? await prisma.conversation.findFirst({
-          where: {
-            id: existingMessage.conversationId,
-            workspaceId: channel.workspaceId,
-          },
-          select: {
-            id: true,
-            status: true,
-            activeProductContext: true,
-            commercialContext: true,
-          },
-        })
+      ? {
+          id: existingMessage.conversationId,
+          status: "CLOSED" as const,
+          activeProductContext: null,
+          commercialContext: null,
+        }
       : await resolveConversationWithLock({
           workspaceId: channel.workspaceId,
           channelId: channel.id,
@@ -1823,15 +1839,6 @@ export async function POST(request: Request) {
       const knowledgeImageReply = shouldHandoffToHuman ? null : knowledgeBaseReply?.image ?? null;
       const imageReply = quickResponseImageReply ?? knowledgeImageReply;
       const documentReplies = shouldHandoffToHuman ? [] : (quickResponseFlow?.reply.documents ?? []);
-      const imageReplyProductName = quickResponseFlow?.scenarioTitle || knowledgeBaseReply?.productName || "";
-      const imageReplyReason = shouldHandoffToHuman
-        ? null
-        : quickResponseFlow
-          ? "flow"
-          : knowledgeBaseReply
-            ? "knowledge"
-            : null;
-
       const contactMatchTasks: Array<Promise<unknown>> = [];
       if (quickResponseFlow?.scenarioTitle) {
         contactMatchTasks.push(
@@ -1890,25 +1897,6 @@ export async function POST(request: Request) {
         await Promise.allSettled(contactMatchTasks);
       }
 
-      const generateContextualFollowUp = async (
-        actionContext: string,
-        history: Array<{
-          direction: "INBOUND" | "OUTBOUND";
-          content: string | null;
-          type?: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "TEMPLATE" | "INTERACTIVE" | "SYSTEM";
-          mediaUrl?: string | null;
-        }>,
-      ) =>
-        generateAgentReply({
-          model: agent.model,
-          systemPrompt: `${agent.systemPrompt ?? ""}\n\n${commercialStagePrompt}\n\nACCION: ${actionContext} Genera UNICAMENTE una pregunta corta de seguimiento (maximo 1 linea) para avanzar al siguiente paso. PROHIBIDO: listar productos, mencionar nombres de modelos, dar precios o describir caracteristicas. Revisa el historial de la conversacion y NO preguntes por algo que ya fue respondido (precio, detalles, imagen). Pregunta unicamente sobre lo que aun no se ha cubierto o el siguiente paso logico para cerrar la venta.`,
-          rawSystemPrompt: true,
-          fallbackMessage: null,
-          history,
-          latestUserMessage: messageText,
-        })
-          .then((t) => t?.trim() || null)
-          .catch(() => null);
 
       // ── Flow engine: execute hardFlowReply steps in exact order ──────────────
       const hardFlowSteps = hardFlowReply?.steps ?? [];
@@ -2072,37 +2060,6 @@ export async function POST(request: Request) {
             }
           }
 
-          // AI follow-up: only if enabled AND the flow's last step is not a text (the flow already closes)
-          const lastStep = hardFlowSteps[hardFlowSteps.length - 1];
-          if (hardFlowReply.aiFollowUpEnabled && lastStep?.kind !== "text") {
-            const ctx = `El flujo "${hardFlowReply.flowTitle}" fue ejecutado para "${hardFlowReply.productName || "el producto"}".`;
-            const followUp = await generateContextualFollowUp(ctx, recentMessagesForModel);
-            if (followUp && channel.evolutionInstanceName) {
-              const followOutbound = await sendEvolutionTextMessageWithReconnect({
-                instanceName: channel.evolutionInstanceName,
-                phoneNumber,
-                text: followUp,
-                delayMs: 600,
-              });
-              await persistEvolutionMessage({
-                data: {
-                  workspaceId: channel.workspaceId,
-                  conversationId: conversation.id,
-                  channelId: channel.id,
-                  contactId: contact.id,
-                  agentId: agent.id,
-                  externalId: followOutbound.externalId,
-                  direction: "OUTBOUND",
-                  type: "TEXT",
-                  status: "SENT",
-                  content: followUp,
-                  sentAt: new Date(),
-                  rawPayload: followOutbound.raw as never,
-                },
-              });
-            }
-          }
-
           if (notifyHumanPromise) await notifyHumanPromise;
           const autoUnknownProductNotifyResult = autoUnknownProductNotifyPromise
             ? await autoUnknownProductNotifyPromise
@@ -2151,7 +2108,6 @@ export async function POST(request: Request) {
           });
         }
       } else if (replyText || quickResponseImageReply || quickResponseAudioReply || quickResponseVideoReply || knowledgeImageReply || documentReplies.length > 0) {
-        let followUpText: string | null = null;
         try {
           console.log("[EVOLUTION] auto_reply_sending", {
             conversationId: conversation.id,
@@ -2323,65 +2279,11 @@ export async function POST(request: Request) {
                   rawPayload: imageOutbound.raw as never,
                 },
               });
-              if (imageReplyReason) {
-                const imageContext =
-                  imageReplyReason === "flow"
-                    ? `La imagen del flujo ya fue enviada para "${imageReplyProductName || "el producto"}".`
-                    : `La imagen del producto ya fue enviada para "${imageReplyProductName || "el producto"}".`;
-                followUpText = await generateContextualFollowUp(imageContext, [
-                  ...recentMessagesForModel,
-                  {
-                    direction: "OUTBOUND",
-                    type: "IMAGE",
-                    mediaUrl: imageReply.url,
-                    content: imageReply.caption || `Imagen enviada de ${imageReplyProductName || "producto"}`,
-                  },
-                ]);
-              }
               await sendText();
             } else {
               await sendText();
             }
 
-            const flowFollowUpContext = quickResponseFlow
-              ? `El flujo "${quickResponseFlow.scenarioTitle}" ya fue ejecutado para la palabra clave "${quickResponseFlow.keyword}".`
-              : null;
-            const flowHasTextReply = Boolean(quickResponseFlow?.reply.text?.trim());
-            if (!followUpText && quickResponseFlow && flowFollowUpContext && !flowHasTextReply) {
-              followUpText = await generateContextualFollowUp(flowFollowUpContext, [
-                ...recentMessagesForModel,
-                {
-                  direction: "OUTBOUND",
-                  type: "TEXT",
-                  content: replyText || quickResponseFlow.reply.text || `Flujo ejecutado para ${quickResponseFlow.scenarioTitle}`,
-                },
-              ]);
-            }
-
-            if (followUpText && channel.evolutionInstanceName) {
-              const followOutbound = await sendEvolutionTextMessageWithReconnect({
-                instanceName: channel.evolutionInstanceName,
-                phoneNumber,
-                text: followUpText,
-                delayMs: 600,
-              });
-              await persistEvolutionMessage({
-                data: {
-                  workspaceId: channel.workspaceId,
-                  conversationId: conversation.id,
-                  channelId: channel.id,
-                  contactId: contact.id,
-                  agentId: agent.id,
-                  externalId: followOutbound.externalId,
-                  direction: "OUTBOUND",
-                  type: "TEXT",
-                  status: "SENT",
-                  content: followUpText,
-                  sentAt: new Date(),
-                  rawPayload: followOutbound.raw as never,
-                },
-              });
-            }
 
             if (notifyHumanPromise) {
               await notifyHumanPromise;
@@ -2475,4 +2377,5 @@ export async function GET() {
     message: "Evolution webhook endpoint is ready",
   });
 }
+
 

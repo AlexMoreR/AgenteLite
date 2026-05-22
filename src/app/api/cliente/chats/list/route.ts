@@ -68,6 +68,47 @@ async function getAgentConversationList(input: {
   limit: number;
 }) {
   const conversationListTake = input.offset + input.limit + 1;
+  const normalizedSearchQuery = input.searchQuery.trim();
+  const conversationWhere: Prisma.ConversationWhereInput = {
+    workspaceId: input.workspaceId,
+    AND: [
+      input.selectedConnectionKey.startsWith("channel:")
+        ? { channelId: input.selectedConnectionKey.slice("channel:".length) }
+        : {},
+      normalizedSearchQuery
+        ? {
+            OR: [
+              {
+                contact: {
+                  name: {
+                    contains: normalizedSearchQuery,
+                    mode: "insensitive",
+                  },
+                },
+              },
+              {
+                contact: {
+                  phoneNumber: {
+                    contains: normalizedSearchQuery,
+                    mode: "insensitive",
+                  },
+                },
+              },
+              {
+                messages: {
+                  some: {
+                    content: {
+                      contains: normalizedSearchQuery,
+                      mode: "insensitive",
+                    },
+                  },
+                },
+              },
+            ],
+          }
+        : {},
+    ],
+  };
 
   const channels = await prisma.whatsAppChannel.findMany({
     where: { workspaceId: input.workspaceId },
@@ -94,9 +135,7 @@ async function getAgentConversationList(input: {
   );
 
   const activeAgentConversations = await prisma.conversation.findMany({
-    where: {
-      workspaceId: input.workspaceId,
-    },
+    where: conversationWhere,
     orderBy: [{ lastMessageAt: "desc" }, { updatedAt: "desc" }],
     take: conversationListTake,
     select: {
@@ -264,14 +303,6 @@ async function getAgentConversationList(input: {
     : [];
 
   const merged = dedupeAndSortConversationListRows([...agentRows, ...officialRows])
-    .filter((item) => {
-      if (!input.selectedConnectionKey) return true;
-      if (input.selectedConnectionKey.startsWith("channel:")) {
-        const channelId = input.selectedConnectionKey.slice("channel:".length);
-        return item.channelId === channelId;
-      }
-      return true;
-    })
     .filter((item) => {
       if (!input.searchQuery) return true;
       const q = input.searchQuery.toLowerCase();

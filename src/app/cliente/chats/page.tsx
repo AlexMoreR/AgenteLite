@@ -153,6 +153,46 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
 
   const selectedChatRef = parseChatKey(selectedChatKeyParam);
   const conversationListTake = searchQuery || selectedChatRef ? 40 : 20;
+  const conversationWhere: Prisma.ConversationWhereInput = {
+    workspaceId: membership.workspace.id,
+    AND: [
+      selectedConnectionParam.startsWith("channel:")
+        ? { channelId: selectedConnectionParam.slice("channel:".length) }
+        : {},
+      searchQuery
+        ? {
+            OR: [
+              {
+                contact: {
+                  name: {
+                    contains: searchQuery,
+                    mode: "insensitive",
+                  },
+                },
+              },
+              {
+                contact: {
+                  phoneNumber: {
+                    contains: searchQuery,
+                    mode: "insensitive",
+                  },
+                },
+              },
+              {
+                messages: {
+                  some: {
+                    content: {
+                      contains: searchQuery,
+                      mode: "insensitive",
+                    },
+                  },
+                },
+              },
+            ],
+          }
+        : {},
+    ],
+  };
 
   const canUseOfficialApiPromise = canAccessOfficialApiModule(session.user.id, session.user.role);
   const officialDataPromise = canUseOfficialApiPromise.then((canUseOfficialApi) =>
@@ -188,9 +228,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       orderBy: { createdAt: "asc" },
     }),
     prisma.conversation.findMany({
-      where: {
-        workspaceId: membership.workspace.id,
-      },
+      where: conversationWhere,
       orderBy: [{ lastMessageAt: "desc" }, { updatedAt: "desc" }],
       take: conversationListTake + 1,
       select: {
@@ -463,14 +501,6 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   const selectedConnectionKey = selectedConnectionParam;
 
   const merged = dedupeAndSortConversationListRows([...agentRows, ...officialRows])
-    .filter((item) => {
-      if (!selectedConnectionKey) return true;
-      if (selectedConnectionKey.startsWith("channel:")) {
-        const channelId = selectedConnectionKey.slice("channel:".length);
-        return item.channelId === channelId;
-      }
-      return true;
-    })
     .filter((item) => {
       if (!searchQuery) return true;
       const q = searchQuery.toLowerCase();
