@@ -15,6 +15,7 @@ import {
   Facebook,
   MessageCircle,
   MessageSquareText,
+  LoaderCircle,
   Pencil,
   PhoneIncoming,
   PhoneOutgoing,
@@ -1027,6 +1028,9 @@ const MessageBubble = memo(function MessageBubble({
   );
   const isOptimistic = "isOptimistic" in message && Boolean((message as { isOptimistic?: boolean }).isOptimistic);
   const isDeleted = Boolean(message.deletedAt);
+  const mediaPreviewLabel = getMediaPreviewLabel(message.type);
+  const mediaCaption = message.content?.trim() || "";
+  const shouldRenderMediaCaption = mediaCaption && mediaCaption !== mediaPreviewLabel;
   const hasImagePreview = isImageMessage && imagePreviewUrl !== null;
   const imagePreviewExhausted = isImageMessage && imagePreviewUrls.length > 0 && !hasImagePreview;
   const showInlineImageTimestamp = hasImagePreview;
@@ -1331,6 +1335,20 @@ const MessageBubble = memo(function MessageBubble({
                 Abrir documento
               </a>
               {renderMessageText(message.content)}
+            </div>
+          ) : mediaPreviewLabel ? (
+            <div className="space-y-2">
+              <div
+                className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium ${
+                  outbound
+                    ? "border-white/14 bg-white/10 text-white"
+                    : "border-[rgba(148,163,184,0.16)] bg-slate-50 text-slate-700"
+                }`}
+              >
+                <LoaderCircle className={`h-4 w-4 shrink-0 animate-spin ${outbound ? "text-white/80" : "text-slate-500"}`} />
+                <span>{mediaPreviewLabel}</span>
+              </div>
+              {shouldRenderMediaCaption ? renderMessageText(message.content) : null}
             </div>
           ) : (
             renderMessageText(message.content) || (
@@ -2475,6 +2493,11 @@ export function SharedInbox({
       const currentContent = currentLastMessage.content?.trim() || "";
       const previewDirection = previewLastMessage.direction;
       const currentDirection = currentLastMessage.direction;
+      const previewIsMedia = Boolean(getMediaPreviewLabel(previewLastMessage.type));
+
+      if (previewIsMedia) {
+        return liveOrCachedConversation;
+      }
 
       if (previewContent !== currentContent || previewDirection !== currentDirection) {
         return pendingConversationPreview;
