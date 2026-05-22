@@ -485,7 +485,7 @@ export function CrmRegistroTable({
           <TableBody>
             {pagedRecords.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="px-2 py-1 text-center text-slate-500">
+                <TableCell colSpan={7} className="px-1.5 py-0.5 text-center text-slate-500">
                   No hay registros para el filtro actual.
                 </TableCell>
               </TableRow>
@@ -495,7 +495,7 @@ export function CrmRegistroTable({
 
                 return (
                   <TableRow key={record.id}>
-                    <TableCell className="px-2 py-1 text-[13px] text-slate-600">
+                    <TableCell className="px-1.5 py-0.5 text-[13px] text-slate-600">
                       <HoverCard>
                         <HoverCardTrigger className="inline-flex cursor-help items-center">
                           {formatCrmDateShort(record.date)}
@@ -508,8 +508,8 @@ export function CrmRegistroTable({
                         </HoverCardContent>
                       </HoverCard>
                     </TableCell>
-                    <TableCell className="px-2 py-1 text-[13px] font-medium text-slate-900">{record.number}</TableCell>
-                    <TableCell className="px-2 py-1 text-[13px] text-slate-700">{record.name}</TableCell>
+                    <TableCell className="px-1.5 py-0.5 text-[13px] font-medium text-slate-900">{record.number}</TableCell>
+                    <TableCell className="px-1.5 py-0.5 text-[13px] text-slate-700">{record.name}</TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1.5">
                         {record.tags.map((tag) => (
@@ -523,7 +523,7 @@ export function CrmRegistroTable({
                         ))}
                       </div>
                     </TableCell>
-                    <TableCell className="max-w-[18rem] px-2 py-1 text-[13px] leading-5 text-slate-600">
+                    <TableCell className="max-w-[18rem] px-1.5 py-0.5 text-[13px] leading-5 text-slate-600">
                       <HoverCard>
                         <HoverCardTrigger className="block w-full cursor-help truncate text-left">
                           {record.detail}
@@ -534,7 +534,7 @@ export function CrmRegistroTable({
                         </HoverCardContent>
                       </HoverCard>
                     </TableCell>
-                    <TableCell className="px-2 py-1">
+                    <TableCell className="px-1.5 py-0.5">
                       <Select
                         value={record.status}
                         onValueChange={(value) => handleChangeStatus(record.id, value as CrmStage)}
@@ -556,7 +556,7 @@ export function CrmRegistroTable({
                         </SelectContent>
                       </Select>
                     </TableCell>
-                    <TableCell className="px-[10px] py-[6px]">
+                    <TableCell className="px-1.5 py-0.5">
                       <div className="flex items-center gap-1">
                         <Button
                           type="button"
