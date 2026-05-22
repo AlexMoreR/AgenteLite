@@ -1,7 +1,9 @@
 "use client";
 
+import * as React from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { updateCrmStageAction } from "@/app/actions/crm-actions";
 import type { CrmColumn, CrmRecord } from "../types";
 import { getCrmStageMeta } from "../domain/crm-config";
 
@@ -21,9 +23,26 @@ function getTagStyle(color?: string | null) {
   };
 }
 
-function KanbanCard({ record }: { record: CrmRecord }) {
+function KanbanCard({
+  record,
+  isDragging,
+  onDragStart,
+  onDragEnd,
+}: {
+  record: CrmRecord;
+  isDragging: boolean;
+  onDragStart: (event: React.DragEvent<HTMLDivElement>, recordId: string) => void;
+  onDragEnd: () => void;
+}) {
   return (
-  <Card className="rounded-[8px] border border-[var(--line)] p-1.5 shadow-[0_14px_30px_-24px_rgba(15,23,42,0.14)] transition hover:-translate-y-0.5 hover:shadow-[0_18px_34px_-26px_rgba(15,23,42,0.16)]">
+    <Card
+      draggable
+      onDragStart={(event) => onDragStart(event, record.id)}
+      onDragEnd={onDragEnd}
+      className={`rounded-[8px] border border-[var(--line)] p-1.5 shadow-[0_14px_30px_-24px_rgba(15,23,42,0.14)] transition hover:-translate-y-0.5 hover:shadow-[0_18px_34px_-26px_rgba(15,23,42,0.16)] ${
+        isDragging ? "cursor-grabbing opacity-60" : "cursor-grab"
+      }`}
+    >
       <div className="space-y-1">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
@@ -52,16 +71,79 @@ function KanbanCard({ record }: { record: CrmRecord }) {
 }
 
 export function CrmKanbanBoard({ columns }: { columns: CrmColumn[] }) {
+  const [localColumns, setLocalColumns] = React.useState(columns);
+  const [draggedRecordId, setDraggedRecordId] = React.useState<string | null>(null);
+  const [savingRecordIds, setSavingRecordIds] = React.useState<Record<string, boolean>>({});
+  const [dropTargetStage, setDropTargetStage] = React.useState<CrmColumn["stage"] | null>(null);
+
+  React.useEffect(() => {
+    setLocalColumns(columns);
+  }, [columns]);
+
+  const handleDrop = async (recordId: string, nextStage: CrmColumn["stage"]) => {
+    const currentRecord = localColumns.flatMap((column) => column.records).find((record) => record.id === recordId);
+
+    if (!currentRecord || currentRecord.status === nextStage) {
+      return;
+    }
+
+    const previousColumns = localColumns;
+    setSavingRecordIds((current) => ({ ...current, [recordId]: true }));
+
+    setLocalColumns((current) =>
+      current.map((column) => ({
+        ...column,
+        records:
+          column.stage === currentRecord.status
+            ? column.records.filter((record) => record.id !== recordId)
+            : column.stage === nextStage
+              ? [...column.records, { ...currentRecord, status: nextStage }]
+              : column.records,
+      })),
+    );
+
+    const result = await updateCrmStageAction({
+      contactId: recordId,
+      status: nextStage,
+    });
+
+    setSavingRecordIds((current) => ({ ...current, [recordId]: false }));
+    setDraggedRecordId(null);
+    setDropTargetStage(null);
+
+    if ("error" in result) {
+      setLocalColumns(previousColumns);
+    }
+  };
+
   return (
     <div className="overflow-x-auto pb-2">
       <div className="grid min-w-[1320px] grid-cols-6 gap-4">
-        {columns.map((column) => {
+        {localColumns.map((column) => {
           const meta = getCrmStageMeta(column.stage);
+          const isDropTarget = dropTargetStage === column.stage;
 
           return (
             <section
               key={column.stage}
-              className={`rounded-[12px] border ${meta.borderClassName} ${meta.backgroundClassName} p-2`}
+              onDragOver={(event) => {
+                event.preventDefault();
+                setDropTargetStage(column.stage);
+              }}
+              onDragLeave={() => {
+                setDropTargetStage((current) => (current === column.stage ? null : current));
+              }}
+              onDrop={(event) => {
+                event.preventDefault();
+                const recordId = event.dataTransfer.getData("text/plain");
+
+                if (recordId) {
+                  void handleDrop(recordId, column.stage);
+                }
+              }}
+              className={`rounded-[12px] border ${meta.borderClassName} ${meta.backgroundClassName} p-2 transition ${
+                isDropTarget ? "ring-2 ring-offset-2 ring-offset-white" : ""
+              }`}
             >
               <div className="flex items-center justify-between gap-2">
                 <div>
@@ -77,7 +159,22 @@ export function CrmKanbanBoard({ columns }: { columns: CrmColumn[] }) {
 
               <div className="mt-2 space-y-2">
                 {column.records.length > 0 ? (
-                  column.records.map((record) => <KanbanCard key={record.id} record={record} />)
+                  column.records.map((record) => (
+                    <KanbanCard
+                      key={record.id}
+                      record={record}
+                      isDragging={draggedRecordId === record.id || Boolean(savingRecordIds[record.id])}
+                      onDragStart={(event, recordId) => {
+                        event.dataTransfer.effectAllowed = "move";
+                        event.dataTransfer.setData("text/plain", recordId);
+                        setDraggedRecordId(recordId);
+                      }}
+                      onDragEnd={() => {
+                        setDraggedRecordId(null);
+                        setDropTargetStage(null);
+                      }}
+                    />
+                  ))
                 ) : (
                 <div className="rounded-[12px] border border-dashed border-slate-200 bg-white/70 px-4 py-8 text-center text-sm text-slate-500">
                     Sin registros en esta columna.
