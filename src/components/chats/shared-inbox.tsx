@@ -1497,7 +1497,7 @@ const MESSAGE_VIRTUALIZATION_THRESHOLD = 28;
 const MESSAGE_VIRTUALIZATION_OVERSCAN_PX = 720;
 const messageBubbleHeightCache = new WeakMap<SharedInboxMessageItem, number>();
 const CHAT_MESSAGES_BACKGROUND_BASE_STYLE = {
-  backgroundColor: "#eae0d3",
+  backgroundColor: "#eef2f7",
 } as const;
 
 const CHAT_MESSAGES_BACKGROUND_OVERLAY_STYLE = {
