@@ -19,5 +19,9 @@ export default async function ClienteCrmPage() {
 
   const data = await getCrmData({ userId: session.user.id });
 
+  if (!data) {
+    redirect("/cliente");
+  }
+
   return <CrmWorkspace data={data} />;
 }

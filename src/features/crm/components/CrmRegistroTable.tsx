@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import * as React from "react";
-import { ArrowDown, ArrowUp, ArrowUpDown, Copy, Eye, Hash, MoreHorizontal, Search, Tag, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Copy, Eye, FileText, Hash, MoreHorizontal, Search, Tag, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -14,15 +15,45 @@ import type { CrmRecord, CrmStage } from "../types";
 type SortKey = "numero" | "nombre" | "fecha" | "estado";
 type SortDirection = "asc" | "desc";
 
-const PAGE_SIZE = 6;
+const PAGE_SIZE = 10;
+const nativeSelectBaseClassName =
+  "w-full rounded-lg border border-[var(--line)] bg-white pr-10 pl-2.5 text-sm text-slate-700 outline-none transition focus:border-[var(--line-strong)]";
 
 function formatCrmDate(value: string) {
-  return new Intl.DateTimeFormat("es-CO", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  })
-    .format(new Date(value))
-    .replace(/\u00A0/g, " ");
+  const date = new Date(value);
+  const parts = new Intl.DateTimeFormat("es-CO", {
+    timeZone: "America/Bogota",
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).formatToParts(date);
+
+  const getPart = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? "";
+  const day = getPart("day");
+  const month = getPart("month");
+  const year = getPart("year");
+  const hour = String(Number(getPart("hour")));
+  const minute = getPart("minute");
+  const dayPeriod = getPart("dayPeriod").toLowerCase();
+
+  return `${day}/${month}/${year} ${hour}:${minute} ${dayPeriod}`;
+}
+
+function formatCrmDateShort(value: string) {
+  const date = new Date(value);
+  const parts = new Intl.DateTimeFormat("es-CO", {
+    timeZone: "America/Bogota",
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
+  }).formatToParts(date);
+
+  const getPart = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? "";
+
+  return `${getPart("day")}/${getPart("month")}/${getPart("year")}`;
 }
 
 function HeaderLabel({
@@ -41,7 +72,7 @@ function HeaderLabel({
   return (
     <button
       type="button"
-      className="inline-flex items-center gap-2 text-[15px] font-normal text-slate-600 transition hover:text-slate-900"
+      className="inline-flex items-center gap-2 text-[13px] font-normal text-slate-600 transition hover:text-slate-900"
       onClick={onClick}
       aria-label={`Ordenar por ${String(children)}`}
     >
@@ -64,6 +95,14 @@ function getRecordStateLabel(record: CrmRecord) {
   return getCrmStageLabel(record.status);
 }
 
+function getTagStyle(color?: string | null) {
+  const normalized = color?.trim();
+
+  return {
+    backgroundColor: normalized || "var(--primary)",
+  };
+}
+
 function downloadTextFile(filename: string, content: string, mimeType: string) {
   const blob = new Blob([content], { type: mimeType });
   const url = URL.createObjectURL(blob);
@@ -83,6 +122,7 @@ export function CrmRegistroTable({
   records: CrmRecord[];
   referenceNow: string;
 }) {
+  const [editableRecords, setEditableRecords] = React.useState(records);
   const [query, setQuery] = React.useState("");
   const [statusFilter, setStatusFilter] = React.useState<CrmStage | "__all__">("__all__");
   const [dateRangeFilter, setDateRangeFilter] = React.useState<"1" | "7" | "15" | "30" | "__all__">("1");
@@ -91,24 +131,28 @@ export function CrmRegistroTable({
   const [page, setPage] = React.useState(1);
   const [copiedField, setCopiedField] = React.useState<string | null>(null);
 
+  React.useEffect(() => {
+    setEditableRecords(records);
+  }, [records]);
+
   const statusOptions = React.useMemo(() => {
     const seen = new Map<CrmStage, string>();
 
-    for (const record of records) {
+    for (const record of editableRecords) {
       if (!seen.has(record.status)) {
         seen.set(record.status, getRecordStateLabel(record));
       }
     }
 
     return Array.from(seen.entries()).map(([value, label]) => ({ value, label }));
-  }, [records]);
+  }, [editableRecords]);
 
   const filteredRecords = React.useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     const maxAgeDays = dateRangeFilter === "__all__" ? null : Number(dateRangeFilter);
     const now = new Date(referenceNow).getTime();
 
-    return records.filter((record) => {
+    return editableRecords.filter((record) => {
       const recordAgeDays = (now - new Date(record.date).getTime()) / (1000 * 60 * 60 * 24);
       const haystack = [
         record.number,
@@ -126,7 +170,7 @@ export function CrmRegistroTable({
 
       return queryMatches && statusMatches && dateMatches;
     });
-  }, [dateRangeFilter, query, records, referenceNow, statusFilter]);
+  }, [dateRangeFilter, editableRecords, query, referenceNow, statusFilter]);
 
   const sortedRecords = React.useMemo(() => {
     const list = [...filteredRecords];
@@ -190,6 +234,12 @@ export function CrmRegistroTable({
     window.setTimeout(() => setCopiedField((current) => (current === field ? null : current)), 1200);
   };
 
+  const handleChangeStatus = (recordId: string, nextStatus: CrmStage) => {
+    setEditableRecords((current) =>
+      current.map((record) => (record.id === recordId ? { ...record, status: nextStatus } : record)),
+    );
+  };
+
   const exportCsv = () => {
     const lines = [
       ["Numero", "Nombre", "Fecha", "Etiquetas", "Detalle", "Estado"].join(","),
@@ -246,7 +296,7 @@ export function CrmRegistroTable({
           <select
             value={statusFilter}
             onChange={(event) => setStatusFilter(event.target.value as CrmStage | "__all__")}
-            className="h-9 w-full rounded-lg border border-[var(--line)] bg-white px-2.5 text-sm text-slate-700 outline-none transition focus:border-[var(--line-strong)] sm:min-w-40 sm:w-auto"
+            className={`${nativeSelectBaseClassName} h-9 sm:min-w-40 sm:w-auto`}
             aria-label="Filtrar por estado"
           >
             <option value="__all__">Estados</option>
@@ -259,7 +309,7 @@ export function CrmRegistroTable({
           <select
             value={dateRangeFilter}
             onChange={(event) => setDateRangeFilter(event.target.value as "__all__" | "1" | "7" | "15" | "30")}
-            className="h-9 w-full rounded-lg border border-[var(--line)] bg-white px-2.5 text-sm text-slate-700 outline-none transition focus:border-[var(--line-strong)] sm:min-w-40 sm:w-auto"
+            className={`${nativeSelectBaseClassName} h-9 sm:min-w-40 sm:w-auto`}
             aria-label="Filtrar por rango de dias"
           >
             <option value="1">1 Dia</option>
@@ -303,8 +353,8 @@ export function CrmRegistroTable({
               <article key={record.id} className="rounded-xl border border-[var(--line)] bg-white p-3">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-slate-900">{record.name}</p>
-                    <p className="mt-0.5 text-xs text-slate-500">{record.number}</p>
+                    <p className="truncate text-[13px] font-semibold text-slate-900">{record.name}</p>
+                    <p className="mt-0.5 text-[13px] text-slate-500">{record.number}</p>
                   </div>
                   <Badge
                     variant="outline"
@@ -318,18 +368,18 @@ export function CrmRegistroTable({
                   {record.tags.map((tag) => (
                     <span
                       key={`${record.id}:${tag.label}`}
-                      className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-white"
-                      style={{ backgroundColor: tag.color }}
+                      className="inline-flex max-w-full items-center rounded-full px-2.5 py-0.75 text-[10px] font-semibold uppercase tracking-[0.08em] text-white shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
+                      style={getTagStyle(tag.color)}
                     >
                       {tag.label}
                     </span>
                   ))}
                 </div>
 
-                <p className="mt-3 line-clamp-2 text-sm leading-6 text-slate-600">{record.detail}</p>
+                <p className="mt-3 truncate text-[13px] leading-6 text-slate-600">{record.detail}</p>
 
                 <div className="mt-3 flex items-center justify-between gap-2">
-                  <span className="text-xs text-slate-500">{formatCrmDate(record.date)}</span>
+                    <span className="text-[13px] text-slate-500">{formatCrmDateShort(record.date)}</span>
                   <div className="flex items-center gap-1">
                     <Button
                       type="button"
@@ -362,27 +412,7 @@ export function CrmRegistroTable({
         <Table className="min-w-[1120px]">
           <TableHeader>
             <TableRow className="bg-slate-50/70 hover:bg-slate-50/70">
-              <TableHead className="normal-case tracking-normal">
-                <HeaderLabel
-                  active={sortKey === "numero"}
-                  direction={sortDirection}
-                  onClick={() => toggleSort("numero")}
-                  icon={<Hash className="h-3.5 w-3.5" />}
-                >
-                  Numero
-                </HeaderLabel>
-              </TableHead>
-              <TableHead className="normal-case tracking-normal">
-                <HeaderLabel
-                  active={sortKey === "nombre"}
-                  direction={sortDirection}
-                  onClick={() => toggleSort("nombre")}
-                  icon={<Eye className="h-3.5 w-3.5" />}
-                >
-                  Nombre
-                </HeaderLabel>
-              </TableHead>
-              <TableHead className="normal-case tracking-normal">
+              <TableHead className="px-[10px] py-[6px] normal-case tracking-normal">
                 <HeaderLabel
                   active={sortKey === "fecha"}
                   direction={sortDirection}
@@ -392,9 +422,39 @@ export function CrmRegistroTable({
                   Fecha
                 </HeaderLabel>
               </TableHead>
-              <TableHead className="normal-case tracking-normal">Etiquetas</TableHead>
-              <TableHead className="normal-case tracking-normal">Detalle</TableHead>
-              <TableHead className="normal-case tracking-normal">
+              <TableHead className="px-[10px] py-[6px] normal-case tracking-normal">
+                <HeaderLabel
+                  active={sortKey === "numero"}
+                  direction={sortDirection}
+                  onClick={() => toggleSort("numero")}
+                  icon={<Hash className="h-3.5 w-3.5" />}
+                >
+                  Numero
+                </HeaderLabel>
+              </TableHead>
+              <TableHead className="px-[10px] py-[6px] normal-case tracking-normal">
+                <HeaderLabel
+                  active={sortKey === "nombre"}
+                  direction={sortDirection}
+                  onClick={() => toggleSort("nombre")}
+                  icon={<Eye className="h-3.5 w-3.5" />}
+                >
+                  Nombre
+                </HeaderLabel>
+              </TableHead>
+              <TableHead className="px-[10px] py-[6px] normal-case tracking-normal">
+                <span className="inline-flex items-center gap-2 text-[13px] font-normal text-slate-600">
+                  <Tag className="h-3.5 w-3.5 text-slate-500" />
+                  Etiquetas
+                </span>
+              </TableHead>
+              <TableHead className="px-[10px] py-[6px] normal-case tracking-normal">
+                <span className="inline-flex items-center gap-2 text-[13px] font-normal text-slate-600">
+                  <FileText className="h-3.5 w-3.5 text-slate-500" />
+                  Detalle
+                </span>
+              </TableHead>
+              <TableHead className="px-[10px] py-[6px] normal-case tracking-normal">
                 <HeaderLabel
                   active={sortKey === "estado"}
                   direction={sortDirection}
@@ -404,13 +464,13 @@ export function CrmRegistroTable({
                   Estado
                 </HeaderLabel>
               </TableHead>
-              <TableHead className="normal-case tracking-normal">Acciones</TableHead>
+              <TableHead className="px-[10px] py-[6px] normal-case tracking-normal">Acciones</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {pagedRecords.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="py-9 text-center text-slate-500">
+                <TableCell colSpan={7} className="px-[10px] py-[6px] text-center text-slate-500">
                   No hay registros para el filtro actual.
                 </TableCell>
               </TableRow>
@@ -420,35 +480,60 @@ export function CrmRegistroTable({
 
                 return (
                   <TableRow key={record.id}>
-                    <TableCell className="text-sm font-medium text-slate-900">{record.number}</TableCell>
-                    <TableCell className="text-sm text-slate-700">{record.name}</TableCell>
-                    <TableCell className="text-sm text-slate-600">{formatCrmDate(record.date)}</TableCell>
+                    <TableCell className="px-[10px] py-[6px] text-[13px] text-slate-600">
+                      <HoverCard>
+                        <HoverCardTrigger className="inline-flex cursor-help items-center">
+                          {formatCrmDateShort(record.date)}
+                        </HoverCardTrigger>
+                        <HoverCardContent
+                          className="w-fit border border-[var(--line)] bg-white p-3 text-[13px] leading-6 text-slate-700 shadow-[0_16px_34px_-28px_rgba(15,23,42,0.2)]"
+                          style={{ width: "fit-content" }}
+                        >
+                          <p className="whitespace-pre-wrap text-[13px]">{formatCrmDate(record.date)}</p>
+                        </HoverCardContent>
+                      </HoverCard>
+                    </TableCell>
+                    <TableCell className="px-[10px] py-[6px] text-[13px] font-medium text-slate-900">{record.number}</TableCell>
+                    <TableCell className="px-[10px] py-[6px] text-[13px] text-slate-700">{record.name}</TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1.5">
                         {record.tags.map((tag) => (
-                          <Badge
+                          <span
                             key={`${record.id}:${tag.label}`}
-                            variant="outline"
-                            className="h-auto rounded-full border-[var(--line)] bg-slate-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-700"
-                            style={{ borderColor: tag.color, color: tag.color }}
+                            className="inline-flex max-w-full items-center rounded-full px-2.5 py-0.75 text-[10px] font-semibold uppercase tracking-[0.08em] text-white shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
+                            style={getTagStyle(tag.color)}
                           >
                             {tag.label}
-                          </Badge>
+                          </span>
                         ))}
                       </div>
                     </TableCell>
-                    <TableCell className="max-w-[24rem] text-sm leading-6 text-slate-600">
-                      <span className="line-clamp-2">{record.detail}</span>
+                    <TableCell className="max-w-[18rem] px-[10px] py-[6px] text-[13px] leading-5 text-slate-600">
+                      <HoverCard>
+                        <HoverCardTrigger className="block w-full cursor-help truncate text-left">
+                          {record.detail}
+                        </HoverCardTrigger>
+                        <HoverCardContent className="max-w-md border border-[var(--line)] bg-white p-3 text-[12px] leading-6 text-slate-700 shadow-[0_16px_34px_-28px_rgba(15,23,42,0.2)]">
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Detalle completo</p>
+                          <p className="mt-2 whitespace-pre-wrap text-[13px]">{record.detail}</p>
+                        </HoverCardContent>
+                      </HoverCard>
                     </TableCell>
-                    <TableCell>
-                      <Badge
-                        variant="outline"
-                        className={`h-auto rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] ${meta.borderClassName} ${meta.backgroundClassName} ${meta.accentClassName}`}
+                    <TableCell className="px-[10px] py-[6px]">
+                      <select
+                        value={record.status}
+                        onChange={(event) => handleChangeStatus(record.id, event.target.value as CrmStage)}
+                        aria-label={`Cambiar estado de ${record.name}`}
+                        className={`h-8 min-w-28 cursor-pointer rounded-md border pr-10 pl-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] outline-none transition focus:border-[var(--line-strong)] ${meta.borderClassName} ${meta.backgroundClassName} ${meta.accentClassName}`}
                       >
-                        {meta.label}
-                      </Badge>
+                        {statusOptions.map((status) => (
+                          <option key={status.value} value={status.value}>
+                            {status.label}
+                          </option>
+                        ))}
+                      </select>
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="px-[10px] py-[6px]">
                       <div className="flex items-center gap-1">
                         <Button
                           type="button"
@@ -510,7 +595,7 @@ export function CrmRegistroTable({
       </div>
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-xs text-slate-500">
+          <p className="text-[13px] text-slate-500">
           Mostrando {rangeStart}-{rangeEnd} de {filteredRecords.length}
         </p>
         <div className="flex items-center gap-2 self-end sm:self-auto">
@@ -523,7 +608,7 @@ export function CrmRegistroTable({
           >
             Anterior
           </Button>
-          <span className="text-xs text-slate-600">
+          <span className="text-[13px] text-slate-600">
             Pagina {page} de {totalPages}
           </span>
           <Button

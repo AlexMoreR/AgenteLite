@@ -1,126 +1,139 @@
-import type { CrmData, CrmRecord } from "../types";
+import { Prisma } from "@prisma/client";
+import { prisma } from "@/lib/prisma";
+import { getContactTags } from "@/lib/chat-conversation-summary";
 import { groupCrmRecordsByStage, sortCrmRecords } from "../domain/crm-config";
+import type { CrmData, CrmRecord } from "../types";
 
 type GetCrmDataInput = {
   userId: string;
 };
 
-function buildMockRecords(): CrmRecord[] {
-  return [
-    {
-      id: "crm-001",
-      number: "CRM-001",
-      name: "Andrea Mendez",
-      date: "2026-05-21T10:20:00.000Z",
-      tags: [
-        { label: "WhatsApp", color: "#0ea5e9" },
-        { label: "Alta prioridad", color: "#7c3aed" },
-      ],
-      detail: "Pidio cotizacion para paquete premium y espera respuesta con propuesta formal.",
-      status: "CALIFICADO",
-    },
-    {
-      id: "crm-002",
-      number: "CRM-002",
-      name: "Carlos Herrera",
-      date: "2026-05-20T16:45:00.000Z",
-      tags: [
-        { label: "Instagram", color: "#db2777" },
-        { label: "Seguimiento", color: "#f97316" },
-      ],
-      detail: "Comparo precios, envio sus datos y quedo pendiente de la oferta final.",
-      status: "PROPUESTA",
-    },
-    {
-      id: "crm-003",
-      number: "CRM-003",
-      name: "Sofia Castillo",
-      date: "2026-05-20T09:12:00.000Z",
-      tags: [
-        { label: "Nuevo lead", color: "#2563eb" },
-        { label: "Meta Ads", color: "#14b8a6" },
-      ],
-      detail: "Llego desde una campana y quiere entender cual es la mejor opcion antes de agendar.",
-      status: "NUEVO",
-    },
-    {
-      id: "crm-004",
-      number: "CRM-004",
-      name: "Javier Rojas",
-      date: "2026-05-19T14:02:00.000Z",
-      tags: [
-        { label: "B2B", color: "#6366f1" },
-        { label: "Alto valor", color: "#8b5cf6" },
-      ],
-      detail: "Ya reviso la propuesta y entro a negociacion de alcance y tiempos de entrega.",
-      status: "NEGOCIACION",
-    },
-    {
-      id: "crm-005",
-      number: "CRM-005",
-      name: "Valentina Ortiz",
-      date: "2026-05-18T18:30:00.000Z",
-      tags: [
-        { label: "Referido", color: "#10b981" },
-        { label: "Cierre rapido", color: "#059669" },
-      ],
-      detail: "Confirmo compra y solo falta documentar el siguiente paso operativo.",
-      status: "GANADO",
-    },
-    {
-      id: "crm-006",
-      number: "CRM-006",
-      name: "Miguel Torres",
-      date: "2026-05-18T11:07:00.000Z",
-      tags: [
-        { label: "Frio", color: "#94a3b8" },
-        { label: "Sin respuesta", color: "#64748b" },
-      ],
-      detail: "No dio seguimiento despues de la primera llamada y se cerro por ahora.",
-      status: "PERDIDO",
-    },
-    {
-      id: "crm-007",
-      number: "CRM-007",
-      name: "Paula Restrepo",
-      date: "2026-05-17T13:55:00.000Z",
-      tags: [
-        { label: "WhatsApp", color: "#0ea5e9" },
-        { label: "Prioridad media", color: "#eab308" },
-      ],
-      detail: "Dejo datos y pidio que se le explique la oferta con mas claridad.",
-      status: "NUEVO",
-    },
-    {
-      id: "crm-008",
-      number: "CRM-008",
-      name: "Laura Vega",
-      date: "2026-05-16T15:28:00.000Z",
-      tags: [
-        { label: "Propuesta enviada", color: "#8b5cf6" },
-        { label: "Web", color: "#6366f1" },
-      ],
-      detail: "Ya tiene la propuesta y espera validacion interna para avanzar al cierre.",
-      status: "PROPUESTA",
-    },
-  ];
+function getContactDisplayName(contact: { name: string | null; phoneNumber: string }) {
+  return contact.name?.trim() || contact.phoneNumber;
 }
 
-export async function getCrmData({ userId }: GetCrmDataInput): Promise<CrmData> {
-  void userId;
+function getContactLastActivity(contact: {
+  updatedAt: Date;
+  conversations: Array<{ lastMessageAt: Date | null; updatedAt: Date }>;
+}) {
+  const latestConversation = contact.conversations[0] ?? null;
 
-  const records = sortCrmRecords(buildMockRecords());
-  const columns = groupCrmRecordsByStage(records);
-  const active = records.filter((record) => record.status !== "GANADO" && record.status !== "PERDIDO").length;
-  const won = records.filter((record) => record.status === "GANADO").length;
-  const lost = records.filter((record) => record.status === "PERDIDO").length;
+  return latestConversation?.lastMessageAt ?? latestConversation?.updatedAt ?? contact.updatedAt;
+}
+
+function getContactDetail(contact: {
+  notes: string | null;
+  conversations: Array<{
+    messages: Array<{ content: string | null }>;
+  }>;
+}) {
+  const note = contact.notes?.trim();
+  if (note) {
+    return note;
+  }
+
+  const lastMessage = contact.conversations[0]?.messages[0]?.content?.trim();
+  if (lastMessage) {
+    return lastMessage;
+  }
+
+  return "Sin detalle registrado";
+}
+
+export async function getCrmData({ userId }: GetCrmDataInput): Promise<CrmData | null> {
+  const membership = await prisma.workspaceMember.findFirst({
+    where: { userId },
+    orderBy: { createdAt: "asc" },
+    select: {
+      workspace: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+    },
+  });
+
+  if (!membership) {
+    return null;
+  }
+
+  const rawContacts = await prisma.contact.findMany({
+    where: {
+      workspaceId: membership.workspace.id,
+    },
+    orderBy: [{ updatedAt: "desc" }],
+    select: {
+      id: true,
+      name: true,
+      phoneNumber: true,
+      notes: true,
+      createdAt: true,
+      updatedAt: true,
+      ContactTag: {
+        select: {
+          Tag: {
+            select: {
+              name: true,
+              color: true,
+            },
+          },
+        },
+      },
+      conversations: {
+        orderBy: [{ lastMessageAt: "desc" }, { updatedAt: "desc" }],
+        take: 1,
+        select: {
+          lastMessageAt: true,
+          updatedAt: true,
+          messages: {
+            orderBy: { createdAt: "desc" },
+            take: 1,
+            select: {
+              content: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  const crmStageRows =
+    rawContacts.length > 0
+      ? await prisma.$queryRaw<Array<{ contactId: string; crmStage: string }>>`
+          SELECT
+            c."id" AS "contactId",
+            c."crmStage"::text AS "crmStage"
+          FROM "Contact" c
+          WHERE c."workspaceId" = ${membership.workspace.id}
+            AND c."id" IN (${Prisma.join(rawContacts.map((contact) => contact.id))})
+        `
+      : [];
+
+  const crmStageByContactId = new Map(crmStageRows.map((row) => [row.contactId, row.crmStage]));
+
+  const records: CrmRecord[] = rawContacts.map((contact) => ({
+    id: contact.id,
+    number: contact.phoneNumber,
+    name: getContactDisplayName(contact),
+    date: getContactLastActivity(contact).toISOString(),
+    tags: getContactTags(contact.ContactTag.map((item) => item.Tag)),
+    detail: getContactDetail(contact),
+    status: (crmStageByContactId.get(contact.id) as CrmRecord["status"]) ?? "NUEVO",
+  }));
+
+  const sortedRecords = sortCrmRecords(records);
+  const columns = groupCrmRecordsByStage(sortedRecords);
+  const active = sortedRecords.filter((record) => record.status !== "GANADO" && record.status !== "PERDIDO").length;
+  const won = sortedRecords.filter((record) => record.status === "GANADO").length;
+  const lost = sortedRecords.filter((record) => record.status === "PERDIDO").length;
 
   return {
-    workspaceName: "CRM comercial",
-    records,
+    workspaceName: membership.workspace.name,
+    records: sortedRecords,
     columns,
     stats: {
-      total: records.length,
+      total: sortedRecords.length,
       active,
       won,
       lost,

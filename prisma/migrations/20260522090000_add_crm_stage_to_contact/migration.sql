@@ -1,0 +1,6 @@
+-- CreateEnum
+CREATE TYPE "CrmStage" AS ENUM ('NUEVO', 'CALIFICADO', 'PROPUESTA', 'NEGOCIACION', 'GANADO', 'PERDIDO');
+
+-- AlterTable
+ALTER TABLE "Contact"
+ADD COLUMN "crmStage" "CrmStage" NOT NULL DEFAULT 'NUEVO';

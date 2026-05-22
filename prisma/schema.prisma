@@ -156,6 +156,7 @@ model Contact {
   email         String?
   notes         String?
   metadata      Json?
+  crmStage      CrmStage       @default(NUEVO)
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   avatarUrl     String?
@@ -791,4 +792,13 @@ enum QuoteStatus {
 enum FinanceTransactionType {
   INCOME
   EXPENSE
+}
+
+enum CrmStage {
+  NUEVO
+  CALIFICADO
+  PROPUESTA
+  NEGOCIACION
+  GANADO
+  PERDIDO
 }

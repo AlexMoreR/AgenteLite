@@ -6,7 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CrmKanbanBoard } from "./CrmKanbanBoard";
 import { CrmRegistroTable } from "./CrmRegistroTable";
 import type { CrmData } from "../types";
-import { Users2, KanbanSquare, TrendingUp, CheckCircle2, CircleSlash2 } from "lucide-react";
+import { Users2, TrendingUp, CheckCircle2, CircleSlash2 } from "lucide-react";
 
 function MetricCard({
   label,
@@ -18,15 +18,15 @@ function MetricCard({
   icon: ReactNode;
 }) {
   return (
-    <Card className="rounded-[24px] border border-[var(--line)] bg-white p-4 shadow-[0_16px_34px_-28px_rgba(15,23,42,0.16)]">
-      <div className="flex items-start justify-between gap-3">
-        <div className="space-y-1">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">{label}</p>
-          <p className="text-[1.35rem] font-semibold leading-none tracking-[-0.05em] text-slate-950">{value}</p>
-        </div>
-        <div className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_10%,white)] text-[var(--primary)]">
+    <Card className="rounded-[22px] border border-[#c7d8ff] bg-[#f6f9ff] px-4 py-3.5 shadow-[0_10px_26px_-20px_rgba(37,99,235,0.28)]">
+      <div className="flex items-center gap-3">
+        <div className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#d8e3ff] bg-[#edf3ff] text-[#3b63ff]">
           {icon}
         </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[0.95rem] font-medium text-[#5b74a8]">{label}</p>
+        </div>
+        <p className="shrink-0 text-[1.45rem] font-semibold leading-none tracking-[-0.06em] text-[#0f172a]">{value}</p>
       </div>
     </Card>
   );
@@ -59,12 +59,11 @@ export function CrmWorkspace({ data }: { data: CrmData }) {
 
   return (
     <section className="space-y-5">
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard label="Total" value={String(data.stats.total)} icon={<Users2 className="h-5 w-5" />} />
         <MetricCard label="En proceso" value={String(activeRecords)} icon={<TrendingUp className="h-5 w-5" />} />
         <MetricCard label="Ganados" value={String(wonRecords)} icon={<CheckCircle2 className="h-5 w-5" />} />
         <MetricCard label="Perdidos" value={String(lostRecords)} icon={<CircleSlash2 className="h-5 w-5" />} />
-        <MetricCard label="Columnas" value={String(data.columns.length)} icon={<KanbanSquare className="h-5 w-5" />} />
       </div>
 
       <Tabs defaultValue="registro" className="space-y-4">

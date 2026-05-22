@@ -13,6 +13,14 @@ function formatCrmDate(value: string) {
     .replace(/\u00A0/g, " ");
 }
 
+function getTagStyle(color?: string | null) {
+  const normalized = color?.trim();
+
+  return {
+    backgroundColor: normalized || "var(--primary)",
+  };
+}
+
 function KanbanCard({ record }: { record: CrmRecord }) {
   const meta = getCrmStageMeta(record.status);
 
@@ -36,8 +44,8 @@ function KanbanCard({ record }: { record: CrmRecord }) {
           {record.tags.map((tag) => (
             <span
               key={`${record.id}:${tag.label}`}
-              className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-white"
-              style={{ backgroundColor: tag.color }}
+              className="inline-flex max-w-full items-center rounded-full px-2.5 py-0.75 text-[10px] font-semibold uppercase tracking-[0.08em] text-white shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
+              style={getTagStyle(tag.color)}
             >
               {tag.label}
             </span>
