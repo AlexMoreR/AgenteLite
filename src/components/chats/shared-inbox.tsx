@@ -1495,32 +1495,47 @@ const MessageBubble = memo(function MessageBubble({
 
 const MESSAGE_VIRTUALIZATION_THRESHOLD = 28;
 const MESSAGE_VIRTUALIZATION_OVERSCAN_PX = 720;
+const messageBubbleHeightCache = new WeakMap<SharedInboxMessageItem, number>();
+const CHAT_MESSAGES_BACKGROUND_STYLE = {
+  backgroundColor: "#f3f4f6",
+  WebkitMaskImage: 'url("https://static.whatsapp.net/rsrc.php/yx/r/voSdkk88H7C.svg")',
+  maskImage: 'url("https://static.whatsapp.net/rsrc.php/yx/r/voSdkk88H7C.svg")',
+  WebkitMaskRepeat: "repeat",
+  maskRepeat: "repeat",
+  WebkitMaskMode: "alpha",
+  maskMode: "alpha",
+  WebkitMaskSize: "540px 960px",
+  maskSize: "540px 960px",
+  WebkitMaskPosition: "0 0",
+  maskPosition: "0 0",
+} as const;
 
 function estimateMessageBubbleHeight(message: SharedInboxMessageItem) {
+  const cachedHeight = messageBubbleHeightCache.get(message);
+  if (cachedHeight !== undefined) {
+    return cachedHeight;
+  }
+
   const contentLength = message.content?.trim().length ?? 0;
+  let height: number;
 
   if (message.type === "IMAGE") {
-    return 392;
+    height = 392;
+  } else if (message.type === "VIDEO") {
+    height = 340;
+  } else if (message.type === "STICKER") {
+    height = 240;
+  } else if (message.type === "AUDIO") {
+    height = 152;
+  } else if (message.type === "DOCUMENT") {
+    height = 128;
+  } else {
+    const estimatedTextLines = Math.max(1, Math.ceil(contentLength / 46));
+    height = Math.min(92 + (estimatedTextLines - 1) * 20, 320);
   }
 
-  if (message.type === "VIDEO") {
-    return 340;
-  }
-
-  if (message.type === "STICKER") {
-    return 240;
-  }
-
-  if (message.type === "AUDIO") {
-    return 152;
-  }
-
-  if (message.type === "DOCUMENT") {
-    return 128;
-  }
-
-  const estimatedTextLines = Math.max(1, Math.ceil(contentLength / 46));
-  return Math.min(92 + (estimatedTextLines - 1) * 20, 320);
+  messageBubbleHeightCache.set(message, height);
+  return height;
 }
 
 type ConversationPanelProps = {
@@ -1667,15 +1682,20 @@ const ConversationPanel = memo(function ConversationPanel({
   }, [messageHeights, renderedMessages.length, scrollTop, totalMessageHeight, viewportHeight]);
 
   const visibleMessages = useMemo(() => {
+    if (virtualizedMessages.start === 0 && virtualizedMessages.end === renderedMessages.length) {
+      return renderedMessages;
+    }
+
     return renderedMessages.slice(virtualizedMessages.start, virtualizedMessages.end);
   }, [renderedMessages, virtualizedMessages.end, virtualizedMessages.start]);
 
   return (
     <Card
-      className={`${selectedConversationId ? "flex md:flex" : "!hidden md:flex"} chat-inbox-panel min-h-0 flex-1 overflow-hidden rounded-none border border-[rgba(148,163,184,0.14)] bg-white p-0 shadow-none md:h-full md:shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)]`}
+      className={`${selectedConversationId ? "flex md:flex" : "!hidden md:flex"} chat-inbox-panel relative min-h-0 flex-1 overflow-hidden rounded-none border border-[rgba(148,163,184,0.14)] bg-transparent p-0 shadow-none md:h-full md:shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)]`}
     >
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0" style={CHAT_MESSAGES_BACKGROUND_STYLE} />
       {renderedConversation ? (
-        <div className="flex min-h-0 h-full w-full flex-1 flex-col">
+        <div className="relative z-10 flex min-h-0 h-full w-full flex-1 flex-col">
           <div className="shrink-0 border-b border-[rgba(148,163,184,0.12)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcff_100%)] px-3 pb-2.5 pt-[calc(env(safe-area-inset-top)+0.625rem)] md:px-[10px] md:py-[10px]">
             <div className="flex min-w-0 items-center justify-between gap-3">
               <div className="flex min-w-0 flex-1 items-center gap-3">
@@ -1758,19 +1778,12 @@ const ConversationPanel = memo(function ConversationPanel({
             </div>
           </div>
 
-          <div className="relative flex min-h-0 flex-1 flex-col bg-[#f3f4f6]">
+          <div className="relative flex min-h-0 flex-1 flex-col bg-transparent">
             <ChatSelectionOverlay selectedConversationId={selectedConversationId} />
             <div className="relative min-h-0 flex-1">
               <div
                 ref={messagesScrollRef}
-                className="chat-messages-scroll h-full overflow-y-auto overscroll-contain px-2.5 py-2.5 pb-3 [-webkit-overflow-scrolling:touch] md:px-5 md:py-5 md:pb-5"
-                style={{
-                  backgroundColor: "#f3f4f6",
-                  backgroundImage:
-                    `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220' viewBox='0 0 220 220'%3E%3Cg fill='none' stroke='%23cbd5e1' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round' opacity='0.45'%3E%3Ccircle cx='28' cy='24' r='10'/%3E%3Cpath d='M62 18l8 14 14 2-10 10 2 14-14-7-12 7 2-14-10-10 14-2z'/%3E%3Cpath d='M122 18c10 0 18 8 18 18s-8 18-18 18-18-8-18-18 8-18 18-18z'/%3E%3Cpath d='M169 24l20 20M189 24l-20 20'/%3E%3Crect x='20' y='76' width='28' height='18' rx='6'/%3E%3Cpath d='M26 102c6-8 16-8 22 0'/%3E%3Cpath d='M76 74l10 18 20 3-14 14 3 20-19-10-18 10 3-20-14-14 20-3z'/%3E%3Cpath d='M130 78h28v18h-28z'/%3E%3Cpath d='M144 70v36M130 87h28'/%3E%3Cpath d='M176 76c10 0 18 8 18 18s-8 18-18 18-18-8-18-18 8-18 18-18z'/%3E%3Cpath d='M24 142c6-8 18-8 24 0 6 8 18 8 24 0'/%3E%3Cpath d='M86 144c0-8 6-14 14-14s14 6 14 14-6 14-14 14-14-6-14-14z'/%3E%3Cpath d='M128 136l24 24M152 136l-24 24'/%3E%3Cpath d='M174 132h26v26h-26z'/%3E%3Cpath d='M182 124v42M174 145h26'/%3E%3Ccircle cx='42' cy='188' r='16'/%3E%3Cpath d='M36 188h12M42 182v12'/%3E%3Cpath d='M92 180c8-10 22-10 30 0-8 10-22 10-30 0z'/%3E%3Cpath d='M140 180l12 12 18-18'/%3E%3Cpath d='M178 184c6-8 16-8 22 0'/%3E%3C/g%3E%3C/svg%3E")`,
-                  backgroundPosition: "center",
-                  backgroundSize: "220px 220px",
-                }}
+                className="chat-messages-scroll h-full overflow-y-auto overscroll-contain bg-transparent px-2.5 py-2.5 pb-3 [-webkit-overflow-scrolling:touch] md:px-5 md:py-5 md:pb-5"
               >
                 <div
                   className={`flex min-h-full flex-col transition-opacity duration-150 ease-out ${
@@ -2785,6 +2798,14 @@ export function SharedInbox({
   const selectedConversationScrollKey = renderedConversation
     ? `${renderedConversation.id}:${renderedMessages.length}:${renderedMessages.at(-1)?.id ?? ""}`
     : "empty";
+  const selectedConversationMessageCount = useMemo(() => {
+    if (selectedConversationScrollKey === "empty") {
+      return 0;
+    }
+
+    const count = Number(selectedConversationScrollKey.split(":")[1]);
+    return Number.isFinite(count) ? count : 0;
+  }, [selectedConversationScrollKey]);
   const hasSidebar = sidebarItems.length > 0;
 
   useEffect(() => {
@@ -2949,7 +2970,7 @@ export function SharedInbox({
       return;
     }
 
-    if (!hasSettledConversation || !renderedConversation || renderedMessages.length <= 1) {
+    if (!hasSettledConversation || selectedConversationMessageCount <= 1) {
       return;
     }
 
@@ -2974,9 +2995,8 @@ export function SharedInbox({
   }, [
     hasSettledConversation,
     messageScrollBehavior,
-    renderedConversation,
-    renderedMessages.length,
     selectedConversationId,
+    selectedConversationMessageCount,
   ]);
 
   useEffect(() => {
@@ -2984,7 +3004,7 @@ export function SharedInbox({
       return;
     }
 
-    if (!hasSettledConversation || !renderedConversation || renderedMessages.length <= 1) {
+    if (!hasSettledConversation || selectedConversationMessageCount <= 1) {
       return;
     }
 
@@ -3017,9 +3037,8 @@ export function SharedInbox({
   }, [
     hasSettledConversation,
     messageScrollBehavior,
-    renderedConversation,
-    renderedMessages.length,
     selectedConversationId,
+    selectedConversationMessageCount,
   ]);
 
   const scrollToBottom = useCallback(() => {
