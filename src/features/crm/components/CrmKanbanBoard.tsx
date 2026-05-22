@@ -22,29 +22,20 @@ function getTagStyle(color?: string | null) {
 }
 
 function KanbanCard({ record }: { record: CrmRecord }) {
-  const meta = getCrmStageMeta(record.status);
-
   return (
-    <Card className="rounded-[20px] border border-[var(--line)] p-4 shadow-[0_14px_30px_-24px_rgba(15,23,42,0.14)] transition hover:-translate-y-0.5 hover:shadow-[0_18px_34px_-26px_rgba(15,23,42,0.16)]">
-      <div className="space-y-3">
+  <Card className="rounded-[8px] border border-[var(--line)] p-1.5 shadow-[0_14px_30px_-24px_rgba(15,23,42,0.14)] transition hover:-translate-y-0.5 hover:shadow-[0_18px_34px_-26px_rgba(15,23,42,0.16)]">
+      <div className="space-y-1">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-slate-950">{record.name}</p>
-            <p className="text-xs text-slate-500">{record.number}</p>
+            <p className="truncate text-[13px] font-semibold leading-4 text-slate-950">{record.name}</p>
           </div>
-          <Badge
-            variant="outline"
-            className={`h-auto rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${meta.borderClassName} ${meta.backgroundClassName} ${meta.accentClassName}`}
-          >
-            {meta.label}
-          </Badge>
         </div>
 
         <div className="flex flex-wrap gap-1.5">
           {record.tags.map((tag) => (
             <span
               key={`${record.id}:${tag.label}`}
-              className="inline-flex max-w-full items-center rounded-full px-2.5 py-0.75 text-[10px] font-semibold uppercase tracking-[0.08em] text-white shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
+              className="inline-flex max-w-full items-center rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-white shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
               style={getTagStyle(tag.color)}
             >
               {tag.label}
@@ -52,11 +43,8 @@ function KanbanCard({ record }: { record: CrmRecord }) {
           ))}
         </div>
 
-        <p className="line-clamp-3 text-sm leading-6 text-slate-600">{record.detail}</p>
-
-        <div className="flex items-center justify-between gap-2 pt-1">
+        <div className="flex items-center justify-between gap-2 pt-0">
           <span className="text-xs text-slate-500">{formatCrmDate(record.date)}</span>
-          <span className="text-xs font-medium text-slate-500">Actualizado</span>
         </div>
       </div>
     </Card>
@@ -73,26 +61,25 @@ export function CrmKanbanBoard({ columns }: { columns: CrmColumn[] }) {
           return (
             <section
               key={column.stage}
-              className={`rounded-[24px] border ${meta.borderClassName} ${meta.backgroundClassName} p-4`}
+              className={`rounded-[12px] border ${meta.borderClassName} ${meta.backgroundClassName} p-2`}
             >
               <div className="flex items-center justify-between gap-2">
                 <div>
                   <h3 className="text-sm font-semibold text-slate-950">{column.title}</h3>
-                  <p className="text-xs text-slate-500">{column.records.length} oportunidades</p>
                 </div>
                 <Badge
                   variant="outline"
-                  className={`h-auto rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${meta.borderClassName} bg-white ${meta.accentClassName}`}
+                  className={`h-auto rounded-full border px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] ${meta.borderClassName} bg-white ${meta.accentClassName}`}
                 >
                   {column.records.length}
                 </Badge>
               </div>
 
-              <div className="mt-4 space-y-3">
+              <div className="mt-2 space-y-2">
                 {column.records.length > 0 ? (
                   column.records.map((record) => <KanbanCard key={record.id} record={record} />)
                 ) : (
-                  <div className="rounded-[20px] border border-dashed border-slate-200 bg-white/70 px-4 py-8 text-center text-sm text-slate-500">
+                <div className="rounded-[12px] border border-dashed border-slate-200 bg-white/70 px-4 py-8 text-center text-sm text-slate-500">
                     Sin registros en esta columna.
                   </div>
                 )}

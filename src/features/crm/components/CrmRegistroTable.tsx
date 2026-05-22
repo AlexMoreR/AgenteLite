@@ -543,7 +543,7 @@ export function CrmRegistroTable({
                         <SelectTrigger
                           size="sm"
                           aria-label={`Cambiar estado de ${record.name}`}
-                          className={`h-8 min-w-28 rounded-sm border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] ${meta.borderClassName} ${meta.backgroundClassName} ${meta.accentClassName}`}
+                          className={`h-8 min-w-28 rounded-sm border px-2.5 py-1 text-[10px] font-semibold tracking-[0.08em] ${meta.borderClassName} ${meta.backgroundClassName} ${meta.accentClassName}`}
                         >
                           <SelectValue placeholder={meta.label} />
                         </SelectTrigger>

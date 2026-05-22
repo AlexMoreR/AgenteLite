@@ -63,7 +63,7 @@ export function CrmWorkspace({ data }: { data: CrmData }) {
         <MetricCard label="Total" value={String(data.stats.total)} icon={<Users2 className="h-5 w-5" />} />
         <MetricCard label="En proceso" value={String(activeRecords)} icon={<TrendingUp className="h-5 w-5" />} />
         <MetricCard label="Ganados" value={String(wonRecords)} icon={<CheckCircle2 className="h-5 w-5" />} />
-        <MetricCard label="Perdidos" value={String(lostRecords)} icon={<CircleSlash2 className="h-5 w-5" />} />
+        <MetricCard label="Descartados" value={String(lostRecords)} icon={<CircleSlash2 className="h-5 w-5" />} />
       </div>
 
       <Tabs defaultValue="registro" className="space-y-2">
