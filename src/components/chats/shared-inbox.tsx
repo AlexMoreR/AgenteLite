@@ -1496,18 +1496,16 @@ const MessageBubble = memo(function MessageBubble({
 const MESSAGE_VIRTUALIZATION_THRESHOLD = 28;
 const MESSAGE_VIRTUALIZATION_OVERSCAN_PX = 720;
 const messageBubbleHeightCache = new WeakMap<SharedInboxMessageItem, number>();
-const CHAT_MESSAGES_BACKGROUND_STYLE = {
-  backgroundColor: "#f3f4f6",
-  WebkitMaskImage: 'url("https://static.whatsapp.net/rsrc.php/yx/r/voSdkk88H7C.svg")',
-  maskImage: 'url("https://static.whatsapp.net/rsrc.php/yx/r/voSdkk88H7C.svg")',
-  WebkitMaskRepeat: "repeat",
-  maskRepeat: "repeat",
-  WebkitMaskMode: "alpha",
-  maskMode: "alpha",
-  WebkitMaskSize: "540px 960px",
-  maskSize: "540px 960px",
-  WebkitMaskPosition: "0 0",
-  maskPosition: "0 0",
+const CHAT_MESSAGES_BACKGROUND_BASE_STYLE = {
+  backgroundColor: "#eae0d3",
+} as const;
+
+const CHAT_MESSAGES_BACKGROUND_OVERLAY_STYLE = {
+  backgroundImage: 'url("https://static.whatsapp.net/rsrc.php/yx/r/voSdkk88H7C.svg")',
+  backgroundRepeat: "repeat",
+  backgroundSize: "540px 960px",
+  backgroundPosition: "0 0",
+  opacity: 0.08,
 } as const;
 
 function estimateMessageBubbleHeight(message: SharedInboxMessageItem) {
@@ -1693,7 +1691,8 @@ const ConversationPanel = memo(function ConversationPanel({
     <Card
       className={`${selectedConversationId ? "flex md:flex" : "!hidden md:flex"} chat-inbox-panel relative min-h-0 flex-1 overflow-hidden rounded-none border border-[rgba(148,163,184,0.14)] bg-transparent p-0 shadow-none md:h-full md:shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)]`}
     >
-      <div aria-hidden="true" className="pointer-events-none absolute inset-0" style={CHAT_MESSAGES_BACKGROUND_STYLE} />
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0" style={CHAT_MESSAGES_BACKGROUND_BASE_STYLE} />
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0" style={CHAT_MESSAGES_BACKGROUND_OVERLAY_STYLE} />
       {renderedConversation ? (
         <div className="relative z-10 flex min-h-0 h-full w-full flex-1 flex-col">
           <div className="shrink-0 border-b border-[rgba(148,163,184,0.12)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcff_100%)] px-3 pb-2.5 pt-[calc(env(safe-area-inset-top)+0.625rem)] md:px-[10px] md:py-[10px]">
