@@ -25,6 +25,7 @@ type ChatsRealtimeSyncProps = {
 
 type RefreshPriority = "active" | "background";
 
+const CHAT_REALTIME_DEBUG = process.env.NODE_ENV !== "production";
 const ACTIVE_REFRESH_DELAY_MS = 180;
 const BACKGROUND_REFRESH_DELAY_MS = 1200;
 const ACTIVE_REFRESH_MIN_GAP_MS = 350;
@@ -66,6 +67,14 @@ function shouldTriggerRefresh(eventName: string) {
   }
 
   return /MESSAGE|CHAT|CALL|CONTACT|PRESENCE|GROUP|INSTANCE|QRCODE|CONNECTION|STATUS|SESSION|READY/.test(normalized);
+}
+
+function debugRealtimeSync(...args: unknown[]) {
+  if (!CHAT_REALTIME_DEBUG) {
+    return;
+  }
+
+  console.log("[ChatsRealtimeSync]", ...args);
 }
 
 type UnknownRecord = Record<string, unknown>;
@@ -306,6 +315,7 @@ export function ChatsRealtimeSync({
     async function runLiveUpdate() {
       const normalizedChatKey = getEffectiveSelectedConversationKey()?.trim() || "";
       if (!normalizedChatKey.startsWith("agent:")) {
+        debugRealtimeSync("skip live update", { normalizedChatKey });
         return false;
       }
 
@@ -338,6 +348,12 @@ export function ChatsRealtimeSync({
         if (!conversation) {
           return false;
         }
+        debugRealtimeSync("live update applied", {
+          chatKey: normalizedChatKey,
+          messageCount: Array.isArray((conversation as { messages?: unknown[] }).messages)
+            ? (conversation as { messages?: unknown[] }).messages?.length ?? null
+            : null,
+        });
         lastLiveUpdateAtRef.current = Date.now();
         window.dispatchEvent(
           new CustomEvent("chat-live-update", {
@@ -370,6 +386,10 @@ export function ChatsRealtimeSync({
     }) {
       const phoneNumber = extractPhoneNumberFromPayload(input.payload);
       if (!phoneNumber && !input.chatKey) {
+        debugRealtimeSync("skip list update without key", {
+          instanceName: input.instanceName,
+          priority: input.priority,
+        });
         return false;
       }
 
@@ -388,6 +408,15 @@ export function ChatsRealtimeSync({
       const summaryUrl = input.chatKey
         ? `/api/cliente/chats/summary?chatKey=${encodeURIComponent(input.chatKey)}`
         : `/api/cliente/chats/summary?instanceName=${encodeURIComponent(input.instanceName)}&phoneNumber=${encodeURIComponent(phoneNumber!)}`;
+
+      debugRealtimeSync("run list update", {
+        updateKey: input.updateKey,
+        priority: input.priority,
+        instanceName: input.instanceName,
+        chatKey: input.chatKey ?? null,
+        phoneNumber,
+        summaryUrl,
+      });
 
       try {
         const response = await fetch(summaryUrl, {
@@ -411,6 +440,11 @@ export function ChatsRealtimeSync({
         if (!conversation) {
           return false;
         }
+        debugRealtimeSync("list update applied", {
+          updateKey: input.updateKey,
+          conversationId: conversation.id,
+          lastMessageAt: conversation.lastMessageAt?.toISOString?.() ?? null,
+        });
         window.dispatchEvent(
           new CustomEvent("chat-list-update", {
             detail: {
@@ -464,24 +498,14 @@ export function ChatsRealtimeSync({
       }, Math.max(0, targetAt - now));
     };
 
-    const clearListTimersForKey = (updateKey: string) => {
-      const timer = listUpdateTimerRefs.current.get(updateKey);
-      if (timer !== undefined) {
-        window.clearTimeout(timer);
-        listUpdateTimerRefs.current.delete(updateKey);
-      }
-
-      const followUpTimer = listUpdateFollowUpTimerRefs.current.get(updateKey);
-      if (followUpTimer !== undefined) {
-        window.clearTimeout(followUpTimer);
-        listUpdateFollowUpTimerRefs.current.delete(updateKey);
-      }
-    };
-
     const scheduleListUpdate = (priority: RefreshPriority, instanceName: string, payload: unknown, chatKey?: string) => {
       const phoneNumber = extractPhoneNumberFromPayload(payload);
       const updateKey = chatKey?.trim() || (phoneNumber ? `${instanceName}:${phoneNumber}` : "");
       if (!updateKey) {
+        debugRealtimeSync("skip schedule list update without key", {
+          priority,
+          instanceName,
+        });
         return;
       }
 
@@ -491,9 +515,36 @@ export function ChatsRealtimeSync({
       const earliestAllowedAt = (lastListUpdateAtByKeyRef.current.get(updateKey) ?? 0) + minGap;
       const targetAt = Math.max(now + preferredDelay, earliestAllowedAt);
 
-      clearListTimersForKey(updateKey);
+      const existingTimer = listUpdateTimerRefs.current.get(updateKey);
+      const existingFollowUpTimer = listUpdateFollowUpTimerRefs.current.get(updateKey);
 
+      if (existingTimer !== undefined || existingFollowUpTimer !== undefined || listUpdateInFlightKeysRef.current.has(updateKey)) {
+        debugRealtimeSync("queue list update payload", {
+          updateKey,
+          priority,
+          instanceName,
+          chatKey: chatKey ?? null,
+          phoneNumber,
+        });
+        listUpdatePendingByKeyRef.current.set(updateKey, {
+          priority,
+          instanceName,
+          payload,
+          chatKey,
+        });
+        return;
+      }
+
+      debugRealtimeSync("schedule list update", {
+        updateKey,
+        priority,
+        instanceName,
+        chatKey: chatKey ?? null,
+        phoneNumber,
+        targetAt,
+      });
       const primaryTimer = window.setTimeout(() => {
+        listUpdateTimerRefs.current.delete(updateKey);
         void runListUpdate({ priority, instanceName, payload, chatKey, updateKey }).then((success) => {
           if (success) {
             lastListUpdateAtByKeyRef.current.set(updateKey, Date.now());
@@ -504,9 +555,11 @@ export function ChatsRealtimeSync({
           const existingFollowUpTimer = listUpdateFollowUpTimerRefs.current.get(updateKey);
           if (existingFollowUpTimer !== undefined) {
             window.clearTimeout(existingFollowUpTimer);
+            listUpdateFollowUpTimerRefs.current.delete(updateKey);
           }
 
           const followUpTimer = window.setTimeout(() => {
+            listUpdateFollowUpTimerRefs.current.delete(updateKey);
             void runListUpdate({ priority: "background", instanceName, payload, chatKey, updateKey }).then((retrySuccess) => {
               if (retrySuccess) {
                 lastListUpdateAtByKeyRef.current.set(updateKey, Date.now());
@@ -555,6 +608,8 @@ export function ChatsRealtimeSync({
           // sin necesidad de recrear los sockets cuando el usuario cambia de chat.
           const normalizedActiveInstanceName = activeInstanceNameRef.current?.trim() || "";
           const payload = pickSocketPayload(args);
+          const payloadRemoteJid = extractEvolutionRemoteJid(payload);
+          const payloadPhoneNumber = extractEvolutionPhoneNumber(payload);
           const isEditedOrDeletedPayload =
             hasEvolutionEditedMessagePayload(payload) || hasEvolutionDeletedMessagePayload(payload);
           const phoneNumber = extractPhoneNumberFromPayload(payload);
@@ -568,6 +623,20 @@ export function ChatsRealtimeSync({
             Boolean(phoneNumber) &&
             Boolean(normalizedSelectedPhoneNumber) &&
             phoneNumber === normalizedSelectedPhoneNumber;
+
+          debugRealtimeSync("socket event", {
+            eventName: normalizedEventName,
+            instanceName,
+            currentConversationKey,
+            selectedPhoneNumber: normalizedSelectedPhoneNumber || null,
+            phoneNumber,
+            payloadRemoteJid,
+            payloadPhoneNumber,
+            hasActiveAgentConversation,
+            isSelectedAgentConversation,
+            isOfficialConversationSelected,
+            isEditedOrDeletedPayload,
+          });
 
           if (hasActiveAgentConversation) {
             scheduleLiveUpdate("active");
