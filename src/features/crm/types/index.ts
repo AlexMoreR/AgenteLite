@@ -6,6 +6,8 @@ export type CrmStage =
   | "GANADO"
   | "PERDIDO";
 
+export type CrmOrigin = "FACEBOOK" | "MARKETPLACE" | "RECOMENDADO" | "GENERICO";
+
 export type CrmTag = {
   label: string;
   color: string;
@@ -16,6 +18,7 @@ export type CrmRecord = {
   number: string;
   name: string;
   date: string;
+  origin: CrmOrigin;
   tags: CrmTag[];
   detail: string;
   status: CrmStage;
@@ -24,6 +27,14 @@ export type CrmRecord = {
 
 export type CrmStageMeta = {
   value: CrmStage;
+  label: string;
+  accentClassName: string;
+  borderClassName: string;
+  backgroundClassName: string;
+};
+
+export type CrmOriginMeta = {
+  value: CrmOrigin;
   label: string;
   accentClassName: string;
   borderClassName: string;

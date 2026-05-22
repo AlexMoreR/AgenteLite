@@ -1,4 +1,4 @@
-import type { CrmRecord, CrmStage, CrmStageMeta } from "../types";
+import type { CrmOrigin, CrmOriginMeta, CrmRecord, CrmStage, CrmStageMeta } from "../types";
 
 export const CRM_STAGE_ORDER: CrmStage[] = [
   "NUEVO",
@@ -54,12 +54,51 @@ export const CRM_STAGE_META: Record<CrmStage, CrmStageMeta> = {
   },
 };
 
+export const CRM_ORIGIN_META: Record<CrmOrigin, CrmOriginMeta> = {
+  FACEBOOK: {
+    value: "FACEBOOK",
+    label: "Facebook Ads",
+    accentClassName: "text-blue-700",
+    borderClassName: "border-blue-200",
+    backgroundClassName: "bg-blue-50",
+  },
+  MARKETPLACE: {
+    value: "MARKETPLACE",
+    label: "Marketplace",
+    accentClassName: "text-emerald-700",
+    borderClassName: "border-emerald-200",
+    backgroundClassName: "bg-emerald-50",
+  },
+  RECOMENDADO: {
+    value: "RECOMENDADO",
+    label: "Recomendado",
+    accentClassName: "text-amber-700",
+    borderClassName: "border-amber-200",
+    backgroundClassName: "bg-amber-50",
+  },
+  GENERICO: {
+    value: "GENERICO",
+    label: "Generico",
+    accentClassName: "text-slate-700",
+    borderClassName: "border-slate-200",
+    backgroundClassName: "bg-slate-50",
+  },
+};
+
 export function getCrmStageLabel(stage: CrmStage) {
   return CRM_STAGE_META[stage].label;
 }
 
 export function getCrmStageMeta(stage: CrmStage) {
   return CRM_STAGE_META[stage];
+}
+
+export function getCrmOriginLabel(origin: CrmOrigin) {
+  return CRM_ORIGIN_META[origin].label;
+}
+
+export function getCrmOriginMeta(origin: CrmOrigin) {
+  return CRM_ORIGIN_META[origin];
 }
 
 export function groupCrmRecordsByStage(records: CrmRecord[]) {

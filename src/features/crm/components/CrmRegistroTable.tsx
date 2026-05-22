@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import * as React from "react";
-import { ArrowDown, ArrowUp, ArrowUpDown, CalendarDays, ChartNoAxesCombined, Copy, Eye, FileText, Hash, MoreHorizontal, Search, Tag, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, CalendarDays, ChartNoAxesCombined, Copy, Eye, FileText, Globe2, Hash, MoreHorizontal, Search, Tag, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { updateCrmStageAction } from "@/app/actions/crm-actions";
-import { CRM_STAGE_ORDER, getCrmStageMeta, getCrmStageLabel } from "../domain/crm-config";
+import { CRM_STAGE_ORDER, getCrmOriginLabel, getCrmOriginMeta, getCrmStageMeta, getCrmStageLabel } from "../domain/crm-config";
 import type { CrmRecord, CrmStage } from "../types";
 
 type SortKey = "numero" | "nombre" | "fecha" | "estado";
@@ -97,6 +97,10 @@ function getRecordStateLabel(record: CrmRecord) {
   return getCrmStageLabel(record.status);
 }
 
+function getRecordOriginLabel(record: CrmRecord) {
+  return getCrmOriginLabel(record.origin);
+}
+
 function getTagStyle(color?: string | null) {
   const normalized = color?.trim();
 
@@ -152,6 +156,7 @@ export function CrmRegistroTable({
       const haystack = [
         record.number,
         record.name,
+        getRecordOriginLabel(record),
         record.detail,
         getRecordStateLabel(record),
         ...record.tags.map((tag) => tag.label),
@@ -257,11 +262,12 @@ export function CrmRegistroTable({
 
   const exportCsv = () => {
     const lines = [
-      ["Numero", "Nombre", "Fecha", "Etiquetas", "Detalle", "Estado"].join(","),
+      ["Numero", "Nombre", "Origen", "Fecha", "Etiquetas", "Detalle", "Estado"].join(","),
       ...sortedRecords.map((record) =>
         [
           record.number,
           record.name,
+          getRecordOriginLabel(record),
           formatCrmDate(record.date),
           record.tags.map((tag) => tag.label).join(" | "),
           record.detail,
@@ -292,7 +298,7 @@ export function CrmRegistroTable({
           <Input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Buscar por numero, nombre, detalle o etiqueta"
+            placeholder="Buscar por numero, nombre, origen, detalle o etiqueta"
             className="h-9 pr-9 pl-9 text-sm"
           />
           {query ? (
@@ -361,16 +367,25 @@ export function CrmRegistroTable({
             No hay registros para el filtro actual.
           </div>
         ) : (
-          pagedRecords.map((record) => {
-            const meta = getCrmStageMeta(record.status);
+              pagedRecords.map((record) => {
+                const meta = getCrmStageMeta(record.status);
+                const originMeta = getCrmOriginMeta(record.origin);
 
-            return (
-              <article key={record.id} className="rounded-xl border border-[var(--line)] bg-white p-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="truncate text-[13px] font-semibold text-slate-900">{record.name}</p>
-                    <p className="mt-0.5 text-[13px] text-slate-500">{record.number}</p>
-                  </div>
+                return (
+                  <article key={record.id} className="rounded-xl border border-[var(--line)] bg-white p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-[13px] font-semibold text-slate-900">{record.name}</p>
+                        <p className="mt-0.5 text-[13px] text-slate-500">{record.number}</p>
+                        <div className="mt-1">
+                          <Badge
+                            variant="outline"
+                            className={`h-auto rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${originMeta.borderClassName} ${originMeta.backgroundClassName} ${originMeta.accentClassName}`}
+                          >
+                            {originMeta.label}
+                          </Badge>
+                        </div>
+                      </div>
                   <Badge
                     variant="outline"
                     className={`h-auto rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${meta.borderClassName} ${meta.backgroundClassName} ${meta.accentClassName}`}
@@ -424,7 +439,7 @@ export function CrmRegistroTable({
       </div>
 
       <div className="hidden overflow-hidden rounded-xl border border-[var(--line)] bg-white md:block">
-        <Table className="min-w-[1120px]">
+              <Table className="min-w-[1280px]">
           <TableHeader>
             <TableRow className="bg-slate-50/70 hover:bg-slate-50/70">
               <TableHead className="px-2 py-1 normal-case tracking-normal">
@@ -459,6 +474,12 @@ export function CrmRegistroTable({
               </TableHead>
               <TableHead className="px-2 py-1 normal-case tracking-normal">
                 <span className="inline-flex items-center gap-2 text-[13px] font-normal text-slate-600">
+                  <Globe2 className="h-3.5 w-3.5 text-slate-500" />
+                  Origen
+                </span>
+              </TableHead>
+              <TableHead className="px-2 py-1 normal-case tracking-normal">
+                <span className="inline-flex items-center gap-2 text-[13px] font-normal text-slate-600">
                   <Tag className="h-3.5 w-3.5 text-slate-500" />
                   Etiquetas
                 </span>
@@ -485,13 +506,14 @@ export function CrmRegistroTable({
           <TableBody>
             {pagedRecords.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="px-1.5 py-0.5 text-center text-slate-500">
+                <TableCell colSpan={8} className="px-1.5 py-0.5 text-center text-slate-500">
                   No hay registros para el filtro actual.
                 </TableCell>
               </TableRow>
             ) : (
               pagedRecords.map((record) => {
                 const meta = getCrmStageMeta(record.status);
+                const originMeta = getCrmOriginMeta(record.origin);
 
                 return (
                   <TableRow key={record.id}>
@@ -510,6 +532,14 @@ export function CrmRegistroTable({
                     </TableCell>
                     <TableCell className="px-1.5 py-0.5 text-[13px] font-medium text-slate-900">{record.number}</TableCell>
                     <TableCell className="px-1.5 py-0.5 text-[13px] text-slate-700">{record.name}</TableCell>
+                    <TableCell className="px-1.5 py-0.5">
+                      <Badge
+                        variant="outline"
+                        className={`h-auto rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${originMeta.borderClassName} ${originMeta.backgroundClassName} ${originMeta.accentClassName}`}
+                      >
+                        {originMeta.label}
+                      </Badge>
+                    </TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1.5">
                         {record.tags.map((tag) => (

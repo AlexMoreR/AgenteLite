@@ -24,7 +24,10 @@ function getContactLastActivity(contact: {
 function getContactDetail(contact: {
   notes: string | null;
   conversations: Array<{
-    messages: Array<{ content: string | null }>;
+    messages: Array<{
+      content: string | null;
+      rawPayload: Prisma.JsonValue | null;
+    }>;
   }>;
 }) {
   const note = contact.notes?.trim();
@@ -38,6 +41,92 @@ function getContactDetail(contact: {
   }
 
   return "Sin detalle registrado";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function readString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function normalizeOriginLabel(value: string): CrmRecord["origin"] {
+  const normalized = value.trim().toLowerCase();
+
+  if (/(marketplace|market place|market-place)/i.test(normalized)) {
+    return "MARKETPLACE";
+  }
+
+  if (/(recomendad|referid|referenc|sugerid)/i.test(normalized)) {
+    return "RECOMENDADO";
+  }
+
+  if (/(facebook|meta ads|meta|ads)/i.test(normalized)) {
+    return "FACEBOOK";
+  }
+
+  return "GENERICO";
+}
+
+function getContactOrigin(metadata: unknown, rawPayload: Prisma.JsonValue | null | undefined): CrmRecord["origin"] {
+  if (isRecord(metadata)) {
+    const explicitOrigin =
+      readString(metadata.crmOrigin) ||
+      readString(metadata.origin) ||
+      readString(metadata.leadOrigin) ||
+      readString(metadata.source) ||
+      readString(metadata.sourceType) ||
+      readString(metadata.campaign) ||
+      readString(metadata.campaignSource) ||
+      readString(metadata.marketingSource) ||
+      readString(metadata.sourceApp);
+
+    if (explicitOrigin) {
+      return normalizeOriginLabel(explicitOrigin);
+    }
+  }
+
+  if (!isRecord(rawPayload)) {
+    return "GENERICO";
+  }
+
+  const evolutionRoot = isRecord(rawPayload.evolution) ? rawPayload.evolution : rawPayload;
+  const dataRoot = isRecord(evolutionRoot.data) ? evolutionRoot.data : evolutionRoot;
+  const contextInfo = isRecord(dataRoot.contextInfo) ? dataRoot.contextInfo : null;
+  const externalAdReply = contextInfo && isRecord(contextInfo.externalAdReply) ? contextInfo.externalAdReply : null;
+
+  if (!externalAdReply) {
+    return "GENERICO";
+  }
+
+  const combinedText = [
+    readString(externalAdReply.sourceApp),
+    readString(externalAdReply.sourceUrl),
+    readString(externalAdReply.title),
+    readString(externalAdReply.body),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  if (!combinedText) {
+    return "GENERICO";
+  }
+
+  if (combinedText.includes("marketplace")) {
+    return "MARKETPLACE";
+  }
+
+  if (combinedText.includes("recomend") || combinedText.includes("referid") || combinedText.includes("referenc")) {
+    return "RECOMENDADO";
+  }
+
+  if (combinedText.includes("facebook") || combinedText.includes("meta")) {
+    return "FACEBOOK";
+  }
+
+  return "GENERICO";
 }
 
 function getContactCollapsedState(metadata: unknown) {
@@ -101,6 +190,7 @@ export async function getCrmData({ userId }: GetCrmDataInput): Promise<CrmData |
             take: 1,
             select: {
               content: true,
+              rawPayload: true,
             },
           },
         },
@@ -131,6 +221,7 @@ export async function getCrmData({ userId }: GetCrmDataInput): Promise<CrmData |
     detail: getContactDetail(contact),
     status: (crmStageByContactId.get(contact.id) as CrmRecord["status"]) ?? "NUEVO",
     isCollapsed: getContactCollapsedState(contact.metadata),
+    origin: getContactOrigin(contact.metadata, contact.conversations[0]?.messages[0]?.rawPayload),
   }));
 
   const sortedRecords = sortCrmRecords(records);
