@@ -40,6 +40,15 @@ function getContactDetail(contact: {
   return "Sin detalle registrado";
 }
 
+function getContactCollapsedState(metadata: unknown) {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return false;
+  }
+
+  const value = (metadata as { crmKanbanCollapsed?: unknown }).crmKanbanCollapsed;
+  return value === true;
+}
+
 export async function getCrmData({ userId }: GetCrmDataInput): Promise<CrmData | null> {
   const membership = await prisma.workspaceMember.findFirst({
     where: { userId },
@@ -68,6 +77,7 @@ export async function getCrmData({ userId }: GetCrmDataInput): Promise<CrmData |
       name: true,
       phoneNumber: true,
       notes: true,
+      metadata: true,
       createdAt: true,
       updatedAt: true,
       ContactTag: {
@@ -120,6 +130,7 @@ export async function getCrmData({ userId }: GetCrmDataInput): Promise<CrmData |
     tags: getContactTags(contact.ContactTag.map((item) => item.Tag)),
     detail: getContactDetail(contact),
     status: (crmStageByContactId.get(contact.id) as CrmRecord["status"]) ?? "NUEVO",
+    isCollapsed: getContactCollapsedState(contact.metadata),
   }));
 
   const sortedRecords = sortCrmRecords(records);

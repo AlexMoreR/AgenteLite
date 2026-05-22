@@ -19,6 +19,7 @@ export type CrmRecord = {
   tags: CrmTag[];
   detail: string;
   status: CrmStage;
+  isCollapsed: boolean;
 };
 
 export type CrmStageMeta = {
