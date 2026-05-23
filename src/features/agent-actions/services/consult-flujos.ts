@@ -206,6 +206,7 @@ export async function consultFlowsByWorkspace(input: {
   query: string;
   limit?: number;
   allowedFlowIds?: string[];
+  enabledChildFlowIds?: Iterable<string> | string[];
 }): Promise<ConsultFlowResult> {
   const flowItems = await getCreatedFlowItems({
     workspaceId: input.workspaceId,
@@ -213,6 +214,9 @@ export async function consultFlowsByWorkspace(input: {
   });
 
   const allowedFlowIds = input.allowedFlowIds?.filter(Boolean);
+  const enabledChildFlowIds = new Set(
+    input.enabledChildFlowIds ? Array.from(input.enabledChildFlowIds).filter(Boolean) : [],
+  );
   const candidateFlows =
     allowedFlowIds && allowedFlowIds.length > 0
       ? flowItems.filter((flow) => allowedFlowIds.includes(flow.id))
@@ -224,7 +228,7 @@ export async function consultFlowsByWorkspace(input: {
   const matches = candidateFlows
     .map((flow) => {
       const consultFlow = toConsultFlowItem(flow);
-      if (consultFlow.isChildFlow) {
+      if (consultFlow.isChildFlow && !enabledChildFlowIds.has(consultFlow.id)) {
         return null;
       }
       const scored = scoreFlow(query, consultFlow);

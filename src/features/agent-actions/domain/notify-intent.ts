@@ -60,6 +60,43 @@ function normalizeText(value: string) {
     .trim();
 }
 
+function stripUrls(value: string) {
+  return value.replace(/https?:\/\/\S+/gi, " ");
+}
+
+function looksLikeMarketplaceLinkMessage(messageText: string) {
+  const normalized = normalizeText(messageText);
+  return (
+    normalized.includes("facebook marketplace") ||
+    normalized.includes("marketplace item") ||
+    normalized.includes("marketplace/item") ||
+    normalized.includes("fb com marketplace") ||
+    normalized.includes("facebook com marketplace")
+  );
+}
+
+function hasOnlyLightContextAfterUrlRemoval(messageText: string) {
+  const withoutUrls = normalizeText(stripUrls(messageText));
+  if (!withoutUrls) {
+    return true;
+  }
+
+  const tokens = withoutUrls.split(" ").filter((token) => token.length >= 3);
+  return tokens.length <= 4;
+}
+
+function shouldSkipUnknownProductNotifyForLink(messageText: string) {
+  if (!/https?:\/\//i.test(messageText)) {
+    return false;
+  }
+
+  if (looksLikeMarketplaceLinkMessage(messageText)) {
+    return true;
+  }
+
+  return hasOnlyLightContextAfterUrlRemoval(messageText);
+}
+
 function hasRecentFollowUpHint(history: ConversationLine[]) {
   const recentOutbound = [...history]
     .reverse()
@@ -101,6 +138,10 @@ export function detectNotifyHumanIntent(input: {
 export function detectUnknownProductIntent(latestUserMessage: string | null | undefined) {
   const latestText = latestUserMessage?.trim() || "";
   if (!latestText) {
+    return false;
+  }
+
+  if (shouldSkipUnknownProductNotifyForLink(latestText)) {
     return false;
   }
 

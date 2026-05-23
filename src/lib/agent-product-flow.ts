@@ -473,6 +473,7 @@ export async function resolveAgentProductFlowReply(input: {
   history?: ConversationLine[];
   includeOfficialApi: boolean;
   commercialContext?: CommercialConversationContext | null;
+  activeProductContext?: ActiveProductContext | null;
 }): Promise<ProductFlowResolution | null> {
   const latestText = input.latestUserMessage?.trim() || "";
   if (!latestText) {
@@ -536,6 +537,11 @@ export async function resolveAgentProductFlowReply(input: {
   const selectedFlowIds = new Set(training.knowledgeFlowIds);
   const selectedFlows = flowTargets.filter((flow) => selectedFlowIds.has(flow.id));
   const flowCandidates = selectedFlows.length > 0 ? selectedFlows : flowTargets;
+  const enabledChildFlowIds = new Set(
+    input.activeProductContext?.followUpFlowId?.trim()
+      ? [input.activeProductContext.followUpFlowId.trim()]
+      : [],
+  );
   const matchedProducts = await consultProductsByAgent({
     agentId: input.agentId,
     query: latestText,
@@ -543,6 +549,27 @@ export async function resolveAgentProductFlowReply(input: {
   });
   const matchedProduct = matchedProducts.bestMatch;
   const candidateFlowIds = new Set(flowCandidates.map((flow) => flow.id));
+  const availableFlowCandidates = flowCandidates.filter(
+    (flow) => !flow.isChildFlow || enabledChildFlowIds.has(flow.id),
+  );
+
+  if (process.env.NODE_ENV !== "production") {
+    console.info("[agent-product-flow] resolution-context", {
+      agentId: input.agentId,
+      hasActiveProductContext: Boolean(input.activeProductContext),
+      activeProductFollowUpFlowId: input.activeProductContext?.followUpFlowId?.trim() || null,
+      enabledChildFlowIds,
+      matchedProduct: matchedProduct
+        ? {
+            productId: matchedProduct.productId,
+            name: matchedProduct.name,
+            followUpFlowId: matchedProduct.followUpFlowId,
+          }
+        : null,
+      availableFlowTitles: availableFlowCandidates.map((flow) => flow.title),
+    });
+  }
+
   const matchedFlows = flowCandidates.length > 0
     ? await consultFlowsByWorkspace({
         workspaceId: input.workspaceId,
@@ -550,12 +577,15 @@ export async function resolveAgentProductFlowReply(input: {
         query: latestText,
         limit: 3,
         allowedFlowIds: flowCandidates.map((flow) => flow.id),
+        enabledChildFlowIds,
       })
     : null;
 
   if (matchedProduct) {
     const instructions = matchedProduct.instructions?.trim() || "";
-    const explicitFollowUpFlowId = matchedProduct.followUpFlowId?.trim() || "";
+    const hasPriorSameProductContext =
+      input.activeProductContext?.productId === matchedProduct.productId &&
+      Boolean(input.activeProductContext?.followUpFlowId?.trim());
     const activeProductContext: ActiveProductContext = {
       productId: matchedProduct.productId,
       productName: matchedProduct.name,
@@ -568,25 +598,21 @@ export async function resolveAgentProductFlowReply(input: {
       followUpFlowId: matchedProduct.followUpFlowId ?? null,
     };
 
-    if (explicitFollowUpFlowId) {
-      const shouldExecuteFollowUp = isAffirmationMessage(normalizedLatestText);
-      if (shouldExecuteFollowUp && candidateFlowIds.has(explicitFollowUpFlowId)) {
-        const reply = await getFlowReply({
-          workspaceId: input.workspaceId,
-          flowId: explicitFollowUpFlowId,
-          includeOfficialApi: input.includeOfficialApi,
+    if (!hasPriorSameProductContext) {
+      if (process.env.NODE_ENV !== "production") {
+        console.info("[agent-product-flow] follow-up blocked", {
+          agentId: input.agentId,
+          productId: matchedProduct.productId,
+          productName: matchedProduct.name,
+          hasPriorSameProductContext,
+          priorActiveProductContext: input.activeProductContext
+            ? {
+                productId: input.activeProductContext.productId,
+                productName: input.activeProductContext.productName,
+                followUpFlowId: input.activeProductContext.followUpFlowId,
+              }
+            : null,
         });
-
-        if (reply) {
-          const referencedFlow = flowTargets.find((flow) => flow.id === explicitFollowUpFlowId);
-          return {
-            steps: reply.steps,
-            flowTitle: referencedFlow?.title ?? matchedProduct.name,
-            productName: matchedProduct.name,
-            aiFollowUpEnabled: reply.aiFollowUpEnabled,
-            activeProductContext,
-          };
-        }
       }
 
       return {
@@ -598,7 +624,7 @@ export async function resolveAgentProductFlowReply(input: {
       };
     }
 
-    const flowTitles = flowCandidates.map((flow) => flow.title);
+    const flowTitles = availableFlowCandidates.map((flow) => flow.title);
     const references = extractFlowReferences(instructions, flowTitles);
     const flowByNormalizedTitle = new Map(flowTargets.map((flow) => [normalizeText(flow.title), flow]));
     const referencedFlowIds = references
@@ -612,6 +638,15 @@ export async function resolveAgentProductFlowReply(input: {
       });
 
     if (referencedFlowIds.length > 0) {
+      if (process.env.NODE_ENV !== "production") {
+        console.info("[agent-product-flow] referenced-flow-hit", {
+          agentId: input.agentId,
+          productName: matchedProduct.name,
+          referencedFlowIds,
+          selectedFlowId: referencedFlowIds[0],
+        });
+      }
+
       const reply = await getFlowReply({
         workspaceId: input.workspaceId,
         flowId: referencedFlowIds[0],
@@ -648,6 +683,15 @@ export async function resolveAgentProductFlowReply(input: {
     });
 
     if (reply) {
+      if (process.env.NODE_ENV !== "production") {
+        console.info("[agent-product-flow] flow-hit", {
+          agentId: input.agentId,
+          flowTitle: bestFlow.title,
+          flowId: bestFlow.flowId,
+          sourceProduct: null,
+        });
+      }
+
       return {
         steps: reply.steps,
         flowTitle: bestFlow.title,
@@ -674,7 +718,7 @@ export function buildActiveProductContextNote(activeProductContext: ActiveProduc
     activeProductContext.description ? `Descripción: ${activeProductContext.description}` : null,
     activeProductContext.price ? `Precio: ${activeProductContext.price}` : null,
     activeProductContext.instructions ? `Instrucción: ${activeProductContext.instructions}` : null,
-    activeProductContext.followUpFlowId ? `Flujo hijo: ${activeProductContext.followUpFlowId}` : null,
+    activeProductContext.followUpFlowId ? `Flujo hijo habilitado: ${activeProductContext.followUpFlowId}` : null,
   ].filter(Boolean);
 
   return lines.length > 0 ? `CONTEXTO DEL PRODUCTO ACTIVO\n- ${lines.join("\n- ")}` : null;

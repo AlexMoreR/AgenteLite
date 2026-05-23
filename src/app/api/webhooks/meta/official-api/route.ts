@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
-import { resolveAgentProductFlowReply } from "@/lib/agent-product-flow";
+import { resolveAgentProductFlowReply, type ActiveProductContext } from "@/lib/agent-product-flow";
 import { composeAgentWelcomeReply } from "@/lib/agent-reply-composer";
 import { resolveOfficialApiAutomationReply } from "@/lib/official-api-chatbot";
 import {
@@ -462,7 +462,6 @@ async function syncInboundMessages(configId: string, payload: MetaWebhookPayload
     if (!conversation) {
       continue;
     }
-
     await prisma.$executeRaw`
       INSERT INTO "OfficialApiMessage" (
         "id",
@@ -658,6 +657,7 @@ export async function POST(request: Request) {
             latestUserMessage: message.content,
             history: recentMessages,
           });
+      const activeProductContext = conversation.activeProductContext as ActiveProductContext | null | undefined;
       const agentProductFlowResolution = shouldHandoffToHuman || !linkedAgentChannel?.agent?.id
         ? null
         : await resolveAgentProductFlowReply({
@@ -666,6 +666,7 @@ export async function POST(request: Request) {
             latestUserMessage: message.content,
             history: recentMessages,
             includeOfficialApi: true,
+            activeProductContext: activeProductContext ?? null,
           });
       const agentProductFlowReply = agentProductFlowResolution?.steps
         ? agentProductFlowResolution

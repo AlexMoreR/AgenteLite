@@ -31,6 +31,7 @@ export function executeConsultarFlujosTool(input: {
   includeOfficialApi: boolean;
   toolInput: unknown;
   allowedFlowIds?: string[];
+  enabledChildFlowIds?: string[];
 }) {
   const parsed = parseConsultarFlujosToolInput(input.toolInput);
   if (!parsed) {
@@ -43,5 +44,6 @@ export function executeConsultarFlujosTool(input: {
     query: parsed.consulta,
     limit: parsed.limite,
     allowedFlowIds: input.allowedFlowIds,
+    enabledChildFlowIds: input.enabledChildFlowIds,
   });
 }

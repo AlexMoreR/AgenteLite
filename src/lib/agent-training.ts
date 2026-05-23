@@ -408,12 +408,6 @@ export function buildAgentSystemPrompt(input: {
       if (product.price?.trim()) {
         summary.push(`Precio de referencia: ${product.price.trim()}`);
       }
-      if (product.followUpFlowId?.trim()) {
-        const followUpFlow = (input.knowledgeFlows ?? []).find((flow) => flow.id === product.followUpFlowId?.trim());
-        if (followUpFlow?.title.trim()) {
-          summary.push(`FLUJO HIJO: /${followUpFlow.title.trim()}`);
-        }
-      }
       if (product.instructions?.trim()) {
         summary.push(`INSTRUCCION: ${product.instructions.trim()}`);
       }
@@ -423,13 +417,15 @@ export function buildAgentSystemPrompt(input: {
     .filter((item): item is string => Boolean(item));
 
   const knowledgeSection = knowledgeProducts.length
-    ? `CONOCIMIENTO DE PRODUCTOS\n- ${knowledgeProducts.join("\n- ")}\n- Usa esta base para responder con precision sobre esos productos.\n- Nunca respondas solo con el nombre del producto si tienes descripcion o precio disponible.\n- Cuando hables de un producto, menciona la informacion util disponible y agrega un siguiente paso claro si ayuda a vender.\n- Si te preguntan por algo fuera de esta base, no lo inventes y aclara que debes confirmarlo.\n- IMPORTANTE: Cuando un producto tenga un EMBUDO, ese embudo define como debes manejar ese producto. Siguelo por encima de cualquier otra consideracion.\n- IMPORTANTE: Si un producto tiene FLUJO HIJO, usa esa relacion como un siguiente paso explicito y no como un salto inmediato.\n- IMPORTANTE: No asumas envio de fotos por palabras como \"foto\" o \"imagenes\"; solo comparte imagenes cuando el embudo del producto o el prompt lo pidan de forma explicita.\n- ETAPAS: Si el EMBUDO tiene pasos numerados (1. 2. 3.), responde UNICAMENTE con el paso que corresponde al momento actual de la conversacion. Nunca adelantes pasos que dependen de la respuesta del cliente. Espera siempre la reaccion del cliente antes de avanzar al siguiente paso.`
+    ? `CONOCIMIENTO DE PRODUCTOS\n- ${knowledgeProducts.join("\n- ")}\n- Usa esta base para responder con precision sobre esos productos.\n- Nunca respondas solo con el nombre del producto si tienes descripcion o precio disponible.\n- Cuando hables de un producto, menciona la informacion util disponible y agrega un siguiente paso claro si ayuda a vender.\n- Si te preguntan por algo fuera de esta base, no lo inventes y aclara que debes confirmarlo.\n- IMPORTANTE: Cuando un producto tenga un EMBUDO, ese embudo define como debes manejar ese producto. Siguelo por encima de cualquier otra consideracion.\n- IMPORTANTE: Si un producto tiene FLUJO HIJO, solo usa esa relacion cuando ese producto ya haya sido consultado o ejecutado en la conversacion; entonces tratalo como un siguiente paso explicito y no como un salto inmediato.\n- IMPORTANTE: No asumas envio de fotos por palabras como \"foto\" o \"imagenes\"; solo comparte imagenes cuando el embudo del producto o el prompt lo pidan de forma explicita.\n- ETAPAS: Si el EMBUDO tiene pasos numerados (1. 2. 3.), responde UNICAMENTE con el paso que corresponde al momento actual de la conversacion. Nunca adelantes pasos que dependen de la respuesta del cliente. Espera siempre la reaccion del cliente antes de avanzar al siguiente paso.`
     : null;
 
   const consultationToolsSection = [
     "HERRAMIENTAS DE CONSULTA",
     "- Si el cliente pregunta por un producto, consulta primero la herramienta consultar_productos antes de responder.",
     "- Si la consulta habla de catalogo, opciones, modelos, referencias o quieres validar si existe un recorrido, usa consultar_flujos.",
+    "- Si un producto tiene flujo hijo, ese flujo hijo solo puede usarse a partir del siguiente turno despues de que el producto ya fue consultado o ejecutado; nunca lo actives en el mismo mensaje en que se detecta el producto.",
+    "- Si ya existe un producto activo con flujo hijo habilitado por contexto previo, ese flujo hijo puede consultarse o ejecutarse; si no esta habilitado, no lo ofrezcas ni lo actives.",
     "- Si consultar_productos no encuentra un producto claro, no inventes; usa consultar_flujos o sigue con una sola pregunta breve segun el contexto.",
     "- Si consultar_flujos no encuentra un recorrido claro, sigue con el agente normal o deriva a un asesor segun corresponda.",
     "- No mezcles informacion de varios productos o flujos en una sola respuesta si la consulta no fue clara.",

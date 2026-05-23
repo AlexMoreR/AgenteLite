@@ -49,6 +49,10 @@ function sanitizeKeywords(value: unknown): string[] {
     .slice(0, 20);
 }
 
+function isChildFlowId(childFlowIds: Set<string>, itemId: string, scenarioId: string) {
+  return childFlowIds.has(itemId) || childFlowIds.has(scenarioId);
+}
+
 export async function getCreatedFlowItems(input: {
   workspaceId: string;
   includeOfficialApi: boolean;
@@ -93,12 +97,13 @@ export async function getCreatedFlowItems(input: {
     const state = await getOfficialApiChatbotBuilderState(officialConfig.id);
 
     for (const scenario of state.scenarios) {
+      const itemId = buildFlowItemId({
+        sourceType: "official-api",
+        sourceId: officialConfig.id,
+        scenarioId: scenario.id,
+      });
       items.push({
-        id: buildFlowItemId({
-          sourceType: "official-api",
-          sourceId: officialConfig.id,
-          scenarioId: scenario.id,
-        }),
+        id: itemId,
         scenarioId: scenario.id,
         sourceType: "official-api",
         sourceId: officialConfig.id,
@@ -110,7 +115,7 @@ export async function getCreatedFlowItems(input: {
         flowType: sanitizeFlowType(scenario.flowType),
         matchType: sanitizeMatchType(scenario.matchType),
         keywords: sanitizeKeywords(scenario.keywords),
-        isChildFlow: childFlowIds.has(scenario.id),
+        isChildFlow: isChildFlowId(childFlowIds, itemId, scenario.id),
       });
     }
   }
@@ -148,12 +153,14 @@ export async function getCreatedFlowItems(input: {
         continue;
       }
 
+      const itemId = buildFlowItemId({
+        sourceType: "evolution",
+        sourceId: channel.id,
+        scenarioId,
+      });
+
       items.push({
-        id: buildFlowItemId({
-          sourceType: "evolution",
-          sourceId: channel.id,
-          scenarioId,
-        }),
+        id: itemId,
         scenarioId,
         sourceType: "evolution",
         sourceId: channel.id,
@@ -170,7 +177,7 @@ export async function getCreatedFlowItems(input: {
         flowType: sanitizeFlowType(scenario.flowType),
         matchType: sanitizeMatchType(scenario.matchType),
         keywords: sanitizeKeywords(scenario.keywords),
-        isChildFlow: childFlowIds.has(scenarioId),
+        isChildFlow: isChildFlowId(childFlowIds, itemId, scenarioId),
       });
     }
   }

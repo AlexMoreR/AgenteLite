@@ -1563,7 +1563,7 @@ export async function POST(request: Request) {
       }
 
       if (quickResponseFlow && !quickResponseFlow.replyEveryMessageEnabled) {
-        const quickFlowSlug = getFlowSlug(quickResponseFlow.scenarioTitle);
+      const quickFlowSlug = getFlowSlug(quickResponseFlow.scenarioTitle);
         if (executedFlowSlugs.has(quickFlowSlug)) {
           const note = buildFlowExecutionContextNote({
             flowTitle: quickResponseFlow.scenarioTitle,
@@ -1577,6 +1577,7 @@ export async function POST(request: Request) {
       }
 
       const previousCommercialContext = parseCommercialConversationContext(conversation.commercialContext);
+      const previousActiveProductContext = (existingConversation?.activeProductContext as ActiveProductContext | null | undefined) ?? null;
 
       const hardFlowResolution = shouldHandoffToHuman || quickResponseFlow
         ? null
@@ -1587,6 +1588,7 @@ export async function POST(request: Request) {
             history: recentMessagesForModel,
             includeOfficialApi: true,
             commercialContext: previousCommercialContext,
+            activeProductContext: previousActiveProductContext,
           });
       let hardFlowReply = hardFlowResolution?.steps
         ? hardFlowResolution
@@ -1596,7 +1598,7 @@ export async function POST(request: Request) {
       const commercialStageResolution = classifyCommercialStage({
         latestUserMessage: inboundTextForProcessing,
         history: recentMessagesForModel,
-        activeProductContext: hardFlowResolution?.activeProductContext ?? (existingConversation?.activeProductContext as ActiveProductContext | null | undefined) ?? null,
+        activeProductContext: hardFlowResolution?.activeProductContext ?? previousActiveProductContext,
         previousStage: previousCommercialStage,
         commercialContext: previousCommercialContext,
       });
@@ -1604,7 +1606,7 @@ export async function POST(request: Request) {
         stage: commercialStageResolution,
         latestUserMessage: inboundTextForProcessing,
         history: recentMessagesForModel,
-        activeProductContext: hardFlowResolution?.activeProductContext ?? (existingConversation?.activeProductContext as ActiveProductContext | null | undefined) ?? null,
+        activeProductContext: hardFlowResolution?.activeProductContext ?? previousActiveProductContext,
         previousContext: previousCommercialContext,
       });
       const conversationUpdateData: Prisma.ConversationUpdateInput = {
@@ -1619,7 +1621,7 @@ export async function POST(request: Request) {
         data: conversationUpdateData,
       });
 
-      if (hardFlowResolution?.activeProductContext) {
+      if (hardFlowResolution?.activeProductContext && previousActiveProductContext) {
         const activeProductContextNote = buildActiveProductContextNote(hardFlowResolution.activeProductContext);
         if (activeProductContextNote) {
           aiContextNotes.add(activeProductContextNote);
@@ -1785,11 +1787,16 @@ export async function POST(request: Request) {
             return result ?? { found: false, matches: [], bestMatch: null, recommendation: "No hay coincidencias suficientes." };
           },
           consultar_flujos: async (args: Record<string, unknown>) => {
+            const currentActiveProductContext =
+              (hardFlowResolution?.activeProductContext ?? (existingConversation?.activeProductContext as ActiveProductContext | null | undefined) ?? null);
             const result = await executeConsultarFlujosTool({
               workspaceId: channel.workspaceId,
               includeOfficialApi: true,
               toolInput: args,
               allowedFlowIds: agentTraining?.knowledgeFlowIds?.length ? agentTraining.knowledgeFlowIds : undefined,
+              enabledChildFlowIds: currentActiveProductContext?.followUpFlowId?.trim()
+                ? [currentActiveProductContext.followUpFlowId.trim()]
+                : undefined,
             });
 
             return result ?? { found: false, matches: [], bestMatch: null, recommendation: "No hay coincidencias suficientes." };
