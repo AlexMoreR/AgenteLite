@@ -1725,7 +1725,7 @@ export async function POST(request: Request) {
         replyText = null;
         shouldComposeWelcome = false;
       } else if (autoUnknownProductNotifyAction) {
-        replyText = "Ya en un momento te atenderá un asesor para ayudarte con esa solicitud.";
+        replyText = "👨🏻‍💻 Un asesor te atenderá en breve ⏰";
         shouldComposeWelcome = true;
       } else if (knowledgeBaseReply) {
         replyText = knowledgeBaseReply.text ?? null;
