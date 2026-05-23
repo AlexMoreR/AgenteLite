@@ -1,5 +1,6 @@
-"use client";
+﻿"use client";
 
+import { createPortal } from "react-dom";
 import { useState, useRef, useEffect, useTransition, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -25,6 +26,9 @@ import {
 } from "@/app/actions/finanzas-actions";
 import { DEFAULT_FINANCE_SYSTEM_PROMPT } from "@/features/finanzas/constants";
 import { formatCompactMoney, formatMoney } from "@/lib/currency";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import type { FinanzasData, FinanceTransaction, FinanceChatMessage } from "../types";
 
 type ChatEvent =
@@ -35,6 +39,18 @@ type ChatEvent =
 
 type LLMMessage = { role: "user" | "assistant"; content: string };
 type SummaryCardKey = "income" | "expense" | "balance";
+
+const CHAT_BACKGROUND_BASE_STYLE = {
+  backgroundColor: "#eef2f7",
+} as const;
+
+const CHAT_BACKGROUND_OVERLAY_STYLE = {
+  backgroundImage: 'url("https://static.whatsapp.net/rsrc.php/yx/r/voSdkk88H7C.svg")',
+  backgroundRepeat: "repeat",
+  backgroundSize: "540px 960px",
+  backgroundPosition: "0 0",
+  opacity: 0.08,
+} as const;
 
 function formatDateLabel(isoDate: string): string {
   const d = new Date(isoDate);
@@ -54,18 +70,11 @@ function formatDateLabel(isoDate: string): string {
 
 function formatTime(isoDate: string): string {
   const date = new Date(isoDate);
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/Bogota",
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  }).formatToParts(date);
-
-  const hour = parts.find((part) => part.type === "hour")?.value ?? "0";
-  const minute = parts.find((part) => part.type === "minute")?.value ?? "00";
-  const dayPeriod = parts.find((part) => part.type === "dayPeriod")?.value ?? "AM";
-
-  return `${hour}:${minute} ${dayPeriod === "AM" ? "a. m." : "p. m."}`;
+  const bogotaMillis = date.getTime() - 5 * 60 * 60 * 1000;
+  const bogotaDate = new Date(bogotaMillis);
+  const hour = String(bogotaDate.getUTCHours()).padStart(2, "0");
+  const minute = String(bogotaDate.getUTCMinutes()).padStart(2, "0");
+  return `${hour}:${minute}`;
 }
 
 function isSameCalendarDay(left: string, right: string): boolean {
@@ -108,7 +117,7 @@ function buildInitialChatEvents(
   return [intro, ...sorted];
 }
 
-// ── Settings dialog ──────────────────────────────────────────────────────────
+// ── Settings dialog ───────────────────────────────────────────────
 
 type SettingsDialogProps = {
   googleSheet: FinanzasData["googleSheet"];
@@ -117,6 +126,7 @@ type SettingsDialogProps = {
   onClose: () => void;
   onSynced: () => void;
   onChatCleared: () => void;
+  onSaved: () => void;
 };
 
 function SettingsDialog({
@@ -126,82 +136,75 @@ function SettingsDialog({
   onClose,
   onSynced,
   onChatCleared,
+  onSaved,
 }: SettingsDialogProps) {
   const [tab, setTab] = useState<"sheet" | "agent">("sheet");
+  const portalTarget = typeof document === "undefined" ? null : document.body;
 
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/55 p-3 backdrop-blur-sm sm:items-center sm:p-4"
-      onClick={onClose}
-    >
+  return portalTarget
+    ? createPortal(
       <div
-        className="w-full max-w-lg overflow-hidden rounded-[28px] border border-white/70 bg-white shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
+        className="fixed inset-0 z-[120] flex items-end justify-center bg-slate-950/55 p-3 backdrop-blur-sm sm:items-center sm:p-4"
       >
-        {/* Header */}
-        <div className="border-b border-slate-100 bg-[linear-gradient(135deg,#f8fbff_0%,#eef4ff_100%)] px-5 py-4 sm:px-6">
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white text-[var(--primary)] shadow-sm ring-1 ring-[color:rgba(37,99,235,0.12)]">
-                <Settings className="h-5 w-5" />
-              </div>
-              <div>
+          <div
+            className="w-full max-w-5xl overflow-hidden rounded-[18px] border border-white/70 bg-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="border-b border-slate-100 bg-[linear-gradient(135deg,#f8fbff_0%,#eef4ff_100%)] px-2 py-2 sm:px-6">
+              <div className="flex justify-between gap-2">
                 <h2 className="text-base font-semibold text-slate-900">Configuración</h2>
-                <p className="text-xs text-slate-500">Finanzas · Asistente de IA</p>
+                <button
+                  onClick={onClose}
+                  className="flex h-9 w-9 items-center justify-center rounded-full text-slate-400 transition hover:bg-white hover:text-slate-700"
+                >
+                  <X className="h-4 w-4" />
+                </button>
               </div>
+
+              <Tabs value={tab} onValueChange={(value) => setTab(value as "sheet" | "agent")} className="">
+                <TabsList className="grid h-auto w-full grid-cols-2 gap-1 rounded-2xl bg-slate-100 p-1">
+                  <TabsTrigger
+                    value="sheet"
+                    className="gap-1.5 data-[state=active]:bg-[var(--primary)] data-[state=active]:text-white data-[state=active]:shadow-[0_10px_24px_-18px_rgba(37,99,235,0.35)]"
+                  >
+                    <Sheet className="h-3.5 w-3.5" />
+                    Google Sheets
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="agent"
+                    className="gap-1.5 data-[state=active]:bg-[var(--primary)] data-[state=active]:text-white data-[state=active]:shadow-[0_10px_24px_-18px_rgba(37,99,235,0.35)]"
+                  >
+                    <Bot className="h-3.5 w-3.5" />
+                    Prompt del agente
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
             </div>
-            <button
-              onClick={onClose}
-              className="flex h-9 w-9 items-center justify-center rounded-full text-slate-400 transition hover:bg-white hover:text-slate-700"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
 
-          {/* Tabs */}
-          <div className="mt-3 flex gap-1">
-            <button
-              onClick={() => setTab("sheet")}
-              className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition ${
-                tab === "sheet"
-                  ? "bg-[var(--primary)] text-white"
-                  : "text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-              }`}
-            >
-              <Sheet className="h-3.5 w-3.5" />
-              Google Sheets
-            </button>
-            <button
-              onClick={() => setTab("agent")}
-              className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition ${
-                tab === "agent"
-                  ? "bg-[var(--primary)] text-white"
-                  : "text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-              }`}
-            >
-              <Bot className="h-3.5 w-3.5" />
-              Prompt del agente
-            </button>
+            {tab === "sheet" && (
+              <SheetTab
+                googleSheet={googleSheet}
+                serviceAccountEmail={serviceAccountEmail}
+                onClose={onClose}
+                onSynced={onSynced}
+              />
+            )}
+            {tab === "agent" && (
+              <AgentPromptTab
+                agentPrompt={agentPrompt}
+                onClose={onClose}
+                onCleared={onChatCleared}
+                onSaved={onSaved}
+              />
+            )}
           </div>
-        </div>
-
-        {tab === "sheet" && (
-          <SheetTab
-            googleSheet={googleSheet}
-            serviceAccountEmail={serviceAccountEmail}
-            onClose={onClose}
-            onSynced={onSynced}
-          />
-        )}
-        {tab === "agent" && (
-          <AgentPromptTab agentPrompt={agentPrompt} onClose={onClose} onCleared={onChatCleared} />
-        )}
-      </div>
-    </div>
-  );
+        </div>,
+        portalTarget,
+      )
+    : null;
 }
 
-// ── Sheet tab ────────────────────────────────────────────────────────────────
+// ── Sheet tab ───────────────────────────────────────────────────
 
 function SheetTab({
   googleSheet,
@@ -249,7 +252,7 @@ function SheetTab({
     <div className="space-y-4 px-5 py-5 sm:px-6 sm:py-6">
       {step === "url" && (
         <>
-          <div className="rounded-2xl border border-[color:rgba(37,99,235,0.14)] bg-[color:rgba(239,246,255,0.72)] p-4 text-sm text-slate-700">
+          <div className="rounded-lg border border-[color:rgba(37,99,235,0.14)] bg-[color:rgba(239,246,255,0.72)] p-4 text-sm text-slate-700">
             <p className="font-medium text-slate-900">Formato automático</p>
             <p className="mt-1 leading-6">
               Al sincronizar se crean las columnas TIPO, MONTO, DESCRIPCION, CATEGORIA, FECHA y HORA.
@@ -262,19 +265,19 @@ function SheetTab({
             value={url}
             onChange={(e) => { setUrl(e.target.value); setError(null); }}
             placeholder="https://docs.google.com/spreadsheets/d/..."
-            className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-[var(--primary)] focus:bg-white focus:outline-none"
+            className="w-full rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-[var(--primary)] focus:bg-white focus:outline-none"
           />
         </>
       )}
 
       {step === "share" && serviceAccountEmail && (
         <>
-          <div className="rounded-2xl border border-[color:rgba(37,99,235,0.14)] bg-[color:rgba(239,246,255,0.78)] p-4">
+          <div className="rounded-lg border border-[color:rgba(37,99,235,0.14)] bg-[color:rgba(239,246,255,0.78)] p-4">
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--primary-strong)]">
               Editor requerido
             </p>
             <div
-              className="mt-3 cursor-pointer rounded-2xl border border-[color:rgba(37,99,235,0.18)] bg-white px-3 py-3 font-mono text-[11px] text-slate-700 shadow-sm transition hover:border-[var(--primary)]"
+              className="mt-3 cursor-pointer rounded-lg border border-[color:rgba(37,99,235,0.18)] bg-white px-3 py-3 font-mono text-[11px] text-slate-700 shadow-sm transition hover:border-[var(--primary)]"
               onClick={() => navigator.clipboard.writeText(serviceAccountEmail)}
               title="Clic para copiar"
             >
@@ -282,11 +285,11 @@ function SheetTab({
             </div>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded-2xl bg-slate-50 p-4">
+            <div className="rounded-lg bg-slate-50 p-4">
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Paso 1</p>
               <p className="mt-2 text-sm text-slate-700">Comparte la hoja como editor.</p>
             </div>
-            <div className="rounded-2xl bg-slate-50 p-4">
+            <div className="rounded-lg bg-slate-50 p-4">
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Paso 2</p>
               <p className="mt-2 text-sm text-slate-700">Sincroniza para importar o actualizar.</p>
             </div>
@@ -300,7 +303,7 @@ function SheetTab({
       )}
 
       {step === "share" && !serviceAccountEmail && (
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
           <p className="font-medium">La hoja debe ser pública</p>
           <p className="mt-1 leading-6">
             Compártela como lector y usa encabezados de tipo, monto, descripción y categoría.
@@ -308,59 +311,62 @@ function SheetTab({
         </div>
       )}
 
-      {error && <p className="rounded-2xl bg-rose-50 px-3 py-3 text-xs text-rose-600">{error}</p>}
+      {error && <p className="rounded-lg bg-rose-50 px-3 py-3 text-xs text-rose-600">{error}</p>}
       {headersCreated && (
-        <div className="rounded-2xl bg-[var(--info-bg)] px-3 py-3 text-xs text-[var(--info-fg)]">
+        <div className="rounded-lg bg-[var(--info-bg)] px-3 py-3 text-xs text-[var(--info-fg)]">
           Columnas creadas. Agrega datos y vuelve a sincronizar.
         </div>
       )}
       {syncCount !== null && !headersCreated && (
-        <p className="rounded-2xl bg-[var(--info-bg)] px-3 py-3 text-xs text-[var(--info-fg)]">
+        <p className="rounded-lg bg-[var(--info-bg)] px-3 py-3 text-xs text-[var(--info-fg)]">
           {syncCount} transacciones importadas.
         </p>
       )}
 
       <div className="flex flex-col-reverse gap-2 sm:flex-row">
-        <button
-          onClick={onClose}
-          className="flex-1 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
-        >
+        <Button variant="outline" size="lg" onClick={onClose} className="flex-1">
           {step === "share" ? "Cerrar" : "Cancelar"}
-        </button>
+        </Button>
         {step === "url" && (
-          <button
+          <Button
+            variant="default"
+            size="lg"
             onClick={handleConnect}
             disabled={isPending || !url.trim()}
-            className="flex-1 rounded-2xl bg-[var(--primary)] px-4 py-3 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)] disabled:opacity-50"
+            className="flex-1"
           >
             {isPending ? "Conectando..." : "Conectar"}
-          </button>
+          </Button>
         )}
         {step === "share" && (
-          <button
+          <Button
+            variant="default"
+            size="lg"
             onClick={handleSync}
             disabled={isPending}
-            className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-4 py-3 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)] disabled:opacity-50"
+            className="flex-1"
           >
-            <RefreshCw className={`h-3.5 w-3.5 ${isPending ? "animate-spin" : ""}`} />
+            <RefreshCw data-icon="inline-start" className={isPending ? "animate-spin" : ""} />
             {isPending ? "Sincronizando..." : "Sincronizar"}
-          </button>
+          </Button>
         )}
       </div>
     </div>
   );
 }
 
-// ── Agent prompt tab ─────────────────────────────────────────────────────────
+// ── Agent prompt tab ─────────────────────────────────────────────
 
 function AgentPromptTab({
   agentPrompt,
   onClose,
   onCleared,
+  onSaved,
 }: {
   agentPrompt: string | null;
   onClose: () => void;
   onCleared: () => void;
+  onSaved: () => void;
 }) {
   const [prompt, setPrompt] = useState(agentPrompt ?? DEFAULT_FINANCE_SYSTEM_PROMPT);
   const [isPending, startTransition] = useTransition();
@@ -376,6 +382,7 @@ function AgentPromptTab({
       const result = await saveAgentPromptAction(prompt.trim() || DEFAULT_FINANCE_SYSTEM_PROMPT);
       if (!result.ok) { setError(result.error); return; }
       setSaved(true);
+      onSaved();
     });
   }
 
@@ -397,56 +404,48 @@ function AgentPromptTab({
 
   return (
     <div className="space-y-4 px-5 py-5 sm:px-6 sm:py-6">
-      <textarea
+      <Textarea
         value={prompt}
         onChange={(e) => { setPrompt(e.target.value); setSaved(false); }}
-        rows={8}
-        className="w-full resize-none rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-400 focus:bg-white focus:outline-none"
-        placeholder="Escribe el prompt del sistema..."
+        className="h-44 resize-y overflow-y-auto text-xs leading-4"
       />
 
       {error && <p className="rounded-2xl bg-rose-50 px-3 py-3 text-xs text-rose-600">{error}</p>}
-      {saved && <p className="rounded-2xl bg-emerald-50 px-3 py-3 text-xs text-emerald-700">Prompt guardado.</p>}
+        {saved && <p className="rounded-2xl bg-emerald-50 px-3 py-3 text-xs text-emerald-700">Prompt guardado.</p>}
       {cleared && <p className="rounded-2xl bg-emerald-50 px-3 py-3 text-xs text-emerald-700">Historial limpiado. El agente comienza con contexto fresco.</p>}
 
       <div className="flex flex-col-reverse gap-2 sm:flex-row">
-        <button
-          onClick={handleReset}
-          className="flex-1 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
-        >
-          Predeterminado
-        </button>
-        <button
-          onClick={handleSave}
-          disabled={isPending}
-          className="flex-1 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
-        >
-          {isPending ? "Guardando..." : "Guardar"}
-        </button>
+        <div className="flex-1 [&>button]:w-full">
+          <Button onClick={handleReset}>Predeterminado</Button>
+        </div>
+        <div className="flex-1 [&>button]:w-full">
+          <Button onClick={handleSave} disabled={isPending}>
+            {isPending ? "Guardando..." : "Guardar"}
+          </Button>
+        </div>
       </div>
 
       <div className="border-t border-slate-100 pt-3">
         <p className="mb-2 text-xs text-slate-400">Zona peligrosa</p>
-        <button
-          onClick={handleClearChat}
-          disabled={isClearPending}
-          className="w-full rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm font-medium text-rose-600 transition hover:bg-rose-100 disabled:opacity-50"
-        >
-          {isClearPending ? "Limpiando..." : "Limpiar historial del chat"}
-        </button>
+        <div className="flex gap-2">
+          <Button
+            variant="destructive"
+            onClick={handleClearChat}
+            disabled={isClearPending}
+            className="flex-1"
+          >
+            {isClearPending ? "Limpiando..." : "Limpiar historial del chat"}
+          </Button>
+          <Button variant="outline" onClick={onClose} className="flex-1">
+            Cerrar
+          </Button>
+        </div>
       </div>
-
-      <button
-        onClick={onClose}
-        className="w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-500 transition hover:bg-slate-50"
-      >
-        Cerrar
-      </button>
     </div>
   );
 }
 
-// ── Main workspace ───────────────────────────────────────────────────────────
+// ── Main workspace ──────────────────────────────────────────────
 
 export function FinanzasWorkspace({
   transactions: initialTransactions,
@@ -574,10 +573,12 @@ export function FinanzasWorkspace({
     <div className="chat-app-layout flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-[var(--background)]">
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-0 py-0 md:px-2 md:py-2 lg:px-3">
         <div className="mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col">
-          <div className="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-none border-0 bg-white text-slate-900 shadow-none md:rounded-[22px] md:border md:border-[rgba(203,213,225,0.88)] md:shadow-[inset_0_1px_0_rgba(255,255,255,0.98),inset_0_0_0_1px_rgba(255,255,255,0.55),0_0_0_1px_rgba(226,232,240,0.92),0_4px_10px_rgba(15,23,42,0.06),0_18px_38px_-18px_rgba(15,23,42,0.16)]">
+          <div className="relative grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-none border-0 bg-transparent text-slate-900 shadow-none md:rounded-[22px] md:border md:border-[rgba(203,213,225,0.88)] md:shadow-[inset_0_1px_0_rgba(255,255,255,0.98),inset_0_0_0_1px_rgba(255,255,255,0.55),0_0_0_1px_rgba(226,232,240,0.92),0_4px_10px_rgba(15,23,42,0.06),0_18px_38px_-18px_rgba(15,23,42,0.16)]">
+            <div aria-hidden="true" className="pointer-events-none absolute inset-0" style={CHAT_BACKGROUND_BASE_STYLE} />
+            <div aria-hidden="true" className="pointer-events-none absolute inset-0" style={CHAT_BACKGROUND_OVERLAY_STYLE} />
 
             {/* Summary bar */}
-            <div className="z-10 border-b border-[rgba(148,163,184,0.08)] bg-white px-3 py-2 sm:px-4 sm:py-2 md:shadow-[0_1px_0_rgba(226,232,240,0.85),0_8px_10px_-12px_rgba(15,23,42,0.08)]">
+            <div className="relative z-10 border-b border-[rgba(148,163,184,0.08)] bg-white px-3 py-2 sm:px-4 sm:py-2 md:shadow-[0_1px_0_rgba(226,232,240,0.85),0_8px_10px_-12px_rgba(15,23,42,0.08)]">
               <div className="relative flex items-center justify-center">
                 <div className="grid w-full grid-cols-3 gap-1.5 px-9 sm:hidden">
                   <button
@@ -695,11 +696,12 @@ export function FinanzasWorkspace({
             {/* Chat feed */}
             <div
               ref={feedRef}
-              className="min-h-0 overflow-y-auto bg-[linear-gradient(180deg,#fbfcff_0%,#f8fafc_100%)] px-3 py-3 pb-[calc(env(safe-area-inset-bottom)+6.4rem)] sm:px-5 sm:py-5 sm:pb-5 md:bg-white md:pb-5 md:[-webkit-overflow-scrolling:touch] md:[scrollbar-width:thin] md:[scrollbar-color:rgba(148,163,184,0.26)_transparent] md:[&::-webkit-scrollbar]:w-1.5 md:[&::-webkit-scrollbar-track]:bg-transparent md:[&::-webkit-scrollbar-thumb]:rounded-full md:[&::-webkit-scrollbar-thumb]:bg-slate-300 md:[&::-webkit-scrollbar-thumb:hover]:bg-slate-400"
+              className="relative z-10 min-h-0 overflow-y-auto px-3 py-3 pb-[calc(env(safe-area-inset-bottom)+6.4rem)] sm:px-5 sm:py-5 sm:pb-5 md:pb-5 md:[-webkit-overflow-scrolling:touch] md:[scrollbar-width:thin] md:[scrollbar-color:rgba(148,163,184,0.26)_transparent] md:[&::-webkit-scrollbar]:w-1.5 md:[&::-webkit-scrollbar-track]:bg-transparent md:[&::-webkit-scrollbar-thumb]:rounded-full md:[&::-webkit-scrollbar-thumb]:bg-slate-300 md:[&::-webkit-scrollbar-thumb:hover]:bg-slate-400"
             >
+
               {chatEvents.length <= 1 && transactions.length === 0 ? (
-                <div className="flex h-full flex-col items-center justify-center px-4 py-16 text-center">
-                  <div className="flex h-16 w-16 items-center justify-center rounded-[24px] bg-[color:color-mix(in_srgb,var(--primary)_8%,white)] text-[var(--primary)]">
+                <div className="relative z-10 flex h-full flex-col items-center justify-center px-4 py-16 text-center">
+                  <div className="flex h-16 w-16 items-center justify-center rounded-[24px] bg-[color:color-mix(in_srgb,var(--primary)_8%,white)] text-[var(--primary)] shadow-[0_18px_40px_-30px_rgba(15,23,42,0.2)]">
                     <Wallet className="h-8 w-8" />
                   </div>
                   <p className="mt-4 text-base font-semibold text-slate-900">Sin movimientos todavia</p>
@@ -708,12 +710,12 @@ export function FinanzasWorkspace({
                   </p>
                 </div>
               ) : (
-                <div className="flex min-h-full flex-col justify-end gap-3.5 sm:gap-3">
+                <div className="relative z-10 flex min-h-full flex-col justify-end gap-2.5 sm:gap-2.5">
                   {chatEvents.map((event, index) => {
                     if (event.kind === "user") {
                       return (
                         <div key={event.id} className="flex justify-end">
-                          <div className="max-w-[78%] rounded-[22px] rounded-br-[10px] bg-[linear-gradient(180deg,#3b5bfd_0%,#2c4df5_100%)] px-3.5 py-3 text-[13.5px] font-medium leading-5 text-white shadow-[0_14px_28px_-24px_rgba(44,77,245,0.55)] [overflow-wrap:anywhere] sm:max-w-[72%] sm:px-4 sm:py-2.5 sm:text-[15px] md:shadow-[0_10px_22px_-22px_rgba(15,23,42,0.14)] lg:max-w-[62%]">
+                          <div className="max-w-[74%] rounded-[14px] rounded-br-[6px] bg-[linear-gradient(180deg,#3b5bfd_0%,#2c4df5_100%)] px-3.5 py-2.5 text-[13px] font-medium leading-5 whitespace-pre-wrap text-white shadow-[0_10px_22px_-22px_rgba(44,77,245,0.55)] [overflow-wrap:anywhere] sm:max-w-[68%] sm:px-4 sm:py-2.5 md:shadow-[0_10px_22px_-22px_rgba(15,23,42,0.14)] lg:max-w-[58%]">
                             {event.text}
                           </div>
                         </div>
@@ -723,7 +725,7 @@ export function FinanzasWorkspace({
                     if (event.kind === "assistant") {
                       return (
                         <div key={event.id} className="flex justify-start">
-                          <div className="max-w-[82%] rounded-[22px] rounded-bl-[10px] border border-[rgba(148,163,184,0.12)] bg-white px-3.5 py-3 text-[13.5px] leading-5 text-slate-700 shadow-[0_16px_30px_-28px_rgba(15,23,42,0.28)] [overflow-wrap:anywhere] sm:max-w-[72%] sm:px-4 sm:py-2.5 sm:text-[15px] md:bg-[#f3f5f8] md:shadow-[0_10px_22px_-22px_rgba(15,23,42,0.14)] lg:max-w-[62%]">
+                          <div className="max-w-[78%] rounded-[14px] rounded-bl-[6px] border border-[rgba(148,163,184,0.12)] bg-white px-3.5 py-2.5 text-[13px] leading-5 whitespace-pre-wrap text-slate-900 shadow-[0_10px_22px_-22px_rgba(15,23,42,0.24)] [overflow-wrap:anywhere] sm:max-w-[68%] sm:px-4 sm:py-2.5 md:shadow-[0_8px_18px_-20px_rgba(15,23,42,0.14)] lg:max-w-[58%]">
                             {event.text}
                           </div>
                         </div>
@@ -756,12 +758,10 @@ export function FinanzasWorkspace({
                         )}
                         <div className={`flex ${isUserTransaction ? "justify-end" : "justify-start"}`}>
                           <article
-                            className={`rounded-[24px] border px-3.5 py-3.5 shadow-[0_18px_30px_-30px_rgba(15,23,42,0.2)] sm:px-4 sm:py-3 md:shadow-[0_10px_22px_-22px_rgba(15,23,42,0.14)] ${
+                            className={`rounded-[14px] border px-3.5 py-3 shadow-[0_12px_24px_-26px_rgba(15,23,42,0.18)] sm:px-4 sm:py-3 md:shadow-[0_10px_22px_-22px_rgba(15,23,42,0.14)] ${
                               isUserTransaction
-                                ? "max-w-[82%] rounded-br-[10px] border-[rgba(59,91,253,0.12)] bg-[color:color-mix(in_srgb,var(--primary)_6%,white)] sm:max-w-[72%] lg:max-w-[62%]"
-                                : t.type === "INCOME"
-                                  ? "max-w-[82%] rounded-bl-[10px] border-emerald-200/70 bg-emerald-50 sm:max-w-[72%] lg:max-w-[62%]"
-                                  : "max-w-[82%] rounded-bl-[10px] border-rose-200/65 bg-rose-50 sm:max-w-[72%] lg:max-w-[62%]"
+                                ? "max-w-[74%] rounded-br-[6px] border-[rgba(59,91,253,0.12)] bg-[color:color-mix(in_srgb,var(--primary)_6%,white)] sm:max-w-[68%] lg:max-w-[58%]"
+                                : "max-w-[78%] rounded-bl-[6px] border-[rgba(148,163,184,0.12)] bg-white sm:max-w-[68%] lg:max-w-[58%]"
                             }`}
                           >
                             <div className="flex items-start gap-2.5">
@@ -782,7 +782,7 @@ export function FinanzasWorkspace({
                                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
                                   <div className="min-w-0">
                                     <div className="flex flex-wrap items-center gap-1.5">
-                                      <p className="text-[14px] leading-5 text-slate-900 [overflow-wrap:anywhere] sm:text-[15px]">
+                                      <p className="text-[13px] leading-5 text-slate-900 [overflow-wrap:anywhere]">
                                         {t.description}
                                       </p>
                                       {t.source === "google_sheet" && (
@@ -800,7 +800,7 @@ export function FinanzasWorkspace({
                                   </div>
                                   <div className="flex items-center justify-between gap-2 sm:justify-end">
                                      <p
-                                       className={`text-right text-[15px] font-semibold tracking-[-0.02em] ${
+                                       className={`text-right text-[13px] font-semibold tracking-[-0.02em] ${
                                          t.type === "INCOME" ? "text-emerald-700" : "text-rose-700"
                                        }`}
                                      >
@@ -838,7 +838,7 @@ export function FinanzasWorkspace({
             </div>
 
             {/* Composer */}
-            <div className="chat-composer fixed inset-x-0 bottom-0 z-20 shrink-0 border-t border-[rgba(148,163,184,0.08)] bg-white/98 px-3 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2.5 shadow-[0_-12px_28px_-24px_rgba(15,23,42,0.2)] backdrop-blur md:static md:border-[rgba(148,163,184,0.1)] md:bg-white md:px-4 md:py-3 md:shadow-[0_-10px_18px_-18px_rgba(15,23,42,0.16)]">
+            <div className="chat-composer relative z-10 shrink-0 border-t border-[rgba(148,163,184,0.08)] bg-white/98 px-3 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2.5 shadow-[0_-12px_28px_-24px_rgba(15,23,42,0.2)] backdrop-blur md:border-[rgba(148,163,184,0.1)] md:bg-white md:px-4 md:py-3 md:shadow-[0_-10px_18px_-18px_rgba(15,23,42,0.16)]">
               <form onSubmit={handleSubmit} className="mx-auto w-full max-w-7xl">
                 <div className="flex items-end gap-2.5 md:gap-3.5">
                   <textarea
@@ -876,6 +876,7 @@ export function FinanzasWorkspace({
           agentPrompt={agentPrompt}
           onClose={() => setShowSettings(false)}
           onSynced={() => router.refresh()}
+          onSaved={() => router.refresh()}
           onChatCleared={() => {
             llmHistoryRef.current = [];
             setChatEvents(buildInitialChatEvents(transactions, []));

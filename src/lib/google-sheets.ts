@@ -27,6 +27,15 @@ function formatSheetDateParts(date: Date): { sheetDate: string; sheetTime: strin
   };
 }
 
+function formatSheetAmount(amount: number): string {
+  const rounded = Math.round(amount * 100) / 100;
+  if (Number.isInteger(rounded)) {
+    return String(rounded);
+  }
+
+  return rounded.toFixed(2).replace(/\.?0+$/, "");
+}
+
 // ── Base64url (compatible with all Node versions) ────────────────────────────
 
 function b64url(buf: Buffer | string): string {
@@ -445,7 +454,7 @@ export async function appendFinanceSheetRow(input: {
   const { sheetDate, sheetTime } = formatSheetDateParts(txDate);
   const row = [
     input.type === "INCOME" ? "INGRESO" : "GASTO",
-    input.amount.toFixed(2),
+    formatSheetAmount(input.amount),
     input.description,
     input.category ?? "",
     sheetDate,
