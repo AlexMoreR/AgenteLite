@@ -290,6 +290,285 @@ function resolveTargetDateFromMessage(message: string, existing: TransactionPayl
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+const FINANCE_CONTEXT_PREFIX = "__FINANCE_CONTEXT__:";
+
+type FinancePersistedContext =
+  | {
+      action: "transaction";
+      updatedAt: string;
+      transaction: TransactionPayload;
+    }
+  | {
+      action: "clear";
+      updatedAt: string;
+    };
+
+function serializeFinanceContext(context: FinancePersistedContext): string {
+  return `${FINANCE_CONTEXT_PREFIX}${JSON.stringify(context)}`;
+}
+
+function parseFinanceContext(content: string): FinancePersistedContext | null {
+  if (!content.startsWith(FINANCE_CONTEXT_PREFIX)) return null;
+  const raw = content.slice(FINANCE_CONTEXT_PREFIX.length);
+  try {
+    const parsed = JSON.parse(raw) as Partial<FinancePersistedContext> & {
+      transaction?: Partial<TransactionPayload> | null;
+    };
+
+    if (parsed?.action === "clear" && typeof parsed.updatedAt === "string") {
+      return { action: "clear", updatedAt: parsed.updatedAt };
+    }
+
+    if (parsed?.action === "transaction" && typeof parsed.updatedAt === "string" && parsed.transaction?.id) {
+      return {
+        action: "transaction",
+        updatedAt: parsed.updatedAt,
+        transaction: {
+          id: String(parsed.transaction.id),
+          type: parsed.transaction.type === "INCOME" || parsed.transaction.type === "EXPENSE" ? parsed.transaction.type : "EXPENSE",
+          amount: Number(parsed.transaction.amount ?? 0),
+          description: String(parsed.transaction.description ?? ""),
+          category:
+            parsed.transaction.category === null || typeof parsed.transaction.category === "string"
+              ? parsed.transaction.category
+              : null,
+          date: String(parsed.transaction.date ?? new Date().toISOString()),
+          source: String(parsed.transaction.source ?? "manual"),
+          createdAt: String(parsed.transaction.createdAt ?? parsed.updatedAt),
+        },
+      };
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+async function getLatestFinanceContext(workspaceId: string): Promise<FinancePersistedContext | null> {
+  const latest = await prisma.financeChatMessage.findFirst({
+    where: { workspaceId, content: { startsWith: FINANCE_CONTEXT_PREFIX } },
+    orderBy: { createdAt: "desc" },
+    select: { content: true },
+  });
+
+  return latest ? parseFinanceContext(latest.content) : null;
+}
+
+async function saveFinanceContext(
+  workspaceId: string,
+  context: FinancePersistedContext,
+): Promise<void> {
+  await prisma.financeChatMessage.create({
+    data: {
+      workspaceId,
+      role: "assistant",
+      content: serializeFinanceContext(context),
+    },
+  });
+}
+
+type UpdateTransactionDetails = {
+  type?: "INCOME" | "EXPENSE";
+  amount?: number;
+  description?: string;
+  category?: string | null;
+  date?: Date | null;
+};
+
+function isSameUtcCalendarDate(left: string | Date, right: string | Date): boolean {
+  const leftDate = new Date(left);
+  const rightDate = new Date(right);
+
+  return (
+    leftDate.getUTCFullYear() === rightDate.getUTCFullYear() &&
+    leftDate.getUTCMonth() === rightDate.getUTCMonth() &&
+    leftDate.getUTCDate() === rightDate.getUTCDate()
+  );
+}
+
+function parseTransactionTypeFromText(value: string | null | undefined): "INCOME" | "EXPENSE" | undefined {
+  if (!value) return undefined;
+  const normalized = normalizeFinanceText(value);
+  if (/(^|\s)(gasto|egreso|expense)(\s|$)/.test(normalized)) return "EXPENSE";
+  if (/(^|\s)(ingreso|income)(\s|$)/.test(normalized)) return "INCOME";
+  return undefined;
+}
+
+function extractUpdateDetailsFromText(text: string): UpdateTransactionDetails {
+  const details: UpdateTransactionDetails = {};
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  for (const line of lines) {
+    const lineMatch = line.match(/^\s*(?:[✏️🔄🧾📅•-]\s*)?(tipo|monto|descripcion|descripción|fecha|categoria|categoría)\s*:\s*(.+)\s*$/i);
+    if (!lineMatch) continue;
+
+    const key = normalizeFinanceText(lineMatch[1]);
+    const value = lineMatch[2].trim();
+
+    if (key === "tipo") {
+      const type = parseTransactionTypeFromText(value);
+      if (type) details.type = type;
+      continue;
+    }
+
+    if (key === "monto") {
+      const cleaned = value.replace(/\./g, "").replace(",", ".");
+      const amount = Number(cleaned);
+      if (Number.isFinite(amount)) details.amount = amount;
+      continue;
+    }
+
+    if (key === "descripcion") {
+      details.description = value;
+      continue;
+    }
+
+    if (key === "categoria") {
+      details.category = value || null;
+      continue;
+    }
+
+    if (key === "fecha") {
+      details.date = parseFinanceDateInput(value) ?? extractFinanceDateFromText(value);
+    }
+  }
+
+  return details;
+}
+
+function getConfirmedUpdateDetailsFromHistory(
+  history: Array<{ role: "user" | "assistant"; content: string }>,
+): UpdateTransactionDetails | null {
+  for (let i = history.length - 1; i >= 0; i -= 1) {
+    const message = history[i];
+    if (message.role !== "assistant") continue;
+
+    const details = extractUpdateDetailsFromText(message.content);
+    if (details.type || details.amount != null || details.description || details.category != null || details.date) {
+      return details;
+    }
+  }
+
+  return null;
+}
+
+function buildStructuredUpdateContext(
+  args: Record<string, unknown>,
+  history: Array<{ role: "user" | "assistant"; content: string }>,
+  userMessage: string,
+): UpdateTransactionDetails {
+  const directDetails = extractUpdateDetailsFromText(
+    [
+      typeof args.type === "string" ? `Tipo: ${args.type}` : "",
+      typeof args.amount === "number" ? `Monto: ${args.amount}` : "",
+      typeof args.description === "string" ? `Descripcion: ${args.description}` : "",
+      typeof args.category === "string" ? `Categoria: ${args.category}` : "",
+      typeof args.date === "string" ? `Fecha: ${args.date}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  );
+
+  const affirmativeConfirmation = normalizeFinanceText(userMessage);
+  const isAffirmation =
+    /^(si|s[ií]|ok|okay|correcto|confirmo|confirmar|dale|adelante|listo|va|sí)$/.test(affirmativeConfirmation) ||
+    /(^(si|s[ií])$)/.test(affirmativeConfirmation);
+
+  if (!isAffirmation) {
+    return directDetails;
+  }
+
+  const confirmedDetails = getConfirmedUpdateDetailsFromHistory(history);
+  if (!confirmedDetails) {
+    return directDetails;
+  }
+
+  return {
+    type: confirmedDetails.type ?? directDetails.type,
+    amount: confirmedDetails.amount ?? directDetails.amount,
+    description: confirmedDetails.description ?? directDetails.description,
+    category: confirmedDetails.category ?? directDetails.category,
+    date: confirmedDetails.date ?? directDetails.date,
+  };
+}
+
+function resolveTransactionByDetails(
+  transactions: TransactionPayload[],
+  details: UpdateTransactionDetails,
+): TransactionPayload | null {
+  const normalizedDescription = details.description ? normalizeFinanceText(details.description) : "";
+
+  const candidates = transactions.filter((tx) => {
+    if (details.type && tx.type !== details.type) return false;
+    if (details.amount != null && Math.abs(Number(tx.amount) - details.amount) > 0.02) return false;
+    if (details.category != null && tx.category !== details.category) return false;
+    if (details.date && !isSameUtcCalendarDate(tx.date, details.date)) return false;
+
+    if (normalizedDescription) {
+      const txDescription = normalizeFinanceText(tx.description);
+      if (
+        txDescription !== normalizedDescription &&
+        !txDescription.includes(normalizedDescription) &&
+        !normalizedDescription.includes(txDescription)
+      ) {
+        return false;
+      }
+    }
+
+    return true;
+  });
+
+  if (candidates.length === 1) return candidates[0];
+  if (candidates.length === 0) return null;
+
+  const ranked = candidates
+    .map((tx) => {
+      let score = 0;
+      if (details.type && tx.type === details.type) score += 2;
+      if (details.amount != null && Math.abs(Number(tx.amount) - details.amount) < 0.02) score += 3;
+      if (details.category != null && tx.category === details.category) score += 1;
+      if (details.date && isSameUtcCalendarDate(tx.date, details.date)) score += 4;
+
+      if (normalizedDescription) {
+        const txDescription = normalizeFinanceText(tx.description);
+        if (txDescription === normalizedDescription) score += 5;
+        else if (txDescription.includes(normalizedDescription) || normalizedDescription.includes(txDescription)) score += 3;
+      }
+
+      return { tx, score };
+    })
+    .sort((left, right) => right.score - left.score || new Date(right.tx.date).getTime() - new Date(left.tx.date).getTime());
+
+  if (ranked.length >= 2 && ranked[0].score === ranked[1].score) return null;
+  return ranked[0]?.tx ?? null;
+}
+
+function transactionPayloadToUpdateDetails(transaction: TransactionPayload): UpdateTransactionDetails {
+  return {
+    type: transaction.type,
+    amount: transaction.amount,
+    description: transaction.description,
+    category: transaction.category,
+    date: transaction.date ? new Date(transaction.date) : null,
+  };
+}
+
+function buildStructuredSearchText(details: UpdateTransactionDetails): string {
+  return [
+    details.type ? `tipo ${details.type === "INCOME" ? "ingreso" : "gasto"}` : "",
+    details.amount != null ? `monto ${details.amount}` : "",
+    details.description ? `descripcion ${details.description}` : "",
+    details.category ? `categoria ${details.category}` : "",
+    details.date ? `fecha ${details.date.toISOString().slice(0, 10)}` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
 export async function sendFinanceMessageAction(
   userMessage: string,
   history: Array<{ role: "user" | "assistant"; content: string }>,
@@ -323,6 +602,7 @@ export async function sendFinanceMessageAction(
     prisma.financeAgentConfig.findUnique({ where: { workspaceId }, select: { systemPrompt: true } }),
     prisma.financeGoogleSheet.findUnique({ where: { workspaceId }, select: { sheetId: true } }),
   ]);
+  const latestFinanceContext = await getLatestFinanceContext(workspaceId);
 
   const loadCurrentTransactions = async (): Promise<TransactionPayload[]> => {
     if (googleSheet) {
@@ -407,6 +687,8 @@ Fecha actual: ${new Date().toLocaleDateString("es-CO")}`;
 
   const addedTransactions: TransactionPayload[] = [];
   const deletedIds: string[] = [];
+  let latestContextTransaction: TransactionPayload | null = null;
+  let shouldClearContext = false;
 
   for (let iter = 0; iter < 6; iter++) {
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -523,6 +805,7 @@ Fecha actual: ${new Date().toLocaleDateString("es-CO")}`;
                       createdAt: now.toISOString(),
                     };
                   addedTransactions.push(tx);
+                  latestContextTransaction = tx;
                   result = JSON.stringify({ success: true, id: tx.id, source: "google_sheet" });
                   financeLog("register_transaction", {
                     status: "success",
@@ -552,6 +835,7 @@ Fecha actual: ${new Date().toLocaleDateString("es-CO")}`;
               };
               transactions = [tx, ...transactions];
               addedTransactions.push(tx);
+              latestContextTransaction = tx;
               result = JSON.stringify({ success: true, id: created.id });
               financeLog("register_transaction", {
                 status: "success",
@@ -565,33 +849,69 @@ Fecha actual: ${new Date().toLocaleDateString("es-CO")}`;
               });
             }
           } else if (toolCall.function.name === "update_transaction") {
-            const id = String(args.id);
-            let existing = transactions.find((tx) => tx.id === id);
+            const requestedId = String(args.id);
+            let existing = transactions.find((tx) => tx.id === requestedId);
             if (!existing) {
-              const resolved = resolveTransactionByMessage(
-                userMessage,
-                transactions,
-                args.type === "INCOME" || args.type === "EXPENSE" ? (args.type as "INCOME" | "EXPENSE") : undefined,
-              );
-              if (resolved) {
-                existing = resolved;
+              const structuredDetails = buildStructuredUpdateContext(args, history, userMessage);
+              const structuredResolved = resolveTransactionByDetails(transactions, structuredDetails);
+
+              if (structuredResolved) {
+                existing = structuredResolved;
                 financeLog("update_transaction", {
-                  status: "resolved_by_message",
-                  requestedId: id,
-                  resolvedId: resolved.id,
-                  resolvedDescription: resolved.description,
-                  resolvedDate: resolved.date,
+                  status: "resolved_by_details",
+                  requestedId,
+                  resolvedId: structuredResolved.id,
+                  resolvedDescription: structuredResolved.description,
+                  resolvedDate: structuredResolved.date,
                 });
+              } else {
+                const contextResolved =
+                  latestFinanceContext?.action === "transaction"
+                    ? resolveTransactionByDetails(
+                        transactions,
+                        transactionPayloadToUpdateDetails(latestFinanceContext.transaction),
+                      )
+                    : null;
+
+                if (contextResolved) {
+                  existing = contextResolved;
+                  financeLog("update_transaction", {
+                    status: "resolved_by_context",
+                    requestedId,
+                    resolvedId: contextResolved.id,
+                    resolvedDescription: contextResolved.description,
+                    resolvedDate: contextResolved.date,
+                  });
+                } else {
+                  const fallbackSearchText = buildStructuredSearchText(structuredDetails);
+                  const resolved = resolveTransactionByMessage(
+                    fallbackSearchText || userMessage,
+                    transactions,
+                    structuredDetails.type ??
+                      (args.type === "INCOME" || args.type === "EXPENSE" ? (args.type as "INCOME" | "EXPENSE") : undefined),
+                  );
+                  if (resolved) {
+                    existing = resolved;
+                    financeLog("update_transaction", {
+                      status: "resolved_by_message",
+                      requestedId,
+                      resolvedId: resolved.id,
+                      resolvedDescription: resolved.description,
+                      resolvedDate: resolved.date,
+                    });
+                  }
+                }
               }
             }
             if (!existing) {
-              result = JSON.stringify({ success: false, error: "Transacción no encontrada" });
+              result = JSON.stringify({ success: false, error: "Transacción no encontrada ❌" });
               financeLog("update_transaction", {
                 status: "not_found",
-                requestedId: id,
+                requestedId,
                 userMessage,
               });
             } else {
+              const targetId = existing.id;
               const newType = (args.type as "INCOME" | "EXPENSE" | undefined) ?? existing.type;
               const newAmount = args.amount != null ? Number(args.amount) : Number(existing.amount);
               const newDescription = args.description != null ? String(args.description) : existing.description;
@@ -636,7 +956,7 @@ Fecha actual: ${new Date().toLocaleDateString("es-CO")}`;
                           tx.description.trim().toLowerCase() === newDescription.trim().toLowerCase() &&
                           (newCategory == null || tx.category === newCategory),
                         ) ?? {
-                          id: id,
+                          id: targetId,
                           type: newType,
                           amount: newAmount,
                           description: newDescription,
@@ -645,8 +965,9 @@ Fecha actual: ${new Date().toLocaleDateString("es-CO")}`;
                           source: "google_sheet",
                           createdAt: (targetDate ?? new Date(existing.date)).toISOString(),
                         };
-                      deletedIds.push(id);
+                      deletedIds.push(targetId);
                       addedTransactions.push(updated);
+                      latestContextTransaction = updated;
                       result = JSON.stringify({ success: true, updated: { type: newType, amount: newAmount, description: newDescription } });
                       financeLog("update_transaction", {
                         status: "success",
@@ -658,7 +979,7 @@ Fecha actual: ${new Date().toLocaleDateString("es-CO")}`;
                 }
               } else {
                 const updated = await prisma.financeTransaction.update({
-                  where: { id },
+                  where: { id: targetId },
                   data: {
                     type: newType,
                     amount: newAmount,
@@ -668,7 +989,7 @@ Fecha actual: ${new Date().toLocaleDateString("es-CO")}`;
                   },
                 });
 
-                deletedIds.push(id);
+                deletedIds.push(targetId);
                 const tx = {
                   id: updated.id,
                   type: updated.type,
@@ -679,8 +1000,9 @@ Fecha actual: ${new Date().toLocaleDateString("es-CO")}`;
                   source: updated.source,
                   createdAt: updated.createdAt.toISOString(),
                 };
-                transactions = transactions.map((current) => (current.id === id ? tx : current));
+                transactions = transactions.map((current) => (current.id === targetId ? tx : current));
                 addedTransactions.push(tx);
+                latestContextTransaction = tx;
                 result = JSON.stringify({ success: true, updated: { type: newType, amount: newAmount, description: newDescription } });
                 financeLog("update_transaction", {
                   status: "success",
@@ -693,8 +1015,21 @@ Fecha actual: ${new Date().toLocaleDateString("es-CO")}`;
           } else if (toolCall.function.name === "delete_transaction") {
             const id = String(args.id);
             const tx = transactions.find((current) => current.id === id);
-            if (!tx) {
-              result = JSON.stringify({ success: false, error: "Transacción no encontrada" });
+            const structuredDeleteDetails =
+              latestFinanceContext?.action === "transaction"
+                ? transactionPayloadToUpdateDetails(latestFinanceContext.transaction)
+                : null;
+            const resolvedTx =
+              tx ??
+              (structuredDeleteDetails ? resolveTransactionByDetails(transactions, structuredDeleteDetails) : null) ??
+              resolveTransactionByMessage(
+                userMessage,
+                transactions,
+                structuredDeleteDetails?.type ??
+                  (args.type === "INCOME" || args.type === "EXPENSE" ? (args.type as "INCOME" | "EXPENSE") : undefined),
+              );
+            if (!resolvedTx) {
+              result = JSON.stringify({ success: false, error: "Transacción no encontrada ❌" });
             } else if (googleSheet) {
               if (!isServiceAccountConfigured()) {
                 result = JSON.stringify({
@@ -704,15 +1039,17 @@ Fecha actual: ${new Date().toLocaleDateString("es-CO")}`;
               } else {
                 const sheetResult = await deleteSheetRowByContent({
                   sheetId: googleSheet.sheetId,
-                  description: tx.description,
-                  amount: Number(tx.amount),
-                  type: tx.type,
+                  description: resolvedTx.description,
+                  amount: Number(resolvedTx.amount),
+                  type: resolvedTx.type,
                 });
                 if (!sheetResult.ok) {
                   result = JSON.stringify({ success: false, error: sheetResult.error ?? "No se pudo eliminar de la hoja" });
                 } else {
-                  transactions = transactions.filter((current) => current.id !== id);
-                  deletedIds.push(id);
+                  transactions = transactions.filter((current) => current.id !== resolvedTx.id);
+                  deletedIds.push(resolvedTx.id);
+                  latestContextTransaction = transactions[0] ?? null;
+                  shouldClearContext = !latestContextTransaction;
                   result = JSON.stringify({
                     success: true,
                     deletedFromSheet: sheetResult.rowDeleted,
@@ -720,9 +1057,11 @@ Fecha actual: ${new Date().toLocaleDateString("es-CO")}`;
                 }
               }
             } else {
-              await prisma.financeTransaction.deleteMany({ where: { id, workspaceId } });
-              transactions = transactions.filter((current) => current.id !== id);
-              deletedIds.push(id);
+              await prisma.financeTransaction.deleteMany({ where: { id: resolvedTx.id, workspaceId } });
+              transactions = transactions.filter((current) => current.id !== resolvedTx.id);
+              deletedIds.push(resolvedTx.id);
+              latestContextTransaction = transactions[0] ?? null;
+              shouldClearContext = !latestContextTransaction;
               result = JSON.stringify({ success: true, deletedFromSheet: "n/a" });
             }
           } else if (toolCall.function.name === "sync_google_sheet") {
@@ -736,6 +1075,8 @@ Fecha actual: ${new Date().toLocaleDateString("es-CO")}`;
                 for (const oldId of beforeIds) deletedIds.push(oldId);
                 transactions = await loadCurrentTransactions();
                 for (const t of transactions) addedTransactions.push(t);
+                latestContextTransaction = transactions[0] ?? null;
+                shouldClearContext = !latestContextTransaction;
                 result = JSON.stringify({ success: true, imported: syncResult.count ?? 0 });
               } else {
                 result = JSON.stringify({ success: false, error: syncResult.error });
@@ -800,6 +1141,19 @@ Fecha actual: ${new Date().toLocaleDateString("es-CO")}`;
       ],
     });
 
+    if (latestContextTransaction) {
+      await saveFinanceContext(workspaceId, {
+        action: "transaction",
+        updatedAt: new Date().toISOString(),
+        transaction: latestContextTransaction,
+      });
+    } else if (shouldClearContext) {
+      await saveFinanceContext(workspaceId, {
+        action: "clear",
+        updatedAt: new Date().toISOString(),
+      });
+    }
+
     if (addedTransactions.length || deletedIds.length) {
       revalidatePath("/cliente/finanzas");
     }
@@ -863,6 +1217,10 @@ type TransactionPayload = {
   source: string;
   createdAt: string;
 };
+
+function normalizeTransactionType(value: string): "INCOME" | "EXPENSE" {
+  return value === "INCOME" ? "INCOME" : "EXPENSE";
+}
 
 export async function addTransactionAction(
   formData: FormData,
@@ -932,10 +1290,10 @@ export async function addTransactionAction(
     });
 
     sheetSync = "synced";
-    const transaction = latest
+    const transaction: TransactionPayload = latest
       ? {
           id: latest.id,
-          type: latest.type,
+          type: normalizeTransactionType(latest.type),
           amount: latest.amount,
           description: latest.description,
           category: latest.category,
@@ -945,7 +1303,7 @@ export async function addTransactionAction(
         }
       : {
           id: `sh:${Date.now()}`,
-          type,
+          type: normalizeTransactionType(type),
           amount,
           description,
           category,
@@ -1004,7 +1362,7 @@ export async function deleteTransactionAction(id: string): Promise<ActionResult>
     const transactions = rows ? parseFinanceSheetRows(rows) : [];
     const existing = transactions.find((current) => current.id === id);
 
-    if (!existing) return { ok: false, error: "Transacción no encontrada" };
+    if (!existing) return { ok: false, error: "Transacción no encontrada ❌" };
 
     if (!isServiceAccountConfigured()) {
       return { ok: false, error: "Google Sheet conectado pero no hay credenciales de editor para escribir en la hoja" };
@@ -1132,55 +1490,6 @@ function resolveType(cell: string): "INCOME" | "EXPENSE" | null {
 
 export async function syncGoogleSheetAction(): Promise<ActionResult & { headersJustCreated?: boolean }> {
   try {
-    {
-    const session = await auth();
-    if (!session?.user?.id || !["ADMIN", "CLIENTE"].includes(session.user.role ?? "")) {
-      return { ok: false, error: "No autorizado" };
-    }
-
-    const membership = await getPrimaryWorkspaceForUser(session.user.id);
-    if (!membership) return { ok: false, error: "Workspace no encontrado" };
-
-    const workspaceId = membership.workspace.id;
-    const sheet = await prisma.financeGoogleSheet.findUnique({ where: { workspaceId } });
-    if (!sheet) return { ok: false, error: "No hay hoja conectada" };
-
-    let headersJustCreated = false;
-    if (isServiceAccountConfigured()) {
-      const hResult = await ensureSheetHeaders(sheet.sheetId);
-      if (!hResult.ok) {
-        return { ok: false, error: hResult.error ?? "Error al configurar la hoja" };
-      }
-      headersJustCreated = hResult.headersWritten;
-    }
-
-    const rows = await fetchFinanceSheetRows(sheet.sheetId);
-    if (!rows) {
-      return { ok: false, error: "No se pudo leer la hoja de Google Sheets." };
-    }
-
-    if (rows.length < 2) {
-      if (headersJustCreated) {
-        await prisma.financeGoogleSheet.update({ where: { workspaceId }, data: { lastSyncAt: new Date() } });
-        revalidatePath("/cliente/finanzas");
-        return { ok: true, count: 0, headersJustCreated: true };
-      }
-      return { ok: false, error: "La hoja no tiene datos. Agrega filas debajo de los encabezados y vuelve a sincronizar." };
-    }
-
-    const parsed = parseFinanceSheetRows(rows);
-    if (!parsed.length) {
-      return {
-        ok: false,
-        error:
-          "No se encontraron filas válidas. Asegúrate de tener datos debajo de los encabezados con TIPO (GASTO o INGRESO) y MONTO.",
-      };
-    }
-
-    await prisma.financeGoogleSheet.update({ where: { workspaceId }, data: { lastSyncAt: new Date() } });
-    revalidatePath("/cliente/finanzas");
-    return { ok: true, count: parsed.length };
-    }
   const session = await auth();
   if (!session?.user?.id || !["ADMIN", "CLIENTE"].includes(session.user.role ?? "")) {
     return { ok: false, error: "No autorizado" };
@@ -1208,7 +1517,7 @@ export async function syncGoogleSheetAction(): Promise<ActionResult & { headersJ
   let rows: string[][] | null = null;
 
   if (isServiceAccountConfigured()) {
-    rows = await readSheetRows(sheet.sheetId);
+    rows = await fetchFinanceSheetRows(sheet.sheetId);
   }
 
   if (!rows) {

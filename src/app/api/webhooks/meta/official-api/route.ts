@@ -462,6 +462,7 @@ async function syncInboundMessages(configId: string, payload: MetaWebhookPayload
     if (!conversation) {
       continue;
     }
+    const activeProductContext = conversation.activeProductContext as ActiveProductContext | null | undefined;
     await prisma.$executeRaw`
       INSERT INTO "OfficialApiMessage" (
         "id",
@@ -657,7 +658,11 @@ export async function POST(request: Request) {
             latestUserMessage: message.content,
             history: recentMessages,
           });
-      const activeProductContext = conversation.activeProductContext as ActiveProductContext | null | undefined;
+      const conversationForProductFlow = await prisma.officialApiConversation.findUnique({
+        where: { id: message.conversationId },
+        select: { activeProductContext: true },
+      });
+      const activeProductContext = conversationForProductFlow?.activeProductContext as ActiveProductContext | null | undefined;
       const agentProductFlowResolution = shouldHandoffToHuman || !linkedAgentChannel?.agent?.id
         ? null
         : await resolveAgentProductFlowReply({

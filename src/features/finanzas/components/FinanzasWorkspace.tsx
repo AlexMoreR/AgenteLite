@@ -52,6 +52,8 @@ const CHAT_BACKGROUND_OVERLAY_STYLE = {
   opacity: 0.08,
 } as const;
 
+const FINANCE_CONTEXT_PREFIX = "__FINANCE_CONTEXT__:";
+
 function formatDateLabel(isoDate: string): string {
   const d = new Date(isoDate);
   const now = new Date();
@@ -107,10 +109,12 @@ function buildInitialChatEvents(
         : ({ id: `tx-${t.id}`, kind: "transaction", transaction: t } as ChatEvent),
   }));
 
-  const msgItems: Timed[] = chatMessages.map((m) => ({
-    time: new Date(m.createdAt).getTime(),
-    event: { id: `msg-${m.id}`, kind: m.role, text: m.content } as ChatEvent,
-  }));
+  const msgItems: Timed[] = chatMessages
+    .filter((m) => !m.content.startsWith(FINANCE_CONTEXT_PREFIX))
+    .map((m) => ({
+      time: new Date(m.createdAt).getTime(),
+      event: { id: `msg-${m.id}`, kind: m.role, text: m.content } as ChatEvent,
+    }));
 
   const sorted = [...txItems, ...msgItems].sort((a, b) => a.time - b.time).map((x) => x.event);
 
@@ -211,7 +215,7 @@ function SheetTab({
   serviceAccountEmail,
   onClose,
   onSynced,
-}: Omit<SettingsDialogProps, "agentPrompt" | "onChatCleared">) {
+}: Omit<SettingsDialogProps, "agentPrompt" | "onChatCleared" | "onSaved">) {
   const [url, setUrl] = useState(googleSheet?.sheetUrl ?? "");
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -715,7 +719,7 @@ export function FinanzasWorkspace({
                     if (event.kind === "user") {
                       return (
                         <div key={event.id} className="flex justify-end">
-                          <div className="max-w-[74%] rounded-[14px] rounded-br-[6px] bg-[linear-gradient(180deg,#3b5bfd_0%,#2c4df5_100%)] px-3.5 py-2.5 text-[13px] font-medium leading-5 whitespace-pre-wrap text-white shadow-[0_10px_22px_-22px_rgba(44,77,245,0.55)] [overflow-wrap:anywhere] sm:max-w-[68%] sm:px-4 sm:py-2.5 md:shadow-[0_10px_22px_-22px_rgba(15,23,42,0.14)] lg:max-w-[58%]">
+                          <div className="max-w-[74%] rounded-[10px] rounded-br-[4px] bg-[linear-gradient(180deg,#3b5bfd_0%,#2c4df5_100%)] px-3 py-2 text-[13px] font-medium leading-4 whitespace-pre-wrap text-white shadow-[0_8px_16px_-10px_rgba(15,23,42,0.28),0_2px_4px_rgba(15,23,42,0.06)] [overflow-wrap:anywhere] sm:max-w-[68%] sm:px-3 sm:py-2 md:shadow-[0_8px_16px_-10px_rgba(15,23,42,0.22),0_2px_4px_rgba(15,23,42,0.05)] lg:max-w-[58%]">
                             {event.text}
                           </div>
                         </div>
@@ -725,7 +729,7 @@ export function FinanzasWorkspace({
                     if (event.kind === "assistant") {
                       return (
                         <div key={event.id} className="flex justify-start">
-                          <div className="max-w-[78%] rounded-[14px] rounded-bl-[6px] border border-[rgba(148,163,184,0.12)] bg-white px-3.5 py-2.5 text-[13px] leading-5 whitespace-pre-wrap text-slate-900 shadow-[0_10px_22px_-22px_rgba(15,23,42,0.24)] [overflow-wrap:anywhere] sm:max-w-[68%] sm:px-4 sm:py-2.5 md:shadow-[0_8px_18px_-20px_rgba(15,23,42,0.14)] lg:max-w-[58%]">
+                          <div className="max-w-[78%] rounded-[10px] rounded-bl-[4px] border border-[rgba(148,163,184,0.12)] bg-white px-3 py-2 text-[13px] leading-4 whitespace-pre-wrap text-slate-900 shadow-[0_8px_16px_-10px_rgba(15,23,42,0.18),0_2px_4px_rgba(15,23,42,0.05)] [overflow-wrap:anywhere] sm:max-w-[68%] sm:px-3 sm:py-2 md:shadow-[0_8px_16px_-10px_rgba(15,23,42,0.14),0_2px_4px_rgba(15,23,42,0.04)] lg:max-w-[58%]">
                             {event.text}
                           </div>
                         </div>
@@ -758,10 +762,10 @@ export function FinanzasWorkspace({
                         )}
                         <div className={`flex ${isUserTransaction ? "justify-end" : "justify-start"}`}>
                           <article
-                            className={`rounded-[14px] border px-3.5 py-3 shadow-[0_12px_24px_-26px_rgba(15,23,42,0.18)] sm:px-4 sm:py-3 md:shadow-[0_10px_22px_-22px_rgba(15,23,42,0.14)] ${
+                            className={`rounded-[10px] border px-3 py-2 shadow-[0_8px_16px_-10px_rgba(15,23,42,0.16),0_2px_4px_rgba(15,23,42,0.05)] sm:px-3 sm:py-2 md:shadow-[0_8px_16px_-10px_rgba(15,23,42,0.12),0_2px_4px_rgba(15,23,42,0.04)] ${
                               isUserTransaction
-                                ? "max-w-[74%] rounded-br-[6px] border-[rgba(59,91,253,0.12)] bg-[color:color-mix(in_srgb,var(--primary)_6%,white)] sm:max-w-[68%] lg:max-w-[58%]"
-                                : "max-w-[78%] rounded-bl-[6px] border-[rgba(148,163,184,0.12)] bg-white sm:max-w-[68%] lg:max-w-[58%]"
+                                ? "max-w-[74%] rounded-br-[4px] border-[rgba(59,91,253,0.12)] bg-[color:color-mix(in_srgb,var(--primary)_6%,white)] sm:max-w-[68%] lg:max-w-[58%]"
+                                : "max-w-[78%] rounded-bl-[4px] border-[rgba(148,163,184,0.12)] bg-white sm:max-w-[68%] lg:max-w-[58%]"
                             }`}
                           >
                             <div className="flex items-start gap-2.5">
@@ -782,7 +786,7 @@ export function FinanzasWorkspace({
                                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
                                   <div className="min-w-0">
                                     <div className="flex flex-wrap items-center gap-1.5">
-                                      <p className="text-[13px] leading-5 text-slate-900 [overflow-wrap:anywhere]">
+                                      <p className="text-[13px] leading-4 text-slate-900 [overflow-wrap:anywhere]">
                                         {t.description}
                                       </p>
                                       {t.source === "google_sheet" && (
