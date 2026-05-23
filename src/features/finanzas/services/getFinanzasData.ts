@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { SERVICE_ACCOUNT_EMAIL } from "@/lib/google-sheets";
+import { SERVICE_ACCOUNT_EMAIL, fetchFinanceSheetRows, parseFinanceSheetRows } from "@/lib/google-sheets";
 import { getSystemCurrency } from "@/lib/system-settings";
 import type { FinanzasData } from "../types";
 
@@ -14,22 +14,7 @@ export async function getFinanzasData(userId: string): Promise<FinanzasData | nu
 
   const workspaceId = membership.workspace.id;
 
-  const [transactions, googleSheet, currency, agentConfig, chatMessages] = await Promise.all([
-    prisma.financeTransaction.findMany({
-      where: { workspaceId },
-      orderBy: { date: "asc" },
-      take: 300,
-      select: {
-        id: true,
-        type: true,
-        amount: true,
-        description: true,
-        category: true,
-        date: true,
-        source: true,
-        createdAt: true,
-      },
-    }),
+  const [googleSheet, currency, agentConfig, chatMessages] = await Promise.all([
     prisma.financeGoogleSheet.findUnique({
       where: { workspaceId },
       select: { id: true, sheetUrl: true, sheetId: true, lastSyncAt: true },
@@ -47,13 +32,48 @@ export async function getFinanzasData(userId: string): Promise<FinanzasData | nu
     }),
   ]);
 
+  let transactions = await prisma.financeTransaction.findMany({
+    where: { workspaceId },
+    orderBy: { date: "asc" },
+    take: 300,
+    select: {
+      id: true,
+      type: true,
+      amount: true,
+      description: true,
+      category: true,
+      date: true,
+      source: true,
+      createdAt: true,
+    },
+  });
+
+  if (googleSheet) {
+    const rows = await fetchFinanceSheetRows(googleSheet.sheetId);
+    if (rows) {
+      const sheetTransactions = parseFinanceSheetRows(rows);
+      transactions = sheetTransactions.map((t) => ({
+        id: t.id,
+        type: t.type,
+        amount: t.amount,
+        description: t.description,
+        category: t.category,
+        date: t.date,
+        source: "google_sheet",
+        createdAt: t.date,
+      }));
+    }
+  }
+
   return {
-    transactions: transactions.map((t) => ({
-      ...t,
-      amount: Number(t.amount),
-      date: t.date.toISOString(),
-      createdAt: t.createdAt.toISOString(),
-    })),
+    transactions: transactions
+      .map((t) => ({
+        ...t,
+        amount: Number(t.amount),
+        date: new Date(t.date).toISOString(),
+        createdAt: new Date(t.createdAt).toISOString(),
+      }))
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()),
     googleSheet: googleSheet
       ? { ...googleSheet, lastSyncAt: googleSheet.lastSyncAt?.toISOString() ?? null }
       : null,

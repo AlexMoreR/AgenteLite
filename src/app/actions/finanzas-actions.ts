@@ -7,7 +7,8 @@ import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import {
   appendFinanceSheetRow,
   ensureSheetHeaders,
-  readSheetRows,
+  fetchFinanceSheetRows,
+  parseFinanceSheetRows,
   isServiceAccountConfigured,
   deleteSheetRowByContent,
 } from "@/lib/google-sheets";
@@ -111,16 +112,48 @@ export async function sendFinanceMessageAction(
 
   const workspaceId = membership.workspace.id;
 
-  const [transactions, agentConfig, googleSheet] = await Promise.all([
-    prisma.financeTransaction.findMany({
-      where: { workspaceId },
-      orderBy: { date: "desc" },
-      take: 60,
-      select: { id: true, type: true, amount: true, description: true, category: true, date: true },
-    }),
+  const [agentConfig, googleSheet] = await Promise.all([
     prisma.financeAgentConfig.findUnique({ where: { workspaceId }, select: { systemPrompt: true } }),
     prisma.financeGoogleSheet.findUnique({ where: { workspaceId }, select: { sheetId: true } }),
   ]);
+
+  const loadCurrentTransactions = async (): Promise<TransactionPayload[]> => {
+    if (googleSheet) {
+      const rows = await fetchFinanceSheetRows(googleSheet.sheetId);
+      if (rows) {
+        return parseFinanceSheetRows(rows).map((t) => ({
+          id: t.id,
+          type: t.type,
+          amount: t.amount,
+          description: t.description,
+          category: t.category,
+          date: t.date.toISOString(),
+          source: "google_sheet",
+          createdAt: t.date.toISOString(),
+        }));
+      }
+    }
+
+    const prismaTransactions = await prisma.financeTransaction.findMany({
+      where: { workspaceId },
+      orderBy: { date: "desc" },
+      take: 60,
+      select: { id: true, type: true, amount: true, description: true, category: true, date: true, source: true, createdAt: true },
+    });
+
+    return prismaTransactions.map((t) => ({
+      id: t.id,
+      type: t.type,
+      amount: Number(t.amount),
+      description: t.description,
+      category: t.category,
+      date: t.date.toISOString(),
+      source: t.source,
+      createdAt: t.createdAt.toISOString(),
+    })).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  };
+
+  let transactions = await loadCurrentTransactions();
 
   const currency = "COP";
 
@@ -205,33 +238,71 @@ Fecha actual: ${new Date().toLocaleDateString("es-CO")}`;
             const description = String(args.description ?? "");
             const category = args.category ? String(args.category) : null;
             const now = new Date();
+            if (googleSheet) {
+              if (!isServiceAccountConfigured()) {
+                result = JSON.stringify({
+                  success: false,
+                  error: "Google Sheet conectado pero no hay credenciales de editor para escribir en la hoja",
+                });
+              } else {
+                const appendResult = await appendFinanceSheetRow({
+                  sheetId: googleSheet.sheetId,
+                  type,
+                  amount,
+                  description,
+                  category,
+                  date: now,
+                });
 
-            const created = await prisma.financeTransaction.create({
-              data: { workspaceId, type, amount, description, category, date: now, source: "manual" },
-            });
+                if (!appendResult.ok) {
+                  result = JSON.stringify({ success: false, error: appendResult.error });
+                } else {
+                  transactions = await loadCurrentTransactions();
+                  const latest = [...transactions]
+                    .reverse()
+                    .find((tx) =>
+                      tx.type === type &&
+                      Math.abs(tx.amount - amount) < 0.02 &&
+                      tx.description.trim().toLowerCase() === description.trim().toLowerCase() &&
+                      (category == null || tx.category === category),
+                    );
+                  const tx =
+                    latest ?? {
+                      id: `sh:${Date.now()}`,
+                      type,
+                      amount,
+                      description,
+                      category,
+                      date: now.toISOString(),
+                      source: "google_sheet",
+                      createdAt: now.toISOString(),
+                    };
+                  addedTransactions.push(tx);
+                  result = JSON.stringify({ success: true, id: tx.id, source: "google_sheet" });
+                }
+              }
+            } else {
+              const created = await prisma.financeTransaction.create({
+                data: { workspaceId, type, amount, description, category, date: now, source: "manual" },
+              });
 
-            if (googleSheet && isServiceAccountConfigured()) {
-              await appendFinanceSheetRow({ sheetId: googleSheet.sheetId, type, amount, description, category, date: now });
+              const tx: TransactionPayload = {
+                id: created.id,
+                type: created.type,
+                amount: Number(created.amount),
+                description: created.description,
+                category: created.category,
+                date: created.date.toISOString(),
+                source: created.source,
+                createdAt: created.createdAt.toISOString(),
+              };
+              transactions = [tx, ...transactions];
+              addedTransactions.push(tx);
+              result = JSON.stringify({ success: true, id: created.id });
             }
-
-            const tx: TransactionPayload = {
-              id: created.id,
-              type: created.type,
-              amount: Number(created.amount),
-              description: created.description,
-              category: created.category,
-              date: created.date.toISOString(),
-              source: created.source,
-              createdAt: created.createdAt.toISOString(),
-            };
-            addedTransactions.push(tx);
-            result = JSON.stringify({ success: true, id: created.id });
           } else if (toolCall.function.name === "update_transaction") {
             const id = String(args.id);
-            const existing = await prisma.financeTransaction.findFirst({
-              where: { id, workspaceId },
-              select: { type: true, amount: true, description: true, category: true, source: true },
-            });
+            const existing = transactions.find((tx) => tx.id === id);
             if (!existing) {
               result = JSON.stringify({ success: false, error: "Transacción no encontrada" });
             } else {
@@ -240,88 +311,126 @@ Fecha actual: ${new Date().toLocaleDateString("es-CO")}`;
               const newDescription = args.description != null ? String(args.description) : existing.description;
               const newCategory = args.category != null ? (String(args.category) || null) : existing.category;
 
-              const updated = await prisma.financeTransaction.update({
-                where: { id },
-                data: { type: newType, amount: newAmount, description: newDescription, category: newCategory },
-              });
+              if (googleSheet) {
+                if (!isServiceAccountConfigured()) {
+                  result = JSON.stringify({
+                    success: false,
+                    error: "Google Sheet conectado pero no hay credenciales de editor para escribir en la hoja",
+                  });
+                } else {
+                  const deleteResult = await deleteSheetRowByContent({
+                    sheetId: googleSheet.sheetId,
+                    description: existing.description,
+                    amount: Number(existing.amount),
+                    type: existing.type,
+                  });
 
-              if (existing.source === "google_sheet" && googleSheet && isServiceAccountConfigured()) {
-                await deleteSheetRowByContent({
-                  sheetId: googleSheet.sheetId,
-                  description: existing.description,
-                  amount: Number(existing.amount),
-                  type: existing.type,
+                  if (!deleteResult.ok) {
+                    result = JSON.stringify({ success: false, error: deleteResult.error ?? "No se pudo actualizar la hoja" });
+                  } else {
+                    const appendResult = await appendFinanceSheetRow({
+                      sheetId: googleSheet.sheetId,
+                      type: newType,
+                      amount: newAmount,
+                      description: newDescription,
+                      category: newCategory,
+                      date: new Date(),
+                    });
+
+                    if (!appendResult.ok) {
+                      result = JSON.stringify({ success: false, error: appendResult.error ?? "No se pudo actualizar la hoja" });
+                    } else {
+                      transactions = await loadCurrentTransactions();
+                      const updated =
+                        [...transactions].reverse().find((tx) =>
+                          tx.type === newType &&
+                          Math.abs(tx.amount - newAmount) < 0.02 &&
+                          tx.description.trim().toLowerCase() === newDescription.trim().toLowerCase() &&
+                          (newCategory == null || tx.category === newCategory),
+                        ) ?? {
+                          id: id,
+                          type: newType,
+                          amount: newAmount,
+                          description: newDescription,
+                          category: newCategory,
+                          date: new Date().toISOString(),
+                          source: "google_sheet",
+                          createdAt: new Date().toISOString(),
+                        };
+                      deletedIds.push(id);
+                      addedTransactions.push(updated);
+                      result = JSON.stringify({ success: true, updated: { type: newType, amount: newAmount, description: newDescription } });
+                    }
+                  }
+                }
+              } else {
+                const updated = await prisma.financeTransaction.update({
+                  where: { id },
+                  data: { type: newType, amount: newAmount, description: newDescription, category: newCategory },
                 });
-                await appendFinanceSheetRow({
-                  sheetId: googleSheet.sheetId,
-                  type: newType,
-                  amount: newAmount,
-                  description: newDescription,
-                  category: newCategory,
-                  date: new Date(),
-                });
+
+                deletedIds.push(id);
+                const tx = {
+                  id: updated.id,
+                  type: updated.type,
+                  amount: Number(updated.amount),
+                  description: updated.description,
+                  category: updated.category,
+                  date: updated.date.toISOString(),
+                  source: updated.source,
+                  createdAt: updated.createdAt.toISOString(),
+                };
+                transactions = transactions.map((current) => (current.id === id ? tx : current));
+                addedTransactions.push(tx);
+                result = JSON.stringify({ success: true, updated: { type: newType, amount: newAmount, description: newDescription } });
               }
-
-              deletedIds.push(id);
-              addedTransactions.push({
-                id: updated.id,
-                type: updated.type,
-                amount: Number(updated.amount),
-                description: updated.description,
-                category: updated.category,
-                date: updated.date.toISOString(),
-                source: updated.source,
-                createdAt: updated.createdAt.toISOString(),
-              });
-              result = JSON.stringify({ success: true, updated: { type: newType, amount: newAmount, description: newDescription } });
             }
           } else if (toolCall.function.name === "delete_transaction") {
             const id = String(args.id);
-            const tx = await prisma.financeTransaction.findFirst({
-              where: { id, workspaceId },
-              select: { source: true, description: true, amount: true, type: true },
-            });
-            await prisma.financeTransaction.deleteMany({ where: { id, workspaceId } });
-            deletedIds.push(id);
-            let sheetDeleted = false;
-            if (tx?.source === "google_sheet" && googleSheet && isServiceAccountConfigured()) {
-              const sheetResult = await deleteSheetRowByContent({
-                sheetId: googleSheet.sheetId,
-                description: tx.description,
-                amount: Number(tx.amount),
-                type: tx.type,
-              });
-              sheetDeleted = sheetResult.rowDeleted;
+            const tx = transactions.find((current) => current.id === id);
+            if (!tx) {
+              result = JSON.stringify({ success: false, error: "Transacción no encontrada" });
+            } else if (googleSheet) {
+              if (!isServiceAccountConfigured()) {
+                result = JSON.stringify({
+                  success: false,
+                  error: "Google Sheet conectado pero no hay credenciales de editor para escribir en la hoja",
+                });
+              } else {
+                const sheetResult = await deleteSheetRowByContent({
+                  sheetId: googleSheet.sheetId,
+                  description: tx.description,
+                  amount: Number(tx.amount),
+                  type: tx.type,
+                });
+                if (!sheetResult.ok) {
+                  result = JSON.stringify({ success: false, error: sheetResult.error ?? "No se pudo eliminar de la hoja" });
+                } else {
+                  transactions = transactions.filter((current) => current.id !== id);
+                  deletedIds.push(id);
+                  result = JSON.stringify({
+                    success: true,
+                    deletedFromSheet: sheetResult.rowDeleted,
+                  });
+                }
+              }
+            } else {
+              await prisma.financeTransaction.deleteMany({ where: { id, workspaceId } });
+              transactions = transactions.filter((current) => current.id !== id);
+              deletedIds.push(id);
+              result = JSON.stringify({ success: true, deletedFromSheet: "n/a" });
             }
-            result = JSON.stringify({
-              success: true,
-              deletedFromSheet: tx?.source === "google_sheet" ? sheetDeleted : "n/a",
-            });
           } else if (toolCall.function.name === "sync_google_sheet") {
             if (!googleSheet) {
               result = JSON.stringify({ success: false, error: "No hay Google Sheet conectado" });
             } else {
-              const beforeIds = (await prisma.financeTransaction.findMany({
-                where: { workspaceId },
-                select: { id: true },
-              })).map((t) => t.id);
-
+              const beforeIds = transactions.map((t) => t.id);
               const syncResult = await syncGoogleSheetAction();
 
               if (syncResult.ok) {
                 for (const oldId of beforeIds) deletedIds.push(oldId);
-                const newTxs = await prisma.financeTransaction.findMany({
-                  where: { workspaceId },
-                  orderBy: { date: "asc" },
-                  select: { id: true, type: true, amount: true, description: true, category: true, date: true, source: true, createdAt: true },
-                });
-                for (const t of newTxs) {
-                  addedTransactions.push({
-                    id: t.id, type: t.type, amount: Number(t.amount),
-                    description: t.description, category: t.category,
-                    date: t.date.toISOString(), source: t.source, createdAt: t.createdAt.toISOString(),
-                  });
-                }
+                transactions = await loadCurrentTransactions();
+                for (const t of transactions) addedTransactions.push(t);
                 result = JSON.stringify({ success: true, imported: syncResult.count ?? 0 });
               } else {
                 result = JSON.stringify({ success: false, error: syncResult.error });
@@ -433,6 +542,74 @@ export async function addTransactionAction(
   if (!amount || amount <= 0) return { ok: false, error: "Monto inválido" };
   if (!description) return { ok: false, error: "Descripción requerida" };
 
+  let sheetSync: "synced" | "skipped" | "failed" = "skipped";
+
+  const sheet = await prisma.financeGoogleSheet.findUnique({
+    where: { workspaceId: membership.workspace.id },
+    select: { sheetId: true, lastSyncAt: true },
+  });
+
+  if (sheet) {
+    if (!isServiceAccountConfigured()) {
+      return { ok: false, error: "Google Sheet conectado pero no hay credenciales de editor para escribir en la hoja" };
+    }
+
+    const appendResult = await appendFinanceSheetRow({
+      sheetId: sheet.sheetId,
+      type,
+      amount,
+      description,
+      category,
+      date: transactionDate,
+    });
+
+    if (!appendResult.ok) {
+      sheetSync = "failed";
+      return { ok: false, error: appendResult.error ?? "No se pudo guardar la transacción en Google Sheets" };
+    }
+
+    const rows = await fetchFinanceSheetRows(sheet.sheetId);
+    const parsed = rows ? parseFinanceSheetRows(rows) : [];
+    const latest =
+      [...parsed].reverse().find((tx) =>
+        tx.type === type &&
+        Math.abs(tx.amount - amount) < 0.02 &&
+        tx.description.trim().toLowerCase() === description.trim().toLowerCase() &&
+        (category == null || tx.category === category),
+      ) ?? null;
+
+    await prisma.financeGoogleSheet.update({
+      where: { workspaceId: membership.workspace.id },
+      data: { lastSyncAt: new Date() },
+    });
+
+    sheetSync = "synced";
+    const transaction = latest
+      ? {
+          id: latest.id,
+          type: latest.type,
+          amount: latest.amount,
+          description: latest.description,
+          category: latest.category,
+          date: latest.date.toISOString(),
+          source: "google_sheet",
+          createdAt: latest.date.toISOString(),
+        }
+      : {
+          id: `sh:${Date.now()}`,
+          type,
+          amount,
+          description,
+          category,
+          date: transactionDate.toISOString(),
+          source: "google_sheet",
+          createdAt: transactionDate.toISOString(),
+        };
+
+    revalidatePath("/cliente/finanzas");
+    return { ok: true, transaction, sheetSync };
+  }
+
   const created = await prisma.financeTransaction.create({
     data: {
       workspaceId: membership.workspace.id,
@@ -444,38 +621,6 @@ export async function addTransactionAction(
       source: "manual",
     },
   });
-
-  let sheetSync: "synced" | "skipped" | "failed" = "skipped";
-
-  const sheet = await prisma.financeGoogleSheet.findUnique({
-    where: { workspaceId: membership.workspace.id },
-    select: { sheetId: true },
-  });
-
-  if (sheet && isServiceAccountConfigured()) {
-    const appendResult = await appendFinanceSheetRow({
-      sheetId: sheet.sheetId,
-      type,
-      amount,
-      description,
-      category,
-      date: transactionDate,
-    });
-
-    if (appendResult.ok) {
-      sheetSync = "synced";
-      await prisma.financeGoogleSheet.update({
-        where: { workspaceId: membership.workspace.id },
-        data: { lastSyncAt: new Date() },
-      });
-    } else {
-      sheetSync = "failed";
-      console.error(
-        "[Finanzas] No se pudo guardar la transacción en Google Sheets:",
-        appendResult.error,
-      );
-    }
-  }
 
   revalidatePath("/cliente/finanzas");
   return {
@@ -500,6 +645,36 @@ export async function deleteTransactionAction(id: string): Promise<ActionResult>
 
   const membership = await getPrimaryWorkspaceForUser(session.user.id);
   if (!membership) return { ok: false, error: "Workspace no encontrado" };
+
+  const sheet = await prisma.financeGoogleSheet.findUnique({
+    where: { workspaceId: membership.workspace.id },
+    select: { sheetId: true },
+  });
+
+  if (sheet) {
+    const rows = await fetchFinanceSheetRows(sheet.sheetId);
+    const transactions = rows ? parseFinanceSheetRows(rows) : [];
+    const existing = transactions.find((current) => current.id === id);
+
+    if (!existing) return { ok: false, error: "Transacción no encontrada" };
+
+    if (!isServiceAccountConfigured()) {
+      return { ok: false, error: "Google Sheet conectado pero no hay credenciales de editor para escribir en la hoja" };
+    }
+
+    const sheetResult = await deleteSheetRowByContent({
+      sheetId: sheet.sheetId,
+      description: existing.description,
+      amount: Number(existing.amount),
+      type: existing.type,
+    });
+
+    if (!sheetResult.ok) {
+      return { ok: false, error: sheetResult.error ?? "No se pudo eliminar la fila de Google Sheets" };
+    }
+    revalidatePath("/cliente/finanzas");
+    return { ok: true };
+  }
 
   await prisma.financeTransaction.deleteMany({
     where: { id, workspaceId: membership.workspace.id },
@@ -609,6 +784,55 @@ function resolveType(cell: string): "INCOME" | "EXPENSE" | null {
 
 export async function syncGoogleSheetAction(): Promise<ActionResult & { headersJustCreated?: boolean }> {
   try {
+    {
+    const session = await auth();
+    if (!session?.user?.id || !["ADMIN", "CLIENTE"].includes(session.user.role ?? "")) {
+      return { ok: false, error: "No autorizado" };
+    }
+
+    const membership = await getPrimaryWorkspaceForUser(session.user.id);
+    if (!membership) return { ok: false, error: "Workspace no encontrado" };
+
+    const workspaceId = membership.workspace.id;
+    const sheet = await prisma.financeGoogleSheet.findUnique({ where: { workspaceId } });
+    if (!sheet) return { ok: false, error: "No hay hoja conectada" };
+
+    let headersJustCreated = false;
+    if (isServiceAccountConfigured()) {
+      const hResult = await ensureSheetHeaders(sheet.sheetId);
+      if (!hResult.ok) {
+        return { ok: false, error: hResult.error ?? "Error al configurar la hoja" };
+      }
+      headersJustCreated = hResult.headersWritten;
+    }
+
+    const rows = await fetchFinanceSheetRows(sheet.sheetId);
+    if (!rows) {
+      return { ok: false, error: "No se pudo leer la hoja de Google Sheets." };
+    }
+
+    if (rows.length < 2) {
+      if (headersJustCreated) {
+        await prisma.financeGoogleSheet.update({ where: { workspaceId }, data: { lastSyncAt: new Date() } });
+        revalidatePath("/cliente/finanzas");
+        return { ok: true, count: 0, headersJustCreated: true };
+      }
+      return { ok: false, error: "La hoja no tiene datos. Agrega filas debajo de los encabezados y vuelve a sincronizar." };
+    }
+
+    const parsed = parseFinanceSheetRows(rows);
+    if (!parsed.length) {
+      return {
+        ok: false,
+        error:
+          "No se encontraron filas válidas. Asegúrate de tener datos debajo de los encabezados con TIPO (GASTO o INGRESO) y MONTO.",
+      };
+    }
+
+    await prisma.financeGoogleSheet.update({ where: { workspaceId }, data: { lastSyncAt: new Date() } });
+    revalidatePath("/cliente/finanzas");
+    return { ok: true, count: parsed.length };
+    }
   const session = await auth();
   if (!session?.user?.id || !["ADMIN", "CLIENTE"].includes(session.user.role ?? "")) {
     return { ok: false, error: "No autorizado" };

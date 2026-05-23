@@ -349,10 +349,29 @@ export async function ensureSheetHeaders(sheetId: string): Promise<{
 }
 
 export async function readSheetRows(sheetId: string): Promise<string[][] | null> {
+  return fetchFinanceSheetRows(sheetId);
+}
+
+export async function fetchFinanceSheetRows(sheetId: string): Promise<string[][] | null> {
   const token = await getAccessToken();
-  if (!token) return null;
-  const { data } = await sheetsGet(token, sheetId, "A:F");
-  return data;
+  if (token) {
+    const { data } = await sheetsGet(token, sheetId, "A:F");
+    if (data) return data;
+  }
+
+  try {
+    const res = await fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv`, {
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) return null;
+    const csv = await res.text();
+    return csv
+      .split(/\r?\n/)
+      .filter((line) => line.trim().length > 0)
+      .map((line) => parseCSVLine(line));
+  } catch {
+    return null;
+  }
 }
 
 export async function deleteSheetRowByContent(input: {
@@ -442,4 +461,153 @@ export async function appendFinanceSheetRow(input: {
   }
 
   return { ok: true };
+}
+
+function parseCSVLine(line: string): string[] {
+  const result: string[] = [];
+  let current = "";
+  let inQuotes = false;
+  for (const char of line) {
+    if (char === '"') {
+      inQuotes = !inQuotes;
+    } else if (char === "," && !inQuotes) {
+      result.push(current);
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+  result.push(current);
+  return result.map((c) => c.trim().replace(/^"|"$/g, ""));
+}
+
+/** Normalize: lowercase, remove accents */
+function norm(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+}
+
+type ColumnMap = {
+  typeIdx: number;
+  amountIdx: number;
+  ingressIdx: number;
+  egressIdx: number;
+  descIdx: number;
+  catIdx: number;
+};
+
+function detectColumns(headers: string[]): ColumnMap {
+  const n = headers.map(norm);
+  const find = (keywords: string[]) => n.findIndex((h) => keywords.some((k) => h.includes(k)));
+
+  return {
+    typeIdx: find(["tipo", "type", "movimiento", "transaccion", "clase"]),
+    amountIdx: find(["monto", "valor", "cantidad", "amount", "importe", "total", "precio", "price"]),
+    ingressIdx: find(["ingreso", "income", "entrada", "credito", "cobro", "venta", "credit", "haber", "abono"]),
+    egressIdx: find(["gasto", "expense", "egreso", "salida", "debito", "compra", "debit", "debe", "cargo"]),
+    descIdx: find(["descripcion", "detalle", "concepto", "description", "detail", "nota", "referencia", "nombre"]),
+    catIdx: find(["categoria", "category", "rubro", "subcategoria", "etiqueta", "tag"]),
+  };
+}
+
+function parseAmount(raw: string): number {
+  const cleaned = raw.replace(/[$€\s]/g, "");
+  if (/^\d{1,3}(\.\d{3})+(,\d{1,2})?$/.test(cleaned)) {
+    return parseFloat(cleaned.replace(/\./g, "").replace(",", "."));
+  }
+  return parseFloat(cleaned.replace(",", "."));
+}
+
+function resolveType(cell: string): "INCOME" | "EXPENSE" | null {
+  const v = norm(cell);
+  if (["gasto", "expense", "egreso", "salida", "compra", "debito", "cargo"].includes(v)) return "EXPENSE";
+  if (["ingreso", "income", "entrada", "venta", "cobro", "credito", "abono"].includes(v)) return "INCOME";
+  return null;
+}
+
+export function parseFinanceSheetRows(rows: string[][]): ParsedSheetTx[] {
+  if (!rows || rows.length < 2) return [];
+
+  const firstRow = rows[0] ?? [];
+  const normalizedFirstRow = firstRow.map((cell) => cell.trim().toUpperCase());
+  const looksLikeOurSheet =
+    normalizedFirstRow.length >= 2 &&
+    normalizedFirstRow[0] === "TIPO" &&
+    normalizedFirstRow[1] === "MONTO";
+
+  if (looksLikeOurSheet) {
+    return parseOurSheetFormat(rows);
+  }
+
+  const headers = rows[0];
+  const cols = detectColumns(headers);
+  const hasTwoAmountCols = cols.ingressIdx >= 0 && cols.egressIdx >= 0;
+  const hasTypeCol = cols.typeIdx >= 0;
+  const hasAmountCol = cols.amountIdx >= 0;
+
+  const result: ParsedSheetTx[] = [];
+
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row || row.every((c) => !c.trim())) continue;
+
+    let type: "INCOME" | "EXPENSE" | null = null;
+    let amount = 0;
+
+    if (hasTwoAmountCols) {
+      const incVal = parseAmount(row[cols.ingressIdx] ?? "");
+      const expVal = parseAmount(row[cols.egressIdx] ?? "");
+      if (incVal > 0) {
+        type = "INCOME";
+        amount = incVal;
+      } else if (expVal > 0) {
+        type = "EXPENSE";
+        amount = expVal;
+      }
+    } else if (hasTypeCol && hasAmountCol) {
+      type = resolveType(row[cols.typeIdx] ?? "");
+      amount = parseAmount(row[cols.amountIdx] ?? "");
+    } else if (hasAmountCol) {
+      amount = parseAmount(row[cols.amountIdx] ?? "");
+      if (amount > 0) type = "INCOME";
+      else if (amount < 0) {
+        type = "EXPENSE";
+        amount = Math.abs(amount);
+      }
+    } else {
+      type = resolveType(row[0] ?? "");
+      amount = parseAmount(row[1] ?? "");
+    }
+
+    if (!type || !amount || amount <= 0) continue;
+
+    let description =
+      cols.descIdx >= 0
+        ? (row[cols.descIdx] ?? "").trim()
+        : (row.find((c, idx) => {
+            if ([cols.typeIdx, cols.amountIdx, cols.ingressIdx, cols.egressIdx, cols.catIdx].includes(idx)) {
+              return false;
+            }
+            return c.trim().length > 0 && isNaN(parseAmount(c));
+          }) ?? "");
+
+    if (!description) description = type === "INCOME" ? "Ingreso" : "Gasto";
+
+    const category = cols.catIdx >= 0 ? (row[cols.catIdx] ?? "").trim() || null : null;
+
+    result.push({
+      id: makeSheetTxId(i, type, amount, description),
+      rowIndex: i,
+      type,
+      amount,
+      description,
+      category,
+      date: new Date(),
+    });
+  }
+
+  return result;
 }

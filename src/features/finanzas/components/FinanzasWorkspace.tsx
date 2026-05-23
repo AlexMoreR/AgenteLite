@@ -45,11 +45,27 @@ function formatDateLabel(isoDate: string): string {
   if (diff === 0) return "Hoy";
   if (diff === 1) return "Ayer";
   if (diff < 7) return `Hace ${diff} dias`;
-  return d.toLocaleDateString("es-CO", { day: "numeric", month: "long" });
+  return new Intl.DateTimeFormat("es-CO", {
+    timeZone: "America/Bogota",
+    day: "numeric",
+    month: "long",
+  }).format(d);
 }
 
 function formatTime(isoDate: string): string {
-  return new Date(isoDate).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" });
+  const date = new Date(isoDate);
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Bogota",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).formatToParts(date);
+
+  const hour = parts.find((part) => part.type === "hour")?.value ?? "0";
+  const minute = parts.find((part) => part.type === "minute")?.value ?? "00";
+  const dayPeriod = parts.find((part) => part.type === "dayPeriod")?.value ?? "AM";
+
+  return `${hour}:${minute} ${dayPeriod === "AM" ? "a. m." : "p. m."}`;
 }
 
 function isSameCalendarDay(left: string, right: string): boolean {
