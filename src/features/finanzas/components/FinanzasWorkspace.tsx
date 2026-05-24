@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import { createPortal } from "react-dom";
-import { useState, useRef, useEffect, useTransition, useMemo } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useTransition, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -32,8 +32,8 @@ import { Textarea } from "@/components/ui/textarea";
 import type { FinanzasData, FinanceTransaction, FinanceChatMessage } from "../types";
 
 type ChatEvent =
-  | { id: string; kind: "assistant"; text: string }
-  | { id: string; kind: "user"; text: string }
+  | { id: string; kind: "assistant"; text: string; createdAt: string }
+  | { id: string; kind: "user"; text: string; createdAt: string }
   | { id: string; kind: "userTransaction"; transaction: FinanceTransaction }
   | { id: string; kind: "transaction"; transaction: FinanceTransaction };
 
@@ -53,6 +53,77 @@ const CHAT_BACKGROUND_OVERLAY_STYLE = {
 } as const;
 
 const FINANCE_CONTEXT_PREFIX = "__FINANCE_CONTEXT__:";
+const FINANCE_CHAT_HISTORY_PREFIX = "__FINANCE_CHAT_HISTORY__:";
+const FINANCE_WELCOME_MESSAGE =
+  "Hola, soy tu asistente de finanzas con IA. Puedes decirme tus gastos e ingresos en lenguaje natural, pedirme que elimine alguno o hacerme preguntas sobre tus movimientos.";
+
+type PersistedChatMessage = Pick<FinanceChatMessage, "id" | "role" | "content" | "createdAt">;
+
+function getFinanceChatStorageKey(workspaceId: string): string {
+  return `${FINANCE_CHAT_HISTORY_PREFIX}${workspaceId}`;
+}
+
+function loadPersistedFinanceChatMessages(workspaceId: string): PersistedChatMessage[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(getFinanceChatStorageKey(workspaceId));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item) => {
+        if (!item || typeof item !== "object") return null;
+        const candidate = item as Partial<PersistedChatMessage>;
+        if (candidate.role !== "user" && candidate.role !== "assistant") return null;
+        if (typeof candidate.content !== "string" || typeof candidate.createdAt !== "string") return null;
+        if (candidate.id === "assistant-welcome" || candidate.content === FINANCE_WELCOME_MESSAGE) return null;
+        return {
+          id: typeof candidate.id === "string" ? candidate.id : `persisted-${candidate.role}-${candidate.createdAt}`,
+          role: candidate.role,
+          content: candidate.content,
+          createdAt: candidate.createdAt,
+        } satisfies PersistedChatMessage;
+      })
+      .filter((item): item is PersistedChatMessage => Boolean(item));
+  } catch {
+    return [];
+  }
+}
+
+function savePersistedFinanceChatMessages(workspaceId: string, messages: PersistedChatMessage[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(getFinanceChatStorageKey(workspaceId), JSON.stringify(messages));
+  } catch {
+    // Ignore storage failures so chat keeps working.
+  }
+}
+
+function clearPersistedFinanceChatMessages(workspaceId: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(getFinanceChatStorageKey(workspaceId));
+  } catch {
+    // Ignore storage failures so chat keeps working.
+  }
+}
+
+function mergeFinanceChatMessages(
+  primary: FinanceChatMessage[],
+  fallback: PersistedChatMessage[],
+): FinanceChatMessage[] {
+  const seen = new Set<string>();
+  const merged: FinanceChatMessage[] = [];
+
+  for (const message of [...primary, ...fallback]) {
+    const key = `${message.role}|${message.content}|${message.createdAt}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(message);
+  }
+
+  return merged.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+}
 
 function formatDateLabel(isoDate: string): string {
   const d = new Date(isoDate);
@@ -96,13 +167,17 @@ function buildInitialChatEvents(
   const intro: ChatEvent = {
     id: "assistant-welcome",
     kind: "assistant",
-    text: "Hola, soy tu asistente de finanzas con IA. Puedes decirme tus gastos e ingresos en lenguaje natural, pedirme que elimine alguno o hacerme preguntas sobre tus movimientos.",
+    text: FINANCE_WELCOME_MESSAGE,
+    createdAt:
+      chatMessages[0]?.createdAt ??
+      transactions[0]?.createdAt ??
+      new Date(0).toISOString(),
   };
 
   type Timed = { time: number; event: ChatEvent };
 
   const txItems: Timed[] = transactions.map((t) => ({
-    time: new Date(t.date).getTime(),
+    time: new Date(t.createdAt).getTime(),
     event:
       t.source === "manual"
         ? ({ id: `user-tx-${t.id}`, kind: "userTransaction", transaction: t } as ChatEvent)
@@ -113,12 +188,13 @@ function buildInitialChatEvents(
     .filter((m) => !m.content.startsWith(FINANCE_CONTEXT_PREFIX))
     .map((m) => ({
       time: new Date(m.createdAt).getTime(),
-      event: { id: `msg-${m.id}`, kind: m.role, text: m.content } as ChatEvent,
+      event: { id: `msg-${m.id}`, kind: m.role, text: m.content, createdAt: m.createdAt } as ChatEvent,
     }));
 
-  const sorted = [...txItems, ...msgItems].sort((a, b) => a.time - b.time).map((x) => x.event);
+  const sortedTransactions = txItems.sort((a, b) => a.time - b.time).map((x) => x.event);
+  const sortedMessages = msgItems.sort((a, b) => a.time - b.time).map((x) => x.event);
 
-  return [intro, ...sorted];
+  return [intro, ...sortedTransactions, ...sortedMessages];
 }
 
 // ── Settings dialog ───────────────────────────────────────────────
@@ -456,6 +532,7 @@ export function FinanzasWorkspace({
   chatMessages: initialChatMessages,
   googleSheet,
   serviceAccountEmail,
+  workspaceId,
   currency,
   agentPrompt,
 }: FinanzasData) {
@@ -473,20 +550,50 @@ export function FinanzasWorkspace({
   const [isPending, startTransition] = useTransition();
   const feedRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  const shouldAutoScrollRef = useRef(false);
   const router = useRouter();
 
   const isBusy = isPending || isThinking;
 
   useEffect(() => {
+    setTransactions(initialTransactions);
+  }, [initialTransactions]);
+
+  useLayoutEffect(() => {
+    if (!shouldAutoScrollRef.current) return;
     const feed = feedRef.current;
-    if (!feed) return;
+    const end = endRef.current;
+    if (!feed || !end) return;
 
-    const frame = window.requestAnimationFrame(() => {
-      feed.scrollTop = feed.scrollHeight;
-    });
-
-    return () => window.cancelAnimationFrame(frame);
+    end.scrollIntoView({ block: "end", behavior: "auto" });
+    feed.scrollTop = feed.scrollHeight;
+    shouldAutoScrollRef.current = false;
   }, [chatEvents.length, isThinking]);
+
+  useEffect(() => {
+    const persistedMessages = loadPersistedFinanceChatMessages(workspaceId);
+    if (!persistedMessages.length) return;
+
+    const mergedMessages = mergeFinanceChatMessages(initialChatMessages, persistedMessages);
+    setChatEvents(buildInitialChatEvents(initialTransactions, mergedMessages));
+    llmHistoryRef.current = mergedMessages.slice(-40).map((m) => ({ role: m.role, content: m.content }));
+  }, [initialChatMessages, initialTransactions, workspaceId]);
+
+  useEffect(() => {
+    const persistedMessages = chatEvents
+      .filter((event): event is Extract<ChatEvent, { kind: "user" | "assistant" }> =>
+        event.kind === "user" || event.kind === "assistant",
+      )
+      .filter((event) => event.id !== "assistant-welcome" && event.text !== FINANCE_WELCOME_MESSAGE)
+      .map((event) => ({
+        id: event.id,
+        role: event.kind,
+        content: event.text,
+        createdAt: event.createdAt,
+      }));
+
+    savePersistedFinanceChatMessages(workspaceId, persistedMessages);
+  }, [chatEvents, workspaceId]);
 
   const summary = useMemo(() => {
     const income = transactions.filter((t) => t.type === "INCOME").reduce((s, t) => s + t.amount, 0);
@@ -507,10 +614,11 @@ export function FinanzasWorkspace({
     const message = input.trim();
     if (!message || isBusy) return;
     setInput("");
+    shouldAutoScrollRef.current = true;
 
     setChatEvents((prev) => [
       ...prev,
-      { id: `user-${Date.now()}`, kind: "user", text: message },
+      { id: `user-${Date.now()}`, kind: "user", text: message, createdAt: new Date().toISOString() },
     ]);
     setIsThinking(true);
 
@@ -520,8 +628,9 @@ export function FinanzasWorkspace({
       if (!result.ok) {
         setChatEvents((prev) => [
           ...prev,
-          { id: `assistant-${Date.now()}`, kind: "assistant", text: result.error },
+          { id: `assistant-${Date.now()}`, kind: "assistant", text: result.error, createdAt: new Date().toISOString() },
         ]);
+        shouldAutoScrollRef.current = true;
         return;
       }
 
@@ -552,7 +661,8 @@ export function FinanzasWorkspace({
         );
       }
 
-      newEvents.push({ id: `assistant-${Date.now()}`, kind: "assistant", text: reply });
+      newEvents.push({ id: `assistant-${Date.now()}`, kind: "assistant", text: reply, createdAt: new Date().toISOString() });
+      shouldAutoScrollRef.current = true;
       setChatEvents((prev) => [...prev, ...newEvents]);
     } finally {
       setIsThinking(false);
@@ -719,8 +829,13 @@ export function FinanzasWorkspace({
                     if (event.kind === "user") {
                       return (
                         <div key={event.id} className="flex justify-end">
-                          <div className="max-w-[74%] rounded-[10px] rounded-br-[4px] bg-[linear-gradient(180deg,#3b5bfd_0%,#2c4df5_100%)] px-3 py-2 text-[13px] font-medium leading-4 whitespace-pre-wrap text-white shadow-[0_8px_16px_-10px_rgba(15,23,42,0.28),0_2px_4px_rgba(15,23,42,0.06)] [overflow-wrap:anywhere] sm:max-w-[68%] sm:px-3 sm:py-2 md:shadow-[0_8px_16px_-10px_rgba(15,23,42,0.22),0_2px_4px_rgba(15,23,42,0.05)] lg:max-w-[58%]">
-                            {event.text}
+                          <div className="flex max-w-[74%] flex-col items-end gap-0.5 sm:max-w-[68%] lg:max-w-[58%]">
+                            <div className="rounded-[10px] rounded-br-[4px] bg-[linear-gradient(180deg,#3b5bfd_0%,#2c4df5_100%)] px-3 py-2 text-[13px] font-medium leading-4 whitespace-pre-wrap text-white shadow-[0_8px_16px_-10px_rgba(15,23,42,0.28),0_2px_4px_rgba(15,23,42,0.06)] [overflow-wrap:anywhere] md:shadow-[0_8px_16px_-10px_rgba(15,23,42,0.22),0_2px_4px_rgba(15,23,42,0.05)]">
+                              {event.text}
+                            </div>
+                            <p className="text-[10px] leading-none text-slate-400">
+                              {formatTime(event.createdAt)}
+                            </p>
                           </div>
                         </div>
                       );
@@ -729,8 +844,13 @@ export function FinanzasWorkspace({
                     if (event.kind === "assistant") {
                       return (
                         <div key={event.id} className="flex justify-start">
-                          <div className="max-w-[78%] rounded-[10px] rounded-bl-[4px] border border-[rgba(148,163,184,0.12)] bg-white px-3 py-2 text-[13px] leading-4 whitespace-pre-wrap text-slate-900 shadow-[0_8px_16px_-10px_rgba(15,23,42,0.18),0_2px_4px_rgba(15,23,42,0.05)] [overflow-wrap:anywhere] sm:max-w-[68%] sm:px-3 sm:py-2 md:shadow-[0_8px_16px_-10px_rgba(15,23,42,0.14),0_2px_4px_rgba(15,23,42,0.04)] lg:max-w-[58%]">
-                            {event.text}
+                          <div className="flex max-w-[78%] flex-col items-start gap-0.5 sm:max-w-[68%] lg:max-w-[58%]">
+                            <div className="rounded-[10px] rounded-bl-[4px] border border-[rgba(148,163,184,0.12)] bg-white px-3 py-2 text-[13px] leading-4 whitespace-pre-wrap text-slate-900 shadow-[0_8px_16px_-10px_rgba(15,23,42,0.18),0_2px_4px_rgba(15,23,42,0.05)] [overflow-wrap:anywhere] md:shadow-[0_8px_16px_-10px_rgba(15,23,42,0.14),0_2px_4px_rgba(15,23,42,0.04)]">
+                              {event.text}
+                            </div>
+                            <p className="text-[10px] leading-none text-slate-400">
+                              {formatTime(event.createdAt)}
+                            </p>
                           </div>
                         </div>
                       );
@@ -789,13 +909,22 @@ export function FinanzasWorkspace({
                                       <p className="text-[13px] leading-4 text-slate-900 [overflow-wrap:anywhere]">
                                         {t.description}
                                       </p>
+                                      <span
+                                        className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${
+                                          t.type === "INCOME"
+                                            ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200/70"
+                                            : "bg-rose-50 text-rose-700 ring-1 ring-rose-200/70"
+                                        }`}
+                                      >
+                                        {t.type === "INCOME" ? "Ingreso" : "Gasto"}
+                                      </span>
                                       {t.source === "google_sheet" && (
-                                        <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500 ring-1 ring-slate-200">
+                                        <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500 ring-1 ring-slate-200">
                                           Sheet
                                         </span>
                                       )}
                                       {t.category && (
-                                        <span className="rounded-full bg-white px-2 py-0.5 text-[10px] text-slate-500 ring-1 ring-slate-200">
+                                        <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[10px] text-slate-500 ring-1 ring-slate-200">
                                           {t.category}
                                         </span>
                                       )}
@@ -883,6 +1012,7 @@ export function FinanzasWorkspace({
           onSaved={() => router.refresh()}
           onChatCleared={() => {
             llmHistoryRef.current = [];
+            clearPersistedFinanceChatMessages(workspaceId);
             setChatEvents(buildInitialChatEvents(transactions, []));
             setShowSettings(false);
           }}

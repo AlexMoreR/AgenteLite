@@ -115,6 +115,21 @@ function normalizeFinanceText(text: string): string {
     .trim();
 }
 
+function buildFinanceDateWithCurrentTime(year: number, monthIndex: number, day: number, reference = new Date()): Date {
+  const date = new Date(
+    Date.UTC(
+      year,
+      monthIndex,
+      day,
+      reference.getUTCHours(),
+      reference.getUTCMinutes(),
+      reference.getUTCSeconds(),
+      reference.getUTCMilliseconds(),
+    ),
+  );
+  return Number.isNaN(date.getTime()) ? new Date() : date;
+}
+
 function extractFinanceDateFromText(text: string): Date | null {
   const normalized = normalizeFinanceText(text);
 
@@ -123,8 +138,7 @@ function extractFinanceDateFromText(text: string): Date | null {
     const day = Number(fullDateMatch[1]);
     const month = Number(fullDateMatch[2]);
     const year = fullDateMatch[3] ? Number(fullDateMatch[3].length === 2 ? `20${fullDateMatch[3]}` : fullDateMatch[3]) : new Date().getFullYear();
-    const date = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
-    return Number.isNaN(date.getTime()) ? null : date;
+    return buildFinanceDateWithCurrentTime(year, month - 1, day);
   }
 
   const textDateMatch = normalized.match(
@@ -137,8 +151,7 @@ function extractFinanceDateFromText(text: string): Date | null {
   if (!month) return null;
 
   const year = textDateMatch[3] ? Number(textDateMatch[3]) : new Date().getFullYear();
-  const date = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
-  return Number.isNaN(date.getTime()) ? null : date;
+  return buildFinanceDateWithCurrentTime(year, month - 1, day);
 }
 
 function extractTargetDateFromText(text: string): Date | null {
@@ -158,15 +171,13 @@ function extractTargetDateFromText(text: string): Date | null {
       const month = SPANISH_MONTHS[match[2]] ?? null;
       const year = match[3] ? Number(match[3].length === 2 ? `20${match[3]}` : match[3]) : new Date().getFullYear();
       if (!month) continue;
-      const date = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
-      if (!Number.isNaN(date.getTime())) return date;
+      return buildFinanceDateWithCurrentTime(year, month - 1, day);
     }
 
     const day = Number(match[1]);
     const month = Number(match[2]);
     const year = match[3] ? Number(match[3].length === 2 ? `20${match[3]}` : match[3]) : new Date().getFullYear();
-    const date = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
-    if (!Number.isNaN(date.getTime())) return date;
+    return buildFinanceDateWithCurrentTime(year, month - 1, day);
   }
 
   return null;
@@ -203,8 +214,7 @@ function parseFinanceDateInput(value: unknown): Date | null {
     const year = Number(ymdMatch[1]);
     const month = Number(ymdMatch[2]);
     const day = Number(ymdMatch[3]);
-    const date = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
-    return Number.isNaN(date.getTime()) ? null : date;
+    return buildFinanceDateWithCurrentTime(year, month - 1, day);
   }
 
   const date = new Date(trimmed);
@@ -286,8 +296,7 @@ function resolveTargetDateFromMessage(message: string, existing: TransactionPayl
   if (!dayOnly) return null;
 
   const existingDate = new Date(existing.date);
-  const date = new Date(Date.UTC(existingDate.getUTCFullYear(), existingDate.getUTCMonth(), dayOnly, 12, 0, 0));
-  return Number.isNaN(date.getTime()) ? null : date;
+  return buildFinanceDateWithCurrentTime(existingDate.getUTCFullYear(), existingDate.getUTCMonth(), dayOnly);
 }
 
 const FINANCE_CONTEXT_PREFIX = "__FINANCE_CONTEXT__:";

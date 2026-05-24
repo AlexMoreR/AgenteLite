@@ -15,11 +15,7 @@ export default async function FinanzasAssistantPage() {
   const data = await getFinanzasData(session.user.id);
   if (!data) redirect("/cliente");
 
-  const workspaceKey = [
-    data.currency,
-    data.googleSheet?.id ?? "no-sheet",
-    ...data.transactions.map((transaction) => `${transaction.id}:${transaction.date}:${transaction.amount}`),
-  ].join("|");
+  const workspaceKey = [data.workspaceId, data.currency, data.googleSheet?.id ?? "no-sheet"].join("|");
 
   return <FinanzasWorkspace key={workspaceKey} {...data} />;
 }

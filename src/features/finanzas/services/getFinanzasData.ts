@@ -39,7 +39,7 @@ export async function getFinanzasData(userId: string): Promise<FinanzasData | nu
     }),
     prisma.financeChatMessage.findMany({
       where: { workspaceId },
-      orderBy: { createdAt: "asc" },
+      orderBy: { createdAt: "desc" },
       take: 200,
       select: { id: true, role: true, content: true, createdAt: true },
     }),
@@ -47,19 +47,19 @@ export async function getFinanzasData(userId: string): Promise<FinanzasData | nu
 
   let transactions: FinanceTransactionRecord[] = (
     await prisma.financeTransaction.findMany({
-    where: { workspaceId },
-    orderBy: { date: "asc" },
-    take: 300,
-    select: {
-      id: true,
-      type: true,
-      amount: true,
-      description: true,
-      category: true,
-      date: true,
-      source: true,
-      createdAt: true,
-    },
+      where: { workspaceId },
+      orderBy: { date: "desc" },
+      take: 300,
+      select: {
+        id: true,
+        type: true,
+        amount: true,
+        description: true,
+        category: true,
+        date: true,
+        source: true,
+        createdAt: true,
+      },
     })
   ).map((t) => ({
     id: t.id,
@@ -102,6 +102,7 @@ export async function getFinanzasData(userId: string): Promise<FinanzasData | nu
       ? { ...googleSheet, lastSyncAt: googleSheet.lastSyncAt?.toISOString() ?? null }
       : null,
     chatMessages: chatMessages
+      .reverse()
       .filter((m) => !m.content.startsWith(FINANCE_CONTEXT_PREFIX))
       .map((m) => ({
         id: m.id,
