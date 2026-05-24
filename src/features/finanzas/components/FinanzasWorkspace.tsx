@@ -763,11 +763,11 @@ export function FinanzasWorkspace({
             {/* Summary bar */}
             <div className="relative z-10 border-b border-[rgba(148,163,184,0.08)] bg-white px-2.5 py-1.5 sm:px-4 sm:py-2 md:shadow-[0_1px_0_rgba(226,232,240,0.85),0_8px_10px_-12px_rgba(15,23,42,0.08)]">
               <div className="relative flex items-center justify-center">
-                <div className="flex w-full justify-center gap-1 px-1 sm:hidden">
+                <div className="flex w-full items-center gap-2 sm:hidden">
                   <button
                     type="button"
                     onClick={() => handleSummaryCardClick("income")}
-                    className="inline-flex min-w-[4.3rem] flex-col items-center rounded-lg border border-emerald-200/55 bg-emerald-50 px-1.5 py-1 text-center transition active:scale-[0.99]"
+                    className="inline-flex min-w-[4rem] flex-1 flex-col items-center rounded-lg border border-emerald-200/55 bg-emerald-50 px-1.5 py-1 text-center transition active:scale-[0.99]"
                     aria-label={`Mostrar ${expandedSummaryCard === "income" ? "valor corto" : "valor completo"} de ingresos`}
                     title={formatMoney(summary.income, currency)}
                   >
@@ -784,7 +784,7 @@ export function FinanzasWorkspace({
                   <button
                     type="button"
                     onClick={() => handleSummaryCardClick("expense")}
-                    className="inline-flex min-w-[4.3rem] flex-col items-center rounded-lg border border-rose-200/65 bg-rose-50 px-1.5 py-1 text-center transition active:scale-[0.99]"
+                    className="inline-flex min-w-[4rem] flex-1 flex-col items-center rounded-lg border border-rose-200/65 bg-rose-50 px-1.5 py-1 text-center transition active:scale-[0.99]"
                     aria-label={`Mostrar ${expandedSummaryCard === "expense" ? "valor corto" : "valor completo"} de gastos`}
                     title={formatMoney(summary.expense, currency)}
                   >
@@ -801,7 +801,7 @@ export function FinanzasWorkspace({
                   <button
                     type="button"
                     onClick={() => handleSummaryCardClick("balance")}
-                    className={`inline-flex min-w-[4.3rem] flex-col items-center rounded-lg border px-1.5 py-1.5 ${
+                    className={`inline-flex min-w-[4rem] flex-1 flex-col items-center rounded-lg border px-1.5 py-1.5 ${
                       summary.balance >= 0
                         ? "border-[color:color-mix(in_srgb,var(--primary)_18%,white)] bg-[color:color-mix(in_srgb,var(--primary)_7%,white)]"
                         : "border-rose-200/70 bg-rose-50"
@@ -817,6 +817,26 @@ export function FinanzasWorkspace({
                         {getSummaryValue("balance", summary.balance)}
                       </p>
                     </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => router.push("/cliente/finanzas")}
+                    className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[rgba(148,163,184,0.14)] bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
+                    title="Volver"
+                    aria-label="Volver a finanzas"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowSettings(true)}
+                    className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[rgba(148,163,184,0.14)] bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
+                    title="Configuración"
+                    aria-label="Abrir configuración"
+                  >
+                    <Settings className="h-4 w-4" />
                   </button>
                 </div>
 
@@ -858,7 +878,7 @@ export function FinanzasWorkspace({
                 <button
                   type="button"
                   onClick={() => router.push("/cliente/finanzas")}
-                  className="absolute left-0 top-1/2 flex h-7 w-7 -translate-y-1/2 shrink-0 items-center justify-center rounded-full border border-[rgba(148,163,184,0.14)] bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-700 sm:h-8 sm:w-8 md:hidden"
+                  className="absolute left-0 top-1/2 hidden h-7 w-7 -translate-y-1/2 shrink-0 items-center justify-center rounded-full border border-[rgba(148,163,184,0.14)] bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-700 sm:flex sm:h-8 sm:w-8"
                   title="Volver"
                   aria-label="Volver a finanzas"
                 >
@@ -868,7 +888,7 @@ export function FinanzasWorkspace({
                 <button
                   type="button"
                   onClick={() => setShowSettings(true)}
-                  className="absolute right-0 top-1/2 flex h-7 w-7 -translate-y-1/2 shrink-0 items-center justify-center rounded-full border border-[rgba(148,163,184,0.14)] bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-700 sm:h-8 sm:w-8"
+                  className="absolute right-0 top-1/2 hidden h-7 w-7 -translate-y-1/2 shrink-0 items-center justify-center rounded-full border border-[rgba(148,163,184,0.14)] bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-700 sm:flex sm:h-8 sm:w-8"
                   title="Configuración"
                 >
                   <Settings className="h-4 w-4" />
