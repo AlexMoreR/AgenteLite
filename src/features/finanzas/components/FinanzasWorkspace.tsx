@@ -582,7 +582,9 @@ export function FinanzasWorkspace({
   const [isPending, startTransition] = useTransition();
   const feedRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
-  const shouldAutoScrollRef = useRef(false);
+  const composerRef = useRef<HTMLDivElement>(null);
+  const [composerHeight, setComposerHeight] = useState(96);
+  const shouldAutoScrollRef = useRef(true);
   const router = useRouter();
 
   const isBusy = isPending || isThinking;
@@ -603,10 +605,29 @@ export function FinanzasWorkspace({
   }, [chatEvents.length, isThinking]);
 
   useEffect(() => {
+    const composer = composerRef.current;
+    if (!composer) return;
+
+    const updateComposerHeight = () => {
+      setComposerHeight(Math.ceil(composer.getBoundingClientRect().height));
+    };
+
+    updateComposerHeight();
+
+    if (typeof ResizeObserver === "undefined") return;
+
+    const observer = new ResizeObserver(updateComposerHeight);
+    observer.observe(composer);
+
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
     const persistedMessages = loadPersistedFinanceChatMessages(workspaceId);
     if (!persistedMessages.length) return;
 
     const mergedMessages = mergeFinanceChatMessages(initialChatMessages, persistedMessages);
+    shouldAutoScrollRef.current = true;
     setChatEvents(buildInitialChatEvents(initialTransactions, mergedMessages, transactionAnchors));
     llmHistoryRef.current = mergedMessages.slice(-40).map((m) => ({ role: m.role, content: m.content }));
   }, [initialChatMessages, initialTransactions, transactionAnchors, workspaceId]);
@@ -729,7 +750,10 @@ export function FinanzasWorkspace({
   }
 
   return (
-    <div className="chat-app-layout flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-[var(--background)]">
+    <div
+      className="chat-app-layout flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-[var(--background)]"
+      style={{ ["--finance-composer-height" as string]: `${composerHeight}px` }}
+    >
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-0 py-0 md:px-2 md:py-2 lg:px-3">
         <div className="mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col">
           <div className="relative grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-none border-0 bg-transparent text-slate-900 shadow-none md:rounded-[22px] md:border md:border-[rgba(203,213,225,0.88)] md:shadow-[inset_0_1px_0_rgba(255,255,255,0.98),inset_0_0_0_1px_rgba(255,255,255,0.55),0_0_0_1px_rgba(226,232,240,0.92),0_4px_10px_rgba(15,23,42,0.06),0_18px_38px_-18px_rgba(15,23,42,0.16)]">
@@ -737,21 +761,21 @@ export function FinanzasWorkspace({
             <div aria-hidden="true" className="pointer-events-none absolute inset-0" style={CHAT_BACKGROUND_OVERLAY_STYLE} />
 
             {/* Summary bar */}
-            <div className="relative z-10 border-b border-[rgba(148,163,184,0.08)] bg-white px-3 py-2 sm:px-4 sm:py-2 md:shadow-[0_1px_0_rgba(226,232,240,0.85),0_8px_10px_-12px_rgba(15,23,42,0.08)]">
+            <div className="relative z-10 border-b border-[rgba(148,163,184,0.08)] bg-white px-2.5 py-1.5 sm:px-4 sm:py-2 md:shadow-[0_1px_0_rgba(226,232,240,0.85),0_8px_10px_-12px_rgba(15,23,42,0.08)]">
               <div className="relative flex items-center justify-center">
-                <div className="grid w-full grid-cols-3 gap-1.5 px-9 sm:hidden">
+                <div className="grid w-full grid-cols-3 gap-1 px-8 sm:hidden">
                   <button
                     type="button"
                     onClick={() => handleSummaryCardClick("income")}
-                    className="min-w-0 rounded-2xl border border-emerald-200/55 bg-emerald-50 px-2 py-1.5 text-center transition active:scale-[0.99]"
+                    className="min-w-0 rounded-2xl border border-emerald-200/55 bg-emerald-50 px-1.5 py-1 text-center transition active:scale-[0.99]"
                     aria-label={`Mostrar ${expandedSummaryCard === "income" ? "valor corto" : "valor completo"} de ingresos`}
                     title={formatMoney(summary.income, currency)}
                   >
                     <div className="min-w-0 text-center">
-                      <p className="text-center text-[9px] font-medium uppercase tracking-[0.14em] text-emerald-600/80">
+                      <p className="text-center text-[8px] font-medium uppercase tracking-[0.12em] text-emerald-600/80">
                         Ingresos
                       </p>
-                      <p className="mt-0.5 text-center text-[10px] font-semibold leading-tight tracking-[-0.02em] text-emerald-700">
+                      <p className="mt-0.5 text-center text-[9px] font-semibold leading-tight tracking-[-0.02em] text-emerald-700">
                         {getSummaryValue("income", summary.income)}
                       </p>
                     </div>
@@ -760,15 +784,15 @@ export function FinanzasWorkspace({
                   <button
                     type="button"
                     onClick={() => handleSummaryCardClick("expense")}
-                    className="min-w-0 rounded-2xl border border-rose-200/65 bg-rose-50 px-2 py-1.5 text-center transition active:scale-[0.99]"
+                    className="min-w-0 rounded-2xl border border-rose-200/65 bg-rose-50 px-1.5 py-1 text-center transition active:scale-[0.99]"
                     aria-label={`Mostrar ${expandedSummaryCard === "expense" ? "valor corto" : "valor completo"} de gastos`}
                     title={formatMoney(summary.expense, currency)}
                   >
                     <div className="min-w-0 text-center">
-                      <p className="text-center text-[9px] font-medium uppercase tracking-[0.14em] text-rose-600/80">
+                      <p className="text-center text-[8px] font-medium uppercase tracking-[0.12em] text-rose-600/80">
                         Gastos
                       </p>
-                      <p className="mt-0.5 text-center text-[10px] font-semibold leading-tight tracking-[-0.02em] text-rose-700">
+                      <p className="mt-0.5 text-center text-[9px] font-semibold leading-tight tracking-[-0.02em] text-rose-700">
                         {getSummaryValue("expense", summary.expense)}
                       </p>
                     </div>
@@ -786,10 +810,10 @@ export function FinanzasWorkspace({
                     title={formatMoney(summary.balance, currency)}
                   >
                     <div className="min-w-0 text-center">
-                      <p className="text-center text-[9px] font-medium uppercase tracking-[0.14em] text-slate-500">
+                      <p className="text-center text-[8px] font-medium uppercase tracking-[0.12em] text-slate-500">
                         Balance
                       </p>
-                      <p className={`mt-0.5 text-center text-[10px] font-semibold leading-tight tracking-[-0.02em] ${summary.balance >= 0 ? "text-[var(--primary)]" : "text-rose-700"}`}>
+                      <p className={`mt-0.5 text-center text-[9px] font-semibold leading-tight tracking-[-0.02em] ${summary.balance >= 0 ? "text-[var(--primary)]" : "text-rose-700"}`}>
                         {getSummaryValue("balance", summary.balance)}
                       </p>
                     </div>
@@ -855,7 +879,7 @@ export function FinanzasWorkspace({
             {/* Chat feed */}
             <div
               ref={feedRef}
-              className="relative z-10 min-h-0 overflow-y-auto px-3 py-3 pb-[calc(env(safe-area-inset-bottom)+6.4rem)] sm:px-5 sm:py-5 sm:pb-5 md:pb-5 md:[-webkit-overflow-scrolling:touch] md:[scrollbar-width:thin] md:[scrollbar-color:rgba(148,163,184,0.26)_transparent] md:[&::-webkit-scrollbar]:w-1.5 md:[&::-webkit-scrollbar-track]:bg-transparent md:[&::-webkit-scrollbar-thumb]:rounded-full md:[&::-webkit-scrollbar-thumb]:bg-slate-300 md:[&::-webkit-scrollbar-thumb:hover]:bg-slate-400"
+              className="relative z-10 min-h-0 overflow-y-auto px-3 py-3 pb-[calc(max(6rem,var(--finance-composer-height))+env(safe-area-inset-bottom)+0.75rem)] sm:px-5 sm:py-5 sm:pb-5 md:pb-5 md:[-webkit-overflow-scrolling:touch] md:[scrollbar-width:thin] md:[scrollbar-color:rgba(148,163,184,0.26)_transparent] md:[&::-webkit-scrollbar]:w-1.5 md:[&::-webkit-scrollbar-track]:bg-transparent md:[&::-webkit-scrollbar-thumb]:rounded-full md:[&::-webkit-scrollbar-thumb]:bg-slate-300 md:[&::-webkit-scrollbar-thumb:hover]:bg-slate-400"
             >
 
               {chatEvents.length <= 1 && transactions.length === 0 ? (
@@ -1016,7 +1040,7 @@ export function FinanzasWorkspace({
             </div>
 
             {/* Composer */}
-            <div className="chat-composer relative z-10 shrink-0 border-t border-[rgba(148,163,184,0.08)] bg-white/98 px-3 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2.5 shadow-[0_-12px_28px_-24px_rgba(15,23,42,0.2)] backdrop-blur md:border-[rgba(148,163,184,0.1)] md:bg-white md:px-4 md:py-3 md:shadow-[0_-10px_18px_-18px_rgba(15,23,42,0.16)]">
+            <div ref={composerRef} className="chat-composer relative z-10 shrink-0 border-t border-[rgba(148,163,184,0.08)] bg-white/98 px-3 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2.5 shadow-[0_-12px_28px_-24px_rgba(15,23,42,0.2)] backdrop-blur md:border-[rgba(148,163,184,0.1)] md:bg-white md:px-4 md:py-3 md:shadow-[0_-10px_18px_-18px_rgba(15,23,42,0.16)]">
               <form onSubmit={handleSubmit} className="mx-auto w-full max-w-7xl">
                 <div className="flex items-end gap-2.5 md:gap-3.5">
                   <textarea
@@ -1048,13 +1072,13 @@ export function FinanzasWorkspace({
       </div>
 
       {showSettings && (
-        <SettingsDialog
-          googleSheet={googleSheet}
-          serviceAccountEmail={serviceAccountEmail}
-          agentPrompt={agentPrompt}
-          onClose={() => setShowSettings(false)}
-          onSynced={() => router.refresh()}
-          onSaved={() => router.refresh()}
+          <SettingsDialog
+            googleSheet={googleSheet}
+            serviceAccountEmail={serviceAccountEmail}
+            agentPrompt={agentPrompt}
+            onClose={() => setShowSettings(false)}
+            onSynced={() => router.refresh()}
+            onSaved={() => router.refresh()}
             onChatCleared={() => {
               llmHistoryRef.current = [];
               clearPersistedFinanceChatMessages(workspaceId);

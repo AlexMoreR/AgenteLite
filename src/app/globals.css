@@ -143,6 +143,14 @@ body:has(.chat-app-layout) {
 }
 
 @media (max-width: 767px) {
+  body:has(.chat-app-layout) .chat-app-frame,
+  body:has(.chat-app-layout) .chat-app-shell,
+  body:has(.chat-app-layout) .chat-app-main,
+  body:has(.chat-app-layout) .chat-app-layout {
+    height: 100dvh;
+    max-height: 100dvh;
+  }
+
   body:has(.chat-inbox-grid) .chat-app-frame,
   body:has(.chat-inbox-grid) .chat-app-shell,
   body:has(.chat-inbox-grid) .chat-app-main,
