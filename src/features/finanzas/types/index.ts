@@ -30,6 +30,7 @@ export type FinanceChatMessage = {
 export type FinanzasData = {
   transactions: FinanceTransaction[];
   chatMessages: FinanceChatMessage[];
+  transactionAnchors: Record<string, string>;
   googleSheet: FinanceGoogleSheet | null;
   workspaceId: string;
   serviceAccountEmail: string | null;

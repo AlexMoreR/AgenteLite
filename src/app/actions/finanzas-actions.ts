@@ -1308,7 +1308,7 @@ export async function addTransactionAction(
           category: latest.category,
           date: latest.date.toISOString(),
           source: "google_sheet",
-          createdAt: latest.date.toISOString(),
+          createdAt: transactionDate.toISOString(),
         }
       : {
           id: `sh:${Date.now()}`,
@@ -1320,6 +1320,12 @@ export async function addTransactionAction(
           source: "google_sheet",
           createdAt: transactionDate.toISOString(),
         };
+
+    await saveFinanceContext(membership.workspace.id, {
+      action: "transaction",
+      updatedAt: new Date().toISOString(),
+      transaction,
+    });
 
     revalidatePath("/cliente/finanzas");
     return { ok: true, transaction, sheetSync };
@@ -1337,19 +1343,27 @@ export async function addTransactionAction(
     },
   });
 
+  const transaction: TransactionPayload = {
+    id: created.id,
+    type: created.type,
+    amount: Number(created.amount),
+    description: created.description,
+    category: created.category,
+    date: created.date.toISOString(),
+    source: created.source,
+    createdAt: created.createdAt.toISOString(),
+  };
+
+  await saveFinanceContext(membership.workspace.id, {
+    action: "transaction",
+    updatedAt: new Date().toISOString(),
+    transaction,
+  });
+
   revalidatePath("/cliente/finanzas");
   return {
     ok: true,
-    transaction: {
-      id: created.id,
-      type: created.type,
-      amount: Number(created.amount),
-      description: created.description,
-      category: created.category,
-      date: created.date.toISOString(),
-      source: created.source,
-      createdAt: created.createdAt.toISOString(),
-    },
+    transaction,
     sheetSync,
   };
 }

@@ -32,10 +32,10 @@ import { Textarea } from "@/components/ui/textarea";
 import type { FinanzasData, FinanceTransaction, FinanceChatMessage } from "../types";
 
 type ChatEvent =
-  | { id: string; kind: "assistant"; text: string; createdAt: string }
-  | { id: string; kind: "user"; text: string; createdAt: string }
-  | { id: string; kind: "userTransaction"; transaction: FinanceTransaction }
-  | { id: string; kind: "transaction"; transaction: FinanceTransaction };
+  | { id: string; kind: "assistant"; text: string; createdAt: string; timelineAt?: string }
+  | { id: string; kind: "user"; text: string; createdAt: string; timelineAt?: string }
+  | { id: string; kind: "userTransaction"; transaction: FinanceTransaction; timelineAt?: string }
+  | { id: string; kind: "transaction"; transaction: FinanceTransaction; timelineAt?: string };
 
 type LLMMessage = { role: "user" | "assistant"; content: string };
 type SummaryCardKey = "income" | "expense" | "balance";
@@ -160,18 +160,50 @@ function isSameCalendarDay(left: string, right: string): boolean {
   );
 }
 
+function getChatEventTimestamp(event: ChatEvent): number {
+  if (event.timelineAt) {
+    return new Date(event.timelineAt).getTime();
+  }
+
+  if (event.kind === "transaction" || event.kind === "userTransaction") {
+    return new Date(event.transaction.createdAt).getTime();
+  }
+
+  return new Date(event.createdAt).getTime();
+}
+
+function getChatEventPriority(event: ChatEvent): number {
+  if (event.id === "assistant-welcome") return -1;
+  if (event.kind === "user") return 0;
+  if (event.kind === "assistant") return 1;
+  if (event.kind === "userTransaction") return 2;
+  if (event.kind === "transaction") return 3;
+  return 3;
+}
+
+function sortChatEvents(events: ChatEvent[]): ChatEvent[] {
+  return [...events].sort((a, b) => {
+    const timeDiff = getChatEventTimestamp(a) - getChatEventTimestamp(b);
+    if (timeDiff !== 0) return timeDiff;
+
+    const priorityDiff = getChatEventPriority(a) - getChatEventPriority(b);
+    if (priorityDiff !== 0) return priorityDiff;
+
+    return a.id.localeCompare(b.id);
+  });
+}
+
 function buildInitialChatEvents(
   transactions: FinanceTransaction[],
   chatMessages: FinanceChatMessage[],
+  transactionAnchors: Record<string, string>,
 ): ChatEvent[] {
   const intro: ChatEvent = {
     id: "assistant-welcome",
     kind: "assistant",
     text: FINANCE_WELCOME_MESSAGE,
-    createdAt:
-      chatMessages[0]?.createdAt ??
-      transactions[0]?.createdAt ??
-      new Date(0).toISOString(),
+    createdAt: chatMessages[0]?.createdAt ?? transactions[0]?.createdAt ?? new Date(0).toISOString(),
+    timelineAt: new Date(0).toISOString(),
   };
 
   type Timed = { time: number; event: ChatEvent };
@@ -180,21 +212,20 @@ function buildInitialChatEvents(
     time: new Date(t.createdAt).getTime(),
     event:
       t.source === "manual"
-        ? ({ id: `user-tx-${t.id}`, kind: "userTransaction", transaction: t } as ChatEvent)
-        : ({ id: `tx-${t.id}`, kind: "transaction", transaction: t } as ChatEvent),
+        ? ({ id: `user-tx-${t.id}`, kind: "userTransaction", transaction: t, timelineAt: transactionAnchors[t.id] ?? t.createdAt } as ChatEvent)
+        : ({ id: `tx-${t.id}`, kind: "transaction", transaction: t, timelineAt: transactionAnchors[t.id] ?? t.createdAt } as ChatEvent),
   }));
 
   const msgItems: Timed[] = chatMessages
     .filter((m) => !m.content.startsWith(FINANCE_CONTEXT_PREFIX))
     .map((m) => ({
       time: new Date(m.createdAt).getTime(),
-      event: { id: `msg-${m.id}`, kind: m.role, text: m.content, createdAt: m.createdAt } as ChatEvent,
+      event: { id: `msg-${m.id}`, kind: m.role, text: m.content, createdAt: m.createdAt, timelineAt: m.createdAt } as ChatEvent,
     }));
 
-  const sortedTransactions = txItems.sort((a, b) => a.time - b.time).map((x) => x.event);
-  const sortedMessages = msgItems.sort((a, b) => a.time - b.time).map((x) => x.event);
+  const orderedEvents = sortChatEvents([...txItems, ...msgItems].map((item) => item.event));
 
-  return [intro, ...sortedTransactions, ...sortedMessages];
+  return [intro, ...orderedEvents];
 }
 
 // ── Settings dialog ───────────────────────────────────────────────
@@ -530,6 +561,7 @@ function AgentPromptTab({
 export function FinanzasWorkspace({
   transactions: initialTransactions,
   chatMessages: initialChatMessages,
+  transactionAnchors,
   googleSheet,
   serviceAccountEmail,
   workspaceId,
@@ -538,7 +570,7 @@ export function FinanzasWorkspace({
 }: FinanzasData) {
   const [transactions, setTransactions] = useState<FinanceTransaction[]>(initialTransactions);
   const [chatEvents, setChatEvents] = useState<ChatEvent[]>(() =>
-    buildInitialChatEvents(initialTransactions, initialChatMessages),
+    buildInitialChatEvents(initialTransactions, initialChatMessages, transactionAnchors),
   );
   const llmHistoryRef = useRef<LLMMessage[]>(
     initialChatMessages.slice(-40).map((m) => ({ role: m.role, content: m.content })),
@@ -575,9 +607,9 @@ export function FinanzasWorkspace({
     if (!persistedMessages.length) return;
 
     const mergedMessages = mergeFinanceChatMessages(initialChatMessages, persistedMessages);
-    setChatEvents(buildInitialChatEvents(initialTransactions, mergedMessages));
+    setChatEvents(buildInitialChatEvents(initialTransactions, mergedMessages, transactionAnchors));
     llmHistoryRef.current = mergedMessages.slice(-40).map((m) => ({ role: m.role, content: m.content }));
-  }, [initialChatMessages, initialTransactions, workspaceId]);
+  }, [initialChatMessages, initialTransactions, transactionAnchors, workspaceId]);
 
   useEffect(() => {
     const persistedMessages = chatEvents
@@ -615,10 +647,11 @@ export function FinanzasWorkspace({
     if (!message || isBusy) return;
     setInput("");
     shouldAutoScrollRef.current = true;
+    const turnTimestamp = new Date().toISOString();
 
     setChatEvents((prev) => [
       ...prev,
-      { id: `user-${Date.now()}`, kind: "user", text: message, createdAt: new Date().toISOString() },
+      { id: `user-${Date.now()}`, kind: "user", text: message, createdAt: turnTimestamp, timelineAt: turnTimestamp },
     ]);
     setIsThinking(true);
 
@@ -628,7 +661,7 @@ export function FinanzasWorkspace({
       if (!result.ok) {
         setChatEvents((prev) => [
           ...prev,
-          { id: `assistant-${Date.now()}`, kind: "assistant", text: result.error, createdAt: new Date().toISOString() },
+          { id: `assistant-${Date.now()}`, kind: "assistant", text: result.error, createdAt: new Date().toISOString(), timelineAt: new Date().toISOString() },
         ]);
         shouldAutoScrollRef.current = true;
         return;
@@ -644,11 +677,6 @@ export function FinanzasWorkspace({
 
       const newEvents: ChatEvent[] = [];
 
-      for (const tx of addedTransactions) {
-        setTransactions((prev) => [...prev, tx]);
-        newEvents.push({ id: `user-tx-${tx.id}`, kind: "userTransaction", transaction: tx });
-      }
-
       if (deletedIds.length) {
         setTransactions((prev) => prev.filter((t) => !deletedIds.includes(t.id)));
         setChatEvents((prev) =>
@@ -661,9 +689,26 @@ export function FinanzasWorkspace({
         );
       }
 
-      newEvents.push({ id: `assistant-${Date.now()}`, kind: "assistant", text: reply, createdAt: new Date().toISOString() });
+      newEvents.push({
+        id: `assistant-${Date.now()}`,
+        kind: "assistant",
+        text: reply,
+        createdAt: turnTimestamp,
+        timelineAt: turnTimestamp,
+      });
+
+      for (const tx of addedTransactions) {
+        setTransactions((prev) => [...prev, tx]);
+        newEvents.push({
+          id: `user-tx-${tx.id}`,
+          kind: "userTransaction",
+          transaction: tx,
+          timelineAt: turnTimestamp,
+        });
+      }
+
       shouldAutoScrollRef.current = true;
-      setChatEvents((prev) => [...prev, ...newEvents]);
+      setChatEvents((prev) => sortChatEvents([...prev, ...newEvents]));
     } finally {
       setIsThinking(false);
     }
@@ -1010,14 +1055,14 @@ export function FinanzasWorkspace({
           onClose={() => setShowSettings(false)}
           onSynced={() => router.refresh()}
           onSaved={() => router.refresh()}
-          onChatCleared={() => {
-            llmHistoryRef.current = [];
-            clearPersistedFinanceChatMessages(workspaceId);
-            setChatEvents(buildInitialChatEvents(transactions, []));
-            setShowSettings(false);
-          }}
-        />
-      )}
+            onChatCleared={() => {
+              llmHistoryRef.current = [];
+              clearPersistedFinanceChatMessages(workspaceId);
+              setChatEvents(buildInitialChatEvents(transactions, [], transactionAnchors));
+              setShowSettings(false);
+            }}
+          />
+        )}
     </div>
   );
 }

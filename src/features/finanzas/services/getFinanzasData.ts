@@ -16,6 +16,42 @@ type FinanceTransactionRecord = {
   createdAt: Date;
 };
 
+type FinancePersistedContext =
+  | {
+      action: "transaction";
+      updatedAt: string;
+      transaction: { id: string };
+    }
+  | {
+      action: "clear";
+      updatedAt: string;
+    };
+
+function parseFinanceContext(content: string): FinancePersistedContext | null {
+  if (!content.startsWith(FINANCE_CONTEXT_PREFIX)) return null;
+
+  const raw = content.slice(FINANCE_CONTEXT_PREFIX.length);
+  try {
+    const parsed = JSON.parse(raw) as {
+      action?: string;
+      updatedAt?: unknown;
+      transaction?: { id?: unknown } | null;
+    };
+
+    if (parsed?.action === "clear" && typeof parsed.updatedAt === "string") {
+      return { action: "clear", updatedAt: parsed.updatedAt };
+    }
+
+    if (parsed?.action === "transaction" && typeof parsed.updatedAt === "string" && parsed.transaction?.id) {
+      return { action: "transaction", updatedAt: parsed.updatedAt, transaction: { id: String(parsed.transaction.id) } };
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
 export async function getFinanzasData(userId: string): Promise<FinanzasData | null> {
   const membership = await prisma.workspaceMember.findFirst({
     where: { userId },
@@ -44,6 +80,18 @@ export async function getFinanzasData(userId: string): Promise<FinanzasData | nu
       select: { id: true, role: true, content: true, createdAt: true },
     }),
   ]);
+
+  const transactionAnchors: Record<string, string> = {};
+  for (const message of chatMessages) {
+    if (!message.content.startsWith(FINANCE_CONTEXT_PREFIX)) continue;
+
+    const context = parseFinanceContext(message.content);
+    if (context?.action !== "transaction") continue;
+
+    if (!transactionAnchors[context.transaction.id]) {
+      transactionAnchors[context.transaction.id] = message.createdAt.toISOString();
+    }
+  }
 
   let transactions: FinanceTransactionRecord[] = (
     await prisma.financeTransaction.findMany({
@@ -84,7 +132,7 @@ export async function getFinanzasData(userId: string): Promise<FinanzasData | nu
         category: t.category,
         date: t.date,
         source: "google_sheet",
-        createdAt: t.date,
+        createdAt: googleSheet.lastSyncAt ?? t.date,
       }));
     }
   }
@@ -110,6 +158,7 @@ export async function getFinanzasData(userId: string): Promise<FinanzasData | nu
         content: m.content,
         createdAt: m.createdAt.toISOString(),
       })),
+    transactionAnchors,
     workspaceId,
     serviceAccountEmail: SERVICE_ACCOUNT_EMAIL,
     currency,
