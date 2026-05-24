@@ -879,7 +879,7 @@ export function FinanzasWorkspace({
             {/* Chat feed */}
             <div
               ref={feedRef}
-              className="relative z-10 min-h-0 overflow-y-auto px-3 py-3 pb-[calc(max(6rem,var(--finance-composer-height))+env(safe-area-inset-bottom)+0.75rem)] sm:px-5 sm:py-5 sm:pb-5 md:pb-5 md:[-webkit-overflow-scrolling:touch] md:[scrollbar-width:thin] md:[scrollbar-color:rgba(148,163,184,0.26)_transparent] md:[&::-webkit-scrollbar]:w-1.5 md:[&::-webkit-scrollbar-track]:bg-transparent md:[&::-webkit-scrollbar-thumb]:rounded-full md:[&::-webkit-scrollbar-thumb]:bg-slate-300 md:[&::-webkit-scrollbar-thumb:hover]:bg-slate-400"
+              className="relative z-10 min-h-0 overflow-y-auto px-3 py-3 pb-[calc(max(1.5rem,var(--finance-composer-height)-3.25rem)+env(safe-area-inset-bottom))] sm:px-5 sm:py-5 sm:pb-5 md:pb-5 md:[-webkit-overflow-scrolling:touch] md:[scrollbar-width:thin] md:[scrollbar-color:rgba(148,163,184,0.26)_transparent] md:[&::-webkit-scrollbar]:w-1.5 md:[&::-webkit-scrollbar-track]:bg-transparent md:[&::-webkit-scrollbar-thumb]:rounded-full md:[&::-webkit-scrollbar-thumb]:bg-slate-300 md:[&::-webkit-scrollbar-thumb:hover]:bg-slate-400"
             >
 
               {chatEvents.length <= 1 && transactions.length === 0 ? (
@@ -1034,13 +1034,13 @@ export function FinanzasWorkspace({
                       </div>
                     </div>
                   )}
-                  <div ref={endRef} aria-hidden="true" className="h-2 w-full" />
+                  <div ref={endRef} aria-hidden="true" className="h-0.5 w-full" />
                 </div>
               )}
             </div>
 
             {/* Composer */}
-            <div ref={composerRef} className="chat-composer relative z-10 shrink-0 border-t border-[rgba(148,163,184,0.08)] bg-white/98 px-3 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2.5 shadow-[0_-12px_28px_-24px_rgba(15,23,42,0.2)] backdrop-blur md:border-[rgba(148,163,184,0.1)] md:bg-white md:px-4 md:py-3 md:shadow-[0_-10px_18px_-18px_rgba(15,23,42,0.16)]">
+            <div ref={composerRef} className="chat-composer relative z-10 shrink-0 border-t border-[rgba(148,163,184,0.08)] bg-white/98 px-3 pb-[env(safe-area-inset-bottom)] pt-1 shadow-[0_-12px_28px_-24px_rgba(15,23,42,0.2)] backdrop-blur md:border-[rgba(148,163,184,0.1)] md:bg-white md:px-4 md:py-3 md:shadow-[0_-10px_18px_-18px_rgba(15,23,42,0.16)]">
               <form onSubmit={handleSubmit} className="mx-auto w-full max-w-7xl">
                 <div className="flex items-end gap-2.5 md:gap-3.5">
                   <textarea
