@@ -763,11 +763,11 @@ export function FinanzasWorkspace({
             {/* Summary bar */}
             <div className="relative z-10 border-b border-[rgba(148,163,184,0.08)] bg-white px-2.5 py-1.5 sm:px-4 sm:py-2 md:shadow-[0_1px_0_rgba(226,232,240,0.85),0_8px_10px_-12px_rgba(15,23,42,0.08)]">
               <div className="relative flex items-center justify-center">
-                <div className="grid w-full grid-cols-3 gap-1 px-8 sm:hidden">
+                <div className="flex w-full justify-center gap-1 px-1 sm:hidden">
                   <button
                     type="button"
                     onClick={() => handleSummaryCardClick("income")}
-                    className="min-w-0 rounded-2xl border border-emerald-200/55 bg-emerald-50 px-1.5 py-1 text-center transition active:scale-[0.99]"
+                    className="inline-flex min-w-[4.3rem] flex-col items-center rounded-lg border border-emerald-200/55 bg-emerald-50 px-1.5 py-1 text-center transition active:scale-[0.99]"
                     aria-label={`Mostrar ${expandedSummaryCard === "income" ? "valor corto" : "valor completo"} de ingresos`}
                     title={formatMoney(summary.income, currency)}
                   >
@@ -784,7 +784,7 @@ export function FinanzasWorkspace({
                   <button
                     type="button"
                     onClick={() => handleSummaryCardClick("expense")}
-                    className="min-w-0 rounded-2xl border border-rose-200/65 bg-rose-50 px-1.5 py-1 text-center transition active:scale-[0.99]"
+                    className="inline-flex min-w-[4.3rem] flex-col items-center rounded-lg border border-rose-200/65 bg-rose-50 px-1.5 py-1 text-center transition active:scale-[0.99]"
                     aria-label={`Mostrar ${expandedSummaryCard === "expense" ? "valor corto" : "valor completo"} de gastos`}
                     title={formatMoney(summary.expense, currency)}
                   >
@@ -801,7 +801,7 @@ export function FinanzasWorkspace({
                   <button
                     type="button"
                     onClick={() => handleSummaryCardClick("balance")}
-                    className={`min-w-0 rounded-2xl border px-2 py-1.5 ${
+                    className={`inline-flex min-w-[4.3rem] flex-col items-center rounded-lg border px-1.5 py-1.5 ${
                       summary.balance >= 0
                         ? "border-[color:color-mix(in_srgb,var(--primary)_18%,white)] bg-[color:color-mix(in_srgb,var(--primary)_7%,white)]"
                         : "border-rose-200/70 bg-rose-50"
@@ -821,7 +821,7 @@ export function FinanzasWorkspace({
                 </div>
 
                 <div className="hidden flex-wrap justify-center gap-1 px-9 sm:flex sm:gap-2 sm:pl-0 sm:pr-10">
-                  <div className="inline-flex min-w-0 items-center gap-1.5 rounded-full border border-emerald-200/65 bg-emerald-50 px-2.5 py-1 sm:gap-2 sm:px-3.5 sm:py-2">
+                  <div className="inline-flex min-w-0 items-center gap-1.5 rounded-lg border border-emerald-200/65 bg-emerald-50 px-2.5 py-1 sm:gap-2 sm:px-3.5 sm:py-2">
                     <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-100 sm:h-7 sm:w-7">
                       <TrendingUp className="h-3 w-3 text-emerald-600 sm:h-4 sm:w-4" />
                     </span>
@@ -830,7 +830,7 @@ export function FinanzasWorkspace({
                     </p>
                   </div>
 
-                  <div className="inline-flex min-w-0 items-center gap-1.5 rounded-full border border-rose-200/65 bg-rose-50 px-2.5 py-1 sm:gap-2 sm:px-3.5 sm:py-2">
+                  <div className="inline-flex min-w-0 items-center gap-1.5 rounded-lg border border-rose-200/65 bg-rose-50 px-2.5 py-1 sm:gap-2 sm:px-3.5 sm:py-2">
                     <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-rose-100 sm:h-7 sm:w-7">
                       <TrendingDown className="h-3 w-3 text-rose-600 sm:h-4 sm:w-4" />
                     </span>
@@ -840,13 +840,13 @@ export function FinanzasWorkspace({
                   </div>
 
                   <div
-                    className={`inline-flex min-w-0 items-center gap-1.5 rounded-full border px-2.5 py-1 sm:gap-2 sm:px-3.5 sm:py-2 md:backdrop-blur-md ${
+                    className={`inline-flex min-w-0 items-center gap-1.5 rounded-lg border px-2.5 py-1 sm:gap-2 sm:px-3.5 sm:py-2 md:backdrop-blur-md ${
                       summary.balance >= 0
                         ? "border-[color:color-mix(in_srgb,var(--primary)_18%,white)] bg-[color:color-mix(in_srgb,var(--primary)_7%,white)]"
                         : "border-rose-200/65 bg-rose-50"
                     }`}
                   >
-                    <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full sm:h-7 sm:w-7 ${summary.balance >= 0 ? "bg-[color:color-mix(in_srgb,var(--primary)_12%,white)]" : "bg-rose-100"}`}>
+                    <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-lg sm:h-7 sm:w-7 ${summary.balance >= 0 ? "bg-[color:color-mix(in_srgb,var(--primary)_12%,white)]" : "bg-rose-100"}`}>
                       <Wallet className={`h-3 w-3 sm:h-4 sm:w-4 ${summary.balance >= 0 ? "text-[var(--primary)]" : "text-rose-600"}`} />
                     </span>
                     <p className={`truncate text-[12px] font-semibold sm:text-[15px] ${summary.balance >= 0 ? "text-[var(--primary)]" : "text-rose-700"}`}>
