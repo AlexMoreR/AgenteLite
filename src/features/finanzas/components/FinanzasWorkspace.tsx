@@ -53,77 +53,8 @@ const CHAT_BACKGROUND_OVERLAY_STYLE = {
 } as const;
 
 const FINANCE_CONTEXT_PREFIX = "__FINANCE_CONTEXT__:";
-const FINANCE_CHAT_HISTORY_PREFIX = "__FINANCE_CHAT_HISTORY__:";
 const FINANCE_WELCOME_MESSAGE =
   "Hola, soy tu asistente de finanzas con IA. Puedes decirme tus gastos e ingresos en lenguaje natural, pedirme que elimine alguno o hacerme preguntas sobre tus movimientos.";
-
-type PersistedChatMessage = Pick<FinanceChatMessage, "id" | "role" | "content" | "createdAt">;
-
-function getFinanceChatStorageKey(workspaceId: string): string {
-  return `${FINANCE_CHAT_HISTORY_PREFIX}${workspaceId}`;
-}
-
-function loadPersistedFinanceChatMessages(workspaceId: string): PersistedChatMessage[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(getFinanceChatStorageKey(workspaceId));
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map((item) => {
-        if (!item || typeof item !== "object") return null;
-        const candidate = item as Partial<PersistedChatMessage>;
-        if (candidate.role !== "user" && candidate.role !== "assistant") return null;
-        if (typeof candidate.content !== "string" || typeof candidate.createdAt !== "string") return null;
-        if (candidate.id === "assistant-welcome" || candidate.content === FINANCE_WELCOME_MESSAGE) return null;
-        return {
-          id: typeof candidate.id === "string" ? candidate.id : `persisted-${candidate.role}-${candidate.createdAt}`,
-          role: candidate.role,
-          content: candidate.content,
-          createdAt: candidate.createdAt,
-        } satisfies PersistedChatMessage;
-      })
-      .filter((item): item is PersistedChatMessage => Boolean(item));
-  } catch {
-    return [];
-  }
-}
-
-function savePersistedFinanceChatMessages(workspaceId: string, messages: PersistedChatMessage[]): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(getFinanceChatStorageKey(workspaceId), JSON.stringify(messages));
-  } catch {
-    // Ignore storage failures so chat keeps working.
-  }
-}
-
-function clearPersistedFinanceChatMessages(workspaceId: string): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.removeItem(getFinanceChatStorageKey(workspaceId));
-  } catch {
-    // Ignore storage failures so chat keeps working.
-  }
-}
-
-function mergeFinanceChatMessages(
-  primary: FinanceChatMessage[],
-  fallback: PersistedChatMessage[],
-): FinanceChatMessage[] {
-  const seen = new Set<string>();
-  const merged: FinanceChatMessage[] = [];
-
-  for (const message of [...primary, ...fallback]) {
-    const key = `${message.role}|${message.content}|${message.createdAt}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    merged.push(message);
-  }
-
-  return merged.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-}
 
 function formatDateLabel(isoDate: string): string {
   const d = new Date(isoDate);
@@ -564,7 +495,6 @@ export function FinanzasWorkspace({
   transactionAnchors,
   googleSheet,
   serviceAccountEmail,
-  workspaceId,
   currency,
   agentPrompt,
 }: FinanzasData) {
@@ -621,32 +551,6 @@ export function FinanzasWorkspace({
 
     return () => observer.disconnect();
   }, []);
-
-  useEffect(() => {
-    const persistedMessages = loadPersistedFinanceChatMessages(workspaceId);
-    if (!persistedMessages.length) return;
-
-    const mergedMessages = mergeFinanceChatMessages(initialChatMessages, persistedMessages);
-    shouldAutoScrollRef.current = true;
-    setChatEvents(buildInitialChatEvents(initialTransactions, mergedMessages, transactionAnchors));
-    llmHistoryRef.current = mergedMessages.slice(-40).map((m) => ({ role: m.role, content: m.content }));
-  }, [initialChatMessages, initialTransactions, transactionAnchors, workspaceId]);
-
-  useEffect(() => {
-    const persistedMessages = chatEvents
-      .filter((event): event is Extract<ChatEvent, { kind: "user" | "assistant" }> =>
-        event.kind === "user" || event.kind === "assistant",
-      )
-      .filter((event) => event.id !== "assistant-welcome" && event.text !== FINANCE_WELCOME_MESSAGE)
-      .map((event) => ({
-        id: event.id,
-        role: event.kind,
-        content: event.text,
-        createdAt: event.createdAt,
-      }));
-
-    savePersistedFinanceChatMessages(workspaceId, persistedMessages);
-  }, [chatEvents, workspaceId]);
 
   const summary = useMemo(() => {
     const income = transactions.filter((t) => t.type === "INCOME").reduce((s, t) => s + t.amount, 0);
@@ -1101,7 +1005,6 @@ export function FinanzasWorkspace({
             onSaved={() => router.refresh()}
             onChatCleared={() => {
               llmHistoryRef.current = [];
-              clearPersistedFinanceChatMessages(workspaceId);
               setChatEvents(buildInitialChatEvents(transactions, [], transactionAnchors));
               setShowSettings(false);
             }}
