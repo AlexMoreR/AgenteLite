@@ -2,7 +2,7 @@
 
 ## Resumen del proyecto
 
-- Aplicación `Next.js` con `App Router`, `TypeScript`, `React 19` y `Tailwind CSS 4`.
+- Aplicación `Next.js` con `App Router`, `TypeScript`, `React 19`, `Tailwind CSS 4`, `Shadcn`
 - Usa `Prisma` con PostgreSQL.
 - La autenticación está basada en `next-auth` y adaptador de Prisma.
 - El código principal vive en `src/`.
@@ -48,68 +48,9 @@
 - Mencionar cualquier archivo sensible o área de riesgo afectada.
 - Indicar qué validación se ejecutó y qué quedó sin validar si aplica.
 
-## Nuevo módulo: Generador de anuncios (Marketing IA)
+## Regla obligatoria para nuevos componentes
 
-### Objetivo
-Crear un submódulo dentro de "Marketing IA" que permita a emprendedores generar anuncios para Meta Ads Manager.
-
-El usuario podrá:
-1. subir una imagen o usar una existente
-2. completar un formulario del producto
-3. generar un anuncio automáticamente
-4. copiar el resultado para usar en Meta Ads Manager
-
-### Flujo del módulo
-Formulario → análisis del producto → estrategia → generación de copy → salida final
-
-### Entrada del sistema
-- imagen del producto
-- nombre del producto
-- descripción
-- precio
-- oferta
-- público objetivo
-- ubicación
-- presupuesto
-- destino (WhatsApp, web, Instagram, Messenger)
-
-### Salida esperada
-- resumen estratégico del producto
-- objetivo recomendado
-- ángulo de venta recomendado
-- estructura de campaña
-- segmentación básica
-- formato recomendado
-- copy principal
-- 2 o 3 variantes de copy
-- título
-- descripción
-- CTA recomendado
-- idea de creativo
-- recomendación de presupuesto
-- métrica principal a vigilar
-- checklist para publicar en Meta Ads Manager
-
-### Arquitectura esperada
-Crear dentro de `src/features/ads-generator/`:
-
-- components/
-- services/
-- domain/
-- types/
-
-### Servicios requeridos
-- analyzeProduct
-- generateAdStrategy
-- generateCopies
-- buildMetaOutput
-
-Estos servicios deben estar desacoplados de la UI.
-
-### Reglas importantes
-- Reutilizar el módulo "Creativos" para la generación o selección de la imagen del anuncio.
-- Evitar cambios internos en "Creativos" salvo que sean estrictamente necesarios para integrarlo.
-- El nuevo módulo debe conectarse con "Creativos" como parte del flujo.
-- No integrar APIs externas en esta fase.
-- Usar datos mock inicialmente para la salida estratégica si todavía no está conectada la IA real.
-- Mantener separación entre UI y lógica de negocio.
+- Todo componente nuevo debe partir de `shadcn` o de un componente existente en `src/components/ui`.
+- Si se crea un contenedor visual, debe reutilizar tokens y patrones del proyecto.
+- No generar UI “bonita por defecto” con radios grandes, paddings grandes o sombras intensas sin que el diseño lo requiera.
+- Antes de crear un nuevo patrón visual, buscar si ya existe uno similar en el repo y reutilizarlo.

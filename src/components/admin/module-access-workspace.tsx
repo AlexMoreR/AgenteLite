@@ -4,9 +4,14 @@ import * as React from "react";
 import { Role } from "@prisma/client";
 import {
   Blocks,
+  Bot,
   BriefcaseBusiness,
+  Cable,
+  FileText,
+  KanbanSquare,
   MessageSquare,
   MessageSquareMore,
+  Megaphone,
   LockKeyhole,
   Package,
   ShieldCheck,
@@ -15,6 +20,8 @@ import {
   UserCog,
   UserRound,
   Users,
+  Users2,
+  Wallet,
   X,
 } from "lucide-react";
 import { adminUpdateUserModuleAccessAction } from "@/app/actions/auth-actions";
@@ -60,6 +67,14 @@ const moduleIconMap = {
   categories: Tags,
   suppliers: Truck,
   quotes: Blocks,
+  chats: MessageSquare,
+  contacts: Users2,
+  crm: KanbanSquare,
+  flows: FileText,
+  marketing_ia: Megaphone,
+  finanzas: Wallet,
+  connection: Cable,
+  agents: Bot,
   client_official_api: MessageSquare,
 } satisfies Record<AdminModuleKey, React.ComponentType<{ className?: string }>>;
 
@@ -87,44 +102,45 @@ export function ModuleAccessWorkspace({ roles, modules }: ModuleAccessWorkspaceP
             const RoleIcon = roleIconMap[roleItem.role];
 
             return (
-            <Card key={roleItem.role} className="space-y-4 border border-[var(--line)]">
-              <div className="flex items-start gap-3">
-                <div className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
-                  <RoleIcon className="h-5 w-5" />
+              <Card key={roleItem.role} className="space-y-4 border border-[var(--line)]">
+                <div className="flex items-start gap-3">
+                  <div className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
+                    <RoleIcon className="h-5 w-5" />
+                  </div>
+                  <div className="space-y-1">
+                    <h3 className="text-base font-semibold text-slate-900">{roleLabel[roleItem.role]}</h3>
+                    <p className="text-xs text-slate-500">
+                      {roleItem.modules.length} modulo{roleItem.modules.length === 1 ? "" : "s"} activo{roleItem.modules.length === 1 ? "" : "s"}
+                    </p>
+                  </div>
                 </div>
-                <div className="space-y-1">
-                  <h3 className="text-base font-semibold text-slate-900">{roleLabel[roleItem.role]}</h3>
-                  <p className="text-xs text-slate-500">
-                    {roleItem.modules.length} modulo{roleItem.modules.length === 1 ? "" : "s"} activo{roleItem.modules.length === 1 ? "" : "s"}
-                  </p>
+
+                <div className="flex flex-wrap gap-1.5">
+                  {roleItem.modules.map((moduleKey) => {
+                    const moduleItem = modules.find((item) => item.key === moduleKey);
+                    const ModuleIcon = moduleItem ? moduleIconMap[moduleItem.key] : null;
+                    return moduleItem ? (
+                      <span
+                        key={moduleItem.key}
+                        className="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-700"
+                      >
+                        {ModuleIcon ? <ModuleIcon className="h-3.5 w-3.5" /> : null}
+                        {moduleItem.label}
+                      </span>
+                    ) : null;
+                  })}
                 </div>
-              </div>
 
-              <div className="flex flex-wrap gap-1.5">
-                {roleItem.modules.map((moduleKey) => {
-                  const moduleItem = modules.find((item) => item.key === moduleKey);
-                  const ModuleIcon = moduleItem ? moduleIconMap[moduleItem.key] : null;
-                  return moduleItem ? (
-                    <span
-                      key={moduleItem.key}
-                      className="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-700"
-                    >
-                      {ModuleIcon ? <ModuleIcon className="h-3.5 w-3.5" /> : null}
-                      {moduleItem.label}
-                    </span>
-                  ) : null;
-                })}
-              </div>
-
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setActiveRole(roleItem.role)}
-              >
-                Configurar rol
-              </Button>
-            </Card>
-          )})}
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setActiveRole(roleItem.role)}
+                >
+                  Configurar rol
+                </Button>
+              </Card>
+            );
+          })}
         </div>
       </div>
 
@@ -137,7 +153,7 @@ export function ModuleAccessWorkspace({ roles, modules }: ModuleAccessWorkspaceP
           onClick={() => setActiveRole(null)}
         >
           <Card
-            className="w-full max-w-2xl space-y-4 rounded-xl p-5"
+            className="max-h-[calc(100vh-2rem)] w-full max-w-2xl space-y-4 overflow-y-auto rounded-xl p-5"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-start justify-between gap-3">
@@ -177,7 +193,7 @@ export function ModuleAccessWorkspace({ roles, modules }: ModuleAccessWorkspaceP
               {groupedModules.map(([group, groupModules]) => (
                 <div key={group} className="space-y-2">
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{group}</p>
-                  <div className="grid gap-2">
+                  <div className="grid gap-x-10 gap-y-0 md:grid-cols-2">
                     {groupModules.map((moduleItem) => {
                       const ModuleIcon = moduleIconMap[moduleItem.key];
                       const isChecked =
@@ -189,7 +205,7 @@ export function ModuleAccessWorkspace({ roles, modules }: ModuleAccessWorkspaceP
                       return (
                         <label
                           key={moduleItem.key}
-                          className="flex items-start gap-3 rounded-lg border border-[var(--line)] bg-slate-50/60 px-3 py-3"
+                          className="grid w-full grid-cols-[16px_1fr] gap-2 px-0 py-1"
                         >
                           <input
                             type="checkbox"
@@ -199,12 +215,11 @@ export function ModuleAccessWorkspace({ roles, modules }: ModuleAccessWorkspaceP
                             disabled={isDisabled}
                             className="mt-1 h-4 w-4 rounded border-[var(--line)] text-[var(--primary)]"
                           />
-                          <span className="space-y-0.5">
-                            <span className="flex items-center gap-2 text-sm font-medium text-slate-900">
+                          <span className="min-w-0">
+                            <span className="flex items-center gap-1.5 text-sm font-medium text-slate-900">
                               <ModuleIcon className="h-4 w-4 text-slate-500" />
                               {moduleItem.label}
                             </span>
-                            <span className="block text-xs text-slate-600">{moduleItem.description}</span>
                           </span>
                         </label>
                       );

@@ -746,10 +746,17 @@ export async function adminUpdateUserModuleAccessAction(formData: FormData): Pro
   revalidatePath("/admin/proveedores");
   revalidatePath("/admin/cotizaciones");
   revalidatePath("/cliente");
+  revalidatePath("/cliente/chats");
+  revalidatePath("/cliente/contactos");
+  revalidatePath("/cliente/crm");
+  revalidatePath("/cliente/flujos");
+  revalidatePath("/cliente/marketing-ia");
+  revalidatePath("/cliente/finanzas");
+  revalidatePath("/cliente/conexion");
+  revalidatePath("/cliente/agentes");
   revalidatePath("/cliente/api-oficial");
   revalidatePath("/cliente/api-oficial/chats");
   revalidatePath("/cliente/api-oficial/chatbot");
   revalidatePath("/cliente/api-oficial/flujos");
-  revalidatePath("/cliente/flujos");
   redirect("/admin/configuracion/permisos?ok=Permisos+actualizados");
 }

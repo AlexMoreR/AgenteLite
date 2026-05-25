@@ -9,6 +9,7 @@ import {
   MoreHorizontal,
   Search,
   Shield,
+  Save,
   Trash2,
   UserRound,
   X,
@@ -20,7 +21,9 @@ import {
   adminUpdateWorkspacePlanExpiryAction,
 } from "@/app/actions/auth-actions";
 import { OfficialApiClientSummary } from "@/components/admin/official-api-client-summary";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -30,6 +33,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Separator } from "@/components/ui/separator";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -174,6 +179,12 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
     EMPLEADO: "bg-emerald-50 text-emerald-700 ring-emerald-200",
     CLIENTE: "bg-slate-100 text-slate-700 ring-slate-200",
   };
+
+  const roleOptions: Array<{ value: Role; label: string }> = [
+    { value: "ADMIN", label: "ADMIN" },
+    { value: "EMPLEADO", label: "EMPLEADO" },
+    { value: "CLIENTE", label: "CLIENTE" },
+  ];
 
   const planBadgeClass: Record<WorkspacePlanTier, string> = {
     GRATIS: "bg-emerald-50 text-emerald-700 ring-emerald-200",
@@ -404,92 +415,92 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
 
       {activeUser ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-[#11182752] px-4 py-6 backdrop-blur-[2px]"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6 backdrop-blur-sm"
           onClick={() => setActiveUserId(null)}
         >
-          <div
-            className="saas-card w-full max-w-3xl overflow-hidden rounded-[1.6rem] p-0 shadow-[0_24px_80px_-40px_rgba(15,23,42,0.28)]"
+          <Card
+            className="w-full max-w-3xl overflow-hidden p-0 shadow-[0_24px_80px_-40px_rgba(15,23,42,0.32)]"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="border-b border-[var(--line)] bg-[linear-gradient(180deg,#f8fafc_0%,#ffffff_100%)] px-6 py-5">
+            <div className="flex flex-col gap-5 border-b border-border bg-gradient-to-b from-slate-50 to-white px-6 py-5">
               <div className="flex items-start justify-between gap-4">
-                <div className="space-y-1">
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                <div className="flex flex-col gap-1">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                     Gestion de usuario
                   </p>
-                  <h2 className="text-xl font-semibold tracking-tight text-slate-900 md:text-2xl">
+                  <h2 className="text-2xl font-semibold tracking-tight text-foreground">
                     {activeUser.name || "Sin nombre"}
                   </h2>
-                  <p className="text-sm text-slate-500">{activeUser.email}</p>
+                  <p className="text-sm text-muted-foreground">{activeUser.email}</p>
                 </div>
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-9 rounded-full border border-border text-muted-foreground hover:bg-muted hover:text-foreground"
                   onClick={() => setActiveUserId(null)}
-                  className="rounded-full border border-[var(--line)] p-2 text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
                   aria-label="Cerrar"
                 >
-                  <X className="h-4 w-4" />
-                </button>
+                  <X />
+                </Button>
               </div>
 
-              <div className="mt-5 grid gap-3 md:grid-cols-3">
-                <div className="rounded-[1.1rem] border border-[var(--line)] bg-white px-4 py-3">
-                  <div className="flex items-center gap-3">
-                    <div className="rounded-2xl bg-slate-900 p-2 text-white">
-                      <UserRound className="h-4 w-4" />
+              <div className="grid gap-2 md:grid-cols-3">
+                <Card className="border-border px-3 py-3 shadow-none">
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex size-9 items-center justify-center rounded-xl bg-slate-900 text-white">
+                      <UserRound />
                     </div>
-                    <div>
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                    <div className="flex flex-col gap-0.5">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                         Rol actual
                       </p>
-                      <span className={`mt-1 inline-flex rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${roleBadgeClass[activeUser.role]}`}>
+                      <Badge variant="outline" className={`${roleBadgeClass[activeUser.role]} h-5 border-0 px-2 text-[11px]`}>
                         {roleLabel[activeUser.role]}
-                      </span>
+                      </Badge>
                     </div>
                   </div>
-                </div>
+                </Card>
 
-                <div className="rounded-[1.1rem] border border-[var(--line)] bg-white px-4 py-3">
-                  <div className="flex items-center gap-3">
-                    <div className="rounded-2xl bg-slate-900 p-2 text-white">
-                      <Shield className="h-4 w-4" />
+                <Card className="border-border px-3 py-3 shadow-none">
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex size-9 items-center justify-center rounded-xl bg-slate-900 text-white">
+                      <Shield />
                     </div>
-                    <div>
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                    <div className="flex flex-col gap-0.5">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                         Plan
                       </p>
                       {activeWorkspace?.planTier ? (
-                        <span
-                          className={`mt-1 inline-flex rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${planBadgeClass[activeWorkspace.planTier]}`}
-                        >
+                        <Badge variant="outline" className={`${planBadgeClass[activeWorkspace.planTier]} h-5 border-0 px-2 text-[11px]`}>
                           {getWorkspacePlanLabel(activeWorkspace.planTier)}
-                        </span>
+                        </Badge>
                       ) : activeUser.role === "CLIENTE" ? (
-                        <p className="mt-1 text-sm text-amber-700">Prueba gratis pendiente de activacion</p>
+                        <p className="text-xs text-amber-700">Prueba pendiente</p>
                       ) : (
-                        <p className="mt-1 text-sm text-slate-500">Sin plan asignado</p>
+                        <p className="text-xs text-muted-foreground">Sin plan</p>
                       )}
                     </div>
                   </div>
-                </div>
+                </Card>
 
-                <div className="rounded-[1.1rem] border border-[var(--line)] bg-white px-4 py-3">
-                  <div className="flex items-center gap-3">
-                    <div className="rounded-2xl bg-slate-900 p-2 text-white">
-                      <CalendarClock className="h-4 w-4" />
+                <Card className="border-border px-3 py-3 shadow-none">
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex size-9 items-center justify-center rounded-xl bg-slate-900 text-white">
+                      <CalendarClock />
                     </div>
-                    <div>
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                    <div className="flex flex-col gap-0.5">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                         Vencimiento
                       </p>
-                      <p className={`mt-1 text-sm ${activeUser.isPlanExpired ? "font-medium text-rose-600" : "text-slate-700"}`}>
+                      <p className={`text-xs ${activeUser.isPlanExpired ? "font-medium text-rose-600" : "text-foreground"}`}>
                         {activeWorkspace?.planExpiresAt
                           ? new Intl.DateTimeFormat("es-CO", { dateStyle: "medium" }).format(activeWorkspace.planExpiresAt)
                           : activeUser.role === "CLIENTE"
                             ? "Se activa al configurar negocio"
                             : "Sin fecha"}
                       </p>
-                      <p className={`mt-1 text-xs ${activeUser.isPlanExpired ? "text-rose-500" : "text-slate-500"}`}>
+                      <p className={`text-[11px] ${activeUser.isPlanExpired ? "text-rose-500" : "text-muted-foreground"}`}>
                         {activeWorkspace?.planExpiresAt
                           ? activeUser.isPlanExpired
                             ? "Vencido"
@@ -500,119 +511,128 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
                       </p>
                     </div>
                   </div>
-                </div>
+                </Card>
               </div>
             </div>
 
             <div className="max-h-[calc(100vh-10rem)] overflow-y-auto p-6">
               <div className="grid gap-4 lg:grid-cols-2">
-                <div className="rounded-[1.25rem] border border-[var(--line)] p-5">
-                  <p className="text-sm font-semibold text-slate-900">Rol y permisos</p>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Cambia el rol principal del usuario desde un formulario separado.
-                  </p>
-                  <form action={adminUpdateUserRoleAction} className="mt-5 space-y-3">
+                <Card className="border-border p-5 shadow-none">
+                  <form action={adminUpdateUserRoleAction} className="flex h-full flex-col gap-4">
                     <input type="hidden" name="userId" value={activeUser.id} />
-                    <label className="block space-y-1.5">
-                      <span className="text-sm font-medium text-slate-700">Rol</span>
-                      <select
-                        name="role"
-                        className="field-select h-11 rounded-xl"
+                    <div className="flex flex-col gap-1.5">
+                      <p className="text-sm font-semibold text-foreground">Rol</p>
+                    </div>
+                    <div className="flex items-end gap-2">
+                      <Select
                         value={getRoleValue(activeUser.id, activeUser.role)}
-                        onChange={(event) => handleRoleChange(activeUser.id, event.target.value as Role)}
+                        onValueChange={(value) => handleRoleChange(activeUser.id, value as Role)}
                       >
-                        <option value="ADMIN">ADMIN</option>
-                        <option value="EMPLEADO">EMPLEADO</option>
-                        <option value="CLIENTE">CLIENTE</option>
-                      </select>
-                    </label>
-                    <Button type="submit" className="h-10 rounded-xl px-4">
-                      Guardar rol
-                    </Button>
+                        <SelectTrigger className="h-11 flex-1 rounded-xl border-border bg-background px-4 text-sm shadow-none">
+                          <SelectValue placeholder="Selecciona rol" />
+                        </SelectTrigger>
+                        <SelectContent align="start" className="min-w-44 rounded-xl border-border bg-background p-1 shadow-lg">
+                          {roleOptions.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        type="submit"
+                        size="icon"
+                        className="size-9 rounded-xl"
+                        aria-label="Guardar rol"
+                        title="Guardar rol"
+                      >
+                        <Save data-icon="inline-start" />
+                      </Button>
+                    </div>
                   </form>
-                </div>
+                </Card>
 
-                <div className="rounded-[1.25rem] border border-[var(--line)] p-5">
-                  <p className="text-sm font-semibold text-slate-900">Suscripcion</p>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Ajusta la fecha de vencimiento del negocio principal del usuario.
-                  </p>
-                  <form action={adminUpdateWorkspacePlanExpiryAction} className="mt-5 space-y-3">
+                <Card className="border-border p-5 shadow-none">
+                  <form action={adminUpdateWorkspacePlanExpiryAction} className="flex h-full flex-col gap-4">
                     <input type="hidden" name="workspaceId" value={activeWorkspace?.id ?? ""} />
-                    <label className="block space-y-1.5">
-                      <span className="text-sm font-medium text-slate-700">Fecha de vencimiento</span>
+                    <div className="flex flex-col gap-1.5">
+                      <p className="text-sm font-semibold text-foreground">Fecha de vencimiento</p>
+
+                    </div>
+                    <div className="flex items-end gap-2">
                       <Input
                         type="date"
                         name="planExpiresAt"
                         value={selectedExpiryDates[activeUser.id] ?? ""}
                         onChange={(event) => handleExpiryDateChange(activeUser.id, event.target.value)}
-                        className="h-11 rounded-xl"
+                        className="h-11 flex-1 rounded-xl"
                         disabled={!activeWorkspace}
                       />
-                    </label>
-                    <Button
-                      type="submit"
-                      variant="outline"
-                      className="h-10 rounded-xl px-4"
-                      disabled={!activeWorkspace}
-                    >
-                      Guardar fecha
-                    </Button>
+                      <Button
+                        type="submit"
+                        variant="outline"
+                        size="icon"
+                        className="size-9 rounded-xl"
+                        disabled={!activeWorkspace}
+                        aria-label="Guardar fecha"
+                        title="Guardar fecha"
+                      >
+                        <Save data-icon="inline-start" />
+                      </Button>
+                    </div>
                   </form>
-                </div>
+                </Card>
 
                 {activeUser.role === "CLIENTE" ? (
-                  <OfficialApiClientSummary summary={activeOfficialApiSummary} />
+                  <div className="lg:col-span-2">
+                    <OfficialApiClientSummary summary={activeOfficialApiSummary} />
+                  </div>
                 ) : null}
               </div>
 
-              <div className="mt-4 rounded-[1.25rem] border border-[var(--line)] p-5">
-                <p className="text-sm font-semibold text-slate-900">Recuperacion de acceso</p>
-                <p className="mt-1 text-xs text-slate-500">
-                  Envia al correo del usuario un enlace para crear una nueva contrasena.
-                </p>
-                <form action={adminSendPasswordResetAction} className="mt-4">
-                  <input type="hidden" name="userId" value={activeUser.id} />
-                  <Button type="submit" variant="outline" className="h-10 rounded-xl px-4">
-                    <Mail className="mr-2 h-4 w-4" />
-                    Enviar recuperacion por correo
-                  </Button>
-                </form>
-              </div>
+              <Separator className="my-6" />
 
-              <div className="mt-4 rounded-[1.25rem] border border-rose-200 bg-rose-50/60 p-5">
-                <p className="text-sm font-semibold text-rose-700">Zona delicada</p>
-                <p className="mt-1 text-xs text-rose-600">
-                  Esta accion elimina la cuenta si no tiene restricciones asociadas.
-                </p>
-                <form
-                  action={adminDeleteUserAction}
-                  className="mt-4"
-                  onSubmit={(event) => {
-                    if (
-                      !window.confirm(
-                        `Eliminar a ${activeUser.name || activeUser.email}? Esta accion no se puede deshacer.`,
-                      )
-                    ) {
-                      event.preventDefault();
-                    }
-                  }}
-                >
-                  <input type="hidden" name="userId" value={activeUser.id} />
-                  <Button
-                    type="submit"
-                    variant="outline"
-                    className="h-10 rounded-xl border-rose-200 px-4 text-rose-600 hover:bg-rose-100 hover:text-rose-700"
+              <div className="grid gap-4 lg:grid-cols-2">
+                <Card className="border-border p-5 shadow-none">
+                  <form action={adminSendPasswordResetAction}>
+                    <input type="hidden" name="userId" value={activeUser.id} />
+                    <Button type="submit" variant="outline" className="h-10 rounded-xl px-4">
+                      <Mail />
+                      Enviar recuperacion por correo
+                    </Button>
+                  </form>
+                </Card>
+
+                <Card className="border-rose-200 bg-rose-50/60 p-5 shadow-none">
+                  <form
+                    action={adminDeleteUserAction}
+                    onSubmit={(event) => {
+                      if (
+                        !window.confirm(
+                          `Eliminar a ${activeUser.name || activeUser.email}? Esta accion no se puede deshacer.`,
+                        )
+                      ) {
+                        event.preventDefault();
+                      }
+                    }}
                   >
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    Eliminar usuario
-                  </Button>
-                </form>
+                    <input type="hidden" name="userId" value={activeUser.id} />
+                    <Button
+                      type="submit"
+                      variant="outline"
+                      className="h-10 rounded-xl border-rose-200 px-4 text-rose-600 hover:bg-rose-100 hover:text-rose-700"
+                    >
+                      <Trash2 />
+                      Eliminar usuario
+                    </Button>
+                  </form>
+                </Card>
               </div>
             </div>
-          </div>
+          </Card>
         </div>
       ) : null}
     </div>
   );
 }
+

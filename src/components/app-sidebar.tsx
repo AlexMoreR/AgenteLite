@@ -79,6 +79,7 @@ export function AppSidebar({
   const isClientMarketingRoute = pathname.startsWith("/cliente/marketing-ia");
   const isClientFinanzasRoute = pathname.startsWith("/cliente/finanzas");
   const isClientConnectionRoute = pathname.startsWith("/cliente/conexion") || pathname.startsWith("/cliente/api-oficial");
+  const canAccessSidebarModule = (moduleKey: AdminModuleKey) => user.role === "ADMIN" ? adminModuleAccess[moduleKey] : true;
 
   const navMain: NavMainItem[] = [
     {
@@ -124,7 +125,7 @@ export function AppSidebar({
       });
     }
 
-    if (adminModuleAccess.products) {
+    if (canAccessSidebarModule("products")) {
       navMain.push({
         title: "Productos",
         url: "/admin/productos",
@@ -134,7 +135,7 @@ export function AppSidebar({
       });
     }
 
-    if (adminModuleAccess.categories) {
+    if (canAccessSidebarModule("categories")) {
       navMain.push({
         title: "Categorias",
         url: "/admin/categorias",
@@ -144,7 +145,7 @@ export function AppSidebar({
       });
     }
 
-    if (adminModuleAccess.suppliers) {
+    if (canAccessSidebarModule("suppliers")) {
       navMain.push({
         title: "Proveedores",
         url: "/admin/proveedores",
@@ -154,7 +155,7 @@ export function AppSidebar({
       });
     }
 
-    if (adminModuleAccess.quotes) {
+    if (canAccessSidebarModule("quotes")) {
       navMain.push({
         title: "Cotizaciones",
         url: "/admin/cotizaciones",
@@ -175,58 +176,71 @@ export function AppSidebar({
       };
     });
 
-    navMain.push({
-      title: "Chats",
-      url: "/cliente/chats",
-      icon: MessageCircle,
-      isActive: isChatsGeneralActive,
-      expandable: true,
-      items: [
-        { title: "Bandeja", url: "/cliente/chats", helper: "General", kind: "general", isActive: isChatsGeneralActive },
-        ...mappedChatSidebarItems,
-      ],
-    });
+    if (canAccessSidebarModule("chats")) {
+      navMain.push({
+        title: "Chats",
+        url: "/cliente/chats",
+        icon: MessageCircle,
+        isActive: isChatsGeneralActive,
+        expandable: true,
+        items: [
+          { title: "Bandeja", url: "/cliente/chats", helper: "General", kind: "general", isActive: isChatsGeneralActive },
+          ...mappedChatSidebarItems,
+        ],
+      });
+    }
 
-    navMain.push({
-      title: "Contactos",
-      url: "/cliente/contactos",
-      icon: Users2,
-      isActive: pathname.startsWith("/cliente/contactos"),
-      items: [{ title: "Base", url: "/cliente/contactos" }],
-    });
+    if (canAccessSidebarModule("contacts")) {
+      navMain.push({
+        title: "Contactos",
+        url: "/cliente/contactos",
+        icon: Users2,
+        isActive: pathname.startsWith("/cliente/contactos"),
+        items: [{ title: "Base", url: "/cliente/contactos" }],
+      });
+    }
 
-    navMain.push({
-      title: "CRM",
-      url: "/cliente/crm",
-      icon: KanbanSquare,
-      isActive: pathname.startsWith("/cliente/crm"),
-      items: [{ title: "Registro", url: "/cliente/crm" }],
-    });
+    if (canAccessSidebarModule("crm")) {
+      navMain.push({
+        title: "CRM",
+        url: "/cliente/crm",
+        icon: KanbanSquare,
+        isActive: pathname.startsWith("/cliente/crm"),
+        items: [{ title: "Registro", url: "/cliente/crm" }],
+      });
+    }
 
-    navMain.push({
-      title: "Flujos",
-      url: "/cliente/flujos",
-      icon: FileText,
-      isActive: pathname.startsWith("/cliente/flujos"),
-      items: [{ title: "Builder", url: "/cliente/flujos" }],
-    });
+    if (canAccessSidebarModule("flows")) {
+      navMain.push({
+        title: "Flujos",
+        url: "/cliente/flujos",
+        icon: FileText,
+        isActive: pathname.startsWith("/cliente/flujos"),
+        items: [{ title: "Builder", url: "/cliente/flujos" }],
+      });
+    }
 
-    navMain.push({
-      title: "Marketing IA",
-      url: "/cliente/marketing-ia",
-      icon: Megaphone,
-      isActive: pathname.startsWith("/cliente/marketing-ia"),
-      items: [{ title: "Anuncios", url: "/cliente/marketing-ia" }],
-    });
+    if (canAccessSidebarModule("marketing_ia")) {
+      navMain.push({
+        title: "Marketing IA",
+        url: "/cliente/marketing-ia",
+        icon: Megaphone,
+        isActive: pathname.startsWith("/cliente/marketing-ia"),
+        items: [{ title: "Anuncios", url: "/cliente/marketing-ia" }],
+      });
+    }
 
-    navMain.push({
-      title: "Finanzas",
-      url: "/cliente/finanzas",
-      icon: Wallet,
-      isActive: pathname.startsWith("/cliente/finanzas"),
-      items: [{ title: "Mis finanzas", url: "/cliente/finanzas" }],
-    });
+    if (canAccessSidebarModule("finanzas")) {
+      navMain.push({
+        title: "Finanzas",
+        url: "/cliente/finanzas",
+        icon: Wallet,
+        isActive: pathname.startsWith("/cliente/finanzas"),
+        items: [{ title: "Mis finanzas", url: "/cliente/finanzas" }],
+      });
+    }
 
+    if (canAccessSidebarModule("connection") || adminModuleAccess.client_official_api) {
       navMain.push({
         title: "Conexion",
         url: "/cliente/conexion",
@@ -238,15 +252,18 @@ export function AppSidebar({
             ? [{ title: "API oficial", url: "/cliente/api-oficial" }]
             : []),
         ],
-    });
+      });
+    }
 
-    navMain.push({
-      title: "Agentes",
-      url: "/cliente/agentes",
-      icon: Bot,
-      isActive: pathname.startsWith("/cliente/agentes"),
-      items: [{ title: "Estudio", url: "/cliente/agentes" }],
-    });
+    if (canAccessSidebarModule("agents")) {
+      navMain.push({
+        title: "Agentes",
+        url: "/cliente/agentes",
+        icon: Bot,
+        isActive: pathname.startsWith("/cliente/agentes"),
+        items: [{ title: "Estudio", url: "/cliente/agentes" }],
+      });
+    }
   }
 
   const teams = [
