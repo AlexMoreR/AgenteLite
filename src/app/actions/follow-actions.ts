@@ -142,12 +142,14 @@ export async function createFollowAction(formData: FormData): Promise<void> {
     cancelOnActivity: parsed.data.cancelOnActivity,
   });
 
+  if (!follow) {
+    return;
+  }
+
   revalidatePath("/cliente/seguimientos");
   revalidatePath("/cliente/contactos");
   revalidatePath("/cliente/crm");
   revalidatePath("/cliente/chats");
-
-  void follow.id;
 }
 
 export async function cancelFollowsByContactAction(formData: FormData): Promise<void> {

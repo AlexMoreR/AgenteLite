@@ -56,7 +56,6 @@ export default async function SeguimientosPage() {
         workspaceId: membership.workspace.id,
       },
       orderBy: [{ updatedAt: "desc" }],
-      take: 80,
       select: {
         id: true,
         name: true,
