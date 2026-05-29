@@ -55,7 +55,7 @@ function NavMainMenuItem({ item }: { item: NavMainItem }) {
     return (
       <SidebarMenuItem>
         <SidebarMenuButton asChild isActive={item.isActive}>
-          <Link href={item.url}>
+          <Link href={item.url} prefetch>
             {item.icon ? <item.icon className="h-4 w-4" /> : null}
             <span className="group-data-[collapsible=icon]/sidebar:hidden">{item.title}</span>
           </Link>
@@ -69,7 +69,7 @@ function NavMainMenuItem({ item }: { item: NavMainItem }) {
       <SidebarMenuItem>
         <div className="relative">
           <SidebarMenuButton asChild isActive={item.isActive} className="pr-9">
-            <Link href={item.url}>
+            <Link href={item.url} prefetch>
               {item.icon ? <item.icon className="h-4 w-4" /> : null}
               <span className="group-data-[collapsible=icon]/sidebar:hidden">{item.title}</span>
             </Link>
@@ -99,7 +99,7 @@ function NavMainMenuItem({ item }: { item: NavMainItem }) {
                       subitem.isActive ? "bg-slate-100 text-slate-950" : "hover:bg-slate-50"
                     }`}
                   >
-                    <Link href={subitem.url} className="flex min-h-8 items-center gap-2.5">
+                    <Link href={subitem.url} prefetch className="flex min-h-8 items-center gap-2.5">
                       <span
                         className={`inline-flex h-4 w-4 shrink-0 items-center justify-center ${
                           subitem.kind === "evolution"
