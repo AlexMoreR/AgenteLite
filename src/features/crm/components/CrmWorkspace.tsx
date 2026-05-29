@@ -41,7 +41,45 @@ function formatCrmDateTime(value: string) {
     .replace(/\u00A0/g, " ");
 }
 
-export function CrmWorkspace({ data }: { data: CrmData }) {
+function formatCrmPercent(value: number, total: number) {
+  if (total === 0) {
+    return "0%";
+  }
+
+  return `${Math.round((value / total) * 100)}%`;
+}
+
+function ReportCard({
+  title,
+  rows,
+}: {
+  title: string;
+  rows: Array<{ label: string; value: string }>;
+}) {
+  return (
+    <Card className="rounded-[22px] border border-[var(--line)] bg-white px-4 py-4 shadow-none">
+      <div className="flex flex-col gap-3">
+        <h3 className="text-sm font-semibold text-slate-950">{title}</h3>
+        <div className="flex flex-col gap-2">
+          {rows.map((row) => (
+            <div key={row.label} className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2">
+              <span className="text-sm text-slate-600">{row.label}</span>
+              <span className="text-sm font-semibold text-slate-950">{row.value}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+export function CrmWorkspace({
+  data,
+  defaultView = "registro",
+}: {
+  data: CrmData;
+  defaultView?: "registro" | "kanban" | "informe";
+}) {
   const activeRecords = useMemo(
     () => data.records.filter((record) => record.status !== "GANADO" && record.status !== "PERDIDO").length,
     [data.records],
@@ -57,6 +95,23 @@ export function CrmWorkspace({ data }: { data: CrmData }) {
     [data.records],
   );
 
+  const recordsByOrigin = useMemo(
+    () =>
+      data.records.reduce(
+        (acc, record) => {
+          acc[record.origin] += 1;
+          return acc;
+        },
+        {
+          FACEBOOK: 0,
+          MARKETPLACE: 0,
+          RECOMENDADO: 0,
+          GENERICO: 0,
+        },
+      ),
+    [data.records],
+  );
+
   return (
     <section className="space-y-3">
       <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
@@ -66,11 +121,12 @@ export function CrmWorkspace({ data }: { data: CrmData }) {
         <MetricCard label="Descartados" value={String(lostRecords)} icon={<CircleSlash2 className="h-5 w-5" />} />
       </div>
 
-      <Tabs defaultValue="registro" className="space-y-2">
+      <Tabs defaultValue={defaultView} className="space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <TabsList className="gap-1">
             <TabsTrigger value="registro">Registro</TabsTrigger>
             <TabsTrigger value="kanban">Kanban</TabsTrigger>
+            <TabsTrigger value="informe">Informe</TabsTrigger>
           </TabsList>
           <p className="text-xs text-slate-500">Actualizado: {formatCrmDateTime(data.generatedAt)}</p>
         </div>
@@ -81,6 +137,34 @@ export function CrmWorkspace({ data }: { data: CrmData }) {
 
         <TabsContent value="kanban">
           <CrmKanbanBoard columns={data.columns} />
+        </TabsContent>
+
+        <TabsContent value="informe" className="space-y-3">
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            <MetricCard label="Total" value={String(data.stats.total)} icon={<Users2 className="h-5 w-5" />} />
+            <MetricCard label="Activos" value={`${activeRecords} (${formatCrmPercent(activeRecords, data.stats.total)})`} icon={<TrendingUp className="h-5 w-5" />} />
+            <MetricCard label="Ganados" value={`${wonRecords} (${formatCrmPercent(wonRecords, data.stats.total)})`} icon={<CheckCircle2 className="h-5 w-5" />} />
+            <MetricCard label="Descartados" value={`${lostRecords} (${formatCrmPercent(lostRecords, data.stats.total)})`} icon={<CircleSlash2 className="h-5 w-5" />} />
+          </div>
+
+          <div className="grid gap-3 xl:grid-cols-2">
+            <ReportCard
+              title="Distribucion por etapa"
+              rows={data.columns.map((column) => ({
+                label: column.title,
+                value: `${column.records.length}`,
+              }))}
+            />
+            <ReportCard
+              title="Origen de registros"
+              rows={[
+                { label: "Facebook Ads", value: String(recordsByOrigin.FACEBOOK) },
+                { label: "Marketplace", value: String(recordsByOrigin.MARKETPLACE) },
+                { label: "Recomendado", value: String(recordsByOrigin.RECOMENDADO) },
+                { label: "Generico", value: String(recordsByOrigin.GENERICO) },
+              ]}
+            />
+          </div>
         </TabsContent>
       </Tabs>
     </section>

@@ -262,7 +262,7 @@ export function SidebarMenuButton({
       className={cn(
         sidebarMenuButtonVariants({ size }),
         isActive
-          ? "bg-[var(--primary)] text-white hover:bg-[var(--primary-strong)]"
+          ? "bg-muted text-foreground hover:bg-muted/80"
           : "text-slate-700 hover:bg-slate-100",
         className,
       )}
@@ -314,7 +314,7 @@ export function SidebarMenuSubButton({
     <Comp
       className={cn(
         "inline-flex h-8 w-full items-center rounded-md px-2 text-sm transition",
-        isActive ? "bg-slate-100 text-slate-950" : "text-slate-700 hover:bg-slate-100",
+        isActive ? "bg-muted text-foreground" : "text-slate-700 hover:bg-slate-100",
         className,
       )}
       {...props}

@@ -1,28 +1,15 @@
-import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { auth } from "@/auth";
-import { getCrmData } from "@/features/crm";
-import { CrmWorkspaceClient } from "@/features/crm/components/CrmWorkspaceClient";
 
-export const metadata: Metadata = {
-  robots: {
-    index: false,
-    follow: false,
-  },
+type PageProps = {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
-export default async function ClienteCrmPage() {
-  const session = await auth();
+function resolveCrmView(value: string | string[] | undefined) {
+  const normalized = (Array.isArray(value) ? value[0] : value)?.trim().toLowerCase() || "registro";
+  return normalized === "kanban" || normalized === "informe" ? normalized : "registro";
+}
 
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
-    redirect("/unauthorized");
-  }
-
-  const data = await getCrmData({ userId: session.user.id });
-
-  if (!data) {
-    redirect("/cliente");
-  }
-
-  return <CrmWorkspaceClient data={data} />;
+export default async function ClienteCrmPage({ searchParams }: PageProps) {
+  const params = await searchParams;
+  redirect(`/cliente/crm/${resolveCrmView(params.view)}`);
 }

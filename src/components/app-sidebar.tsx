@@ -6,17 +6,16 @@ import {
   FileText,
   LayoutDashboard,
   Megaphone,
-  KanbanSquare,
-  MessageCircle,
   Package,
-  Settings,
   Tag,
   Truck,
   Users2,
   Wallet,
 } from "lucide-react";
 import type { Role } from "@prisma/client";
+import { NavChats } from "@/components/nav-chats";
 import { NavMain, type NavMainItem } from "@/components/nav-main";
+import { NavCrm } from "@/components/nav-crm";
 import { NavUser } from "@/components/nav-user";
 import { TeamSwitcher } from "@/components/team-switcher";
 import type { AdminModuleKey } from "@/lib/admin-module-access";
@@ -80,8 +79,15 @@ export function AppSidebar({
   const isClientFinanzasRoute = pathname.startsWith("/cliente/finanzas");
   const isClientConnectionRoute = pathname.startsWith("/cliente/conexion") || pathname.startsWith("/cliente/api-oficial");
   const canAccessSidebarModule = (moduleKey: AdminModuleKey) => user.role === "ADMIN" ? adminModuleAccess[moduleKey] : true;
+  const canSeeChats = canAccessSidebarModule("chats");
+  const canSeeCrm = canAccessSidebarModule("crm");
+  const currentCrmView = pathname.startsWith("/cliente/crm/informe")
+    ? "informe"
+    : pathname.startsWith("/cliente/crm/kanban")
+      ? "kanban"
+      : "registro";
 
-  const navMain: NavMainItem[] = [
+  const navMainTop: NavMainItem[] = [
     {
       title: "Dashboard",
       url: dashboardHref,
@@ -109,24 +115,8 @@ export function AppSidebar({
   ];
 
   if (user.role === "ADMIN") {
-    const canSeeConfig =
-      adminModuleAccess.config_users ||
-      adminModuleAccess.config_business ||
-      adminModuleAccess.config_permissions ||
-      adminModuleAccess.config_whatsapp;
-
-    if (canSeeConfig) {
-      navMain.push({
-        title: "Configuracion",
-        url: "/admin/configuracion",
-        icon: Settings,
-        isActive: pathname.startsWith("/admin/configuracion"),
-        items: [{ title: "Ajustes", url: "/admin/configuracion" }],
-      });
-    }
-
     if (canAccessSidebarModule("products")) {
-      navMain.push({
+      navMainTop.push({
         title: "Productos",
         url: "/admin/productos",
         icon: Package,
@@ -136,7 +126,7 @@ export function AppSidebar({
     }
 
     if (canAccessSidebarModule("categories")) {
-      navMain.push({
+      navMainTop.push({
         title: "Categorias",
         url: "/admin/categorias",
         icon: Tag,
@@ -146,7 +136,7 @@ export function AppSidebar({
     }
 
     if (canAccessSidebarModule("suppliers")) {
-      navMain.push({
+      navMainTop.push({
         title: "Proveedores",
         url: "/admin/proveedores",
         icon: Truck,
@@ -156,7 +146,7 @@ export function AppSidebar({
     }
 
     if (canAccessSidebarModule("quotes")) {
-      navMain.push({
+      navMainTop.push({
         title: "Cotizaciones",
         url: "/admin/cotizaciones",
         icon: FileText,
@@ -166,32 +156,11 @@ export function AppSidebar({
     }
   }
 
+  const navMainBottom: NavMainItem[] = [];
+
   if (user.role === "ADMIN" || user.role === "CLIENTE") {
-    const isChatsGeneralActive = pathname.startsWith("/cliente/chats") && !currentConnectionKey;
-    const mappedChatSidebarItems = chatSidebarItems.map((item) => {
-      const itemConnection = new URL(item.url, "http://localhost").searchParams.get("connection")?.trim() || "";
-      return {
-        ...item,
-        isActive: Boolean(currentConnectionKey) && currentConnectionKey === itemConnection,
-      };
-    });
-
-    if (canAccessSidebarModule("chats")) {
-      navMain.push({
-        title: "Chats",
-        url: "/cliente/chats",
-        icon: MessageCircle,
-        isActive: isChatsGeneralActive,
-        expandable: true,
-        items: [
-          { title: "Bandeja", url: "/cliente/chats", helper: "General", kind: "general", isActive: isChatsGeneralActive },
-          ...mappedChatSidebarItems,
-        ],
-      });
-    }
-
     if (canAccessSidebarModule("contacts")) {
-      navMain.push({
+      navMainBottom.push({
         title: "Contactos",
         url: "/cliente/contactos",
         icon: Users2,
@@ -200,18 +169,8 @@ export function AppSidebar({
       });
     }
 
-    if (canAccessSidebarModule("crm")) {
-      navMain.push({
-        title: "CRM",
-        url: "/cliente/crm",
-        icon: KanbanSquare,
-        isActive: pathname.startsWith("/cliente/crm"),
-        items: [{ title: "Registro", url: "/cliente/crm" }],
-      });
-    }
-
     if (canAccessSidebarModule("flows")) {
-      navMain.push({
+      navMainBottom.push({
         title: "Flujos",
         url: "/cliente/flujos",
         icon: FileText,
@@ -221,7 +180,7 @@ export function AppSidebar({
     }
 
     if (canAccessSidebarModule("marketing_ia")) {
-      navMain.push({
+      navMainBottom.push({
         title: "Marketing IA",
         url: "/cliente/marketing-ia",
         icon: Megaphone,
@@ -231,7 +190,7 @@ export function AppSidebar({
     }
 
     if (canAccessSidebarModule("finanzas")) {
-      navMain.push({
+      navMainBottom.push({
         title: "Finanzas",
         url: "/cliente/finanzas",
         icon: Wallet,
@@ -241,7 +200,7 @@ export function AppSidebar({
     }
 
     if (canAccessSidebarModule("connection") || adminModuleAccess.client_official_api) {
-      navMain.push({
+      navMainBottom.push({
         title: "Conexion",
         url: "/cliente/conexion",
         icon: Cable,
@@ -256,7 +215,7 @@ export function AppSidebar({
     }
 
     if (canAccessSidebarModule("agents")) {
-      navMain.push({
+      navMainBottom.push({
         title: "Agentes",
         url: "/cliente/agentes",
         icon: Bot,
@@ -289,7 +248,16 @@ export function AppSidebar({
       </SidebarHeader>
 
       <SidebarContent>
-        <NavMain items={navMain} />
+        <NavMain items={navMainTop} />
+        {canSeeChats ? (
+          <NavChats
+            currentConnectionKey={currentConnectionKey}
+            isChatsRoute={isClientChatsRoute}
+            chatSidebarItems={chatSidebarItems}
+          />
+        ) : null}
+        {canSeeCrm ? <NavCrm currentView={currentCrmView} isCrmRoute={isClientCrmRoute} /> : null}
+        <NavMain items={navMainBottom} />
       </SidebarContent>
       <SidebarFooter className="border-t-0 !p-0">
         <NavUser

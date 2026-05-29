@@ -1,0 +1,159 @@
+import type { ReactNode } from "react";
+import { CheckCircle2, CircleSlash2, TrendingUp, Users2 } from "lucide-react";
+import { Card } from "@/components/ui/card";
+import type { CrmData } from "../types";
+
+function MetricCard({
+  label,
+  value,
+  icon,
+}: {
+  label: string;
+  value: string;
+  icon: ReactNode;
+}) {
+  return (
+    <Card className="rounded-[22px] border border-[#c7d8ff] bg-[#f6f9ff] px-4 py-3.5 shadow-[0_10px_26px_-20px_rgba(37,99,235,0.28)]">
+      <div className="flex items-center gap-3">
+        <div className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#d8e3ff] bg-[#edf3ff] text-[#3b63ff]">
+          {icon}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[0.95rem] font-medium text-[#5b74a8]">{label}</p>
+        </div>
+        <p className="shrink-0 text-[1.45rem] font-semibold leading-none tracking-[-0.06em] text-[#0f172a]">{value}</p>
+      </div>
+    </Card>
+  );
+}
+
+function formatCrmDateTime(value: string) {
+  return new Intl.DateTimeFormat("es-CO", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  })
+    .format(new Date(value))
+    .replace(/\u00A0/g, " ");
+}
+
+function formatCrmPercent(value: number, total: number) {
+  if (total === 0) {
+    return "0%";
+  }
+
+  return `${Math.round((value / total) * 100)}%`;
+}
+
+function getCrmSummaryStats(data: CrmData) {
+  const activeRecords = data.records.filter((record) => record.status !== "GANADO" && record.status !== "PERDIDO").length;
+  const wonRecords = data.records.filter((record) => record.status === "GANADO").length;
+  const lostRecords = data.records.filter((record) => record.status === "PERDIDO").length;
+
+  return { activeRecords, wonRecords, lostRecords };
+}
+
+function getCrmRecordsByOrigin(data: CrmData) {
+  return data.records.reduce(
+    (acc, record) => {
+      acc[record.origin] += 1;
+      return acc;
+    },
+    {
+      FACEBOOK: 0,
+      MARKETPLACE: 0,
+      RECOMENDADO: 0,
+      GENERICO: 0,
+    },
+  );
+}
+
+export function CrmUpdatedAt({ generatedAt }: { generatedAt: string }) {
+  return <p className="text-xs text-slate-500">Actualizado: {formatCrmDateTime(generatedAt)}</p>;
+}
+
+export function CrmStatsCards({ data }: { data: CrmData }) {
+  const { activeRecords, wonRecords, lostRecords } = getCrmSummaryStats(data);
+
+  return (
+    <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+      <MetricCard label="Total" value={String(data.stats.total)} icon={<Users2 className="h-5 w-5" />} />
+      <MetricCard label="En proceso" value={String(activeRecords)} icon={<TrendingUp className="h-5 w-5" />} />
+      <MetricCard label="Ganados" value={String(wonRecords)} icon={<CheckCircle2 className="h-5 w-5" />} />
+      <MetricCard label="Descartados" value={String(lostRecords)} icon={<CircleSlash2 className="h-5 w-5" />} />
+    </div>
+  );
+}
+
+export function CrmReportStatsCards({ data }: { data: CrmData }) {
+  const { activeRecords, wonRecords, lostRecords } = getCrmSummaryStats(data);
+
+  return (
+    <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+      <MetricCard label="Total" value={String(data.stats.total)} icon={<Users2 className="h-5 w-5" />} />
+      <MetricCard
+        label="Activos"
+        value={`${activeRecords} (${formatCrmPercent(activeRecords, data.stats.total)})`}
+        icon={<TrendingUp className="h-5 w-5" />}
+      />
+      <MetricCard
+        label="Ganados"
+        value={`${wonRecords} (${formatCrmPercent(wonRecords, data.stats.total)})`}
+        icon={<CheckCircle2 className="h-5 w-5" />}
+      />
+      <MetricCard
+        label="Descartados"
+        value={`${lostRecords} (${formatCrmPercent(lostRecords, data.stats.total)})`}
+        icon={<CircleSlash2 className="h-5 w-5" />}
+      />
+    </div>
+  );
+}
+
+function ReportCard({
+  title,
+  rows,
+}: {
+  title: string;
+  rows: Array<{ label: string; value: string }>;
+}) {
+  return (
+    <Card className="rounded-[22px] border border-[var(--line)] bg-white px-4 py-4 shadow-none">
+      <div className="flex flex-col gap-3">
+        <h3 className="text-sm font-semibold text-slate-950">{title}</h3>
+        <div className="flex flex-col gap-2">
+          {rows.map((row) => (
+            <div key={row.label} className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2">
+              <span className="text-sm text-slate-600">{row.label}</span>
+              <span className="text-sm font-semibold text-slate-950">{row.value}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+export function CrmReportCards({ data }: { data: CrmData }) {
+  const recordsByOrigin = getCrmRecordsByOrigin(data);
+
+  return (
+    <div className="grid gap-3 xl:grid-cols-2">
+      <ReportCard
+        title="Distribucion por etapa"
+        rows={data.columns.map((column) => ({
+          label: column.title,
+          value: `${column.records.length}`,
+        }))}
+      />
+      <ReportCard
+        title="Origen de registros"
+        rows={[
+          { label: "Facebook Ads", value: String(recordsByOrigin.FACEBOOK) },
+          { label: "Marketplace", value: String(recordsByOrigin.MARKETPLACE) },
+          { label: "Recomendado", value: String(recordsByOrigin.RECOMENDADO) },
+          { label: "Generico", value: String(recordsByOrigin.GENERICO) },
+        ]}
+      />
+    </div>
+  );
+}

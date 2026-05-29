@@ -7,6 +7,6 @@ const CrmWorkspace = dynamic(() => import("./CrmWorkspace").then((module) => mod
   ssr: false,
 });
 
-export function CrmWorkspaceClient({ data }: { data: CrmData }) {
-  return <CrmWorkspace data={data} />;
+export function CrmWorkspaceClient({ data, defaultView }: { data: CrmData; defaultView?: "registro" | "kanban" | "informe" }) {
+  return <CrmWorkspace data={data} defaultView={defaultView} />;
 }
