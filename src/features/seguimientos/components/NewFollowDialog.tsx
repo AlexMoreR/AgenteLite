@@ -1,16 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Check, ChevronsUpDown, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
+import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from "@/components/ui/combobox";
 import {
   Dialog,
   DialogContent,
@@ -21,7 +14,6 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { createFollowRuleAction } from "@/app/actions/follow-actions";
@@ -42,6 +34,7 @@ type SourceType = "FLOW" | "PRODUCT" | "TAG" | "CRM_STAGE" | "MANUAL";
 type NewFollowDialogProps = {
   workspaceName: string;
   channels: SelectOption[];
+  contacts: SelectOption[];
   sourceOptions: SourceGroup[];
   crmStages: SelectOption[];
 };
@@ -54,7 +47,8 @@ function labelClassName() {
   return "text-xs font-medium uppercase tracking-[0.18em] text-slate-500";
 }
 
-function sourceOptionsForType(sourceType: SourceType, sourceOptions: SourceGroup[], crmStages: SelectOption[]) {
+function sourceOptionsForType(sourceType: SourceType, sourceOptions: SourceGroup[], crmStages: SelectOption[], contacts: SelectOption[]) {
+  if (sourceType === "MANUAL") return contacts;
   if (sourceType === "FLOW") return sourceOptions[0]?.options ?? [];
   if (sourceType === "PRODUCT") return sourceOptions[1]?.options ?? [];
   if (sourceType === "TAG") return sourceOptions[2]?.options ?? [];
@@ -86,95 +80,10 @@ function sourceEmptyText(sourceType: SourceType) {
   return "No hay estados CRM disponibles.";
 }
 
-function SearchableOriginPicker({
-  name,
-  label,
-  placeholder,
-  searchPlaceholder,
-  emptyText,
-  options,
-  value,
-  onValueChange,
-  showColor,
-}: {
-  name: string;
-  label: string;
-  placeholder: string;
-  searchPlaceholder: string;
-  emptyText: string;
-  options: SelectOption[];
-  value: string;
-  onValueChange: (value: string) => void;
-  showColor?: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  const selected = options.find((option) => option.value === value);
-
-  return (
-    <div className="flex flex-col gap-2">
-      <label className={labelClassName()} htmlFor={name}>
-        {label}
-      </label>
-      <input type="hidden" name={name} value={value} />
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <Button
-            id={name}
-            type="button"
-            variant="outline"
-            className="h-11 w-full justify-between rounded-xl border-slate-200 bg-white px-3.5 text-sm font-normal text-slate-900 shadow-none hover:border-slate-300"
-          >
-            <span className={cn("truncate", !selected && "text-slate-400")}>
-              {selected?.label ?? placeholder}
-            </span>
-            <ChevronsUpDown data-icon="inline-end" />
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent className="w-[22rem] p-0 sm:w-[26rem]">
-          <Command>
-            <CommandInput placeholder={searchPlaceholder} />
-            <CommandList>
-              <CommandEmpty>{emptyText}</CommandEmpty>
-              <CommandGroup>
-                {options.map((option) => {
-                  const isSelected = selected?.value === option.value;
-
-                  return (
-                    <CommandItem
-                      key={option.value}
-                      value={`${option.label} ${option.value}`}
-                      onSelect={() => {
-                        onValueChange(option.value);
-                        setOpen(false);
-                      }}
-                      className="px-2.5 py-2"
-                    >
-                      <div className="flex w-full items-center gap-2">
-                        <span
-                          className={cn(
-                            "size-2.5 shrink-0 rounded-full",
-                            showColor ? "opacity-100" : "bg-slate-300",
-                          )}
-                          style={showColor && option.color ? { backgroundColor: option.color } : undefined}
-                        />
-                        <span className="truncate text-sm text-slate-800">{option.label}</span>
-                        {isSelected ? <Check className="ml-auto size-4 text-[var(--primary)]" /> : null}
-                      </div>
-                    </CommandItem>
-                  );
-                })}
-              </CommandGroup>
-            </CommandList>
-          </Command>
-        </PopoverContent>
-      </Popover>
-    </div>
-  );
-}
-
 export function NewFollowDialog({
   workspaceName,
   channels,
+  contacts,
   sourceOptions,
   crmStages,
 }: NewFollowDialogProps) {
@@ -183,16 +92,16 @@ export function NewFollowDialog({
   const [ruleName, setRuleName] = useState("");
   const [selectedChannelId, setSelectedChannelId] = useState("");
   const [ruleSourceType, setRuleSourceType] = useState<SourceType>("MANUAL");
-  const [ruleSourceValue, setRuleSourceValue] = useState("");
+  const [ruleSourceValue, setRuleSourceValue] = useState<SelectOption | null>(null);
 
   const ruleSourceOptions = useMemo(
-    () => sourceOptionsForType(ruleSourceType, sourceOptions, crmStages),
-    [crmStages, ruleSourceType, sourceOptions],
+    () => sourceOptionsForType(ruleSourceType, sourceOptions, crmStages, contacts),
+    [contacts, crmStages, ruleSourceType, sourceOptions],
   );
 
   const ruleSourceLabelText = sourceLabel(ruleSourceType);
   const ruleSourcePlaceholderText = sourcePlaceholder(ruleSourceType);
-  const ruleSourceSearchText = sourcePlaceholder(ruleSourceType);
+  const ruleSourceEmptyText = sourceEmptyText(ruleSourceType);
 
   return (
     <Dialog
@@ -204,7 +113,7 @@ export function NewFollowDialog({
           setRuleName("");
           setSelectedChannelId("");
           setRuleSourceType("MANUAL");
-          setRuleSourceValue("");
+          setRuleSourceValue(null);
         }
       }}
     >
@@ -285,22 +194,10 @@ export function NewFollowDialog({
 
             <form action={createFollowRuleAction} className="flex max-h-[70vh] flex-col gap-4 overflow-y-auto pr-1">
               <input type="hidden" name="name" value={ruleName} />
+              <input type="hidden" name="channelId" value={selectedChannelId} />
+              <input type="hidden" name="sourceId" value={ruleSourceValue?.value ?? ""} />
 
               <div className="grid gap-4 sm:grid-cols-2">
-                <div className="flex flex-col gap-2">
-                  <label className={labelClassName()} htmlFor="quick-rule-channel">
-                    Canal
-                  </label>
-                  <select id="quick-rule-channel" name="channelId" defaultValue="" className={fieldClassName()}>
-                    <option value="">Canal por defecto</option>
-                    {channels.map((channel) => (
-                      <option key={channel.value} value={channel.value}>
-                        {channel.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
                 <div className="flex flex-col gap-2">
                   <label className={labelClassName()} htmlFor="quick-rule-source-type">
                     Origen
@@ -313,7 +210,7 @@ export function NewFollowDialog({
                     onChange={(event) => {
                       const nextType = event.target.value as SourceType;
                       setRuleSourceType(nextType);
-                      setRuleSourceValue("");
+                      setRuleSourceValue(null);
                     }}
                   >
                     <option value="MANUAL">Manual</option>
@@ -324,17 +221,50 @@ export function NewFollowDialog({
                   </select>
                 </div>
 
-                <SearchableOriginPicker
-                  name="sourceId"
-                  label={ruleSourceLabelText}
-                  placeholder={ruleSourcePlaceholderText}
-                  searchPlaceholder={ruleSourceSearchText}
-                  emptyText={sourceEmptyText(ruleSourceType)}
-                  options={ruleSourceOptions}
-                  value={ruleSourceValue}
-                  onValueChange={setRuleSourceValue}
-                  showColor={ruleSourceType === "TAG" || ruleSourceType === "CRM_STAGE"}
-                />
+                <div className="flex flex-col gap-2">
+                  <label className={labelClassName()} htmlFor="quick-rule-source-id">
+                    {ruleSourceLabelText}
+                  </label>
+                  <Combobox
+                    key={ruleSourceType}
+                    items={ruleSourceOptions}
+                    value={ruleSourceValue}
+                    onValueChange={(option) => setRuleSourceValue(option)}
+                    itemToStringLabel={(option) => option.label}
+                    itemToStringValue={(option) => option.value}
+                  >
+                    <ComboboxInput
+                      id="quick-rule-source-id"
+                      placeholder={ruleSourcePlaceholderText}
+                      className={fieldClassName()}
+                    />
+                    <ComboboxContent>
+                      <ComboboxEmpty>{ruleSourceEmptyText}</ComboboxEmpty>
+                      <ComboboxList>
+                        {(option) => (
+                          <ComboboxItem key={option.value} value={option}>
+                            <span className="flex items-center gap-2">
+                              <span
+                                className={cn(
+                                  "size-2.5 shrink-0 rounded-full",
+                                  ruleSourceType === "TAG" || ruleSourceType === "CRM_STAGE"
+                                    ? "opacity-100"
+                                    : "bg-slate-300",
+                                )}
+                                style={
+                                  (ruleSourceType === "TAG" || ruleSourceType === "CRM_STAGE") && option.color
+                                    ? { backgroundColor: option.color }
+                                    : undefined
+                                }
+                              />
+                              <span className="truncate">{option.label}</span>
+                            </span>
+                          </ComboboxItem>
+                        )}
+                      </ComboboxList>
+                    </ComboboxContent>
+                  </Combobox>
+                </div>
 
                 <div className="flex flex-col gap-2">
                   <label className={labelClassName()} htmlFor="quick-rule-time-type">

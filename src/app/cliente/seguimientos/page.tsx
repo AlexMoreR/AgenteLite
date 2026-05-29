@@ -36,7 +36,7 @@ export default async function SeguimientosPage() {
   }
 
   const canUseOfficialApi = await canAccessOfficialApiModule(session.user.id, session.user.role);
-  const [overview, channels, flows, products, tags] = await Promise.all([
+  const [overview, channels, contacts, flows, products, tags] = await Promise.all([
     getFollowOverview({ workspaceId: membership.workspace.id }),
     prisma.whatsAppChannel.findMany({
       where: {
@@ -49,6 +49,18 @@ export default async function SeguimientosPage() {
         name: true,
         status: true,
         evolutionInstanceName: true,
+      },
+    }),
+    prisma.contact.findMany({
+      where: {
+        workspaceId: membership.workspace.id,
+      },
+      orderBy: [{ updatedAt: "desc" }],
+      take: 80,
+      select: {
+        id: true,
+        name: true,
+        phoneNumber: true,
       },
     }),
     getCreatedFlowItems({
@@ -144,6 +156,10 @@ export default async function SeguimientosPage() {
       channels={channels.map((channel) => ({
         value: channel.id,
         label: `${channel.name} ${channel.evolutionInstanceName ? `· ${channel.evolutionInstanceName}` : ""}`,
+      }))}
+      contacts={contacts.map((contact) => ({
+        value: contact.id,
+        label: contact.name?.trim() || contact.phoneNumber,
       }))}
       sourceOptions={[
         {

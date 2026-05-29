@@ -76,6 +76,7 @@ type SeguimientosWorkspaceProps = {
   rules: FollowRuleRow[];
   follows: FollowRow[];
   channels: SelectOption[];
+  contacts: SelectOption[];
   sourceOptions: Array<{
     label: string;
     options: SelectOption[];
@@ -104,6 +105,7 @@ export function SeguimientosWorkspace({
   rules,
   follows,
   channels,
+  contacts,
   sourceOptions,
   crmStages,
 }: SeguimientosWorkspaceProps) {
@@ -114,7 +116,7 @@ export function SeguimientosWorkspace({
           <BarChart3 className="h-7 w-7 text-[#3b63ff]" />
           <h1 className="text-2xl font-semibold tracking-[-0.05em] text-slate-950">Seguimientos</h1>
         </div>
-        <NewFollowDialog workspaceName={workspaceName} channels={channels} sourceOptions={sourceOptions} crmStages={crmStages} />
+        <NewFollowDialog workspaceName={workspaceName} channels={channels} contacts={contacts} sourceOptions={sourceOptions} crmStages={crmStages} />
       </div>
 
       <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
