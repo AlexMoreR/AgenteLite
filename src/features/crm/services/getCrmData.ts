@@ -26,7 +26,7 @@ function getContactDetail(contact: {
   conversations: Array<{
     messages: Array<{
       content: string | null;
-      rawPayload: Prisma.JsonValue | null;
+      rawPayload?: Prisma.JsonValue | null;
     }>;
   }>;
 }) {
