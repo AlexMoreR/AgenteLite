@@ -34,7 +34,7 @@ function ComboboxContent({ className, ...props }: React.ComponentProps<typeof Co
 }
 
 function ComboboxEmpty({ className, ...props }: React.ComponentProps<typeof ComboboxPrimitive.Empty>) {
-  return <ComboboxPrimitive.Empty className={cn("px-3 py-6 text-sm text-slate-500", className)} {...props} />;
+  return <ComboboxPrimitive.Empty className={cn("sr-only", className)} {...props} />;
 }
 
 function ComboboxInput({ className, ...props }: React.ComponentProps<typeof ComboboxPrimitive.Input>) {
@@ -52,7 +52,7 @@ function ComboboxInput({ className, ...props }: React.ComponentProps<typeof Comb
 type ComboboxListProps = React.ComponentProps<typeof ComboboxPrimitive.List>;
 
 function ComboboxList({ className, ...props }: ComboboxListProps) {
-  return <ComboboxPrimitive.List className={cn("max-h-72 overflow-y-auto p-1.5", className)} {...props} />;
+  return <ComboboxPrimitive.List className={cn("max-h-72 overflow-y-auto p-0", className)} {...props} />;
 }
 
 function ComboboxItem({ className, children, ...props }: React.ComponentProps<typeof ComboboxPrimitive.Item>) {

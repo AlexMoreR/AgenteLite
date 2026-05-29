@@ -90,12 +90,14 @@ export async function createFollowRuleAction(formData: FormData): Promise<void> 
     isActive: parsed.data.isActive,
   });
 
+  if (!rule) {
+    return;
+  }
+
   revalidatePath("/cliente/seguimientos");
   revalidatePath("/cliente/contactos");
   revalidatePath("/cliente/crm");
   revalidatePath("/cliente/flujos");
-
-  void rule.id;
 }
 
 export async function createFollowAction(formData: FormData): Promise<void> {

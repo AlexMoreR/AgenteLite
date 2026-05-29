@@ -228,6 +228,7 @@ export function NewFollowDialog({
                   <Combobox
                     key={ruleSourceType}
                     items={ruleSourceOptions}
+                    autoHighlight="always"
                     value={ruleSourceValue}
                     onValueChange={(option) => setRuleSourceValue(option)}
                     itemToStringLabel={(option) => option.label}
