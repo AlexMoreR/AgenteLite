@@ -67,6 +67,8 @@ model Workspace {
   financeChatMessages  FinanceChatMessage[]
   financeGoogleSheet   FinanceGoogleSheet?
   financeTransactions  FinanceTransaction[]
+  followRules          FollowRule[]
+  follows              Follow[]
   messages             Message[]
   officialApiConfig    OfficialApiClientConfig?
   Tag                  Tag[]
@@ -140,6 +142,8 @@ model WhatsAppChannel {
   isActive              Boolean               @default(true)
   conversations         Conversation[]
   messages              Message[]
+  followRules           FollowRule[]
+  follows               Follow[]
   agent                 Agent?                @relation(fields: [agentId], references: [id])
   workspace             Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
@@ -165,6 +169,7 @@ model Contact {
   contactMatches ContactMatch[]
   conversations Conversation[]
   messages      Message[]
+  follows       Follow[]
 
   @@unique([workspaceId, phoneNumber])
   @@index([workspaceId, createdAt])
@@ -801,4 +806,96 @@ enum CrmStage {
   NEGOCIACION
   GANADO
   PERDIDO
+}
+
+enum FollowSourceType {
+  FLOW
+  PRODUCT
+  TAG
+  CRM_STAGE
+  MANUAL
+}
+
+enum FollowTimeType {
+  MINUTES
+  HOURS
+  DAYS
+}
+
+enum FollowMessageType {
+  TEXT
+  AUDIO
+  IMAGE
+  VIDEO
+  DOC
+}
+
+enum FollowStatus {
+  PENDING
+  EXECUTED
+  CANCELLED
+}
+
+enum FollowProvider {
+  EVOLUTION
+}
+
+model FollowRule {
+  id              String            @id @default(cuid())
+  workspaceId     String
+  channelId       String?
+  name            String
+  sourceType      FollowSourceType
+  sourceId        String?
+  timeType        FollowTimeType
+  timeValue       Int
+  messageType     FollowMessageType
+  content         String?
+  mediaUrl        String?
+  cancelOnActivity Boolean          @default(true)
+  provider        FollowProvider    @default(EVOLUTION)
+  isActive        Boolean           @default(true)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  workspace       Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  channel         WhatsAppChannel?  @relation(fields: [channelId], references: [id], onDelete: SetNull)
+  follows         Follow[]
+
+  @@index([workspaceId, sourceType, sourceId])
+  @@index([workspaceId, isActive])
+  @@index([channelId])
+}
+
+model Follow {
+  id               String           @id @default(cuid())
+  workspaceId      String
+  contactId        String
+  followRuleId     String?
+  channelId        String?
+  timeType         FollowTimeType
+  timeValue        Int
+  executeAt        DateTime
+  messageType      FollowMessageType
+  content          String?
+  mediaUrl         String?
+  status           FollowStatus     @default(PENDING)
+  provider         FollowProvider   @default(EVOLUTION)
+  cancelOnActivity Boolean          @default(true)
+  executionError   String?
+  executedAt       DateTime?
+  cancelledAt      DateTime?
+  lockedAt         DateTime?
+  lockedBy         String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  workspace        Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contact          Contact          @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  followRule       FollowRule?      @relation(fields: [followRuleId], references: [id], onDelete: SetNull)
+  channel          WhatsAppChannel? @relation(fields: [channelId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, contactId, status, executeAt])
+  @@index([workspaceId, status, executeAt])
+  @@index([followRuleId])
+  @@index([channelId])
+  @@index([lockedAt])
 }

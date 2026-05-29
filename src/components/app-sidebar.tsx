@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  AlarmClock,
   Bot,
   Cable,
   FileText,
@@ -75,6 +76,7 @@ export function AppSidebar({
   const isClientContactsRoute = pathname.startsWith("/cliente/contactos");
   const isClientCrmRoute = pathname.startsWith("/cliente/crm");
   const isClientFlowsRoute = pathname.startsWith("/cliente/flujos");
+  const isClientSeguimientosRoute = pathname.startsWith("/cliente/seguimientos");
   const isClientMarketingRoute = pathname.startsWith("/cliente/marketing-ia");
   const isClientFinanzasRoute = pathname.startsWith("/cliente/finanzas");
   const isClientConnectionRoute = pathname.startsWith("/cliente/conexion") || pathname.startsWith("/cliente/api-oficial");
@@ -105,6 +107,7 @@ export function AppSidebar({
           !isClientContactsRoute &&
           !isClientCrmRoute &&
           !isClientFlowsRoute &&
+          !isClientSeguimientosRoute &&
           !isClientMarketingRoute &&
           !isClientFinanzasRoute &&
           !isClientConnectionRoute),
@@ -176,6 +179,16 @@ export function AppSidebar({
         icon: FileText,
         isActive: pathname.startsWith("/cliente/flujos"),
         items: [{ title: "Builder", url: "/cliente/flujos" }],
+      });
+    }
+
+    if (canAccessSidebarModule("seguimientos")) {
+      navMainBottom.push({
+        title: "Seguimientos",
+        url: "/cliente/seguimientos",
+        icon: AlarmClock,
+        isActive: pathname.startsWith("/cliente/seguimientos"),
+        items: [{ title: "Reglas y colas", url: "/cliente/seguimientos" }],
       });
     }
 

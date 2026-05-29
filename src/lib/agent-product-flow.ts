@@ -52,6 +52,7 @@ type ProductFlowResolution = {
   steps: FlowStep[] | null;
   flowTitle: string | null;
   productName: string | null;
+  flowId: string | null;
   aiFollowUpEnabled: boolean;
   activeProductContext: ActiveProductContext | null;
 };
@@ -619,6 +620,7 @@ export async function resolveAgentProductFlowReply(input: {
         steps: null,
         flowTitle: null,
         productName: matchedProduct.name,
+        flowId: null,
         aiFollowUpEnabled: false,
         activeProductContext,
       };
@@ -659,6 +661,7 @@ export async function resolveAgentProductFlowReply(input: {
           steps: reply.steps,
           flowTitle: referencedFlow?.title ?? matchedProduct.name,
           productName: matchedProduct.name,
+          flowId: referencedFlowIds[0],
           aiFollowUpEnabled: reply.aiFollowUpEnabled,
           activeProductContext,
         };
@@ -669,6 +672,7 @@ export async function resolveAgentProductFlowReply(input: {
       steps: null,
       flowTitle: null,
       productName: matchedProduct.name,
+      flowId: null,
       aiFollowUpEnabled: false,
       activeProductContext,
     };
@@ -696,6 +700,7 @@ export async function resolveAgentProductFlowReply(input: {
         steps: reply.steps,
         flowTitle: bestFlow.title,
         productName: null,
+        flowId: bestFlow.flowId,
         aiFollowUpEnabled: reply.aiFollowUpEnabled,
         activeProductContext: null,
       };

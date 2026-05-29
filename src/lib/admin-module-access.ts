@@ -90,6 +90,13 @@ export const adminModuleDefinitions = [
     group: "Cliente",
   },
   {
+    key: "seguimientos",
+    label: "Seguimientos",
+    description: "Reglas y seguimientos automáticos por contacto.",
+    path: "/cliente/seguimientos",
+    group: "Cliente",
+  },
+  {
     key: "marketing_ia",
     label: "Marketing IA",
     description: "Campanas, mensajes y activaciones inteligentes.",
@@ -135,6 +142,7 @@ const defaultAdminVisibleModules = new Set<AdminModuleKey>([
   "config_business",
   "config_permissions",
   "config_whatsapp",
+  "seguimientos",
 ]);
 
 async function ensureAppSettingTable(): Promise<void> {
@@ -233,7 +241,10 @@ export function getDefaultAdminModuleAccess(role?: Role): Record<AdminModuleKey,
 
   if (role === "CLIENTE") {
     return Object.fromEntries(
-      adminModuleDefinitions.map((item) => [item.key, item.key === "client_official_api"]),
+      adminModuleDefinitions.map((item) => [
+        item.key,
+        item.key === "client_official_api" || item.key === "seguimientos",
+      ]),
     ) as Record<AdminModuleKey, boolean>;
   }
 

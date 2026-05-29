@@ -6,6 +6,7 @@ import { z } from "zod";
 import { auth } from "@/auth";
 import { sendManualAgentReplyAction } from "@/app/actions/agent-actions";
 import { sendOfficialApiReplyAction } from "@/app/actions/official-api-actions";
+import { createFollowsFromRulesForSource } from "@/features/seguimientos/services/follows";
 import { getConversationAutomationPaused, setConversationAutomationPaused } from "@/lib/conversation-automation";
 import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
 import { sendEvolutionTextMessage } from "@/lib/evolution";
@@ -491,6 +492,13 @@ export async function toggleContactTagAction(
   } else {
     await prisma.contactTag.create({
       data: { contactId, tagId, workspaceId: membership.workspace.id },
+    });
+
+    await createFollowsFromRulesForSource({
+      workspaceId: membership.workspace.id,
+      contactId,
+      sourceType: "TAG",
+      sourceId: tagId,
     });
   }
 

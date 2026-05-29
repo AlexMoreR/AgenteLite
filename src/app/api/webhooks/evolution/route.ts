@@ -11,6 +11,10 @@ import {
 import { composeAgentWelcomeReply } from "@/lib/agent-reply-composer";
 import { getConversationAutomationPaused, setConversationAutomationPaused } from "@/lib/conversation-automation";
 import { prisma } from "@/lib/prisma";
+import {
+  cancelPendingFollowsByContact,
+  createFollowsFromRulesForSource,
+} from "@/features/seguimientos/services/follows";
 import { resolveEvolutionQuickResponseFlow } from "@/features/flows/services/resolveEvolutionQuickResponseFlow";
 import {
   extractEvolutionConnectionState,
@@ -1100,29 +1104,51 @@ export async function POST(request: Request) {
         return;
       }
 
+      if (!fromMe && !isCallEvent) {
+        await cancelPendingFollowsByContact({
+          workspaceId: channel.workspaceId,
+          contactId: contact.id,
+          reason: "Respuesta del cliente",
+        });
+      }
+
       if (fromMe && channel.agentId && channel.isActive && channel.evolutionInstanceName && messageText) {
-    const ownerTriggeredFlow = await resolveEvolutionQuickResponseFlow({
-      workspaceId: channel.workspaceId,
-      channelId: channel.id,
-      manualMessage: messageText,
-    });
+        await cancelPendingFollowsByContact({
+          workspaceId: channel.workspaceId,
+          contactId: contact.id,
+          reason: "Actividad del agente",
+        });
 
-    if (ownerTriggeredFlow) {
-      console.log("[EVOLUTION] owner_triggered_flow", {
-        conversationId: conversation.id,
-        agentId: channel.agentId,
-        keyword: ownerTriggeredFlow.keyword,
-        scenarioTitle: ownerTriggeredFlow.scenarioTitle,
-        phoneNumber,
-      });
+        const ownerTriggeredFlow = await resolveEvolutionQuickResponseFlow({
+          workspaceId: channel.workspaceId,
+          channelId: channel.id,
+          manualMessage: messageText,
+        });
 
-      try {
-        await sendEvolutionPresence({
-          instanceName: channel.evolutionInstanceName,
-          phoneNumber,
-          presence: "composing",
-          delay: 800,
-        }).catch(() => null);
+        if (ownerTriggeredFlow) {
+          console.log("[EVOLUTION] owner_triggered_flow", {
+            conversationId: conversation.id,
+            agentId: channel.agentId,
+            keyword: ownerTriggeredFlow.keyword,
+            scenarioTitle: ownerTriggeredFlow.scenarioTitle,
+            phoneNumber,
+          });
+
+          await createFollowsFromRulesForSource({
+            workspaceId: channel.workspaceId,
+            contactId: contact.id,
+            sourceType: "FLOW",
+            sourceId: ownerTriggeredFlow.flowId,
+            channelId: channel.id,
+          });
+
+          try {
+            await sendEvolutionPresence({
+              instanceName: channel.evolutionInstanceName,
+              phoneNumber,
+              presence: "composing",
+              delay: 800,
+            }).catch(() => null);
 
         if (ownerTriggeredFlow.reply.image) {
           const imageOutbound = await sendEvolutionImageMessage({
@@ -1576,6 +1602,16 @@ export async function POST(request: Request) {
         }
       }
 
+      if (quickResponseFlow?.flowId) {
+        await createFollowsFromRulesForSource({
+          workspaceId: channel.workspaceId,
+          contactId: contact.id,
+          sourceType: "FLOW",
+          sourceId: quickResponseFlow.flowId,
+          channelId: channel.id,
+        });
+      }
+
       const previousCommercialContext = parseCommercialConversationContext(conversation.commercialContext);
       const previousActiveProductContext = (existingConversation?.activeProductContext as ActiveProductContext | null | undefined) ?? null;
 
@@ -1644,6 +1680,29 @@ export async function POST(request: Request) {
           }
           hardFlowReply = null;
         }
+      }
+
+      if (
+        hardFlowResolution?.activeProductContext?.productId &&
+        previousActiveProductContext?.productId !== hardFlowResolution.activeProductContext.productId
+      ) {
+        await createFollowsFromRulesForSource({
+          workspaceId: channel.workspaceId,
+          contactId: contact.id,
+          sourceType: "PRODUCT",
+          sourceId: hardFlowResolution.activeProductContext.productId,
+          channelId: channel.id,
+        });
+      }
+
+      if (hardFlowReply?.flowId) {
+        await createFollowsFromRulesForSource({
+          workspaceId: channel.workspaceId,
+          contactId: contact.id,
+          sourceType: "FLOW",
+          sourceId: hardFlowReply.flowId,
+          channelId: channel.id,
+        });
       }
 
       const knowledgeBaseReply = hardFlowReply

@@ -5,6 +5,7 @@ import { z } from "zod";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
+import { createFollowsFromRulesForSource } from "@/features/seguimientos/services/follows";
 import type { CrmStage } from "@/features/crm/types";
 
 const updateCrmStageSchema = z.object({
@@ -54,6 +55,13 @@ export async function updateCrmStageAction(input: { contactId: string; status: C
         "updatedAt" = NOW()
     WHERE "id" = ${contact.id}
   `;
+
+  await createFollowsFromRulesForSource({
+    workspaceId: membership.workspace.id,
+    contactId: contact.id,
+    sourceType: "CRM_STAGE",
+    sourceId: parsed.data.status,
+  });
 
   revalidatePath("/cliente/crm");
   revalidatePath("/cliente/contactos");

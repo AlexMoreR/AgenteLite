@@ -221,6 +221,7 @@ export async function resolveEvolutionQuickResponseFlow(input: {
       }
 
       return {
+        flowId: `evolution:${input.channelId}:${scenario.id}`,
         scenarioId: scenario.id,
         scenarioTitle: scenario.title.trim() || "Flujo",
         keyword: matchedKeyword,
