@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useActionState, useEffect, useMemo, useState } from "react";
 import { Plus } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from "@/components/ui/combobox";
 import {
@@ -16,7 +17,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { createFollowRuleAction } from "@/app/actions/follow-actions";
+import {
+  createFollowRuleAction,
+  type CreateFollowRuleActionState,
+} from "@/app/actions/follow-actions";
 
 type SelectOption = {
   value: string;
@@ -80,6 +84,10 @@ function sourceEmptyText(sourceType: SourceType) {
   return "No hay estados CRM disponibles.";
 }
 
+const initialActionState: CreateFollowRuleActionState = {
+  error: "",
+};
+
 export function NewFollowDialog({
   workspaceName,
   channels,
@@ -93,6 +101,7 @@ export function NewFollowDialog({
   const [selectedChannelId, setSelectedChannelId] = useState("");
   const [ruleSourceType, setRuleSourceType] = useState<SourceType>("MANUAL");
   const [ruleSourceValue, setRuleSourceValue] = useState<SelectOption | null>(null);
+  const [actionState, formAction, pending] = useActionState(createFollowRuleAction, initialActionState);
 
   const ruleSourceOptions = useMemo(
     () => sourceOptionsForType(ruleSourceType, sourceOptions, crmStages, contacts),
@@ -102,6 +111,20 @@ export function NewFollowDialog({
   const ruleSourceLabelText = sourceLabel(ruleSourceType);
   const ruleSourcePlaceholderText = sourcePlaceholder(ruleSourceType);
   const ruleSourceEmptyText = sourceEmptyText(ruleSourceType);
+
+  useEffect(() => {
+    if ("success" in actionState && actionState.success) {
+      toast.success(`Regla \"${actionState.name}\" guardada`);
+      window.setTimeout(() => {
+        setOpen(false);
+      }, 0);
+      return;
+    }
+
+    if ("error" in actionState && actionState.error) {
+      toast.error(actionState.error);
+    }
+  }, [actionState]);
 
   return (
     <Dialog
@@ -192,7 +215,7 @@ export function NewFollowDialog({
               <DialogDescription>Configura la automatización reutilizable para {workspaceName}.</DialogDescription>
             </DialogHeader>
 
-            <form action={createFollowRuleAction} className="flex max-h-[70vh] flex-col gap-4 overflow-y-auto pr-1">
+            <form action={formAction} className="flex max-h-[70vh] flex-col gap-4 overflow-y-auto pr-1">
               <input type="hidden" name="name" value={ruleName} />
               <input type="hidden" name="channelId" value={selectedChannelId} />
               <input type="hidden" name="sourceId" value={ruleSourceValue?.value ?? ""} />
@@ -322,7 +345,9 @@ export function NewFollowDialog({
                 <Button type="button" variant="outline" onClick={() => setStep("intro")}>
                   Volver
                 </Button>
-                <Button type="submit">Guardar regla</Button>
+                <Button type="submit" disabled={pending}>
+                  {pending ? "Guardando..." : "Guardar regla"}
+                </Button>
               </DialogFooter>
             </form>
           </>

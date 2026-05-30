@@ -517,6 +517,20 @@ export async function createFollowRule(input: FollowRuleInput) {
   return row ? mapFollowRuleRow(row) : null;
 }
 
+export async function deleteFollowRule(input: {
+  workspaceId: string;
+  followRuleId: string;
+}) {
+  const [deleted] = await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    DELETE FROM public."FollowRule"
+    WHERE "id" = ${input.followRuleId}
+      AND "workspaceId" = ${input.workspaceId}
+    RETURNING "id"
+  `);
+
+  return deleted?.id ?? null;
+}
+
 export async function listFollowRulesByWorkspace(workspaceId: string) {
   const rows = await prisma.$queryRaw<RawFollowRuleRow[]>(Prisma.sql`
     SELECT

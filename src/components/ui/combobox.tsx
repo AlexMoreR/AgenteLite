@@ -20,10 +20,10 @@ function Combobox<Item>({ items, children, ...props }: ComboboxProps<Item>) {
 function ComboboxContent({ className, ...props }: React.ComponentProps<typeof ComboboxPrimitive.Popup>) {
   return (
     <ComboboxPrimitive.Portal>
-      <ComboboxPrimitive.Positioner className="z-50">
+      <ComboboxPrimitive.Positioner className="z-[60]">
         <ComboboxPrimitive.Popup
           className={cn(
-            "w-(--anchor-width) max-h-(--available-height) overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_24px_60px_-36px_rgba(15,23,42,0.25)] outline-none",
+            "pointer-events-auto w-(--anchor-width) max-h-(--available-height) overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_24px_60px_-36px_rgba(15,23,42,0.25)] outline-none",
             className,
           )}
           {...props}

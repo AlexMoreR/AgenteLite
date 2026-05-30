@@ -8,6 +8,7 @@ import {
   cancelPendingFollowsByContact,
   createFollow,
   createFollowRule,
+  deleteFollowRule,
 } from "@/features/seguimientos/services/follows";
 
 const createFollowRuleSchema = z.object({
@@ -46,15 +47,26 @@ function isAllowedRole(role?: string | null) {
   return role === "ADMIN" || role === "CLIENTE";
 }
 
-export async function createFollowRuleAction(formData: FormData): Promise<void> {
+export type CreateFollowRuleActionState =
+  | { success: true; ruleId: string; name: string }
+  | { error: string; success?: false };
+
+export type DeleteFollowRuleActionState =
+  | { success: true; ruleId: string; name: string }
+  | { error: string; success?: false };
+
+export async function createFollowRuleAction(
+  _prevState: CreateFollowRuleActionState,
+  formData: FormData,
+): Promise<CreateFollowRuleActionState> {
   const session = await auth();
   if (!session?.user?.id || !isAllowedRole(session.user.role)) {
-    return;
+    return { error: "No autorizado" };
   }
 
   const membership = await getPrimaryWorkspaceForUser(session.user.id);
   if (!membership) {
-    return;
+    return { error: "Workspace no encontrado" };
   }
 
   const parsed = createFollowRuleSchema.safeParse({
@@ -68,11 +80,13 @@ export async function createFollowRuleAction(formData: FormData): Promise<void> 
     content: formData.get("content"),
     mediaUrl: formData.get("mediaUrl"),
     cancelOnActivity: formData.get("cancelOnActivity") === "on" || formData.get("cancelOnActivity") === "true",
-    isActive: formData.get("isActive") === "on" || formData.get("isActive") === "true",
+    isActive: formData.has("isActive")
+      ? formData.get("isActive") === "on" || formData.get("isActive") === "true"
+      : undefined,
   });
 
   if (!parsed.success) {
-    return;
+    return { error: "Revisa los datos de la regla" };
   }
 
   const rule = await createFollowRule({
@@ -91,13 +105,52 @@ export async function createFollowRuleAction(formData: FormData): Promise<void> 
   });
 
   if (!rule) {
-    return;
+    return { error: "No se pudo guardar la regla" };
   }
 
   revalidatePath("/cliente/seguimientos");
   revalidatePath("/cliente/contactos");
   revalidatePath("/cliente/crm");
   revalidatePath("/cliente/flujos");
+
+  return { success: true, ruleId: rule.id, name: rule.name };
+}
+
+export async function deleteFollowRuleAction(
+  _prevState: DeleteFollowRuleActionState,
+  formData: FormData,
+): Promise<DeleteFollowRuleActionState> {
+  const session = await auth();
+  if (!session?.user?.id || !isAllowedRole(session.user.role)) {
+    return { error: "No autorizado" };
+  }
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    return { error: "Workspace no encontrado" };
+  }
+
+  const followRuleId = String(formData.get("followRuleId") || "").trim();
+  const followRuleName = String(formData.get("followRuleName") || "").trim();
+  if (!followRuleId) {
+    return { error: "Regla invalida" };
+  }
+
+  const deletedId = await deleteFollowRule({
+    workspaceId: membership.workspace.id,
+    followRuleId,
+  });
+
+  if (!deletedId) {
+    return { error: "No se pudo eliminar la regla" };
+  }
+
+  revalidatePath("/cliente/seguimientos");
+  revalidatePath("/cliente/contactos");
+  revalidatePath("/cliente/crm");
+  revalidatePath("/cliente/flujos");
+
+  return { success: true, ruleId: deletedId, name: followRuleName || "Regla" };
 }
 
 export async function createFollowAction(formData: FormData): Promise<void> {

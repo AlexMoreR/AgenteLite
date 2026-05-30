@@ -1,6 +1,21 @@
-import { BarChart3, CheckCircle2, CircleSlash2, TrendingUp, Users2 } from "lucide-react";
+"use client";
+
+import { useActionState, useEffect, useState } from "react";
+import { BarChart3, CheckCircle2, CircleSlash2, MoreHorizontal, Trash2, TrendingUp, Users2 } from "lucide-react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  deleteFollowRuleAction,
+  type DeleteFollowRuleActionState,
+} from "@/app/actions/follow-actions";
 import { NewFollowDialog } from "./NewFollowDialog";
 
 type SelectOption = {
@@ -84,6 +99,11 @@ type SeguimientosWorkspaceProps = {
   crmStages: SelectOption[];
 };
 
+type PendingDeleteRule = {
+  id: string;
+  name: string;
+} | null;
+
 function formatDate(value: Date | string | null | undefined) {
   if (!value) return "N/A";
   const date = typeof value === "string" ? new Date(value) : value;
@@ -109,6 +129,26 @@ export function SeguimientosWorkspace({
   sourceOptions,
   crmStages,
 }: SeguimientosWorkspaceProps) {
+  const [pendingDeleteRule, setPendingDeleteRule] = useState<PendingDeleteRule>(null);
+  const [deleteActionState, deleteFormAction, deletePending] = useActionState(
+    deleteFollowRuleAction,
+    { error: "" } as DeleteFollowRuleActionState,
+  );
+
+  useEffect(() => {
+    if ("success" in deleteActionState && deleteActionState.success) {
+      toast.success(`Regla "${deleteActionState.name}" eliminada`);
+      window.setTimeout(() => {
+        setPendingDeleteRule(null);
+      }, 0);
+      return;
+    }
+
+    if ("error" in deleteActionState && deleteActionState.error) {
+      toast.error(deleteActionState.error);
+    }
+  }, [deleteActionState]);
+
   return (
     <section className="space-y-5">
       <div className="flex items-center justify-between gap-3">
@@ -175,20 +215,43 @@ export function SeguimientosWorkspace({
             {rules.length ? (
               rules.map((rule) => (
                 <div key={rule.id} className="space-y-2 px-5 py-4">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="font-semibold text-slate-950">{rule.name}</p>
-                    <Badge variant={rule.isActive ? "secondary" : "outline"}>{rule.isActive ? "Activa" : "Pausada"}</Badge>
-                    <Badge variant="outline">{rule.sourceType}</Badge>
-                    <Badge variant="outline">{rule.messageType}</Badge>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-semibold text-slate-950">{rule.name}</p>
+                      <Badge variant={rule.isActive ? "secondary" : "outline"}>{rule.isActive ? "Activa" : "Pausada"}</Badge>
+                      <Badge variant="outline">{rule.sourceType}</Badge>
+                      <Badge variant="outline">{rule.messageType}</Badge>
+                    </div>
+
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
+                          aria-label={`Acciones de ${rule.name}`}
+                        >
+                          <MoreHorizontal className="h-4 w-4" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="min-w-44 rounded-2xl">
+                        <DropdownMenuItem
+                          onSelect={() => setPendingDeleteRule({ id: rule.id, name: rule.name })}
+                          className="gap-2 text-rose-600 focus:text-rose-700"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          Eliminar regla
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                   <p className="text-sm text-slate-600">Origen: {sourceLabel(rule.sourceType, rule.sourceId)}</p>
-                  <p className="text-sm text-slate-600">Programación: cada {rule.timeValue} {rule.timeType.toLowerCase()}</p>
+                  <p className="text-sm text-slate-600">Programacion: cada {rule.timeValue} {rule.timeType.toLowerCase()}</p>
                   <p className="text-sm text-slate-600">Canal: {rule.channel?.name ?? "Canal por defecto"}</p>
                   <p className="text-sm text-slate-600">Seguimientos generados: {rule._count?.follows ?? 0}</p>
                 </div>
               ))
             ) : (
-              <div className="px-5 py-8 text-sm text-slate-500">Todavía no hay reglas creadas.</div>
+              <div className="px-5 py-8 text-sm text-slate-500">Todavia no hay reglas creadas.</div>
             )}
           </div>
         </Card>
@@ -216,11 +279,47 @@ export function SeguimientosWorkspace({
                 </div>
               ))
             ) : (
-              <div className="px-5 py-8 text-sm text-slate-500">Todavía no hay seguimientos registrados.</div>
+              <div className="px-5 py-8 text-sm text-slate-500">Todavia no hay seguimientos registrados.</div>
             )}
           </div>
         </Card>
       </div>
+
+      {pendingDeleteRule ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Eliminar regla"
+          onClick={() => setPendingDeleteRule(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl bg-white shadow-xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="border-b border-slate-100 px-5 py-4">
+              <h3 className="text-base font-semibold text-slate-950">Eliminar regla</h3>
+              <p className="mt-1 text-sm text-slate-600">
+                Vas a eliminar <span className="font-medium text-slate-900">{pendingDeleteRule.name}</span>. Esta accion no se puede deshacer.
+              </p>
+            </div>
+
+            <form action={deleteFormAction} className="space-y-4 px-5 py-5">
+              <input type="hidden" name="followRuleId" value={pendingDeleteRule.id} />
+              <input type="hidden" name="followRuleName" value={pendingDeleteRule.name} />
+
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="outline" onClick={() => setPendingDeleteRule(null)} disabled={deletePending}>
+                  Cancelar
+                </Button>
+                <Button type="submit" className="bg-rose-600 text-white hover:bg-rose-700" disabled={deletePending}>
+                  {deletePending ? "Eliminando..." : "Eliminar regla"}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

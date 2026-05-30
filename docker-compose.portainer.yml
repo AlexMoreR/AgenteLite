@@ -18,6 +18,8 @@ services:
       SMTP_USER: "${SMTP_USER}"
       SMTP_PASS: "${SMTP_PASS}"
       SMTP_FROM: "${SMTP_FROM}"
+      FOLLOW_CRON_SECRET: "${FOLLOW_CRON_SECRET}"
+      EVOLUTION_WEBHOOK_SECRET: "${EVOLUTION_WEBHOOK_SECRET}"
       PRISMA_AUTO_RESOLVE_FAILED_OFFICIAL_API_MIGRATION: "true"
     networks:
       - minha_rede
@@ -38,6 +40,40 @@ services:
         - traefik.http.routers.aizenbot.service=aizenbot
         - traefik.http.services.aizenbot.loadbalancer.server.port=3000
         - traefik.http.services.aizenbot.loadbalancer.passHostHeader=true
+
+  aizenbot_follow_cron:
+    image: curlimages/curl:8.11.1
+    environment:
+      FOLLOW_CRON_SECRET: "${FOLLOW_CRON_SECRET}"
+      EVOLUTION_WEBHOOK_SECRET: "${EVOLUTION_WEBHOOK_SECRET}"
+    command:
+      - sh
+      - -lc
+      - |
+        while true; do
+          SECRET="$FOLLOW_CRON_SECRET"
+          if [ -z "$SECRET" ]; then
+            SECRET="$EVOLUTION_WEBHOOK_SECRET"
+          fi
+          if [ -n "$SECRET" ]; then
+            curl -fsS -X POST \
+              -H "x-follow-cron-secret: $SECRET" \
+              http://aizenbot_app:3000/api/cron/follows >/tmp/follow-cron.log 2>&1 || true
+          else
+            curl -fsS -X POST http://aizenbot_app:3000/api/cron/follows >/tmp/follow-cron.log 2>&1 || true
+          fi
+          sleep 60
+        done
+    networks:
+      - minha_rede
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
 
 networks:
   minha_rede:
