@@ -32,7 +32,7 @@ function resolvePrismaClient() {
 export const prisma = new Proxy({} as PrismaClient, {
   get(_target, property) {
     const client = resolvePrismaClient();
-    const value = (client as Record<PropertyKey, unknown>)[property];
+    const value = Reflect.get(client as object, property, client);
 
     if (typeof value === "function") {
       return value.bind(client);

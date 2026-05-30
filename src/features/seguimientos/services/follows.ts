@@ -251,6 +251,8 @@ async function resolveDefaultEvolutionChannel(workspaceId: string, preferredChan
       },
       select: {
         id: true,
+        name: true,
+        provider: true,
         evolutionInstanceName: true,
         phoneNumber: true,
         isActive: true,
@@ -279,6 +281,8 @@ async function resolveDefaultEvolutionChannel(workspaceId: string, preferredChan
     ],
     select: {
       id: true,
+      name: true,
+      provider: true,
       evolutionInstanceName: true,
       phoneNumber: true,
       isActive: true,
@@ -693,6 +697,10 @@ export async function createFollowsFromRulesForSource(input: {
       cancelOnActivity: rule.cancelOnActivity,
       executeAt: input.executeAt ?? resolveExecuteAt(rule.timeType, rule.timeValue),
     });
+
+    if (!follow) {
+      continue;
+    }
 
     followIds.push(follow.id);
   }
