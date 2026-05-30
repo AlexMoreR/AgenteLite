@@ -111,10 +111,15 @@ export function NewFollowDialog({
   const ruleSourceLabelText = sourceLabel(ruleSourceType);
   const ruleSourcePlaceholderText = sourcePlaceholder(ruleSourceType);
   const ruleSourceEmptyText = sourceEmptyText(ruleSourceType);
+  const isManualFollow = ruleSourceType === "MANUAL";
+  const stepTitle = isManualFollow ? "Programar seguimiento" : "Crear regla";
+  const stepDescription = isManualFollow
+    ? `Programa un seguimiento para ${workspaceName}.`
+    : `Configura la automatizacion reutilizable para ${workspaceName}.`;
 
   useEffect(() => {
     if ("success" in actionState && actionState.success) {
-      toast.success(`Regla \"${actionState.name}\" guardada`);
+      toast.success(actionState.message);
       window.setTimeout(() => {
         setOpen(false);
       }, 0);
@@ -211,8 +216,8 @@ export function NewFollowDialog({
         {step === "rule" ? (
           <>
             <DialogHeader>
-              <DialogTitle>Crear regla</DialogTitle>
-              <DialogDescription>Configura la automatización reutilizable para {workspaceName}.</DialogDescription>
+              <DialogTitle>{stepTitle}</DialogTitle>
+              <DialogDescription>{stepDescription}</DialogDescription>
             </DialogHeader>
 
             <form action={formAction} className="flex max-h-[70vh] flex-col gap-4 overflow-y-auto pr-1">
@@ -297,7 +302,7 @@ export function NewFollowDialog({
                   <select id="quick-rule-time-type" name="timeType" className={fieldClassName()}>
                     <option value="MINUTES">Minutos</option>
                     <option value="HOURS">Horas</option>
-                    <option value="DAYS">Días</option>
+                    <option value="DAYS">Dias</option>
                   </select>
                 </div>
 
@@ -346,7 +351,7 @@ export function NewFollowDialog({
                   Volver
                 </Button>
                 <Button type="submit" disabled={pending}>
-                  {pending ? "Guardando..." : "Guardar regla"}
+                  {pending ? "Guardando..." : isManualFollow ? "Programar seguimiento" : "Guardar regla"}
                 </Button>
               </DialogFooter>
             </form>

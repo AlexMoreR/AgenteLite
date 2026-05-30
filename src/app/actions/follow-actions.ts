@@ -48,7 +48,7 @@ function isAllowedRole(role?: string | null) {
 }
 
 export type CreateFollowRuleActionState =
-  | { success: true; ruleId: string; name: string }
+  | { success: true; ruleId?: string; name: string; message: string }
   | { error: string; success?: false };
 
 export type DeleteFollowRuleActionState =
@@ -89,6 +89,40 @@ export async function createFollowRuleAction(
     return { error: "Revisa los datos de la regla" };
   }
 
+  if (parsed.data.sourceType === "MANUAL") {
+    if (!parsed.data.sourceId) {
+      return { error: "Selecciona un contacto para el seguimiento manual" };
+    }
+
+    const follow = await createFollow({
+      workspaceId: membership.workspace.id,
+      contactId: parsed.data.sourceId,
+      followRuleId: null,
+      channelId: parsed.data.channelId || null,
+      timeType: parsed.data.timeType,
+      timeValue: parsed.data.timeValue,
+      messageType: parsed.data.messageType,
+      content: parsed.data.content || null,
+      mediaUrl: parsed.data.mediaUrl || null,
+      cancelOnActivity: parsed.data.cancelOnActivity,
+    });
+
+    if (!follow) {
+      return { error: "No se pudo programar el seguimiento" };
+    }
+
+    revalidatePath("/cliente/seguimientos");
+    revalidatePath("/cliente/contactos");
+    revalidatePath("/cliente/crm");
+    revalidatePath("/cliente/flujos");
+
+    return {
+      success: true,
+      name: parsed.data.name,
+      message: "Seguimiento programado",
+    };
+  }
+
   const rule = await createFollowRule({
     workspaceId: membership.workspace.id,
     channelId: parsed.data.channelId || null,
@@ -113,7 +147,12 @@ export async function createFollowRuleAction(
   revalidatePath("/cliente/crm");
   revalidatePath("/cliente/flujos");
 
-  return { success: true, ruleId: rule.id, name: rule.name };
+  return {
+    success: true,
+    ruleId: rule.id,
+    name: rule.name,
+    message: `Regla "${rule.name}" guardada`,
+  };
 }
 
 export async function deleteFollowRuleAction(

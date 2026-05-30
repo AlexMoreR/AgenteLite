@@ -51,16 +51,28 @@ services:
       - -lc
       - |
         while true; do
-          SECRET="$FOLLOW_CRON_SECRET"
+          SECRET="$$FOLLOW_CRON_SECRET"
           if [ -z "$SECRET" ]; then
-            SECRET="$EVOLUTION_WEBHOOK_SECRET"
+            SECRET="$$EVOLUTION_WEBHOOK_SECRET"
           fi
           if [ -n "$SECRET" ]; then
-            curl -fsS -X POST \
+            echo "[follow-cron] calling /api/cron/follows with secret"
+            curl -sS -X POST \
               -H "x-follow-cron-secret: $SECRET" \
-              http://aizenbot_app:3000/api/cron/follows >/tmp/follow-cron.log 2>&1 || true
+              -o /tmp/follow-cron.body \
+              -w "[follow-cron] http_status=%{http_code}\n" \
+              https://app.aizenbot.com/api/cron/follows || true
           else
-            curl -fsS -X POST http://aizenbot_app:3000/api/cron/follows >/tmp/follow-cron.log 2>&1 || true
+            echo "[follow-cron] calling /api/cron/follows without secret"
+            curl -sS -X POST \
+              -o /tmp/follow-cron.body \
+              -w "[follow-cron] http_status=%{http_code}\n" \
+              https://app.aizenbot.com/api/cron/follows || true
+          fi
+          if [ -f /tmp/follow-cron.body ]; then
+            echo "[follow-cron] body:"
+            cat /tmp/follow-cron.body
+            rm -f /tmp/follow-cron.body
           fi
           sleep 60
         done
