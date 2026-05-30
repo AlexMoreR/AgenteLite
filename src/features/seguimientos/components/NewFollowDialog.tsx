@@ -34,6 +34,7 @@ type SourceGroup = {
 };
 
 type SourceType = "FLOW" | "PRODUCT" | "TAG" | "CRM_STAGE" | "MANUAL";
+type FollowMessageType = "TEXT" | "AUDIO" | "IMAGE" | "VIDEO" | "DOC";
 
 type NewFollowDialogProps = {
   workspaceName: string;
@@ -101,6 +102,8 @@ export function NewFollowDialog({
   const [selectedChannelId, setSelectedChannelId] = useState("");
   const [ruleSourceType, setRuleSourceType] = useState<SourceType>("MANUAL");
   const [ruleSourceValue, setRuleSourceValue] = useState<SelectOption | null>(null);
+  const [ruleMessageType, setRuleMessageType] = useState<FollowMessageType>("TEXT");
+  const [ruleContent, setRuleContent] = useState("");
   const [actionState, formAction, pending] = useActionState(createFollowRuleAction, initialActionState);
 
   const ruleSourceOptions = useMemo(
@@ -137,13 +140,15 @@ export function NewFollowDialog({
       onOpenChange={(nextOpen) => {
         setOpen(nextOpen);
         if (!nextOpen) {
-          setStep("intro");
-          setRuleName("");
-          setSelectedChannelId("");
-          setRuleSourceType("MANUAL");
-          setRuleSourceValue(null);
-        }
-      }}
+        setStep("intro");
+        setRuleName("");
+        setSelectedChannelId("");
+        setRuleSourceType("MANUAL");
+        setRuleSourceValue(null);
+        setRuleMessageType("TEXT");
+        setRuleContent("");
+      }
+    }}
     >
       <DialogTrigger asChild>
         <Button>
@@ -317,7 +322,13 @@ export function NewFollowDialog({
                   <label className={labelClassName()} htmlFor="quick-rule-message-type">
                     Tipo de mensaje
                   </label>
-                  <select id="quick-rule-message-type" name="messageType" className={fieldClassName()}>
+                  <select
+                    id="quick-rule-message-type"
+                    name="messageType"
+                    className={fieldClassName()}
+                    value={ruleMessageType}
+                    onChange={(event) => setRuleMessageType(event.target.value as FollowMessageType)}
+                  >
                     <option value="TEXT">Texto</option>
                     <option value="AUDIO">Audio</option>
                     <option value="IMAGE">Imagen</option>
@@ -338,7 +349,21 @@ export function NewFollowDialog({
                 <label className={labelClassName()} htmlFor="quick-rule-content">
                   Contenido / caption
                 </label>
-                <Textarea id="quick-rule-content" name="content" className={fieldClassName()} rows={4} placeholder="Hola, seguimos atentos a tu caso..." />
+                <Textarea
+                  id="quick-rule-content"
+                  name="content"
+                  className={fieldClassName()}
+                  rows={4}
+                  placeholder={ruleMessageType === "TEXT" ? "Hola, seguimos atentos a tu caso..." : "Opcional"}
+                  value={ruleContent}
+                  onChange={(event) => setRuleContent(event.target.value)}
+                  required={ruleMessageType === "TEXT"}
+                />
+                <p className="text-xs text-slate-500">
+                  {ruleMessageType === "TEXT"
+                    ? "El contenido es obligatorio para mensajes de texto."
+                    : "Solo es obligatorio si el mensaje es de texto."}
+                </p>
               </div>
 
               <label className="inline-flex items-center gap-2 text-sm text-slate-700">

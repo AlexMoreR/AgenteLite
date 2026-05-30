@@ -27,6 +27,7 @@ const createFollowRuleSchema = z.object({
 
 const createFollowSchema = z.object({
   contactId: z.string().trim().min(1, "Contacto invalido"),
+  name: z.string().trim().min(2, "Agrega un nombre").max(120).optional().default(""),
   followRuleId: z.string().trim().optional().default(""),
   channelId: z.string().trim().optional().default(""),
   timeType: z.enum(["MINUTES", "HOURS", "DAYS"]),
@@ -89,6 +90,11 @@ export async function createFollowRuleAction(
     return { error: "Revisa los datos de la regla" };
   }
 
+  const content = parsed.data.content.trim();
+  if (parsed.data.messageType === "TEXT" && !content) {
+    return { error: "Agrega contenido para un mensaje de texto" };
+  }
+
   if (parsed.data.sourceType === "MANUAL") {
     if (!parsed.data.sourceId) {
       return { error: "Selecciona un contacto para el seguimiento manual" };
@@ -97,12 +103,13 @@ export async function createFollowRuleAction(
     const follow = await createFollow({
       workspaceId: membership.workspace.id,
       contactId: parsed.data.sourceId,
+      name: parsed.data.name,
       followRuleId: null,
       channelId: parsed.data.channelId || null,
       timeType: parsed.data.timeType,
       timeValue: parsed.data.timeValue,
       messageType: parsed.data.messageType,
-      content: parsed.data.content || null,
+      content: content || null,
       mediaUrl: parsed.data.mediaUrl || null,
       cancelOnActivity: parsed.data.cancelOnActivity,
     });
@@ -132,7 +139,7 @@ export async function createFollowRuleAction(
     timeType: parsed.data.timeType,
     timeValue: parsed.data.timeValue,
     messageType: parsed.data.messageType,
-    content: parsed.data.content || null,
+    content: content || null,
     mediaUrl: parsed.data.mediaUrl || null,
     cancelOnActivity: parsed.data.cancelOnActivity,
     isActive: parsed.data.isActive,
@@ -205,6 +212,7 @@ export async function createFollowAction(formData: FormData): Promise<void> {
 
   const parsed = createFollowSchema.safeParse({
     contactId: formData.get("contactId"),
+    name: formData.get("name"),
     followRuleId: formData.get("followRuleId"),
     channelId: formData.get("channelId"),
     timeType: formData.get("timeType"),
@@ -220,15 +228,21 @@ export async function createFollowAction(formData: FormData): Promise<void> {
     return;
   }
 
+  const content = parsed.data.content.trim();
+  if (parsed.data.messageType === "TEXT" && !content) {
+    return;
+  }
+
   const follow = await createFollow({
     workspaceId: membership.workspace.id,
     contactId: parsed.data.contactId,
+    name: parsed.data.name || null,
     followRuleId: parsed.data.followRuleId || null,
     channelId: parsed.data.channelId || null,
     timeType: parsed.data.timeType,
     timeValue: parsed.data.timeValue,
     messageType: parsed.data.messageType,
-    content: parsed.data.content || null,
+    content: content || null,
     mediaUrl: parsed.data.mediaUrl || null,
     executeAt: parsed.data.executeAt ? new Date(parsed.data.executeAt) : null,
     cancelOnActivity: parsed.data.cancelOnActivity,

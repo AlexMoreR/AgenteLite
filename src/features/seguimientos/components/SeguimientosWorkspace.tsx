@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -52,6 +53,7 @@ type FollowRuleRow = {
 type FollowRow = {
   id: string;
   contactId: string;
+  name: string | null;
   timeType: string;
   timeValue: number;
   executeAt: Date;
@@ -207,79 +209,92 @@ export function SeguimientosWorkspace({
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
-        <Card className="overflow-hidden border-slate-200">
-          <div className="border-b border-slate-200 px-5 py-4">
+        <Card className="overflow-hidden border border-slate-200/80 bg-white p-0 shadow-[0_18px_40px_-34px_rgba(15,23,42,0.34)]">
+          <div className="px-6 py-5">
             <h2 className="text-lg font-semibold tracking-[-0.03em] text-slate-950">Reglas activas</h2>
           </div>
-          <div className="divide-y divide-slate-200">
+          <Separator />
+          <div className="divide-y divide-slate-200/80">
             {rules.length ? (
               rules.map((rule) => (
-                <div key={rule.id} className="space-y-2 px-5 py-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="font-semibold text-slate-950">{rule.name}</p>
-                      <Badge variant={rule.isActive ? "secondary" : "outline"}>{rule.isActive ? "Activa" : "Pausada"}</Badge>
-                      <Badge variant="outline">{rule.sourceType}</Badge>
-                      <Badge variant="outline">{rule.messageType}</Badge>
-                    </div>
+                <div key={rule.id} className="px-6 py-5">
+                  <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/70 px-4 py-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="truncate font-semibold text-slate-950">{rule.name}</p>
+                          <Badge variant={rule.isActive ? "secondary" : "outline"}>{rule.isActive ? "Activa" : "Pausada"}</Badge>
+                          <Badge variant="outline">{rule.sourceType}</Badge>
+                          <Badge variant="outline">{rule.messageType}</Badge>
+                        </div>
+                      </div>
 
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <button
-                          type="button"
-                          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
-                          aria-label={`Acciones de ${rule.name}`}
-                        >
-                          <MoreHorizontal className="h-4 w-4" />
-                        </button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="min-w-44 rounded-2xl">
-                        <DropdownMenuItem
-                          onSelect={() => setPendingDeleteRule({ id: rule.id, name: rule.name })}
-                          className="gap-2 text-rose-600 focus:text-rose-700"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                          Eliminar regla
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            type="button"
+                            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
+                            aria-label={`Acciones de ${rule.name}`}
+                          >
+                            <MoreHorizontal className="h-4 w-4" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="min-w-44 rounded-2xl">
+                          <DropdownMenuItem
+                            onSelect={() => setPendingDeleteRule({ id: rule.id, name: rule.name })}
+                            className="gap-2 text-rose-600 focus:text-rose-700"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            Eliminar regla
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                    <div className="mt-4 grid gap-2 text-sm text-slate-600">
+                      <p>Origen: {sourceLabel(rule.sourceType, rule.sourceId)}</p>
+                      <p>Programacion: cada {rule.timeValue} {rule.timeType.toLowerCase()}</p>
+                      <p>Canal: {rule.channel?.name ?? "Canal por defecto"}</p>
+                      <p>Seguimientos generados: {rule._count?.follows ?? 0}</p>
+                    </div>
                   </div>
-                  <p className="text-sm text-slate-600">Origen: {sourceLabel(rule.sourceType, rule.sourceId)}</p>
-                  <p className="text-sm text-slate-600">Programacion: cada {rule.timeValue} {rule.timeType.toLowerCase()}</p>
-                  <p className="text-sm text-slate-600">Canal: {rule.channel?.name ?? "Canal por defecto"}</p>
-                  <p className="text-sm text-slate-600">Seguimientos generados: {rule._count?.follows ?? 0}</p>
                 </div>
               ))
             ) : (
-              <div className="px-5 py-8 text-sm text-slate-500">Todavia no hay reglas creadas.</div>
+              <div className="px-6 py-8 text-sm text-slate-500">Todavia no hay reglas creadas.</div>
             )}
           </div>
         </Card>
 
-        <Card className="overflow-hidden border-slate-200">
-          <div className="border-b border-slate-200 px-5 py-4">
+        <Card className="overflow-hidden border border-slate-200/80 bg-white p-0 shadow-[0_18px_40px_-34px_rgba(15,23,42,0.34)]">
+          <div className="px-6 py-5">
             <h2 className="text-lg font-semibold tracking-[-0.03em] text-slate-950">Seguimientos recientes</h2>
           </div>
-          <div className="divide-y divide-slate-200">
+          <Separator />
+          <div className="divide-y divide-slate-200/80">
             {follows.length ? (
               follows.map((follow) => (
-                <div key={follow.id} className="space-y-2 px-5 py-4">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="font-semibold text-slate-950">{follow.messageType}</p>
-                    <Badge variant={follow.status === "PENDING" ? "secondary" : follow.status === "EXECUTED" ? "default" : "outline"}>
-                      {follow.status}
-                    </Badge>
-                    <Badge variant="outline">{follow.provider}</Badge>
+                <div key={follow.id} className="px-6 py-5">
+                  <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/70 px-4 py-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="truncate font-semibold tracking-[-0.03em] text-slate-950">{follow.name ?? follow.followRule?.name ?? "Sin nombre"}</p>
+                      <Badge variant={follow.status === "PENDING" ? "secondary" : follow.status === "EXECUTED" ? "default" : "outline"}>
+                        {follow.status}
+                      </Badge>
+                      <span className="text-xs uppercase tracking-[0.18em] text-slate-400">{follow.messageType}</span>
+                    </div>
+                    <div className="mt-4 grid gap-2 text-sm text-slate-600">
+                      <p>Ejecuta: {formatDate(follow.executeAt)}</p>
+                      <p className="truncate">Contacto: {follow.contactId}</p>
+                      {follow.followRule ? <p className="truncate">Regla: {follow.followRule.name}</p> : null}
+                      {follow.executionError ? <p className="text-rose-600">Error: {follow.executionError}</p> : null}
+                    </div>
+                    <Separator className="my-4" />
+                    <p className="text-xs text-slate-500">Creado {formatDate(follow.createdAt)}</p>
                   </div>
-                  <p className="text-sm text-slate-600">Ejecuta: {formatDate(follow.executeAt)}</p>
-                  <p className="text-sm text-slate-600">Contacto: {follow.contactId}</p>
-                  {follow.followRule ? <p className="text-sm text-slate-600">Regla: {follow.followRule.name}</p> : null}
-                  {follow.executionError ? <p className="text-sm text-rose-600">Error: {follow.executionError}</p> : null}
-                  <p className="text-xs text-slate-500">Creado {formatDate(follow.createdAt)}</p>
                 </div>
               ))
             ) : (
-              <div className="px-5 py-8 text-sm text-slate-500">Todavia no hay seguimientos registrados.</div>
+              <div className="px-6 py-8 text-sm text-slate-500">Todavia no hay seguimientos registrados.</div>
             )}
           </div>
         </Card>

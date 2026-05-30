@@ -121,6 +121,7 @@ export default async function SeguimientosPage() {
       follows={overview.follows.map((follow) => ({
         id: follow.id,
         contactId: follow.contactId,
+        name: follow.name,
         timeType: follow.timeType,
         timeValue: follow.timeValue,
         executeAt: follow.executeAt,

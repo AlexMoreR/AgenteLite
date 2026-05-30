@@ -34,6 +34,7 @@ export type FollowRuleInput = {
 export type FollowInput = {
   workspaceId: string;
   contactId: string;
+  name?: string | null;
   followRuleId?: string | null;
   channelId?: string | null;
   timeType: FollowTimeType;
@@ -74,6 +75,7 @@ type ClaimedFollowRow = {
   id: string;
   workspaceId: string;
   contactId: string;
+  name: string | null;
   followRuleId: string | null;
   channelId: string | null;
   timeType: FollowTimeType;
@@ -108,6 +110,24 @@ type RawFollowRow = ClaimedFollowRow & {
 
 function normalizeText(value: string | null | undefined) {
   return value?.trim() || "";
+}
+
+let followNameColumnExistsPromise: Promise<boolean> | null = null;
+
+async function hasFollowNameColumn() {
+  if (!followNameColumnExistsPromise) {
+    followNameColumnExistsPromise = prisma.$queryRaw<Array<{ exists: boolean }>>(Prisma.sql`
+      SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'Follow'
+          AND column_name = 'name'
+      ) AS "exists"
+    `).then((rows) => Boolean(rows[0]?.exists));
+  }
+
+  return followNameColumnExistsPromise;
 }
 
 function normalizePositiveInt(value: number) {
@@ -206,6 +226,7 @@ function mapFollowRow(row: RawFollowRow) {
     id: row.id,
     workspaceId: row.workspaceId,
     contactId: row.contactId,
+    name: row.name,
     followRuleId: row.followRuleId,
     channelId: row.channelId,
     timeType: row.timeType,
@@ -321,6 +342,7 @@ function mapCreateFollowData(input: FollowInput & { executeAt: Date; channelId: 
     id: randomUUID(),
     workspaceId: input.workspaceId,
     contactId: input.contactId,
+    name: normalizeText((input as FollowInput & { name?: string | null }).name) || null,
     followRuleId: normalizeText(input.followRuleId) || null,
     channelId: normalizeText(input.channelId) || null,
     timeType: input.timeType,
@@ -579,6 +601,7 @@ export async function createFollow(input: FollowInput) {
         : resolveExecuteAt(input.timeType, input.timeValue);
 
   const channel = await resolveDefaultEvolutionChannel(input.workspaceId, input.channelId ?? null);
+  const hasNameColumn = await hasFollowNameColumn();
   const data = mapCreateFollowData({
     ...input,
     executeAt,
@@ -590,6 +613,7 @@ export async function createFollow(input: FollowInput) {
       "id",
       "workspaceId",
       "contactId",
+      ${hasNameColumn ? Prisma.sql`"name",` : Prisma.empty}
       "followRuleId",
       "channelId",
       "timeType",
@@ -612,6 +636,7 @@ export async function createFollow(input: FollowInput) {
       ${data.id},
       ${data.workspaceId},
       ${data.contactId},
+      ${hasNameColumn ? Prisma.sql`${data.name},` : Prisma.empty}
       ${data.followRuleId},
       ${data.channelId},
       ${data.timeType},
@@ -635,6 +660,7 @@ export async function createFollow(input: FollowInput) {
       "id",
       "workspaceId",
       "contactId",
+      ${hasNameColumn ? Prisma.sql`"name",` : Prisma.sql`NULL::text AS "name",`}
       "followRuleId",
       "channelId",
       "timeType",
@@ -727,11 +753,13 @@ export async function listFollowsByContact(input: {
   contactId: string;
   limit?: number;
 }) {
+  const hasNameColumn = await hasFollowNameColumn();
   const rows = await prisma.$queryRaw<RawFollowRow[]>(Prisma.sql`
     SELECT
       f."id",
       f."workspaceId",
       f."contactId",
+      ${hasNameColumn ? Prisma.sql`f."name",` : Prisma.sql`NULL::text AS "name",`}
       f."followRuleId",
       f."channelId",
       f."timeType",
@@ -953,6 +981,7 @@ export async function getFollowOverview(input: {
   workspaceId: string;
   contactId?: string;
 }) {
+  const hasNameColumn = await hasFollowNameColumn();
   const [rules, follows] = await Promise.all([
     listFollowRulesByWorkspace(input.workspaceId),
     input.contactId
@@ -962,6 +991,7 @@ export async function getFollowOverview(input: {
             f."id",
             f."workspaceId",
             f."contactId",
+            ${hasNameColumn ? Prisma.sql`f."name",` : Prisma.sql`NULL::text AS "name",`}
             f."followRuleId",
             f."channelId",
             f."timeType",

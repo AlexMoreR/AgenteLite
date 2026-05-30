@@ -870,6 +870,7 @@ model Follow {
   id               String           @id @default(cuid())
   workspaceId      String
   contactId        String
+  name             String?
   followRuleId     String?
   channelId        String?
   timeType         FollowTimeType
