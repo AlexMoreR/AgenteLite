@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Bot, CheckCircle2, MessageSquareReply, Power, Smartphone, TimerReset, UserRound } from "lucide-react";
+import { Bot, CheckCircle2, History, MessageSquareReply, Power, Smartphone, TimerReset, UserRound } from "lucide-react";
 import {
   saveAgentReactivationMessageAction,
   saveAgentResponseDelayAction,
@@ -71,25 +71,25 @@ export function WhatsAppBusinessConnectionWorkspace({
       {!isConnected ? <WhatsappQrAutoRefresh isConnected={isConnected} /> : null}
 
       {isConnected ? (
-        <div className="rounded-lg border border-[rgba(148,163,184,0.14)] bg-white p-4 shadow-[0_20px_60px_-48px_rgba(15,23,42,0.24)] sm:rounded-lg sm:p-5">
+        <div className="rounded-none border border-[rgba(148,163,184,0.14)] bg-white p-4 shadow-[0_20px_60px_-48px_rgba(15,23,42,0.24)] sm:rounded-none sm:p-5">
           <div className="px-1 py-1 sm:px-0 sm:py-0">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-              <div className="flex items-start gap-3">
-                <Avatar className="h-10 w-10 rounded-lg border border-emerald-100 bg-emerald-50">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div className="flex items-start gap-2.5">
+                <Avatar className="h-10 w-10 rounded-md border border-emerald-100 bg-emerald-50">
                   {connection.logoUrl ? <AvatarImage src={connection.logoUrl} alt={`Logo de ${connection.name}`} className="object-cover" /> : null}
-                  <AvatarFallback className="rounded-lg bg-emerald-50 text-emerald-600">
+                  <AvatarFallback className="rounded-md bg-emerald-50 text-emerald-600">
                     <CheckCircle2 className="h-5 w-5" />
                   </AvatarFallback>
                 </Avatar>
-                <div className="min-w-0 space-y-1">
-                  <h2 className="truncate text-[1.2rem] font-semibold tracking-[-0.05em] text-slate-950">{connection.name}</h2>
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-slate-600">
-                    <div className="inline-flex items-center gap-2">
-                      <Smartphone className="h-4 w-4 text-slate-500" />
+                <div className="min-w-0 space-y-0.5">
+                  <h2 className="truncate text-[14px] font-semibold tracking-[-0.03em] text-slate-950">{connection.name}</h2>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[13px] text-slate-600">
+                    <div className="inline-flex items-center gap-1.5">
+                      <Smartphone className="h-3.5 w-3.5 text-slate-500" />
                       <span>{providerLabel}</span>
                     </div>
-                    <div className="inline-flex items-center gap-2">
-                      <Bot className="h-4 w-4 text-[var(--primary)]" />
+                    <div className="inline-flex items-center gap-1.5">
+                      <Bot className="h-3.5 w-3.5 text-[var(--primary)]" />
                       <span className="truncate">{connection.agentName || "Sin agente"}</span>
                     </div>
                   </div>
@@ -239,6 +239,24 @@ export function WhatsAppBusinessConnectionWorkspace({
                             returnTo={`/cliente/conexion/whatsapp-business/${connection.id}`}
                             defaultValue={connection.agentResponseDelaySeconds}
                           />
+                        </div>
+                      </div>
+
+                      <div className="rounded-lg border border-[color:color-mix(in_srgb,var(--primary)_18%,white)] bg-white px-4 py-2.5 shadow-[0_18px_48px_-40px_rgba(37,99,235,0.45)]">
+                        <div className="space-y-2">
+                          <div className="space-y-0.5">
+                            <p className="inline-flex items-center gap-2 text-sm font-medium text-slate-900">
+                              <History className="h-4 w-4 text-[var(--primary)]" />
+                              <span>Sincronizar chats</span>
+                            </p>
+                            <p className="text-[13px] text-slate-500">Actualiza los mensajes y conversaciones visibles de este canal.</p>
+                          </div>
+                          <button
+                            type="button"
+                            className="inline-flex h-9 items-center justify-center rounded-xl border border-[rgba(148,163,184,0.18)] bg-white px-3 text-sm font-medium text-slate-700 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+                          >
+                            Sincronizar chats
+                          </button>
                         </div>
                       </div>
                     </>
