@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Bot, CheckCircle2, History, MessageSquareReply, Power, Smartphone, TimerReset, UserRound } from "lucide-react";
+import { Bot, CheckCircle2, MessageSquareReply, Power, Smartphone, TimerReset, UserRound } from "lucide-react";
 import {
   saveAgentReactivationMessageAction,
   saveAgentResponseDelayAction,
@@ -11,6 +11,7 @@ import { WhatsappQrCountdown } from "@/components/agents/whatsapp-qr-countdown";
 import { FormActionSwitch } from "@/components/ui/form-action-switch";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { EvolutionChatSyncDialog } from "./EvolutionChatSyncDialog";
 import { AgentAssignAutosaveForm, ReactivationAutosaveForm, ResponseDelayAutosaveForm } from "./ConnectionAutosaveControls";
 
 type WhatsAppBusinessConnectionWorkspaceProps = {
@@ -242,25 +243,13 @@ export function WhatsAppBusinessConnectionWorkspace({
                         </div>
                       </div>
 
-                      <div className="rounded-lg border border-[color:color-mix(in_srgb,var(--primary)_18%,white)] bg-white px-4 py-2.5 shadow-[0_18px_48px_-40px_rgba(37,99,235,0.45)]">
-                        <div className="space-y-2">
-                          <div className="space-y-0.5">
-                            <p className="inline-flex items-center gap-2 text-sm font-medium text-slate-900">
-                              <History className="h-4 w-4 text-[var(--primary)]" />
-                              <span>Sincronizar chats</span>
-                            </p>
-                            <p className="text-[13px] text-slate-500">Actualiza los mensajes y conversaciones visibles de este canal.</p>
-                          </div>
-                          <button
-                            type="button"
-                            className="inline-flex h-9 items-center justify-center rounded-xl border border-[rgba(148,163,184,0.18)] bg-white px-3 text-sm font-medium text-slate-700 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
-                          >
-                            Sincronizar chats
-                          </button>
-                        </div>
-                      </div>
                     </>
                   ) : null}
+                </div>
+              ) : null}
+              {connection.provider === "EVOLUTION" ? (
+                <div className="mt-2.5">
+                  <EvolutionChatSyncDialog channelId={connection.id} />
                 </div>
               ) : null}
             </div>

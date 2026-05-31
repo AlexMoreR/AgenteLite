@@ -484,9 +484,6 @@ export function extractEvolutionRemoteJid(payload: unknown): string | null {
 
 export function normalizePhoneFromJid(value: string | null): string | null {
   if (!value) return null;
-  if (value.includes("@") && !value.endsWith("@s.whatsapp.net")) {
-    return null;
-  }
   const jidPart = value.split("@")[0] ?? "";
   const phonePart = jidPart.split(":")[0] ?? jidPart;
   const normalized = phonePart.replace(/\D/g, "");

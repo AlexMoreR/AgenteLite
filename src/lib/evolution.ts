@@ -713,6 +713,7 @@ export async function createEvolutionChannel(input: {
       instanceName,
       qrcode: true,
       integration: "WHATSAPP-BAILEYS",
+      syncFullHistory: true,
       webhook: {
         url: settings.webhookBaseUrl,
         byEvents: false,
@@ -758,6 +759,47 @@ export async function createEvolutionChannel(input: {
     channelId: channel.id,
     instanceName: channel.evolutionInstanceName,
   };
+}
+
+export async function ensureEvolutionInstanceFullHistory(instanceName: string) {
+  const settings = await getEvolutionSettings();
+  if (!settings.apiBaseUrl || !settings.apiToken || !instanceName) {
+    return false;
+  }
+
+  try {
+    const response = await evolutionRequest<{ sync_full_history?: boolean; syncFullHistory?: boolean }>(
+      `/settings/find/${instanceName}`,
+      {
+        method: "GET",
+      },
+    );
+
+    const currentValue = response.syncFullHistory ?? response.sync_full_history ?? null;
+    if (currentValue === true) {
+      return true;
+    }
+  } catch {
+    // Si no podemos leer la configuración, intentamos forzar el valor igualmente.
+  }
+
+  try {
+    await evolutionRequest(`/settings/set/${instanceName}`, {
+      method: "POST",
+      body: JSON.stringify({
+        rejectCall: true,
+        groupsIgnore: true,
+        alwaysOnline: true,
+        readMessages: true,
+        readStatus: true,
+        syncFullHistory: true,
+      }),
+    });
+
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function createEvolutionChannelForAgent(input: {
