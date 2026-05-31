@@ -44,9 +44,9 @@ export type EvolutionChatSyncScanResult =
     }
   | {
       ok: true;
-      kind: "candidate";
+      kind: "batch";
       message: string;
-      candidate: EvolutionChatSyncCandidate;
+      candidates: EvolutionChatSyncCandidate[];
     };
 
 export type EvolutionChatSyncApplyResult =
@@ -344,6 +344,26 @@ function buildCanonicalRemoteJid(phoneNumber: string) {
   return normalized ? `${normalized}@s.whatsapp.net` : null;
 }
 
+function buildRemoteJidSearchVariants(remoteJid: string, remoteJidAlt?: string | null) {
+  const preferredRemoteJid = remoteJidAlt?.trim() || remoteJid.trim();
+  const searchOrder = [preferredRemoteJid, remoteJidAlt?.trim(), remoteJid.trim()]
+    .filter((value): value is string => Boolean(value))
+    .map((value) => value.trim());
+
+  const normalizedVariants = new Set<string>();
+
+  for (const value of searchOrder) {
+    normalizedVariants.add(value);
+
+    const normalized = normalizeRemoteJidLike(value);
+    if (normalized) {
+      normalizedVariants.add(normalized);
+    }
+  }
+
+  return Array.from(normalizedVariants);
+}
+
 function buildFallbackExternalId(input: {
   remoteJid: string | null;
   messageId: string | null;
@@ -363,6 +383,68 @@ function buildFallbackExternalId(input: {
         direction: input.direction,
         type: input.type,
         payload: input.payload,
+      }),
+    )
+    .digest("hex");
+}
+
+function extractStableEvolutionMessageId(payload: unknown) {
+  const record = asRecord(payload);
+  if (!record) {
+    return extractEvolutionMessageId(payload);
+  }
+
+  const data = asRecord(record.data);
+  const message = asRecord(record.message);
+
+  const preferredKeyRecords = [
+    asRecord(data?.key),
+    asRecord(record.key),
+    asRecord(message?.key),
+    asRecord(asRecord(data?.message)?.key),
+    asRecord(asRecord(record.lastMessage)?.key),
+  ];
+
+  for (const keyRecord of preferredKeyRecords) {
+    const candidate = readString(keyRecord?.id);
+    if (candidate) {
+      return candidate;
+    }
+  }
+
+  const fallbackIds = [
+    readString(data?.keyId),
+    readString(data?.messageId),
+    readString(data?.id),
+    readString(record.keyId),
+    readString(record.messageId),
+    readString(record.id),
+  ];
+
+  for (const candidate of fallbackIds) {
+    if (candidate) {
+      return candidate;
+    }
+  }
+
+  return extractEvolutionMessageId(payload);
+}
+
+function buildEvolutionMessageSignature(payload: unknown) {
+  const messageId = extractStableEvolutionMessageId(payload) ?? "";
+  const createdAt = extractMessageTimestamp(payload)?.getTime() ?? 0;
+  const direction = extractEvolutionFromMe(payload) ? "OUTBOUND" : "INBOUND";
+  const type = extractEvolutionMessageType(payload);
+  const text = extractEvolutionMessageText(payload)?.trim() ?? "";
+
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        messageId,
+        createdAt,
+        direction,
+        type,
+        text,
       }),
     )
     .digest("hex");
@@ -505,15 +587,33 @@ function normalizeMessageStatus(value: unknown, direction: "INBOUND" | "OUTBOUND
   return direction === "OUTBOUND" ? "SENT" : "RECEIVED";
 }
 
+function buildMessageRecordIdentity(message: UnknownRecord, jidHint?: string | null) {
+  const payload = message as unknown;
+  const directId =
+    readString(asRecord(message)?.id) ||
+    readString(asRecord(asRecord(message)?.key)?.id) ||
+    readString(asRecord(asRecord(message)?.data)?.id);
+
+  if (directId) {
+    return `id:${directId}`;
+  }
+
+  const timestamp = extractMessageTimestamp(payload)?.getTime() ?? "";
+  const direction = extractEvolutionFromMe(payload) ? "OUTBOUND" : "INBOUND";
+  const type = extractEvolutionMessageType(payload);
+  const text = extractEvolutionMessageText(payload) ?? "";
+  const remoteJid =
+    normalizeRemoteJidLike(extractEvolutionRemoteJid(payload)) ||
+    normalizeRemoteJidLike(extractRemoteJidAltFromChat(message)) ||
+    normalizeRemoteJidLike(extractRemoteJidAltFromChat(asRecord(message)?.key ?? null)) ||
+    jidHint?.trim().toLowerCase() ||
+    "";
+
+  return `jid:${remoteJid}|ts:${timestamp}|dir:${direction}|type:${type}|text:${text.slice(0, 160)}`;
+}
+
 async function fetchEvolutionChatMessageRecords(instanceName: string, remoteJid: string, remoteJidAlt?: string | null) {
-  const preferredRemoteJid = remoteJidAlt?.trim() || remoteJid.trim();
-  const normalizedRemoteJids = Array.from(
-    new Set(
-      [remoteJidAlt?.trim(), remoteJid.trim(), preferredRemoteJid]
-        .filter((value): value is string => Boolean(value))
-        .map((value) => normalizeRemoteJidLike(value) ?? value.trim().toLowerCase()),
-    ),
-  );
+  const normalizedRemoteJids = buildRemoteJidSearchVariants(remoteJid, remoteJidAlt);
   const messagesById = new Map<string, UnknownRecord>();
 
   const filterMessagesForRemote = (messages: UnknownRecord[]) =>
@@ -535,34 +635,7 @@ async function fetchEvolutionChatMessageRecords(instanceName: string, remoteJid:
       return candidates.some((candidate) => normalizedRemoteJids.includes(candidate));
     });
 
-  const directRemoteJids = Array.from(
-    new Set([remoteJidAlt?.trim(), remoteJid.trim()].filter((value): value is string => Boolean(value))),
-  );
-
-  let fallbackPayload: unknown = null;
-  try {
-    fallbackPayload = await evolutionSyncRequest<unknown>(`/messages/fetch/${instanceName}`, {
-      method: "GET",
-    });
-  } catch {
-    fallbackPayload = null;
-  }
-
-  const fallbackMessages = extractMessageRecordList(fallbackPayload);
-  const filteredFallbackMessages = filterMessagesForRemote(fallbackMessages);
-
-  for (const message of filteredFallbackMessages) {
-    const messageId =
-      readString(asRecord(message)?.id) ||
-      readString(asRecord(asRecord(message)?.key)?.id) ||
-      `${JSON.stringify(message)}`;
-
-    if (!messagesById.has(messageId)) {
-      messagesById.set(messageId, message);
-    }
-  }
-
-  for (const jid of directRemoteJids) {
+  for (const jid of normalizedRemoteJids) {
     try {
       const directPayload = await evolutionSyncRequest<unknown>(`/chat/findMessages/${instanceName}`, {
         method: "POST",
@@ -578,8 +651,12 @@ async function fetchEvolutionChatMessageRecords(instanceName: string, remoteJid:
       const directMessages = extractMessageRecordList(directPayload);
       const filteredDirectMessages = filterMessagesForRemote(directMessages);
 
+      if (!filteredDirectMessages.length) {
+        continue;
+      }
+
       for (const message of filteredDirectMessages) {
-        const messageId = readString(asRecord(message)?.id) || readString(asRecord(asRecord(message)?.key)?.id) || `${jid}:${JSON.stringify(message)}`;
+        const messageId = buildMessageRecordIdentity(message, jid);
         if (!messagesById.has(messageId)) {
           messagesById.set(messageId, message);
         }
@@ -589,7 +666,49 @@ async function fetchEvolutionChatMessageRecords(instanceName: string, remoteJid:
     }
   }
 
+  if (!messagesById.size) {
+    let fallbackPayload: unknown = null;
+    try {
+      fallbackPayload = await evolutionSyncRequest<unknown>(`/messages/fetch/${instanceName}`, {
+        method: "GET",
+      });
+    } catch {
+      fallbackPayload = null;
+    }
+
+    const fallbackMessages = extractMessageRecordList(fallbackPayload);
+    const filteredFallbackMessages = filterMessagesForRemote(fallbackMessages);
+
+    for (const message of filteredFallbackMessages) {
+      const messageId =
+        readString(asRecord(message)?.id) ||
+        readString(asRecord(asRecord(message)?.key)?.id) ||
+        `${JSON.stringify(message)}`;
+
+      if (!messagesById.has(messageId)) {
+        messagesById.set(messageId, message);
+      }
+    }
+  }
+
   return Array.from(messagesById.values());
+}
+function buildEvolutionChatMessagePreviewFromPayload(payload: unknown) {
+  const normalizedPayload = asRecord(payload);
+  if (!normalizedPayload) {
+    return null;
+  }
+
+  return {
+    id:
+      extractStableEvolutionMessageId(normalizedPayload) ||
+      createHash("sha256").update(JSON.stringify(normalizedPayload)).digest("hex"),
+    direction: extractEvolutionFromMe(normalizedPayload) ? "OUTBOUND" : "INBOUND",
+    type: extractEvolutionMessageType(normalizedPayload),
+    content: extractEvolutionMessageText(normalizedPayload),
+    createdAt: (extractMessageTimestamp(normalizedPayload) ?? new Date()).toISOString(),
+    mediaUrl: extractEvolutionMediaUrl(normalizedPayload),
+  };
 }
 
 async function buildImportedEvolutionMessages(input: {
@@ -597,14 +716,24 @@ async function buildImportedEvolutionMessages(input: {
   remoteJid: string;
   remoteJidAlt?: string | null;
 }) {
+  const importedMessages: Array<{
+    sourceIndex: number;
+    draft: EvolutionChatSyncImportedMessageDraft;
+  }> = [];
   const rawMessages = await fetchEvolutionChatMessageRecords(input.instanceName, input.remoteJid, input.remoteJidAlt);
-  const importedMessages: EvolutionChatSyncImportedMessageDraft[] = [];
+
+  const seenMessageSignatures = new Set<string>();
   const seenExternalIds = new Set<string>();
 
-  for (const rawMessage of rawMessages) {
+  for (const [sourceIndex, rawMessage] of rawMessages.entries()) {
     const payload = rawMessage as unknown;
     try {
-      const messageId = extractEvolutionMessageId(payload);
+      const messageSignature = buildEvolutionMessageSignature(payload);
+      if (seenMessageSignatures.has(messageSignature)) {
+        continue;
+      }
+
+      const messageId = extractStableEvolutionMessageId(payload);
       const direction: "INBOUND" | "OUTBOUND" = extractEvolutionFromMe(payload) ? "OUTBOUND" : "INBOUND";
       const type = extractEvolutionMessageType(payload);
       const content = extractEvolutionMessageText(payload);
@@ -624,6 +753,7 @@ async function buildImportedEvolutionMessages(input: {
         }
       }
 
+      seenMessageSignatures.add(messageSignature);
       const createdAt = extractMessageTimestamp(payload) ?? new Date();
       const externalId = messageId || buildFallbackExternalId({
         remoteJid: input.remoteJid,
@@ -641,18 +771,21 @@ async function buildImportedEvolutionMessages(input: {
 
       seenExternalIds.add(externalId);
       importedMessages.push({
-        externalId,
-        direction,
-        type,
-        status: normalizeMessageStatus(readString((rawMessage as UnknownRecord).status) ?? readString(asRecord((rawMessage as UnknownRecord).data)?.status), direction),
-        content,
-        mediaUrl,
-        createdAt,
-        rawPayload: {
-          source: "evolution-sync",
-          evolution: payload,
+        sourceIndex,
+        draft: {
+          externalId,
+          direction,
+          type,
+          status: normalizeMessageStatus(readString((rawMessage as UnknownRecord).status) ?? readString(asRecord((rawMessage as UnknownRecord).data)?.status), direction),
+          content,
+          mediaUrl,
+          createdAt,
+          rawPayload: {
+            source: "evolution-sync",
+            evolution: payload,
+          },
+          sentAt: direction === "OUTBOUND" ? createdAt : null,
         },
-        sentAt: direction === "OUTBOUND" ? createdAt : null,
       });
     } catch {
       // Skip malformed records so one bad message doesn't block the whole conversation.
@@ -660,38 +793,112 @@ async function buildImportedEvolutionMessages(input: {
   }
 
   importedMessages.sort((left, right) => {
-    const diff = left.createdAt.getTime() - right.createdAt.getTime();
+    const diff = left.draft.createdAt.getTime() - right.draft.createdAt.getTime();
     if (diff !== 0) {
       return diff;
     }
 
-    return left.externalId.localeCompare(right.externalId);
+    return left.sourceIndex - right.sourceIndex;
   });
 
-  return importedMessages;
+  return importedMessages.map((entry) => entry.draft);
 }
 
 async function buildEvolutionChatMessagePreview(input: {
   instanceName: string;
   remoteJid: string;
   remoteJidAlt?: string | null;
-  limit?: number;
 }) {
-  const limit = Math.max(1, Math.min(input.limit ?? 25, 50));
-  const rawMessages = await fetchEvolutionChatMessageRecords(input.instanceName, input.remoteJid, input.remoteJidAlt);
+  const previewMessages: Array<{
+    sourceIndex: number;
+    preview: NonNullable<ReturnType<typeof buildEvolutionChatMessagePreviewFromPayload>>;
+  }> = [];
+  const seenPreviewSignatures = new Set<string>();
+  const seenPreviewIds = new Set<string>();
 
-  return rawMessages.slice(-limit).map((message) => {
-    const payload = message as unknown;
+  const enqueuePreview = (message: UnknownRecord, sourceIndex: number) => {
+    const messageSignature = buildEvolutionMessageSignature(message);
+    if (seenPreviewSignatures.has(messageSignature)) {
+      return;
+    }
 
-    return {
-      id: extractEvolutionMessageId(payload) || createHash("sha256").update(JSON.stringify(payload)).digest("hex"),
-      direction: extractEvolutionFromMe(payload) ? "OUTBOUND" : "INBOUND",
-      type: extractEvolutionMessageType(payload),
-      content: extractEvolutionMessageText(payload),
-      createdAt: (extractMessageTimestamp(payload) ?? new Date()).toISOString(),
-      mediaUrl: extractEvolutionMediaUrl(payload),
-    };
-  });
+    const preview = buildEvolutionChatMessagePreviewFromPayload(message);
+    if (!preview || seenPreviewIds.has(preview.id)) {
+      return;
+    }
+
+    seenPreviewSignatures.add(messageSignature);
+    seenPreviewIds.add(preview.id);
+    previewMessages.push({
+      sourceIndex,
+      preview,
+    });
+  };
+
+  const fallbackMessages = await fetchEvolutionChatMessageRecords(input.instanceName, input.remoteJid, input.remoteJidAlt);
+  for (const [sourceIndex, message] of fallbackMessages.slice(-25).entries()) {
+    enqueuePreview(message, sourceIndex);
+  }
+
+  return previewMessages
+    .sort((left, right) => {
+      const leftTime = new Date(left.preview.createdAt).getTime();
+      const rightTime = new Date(right.preview.createdAt).getTime();
+
+      if (leftTime !== rightTime) {
+        return leftTime - rightTime;
+      }
+
+      return left.sourceIndex - right.sourceIndex;
+    })
+    .map((entry) => entry.preview);
+}
+
+async function buildEvolutionChatSyncCandidateFromRemoteChat(input: {
+  instanceName: string;
+  remoteChat: UnknownRecord;
+  remotePhoneNumber: string;
+  kind: EvolutionChatSyncCandidate["kind"];
+  summary: string;
+  needsContact: boolean;
+  needsConversation: boolean;
+}): Promise<EvolutionChatSyncCandidate> {
+  const remoteDisplayName = extractDisplayName(input.remoteChat);
+  const remoteItemId = extractRemoteItemId(input.remoteChat);
+  const remoteJid =
+    readString(input.remoteChat.remoteJid) ?? readString(input.remoteChat.remoteJidAlt) ?? buildCanonicalRemoteJid(input.remotePhoneNumber);
+  let messagePreview: EvolutionChatSyncCandidate["messagePreview"] = [];
+
+  if (remoteJid) {
+    try {
+      messagePreview = await buildEvolutionChatMessagePreview({
+        instanceName: input.instanceName,
+        remoteJid,
+        remoteJidAlt: extractRemoteJidAltFromChat(input.remoteChat),
+      });
+    } catch {
+      messagePreview = [];
+    }
+  }
+
+  return {
+    fingerprint: buildCandidateFingerprint({
+      kind: input.kind,
+      phoneNumber: input.remotePhoneNumber,
+      remoteItemId,
+    }),
+    kind: input.kind,
+    remotePhoneNumber: input.remotePhoneNumber,
+    remoteDisplayName,
+    remoteJid,
+    remoteJidAlt: extractRemoteJidAltFromChat(input.remoteChat),
+    remoteItemId,
+    summary: input.summary,
+    needsContact: input.needsContact,
+    needsConversation: input.needsConversation,
+    needsMessages: true,
+    messagePreview,
+  } satisfies EvolutionChatSyncCandidate;
 }
 
 function normalizeEvolutionPath(path: string) {
@@ -868,6 +1075,8 @@ export async function scanEvolutionChatSyncCandidate(input: { workspaceId: strin
     })),
   );
 
+  const candidates: EvolutionChatSyncCandidate[] = [];
+
   for (const remoteChat of remoteChats) {
     const remotePhoneNumber = extractComparablePhone(remoteChat);
     if (!remotePhoneNumber) {
@@ -876,49 +1085,25 @@ export async function scanEvolutionChatSyncCandidate(input: { workspaceId: strin
 
     const localContact = localContactsByPhone.get(remotePhoneNumber);
     if (!localContact) {
-      const remoteDisplayName = extractDisplayName(remoteChat);
-      const remoteItemId = extractRemoteItemId(remoteChat);
-      const remoteJid = readString(remoteChat.remoteJid) ?? readString(remoteChat.remoteJidAlt) ?? buildCanonicalRemoteJid(remotePhoneNumber);
-      let messagePreview: EvolutionChatSyncCandidate["messagePreview"] = [];
-
-      if (remoteJid) {
-        try {
-          messagePreview = await buildEvolutionChatMessagePreview({
-            instanceName: channel.evolutionInstanceName,
-            remoteJid,
-            remoteJidAlt: extractRemoteJidAltFromChat(remoteChat),
-            limit: 25,
-          });
-        } catch {
-          messagePreview = [];
-        }
-      }
-
-      return {
-        ok: true as const,
-        kind: "candidate" as const,
-        message: "Encontramos un contacto en Evolution que aun no existe en la base local.",
-        candidate: {
-          fingerprint: buildCandidateFingerprint({
-            kind: "CONTACT",
-            phoneNumber: remotePhoneNumber,
-            remoteItemId,
-          }),
-          kind: "CONTACT",
+      candidates.push(
+        await buildEvolutionChatSyncCandidateFromRemoteChat({
+          instanceName: channel.evolutionInstanceName,
+          remoteChat,
           remotePhoneNumber,
-          remoteDisplayName,
-          remoteJid,
-          remoteJidAlt: extractRemoteJidAltFromChat(remoteChat),
-          remoteItemId,
-          summary: remoteDisplayName
-            ? `El contacto ${remoteDisplayName} (${remotePhoneNumber}) no existe en Chats.`
+          kind: "CONTACT",
+          summary: extractDisplayName(remoteChat)
+            ? `El contacto ${extractDisplayName(remoteChat)} (${remotePhoneNumber}) no existe en Chats.`
             : `El contacto ${remotePhoneNumber} no existe en Chats.`,
           needsContact: true,
           needsConversation: true,
-          needsMessages: true,
-          messagePreview,
-        },
-      };
+        }),
+      );
+
+      if (candidates.length >= 5) {
+        break;
+      }
+
+      continue;
     }
 
     const localConversation = localConversationsByPhone.get(remotePhoneNumber);
@@ -932,57 +1117,38 @@ export async function scanEvolutionChatSyncCandidate(input: { workspaceId: strin
       Boolean(remoteLastMessageAt && localLastMessageAt && remoteLastMessageAt.getTime() > localLastMessageAt.getTime());
 
     if (!localConversation || hasMissingMessages) {
-      const remoteDisplayName = extractDisplayName(remoteChat);
-      const remoteItemId = extractRemoteItemId(remoteChat);
       const needsConversation = !localConversation;
-      const remoteJid = readString(remoteChat.remoteJid) ?? readString(remoteChat.remoteJidAlt) ?? buildCanonicalRemoteJid(remotePhoneNumber);
-      let messagePreview: EvolutionChatSyncCandidate["messagePreview"] = [];
-
-      if (remoteJid) {
-        try {
-          messagePreview = await buildEvolutionChatMessagePreview({
-            instanceName: channel.evolutionInstanceName,
-            remoteJid,
-            remoteJidAlt: extractRemoteJidAltFromChat(remoteChat),
-            limit: 25,
-          });
-        } catch {
-          messagePreview = [];
-        }
-      }
-
-      return {
-        ok: true as const,
-        kind: "candidate" as const,
-        message: needsConversation
-          ? "Encontramos un chat en Evolution que aun no tiene conversacion local."
-          : "Encontramos un chat en Evolution con mensajes faltantes en la base local.",
-        candidate: {
-          fingerprint: buildCandidateFingerprint({
-            kind: "CONVERSATION",
-            phoneNumber: remotePhoneNumber,
-            remoteItemId,
-          }),
-          kind: "CONVERSATION",
+      candidates.push(
+        await buildEvolutionChatSyncCandidateFromRemoteChat({
+          instanceName: channel.evolutionInstanceName,
+          remoteChat,
           remotePhoneNumber,
-          remoteDisplayName,
-          remoteJid,
-          remoteJidAlt: extractRemoteJidAltFromChat(remoteChat),
-          remoteItemId,
+          kind: "CONVERSATION",
           summary: needsConversation
-            ? remoteDisplayName
-              ? `El chat ${remoteDisplayName} (${remotePhoneNumber}) no tiene conversacion local.`
+            ? extractDisplayName(remoteChat)
+              ? `El chat ${extractDisplayName(remoteChat)} (${remotePhoneNumber}) no tiene conversacion local.`
               : `El chat ${remotePhoneNumber} no tiene conversacion local.`
-            : remoteDisplayName
-              ? `El chat ${remoteDisplayName} (${remotePhoneNumber}) tiene mensajes faltantes en la base local.`
+            : extractDisplayName(remoteChat)
+              ? `El chat ${extractDisplayName(remoteChat)} (${remotePhoneNumber}) tiene mensajes faltantes en la base local.`
               : `El chat ${remotePhoneNumber} tiene mensajes faltantes en la base local.`,
           needsContact: false,
           needsConversation,
-          needsMessages: true,
-          messagePreview,
-        },
-      };
+        }),
+      );
+
+      if (candidates.length >= 5) {
+        break;
+      }
     }
+  }
+
+  if (candidates.length > 0) {
+    return {
+      ok: true as const,
+      kind: "batch" as const,
+      message: "Mostramos hasta 5 coincidencias para revisar antes de agregar.",
+      candidates,
+    };
   }
 
   return {

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { AlertCircle, CheckCircle2, History, Loader2, RefreshCw, Users } from "lucide-react";
 import { toast } from "sonner";
 import { applyEvolutionChatSyncAction, scanEvolutionChatSyncAction } from "@/app/actions/evolution-chat-sync-actions";
+import type { EvolutionChatSyncCandidate } from "@/lib/evolution-chat-sync";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -32,31 +33,12 @@ type SyncState =
       scanMessage: string;
     }
   | {
-      phase: "candidate";
+      phase: "batch";
       error: string | null;
       scanMessage: string;
-      candidate: {
-        fingerprint: string;
-        kind: "CONTACT" | "CONVERSATION";
-        remotePhoneNumber: string;
-        remoteDisplayName: string | null;
-        remoteJid: string | null;
-        remoteJidAlt: string | null;
-      remoteItemId: string | null;
-      summary: string;
-      needsContact: boolean;
-      needsConversation: boolean;
-      needsMessages: boolean;
-      messagePreview: Array<{
-        id: string;
-        direction: "INBOUND" | "OUTBOUND";
-        type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM";
-        content: string | null;
-        createdAt: string;
-        mediaUrl: string | null;
-      }>;
+      candidates: EvolutionChatSyncCandidate[];
+      selectedFingerprint: string;
     };
-};
 
 function initialState(): SyncState {
   return {
@@ -71,6 +53,14 @@ export function EvolutionChatSyncDialog({ channelId }: EvolutionChatSyncDialogPr
   const [state, setState] = useState<SyncState>(initialState);
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
+  const candidateList =
+    state.phase === "batch"
+      ? state.candidates.filter((candidate): candidate is EvolutionChatSyncCandidate => Boolean(candidate))
+      : [];
+  const selectedCandidate =
+    state.phase === "batch"
+      ? candidateList.find((candidate) => candidate.fingerprint === state.selectedFingerprint) ?? candidateList[0] ?? null
+      : null;
 
   function runScan() {
     setState((current) => ({
@@ -101,16 +91,27 @@ export function EvolutionChatSyncDialog({ channelId }: EvolutionChatSyncDialogPr
       }
 
       setState({
-        phase: "candidate",
+        phase: "batch",
         error: null,
         scanMessage: result.message,
-        candidate: result.candidate,
+        candidates: Array.isArray(result.candidates)
+          ? result.candidates.filter((candidate): candidate is EvolutionChatSyncCandidate => Boolean(candidate))
+          : [],
+        selectedFingerprint:
+          Array.isArray(result.candidates) && result.candidates[0]?.fingerprint ? result.candidates[0].fingerprint : "",
       });
     });
   }
 
   function runApply() {
-    if (state.phase !== "candidate") {
+    if (state.phase !== "batch") {
+      return;
+    }
+
+    const selectedCandidate =
+      candidateList.find((candidate) => candidate.fingerprint === state.selectedFingerprint) ?? candidateList[0];
+
+    if (!selectedCandidate) {
       return;
     }
 
@@ -122,15 +123,16 @@ export function EvolutionChatSyncDialog({ channelId }: EvolutionChatSyncDialogPr
     startTransition(async () => {
       const result = await applyEvolutionChatSyncAction({
         channelId,
-        candidate: state.candidate,
+        candidate: selectedCandidate,
       });
 
       if (!result.ok) {
         setState({
-          phase: "candidate",
+          phase: "batch",
           error: result.error,
           scanMessage: state.scanMessage,
-          candidate: state.candidate,
+          candidates: state.candidates,
+          selectedFingerprint: selectedCandidate.fingerprint,
         });
         return;
       }
@@ -221,62 +223,68 @@ export function EvolutionChatSyncDialog({ channelId }: EvolutionChatSyncDialogPr
                 </div>
               ) : null}
 
-              {state.phase === "candidate" ? (
-                <div className="space-y-3 rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-4">
+              {state.phase === "batch" ? (
+                <div className="h-fit space-y-3 rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-3">
                   <div className="flex items-start gap-3">
                     <RefreshCw className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
                     <div className="space-y-1">
-                      <p className="text-sm font-semibold text-amber-950">Primera coincidencia detectada</p>
+                      <p className="text-sm font-semibold text-amber-950">Coincidencias detectadas</p>
+                      <p className="text-xs text-amber-800/80">{state.scanMessage}</p>
                     </div>
                   </div>
 
-                  <div className="rounded-xl border border-amber-200 bg-white px-4 py-4">
-                    <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
-                      <div className="space-y-1">
-                        <p className="text-sm font-medium text-slate-900">
-                          {state.candidate.remoteDisplayName || "Contacto sin nombre"}
-                        </p>
-                        <p className="text-sm text-slate-600">{state.candidate.remotePhoneNumber}</p>
-                      </div>
+                  <div className="grid items-stretch gap-4 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+                    <div className="space-y-2 self-start">
+                      {candidateList.map((candidate) => {
+                        const isSelected = candidate.fingerprint === selectedCandidate?.fingerprint;
 
-                      <div className="grid gap-2 text-sm text-slate-600 sm:grid-cols-2">
-                        <div className="rounded-lg bg-slate-50 px-3 py-2">
-                          <span className="block text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">Tipo</span>
-                          <span>{state.candidate.kind === "CONTACT" ? "Contacto faltante" : "Conversacion faltante"}</span>
-                        </div>
-                        <div className="rounded-lg bg-slate-50 px-3 py-2">
-                          <span className="block text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">Accion</span>
-                          <span>
-                            {state.candidate.needsContact
-                              ? "Crear contacto, conversacion y mensajes"
-                              : state.candidate.needsConversation
-                                ? "Crear conversacion y mensajes"
-                                : state.candidate.needsMessages
-                                  ? "Traer mensajes faltantes"
-                                  : "Sin cambios"}
-                          </span>
-                        </div>
-                      </div>
+                        return (
+                          <button
+                            key={candidate.fingerprint}
+                            type="button"
+                            onClick={() =>
+                              setState((current) =>
+                                current.phase === "batch"
+                                  ? {
+                                      ...current,
+                                      selectedFingerprint: candidate.fingerprint,
+                                    }
+                                  : current,
+                              )
+                            }
+                            className={`w-full rounded-xl border px-4 py-3 text-left transition ${
+                              isSelected
+                                ? "border-[var(--primary)] bg-white shadow-[0_12px_30px_-24px_rgba(37,99,235,0.55)]"
+                                : "border-amber-200 bg-white/90 hover:border-amber-300 hover:bg-white"
+                            }`}
+                          >
+                            <p className="text-sm font-medium text-slate-900">
+                              {candidate.remoteDisplayName || "Contacto sin nombre"}
+                            </p>
+                            <p className="mt-1 text-sm text-slate-600">{candidate.remotePhoneNumber}</p>
+                          </button>
+                        );
+                      })}
                     </div>
 
-                    <div className="mt-4 border-t border-slate-100 pt-4">
+                    <div className="flex h-full flex-col rounded-xl border border-slate-200 bg-white px-4 py-4">
                       <div className="mb-3 flex items-center justify-between gap-3">
                         <div>
                           <p className="text-sm font-semibold text-slate-900">Vista previa de la conversacion</p>
                           <p className="text-xs text-slate-500">
-                            {state.candidate.messagePreview.length > 0
-                              ? `Mostramos ${state.candidate.messagePreview.length} mensajes detectados para revisar antes de agregar.`
+                            {selectedCandidate?.messagePreview.length
+                              ? `${selectedCandidate.messagePreview.length} Mensajes detectados`
                               : "Todavia no pudimos leer mensajes visibles desde Evolution para este chat."}
                           </p>
                         </div>
                         <span className="rounded-full bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-500">
-                          {state.candidate.remoteJidAlt || state.candidate.remoteJid || state.candidate.remotePhoneNumber}
+                          {selectedCandidate?.remoteJidAlt || selectedCandidate?.remoteJid || selectedCandidate?.remotePhoneNumber}
                         </span>
                       </div>
 
-                      <div className="max-h-[34vh] space-y-3 overflow-y-auto rounded-xl border border-slate-100 bg-slate-50/60 p-3">
-                        {state.candidate.messagePreview.length > 0 ? (
-                          state.candidate.messagePreview.map((message) => {
+                      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto rounded-xl border border-slate-100 bg-slate-50/60 p-3">
+                        {selectedCandidate?.messagePreview.length ? (
+                          selectedCandidate.messagePreview.map((message) => {
                             const isOutbound = message.direction === "OUTBOUND";
                             const bubbleClasses = isOutbound
                               ? "ml-auto border-blue-200 bg-blue-600 text-white"
@@ -318,7 +326,7 @@ export function EvolutionChatSyncDialog({ channelId }: EvolutionChatSyncDialogPr
               ) : null}
             </div>
 
-            {state.phase === "candidate" ? (
+            {state.phase === "batch" ? (
               <DialogFooter>
                 <DialogClose asChild>
                   <Button type="button" variant="outline" disabled={isPending}>

@@ -9,7 +9,6 @@ import {
   ArrowLeft,
   BadgeCheck,
   Bot,
-  ChevronDown,
   ChevronRight,
   CheckCheck,
   Facebook,
@@ -19,6 +18,7 @@ import {
   Pencil,
   PhoneIncoming,
   PhoneOutgoing,
+  ChevronUp,
   Search,
   SendHorizonal,
   Tag,
@@ -323,9 +323,7 @@ function normalizeLiveConversationSnapshot(value: unknown): LiveConversationSnap
   return {
     ...(value as SharedInboxSelectedConversation),
     id: data.id,
-    // Normalizar a ASC (oldest-first) igual que page.tsx hace con .reverse().
-    // /live retorna DESC del DB; buildConversationItemFromSnapshot y
-    // countIncomingMessagesSinceLastOutbound asumen ASC.
+    // Normalizar a ASC (oldest-first) para que la conversación siga el orden natural.
     messages: data.messages
       .map((message) => ({
         ...(message as SharedInboxMessageItem),
@@ -1639,10 +1637,6 @@ const ConversationPanel = memo(function ConversationPanel({
     };
   }, [renderedMessages]);
 
-  const shouldAnchorMessagesToBottom = Boolean(
-    renderedConversation && renderedMessages.length > 0 && viewportHeight > 0 && totalMessageHeight < viewportHeight,
-  );
-
   const virtualizedMessages = useMemo(() => {
     if (renderedMessages.length <= MESSAGE_VIRTUALIZATION_THRESHOLD || viewportHeight <= 0) {
       return {
@@ -1789,9 +1783,25 @@ const ConversationPanel = memo(function ConversationPanel({
                     !hasSettledConversation ? "opacity-85" : "opacity-100"
                   }`}
                 >
-                  <div className="shrink-0">
+                  {virtualizedMessages.topSpacer > 0 ? (
+                    <div aria-hidden="true" style={{ height: virtualizedMessages.topSpacer }} />
+                  ) : null}
+                  <div className="space-y-2.5 md:space-y-3">
+                    {visibleMessages.map((message, index) => {
+                      const absoluteIndex = virtualizedMessages.start + index;
+                      return (
+                        <MessageBubble
+                          key={message.id}
+                          message={message}
+                          previousMessage={renderedMessages[absoluteIndex - 1]}
+                        />
+                      );
+                    })}
+                    {virtualizedMessages.bottomSpacer > 0 ? (
+                      <div aria-hidden="true" style={{ height: virtualizedMessages.bottomSpacer }} />
+                    ) : null}
                     {canLoadOlderMessages ? (
-                      <div className="pb-1">
+                      <div className="pt-1">
                         <div ref={loadMoreSentinelRef} aria-hidden="true" className="h-px w-full" />
                         {renderedConversation.loadMoreHref ? (
                           <div className="flex justify-center">
@@ -1820,25 +1830,6 @@ const ConversationPanel = memo(function ConversationPanel({
                         )}
                       </div>
                     ) : null}
-                  </div>
-                  {shouldAnchorMessagesToBottom ? <div aria-hidden="true" className="flex-1" /> : null}
-                  {virtualizedMessages.topSpacer > 0 ? (
-                    <div aria-hidden="true" style={{ height: virtualizedMessages.topSpacer }} />
-                  ) : null}
-                  <div className="space-y-2.5 md:space-y-3">
-                    {visibleMessages.map((message, index) => {
-                      const absoluteIndex = virtualizedMessages.start + index;
-                      return (
-                        <MessageBubble
-                          key={message.id}
-                          message={message}
-                          previousMessage={renderedMessages[absoluteIndex - 1]}
-                        />
-                      );
-                    })}
-                    {virtualizedMessages.bottomSpacer > 0 ? (
-                      <div aria-hidden="true" style={{ height: virtualizedMessages.bottomSpacer }} />
-                    ) : null}
                     {messageScrollBehavior === "preserve" ? (
                       <ChatScrollAnchor dependencyKey={selectedConversationScrollKey} behavior="preserve" />
                     ) : null}
@@ -1851,7 +1842,7 @@ const ConversationPanel = memo(function ConversationPanel({
                   onClick={onScrollToBottom}
                   className="absolute bottom-4 right-4 z-10 flex cursor-pointer items-center gap-1.5 rounded-full bg-slate-900/90 px-3 py-1.5 text-xs font-semibold text-white shadow-lg backdrop-blur-sm transition hover:bg-slate-900"
                 >
-                  <ChevronDown className="h-3.5 w-3.5" />
+                  <ChevronUp className="h-3.5 w-3.5" />
                   {unreadCount}
                 </button>
               ) : null}

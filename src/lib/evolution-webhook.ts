@@ -440,8 +440,9 @@ export function extractEvolutionFromMe(payload: unknown): boolean {
   const root = asRecord(payload);
   const data = asRecord(root?.data);
   const key = asRecord(data?.key);
+  const rootKey = asRecord(root?.key);
 
-  return key?.fromMe === true || data?.fromMe === true || root?.fromMe === true;
+  return key?.fromMe === true || rootKey?.fromMe === true || data?.fromMe === true || root?.fromMe === true;
 }
 
 export function extractEvolutionRemoteJid(payload: unknown): string | null {
