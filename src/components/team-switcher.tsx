@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { cn } from "@/lib/utils";
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar";
-
+import { DropdownMenu, DropdownMenuTrigger} from "./ui/dropdown-menu";
 type Team = {
   name: string;
   plan: string;
@@ -15,23 +15,22 @@ export function TeamSwitcher({ teams }: { teams: Team[] }) {
   return (
     <SidebarMenu>
       <SidebarMenuItem>
-        <SidebarMenuButton
-          size="lg"
-          className={cn(
-            "group-data-[collapsible=icon]/sidebar:h-9 group-data-[collapsible=icon]/sidebar:w-9 group-data-[collapsible=icon]/sidebar:min-w-9 group-data-[collapsible=icon]/sidebar:justify-center group-data-[collapsible=icon]/sidebar:px-0",
-          )}
-        >
-          <Image
-            src="/magilus-logo.svg"
-            alt={activeTeam.name}
-            width={44}
-            height={44}
-            className="h-11 w-11 shrink-0 object-contain group-data-[collapsible=icon]/sidebar:h-8 group-data-[collapsible=icon]/sidebar:w-8"
-          />
-          <div className="grid flex-1 text-left text-sm leading-tight group-data-[collapsible=icon]/sidebar:hidden">
-            <span className="truncate text-sm">{activeTeam.name}</span>
-          </div>
-        </SidebarMenuButton>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <SidebarMenuButton
+              size="lg"
+              className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+            >
+              <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
+              </div>
+              <div className="grid flex-1 text-left text-sm leading-tight">
+                <span className="truncate font-medium">{activeTeam.name}</span>
+                <span className="truncate text-xs">{activeTeam.plan}</span>
+              </div>
+              
+            </SidebarMenuButton>
+          </DropdownMenuTrigger>
+        </DropdownMenu>
       </SidebarMenuItem>
     </SidebarMenu>
   );
