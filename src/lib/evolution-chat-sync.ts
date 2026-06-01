@@ -693,7 +693,14 @@ async function fetchEvolutionChatMessageRecords(instanceName: string, remoteJid:
 
   return Array.from(messagesById.values());
 }
-function buildEvolutionChatMessagePreviewFromPayload(payload: unknown) {
+function buildEvolutionChatMessagePreviewFromPayload(payload: unknown): {
+  id: string;
+  direction: "INBOUND" | "OUTBOUND";
+  type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM";
+  content: string | null;
+  createdAt: string;
+  mediaUrl: string | null;
+} | null {
   const normalizedPayload = asRecord(payload);
   if (!normalizedPayload) {
     return null;
@@ -808,7 +815,14 @@ async function buildEvolutionChatMessagePreview(input: {
   instanceName: string;
   remoteJid: string;
   remoteJidAlt?: string | null;
-}) {
+}): Promise<Array<{
+  id: string;
+  direction: "INBOUND" | "OUTBOUND";
+  type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM";
+  content: string | null;
+  createdAt: string;
+  mediaUrl: string | null;
+}>> {
   const previewMessages: Array<{
     sourceIndex: number;
     preview: NonNullable<ReturnType<typeof buildEvolutionChatMessagePreviewFromPayload>>;
