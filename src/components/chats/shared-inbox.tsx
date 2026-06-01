@@ -62,9 +62,8 @@ const chatDateFormatter = new Intl.DateTimeFormat("en-CA", {
   timeZone: CHAT_TIME_ZONE,
 });
 const chatDateLabelFormatter = new Intl.DateTimeFormat("es-CO", {
-  weekday: "long",
   day: "numeric",
-  month: "long",
+  month: "numeric",
   year: "numeric",
   timeZone: CHAT_TIME_ZONE,
 });
@@ -1176,7 +1175,7 @@ const MessageBubble = memo(function MessageBubble({
     >
       {showDateDivider ? (
         <div className="flex justify-center">
-          <span className="rounded-full border border-white/70 bg-white/80 px-3 py-1 text-[11px] font-medium capitalize text-slate-500 shadow-sm backdrop-blur">
+          <span className="rounded-full border border-white/70 bg-white/80 px-3 py-1 text-[11px] font-medium text-slate-500 shadow-sm backdrop-blur">
             {formatDateDivider(message.createdAt)}
           </span>
         </div>
