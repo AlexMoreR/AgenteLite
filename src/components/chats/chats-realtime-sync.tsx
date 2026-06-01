@@ -1,7 +1,6 @@
 ﻿"use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { io, type Socket } from "socket.io-client";
 import { usePendingConversationSelection } from "./chat-selection-store";
 import {
@@ -207,7 +206,6 @@ export function ChatsRealtimeSync({
   enabled = true,
   globalEventsEnabled = false,
 }: ChatsRealtimeSyncProps) {
-  const router = useRouter();
   const [isVisible, setIsVisible] = useState(() => (typeof document === "undefined" ? true : document.visibilityState === "visible"));
   const normalizedInstanceNamesKey = Array.from(
     new Set(instanceNames.map((name) => name.trim()).filter(Boolean)),
@@ -605,7 +603,8 @@ export function ChatsRealtimeSync({
       clearPageRefreshTimer();
       pageRefreshTimerRef.current = window.setTimeout(() => {
         lastPageRefreshAtRef.current = Date.now();
-        router.refresh();
+        // Prueba de rendimiento: no forzamos refresh completo aquí.
+        // Confiamos en el socket + updates optimistas para mantener la UI al día.
       }, Math.max(0, targetAt - now));
     };
 
@@ -868,7 +867,7 @@ export function ChatsRealtimeSync({
         socket.disconnect();
       }
     };
-  }, [apiBaseUrl, apiKey, enabled, isVisible, normalizedInstanceNamesKey, globalEventsEnabled, router]);
+  }, [apiBaseUrl, apiKey, enabled, isVisible, normalizedInstanceNamesKey, globalEventsEnabled]);
 
   return null;
 }
