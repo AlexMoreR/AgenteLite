@@ -3331,11 +3331,8 @@ export function SharedInbox({
         }),
       );
 
-      window.setTimeout(() => {
-        router.refresh();
-      }, 750);
     },
-    [renderedConversation, router, selectedConversationId],
+    [renderedConversation, selectedConversationId],
   );
   const hasSettledConversation = Boolean(renderedConversation && currentSelectedConversation && renderedConversation.id === currentSelectedConversation.id);
   const canLoadOlderMessages = Boolean(renderedConversation?.loadMoreCursor && renderedConversation.hasMoreMessages);
