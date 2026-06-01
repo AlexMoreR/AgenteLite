@@ -293,7 +293,7 @@ function extractDisplayName(value: unknown): string | null {
   return null;
 }
 
-function extractRemoteItemId(value: unknown) {
+function extractRemoteItemId(value: unknown): string | null {
   const record = asRecord(value);
   if (!record) {
     return null;
