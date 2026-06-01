@@ -137,6 +137,7 @@ export type SharedInboxSelectedConversation = {
   loadMoreCursor?: string | null;
   hasMoreMessages?: boolean;
   cacheKey?: string | null;
+  isPreview?: boolean;
 };
 
 type OptimisticDraftMessage = SharedInboxMessageItem & {
@@ -197,6 +198,7 @@ function buildPendingConversationPreview(
     contactName: null,
     messages: previewMessages,
     cacheKey: pendingConversation.cacheKey ?? pendingConversation.id,
+    isPreview: true,
   };
 }
 
@@ -698,6 +700,7 @@ function areSelectedConversationsEqual(
     left.loadMoreCursor === right.loadMoreCursor &&
     left.hasMoreMessages === right.hasMoreMessages &&
     left.cacheKey === right.cacheKey &&
+    left.isPreview === right.isPreview &&
     areTagListsEqual(left.tags ?? [], right.tags ?? []) &&
     left.messages.length === right.messages.length &&
     left.messages.every((message, index) => areMessageItemsEqual(message, right.messages[index]!))
@@ -1785,6 +1788,36 @@ const ConversationPanel = memo(function ConversationPanel({
                   {virtualizedMessages.topSpacer > 0 ? (
                     <div aria-hidden="true" style={{ height: virtualizedMessages.topSpacer }} />
                   ) : null}
+                  {canLoadOlderMessages ? (
+                    <div className="pb-2 pt-1">
+                      <div ref={loadMoreSentinelRef} aria-hidden="true" className="h-px w-full" />
+                      {renderedConversation.loadMoreHref ? (
+                        <div className="flex justify-center">
+                          <Link
+                            href={renderedConversation.loadMoreHref}
+                            scroll={false}
+                            className="inline-flex items-center rounded-full border border-[rgba(148,163,184,0.16)] bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-800"
+                          >
+                            Cargar mensajes anteriores
+                          </Link>
+                        </div>
+                      ) : isLoadingOlderMessages ? (
+                        <div className="flex justify-center px-3 py-1.5 text-[11px] font-medium text-slate-500">
+                          Cargando historial...
+                        </div>
+                      ) : (
+                        <div className="flex justify-center">
+                          <button
+                            type="button"
+                            onClick={() => void onLoadOlderMessages()}
+                            className="inline-flex items-center rounded-full border border-[rgba(148,163,184,0.16)] bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-800"
+                          >
+                            Cargar mensajes anteriores
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
                   <div className="space-y-2.5 md:space-y-3">
                     {visibleMessages.map((message, index) => {
                       const absoluteIndex = virtualizedMessages.start + index;
@@ -1798,36 +1831,6 @@ const ConversationPanel = memo(function ConversationPanel({
                     })}
                     {virtualizedMessages.bottomSpacer > 0 ? (
                       <div aria-hidden="true" style={{ height: virtualizedMessages.bottomSpacer }} />
-                    ) : null}
-                    {canLoadOlderMessages ? (
-                      <div className="pt-1">
-                        <div ref={loadMoreSentinelRef} aria-hidden="true" className="h-px w-full" />
-                        {renderedConversation.loadMoreHref ? (
-                          <div className="flex justify-center">
-                            <Link
-                              href={renderedConversation.loadMoreHref}
-                              scroll={false}
-                              className="inline-flex items-center rounded-full border border-[rgba(148,163,184,0.16)] bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-800"
-                            >
-                              Cargar mensajes anteriores
-                            </Link>
-                          </div>
-                        ) : isLoadingOlderMessages ? (
-                          <div className="flex justify-center px-3 py-1.5 text-[11px] font-medium text-slate-500">
-                            Cargando historial...
-                          </div>
-                        ) : (
-                          <div className="flex justify-center">
-                            <button
-                              type="button"
-                              onClick={() => void onLoadOlderMessages()}
-                              className="inline-flex items-center rounded-full border border-[rgba(148,163,184,0.16)] bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-800"
-                            >
-                              Cargar mensajes anteriores
-                            </button>
-                          </div>
-                        )}
-                      </div>
                     ) : null}
                     {messageScrollBehavior === "preserve" ? (
                       <ChatScrollAnchor dependencyKey={selectedConversationScrollKey} behavior="preserve" />
@@ -2120,7 +2123,7 @@ export function SharedInbox({
   const pendingConversation = usePendingConversationSelection();
 
   useEffect(() => {
-    if (selectedConversation) {
+    if (selectedConversation && !selectedConversation.isPreview) {
       saveConversationToCache(selectedConversation);
     }
   }, [selectedConversation]);
@@ -2194,7 +2197,7 @@ export function SharedInbox({
   const selectedConversationMatchesCurrentKey =
     Boolean(selectedConversation && conversationIdMatchesKey(selectedConversationKey, selectedConversation.id));
   const currentSelectedConversation = selectedConversationMatchesCurrentKey ? selectedConversation : null;
-  const currentSelectedConversationHasContent = Boolean(currentSelectedConversation?.messages.length);
+  const currentSelectedConversationHasContent = Boolean(currentSelectedConversation?.messages.length && !currentSelectedConversation?.isPreview);
   const currentSelectedConversationHasContentRef = useRef(currentSelectedConversationHasContent);
   currentSelectedConversationHasContentRef.current = currentSelectedConversationHasContent;
   const cachedConversationForCurrentSelection =
@@ -2592,7 +2595,7 @@ export function SharedInbox({
   }, [hasLoadedSelectedConversationContent, pendingConversation?.id, selectedConversationId]);
 
   useEffect(() => {
-    if (!renderedConversation) {
+    if (!renderedConversation || renderedConversation.isPreview) {
       return;
     }
 

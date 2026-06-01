@@ -335,6 +335,14 @@ export function mergeConversationSnapshots(
     return existing;
   }
 
+  if (existing.isPreview && !next.isPreview) {
+    return next;
+  }
+
+  if (next.isPreview && !existing.isPreview) {
+    return existing;
+  }
+
   const nextMessagesById = new Map(next.messages.map((message) => [message.id, message]));
   const mergedMessages: SharedInboxSelectedConversation["messages"] = [];
 
@@ -403,6 +411,7 @@ function hydrateConversation(conversation: CachedConversation): SharedInboxSelec
       editedAt: message.editedAt ? new Date(message.editedAt) : null,
       deletedAt: message.deletedAt ? new Date(message.deletedAt) : null,
     })),
+    isPreview: conversation.isPreview,
   };
 }
 
