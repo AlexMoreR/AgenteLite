@@ -133,7 +133,7 @@ function extractRemoteJidAltFromChat(value: unknown): string | null {
   return direct || null;
 }
 
-function extractPreferredPhoneFromChat(value: unknown) {
+function extractPreferredPhoneFromChat(value: unknown): string | null {
   const record = asRecord(value);
   if (!record) {
     return getComparablePhoneFromString(typeof value === "string" ? value : null);
