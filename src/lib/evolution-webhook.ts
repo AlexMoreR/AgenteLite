@@ -468,8 +468,8 @@ export function extractEvolutionRemoteJid(payload: unknown): string | null {
     dataSender ||
     dataFrom ||
     dataParticipant ||
-    pickString(key, ["chatId", "remoteJidAlt", "remoteJid", "participant"]) ||
-    pickString(rootKey, ["chatId", "remoteJidAlt", "remoteJid", "participant"]) ||
+    pickString(key, ["remoteJid", "chatId", "remoteJidAlt", "participant"]) ||
+    pickString(rootKey, ["remoteJid", "chatId", "remoteJidAlt", "participant"]) ||
     pickString(sender, ["id", "jid"]) ||
     pickString(rootSender, ["id", "jid"]) ||
     rootSenderValue ||
@@ -480,6 +480,35 @@ export function extractEvolutionRemoteJid(payload: unknown): string | null {
     pickString(rootContextInfo, ["participant", "remoteJid"]) ||
     pickString(root, ["chatId", "remoteJidAlt", "remoteJid"]) ||
     findDeepString(payload, (candidate) => /@\w+/i.test(candidate))
+  );
+}
+
+export function isEvolutionStatusBroadcastJid(value: string | null | undefined): boolean {
+  const normalized = value?.trim().toLowerCase() ?? "";
+  if (!normalized) {
+    return false;
+  }
+
+  return normalized === "status@broadcast" || normalized.endsWith("@status");
+}
+
+export function isEvolutionStatusBroadcastPayload(payload: unknown): boolean {
+  const remoteJid = extractEvolutionRemoteJid(payload);
+  if (isEvolutionStatusBroadcastJid(remoteJid)) {
+    return true;
+  }
+
+  const root = asRecord(payload);
+  const data = asRecord(root?.data);
+  const message = getMessageRecord(payload);
+  const update = asRecord(root?.update);
+  const updateMessage = asRecord(update?.message);
+
+  return Boolean(
+    asRecord(root?.statusMessage) ||
+      asRecord(data?.statusMessage) ||
+      asRecord(message?.statusMessage) ||
+      asRecord(updateMessage?.statusMessage),
   );
 }
 

@@ -9,6 +9,7 @@ import {
   extractEvolutionMessageType,
   extractEvolutionMediaUrl,
   extractEvolutionRemoteJid,
+  isEvolutionStatusBroadcastPayload,
   normalizePhoneFromJid,
 } from "@/lib/evolution-webhook";
 
@@ -618,6 +619,10 @@ async function fetchEvolutionChatMessageRecords(instanceName: string, remoteJid:
 
   const filterMessagesForRemote = (messages: UnknownRecord[]) =>
     messages.filter((message) => {
+      if (isEvolutionStatusBroadcastPayload(message)) {
+        return false;
+      }
+
       const messageRemoteJid = extractEvolutionRemoteJid(message);
       const messageRemoteJidAlt = extractRemoteJidAltFromChat(message) || extractRemoteJidAltFromChat(asRecord(message)?.key ?? null);
       const candidates = [messageRemoteJidAlt, messageRemoteJid]
@@ -706,6 +711,10 @@ function buildEvolutionChatMessagePreviewFromPayload(payload: unknown): {
     return null;
   }
 
+  if (isEvolutionStatusBroadcastPayload(normalizedPayload)) {
+    return null;
+  }
+
   return {
     id:
       extractStableEvolutionMessageId(normalizedPayload) ||
@@ -735,6 +744,10 @@ async function buildImportedEvolutionMessages(input: {
   for (const [sourceIndex, rawMessage] of rawMessages.entries()) {
     const payload = rawMessage as unknown;
     try {
+      if (isEvolutionStatusBroadcastPayload(payload)) {
+        continue;
+      }
+
       const messageSignature = buildEvolutionMessageSignature(payload);
       if (seenMessageSignatures.has(messageSignature)) {
         continue;
@@ -831,6 +844,10 @@ async function buildEvolutionChatMessagePreview(input: {
   const seenPreviewIds = new Set<string>();
 
   const enqueuePreview = (message: UnknownRecord, sourceIndex: number) => {
+    if (isEvolutionStatusBroadcastPayload(message)) {
+      return;
+    }
+
     const messageSignature = buildEvolutionMessageSignature(message);
     if (seenPreviewSignatures.has(messageSignature)) {
       return;

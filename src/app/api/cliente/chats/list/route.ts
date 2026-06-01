@@ -173,6 +173,7 @@ async function getAgentConversationList(input: {
         FROM "Message" m
         WHERE m."workspaceId" = ${input.workspaceId}
           AND m."conversationId" IN (${Prisma.join(activeAgentConversationIds)})
+          AND COALESCE(m."rawPayload"::text, '') NOT ILIKE '%status@broadcast%'
         ORDER BY m."conversationId", m."createdAt" DESC, m."id" DESC
       `
     : Promise.resolve([] as Array<{
@@ -203,6 +204,7 @@ async function getAgentConversationList(input: {
           WHERE m."workspaceId" = ${input.workspaceId}
             AND m."conversationId" IN (${Prisma.join(activeAgentConversationIds)})
             AND m."direction" = 'OUTBOUND'
+            AND COALESCE(m."rawPayload"::text, '') NOT ILIKE '%status@broadcast%'
           GROUP BY m."conversationId"
         ),
         incoming AS (
@@ -214,6 +216,7 @@ async function getAgentConversationList(input: {
           WHERE m."workspaceId" = ${input.workspaceId}
             AND m."conversationId" IN (${Prisma.join(activeAgentConversationIds)})
             AND m."direction" = 'INBOUND'
+            AND COALESCE(m."rawPayload"::text, '') NOT ILIKE '%status@broadcast%'
             AND m."createdAt" > COALESCE(lo."lastOutboundAt", TIMESTAMP '1970-01-01')
           GROUP BY m."conversationId"
         )

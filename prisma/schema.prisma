@@ -398,6 +398,7 @@ model Message {
   @@unique([channelId, externalId])
   @@index([workspaceId, createdAt])
   @@index([conversationId, createdAt])
+  @@index([workspaceId, conversationId, direction, createdAt])
   @@index([contactId, createdAt])
 }
 
@@ -600,6 +601,7 @@ model ContactTag {
   @@index([contactId])
   @@index([tagId])
   @@index([workspaceId])
+  @@index([workspaceId, contactId, createdAt])
 }
 
 model Tag {

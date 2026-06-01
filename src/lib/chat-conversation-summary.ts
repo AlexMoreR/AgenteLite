@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { isEvolutionStatusBroadcastPayload } from "@/lib/evolution-webhook";
 
 export type ChatConversationSummary = {
   id: string;
@@ -55,6 +56,7 @@ async function getIncomingCountForConversation(input: { workspaceId: string; con
       WHERE mo."workspaceId" = ${input.workspaceId}
         AND mo."conversationId" = ${input.conversationId}
         AND mo."direction" = 'OUTBOUND'
+        AND COALESCE(mo."rawPayload"::text, '') NOT ILIKE '%status@broadcast%'
     )
     SELECT
       COUNT(*)::bigint AS "incomingCount"
@@ -63,6 +65,7 @@ async function getIncomingCountForConversation(input: { workspaceId: string; con
     WHERE mi."workspaceId" = ${input.workspaceId}
       AND mi."conversationId" = ${input.conversationId}
       AND mi."direction" = 'INBOUND'
+      AND COALESCE(mi."rawPayload"::text, '') NOT ILIKE '%status@broadcast%'
       AND mi."createdAt" > COALESCE(lo."lastOutboundAt", TIMESTAMP '1970-01-01')
   `;
 
@@ -97,19 +100,21 @@ export async function getAgentConversationSummaryByConversationId(input: {
 
   const contact = conversation.contact;
 
-  const [lastMessage, contactTagRows, incomingCount] = await Promise.all([
-    prisma.message.findFirst({
+  const [lastMessageRows, contactTagRows, incomingCount] = await Promise.all([
+    prisma.message.findMany({
       where: {
         workspaceId: input.workspaceId,
         conversationId: conversation.id,
       },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: 20,
       select: {
         content: true,
         direction: true,
         createdAt: true,
         deletedAt: true,
         type: true,
+        rawPayload: true,
       },
     }),
     prisma.$queryRaw<Array<{ name: string; color: string }>>`
@@ -127,6 +132,8 @@ export async function getAgentConversationSummaryByConversationId(input: {
       conversationId: conversation.id,
     }),
   ]);
+
+  const lastMessage = lastMessageRows.find((message) => !isEvolutionStatusBroadcastPayload(message.rawPayload)) ?? null;
 
   return {
     id: conversation.id,
@@ -206,19 +213,21 @@ export async function getAgentConversationSummaryByPhoneNumber(input: {
     return null;
   }
 
-  const [lastMessage, contactTagRows, incomingCount] = await Promise.all([
-    prisma.message.findFirst({
+  const [lastMessageRows, contactTagRows, incomingCount] = await Promise.all([
+    prisma.message.findMany({
       where: {
         workspaceId: input.workspaceId,
         conversationId: conversation.id,
       },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: 20,
       select: {
         content: true,
         direction: true,
         createdAt: true,
         deletedAt: true,
         type: true,
+        rawPayload: true,
       },
     }),
     prisma.$queryRaw<Array<{ name: string; color: string }>>`
@@ -236,6 +245,8 @@ export async function getAgentConversationSummaryByPhoneNumber(input: {
       conversationId: conversation.id,
     }),
   ]);
+
+  const lastMessage = lastMessageRows.find((message) => !isEvolutionStatusBroadcastPayload(message.rawPayload)) ?? null;
 
   return {
     id: conversation.id,

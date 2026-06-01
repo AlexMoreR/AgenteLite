@@ -34,6 +34,7 @@ import {
   hasEvolutionCallPayload,
   hasEvolutionDeletedMessagePayload,
   hasEvolutionEditedMessagePayload,
+  isEvolutionStatusBroadcastPayload,
   isInboundMessageEvent,
   normalizePhoneFromJid,
 } from "@/lib/evolution-webhook";
@@ -612,6 +613,15 @@ export async function POST(request: Request) {
   }
 
   const remoteJid = extractEvolutionRemoteJid(payload);
+  if (isEvolutionStatusBroadcastPayload(payload) || remoteJid?.trim().toLowerCase() === "status@broadcast") {
+    return NextResponse.json({
+      ok: true,
+      message: "Status broadcast ignored",
+      instanceName,
+      event: eventName,
+    });
+  }
+
   let phoneNumber = normalizePhoneFromJid(remoteJid);
   const callDirection = isCallEvent ? extractEvolutionCallDirection(payload) : null;
   const fromMe = extractEvolutionFromMe(payload);

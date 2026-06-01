@@ -277,6 +277,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         FROM "Message" m
         WHERE m."workspaceId" = ${membership.workspace.id}
           AND m."conversationId" IN (${Prisma.join(activeAgentConversationIds)})
+          AND COALESCE(m."rawPayload"::text, '') NOT ILIKE '%status@broadcast%'
         ORDER BY m."conversationId", m."createdAt" DESC, m."id" DESC
       `
     : Promise.resolve([] as Array<{
@@ -340,6 +341,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           WHERE m."workspaceId" = ${membership.workspace.id}
             AND m."conversationId" IN (${Prisma.join(activeAgentConversationIds)})
             AND m."direction" = 'OUTBOUND'
+            AND COALESCE(m."rawPayload"::text, '') NOT ILIKE '%status@broadcast%'
           GROUP BY m."conversationId"
         ),
         incoming AS (
@@ -351,6 +353,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           WHERE m."workspaceId" = ${membership.workspace.id}
             AND m."conversationId" IN (${Prisma.join(activeAgentConversationIds)})
             AND m."direction" = 'INBOUND'
+            AND COALESCE(m."rawPayload"::text, '') NOT ILIKE '%status@broadcast%'
             AND m."createdAt" > COALESCE(lo."lastOutboundAt", TIMESTAMP '1970-01-01')
           GROUP BY m."conversationId"
         )

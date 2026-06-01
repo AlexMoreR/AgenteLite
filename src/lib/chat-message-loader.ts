@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { isEvolutionStatusBroadcastPayload } from "@/lib/evolution-webhook";
 
 export type AgentConversationMessageRecord = {
   id: string;
@@ -120,7 +121,7 @@ export async function loadAgentConversationDetail(input: {
     },
   });
 
-  const visibleMessages = messages.slice(0, batchSize);
+  const visibleMessages = messages.slice(0, batchSize).filter((message) => !isEvolutionStatusBroadcastPayload(message.rawPayload));
   const orderedMessages = [...visibleMessages].sort((left, right) => {
     const diff = left.createdAt.getTime() - right.createdAt.getTime();
     if (diff !== 0) {
