@@ -63,11 +63,11 @@ export function EvolutionChatSyncDialog({ channelId }: EvolutionChatSyncDialogPr
       : null;
 
   function runScan() {
-    setState((current) => ({
-      ...current,
+    setState({
+      phase: "idle",
       error: null,
       scanMessage: null,
-    }));
+    });
 
     startTransition(async () => {
       const result = await scanEvolutionChatSyncAction({ channelId });
