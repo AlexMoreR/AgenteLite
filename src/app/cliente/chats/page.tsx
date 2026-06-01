@@ -8,10 +8,7 @@ import { ChatsRealtimeSync } from "@/components/chats/chats-realtime-sync";
 import { SharedInbox } from "@/components/chats/shared-inbox";
 import { FormActionSwitch } from "@/components/ui/form-action-switch";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
-import { Card } from "@/components/ui/card";
-import { OfficialApiLockedState, getOfficialApiChatsData } from "@/features/official-api";
 import { dedupeAndSortConversationListRows } from "@/lib/chat-conversation-list";
-import { canAccessOfficialApiModule } from "@/lib/admin-module-access";
 import { fetchEvolutionProfilePictureUrl } from "@/lib/evolution";
 import { getEvolutionSettings } from "@/lib/system-settings";
 import { prisma } from "@/lib/prisma";
@@ -30,7 +27,7 @@ type PageProps = {
 
 type UnifiedConversation = {
   key: string;
-  source: "agent" | "official";
+  source: "agent";
   conversationId: string;
   agentId?: string;
   channelId?: string;
@@ -72,10 +69,6 @@ function getAgentContactLabel(input: { name: string | null; phoneNumber: string 
   return input.name?.trim() || input.phoneNumber;
 }
 
-function getOfficialContactLabel(input: { name: string | null; phoneNumber: string | null; waId: string }) {
-  return input.name?.trim() || input.phoneNumber?.trim() || input.waId;
-}
-
 function getConversationContextTags(input: ActiveProductContextSummary | null | undefined) {
   const productName = input?.productName?.trim();
   if (!productName) {
@@ -88,11 +81,11 @@ function getConversationContextTags(input: ActiveProductContextSummary | null | 
   }];
 }
 
-function parseChatKey(input: string): { source: "agent" | "official"; conversationId: string } | null {
+function parseChatKey(input: string): { source: "agent"; conversationId: string } | null {
   if (!input) return null;
   const [source, ...rest] = input.split(":");
   const conversationId = rest.join(":");
-  if ((source === "agent" || source === "official") && conversationId) {
+  if (source === "agent" && conversationId) {
     return { source, conversationId };
   }
   return null;
@@ -194,20 +187,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     ],
   };
 
-  const canUseOfficialApiPromise = canAccessOfficialApiModule(session.user.id, session.user.role);
-  const officialDataPromise = canUseOfficialApiPromise.then((canUseOfficialApi) =>
-    canUseOfficialApi
-      ? getOfficialApiChatsData({
-          workspaceId: membership.workspace.id,
-          conversationId: selectedChatRef?.source === "official" ? selectedChatRef.conversationId : "",
-          q: searchQuery,
-          includeSelectedConversation: selectedChatRef?.source === "official",
-        })
-      : null,
-  );
-
-  const [canUseOfficialApi, evolutionSettings, channels, agentConversationsRaw] = await Promise.all([
-    canUseOfficialApiPromise,
+  const [evolutionSettings, channels, agentConversationsRaw] = await Promise.all([
     getEvolutionSettings(),
     prisma.whatsAppChannel.findMany({
       where: { workspaceId: membership.workspace.id },
@@ -243,19 +223,6 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
             name: true,
             phoneNumber: true,
             avatarUrl: true,
-          },
-        },
-        messages: {
-          orderBy: { createdAt: "desc" },
-          take: 1,
-          select: {
-            id: true,
-            externalId: true,
-            content: true,
-            direction: true,
-            createdAt: true,
-            deletedAt: true,
-            type: true,
           },
         },
       },
@@ -473,34 +440,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     };
   });
 
-  let officialRows: UnifiedConversation[] = [];
-  let officialData: Awaited<ReturnType<typeof getOfficialApiChatsData>> | null = null;
-  const officialChannel = channels.find((channel) => channel.provider === "OFFICIAL_API") ?? null;
-
-  if (canUseOfficialApi) {
-    officialData = officialDataPromise ? await officialDataPromise : null;
-
-    if (officialData && officialData.isConnected) {
-      officialRows = officialData.conversations.map((conversation) => ({
-        key: `official:${conversation.id}`,
-        source: "official",
-        conversationId: conversation.id,
-        channelId: officialChannel?.id,
-        label: getOfficialContactLabel(conversation.contact),
-        secondaryLabel: conversation.contact.phoneNumber || conversation.contact.waId,
-        avatarUrl: null,
-        incomingCount: conversation.incomingCount ?? 0,
-        lastMessage: conversation.lastMessage?.content ?? null,
-        lastMessageType: conversation.lastMessage?.type ?? null,
-        lastMessageDirection: conversation.lastMessage?.direction ?? null,
-        lastMessageAt: conversation.lastMessage?.createdAt ?? null,
-      }));
-    }
-  }
-
   const selectedConnectionKey = selectedConnectionParam;
-
-  const merged = dedupeAndSortConversationListRows([...agentRows, ...officialRows])
+  const merged = dedupeAndSortConversationListRows(agentRows)
     .filter((item) => {
       if (!searchQuery) return true;
       const q = searchQuery.toLowerCase();
@@ -532,11 +473,6 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         ]).toString()}`
       : ""
   }`;
-  const isOfficialUnavailable = Boolean(canUseOfficialApi && officialChannel && officialData && !officialData.isConnected);
-  const isOfficialConnectionSelected =
-    Boolean(selectedConnectionKey) &&
-    officialChannel !== null &&
-    selectedConnectionKey === `channel:${officialChannel.id}`;
   const selectedChatHref = selectedUnified
     ? `/cliente/chats?${new URLSearchParams([
         ["chatKey", selectedUnified.key],
@@ -598,34 +534,6 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     };
   }
 
-  if (selectedUnified?.source === "official" && officialData?.selectedConversation) {
-    selectedConversation = {
-      id: officialData.selectedConversation.id,
-      label: getOfficialContactLabel(officialData.selectedConversation.contact),
-      secondaryLabel:
-        officialData.selectedConversation.contact.phoneNumber || officialData.selectedConversation.contact.waId,
-      avatarUrl: null,
-      cacheKey: selectedUnified.key,
-      messages: officialData.selectedConversation.messages.map((message) => ({
-        id: message.id,
-        content: message.content,
-        direction: message.direction,
-        createdAt: message.createdAt,
-        deletedAt: null,
-        authorType: "user",
-        outboundStatusLabel:
-          message.direction === "OUTBOUND"
-            ? message.status === "READ"
-              ? "visto"
-              : "enviado"
-            : null,
-        type: message.type,
-        mediaUrl: message.mediaUrl,
-        rawPayload: message.rawPayload,
-      })),
-    };
-  }
-
   return (
     <section className="chat-app-layout flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
       <ChatsAutoRefresh
@@ -662,14 +570,14 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         searchQuery={searchQuery}
         messageScrollBehavior={scrollMode === CHAT_MESSAGE_SCROLL_PRESERVE_QUERY ? "preserve" : "bottom"}
         conversations={merged.map((item) => ({
-        id: item.key,
-        source: item.source,
-        agentId: item.agentId ?? null,
-        contactId: item.contactId ?? null,
-        label: item.label,
-        secondaryLabel: item.secondaryLabel,
+          id: item.key,
+          source: item.source,
+          agentId: item.agentId ?? null,
+          contactId: item.contactId ?? null,
+          label: item.label,
+          secondaryLabel: item.secondaryLabel,
           tags: item.tags ?? [],
-          channelType: item.source === "official" ? "whatsapp_official" : "whatsapp",
+          channelType: "whatsapp",
           incomingCount: item.incomingCount ?? 0,
           avatarUrl: item.avatarUrl ?? null,
           lastMessage: item.lastMessage,
@@ -712,32 +620,10 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
             : [],
         }}
         emptyListTitle="Aun no hay conversaciones"
-        emptyListDescription={
-          isOfficialConnectionSelected && isOfficialUnavailable
-            ? "Este canal oficial todavia no esta disponible. Mientras tanto, puedes seguir usando los otros canales."
-            : "Cuando lleguen mensajes por tus canales, apareceran aqui en una sola bandeja."
-        }
-        emptySelectionTitle={isOfficialConnectionSelected && isOfficialUnavailable ? "Canal oficial no disponible" : "Selecciona una conversacion"}
-        emptySelectionDescription={
-          isOfficialConnectionSelected && isOfficialUnavailable
-            ? "Habla con un administrador para activar la API oficial en este workspace."
-            : "Elige un chat de la columna izquierda para ver el historial y responder desde el panel."
-        }
+        emptyListDescription="Cuando lleguen mensajes por tus canales, apareceran aqui en una sola bandeja."
+        emptySelectionTitle="Selecciona una conversacion"
+        emptySelectionDescription="Elige un chat de la columna izquierda para ver el historial y responder desde el panel."
       />
-
-      {isOfficialUnavailable ? (
-        <OfficialApiLockedState
-          title="Api oficial no disponible"
-          description="La bandeja sigue activa para tus otros canales, pero la API oficial aun no esta conectada."
-          workspaceName={membership.workspace.name}
-        />
-      ) : null}
-
-      {!canUseOfficialApi && isOfficialConnectionSelected ? (
-        <Card className="border border-[rgba(148,163,184,0.14)] bg-white p-4 text-sm text-slate-600">
-          No tienes acceso al canal de API oficial. Solo veras chats de agentes.
-        </Card>
-      ) : null}
     </section>
   );
 }

@@ -5,7 +5,6 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { sendManualAgentReplyAction } from "@/app/actions/agent-actions";
-import { sendOfficialApiReplyAction } from "@/app/actions/official-api-actions";
 import { createFollowsFromRulesForSource } from "@/features/seguimientos/services/follows";
 import { getConversationAutomationPaused, setConversationAutomationPaused } from "@/lib/conversation-automation";
 import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
@@ -151,7 +150,7 @@ export async function deleteContactAction(formData: FormData): Promise<void> {
 }
 
 const sendUnifiedChatReplySchema = z.object({
-  source: z.enum(["agent", "official"]),
+  source: z.literal("agent"),
   conversationId: z.string().trim().min(1),
   message: z.string().trim().min(1).max(4096),
   agentId: z.string().trim().optional(),
@@ -177,16 +176,6 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<vo
   }
 
   const safeReturnTo = normalizeInternalPath(parsed.data.returnTo, "");
-
-  if (parsed.data.source === "official") {
-    const nextData = new FormData();
-    nextData.set("conversationId", parsed.data.conversationId);
-    nextData.set("message", parsed.data.message);
-    if (safeReturnTo) {
-      nextData.set("returnTo", safeReturnTo);
-    }
-    return sendOfficialApiReplyAction(nextData);
-  }
 
   if (!parsed.data.agentId) {
     redirect("/cliente/chats?error=No+se+encontro+el+agente");

@@ -1,14 +1,13 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { auth } from "@/auth";
-import { getOfficialApiChatsData } from "@/features/official-api";
 import { dedupeAndSortConversationListRows } from "@/lib/chat-conversation-list";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { prisma } from "@/lib/prisma";
 
 type UnifiedConversation = {
   key: string;
-  source: "agent" | "official";
+  source: "agent";
   conversationId: string;
   agentId?: string;
   channelId?: string;
@@ -67,7 +66,6 @@ async function getAgentConversationList(input: {
   offset: number;
   limit: number;
 }) {
-  const conversationListTake = input.offset + input.limit + 1;
   const normalizedSearchQuery = input.searchQuery.trim();
   const conversationWhere: Prisma.ConversationWhereInput = {
     workspaceId: input.workspaceId,
@@ -137,34 +135,23 @@ async function getAgentConversationList(input: {
   const activeAgentConversations = await prisma.conversation.findMany({
     where: conversationWhere,
     orderBy: [{ lastMessageAt: "desc" }, { updatedAt: "desc" }],
-    take: conversationListTake,
+    skip: input.offset,
+    take: input.limit + 1,
     select: {
       id: true,
       agentId: true,
       channelId: true,
       activeProductContext: true,
-      contact: {
-        select: {
-          id: true,
-          name: true,
-          phoneNumber: true,
-          avatarUrl: true,
+        contact: {
+          select: {
+            id: true,
+            name: true,
+            phoneNumber: true,
+            avatarUrl: true,
+          },
         },
       },
-      messages: {
-        orderBy: { createdAt: "desc" },
-        take: 1,
-        select: {
-          id: true,
-          content: true,
-          direction: true,
-          createdAt: true,
-          deletedAt: true,
-          type: true,
-        },
-      },
-    },
-  });
+    });
 
   const activeAgentConversationIds = activeAgentConversations.map((conversation) => conversation.id);
   const latestAgentMessageRowsPromise = activeAgentConversationIds.length
@@ -278,31 +265,7 @@ async function getAgentConversationList(input: {
     };
   });
 
-  const officialChannel = channels.find((channel) => channel.provider === "OFFICIAL_API") ?? null;
-  const officialData = await getOfficialApiChatsData({
-    workspaceId: input.workspaceId,
-    q: input.searchQuery,
-    includeSelectedConversation: false,
-  });
-
-  const officialRows: UnifiedConversation[] = officialData.isConnected
-    ? officialData.conversations.map((conversation) => ({
-        key: `official:${conversation.id}`,
-        source: "official",
-        conversationId: conversation.id,
-        channelId: officialChannel?.id,
-        label: conversation.contact.name?.trim() || conversation.contact.phoneNumber || conversation.contact.waId,
-        secondaryLabel: conversation.contact.phoneNumber || conversation.contact.waId,
-        avatarUrl: null,
-        incomingCount: conversation.incomingCount ?? 0,
-        lastMessage: conversation.lastMessage?.content ?? null,
-        lastMessageType: conversation.lastMessage?.type ?? null,
-        lastMessageDirection: conversation.lastMessage?.direction ?? null,
-        lastMessageAt: conversation.lastMessage?.createdAt ?? null,
-      }))
-    : [];
-
-  const merged = dedupeAndSortConversationListRows([...agentRows, ...officialRows])
+  const merged = dedupeAndSortConversationListRows(agentRows)
     .filter((item) => {
       if (!input.searchQuery) return true;
       const q = input.searchQuery.toLowerCase();
@@ -314,11 +277,11 @@ async function getAgentConversationList(input: {
     });
 
   const sorted = merged;
-  const page = sorted.slice(input.offset, input.offset + input.limit);
+  const page = sorted.slice(0, input.limit);
 
   return {
     conversations: page,
-    hasMore: activeAgentConversations.length > input.offset + input.limit,
+    hasMore: sorted.length > input.limit,
     nextOffset: input.offset + page.length,
     total: sorted.length,
     evolutionInstanceNames,

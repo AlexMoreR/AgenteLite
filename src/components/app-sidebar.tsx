@@ -79,7 +79,7 @@ export function AppSidebar({
   const isClientSeguimientosRoute = pathname.startsWith("/cliente/seguimientos");
   const isClientMarketingRoute = pathname.startsWith("/cliente/marketing-ia");
   const isClientFinanzasRoute = pathname.startsWith("/cliente/finanzas");
-  const isClientConnectionRoute = pathname.startsWith("/cliente/conexion") || pathname.startsWith("/cliente/api-oficial");
+  const isClientConnectionRoute = pathname.startsWith("/cliente/conexion");
   const canAccessSidebarModule = (moduleKey: AdminModuleKey) => user.role === "ADMIN" ? adminModuleAccess[moduleKey] : true;
   const canSeeChats = canAccessSidebarModule("chats");
   const canSeeCrm = canAccessSidebarModule("crm");
@@ -212,17 +212,14 @@ export function AppSidebar({
       });
     }
 
-    if (canAccessSidebarModule("connection") || adminModuleAccess.client_official_api) {
+    if (canAccessSidebarModule("connection")) {
       navMainBottom.push({
         title: "Conexion",
         url: "/cliente/conexion",
         icon: Cable,
-        isActive: pathname.startsWith("/cliente/conexion") || pathname.startsWith("/cliente/api-oficial"),
+        isActive: pathname.startsWith("/cliente/conexion"),
         items: [
           { title: "Resumen", url: "/cliente/conexion" },
-          ...(user.role === "ADMIN" || adminModuleAccess.client_official_api
-            ? [{ title: "API oficial", url: "/cliente/api-oficial" }]
-            : []),
         ],
       });
     }

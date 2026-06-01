@@ -110,9 +110,7 @@ export default async function RootLayout({
     ? await prisma.whatsAppChannel.findMany({
         where: {
           workspaceId: primaryWorkspace.workspace.id,
-          provider: {
-            in: ["EVOLUTION", "OFFICIAL_API"],
-          },
+          provider: "EVOLUTION",
         },
         orderBy: { createdAt: "asc" },
         select: {
@@ -129,8 +127,8 @@ export default async function RootLayout({
         channels.map((channel) => ({
           title: channel.name,
           url: `/cliente/chats?connection=${encodeURIComponent(`channel:${channel.id}`)}`,
-          helper: channel.provider === "OFFICIAL_API" ? "API oficial" : channel.agent?.name || "WhatsApp",
-          kind: channel.provider === "OFFICIAL_API" ? ("official" as const) : ("evolution" as const),
+          helper: channel.agent?.name || "WhatsApp",
+          kind: "evolution" as const,
         })),
       )
     : [];
