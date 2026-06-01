@@ -59,6 +59,43 @@ function getConversationContextTags(input: ActiveProductContextSummary | null | 
   }];
 }
 
+function mergeConversationTags(
+  baseTags: Array<{
+    label: string;
+    color: string;
+  }>,
+  extraTags: Array<{
+    label: string;
+    color: string;
+  }>,
+) {
+  const merged: Array<{
+    label: string;
+    color: string;
+  }> = [];
+  const seen = new Set<string>();
+
+  for (const tag of [...baseTags, ...extraTags]) {
+    const label = tag.label.trim();
+    if (!label) {
+      continue;
+    }
+
+    const key = `${label.toLowerCase()}::${tag.color.toLowerCase()}`;
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    merged.push({
+      label,
+      color: tag.color,
+    });
+  }
+
+  return merged;
+}
+
 async function getAgentConversationList(input: {
   workspaceId: string;
   searchQuery: string;
@@ -154,6 +191,20 @@ async function getAgentConversationList(input: {
     });
 
   const activeAgentConversationIds = activeAgentConversations.map((conversation) => conversation.id);
+  const contactIds = Array.from(new Set(activeAgentConversations.map((conversation) => conversation.contact.id)));
+  const contactTagRowsPromise = contactIds.length
+    ? prisma.$queryRaw<Array<{ contactId: string; name: string; color: string }>>`
+        SELECT
+          ct."contactId" AS "contactId",
+          t."name" AS "name",
+          t."color" AS "color"
+        FROM "ContactTag" ct
+        INNER JOIN "Tag" t ON t."id" = ct."tagId"
+        WHERE ct."workspaceId" = ${input.workspaceId}
+          AND ct."contactId" IN (${Prisma.join(contactIds)})
+        ORDER BY ct."createdAt" ASC
+      `
+    : Promise.resolve([] as Array<{ contactId: string; name: string; color: string }>);
   const latestAgentMessageRowsPromise = activeAgentConversationIds.length
     ? prisma.$queryRaw<Array<{
         conversationId: string;
@@ -231,24 +282,41 @@ async function getAgentConversationList(input: {
         incomingCount: number;
       }>);
 
-  const [agentIncomingCountRowsResult, latestAgentMessageRowsResult] = await Promise.allSettled([
+  const [agentIncomingCountRowsResult, latestAgentMessageRowsResult, contactTagRowsResult] = await Promise.allSettled([
     agentIncomingCountRowsPromise,
     latestAgentMessageRowsPromise,
+    contactTagRowsPromise,
   ]);
   const agentIncomingCountRows =
     agentIncomingCountRowsResult.status === "fulfilled" ? agentIncomingCountRowsResult.value : [];
   const latestAgentMessageRows =
     latestAgentMessageRowsResult.status === "fulfilled" ? latestAgentMessageRowsResult.value : [];
+  const contactTagRows =
+    contactTagRowsResult.status === "fulfilled" ? contactTagRowsResult.value : [];
 
   const latestAgentMessageByConversationId = new Map(
     latestAgentMessageRows.map((row) => [row.conversationId, row]),
   );
   const agentIncomingCountById = new Map(agentIncomingCountRows.map((row) => [row.conversationId, row.incomingCount]));
+  const contactTagsByContactId = new Map<string, Array<{ label: string; color: string }>>();
+  for (const row of contactTagRows) {
+    const currentTags = contactTagsByContactId.get(row.contactId) ?? [];
+    contactTagsByContactId.set(row.contactId, [
+      ...currentTags,
+      {
+        label: row.name,
+        color: row.color,
+      },
+    ]);
+  }
 
   const agentRows: UnifiedConversation[] = activeAgentConversations.map((conversation) => {
     const linkedChannel = conversation.channelId ? channelsById.get(conversation.channelId) || null : null;
     const activeProductContext = toActiveProductContextSummary(conversation.activeProductContext);
-    const tags = getConversationContextTags(activeProductContext);
+    const tags = mergeConversationTags(
+      contactTagsByContactId.get(conversation.contact.id) ?? [],
+      getConversationContextTags(activeProductContext),
+    );
     return {
       key: `agent:${conversation.id}`,
       source: "agent",

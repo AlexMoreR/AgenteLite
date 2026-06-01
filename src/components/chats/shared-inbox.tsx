@@ -2178,86 +2178,96 @@ const ConversationPanel = memo(function ConversationPanel({
                 >
                   <ArrowLeft className="h-4 w-4" />
                 </Link>
-                <TooltipProvider delayDuration={300}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={onOpenStatusDialog}
-                        className={`group relative shrink-0 rounded-[22px] p-[2px] transition focus:outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_18%,white)] ${
-                          hasStatusMessages
-                            ? "bg-gradient-to-br from-emerald-400 via-lime-300 to-cyan-400 shadow-[0_14px_28px_-18px_rgba(16,185,129,0.55)]"
-                            : "bg-transparent"
-                        }`}
-                        aria-label={hasStatusMessages ? "Abrir estados de WhatsApp" : "Abrir detalles del contacto"}
-                        title={hasStatusMessages ? "Estados" : "Contacto"}
-                      >
-                        <span className="relative block">
-                          <ContactAvatar
-                            avatarUrl={renderedConversation.avatarUrl}
-                            label={renderedConversation.label}
-                            className={`h-10 w-10 rounded-[18px] border border-[rgba(148,163,184,0.12)] bg-slate-100 text-slate-500 transition ${
-                              hasStatusMessages ? "ring-2 ring-white" : ""
-                            }`}
-                            fallbackClassName="rounded-[18px] bg-slate-100 text-sm font-semibold text-slate-700"
-                          />
-                          {hasStatusMessages ? (
-                            <span
-                              aria-hidden="true"
-                              className="absolute -right-0.5 -top-0.5 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500 shadow-[0_4px_10px_-4px_rgba(16,185,129,0.75)]"
-                            />
-                          ) : null}
-                        </span>
-                      </button>
-                    </TooltipTrigger>
-                    {renderedConversation.secondaryLabel ? (
-                      <TooltipContent side="right">
-                        {hasStatusMessages ? "Toca para ver estados" : renderedConversation.secondaryLabel}
-                      </TooltipContent>
-                    ) : null}
-                  </Tooltip>
-                </TooltipProvider>
-                <div className="min-w-0 space-y-0.5">
-                  <div className="flex min-w-0 items-center gap-1.5">
-                    <h2 className="truncate text-[13px] font-semibold text-slate-950 md:text-sm">
-                      {renderedConversation.label}
-                    </h2>
-                    {renderedConversation.contactId ? (
-                      <button
-                        type="button"
-                        onClick={onEditContact}
-                        className="shrink-0 inline-flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
-                        aria-label="Editar contacto"
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </button>
-                    ) : null}
-                    <button
-                      type="button"
-                      onClick={onOpenTags}
-                      className="shrink-0 inline-flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
-                      aria-label="Etiquetas"
-                    >
-                      <Tag className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                  {renderedConversation.tags?.length ? (
-                    <div className="flex flex-wrap gap-1.5">
-                      {renderedConversation.tags.map((tag) => (
-                        <Badge
-                          key={`${renderedConversation.id}:${tag.label}`}
-                          className="max-w-full px-2.5 py-1 text-[10px] shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
-                          style={{
-                            backgroundColor: tag.color,
-                            color: "#ffffff",
-                          }}
-                          title={tag.label}
+                <div
+                  className={`flex min-w-0 items-center gap-3 transition-opacity duration-200 ease-out ${
+                    hasSettledConversation ? "opacity-100" : "opacity-80"
+                  }`}
+                >
+                  <TooltipProvider delayDuration={300}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={onOpenStatusDialog}
+                          className={`group relative shrink-0 rounded-[22px] p-[2px] transition focus:outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_18%,white)] ${
+                            hasStatusMessages
+                              ? "bg-gradient-to-br from-emerald-400 via-lime-300 to-cyan-400 shadow-[0_14px_28px_-18px_rgba(16,185,129,0.55)]"
+                              : "bg-transparent"
+                          }`}
+                          aria-label={hasStatusMessages ? "Abrir estados de WhatsApp" : "Abrir detalles del contacto"}
+                          title={hasStatusMessages ? "Estados" : "Contacto"}
                         >
-                          <span className="truncate">{tag.label}</span>
-                        </Badge>
-                      ))}
+                          <span className="relative block">
+                            <ContactAvatar
+                              avatarUrl={renderedConversation.avatarUrl}
+                              label={renderedConversation.label}
+                              className={`h-10 w-10 rounded-[18px] border border-[rgba(148,163,184,0.12)] bg-slate-100 text-slate-500 transition ${
+                                hasStatusMessages ? "ring-2 ring-white" : ""
+                              }`}
+                              fallbackClassName="rounded-[18px] bg-slate-100 text-sm font-semibold text-slate-700"
+                            />
+                            {hasStatusMessages ? (
+                              <span
+                                aria-hidden="true"
+                                className="absolute -right-0.5 -top-0.5 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500 shadow-[0_4px_10px_-4px_rgba(16,185,129,0.75)]"
+                              />
+                            ) : null}
+                          </span>
+                        </button>
+                      </TooltipTrigger>
+                      {renderedConversation.secondaryLabel ? (
+                        <TooltipContent side="right">
+                          {hasStatusMessages ? "Toca para ver estados" : renderedConversation.secondaryLabel}
+                        </TooltipContent>
+                      ) : null}
+                    </Tooltip>
+                  </TooltipProvider>
+                  <div className="min-w-0 space-y-0.5">
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <h2 className="truncate text-[13px] font-semibold text-slate-950 md:text-sm">
+                        {renderedConversation.label}
+                      </h2>
+                      {renderedConversation.contactId ? (
+                        <button
+                          type="button"
+                          onClick={onEditContact}
+                          className="shrink-0 inline-flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                          aria-label="Editar contacto"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={onOpenTags}
+                        className="shrink-0 inline-flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                        aria-label="Etiquetas"
+                      >
+                        <Tag className="h-3.5 w-3.5" />
+                      </button>
                     </div>
-                  ) : null}
+                    {renderedConversation.tags?.length ? (
+                      <div
+                        className={`flex flex-wrap gap-1.5 transition-opacity duration-200 ease-out ${
+                          hasSettledConversation ? "opacity-100" : "opacity-60"
+                        }`}
+                      >
+                        {renderedConversation.tags.map((tag) => (
+                          <Badge
+                            key={`${renderedConversation.id}:${tag.label}`}
+                            className="max-w-full px-2.5 py-1 text-[10px] shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
+                            style={{
+                              backgroundColor: tag.color,
+                              color: "#ffffff",
+                            }}
+                            title={tag.label}
+                          >
+                            <span className="truncate">{tag.label}</span>
+                          </Badge>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
               </div>
 
