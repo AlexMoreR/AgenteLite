@@ -10,6 +10,7 @@ import { FormActionSwitch } from "@/components/ui/form-action-switch";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { dedupeAndSortConversationListRows } from "@/lib/chat-conversation-list";
 import { fetchEvolutionProfilePictureUrl } from "@/lib/evolution";
+import { extractEvolutionPhoneNumber, isEvolutionStatusBroadcastPayload, normalizePhoneFromJid } from "@/lib/evolution-webhook";
 import { getEvolutionSettings } from "@/lib/system-settings";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
@@ -46,6 +47,45 @@ type UnifiedConversation = {
   lastMessageAt?: Date | null;
   activeProductContext?: ActiveProductContextSummary | null;
 };
+
+function extractEvolutionPayloadList(payload: unknown): unknown[] {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+
+  if (!payload || typeof payload !== "object") {
+    return [];
+  }
+
+  const record = payload as Record<string, unknown>;
+
+  if (Array.isArray(record.response)) {
+    return record.response;
+  }
+
+  if (Array.isArray(record.data)) {
+    return record.data;
+  }
+
+  if (record.response && typeof record.response === "object") {
+    return [record.response];
+  }
+
+  if (record.data && typeof record.data === "object") {
+    return [record.data];
+  }
+
+  return [];
+}
+
+function normalizePhoneDigits(value: string | null | undefined) {
+  if (!value) {
+    return null;
+  }
+
+  const digits = value.replace(/\D/g, "");
+  return digits || null;
+}
 
 type ActiveProductContextSummary = {
   productName?: string | null;
@@ -562,6 +602,110 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     };
   }
 
+  const selectedConversationPhoneNumber = normalizePhoneFromJid(selectedConversation?.secondaryLabel ?? null) ?? normalizePhoneDigits(selectedConversation?.secondaryLabel);
+  const selectedConversationStatusMessages = await (async () => {
+    const databaseStatusMessages = selectedConversation?.id
+      ? (
+          await prisma.message.findMany({
+            where: {
+              workspaceId: membership.workspace.id,
+              conversationId: selectedConversation.id,
+            },
+            orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+            take: 20,
+            select: {
+              id: true,
+              content: true,
+              type: true,
+              createdAt: true,
+              mediaUrl: true,
+              rawPayload: true,
+            },
+          })
+        )
+          .filter((message) => isEvolutionStatusBroadcastPayload(message.rawPayload))
+          .slice(0, 8)
+          .map((message) => ({
+            id: message.id,
+            content: message.content,
+            type: message.type,
+            createdAt: message.createdAt,
+            mediaUrl: message.mediaUrl,
+          }))
+      : [];
+
+    if (!selectedEvolutionInstanceName || !evolutionSettings.apiBaseUrl || !evolutionSettings.apiToken) {
+      return databaseStatusMessages;
+    }
+
+    try {
+      const response = await fetch(`${evolutionSettings.apiBaseUrl}/messages/fetch/${encodeURIComponent(selectedEvolutionInstanceName)}`, {
+        method: "GET",
+        headers: {
+          apikey: evolutionSettings.apiToken,
+          "Content-Type": "application/json",
+        },
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        return databaseStatusMessages;
+      }
+
+      const payload = await response.json().catch(() => null);
+      const liveStatusMessages = extractEvolutionPayloadList(payload)
+        .filter((message) => isEvolutionStatusBroadcastPayload(message))
+        .filter((message) => {
+          if (!selectedConversationPhoneNumber) {
+            return true;
+          }
+
+          const messagePhoneNumber = normalizePhoneFromJid(extractEvolutionPhoneNumber(message) ?? null) ?? normalizePhoneDigits(extractEvolutionPhoneNumber(message));
+          return messagePhoneNumber ? messagePhoneNumber === selectedConversationPhoneNumber : false;
+        })
+        .slice(0, 8)
+        .map((message, index) => {
+          const rawMessage = message as Record<string, unknown>;
+          const content =
+            typeof rawMessage.content === "string"
+              ? rawMessage.content
+              : typeof rawMessage.text === "string"
+                ? rawMessage.text
+                : typeof rawMessage.caption === "string"
+                  ? rawMessage.caption
+                  : null;
+          const createdAtValue =
+            typeof rawMessage.createdAt === "string" || rawMessage.createdAt instanceof Date
+              ? new Date(rawMessage.createdAt)
+              : new Date();
+          const id =
+            typeof rawMessage.id === "string" && rawMessage.id.trim()
+              ? rawMessage.id
+              : typeof rawMessage.messageId === "string" && rawMessage.messageId.trim()
+                ? rawMessage.messageId
+                : `live-status-${index}`;
+
+          return {
+            id,
+            content,
+            type:
+              typeof rawMessage.type === "string" && rawMessage.type.trim()
+                ? (rawMessage.type.toUpperCase() as "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE")
+                : null,
+            createdAt: createdAtValue,
+            mediaUrl:
+              typeof rawMessage.mediaUrl === "string" && rawMessage.mediaUrl.trim()
+                ? rawMessage.mediaUrl
+                : null,
+          };
+        });
+
+      return liveStatusMessages.length > 0 ? liveStatusMessages : databaseStatusMessages;
+    } catch {
+      return databaseStatusMessages;
+    }
+  })();
+
   return (
     <section className="chat-app-layout flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
       <ChatsAutoRefresh
@@ -597,6 +741,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         conversationListApiPath="/api/cliente/chats/list"
         searchQuery={searchQuery}
         messageScrollBehavior={scrollMode === CHAT_MESSAGE_SCROLL_PRESERVE_QUERY ? "preserve" : "bottom"}
+        statusMessages={selectedConversationStatusMessages}
         conversations={merged.map((item) => ({
           id: item.key,
           source: item.source,

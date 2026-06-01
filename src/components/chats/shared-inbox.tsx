@@ -40,6 +40,7 @@ import { EditContactModal } from "@/components/chats/edit-contact-modal";
 import { EtiquetaModal } from "@/components/chats/etiqueta-modal";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -398,6 +399,14 @@ export type SharedInboxSelectedConversation = {
   isPreview?: boolean;
 };
 
+export type SharedInboxStatusMessageItem = {
+  id: string;
+  content: string | null;
+  type?: SharedInboxMessageItem["type"] | null;
+  createdAt: Date;
+  mediaUrl?: string | null;
+};
+
 type OptimisticDraftMessage = SharedInboxMessageItem & {
   conversationId: string;
   isOptimistic: true;
@@ -516,6 +525,7 @@ type SharedInboxProps = {
   sidebarItems?: SharedInboxSidebarItem[];
   conversations: SharedInboxConversationItem[];
   selectedConversation: SharedInboxSelectedConversation | null;
+  statusMessages?: SharedInboxStatusMessageItem[];
   backHref: string;
   headerBadge?: ReactNode;
   headerActions?: ReactNode;
@@ -1919,6 +1929,7 @@ type ConversationPanelProps = {
   backHref: string;
   composer: SharedInboxProps["composer"];
   composerHiddenFields: Array<{ name: string; value: string }>;
+  hasStatusMessages: boolean;
   hasSettledConversation: boolean;
   isLoadingOlderMessages: boolean;
   loadMoreSentinelRef: RefObject<HTMLDivElement | null>;
@@ -1926,6 +1937,7 @@ type ConversationPanelProps = {
   messagesScrollRef: RefObject<HTMLDivElement | null>;
   unreadCount: number;
   onScrollToBottom: () => void;
+  onOpenStatusDialog: () => void;
   onEditContact: () => void;
   onOpenTags: () => void;
   onComposerDraft: (message: string) => void;
@@ -1944,6 +1956,7 @@ const ConversationPanel = memo(function ConversationPanel({
   backHref,
   composer,
   composerHiddenFields,
+  hasStatusMessages,
   hasSettledConversation,
   isLoadingOlderMessages,
   loadMoreSentinelRef,
@@ -1951,6 +1964,7 @@ const ConversationPanel = memo(function ConversationPanel({
   messagesScrollRef,
   unreadCount,
   onScrollToBottom,
+  onOpenStatusDialog,
   onEditContact,
   onOpenTags,
   onComposerDraft,
@@ -2167,18 +2181,38 @@ const ConversationPanel = memo(function ConversationPanel({
                 <TooltipProvider delayDuration={300}>
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <div className="shrink-0 cursor-default">
-                        <ContactAvatar
-                          avatarUrl={renderedConversation.avatarUrl}
-                          label={renderedConversation.label}
-                          className="h-10 w-10 rounded-2xl border border-[rgba(148,163,184,0.12)] bg-slate-100 text-slate-500"
-                          fallbackClassName="rounded-2xl bg-slate-100 text-sm font-semibold text-slate-700"
-                        />
-                      </div>
+                      <button
+                        type="button"
+                        onClick={onOpenStatusDialog}
+                        className={`group relative shrink-0 rounded-[22px] p-[2px] transition focus:outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_18%,white)] ${
+                          hasStatusMessages
+                            ? "bg-gradient-to-br from-emerald-400 via-lime-300 to-cyan-400 shadow-[0_14px_28px_-18px_rgba(16,185,129,0.55)]"
+                            : "bg-transparent"
+                        }`}
+                        aria-label={hasStatusMessages ? "Abrir estados de WhatsApp" : "Abrir detalles del contacto"}
+                        title={hasStatusMessages ? "Estados" : "Contacto"}
+                      >
+                        <span className="relative block">
+                          <ContactAvatar
+                            avatarUrl={renderedConversation.avatarUrl}
+                            label={renderedConversation.label}
+                            className={`h-10 w-10 rounded-[18px] border border-[rgba(148,163,184,0.12)] bg-slate-100 text-slate-500 transition ${
+                              hasStatusMessages ? "ring-2 ring-white" : ""
+                            }`}
+                            fallbackClassName="rounded-[18px] bg-slate-100 text-sm font-semibold text-slate-700"
+                          />
+                          {hasStatusMessages ? (
+                            <span
+                              aria-hidden="true"
+                              className="absolute -right-0.5 -top-0.5 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500 shadow-[0_4px_10px_-4px_rgba(16,185,129,0.75)]"
+                            />
+                          ) : null}
+                        </span>
+                      </button>
                     </TooltipTrigger>
                     {renderedConversation.secondaryLabel ? (
                       <TooltipContent side="right">
-                        {renderedConversation.secondaryLabel}
+                        {hasStatusMessages ? "Toca para ver estados" : renderedConversation.secondaryLabel}
                       </TooltipContent>
                     ) : null}
                   </Tooltip>
@@ -2436,6 +2470,7 @@ export function SharedInbox({
   sidebarItems = [],
   conversations,
   selectedConversation,
+  statusMessages = [],
   backHref,
   headerBadge,
   headerActions,
@@ -2462,6 +2497,7 @@ export function SharedInbox({
   const handleCloseEditContact = useCallback(() => setEditContactOpen(false), []);
   const [etiquetaModalOpen, setEtiquetaModalOpen] = useState(false);
   const handleCloseEtiquetaModal = useCallback(() => setEtiquetaModalOpen(false), []);
+  const [statusDialogOpen, setStatusDialogOpen] = useState(false);
   const handleOpenEditContact = useCallback(() => setEditContactOpen(true), []);
   const handleOpenEtiquetaModal = useCallback(() => setEtiquetaModalOpen(true), []);
   const [, startSelectionTransition] = useTransition();
@@ -2481,6 +2517,8 @@ export function SharedInbox({
   const [unreadCount, setUnreadCount] = useState(0);
   const [hasHydrated, setHasHydrated] = useState(false);
   const selectedConversationDetailInFlightRef = useRef<string | null>(null);
+  const hasStatusMessages = statusMessages.length > 0;
+  const handleOpenStatusDialog = useCallback(() => setStatusDialogOpen(true), []);
   // Ref sincronizada en cada render: permite leer el valor actual dentro de event
   // listeners sin declararlos como dependencia (evita re-registro en cada mensaje).
   const selectedConversationRef = useRef(selectedConversation);
@@ -3695,6 +3733,7 @@ export function SharedInbox({
         backHref={backHref}
         composer={composer}
         composerHiddenFields={composerHiddenFields}
+        hasStatusMessages={hasStatusMessages}
         hasSettledConversation={hasSettledConversation}
         isLoadingOlderMessages={isLoadingOlderMessages}
         loadMoreSentinelRef={loadMoreSentinelRef}
@@ -3702,6 +3741,7 @@ export function SharedInbox({
         messagesScrollRef={messagesScrollRef}
         unreadCount={unreadCount}
         onScrollToBottom={scrollToBottom}
+        onOpenStatusDialog={handleOpenStatusDialog}
         onEditContact={handleOpenEditContact}
         onOpenTags={handleOpenEtiquetaModal}
         onComposerDraft={handleComposerDraft}
@@ -3730,6 +3770,73 @@ export function SharedInbox({
       onClose={handleCloseEtiquetaModal}
       contactId={renderedConversation?.contactId}
     />
+    <Dialog open={statusDialogOpen} onOpenChange={setStatusDialogOpen}>
+      <DialogContent className="w-[min(92vw,34rem)] max-w-none overflow-hidden border border-[rgba(148,163,184,0.14)] bg-white p-0 shadow-[0_30px_80px_-36px_rgba(15,23,42,0.45)]">
+        <div className="border-b border-[rgba(148,163,184,0.12)] bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] px-5 py-4">
+          <DialogHeader className="text-left">
+            <DialogTitle>Estados de WhatsApp</DialogTitle>
+            <DialogDescription>
+              {renderedConversation?.secondaryLabel
+                ? `Estados sincronizados para ${renderedConversation.secondaryLabel}`
+                : "Estados sincronizados para este contacto"}
+            </DialogDescription>
+          </DialogHeader>
+        </div>
+        <div className="max-h-[70vh] space-y-3 overflow-y-auto p-5">
+          {hasStatusMessages ? (
+            statusMessages.slice(0, 8).map((message) => {
+              const previewText =
+                message.content?.trim() ||
+                (message.type === "IMAGE"
+                  ? "Foto"
+                  : message.type === "VIDEO"
+                    ? "Video"
+                    : message.type === "AUDIO"
+                      ? "Audio"
+                      : message.type === "DOCUMENT"
+                        ? "Documento"
+                        : "Estado");
+
+              return (
+                <div
+                  key={message.id}
+                  className="rounded-2xl border border-[rgba(148,163,184,0.12)] bg-slate-50/80 p-4"
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 via-lime-300 to-cyan-400 p-[2px]">
+                      <div className="flex h-full w-full items-center justify-center rounded-full bg-white text-emerald-600">
+                        <MessageCircle className="h-4 w-4" />
+                      </div>
+                    </div>
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="truncate text-sm font-semibold text-slate-950">{previewText}</p>
+                        <Badge variant="outline" className="h-5 border-emerald-200 bg-emerald-50 px-2 text-[10px] text-emerald-700">
+                          {message.type ?? "TEXT"}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-slate-500">{formatChatTime(message.createdAt)}</p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          ) : (
+            <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-[rgba(148,163,184,0.18)] bg-slate-50/70 px-6 py-10 text-center">
+              <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-slate-400 shadow-[0_8px_24px_-18px_rgba(15,23,42,0.35)]">
+                <MessageCircle className="h-5 w-5" />
+              </span>
+              <div className="space-y-1">
+                <p className="text-sm font-semibold text-slate-900">No hay estados sincronizados</p>
+                <p className="text-sm text-slate-500">
+                  Si Evolution expone estados para este chat, aparecerán aquí al tocar la foto.
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
     </>
   );
 }
