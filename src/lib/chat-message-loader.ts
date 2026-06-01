@@ -121,6 +121,14 @@ export async function loadAgentConversationDetail(input: {
   });
 
   const visibleMessages = messages.slice(0, batchSize);
+  const orderedMessages = [...visibleMessages].sort((left, right) => {
+    const diff = left.createdAt.getTime() - right.createdAt.getTime();
+    if (diff !== 0) {
+      return diff;
+    }
+
+    return left.id.localeCompare(right.id);
+  });
 
   return {
     id: conversation.id,
@@ -128,8 +136,8 @@ export async function loadAgentConversationDetail(input: {
     automationPaused: conversation.automationPaused,
     contact: conversation.contact,
     channel: conversation.channel,
-    messages: visibleMessages,
+    messages: orderedMessages,
     hasMoreMessages: messages.length > batchSize,
-    loadMoreCursor: visibleMessages.at(-1)?.id ?? null,
+    loadMoreCursor: orderedMessages.at(0)?.id ?? null,
   } satisfies LoadedAgentConversationDetail;
 }

@@ -9,6 +9,7 @@ import { SharedInbox } from "@/components/chats/shared-inbox";
 import { FormActionSwitch } from "@/components/ui/form-action-switch";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { dedupeAndSortConversationListRows } from "@/lib/chat-conversation-list";
+import { loadAgentConversationDetail } from "@/lib/chat-message-loader";
 import { fetchEvolutionProfilePictureUrl } from "@/lib/evolution";
 import { getEvolutionSettings } from "@/lib/system-settings";
 import { prisma } from "@/lib/prisma";
@@ -455,6 +456,13 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   const selectedUnified = selectedChatKeyParam
     ? merged.find((item) => item.key === selectedChatKeyParam) || null
     : null;
+  const selectedConversationDetailPromise =
+    selectedUnified?.source === "agent"
+      ? loadAgentConversationDetail({
+          workspaceId: membership.workspace.id,
+          conversationId: selectedUnified.conversationId,
+        })
+      : Promise.resolve(null);
   const selectedEvolutionInstanceName =
     selectedUnified?.source === "agent" && selectedUnified.channelId
       ? channelsById.get(selectedUnified.channelId)?.evolutionInstanceName?.trim() || null
@@ -481,6 +489,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         ...(messagePage > 1 ? [["messagePage", String(messagePage)]] : []),
       ]).toString()}`
     : "";
+  const selectedConversationDetail = await selectedConversationDetailPromise;
 
   let selectedConversation: {
     id: string;
@@ -517,21 +526,51 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     const selectedContactId = selectedUnified.contactId ?? null;
     const selectedTags = getConversationContextTags(selectedUnified.activeProductContext ?? null);
 
-    selectedConversation = {
-      id: selectedUnified.conversationId,
-      label: selectedUnified.label,
-      secondaryLabel: selectedUnified.secondaryLabel,
-      tags: selectedTags,
-      avatarUrl: selectedUnified.avatarUrl ?? null,
-      contactId: selectedContactId,
-      contactName: selectedUnified.label,
-      automationPaused: selectedAgentConversation?.automationPaused ?? false,
-      cacheKey: selectedUnified.key,
-      messages: [],
-      hasMoreMessages: false,
-      loadMoreCursor: null,
-      loadMoreHref: null,
-    };
+    if (selectedConversationDetail) {
+      selectedConversation = {
+        id: selectedConversationDetail.id,
+        label: selectedUnified.label,
+        secondaryLabel: selectedUnified.secondaryLabel,
+        tags: selectedTags,
+        avatarUrl: selectedConversationDetail.contact.avatarUrl ?? selectedUnified.avatarUrl ?? null,
+        contactId: selectedConversationDetail.contact.id,
+        contactName: selectedConversationDetail.contact.name?.trim() || selectedUnified.label,
+        automationPaused: selectedConversationDetail.automationPaused,
+        cacheKey: selectedUnified.key,
+        messages: selectedConversationDetail.messages.map((message) => ({
+          id: message.id,
+          content: message.content,
+          direction: message.direction,
+          createdAt: message.createdAt,
+          editedAt: message.editedAt,
+          deletedAt: message.deletedAt,
+          authorType: message.direction === "OUTBOUND" ? "bot" : "user",
+          outboundStatusLabel: null,
+          type: message.type ?? undefined,
+          mediaUrl: message.mediaUrl,
+          rawPayload: message.rawPayload ?? null,
+        })),
+        hasMoreMessages: selectedConversationDetail.hasMoreMessages,
+        loadMoreCursor: selectedConversationDetail.loadMoreCursor,
+        loadMoreHref: null,
+      };
+    } else {
+      selectedConversation = {
+        id: selectedUnified.conversationId,
+        label: selectedUnified.label,
+        secondaryLabel: selectedUnified.secondaryLabel,
+        tags: selectedTags,
+        avatarUrl: selectedUnified.avatarUrl ?? null,
+        contactId: selectedContactId,
+        contactName: selectedUnified.label,
+        automationPaused: selectedAgentConversation?.automationPaused ?? false,
+        cacheKey: selectedUnified.key,
+        messages: [],
+        hasMoreMessages: false,
+        loadMoreCursor: null,
+        loadMoreHref: null,
+      };
+    }
   }
 
   return (

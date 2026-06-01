@@ -1778,7 +1778,7 @@ const ConversationPanel = memo(function ConversationPanel({
                 className="chat-messages-scroll h-full overflow-y-auto overscroll-contain bg-transparent px-2.5 py-2.5 pb-3 [-webkit-overflow-scrolling:touch] md:px-5 md:py-5 md:pb-5"
               >
                 <div
-                  className={`flex min-h-full flex-col transition-opacity duration-150 ease-out ${
+                  className={`flex min-h-full flex-col justify-end transition-opacity duration-150 ease-out ${
                     !hasSettledConversation ? "opacity-85" : "opacity-100"
                   }`}
                 >
@@ -2194,6 +2194,9 @@ export function SharedInbox({
   const selectedConversationMatchesCurrentKey =
     Boolean(selectedConversation && conversationIdMatchesKey(selectedConversationKey, selectedConversation.id));
   const currentSelectedConversation = selectedConversationMatchesCurrentKey ? selectedConversation : null;
+  const currentSelectedConversationHasContent = Boolean(currentSelectedConversation?.messages.length);
+  const currentSelectedConversationHasContentRef = useRef(currentSelectedConversationHasContent);
+  currentSelectedConversationHasContentRef.current = currentSelectedConversationHasContent;
   const cachedConversationForCurrentSelection =
     selectedConversationCache && conversationIdMatchesKey(selectedConversationKey, selectedConversationCache.id)
       ? selectedConversationCache
@@ -2385,6 +2388,10 @@ export function SharedInbox({
       return;
     }
 
+    if (currentSelectedConversationHasContentRef.current) {
+      return;
+    }
+
     if (selectedConversationDetailInFlightRef.current === normalizedSelectedConversationId) {
       return;
     }
@@ -2442,10 +2449,7 @@ export function SharedInbox({
       cancelled = true;
       controller.abort();
     };
-  }, [
-    pendingConversation?.chatKey,
-    selectedConversationId,
-  ]);
+  }, [pendingConversation?.chatKey, selectedConversationId]);
 
   useEffect(() => {
     const normalizedSelectedConversationId = (pendingConversation?.chatKey ?? selectedConversationId).trim();
