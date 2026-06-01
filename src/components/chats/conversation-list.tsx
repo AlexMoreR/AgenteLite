@@ -299,18 +299,12 @@ export function ConversationList({
     }
 
     navigationFrameRef.current = window.requestAnimationFrame(() => {
-        startTransition(() => {
-          const currentUrl = window.location.pathname + window.location.search;
-          if (conversation.href === currentUrl) {
-            router.refresh();
-            return;
-          }
-
-          router.push(conversation.href, { scroll: false });
-        });
-        navigationFrameRef.current = null;
+      startTransition(() => {
+        router.push(conversation.href, { scroll: false });
       });
-    }, [handlePreviewSelect, router, startTransition]);
+      navigationFrameRef.current = null;
+    });
+  }, [handlePreviewSelect, router, startTransition]);
 
   const handlePrefetch = useCallback((conversation: SharedInboxConversationItem) => {
     const href = conversation.href.trim();
