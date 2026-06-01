@@ -8,6 +8,8 @@ import {
   extractEvolutionMessageText,
   extractEvolutionMessageType,
   extractEvolutionFromMe,
+  extractEvolutionMessageId,
+  extractEvolutionMediaUrl,
   extractEvolutionRemoteJid,
   hasEvolutionDeletedMessagePayload,
   hasEvolutionEditedMessagePayload,
@@ -193,6 +195,38 @@ function buildOptimisticConversationListSnapshot(input: {
     lastMessageDirection,
     lastMessageAt: new Date().toISOString(),
     incomingCount: lastMessageDirection === "INBOUND" ? 1 : 0,
+  };
+}
+
+function buildOptimisticLiveConversationSnapshot(input: {
+  conversationKey: string;
+  payload: unknown;
+}) {
+  const messageId = extractEvolutionMessageId(input.payload);
+  if (!messageId) {
+    return null;
+  }
+
+  const lastMessageDirection = extractEvolutionFromMe(input.payload) ? "OUTBOUND" : "INBOUND";
+  const messageType = extractEvolutionMessageType(input.payload);
+
+  return {
+    id: input.conversationKey,
+    messages: [
+      {
+        id: messageId,
+        content: extractEvolutionMessageText(input.payload)?.trim() || null,
+        direction: lastMessageDirection,
+        authorType: lastMessageDirection === "OUTBOUND" ? "bot" : "user",
+        outboundStatusLabel: null,
+        type: messageType,
+        mediaUrl: extractEvolutionMediaUrl(input.payload),
+        rawPayload: input.payload,
+        createdAt: new Date().toISOString(),
+        editedAt: null,
+        deletedAt: null,
+      },
+    ],
   };
 }
 
@@ -659,6 +693,22 @@ export function ChatsRealtimeSync({
           });
 
           if (hasActiveAgentConversation) {
+            if (isSelectedAgentConversation && !isEditedOrDeletedPayload && !extractEvolutionFromMe(payload)) {
+              const liveConversationSnapshot = buildOptimisticLiveConversationSnapshot({
+                conversationKey: currentConversationKey || "",
+                payload,
+              });
+              if (liveConversationSnapshot) {
+                window.dispatchEvent(
+                  new CustomEvent("chat-live-update", {
+                    detail: {
+                      conversation: liveConversationSnapshot,
+                    },
+                  }),
+                );
+              }
+            }
+
             scheduleLiveUpdate("active");
             if (isSelectedAgentConversation && !isEditedOrDeletedPayload) {
               window.dispatchEvent(
@@ -712,6 +762,22 @@ export function ChatsRealtimeSync({
             }
 
             if (isSelectedAgentConversation) {
+              if (!isEditedOrDeletedPayload && !extractEvolutionFromMe(payload)) {
+                const liveConversationSnapshot = buildOptimisticLiveConversationSnapshot({
+                  conversationKey: currentConversationKey || "",
+                  payload,
+                });
+                if (liveConversationSnapshot) {
+                  window.dispatchEvent(
+                    new CustomEvent("chat-live-update", {
+                      detail: {
+                        conversation: liveConversationSnapshot,
+                      },
+                    }),
+                  );
+                }
+              }
+
               scheduleLiveUpdate("active");
               if (!isEditedOrDeletedPayload) {
                 window.dispatchEvent(

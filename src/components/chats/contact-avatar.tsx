@@ -2,8 +2,8 @@
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
-function getAvatarInitials(label: string) {
-  const parts = label
+function getAvatarInitials(label?: string | null) {
+  const parts = (label ?? "")
     .trim()
     .split(/\s+/)
     .filter(Boolean)
@@ -15,7 +15,7 @@ function getAvatarInitials(label: string) {
 
 type ContactAvatarProps = {
   avatarUrl?: string | null;
-  label: string;
+  label?: string | null;
   className?: string;
   fallbackClassName?: string;
 };
@@ -26,10 +26,12 @@ export function ContactAvatar({
   className,
   fallbackClassName,
 }: ContactAvatarProps) {
+  const safeLabel = label?.trim() || "Contacto";
+
   return (
     <Avatar className={className}>
-      {avatarUrl ? <AvatarImage src={avatarUrl} alt={label} /> : null}
-      <AvatarFallback className={fallbackClassName}>{getAvatarInitials(label)}</AvatarFallback>
+      {avatarUrl ? <AvatarImage src={avatarUrl} alt={safeLabel} /> : null}
+      <AvatarFallback className={fallbackClassName}>{getAvatarInitials(safeLabel)}</AvatarFallback>
     </Avatar>
   );
 }
