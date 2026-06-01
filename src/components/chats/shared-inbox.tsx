@@ -21,6 +21,7 @@ import {
   ChevronUp,
   Search,
   SendHorizonal,
+  Smile,
   Tag,
   Trash2,
   UserRound,
@@ -39,6 +40,8 @@ import { EditContactModal } from "@/components/chats/edit-contact-modal";
 import { EtiquetaModal } from "@/components/chats/etiqueta-modal";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   clearPendingConversationSelection,
@@ -49,6 +52,261 @@ import {
 const CHAT_TIME_ZONE = "America/Bogota";
 const CONVERSATION_LIST_LOAD_BATCH_SIZE = 10;
 const CHAT_LIST_DEBUG = process.env.NODE_ENV !== "production";
+const CHAT_COMPOSER_RECENT_KEY = "shared-inbox:composer-recent-emojis";
+
+type ComposerEmojiCategory =
+  | "caras"
+  | "personas"
+  | "naturaleza"
+  | "comida"
+  | "viajes"
+  | "objetos"
+  | "simbolos"
+  | "banderas";
+
+type ComposerEmoji = {
+  emoji: string;
+  label: string;
+  category: ComposerEmojiCategory;
+  keywords: string[];
+};
+
+const CHAT_COMPOSER_EMOJI_GROUPS: Record<ComposerEmojiCategory, ComposerEmoji[]> = {
+  caras: [
+    { emoji: "😀", label: "sonrisa", category: "caras", keywords: ["feliz", "alegre"] },
+    { emoji: "😁", label: "sonrisa abierta", category: "caras", keywords: ["feliz", "dientes"] },
+    { emoji: "😂", label: "risa", category: "caras", keywords: ["feliz", "broma"] },
+    { emoji: "🤣", label: "carcajada", category: "caras", keywords: ["risa", "broma"] },
+    { emoji: "😃", label: "alegría", category: "caras", keywords: ["feliz"] },
+    { emoji: "😄", label: "entusiasmo", category: "caras", keywords: ["feliz", "energía"] },
+    { emoji: "😅", label: "alivio", category: "caras", keywords: ["nervios", "sudor"] },
+    { emoji: "😆", label: "diversión", category: "caras", keywords: ["risa"] },
+    { emoji: "😉", label: "guiño", category: "caras", keywords: ["cómplice"] },
+    { emoji: "😊", label: "amabilidad", category: "caras", keywords: ["sonrisa"] },
+    { emoji: "🙂", label: "tranquilo", category: "caras", keywords: ["sereno"] },
+    { emoji: "🙃", label: "irónico", category: "caras", keywords: ["broma"] },
+    { emoji: "😍", label: "amor", category: "caras", keywords: ["corazones"] },
+    { emoji: "🥰", label: "cariño", category: "caras", keywords: ["afecto"] },
+    { emoji: "😘", label: "beso", category: "caras", keywords: ["amor"] },
+    { emoji: "😗", label: "beso suave", category: "caras", keywords: ["amor"] },
+    { emoji: "😜", label: "pícara", category: "caras", keywords: ["broma"] },
+    { emoji: "🤪", label: "locura", category: "caras", keywords: ["broma"] },
+    { emoji: "🤗", label: "abrazo", category: "caras", keywords: ["cariño"] },
+    { emoji: "🤭", label: "sorpresa", category: "caras", keywords: ["vergüenza"] },
+    { emoji: "🤔", label: "pensativo", category: "caras", keywords: ["duda"] },
+    { emoji: "🤨", label: "escéptico", category: "caras", keywords: ["duda"] },
+    { emoji: "😐", label: "neutral", category: "caras", keywords: ["serio"] },
+    { emoji: "😑", label: "sin reacción", category: "caras", keywords: ["serio"] },
+    { emoji: "😶", label: "silencio", category: "caras", keywords: ["callado"] },
+    { emoji: "😏", label: "sarcástico", category: "caras", keywords: ["guiño"] },
+    { emoji: "🙄", label: "desagrado", category: "caras", keywords: ["ojos"] },
+    { emoji: "😌", label: "alivio", category: "caras", keywords: ["calma"] },
+    { emoji: "😔", label: "triste", category: "caras", keywords: ["pena"] },
+    { emoji: "😴", label: "sueño", category: "caras", keywords: ["cansancio"] },
+    { emoji: "😎", label: "confianza", category: "caras", keywords: ["cool"] },
+    { emoji: "😭", label: "llanto", category: "caras", keywords: ["triste", "lágrimas"] },
+  ],
+  personas: [
+    { emoji: "👋", label: "saludo", category: "personas", keywords: ["hola"] },
+    { emoji: "✋", label: "alto", category: "personas", keywords: ["espera"] },
+    { emoji: "👌", label: "ok", category: "personas", keywords: ["bien"] },
+    { emoji: "🤌", label: "énfasis", category: "personas", keywords: ["italiano"] },
+    { emoji: "🤞", label: "suerte", category: "personas", keywords: ["deseo"] },
+    { emoji: "🤟", label: "te quiero", category: "personas", keywords: ["amor"] },
+    { emoji: "🤘", label: "rock", category: "personas", keywords: ["música"] },
+    { emoji: "🤙", label: "llámame", category: "personas", keywords: ["teléfono"] },
+    { emoji: "👍", label: "aprobación", category: "personas", keywords: ["bien"] },
+    { emoji: "👎", label: "desaprobación", category: "personas", keywords: ["no"] },
+    { emoji: "👏", label: "aplauso", category: "personas", keywords: ["felicitación"] },
+    { emoji: "🙌", label: "celebración", category: "personas", keywords: ["fiesta"] },
+    { emoji: "👐", label: "abierto", category: "personas", keywords: ["recibir"] },
+    { emoji: "🤲", label: "ofrecer", category: "personas", keywords: ["ayuda"] },
+    { emoji: "🙏", label: "gracias", category: "personas", keywords: ["oración"] },
+    { emoji: "💪", label: "fuerza", category: "personas", keywords: ["poder"] },
+    { emoji: "🫶", label: "afecto", category: "personas", keywords: ["amor"] },
+    { emoji: "🤝", label: "acuerdo", category: "personas", keywords: ["trato"] },
+    { emoji: "🫂", label: "abrazo", category: "personas", keywords: ["cariño"] },
+    { emoji: "💃", label: "baile", category: "personas", keywords: ["fiesta"] },
+    { emoji: "🕺", label: "baile", category: "personas", keywords: ["fiesta"] },
+    { emoji: "🚶", label: "caminar", category: "personas", keywords: ["andar"] },
+    { emoji: "🏃", label: "correr", category: "personas", keywords: ["rápido"] },
+    { emoji: "🧠", label: "mente", category: "personas", keywords: ["idea"] },
+  ],
+  naturaleza: [
+    { emoji: "🌞", label: "sol", category: "naturaleza", keywords: ["día"] },
+    { emoji: "🌝", label: "luna llena", category: "naturaleza", keywords: ["noche"] },
+    { emoji: "🌙", label: "luna", category: "naturaleza", keywords: ["noche"] },
+    { emoji: "⭐", label: "estrella", category: "naturaleza", keywords: ["brillo"] },
+    { emoji: "✨", label: "destello", category: "naturaleza", keywords: ["brillo"] },
+    { emoji: "⚡", label: "energía", category: "naturaleza", keywords: ["rápido"] },
+    { emoji: "🔥", label: "fuego", category: "naturaleza", keywords: ["intenso"] },
+    { emoji: "🌈", label: "arcoíris", category: "naturaleza", keywords: ["colores"] },
+    { emoji: "☁️", label: "nube", category: "naturaleza", keywords: ["cielo"] },
+    { emoji: "🌧️", label: "lluvia", category: "naturaleza", keywords: ["agua"] },
+    { emoji: "⛈️", label: "tormenta", category: "naturaleza", keywords: ["lluvia"] },
+    { emoji: "❄️", label: "nieve", category: "naturaleza", keywords: ["frío"] },
+    { emoji: "🌊", label: "ola", category: "naturaleza", keywords: ["mar"] },
+    { emoji: "🌷", label: "tulipán", category: "naturaleza", keywords: ["flor"] },
+    { emoji: "🌹", label: "rosa", category: "naturaleza", keywords: ["flor", "amor"] },
+    { emoji: "🌸", label: "flor", category: "naturaleza", keywords: ["primavera"] },
+    { emoji: "🌻", label: "girasol", category: "naturaleza", keywords: ["flor"] },
+    { emoji: "🍀", label: "suerte", category: "naturaleza", keywords: ["trébol"] },
+    { emoji: "🌴", label: "palmera", category: "naturaleza", keywords: ["playa"] },
+    { emoji: "🌵", label: "cactus", category: "naturaleza", keywords: ["desierto"] },
+    { emoji: "🐶", label: "perro", category: "naturaleza", keywords: ["mascota"] },
+    { emoji: "🐱", label: "gato", category: "naturaleza", keywords: ["mascota"] },
+    { emoji: "🐻", label: "oso", category: "naturaleza", keywords: ["animal"] },
+    { emoji: "🦁", label: "león", category: "naturaleza", keywords: ["animal"] },
+    { emoji: "🦋", label: "mariposa", category: "naturaleza", keywords: ["animal"] },
+  ],
+  comida: [
+    { emoji: "🍏", label: "manzana verde", category: "comida", keywords: ["fruta"] },
+    { emoji: "🍎", label: "manzana", category: "comida", keywords: ["fruta"] },
+    { emoji: "🍌", label: "banano", category: "comida", keywords: ["fruta"] },
+    { emoji: "🍉", label: "sandía", category: "comida", keywords: ["fruta"] },
+    { emoji: "🍇", label: "uvas", category: "comida", keywords: ["fruta"] },
+    { emoji: "🍓", label: "fresa", category: "comida", keywords: ["fruta"] },
+    { emoji: "🫐", label: "arándanos", category: "comida", keywords: ["fruta"] },
+    { emoji: "🍒", label: "cerezas", category: "comida", keywords: ["fruta"] },
+    { emoji: "🍑", label: "durazno", category: "comida", keywords: ["fruta"] },
+    { emoji: "🍍", label: "piña", category: "comida", keywords: ["fruta"] },
+    { emoji: "🥝", label: "kiwi", category: "comida", keywords: ["fruta"] },
+    { emoji: "🍅", label: "tomate", category: "comida", keywords: ["vegetal"] },
+    { emoji: "🥑", label: "aguacate", category: "comida", keywords: ["vegetal"] },
+    { emoji: "🥕", label: "zanahoria", category: "comida", keywords: ["vegetal"] },
+    { emoji: "🌮", label: "taco", category: "comida", keywords: ["mexicano"] },
+    { emoji: "🌯", label: "wrap", category: "comida", keywords: ["burrito"] },
+    { emoji: "🍔", label: "hamburguesa", category: "comida", keywords: ["comida"] },
+    { emoji: "🍟", label: "papas", category: "comida", keywords: ["fritas"] },
+    { emoji: "🍕", label: "pizza", category: "comida", keywords: ["italiana"] },
+    { emoji: "🍿", label: "crispetas", category: "comida", keywords: ["cine"] },
+    { emoji: "🍩", label: "donut", category: "comida", keywords: ["dulce"] },
+    { emoji: "🍪", label: "galleta", category: "comida", keywords: ["dulce"] },
+    { emoji: "🍰", label: "pastel", category: "comida", keywords: ["torta"] },
+    { emoji: "🧁", label: "cupcake", category: "comida", keywords: ["dulce"] },
+    { emoji: "☕", label: "café", category: "comida", keywords: ["bebida"] },
+    { emoji: "🧃", label: "jugo", category: "comida", keywords: ["bebida"] },
+    { emoji: "🥤", label: "refresco", category: "comida", keywords: ["bebida"] },
+  ],
+  viajes: [
+    { emoji: "🚗", label: "auto", category: "viajes", keywords: ["carro"] },
+    { emoji: "🚕", label: "taxi", category: "viajes", keywords: ["carro"] },
+    { emoji: "🚙", label: "SUV", category: "viajes", keywords: ["carro"] },
+    { emoji: "🚌", label: "bus", category: "viajes", keywords: ["transporte"] },
+    { emoji: "🚎", label: "trolebús", category: "viajes", keywords: ["transporte"] },
+    { emoji: "🛵", label: "moto", category: "viajes", keywords: ["transporte"] },
+    { emoji: "🏍️", label: "motocicleta", category: "viajes", keywords: ["transporte"] },
+    { emoji: "🚲", label: "bicicleta", category: "viajes", keywords: ["transporte"] },
+    { emoji: "✈️", label: "avión", category: "viajes", keywords: ["viaje"] },
+    { emoji: "🚀", label: "cohete", category: "viajes", keywords: ["rápido"] },
+    { emoji: "🚢", label: "barco", category: "viajes", keywords: ["mar"] },
+    { emoji: "🚂", label: "tren", category: "viajes", keywords: ["transporte"] },
+    { emoji: "🛫", label: "despegue", category: "viajes", keywords: ["viaje"] },
+    { emoji: "🛬", label: "aterrizaje", category: "viajes", keywords: ["viaje"] },
+    { emoji: "🗺️", label: "mapa", category: "viajes", keywords: ["ruta"] },
+    { emoji: "🏖️", label: "playa", category: "viajes", keywords: ["vacaciones"] },
+    { emoji: "🏝️", label: "isla", category: "viajes", keywords: ["vacaciones"] },
+    { emoji: "⛰️", label: "montaña", category: "viajes", keywords: ["naturaleza"] },
+    { emoji: "🌍", label: "planeta", category: "viajes", keywords: ["mundo"] },
+    { emoji: "🌎", label: "mundo", category: "viajes", keywords: ["planeta"] },
+    { emoji: "🌏", label: "tierra", category: "viajes", keywords: ["mundo"] },
+  ],
+  objetos: [
+    { emoji: "📱", label: "teléfono", category: "objetos", keywords: ["móvil"] },
+    { emoji: "💻", label: "portátil", category: "objetos", keywords: ["computador"] },
+    { emoji: "🖥️", label: "escritorio", category: "objetos", keywords: ["computador"] },
+    { emoji: "⌚", label: "reloj", category: "objetos", keywords: ["tiempo"] },
+    { emoji: "📷", label: "cámara", category: "objetos", keywords: ["foto"] },
+    { emoji: "🎥", label: "video", category: "objetos", keywords: ["cámara"] },
+    { emoji: "🔊", label: "volumen", category: "objetos", keywords: ["audio"] },
+    { emoji: "🔔", label: "notificación", category: "objetos", keywords: ["aviso"] },
+    { emoji: "💡", label: "idea", category: "objetos", keywords: ["luz"] },
+    { emoji: "🔑", label: "llave", category: "objetos", keywords: ["acceso"] },
+    { emoji: "🛒", label: "carrito", category: "objetos", keywords: ["compra"] },
+    { emoji: "📦", label: "paquete", category: "objetos", keywords: ["envío"] },
+    { emoji: "🎁", label: "regalo", category: "objetos", keywords: ["detalle"] },
+    { emoji: "📌", label: "pin", category: "objetos", keywords: ["fijar"] },
+    { emoji: "🖊️", label: "bolígrafo", category: "objetos", keywords: ["escribir"] },
+    { emoji: "✏️", label: "lápiz", category: "objetos", keywords: ["escribir"] },
+    { emoji: "📚", label: "libros", category: "objetos", keywords: ["estudio"] },
+    { emoji: "🧸", label: "peluche", category: "objetos", keywords: ["juguete"] },
+    { emoji: "🧰", label: "herramientas", category: "objetos", keywords: ["reparar"] },
+    { emoji: "🧾", label: "recibo", category: "objetos", keywords: ["factura"] },
+    { emoji: "🧭", label: "brújula", category: "objetos", keywords: ["ruta"] },
+  ],
+  simbolos: [
+    { emoji: "❤️", label: "corazón", category: "simbolos", keywords: ["amor"] },
+    { emoji: "🧡", label: "corazón naranja", category: "simbolos", keywords: ["amor"] },
+    { emoji: "💛", label: "corazón amarillo", category: "simbolos", keywords: ["amor"] },
+    { emoji: "💚", label: "corazón verde", category: "simbolos", keywords: ["amor"] },
+    { emoji: "💙", label: "corazón azul", category: "simbolos", keywords: ["amor"] },
+    { emoji: "💜", label: "corazón morado", category: "simbolos", keywords: ["amor"] },
+    { emoji: "🖤", label: "corazón negro", category: "simbolos", keywords: ["amor"] },
+    { emoji: "🤍", label: "corazón blanco", category: "simbolos", keywords: ["amor"] },
+    { emoji: "💯", label: "cien", category: "simbolos", keywords: ["perfecto"] },
+    { emoji: "✅", label: "confirmación", category: "simbolos", keywords: ["ok"] },
+    { emoji: "❌", label: "cancelar", category: "simbolos", keywords: ["no"] },
+    { emoji: "❓", label: "pregunta", category: "simbolos", keywords: ["duda"] },
+    { emoji: "❗", label: "alerta", category: "simbolos", keywords: ["urgente"] },
+    { emoji: "➡️", label: "derecha", category: "simbolos", keywords: ["flecha"] },
+    { emoji: "⬅️", label: "izquierda", category: "simbolos", keywords: ["flecha"] },
+    { emoji: "⬆️", label: "arriba", category: "simbolos", keywords: ["flecha"] },
+    { emoji: "⬇️", label: "abajo", category: "simbolos", keywords: ["flecha"] },
+    { emoji: "➕", label: "más", category: "simbolos", keywords: ["sumar"] },
+    { emoji: "➖", label: "menos", category: "simbolos", keywords: ["restar"] },
+    { emoji: "♻️", label: "reciclar", category: "simbolos", keywords: ["repetir"] },
+    { emoji: "🚫", label: "prohibido", category: "simbolos", keywords: ["no"] },
+  ],
+  banderas: [
+    { emoji: "🇪🇸", label: "España", category: "banderas", keywords: ["español"] },
+    { emoji: "🇲🇽", label: "México", category: "banderas", keywords: ["latam"] },
+    { emoji: "🇨🇴", label: "Colombia", category: "banderas", keywords: ["latam"] },
+    { emoji: "🇦🇷", label: "Argentina", category: "banderas", keywords: ["latam"] },
+    { emoji: "🇨🇱", label: "Chile", category: "banderas", keywords: ["latam"] },
+    { emoji: "🇵🇪", label: "Perú", category: "banderas", keywords: ["latam"] },
+    { emoji: "🇻🇪", label: "Venezuela", category: "banderas", keywords: ["latam"] },
+    { emoji: "🇺🇸", label: "Estados Unidos", category: "banderas", keywords: ["usa"] },
+    { emoji: "🇵🇦", label: "Panamá", category: "banderas", keywords: ["latam"] },
+    { emoji: "🇪🇨", label: "Ecuador", category: "banderas", keywords: ["latam"] },
+    { emoji: "🇩🇴", label: "República Dominicana", category: "banderas", keywords: ["caribe"] },
+    { emoji: "🇵🇷", label: "Puerto Rico", category: "banderas", keywords: ["caribe"] },
+  ],
+};
+
+const CHAT_COMPOSER_EMOJIS = Object.values(CHAT_COMPOSER_EMOJI_GROUPS).flat();
+const CHAT_COMPOSER_CATEGORY_ORDER: Array<"todos" | ComposerEmojiCategory> = [
+  "todos",
+  "caras",
+  "personas",
+  "naturaleza",
+  "comida",
+  "viajes",
+  "objetos",
+  "simbolos",
+  "banderas",
+];
+type ComposerEmojiTab = "todos" | "recientes" | ComposerEmojiCategory;
+
+const CHAT_COMPOSER_CATEGORY_LABELS: Record<ComposerEmojiTab, string> = {
+  todos: "Todos",
+  recientes: "Recientes",
+  caras: "Caras",
+  personas: "Personas",
+  naturaleza: "Naturaleza",
+  comida: "Comida",
+  viajes: "Viajes",
+  objetos: "Objetos",
+  simbolos: "Símbolos",
+  banderas: "Banderas",
+};
+
+function normalizeComposerEmojiSearch(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
 
 function debugConversationList(...args: unknown[]) {
   if (!CHAT_LIST_DEBUG) {
@@ -927,6 +1185,127 @@ function ComposerSendButton() {
   );
 }
 
+type ComposerEmojiPickerProps = {
+  query: string;
+  activeTab: ComposerEmojiTab;
+  recentEmojis: string[];
+  onQueryChange: (value: string) => void;
+  onActiveTabChange: (value: ComposerEmojiTab) => void;
+  onSelectEmoji: (emoji: string) => void;
+};
+
+function ComposerEmojiPicker({
+  query,
+  activeTab,
+  recentEmojis,
+  onQueryChange,
+  onActiveTabChange,
+  onSelectEmoji,
+}: ComposerEmojiPickerProps) {
+  const normalizedQuery = useMemo(() => normalizeComposerEmojiSearch(query), [query]);
+
+  const recentEmojiItems = useMemo(() => {
+    const mapped = recentEmojis
+      .map((emoji) => CHAT_COMPOSER_EMOJIS.find((item) => item.emoji === emoji))
+      .filter((item): item is ComposerEmoji => Boolean(item));
+
+    if (!normalizedQuery) {
+      return mapped;
+    }
+
+    return mapped.filter((item) => {
+      const haystack = normalizeComposerEmojiSearch([item.label, item.category, ...item.keywords].join(" "));
+      return haystack.includes(normalizedQuery) || item.emoji.includes(normalizedQuery);
+    });
+  }, [normalizedQuery, recentEmojis]);
+
+  const visibleEmojiItems = useMemo(() => {
+    let source: ComposerEmoji[];
+
+    if (activeTab === "todos") {
+      source = CHAT_COMPOSER_EMOJIS;
+    } else if (activeTab === "recientes") {
+      source = recentEmojiItems;
+    } else {
+      source = CHAT_COMPOSER_EMOJI_GROUPS[activeTab];
+    }
+
+    if (!normalizedQuery || activeTab === "recientes") {
+      return source;
+    }
+
+    return source.filter((item) => {
+      const haystack = normalizeComposerEmojiSearch([item.label, item.category, ...item.keywords].join(" "));
+      return haystack.includes(normalizedQuery) || item.emoji.includes(normalizedQuery);
+    });
+  }, [activeTab, normalizedQuery, recentEmojiItems]);
+
+  const emojiTabs: ComposerEmojiTab[] = ["todos", "recientes", ...CHAT_COMPOSER_CATEGORY_ORDER.slice(1)];
+
+  return (
+    <div className="space-y-3">
+      <div className="space-y-2">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <input
+            value={query}
+            onChange={(event) => onQueryChange(event.target.value)}
+            placeholder="Buscar emoticones"
+            className="h-10 w-full rounded-2xl border border-[rgba(148,163,184,0.14)] bg-slate-50 pl-9 pr-10 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-[var(--primary)] focus:bg-white focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_18%,white)]"
+          />
+          {query ? (
+            <button
+              type="button"
+              onClick={() => onQueryChange("")}
+              className="absolute right-2 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+              aria-label="Limpiar búsqueda"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          ) : null}
+        </div>
+
+        <Tabs value={activeTab} onValueChange={(value) => onActiveTabChange(value as ComposerEmojiTab)}>
+          <TabsList className="flex h-auto w-full flex-wrap gap-1.5 rounded-2xl bg-slate-100 p-1.5">
+            {emojiTabs.map((tab) => (
+              <TabsTrigger key={tab} value={tab} className="h-8 flex-1 min-w-[4.75rem] rounded-xl px-2 text-xs font-semibold">
+                {CHAT_COMPOSER_CATEGORY_LABELS[tab]}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+      </div>
+
+      <div className="max-h-72 overflow-y-auto pr-1">
+        {activeTab === "recientes" && !recentEmojis.length ? (
+          <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+            Aquí aparecerán los últimos emoticones que uses.
+          </div>
+        ) : visibleEmojiItems.length ? (
+          <div className="grid grid-cols-7 gap-1">
+            {visibleEmojiItems.map((item) => (
+              <button
+                key={`${item.category}:${item.emoji}`}
+                type="button"
+                onClick={() => onSelectEmoji(item.emoji)}
+                className="flex h-11 w-11 items-center justify-center rounded-2xl text-[1.4rem] transition hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_18%,white)]"
+                aria-label={`Insertar ${item.label}`}
+                title={item.label}
+              >
+                {item.emoji}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+            No encontramos emoticones para esa búsqueda.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 type ChatAdPreview = {
   title: string;
   body?: string | null;
@@ -1588,7 +1967,49 @@ const ConversationPanel = memo(function ConversationPanel({
   const canLoadOlderMessages = Boolean(renderedConversation?.loadMoreCursor && renderedConversation.hasMoreMessages);
   const [viewportHeight, setViewportHeight] = useState(0);
   const [scrollTop, setScrollTop] = useState(0);
+  const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
+  const [emojiSearchQuery, setEmojiSearchQuery] = useState("");
+  const [emojiPickerTab, setEmojiPickerTab] = useState<ComposerEmojiTab>("todos");
+  const [recentComposerEmojis, setRecentComposerEmojis] = useState<string[]>([]);
+  const [recentComposerEmojisReady, setRecentComposerEmojisReady] = useState(false);
   const scrollFrameRef = useRef<number | null>(null);
+  const composerTextAreaRef = useRef<HTMLTextAreaElement | null>(null);
+  const composerSelectionRef = useRef({ start: 0, end: 0 });
+
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(CHAT_COMPOSER_RECENT_KEY);
+      if (!stored) {
+        return;
+      }
+
+      const parsed = JSON.parse(stored);
+      if (!Array.isArray(parsed)) {
+        return;
+      }
+
+      const nextRecent = parsed.filter((item): item is string => typeof item === "string" && item.length > 0);
+      if (nextRecent.length > 0) {
+        setRecentComposerEmojis(nextRecent.slice(0, 24));
+      }
+    } catch {
+      // Ignore storage parsing issues.
+    } finally {
+      setRecentComposerEmojisReady(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!recentComposerEmojisReady) {
+      return;
+    }
+
+    try {
+      window.localStorage.setItem(CHAT_COMPOSER_RECENT_KEY, JSON.stringify(recentComposerEmojis.slice(0, 24)));
+    } catch {
+      // Ignore storage write issues.
+    }
+  }, [recentComposerEmojis, recentComposerEmojisReady]);
 
   useEffect(() => {
     const container = messagesScrollRef.current;
@@ -1630,6 +2051,48 @@ const ConversationPanel = memo(function ConversationPanel({
       resizeObserver.disconnect();
     };
   }, [messagesScrollRef]);
+
+  useEffect(() => {
+    composerSelectionRef.current = { start: 0, end: 0 };
+    setIsEmojiPickerOpen(false);
+    setEmojiSearchQuery("");
+    setEmojiPickerTab("todos");
+  }, [selectedConversationId]);
+
+  const syncComposerSelection = useCallback((target: HTMLTextAreaElement | null) => {
+    if (!target) {
+      return;
+    }
+
+    composerSelectionRef.current = {
+      start: target.selectionStart ?? target.value.length,
+      end: target.selectionEnd ?? target.value.length,
+    };
+  }, []);
+
+  const insertComposerEmoji = useCallback((emoji: string) => {
+    const textarea = composerTextAreaRef.current;
+    if (!textarea) {
+      return;
+    }
+
+    const currentValue = textarea.value;
+    const fallbackSelection = composerSelectionRef.current;
+    const start = textarea.selectionStart ?? fallbackSelection.start ?? currentValue.length;
+    const end = textarea.selectionEnd ?? fallbackSelection.end ?? currentValue.length;
+    const nextCursor = start + emoji.length;
+
+    textarea.setRangeText(emoji, start, end, "end");
+    composerSelectionRef.current = { start: nextCursor, end: nextCursor };
+    setIsEmojiPickerOpen(false);
+    setEmojiSearchQuery("");
+    setRecentComposerEmojis((current) => [emoji, ...current.filter((item) => item !== emoji)].slice(0, 24));
+
+    window.requestAnimationFrame(() => {
+      textarea.focus();
+      textarea.setSelectionRange(nextCursor, nextCursor);
+    });
+  }, []);
 
   const { messageHeights, totalMessageHeight } = useMemo(() => {
     const nextHeights = renderedMessages.map((message) => estimateMessageBubbleHeight(message));
@@ -1872,10 +2335,67 @@ const ConversationPanel = memo(function ConversationPanel({
                   ))}
 
                   <div className="flex items-end gap-2 md:gap-3">
+                    <Popover
+                      open={isEmojiPickerOpen}
+                      onOpenChange={(open) => {
+                        setIsEmojiPickerOpen(open);
+                        if (!open) {
+                          setEmojiSearchQuery("");
+                        }
+                      }}
+                    >
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          className="inline-flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-full border border-[rgba(148,163,184,0.14)] bg-slate-50/80 text-slate-600 transition hover:border-[rgba(148,163,184,0.24)] hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_18%,white)] md:h-10 md:w-10"
+                          aria-label="Abrir selector de emoticones"
+                          title="Emoticones"
+                        >
+                          <Smile className="h-5 w-5" />
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent
+                        align="start"
+                        side="top"
+                        sideOffset={12}
+                        className="w-[min(92vw,30rem)] rounded-[28px] border border-[rgba(148,163,184,0.14)] bg-white p-4 shadow-[0_24px_60px_-24px_rgba(15,23,42,0.35)]"
+                      >
+                        <div className="mb-3 flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-slate-900">Emojis</p>
+                            <p className="text-xs text-slate-500">Busca, elige y envía al instante</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsEmojiPickerOpen(false);
+                              setEmojiSearchQuery("");
+                            }}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 focus:outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_18%,white)]"
+                            aria-label="Cerrar selector de emojis"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+                        <ComposerEmojiPicker
+                          query={emojiSearchQuery}
+                          activeTab={emojiPickerTab}
+                          recentEmojis={recentComposerEmojis}
+                          onQueryChange={setEmojiSearchQuery}
+                          onActiveTabChange={setEmojiPickerTab}
+                          onSelectEmoji={insertComposerEmoji}
+                        />
+                      </PopoverContent>
+                    </Popover>
                     <textarea
+                      ref={composerTextAreaRef}
                       name="message"
                       rows={1}
                       placeholder={composer.placeholder || "Escribe un mensaje..."}
+                      onSelect={(event) => syncComposerSelection(event.currentTarget)}
+                      onKeyUp={(event) => syncComposerSelection(event.currentTarget)}
+                      onMouseUp={(event) => syncComposerSelection(event.currentTarget)}
+                      onBlur={(event) => syncComposerSelection(event.currentTarget)}
                       className="flex min-h-[44px] flex-1 resize-none rounded-2xl border border-[rgba(148,163,184,0.14)] bg-slate-50/80 px-3 py-2.5 text-[14px] text-slate-800 placeholder:text-slate-400 outline-none transition focus:border-[var(--primary)] focus:bg-white focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_18%,white)] md:min-h-[40px] md:py-2 md:text-sm"
                     />
                     <ComposerSendButton />
