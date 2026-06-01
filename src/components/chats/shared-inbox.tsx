@@ -2299,8 +2299,14 @@ const ConversationPanel = memo(function ConversationPanel({
                           </Link>
                         </div>
                       ) : isLoadingOlderMessages ? (
-                        <div className="flex justify-center px-3 py-1.5 text-[11px] font-medium text-slate-500">
-                          Cargando historial...
+                        <div className="flex justify-center px-3 py-1.5">
+                          <span
+                            className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-[rgba(148,163,184,0.14)] bg-white text-slate-500 shadow-sm"
+                            aria-label="Cargando historial"
+                            role="status"
+                          >
+                            <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                          </span>
                         </div>
                       ) : (
                         <div className="flex justify-center">

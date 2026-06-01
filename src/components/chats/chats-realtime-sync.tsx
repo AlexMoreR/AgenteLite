@@ -6,6 +6,9 @@ import { io, type Socket } from "socket.io-client";
 import { usePendingConversationSelection } from "./chat-selection-store";
 import {
   extractEvolutionPhoneNumber,
+  extractEvolutionMessageText,
+  extractEvolutionMessageType,
+  extractEvolutionFromMe,
   extractEvolutionRemoteJid,
   hasEvolutionDeletedMessagePayload,
   hasEvolutionEditedMessagePayload,
@@ -173,6 +176,24 @@ function normalizeConversationSummarySnapshot(value: unknown) {
     ...(value as UnknownRecord),
     id: snapshot.id,
     lastMessageAt: snapshot.lastMessageAt ? new Date(snapshot.lastMessageAt) : null,
+  };
+}
+
+function buildOptimisticConversationListSnapshot(input: {
+  conversationKey: string;
+  payload: unknown;
+}) {
+  const lastMessage = extractEvolutionMessageText(input.payload)?.trim() || null;
+  const lastMessageType = extractEvolutionMessageType(input.payload);
+  const lastMessageDirection = extractEvolutionFromMe(input.payload) ? "OUTBOUND" : "INBOUND";
+
+  return {
+    id: input.conversationKey,
+    lastMessage,
+    lastMessageType,
+    lastMessageDirection,
+    lastMessageAt: new Date().toISOString(),
+    incomingCount: lastMessageDirection === "INBOUND" ? 1 : 0,
   };
 }
 
@@ -640,6 +661,18 @@ export function ChatsRealtimeSync({
 
           if (hasActiveAgentConversation) {
             scheduleLiveUpdate("active");
+            if (isSelectedAgentConversation && !isEditedOrDeletedPayload) {
+              window.dispatchEvent(
+                new CustomEvent("chat-list-update", {
+                  detail: {
+                    conversation: buildOptimisticConversationListSnapshot({
+                      conversationKey: currentConversationKey || "",
+                      payload,
+                    }),
+                  },
+                }),
+              );
+            }
             if (!phoneNumber) {
               scheduleListUpdate(
                 "active",
@@ -681,6 +714,18 @@ export function ChatsRealtimeSync({
 
             if (isSelectedAgentConversation) {
               scheduleLiveUpdate("active");
+              if (!isEditedOrDeletedPayload) {
+                window.dispatchEvent(
+                  new CustomEvent("chat-list-update", {
+                    detail: {
+                      conversation: buildOptimisticConversationListSnapshot({
+                        conversationKey: currentConversationKey || "",
+                        payload,
+                      }),
+                    },
+                  }),
+                );
+              }
               if (isEditedOrDeletedPayload) {
                 return;
               }
