@@ -138,12 +138,11 @@ export default async function AgentTrainingPage({ params }: PageProps) {
   const instruction = training.instruction;
   const businessDescription =
     workspaceBusiness.businessDescription || training.businessDescription;
+  const sectorRubro = workspaceBusiness.sectorRubro || training.sectorRubro;
   const targetAudiences =
     workspaceBusiness.targetAudiences.length > 0
       ? workspaceBusiness.targetAudiences
       : training.targetAudiences;
-  const priceRangeMax =
-    workspaceBusiness.priceRangeMax || training.priceRangeMax;
   const location = workspaceBusiness.location || training.location;
   const website = workspaceBusiness.website || training.website;
   const contactPhone = workspaceBusiness.contactPhone || training.contactPhone;
@@ -168,6 +167,7 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                     agent.description ||
                     ""
                   }
+                  sectorRubro={sectorRubro}
                   currentSystemPrompt={agent.systemPrompt ?? ""}
                   location={location}
                   website={website}

@@ -1,5 +1,6 @@
 export type WorkspaceBusinessConfig = {
   businessDescription: string;
+  sectorRubro: string;
   targetAudiences: string[];
   priceRangeMin: string;
   priceRangeMax: string;
@@ -17,6 +18,7 @@ export type WorkspaceBusinessConfig = {
 
 export const defaultWorkspaceBusinessConfig: WorkspaceBusinessConfig = {
   businessDescription: "",
+  sectorRubro: "",
   targetAudiences: [],
   priceRangeMin: "",
   priceRangeMax: "",
@@ -39,6 +41,7 @@ export function parseWorkspaceBusinessConfig(raw: unknown): WorkspaceBusinessCon
   const r = raw as Record<string, unknown>;
   return {
     businessDescription: typeof r.businessDescription === "string" ? r.businessDescription : "",
+    sectorRubro: typeof r.sectorRubro === "string" ? r.sectorRubro : "",
     targetAudiences: Array.isArray(r.targetAudiences) ? r.targetAudiences.filter((v): v is string => typeof v === "string") : [],
     priceRangeMin: typeof r.priceRangeMin === "string" ? r.priceRangeMin : "",
     priceRangeMax: typeof r.priceRangeMax === "string" ? r.priceRangeMax : "",

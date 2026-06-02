@@ -133,6 +133,7 @@ export async function saveWorkspaceBusinessConfigAction(formData: FormData): Pro
 
   const config = {
     businessDescription: (formData.get("businessDescription") as string | null)?.trim() ?? "",
+    sectorRubro: (formData.get("sectorRubro") as string | null)?.trim() ?? "",
     targetAudiences,
     priceRangeMin: (formData.get("priceRangeMin") as string | null)?.trim() ?? "",
     priceRangeMax: (formData.get("priceRangeMax") as string | null)?.trim() ?? "",

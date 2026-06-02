@@ -75,6 +75,7 @@ export type ResponseLength = (typeof responseLengthOptions)[number]["value"];
 export type AgentTrainingConfig = {
   assistantName: string;
   businessDescription: string;
+  sectorRubro: string;
   instruction: string;
   targetAudiences: TargetAudience[];
   priceRangeMax: string;
@@ -148,6 +149,7 @@ export type AgentKnowledgePromptFlow = {
 export const defaultAgentTrainingConfig: AgentTrainingConfig = {
   assistantName: "",
   businessDescription: "",
+  sectorRubro: "",
   instruction: "",
   targetAudiences: ["Mujer"],
   priceRangeMax: "",
@@ -234,6 +236,7 @@ export function buildAgentTrainingConfig(input: AgentTrainingConfig): AgentTrain
 
   return {
     ...input,
+    sectorRubro: input.sectorRubro?.trim() ?? "",
     targetAudiences: input.targetAudiences.filter((value, index, array) => array.indexOf(value) === index),
     forbiddenRules: input.forbiddenRules.filter(Boolean),
     customWelcomeMessage: input.customWelcomeMessage.trim(),
@@ -279,6 +282,23 @@ export function buildAgentSystemPrompt(input: {
 }) {
   const { businessName, training } = input;
   const agentName = training.assistantName?.trim() || input.agentName;
+  const sectorRubro = training.sectorRubro?.trim() || "No definido";
+  const businessDataLines = [
+    `* **Nombre:** ${businessName.trim() || "No definido"}`,
+    `* **Sector/Rubro:** ${sectorRubro}`,
+    training.location?.trim() ? `* **Ubicación/Dirección:** ${training.location.trim()}` : null,
+    `* **Horarios de atención:** No definido`,
+    training.contactPhone?.trim() ? `* **Número de contacto:** ${training.contactPhone.trim()}` : null,
+    training.contactEmail?.trim() ? `* **Correo electrónico:** ${training.contactEmail.trim()}` : null,
+    training.website?.trim() ? `* **Sitio web:** ${training.website.trim()}` : null,
+    training.facebook?.trim() ? `* **Facebook:** ${training.facebook.trim()}` : null,
+    training.instagram?.trim() ? `* **Instagram:** ${training.instagram.trim()}` : null,
+    training.tiktok?.trim() ? `* **TikTok:** ${training.tiktok.trim()}` : null,
+    training.youtube?.trim() ? `* **YouTube:** ${training.youtube.trim()}` : null,
+  ].filter(Boolean) as string[];
+  const businessNotes = training.businessDescription.trim()
+    ? `Notas adicionales:\n${training.businessDescription.trim()}`
+    : "Notas adicionales:\nSin notas adicionales.";
   const voiceRules = [
     `Adopta este tono como prioridad: ${getTonePrompt(training.salesTone)}`,
     `Longitud de respuesta obligatoria: ${getResponseLengthPrompt(training.responseLength)}`,
@@ -465,7 +485,8 @@ export function buildAgentSystemPrompt(input: {
     : null;
 
   const sections = [
-    `ROL\nEres vendedor virtual por WhatsApp de ${businessName}. Actuas como una persona real del negocio y tu trabajo es vender con claridad, precision y criterio comercial.`,
+    `## 🏢 DATOS DEL NEGOCIO\n\n${businessDataLines.join("\n")}\n\n${businessNotes}\n\n---`,
+    `ROL\nEres un asesor comercial experto por whatsapp de ${businessName}. Actuas como una persona real del negocio y tu trabajo es vender con claridad, precision y criterio comercial.`,
     `OBJETIVO\nTu objetivo es entender lo que necesita el cliente, responder solo dentro de la realidad del negocio y llevar la conversacion hacia una venta real o al siguiente paso correcto.`,
     `REGLAS NO NEGOCIABLES\n- ${nonNegotiables.join("\n- ")}`,
     instructionSection,
@@ -592,6 +613,7 @@ export function parseAgentTrainingConfig(value: unknown): AgentTrainingConfig | 
   return {
     assistantName: str("assistantName"),
     businessDescription: data.businessDescription,
+    sectorRubro: str("sectorRubro"),
     instruction: str("instruction"),
     targetAudiences,
     priceRangeMax: str("priceRangeMax"),

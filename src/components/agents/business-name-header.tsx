@@ -11,6 +11,7 @@ type BusinessData = {
   agentId: string;
   businessName: string;
   businessSummary: string;
+  sectorRubro: string;
   location: string;
   website: string;
   contactPhone: string;
@@ -112,6 +113,7 @@ function BusinessModal({ data, onSave, onClose }: {
   const router = useRouter();
   const [name, setName] = useState(data.businessName);
   const [summary, setSummary] = useState(data.businessSummary);
+  const [sectorRubro, setSectorRubro] = useState(data.sectorRubro);
   const [location, setLocation] = useState(data.location);
   const [website, setWebsite] = useState(data.website);
   const [contactPhone, setContactPhone] = useState(data.contactPhone);
@@ -140,6 +142,7 @@ function BusinessModal({ data, onSave, onClose }: {
       agentId: data.agentId,
       businessName: name.trim(),
       businessSummary: summary.trim(),
+      sectorRubro: sectorRubro.trim(),
       location: location.trim(),
       website: website.trim(),
       contactPhone: contactPhone.trim(),
@@ -187,32 +190,28 @@ function BusinessModal({ data, onSave, onClose }: {
         <div className="max-h-[72vh] space-y-5 overflow-y-auto px-5 py-5">
 
           {/* Nombre */}
-          <div className="space-y-1.5">
-            <label className="block text-[13px] font-medium text-slate-700">Nombre del negocio</label>
-            <input
-              data-business-name-input="true"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleSave(); } if (e.key === "Escape" && !isSaving) onClose(); }}
-              placeholder="Ej. Aizen Store"
-              className="field-select h-11 w-full rounded-[16px] border-[rgba(148,163,184,0.14)] bg-white text-[13px] shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_12px_22px_-28px_rgba(15,23,42,0.28)] focus:border-[var(--primary)]"
-            />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <label className="block text-[13px] font-medium text-slate-700">Nombre del negocio</label>
+              <input
+                data-business-name-input="true"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleSave(); } if (e.key === "Escape" && !isSaving) onClose(); }}
+                placeholder="Ej. Aizen Store"
+                className="field-select h-11 w-full rounded-[16px] border-[rgba(148,163,184,0.14)] bg-white text-[13px] shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_12px_22px_-28px_rgba(15,23,42,0.28)] focus:border-[var(--primary)]"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="block text-[13px] font-medium text-slate-700">Sector/Rubro</label>
+              <input
+                value={sectorRubro}
+                onChange={(e) => setSectorRubro(e.target.value)}
+                placeholder="Ej. Automatizaciones y Marketing con IA"
+                className="field-select h-11 w-full rounded-[16px] border-[rgba(148,163,184,0.14)] bg-white text-[13px] shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_12px_22px_-28px_rgba(15,23,42,0.28)] focus:border-[var(--primary)]"
+              />
+            </div>
           </div>
-
-          {/* Resumen */}
-          <div className="space-y-1.5">
-            <label className="block text-[13px] font-medium text-slate-700">Resumen del negocio</label>
-            <textarea
-              value={summary}
-              onChange={(e) => setSummary(e.target.value)}
-              rows={4}
-              maxLength={10000}
-              placeholder="Escribe un resumen general del negocio, su enfoque y lo que lo hace especial."
-              className="flex w-full min-h-[120px] resize-y rounded-[16px] border border-[rgba(148,163,184,0.14)] bg-white px-3.5 py-3 text-[13px] leading-6 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-[var(--primary)]"
-            />
-          </div>
-
-          <div className="h-px bg-slate-100" />
 
           {/* Contacto y ubicacion */}
           <div className="space-y-3">
@@ -235,6 +234,19 @@ function BusinessModal({ data, onSave, onClose }: {
               <Field label="YouTube" icon={<Youtube className="h-3.5 w-3.5" />} value={youtube} onChange={setYoutube} placeholder="@minegocio" />
             </div>
           </div>
+
+          {/* Notas adicionales */}
+          <div className="space-y-1.5">
+            <label className="block text-[13px] font-medium text-slate-700">Notas Adicionales</label>
+            <textarea
+              value={summary}
+              onChange={(e) => setSummary(e.target.value)}
+              rows={4}
+              maxLength={10000}
+              placeholder="Escribe notas extra, aclaraciones o detalles importantes del negocio."
+              className="flex w-full min-h-[120px] resize-y rounded-[16px] border border-[rgba(148,163,184,0.14)] bg-white px-3.5 py-3 text-[13px] leading-6 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-[var(--primary)]"
+            />
+          </div>
         </div>
 
         <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">
@@ -256,6 +268,7 @@ export function BusinessNameHeader({
   agentId,
   businessName,
   businessSummary,
+  sectorRubro,
   currentSystemPrompt,
   location,
   website,
@@ -269,6 +282,7 @@ export function BusinessNameHeader({
   agentId: string;
   businessName: string;
   businessSummary: string;
+  sectorRubro: string;
   currentSystemPrompt: string;
   location: string;
   website: string;
@@ -281,6 +295,7 @@ export function BusinessNameHeader({
 }) {
   const [name, setName] = useState(businessName);
   const [summary, setSummary] = useState(businessSummary);
+  const [sector, setSector] = useState(sectorRubro);
   const [loc, setLoc] = useState(location);
   const [web, setWeb] = useState(website);
   const [phone, setPhone] = useState(contactPhone);
@@ -303,6 +318,10 @@ export function BusinessNameHeader({
   }, [businessSummary]);
 
   useEffect(() => {
+    setSector(sectorRubro);
+  }, [sectorRubro]);
+
+  useEffect(() => {
     setLoc(location);
     setWeb(website);
     setPhone(contactPhone);
@@ -316,6 +335,7 @@ export function BusinessNameHeader({
   function handleSave(next: BusinessData) {
     setName(next.businessName);
     setSummary(next.businessSummary);
+    setSector(next.sectorRubro);
     setLoc(next.location);
     setWeb(next.website);
     setPhone(next.contactPhone);
@@ -330,6 +350,7 @@ export function BusinessNameHeader({
     <>
       <input type="hidden" name="businessName" value={name} />
       <input type="hidden" name="businessSummary" value={summary} />
+      <input type="hidden" name="sectorRubro" value={sector} />
       <input type="hidden" name="location" value={loc} />
       <input type="hidden" name="website" value={web} />
       <input type="hidden" name="contactPhone" value={phone} />
@@ -376,7 +397,7 @@ export function BusinessNameHeader({
 
       {modalOpen && (
         <BusinessModal
-          data={{ agentId, businessName: name, businessSummary: summary, location: loc, website: web, contactPhone: phone, contactEmail: email, instagram: ig, facebook: fb, tiktok: tt, youtube: yt }}
+          data={{ agentId, businessName: name, businessSummary: summary, sectorRubro: sector, location: loc, website: web, contactPhone: phone, contactEmail: email, instagram: ig, facebook: fb, tiktok: tt, youtube: yt }}
           onSave={handleSave}
           onClose={() => setModalOpen(false)}
         />

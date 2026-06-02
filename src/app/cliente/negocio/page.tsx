@@ -104,26 +104,27 @@ export default async function MiNegocioPage({ searchParams }: PageProps) {
         <Card className="border border-[rgba(148,163,184,0.14)] p-5 shadow-[0_8px_24px_rgba(15,23,42,0.04)]">
           <div className="space-y-4">
             <SectionHeader title="Identidad" />
-            <div className="space-y-1.5">
-              <label className="text-[13px] font-medium text-slate-700">Nombre del negocio</label>
-              <input
-                name="businessName"
-                defaultValue={workspace.name}
-                placeholder="Ej. Magilus"
-                required
-                minLength={2}
-                className="field-select h-10 w-full rounded-[16px] border-[rgba(148,163,184,0.14)] bg-white text-[13px] focus:border-[var(--primary)]"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-[13px] font-medium text-slate-700">Descripcion del negocio</label>
-              <textarea
-                name="businessDescription"
-                defaultValue={config.businessDescription}
-                rows={4}
-                placeholder="Escribe como se lo explicarias a un cliente por WhatsApp: que vendes, para quien y por que deberia interesarle."
-                className="flex min-h-[120px] w-full resize-y rounded-[20px] border border-[rgba(148,163,184,0.14)] bg-white px-4 py-3 text-[13px] leading-6 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-[var(--primary)]"
-              />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <label className="text-[13px] font-medium text-slate-700">Nombre del negocio</label>
+                <input
+                  name="businessName"
+                  defaultValue={workspace.name}
+                  placeholder="Ej. Magilus"
+                  required
+                  minLength={2}
+                  className="field-select h-10 w-full rounded-[16px] border-[rgba(148,163,184,0.14)] bg-white text-[13px] focus:border-[var(--primary)]"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[13px] font-medium text-slate-700">Sector/Rubro</label>
+                <input
+                  name="sectorRubro"
+                  defaultValue={config.sectorRubro}
+                  placeholder="Ej. Automatizaciones y Marketing con IA"
+                  className="field-select h-10 w-full rounded-[16px] border-[rgba(148,163,184,0.14)] bg-white text-[13px] focus:border-[var(--primary)]"
+                />
+              </div>
             </div>
           </div>
         </Card>
@@ -181,6 +182,22 @@ export default async function MiNegocioPage({ searchParams }: PageProps) {
               <Field label="Facebook" name="facebook" icon={<svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/></svg>} defaultValue={config.facebook} placeholder="@minegocio" />
               <Field label="TikTok" name="tiktok" icon={<svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-2.88 2.5 2.89 2.89 0 0 1-2.89-2.89 2.89 2.89 0 0 1 2.89-2.89c.28 0 .54.04.79.1V9.01a6.33 6.33 0 0 0-.79-.05 6.34 6.34 0 0 0-6.34 6.34 6.34 6.34 0 0 0 6.34 6.34 6.34 6.34 0 0 0 6.33-6.34V8.69a8.18 8.18 0 0 0 4.78 1.52V6.75a4.84 4.84 0 0 1-1.01-.06z"/></svg>} defaultValue={config.tiktok} placeholder="@minegocio" />
               <Field label="YouTube" name="youtube" icon={<Youtube className="h-3.5 w-3.5" />} defaultValue={config.youtube} placeholder="@minegocio" />
+            </div>
+          </div>
+        </Card>
+
+        <Card className="border border-[rgba(148,163,184,0.14)] p-5 shadow-[0_8px_24px_rgba(15,23,42,0.04)]">
+          <div className="space-y-4">
+            <SectionHeader title="Notas adicionales" />
+            <div className="space-y-1.5">
+              <label className="text-[13px] font-medium text-slate-700">Notas Adicionales</label>
+              <textarea
+                name="businessDescription"
+                defaultValue={config.businessDescription}
+                rows={4}
+                placeholder="Escribe como se lo explicarias a un cliente por WhatsApp: que vendes, para quien y por que deberia interesarle."
+                className="flex min-h-[120px] w-full resize-y rounded-[20px] border border-[rgba(148,163,184,0.14)] bg-white px-4 py-3 text-[13px] leading-6 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-[var(--primary)]"
+              />
             </div>
           </div>
         </Card>

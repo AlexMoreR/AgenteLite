@@ -54,6 +54,7 @@ const createAgentSchema = z.object({
   assistantName: z.string().trim().max(40).default(""),
   businessName: z.string().trim().min(2, "Nombre del negocio invalido").max(120, "Nombre demasiado largo"),
   businessSummary: z.string().trim().max(10000, "Resumen demasiado largo").default(""),
+  sectorRubro: z.string().trim().max(200).default(""),
   instruction: z.string().trim().max(100000, "La instruccion es demasiado larga").default(""),
   businessDescription: z
     .string()
@@ -141,6 +142,7 @@ const saveAgentBusinessProfileSchema = z.object({
   agentId: z.string().trim().min(1, "Agente invalido"),
   businessName: z.string().trim().min(2, "Nombre del negocio invalido").max(120, "Nombre demasiado largo"),
   businessSummary: z.string().trim().max(10000, "Resumen demasiado largo").default(""),
+  sectorRubro: z.string().trim().max(200).default(""),
   location: z.string().trim().max(200).default(""),
   website: z.string().trim().max(200).default(""),
   contactPhone: z.string().trim().max(60).default(""),
@@ -280,6 +282,7 @@ const importAgentPromptCopilotHistorySchema = z.object({
 type AgentCopilotPatch = {
   businessName?: string;
   businessSummary?: string;
+  sectorRubro?: string;
   instruction?: string;
   businessDescription?: string;
   targetAudiences?: TargetAudience[];
@@ -834,6 +837,7 @@ function collectTrainingFormInput(formData: FormData) {
     assistantName: getStringValue("assistantName"),
     businessName: getStringValue("businessName"),
     businessSummary: getStringValue("businessSummary"),
+    sectorRubro: getStringValue("sectorRubro"),
     instruction: getStringValue("instruction"),
     businessDescription: getStringValue("businessDescription"),
     targetAudiences: formData.getAll("targetAudiences"),
@@ -872,6 +876,7 @@ function normalizeTrainingUpdateInput(
     assistantName: string;
     businessName: string;
     businessSummary: string;
+    sectorRubro: string;
     instruction: string;
     businessDescription: string;
     targetAudiences: FormDataEntryValue[];
@@ -930,6 +935,7 @@ function normalizeTrainingUpdateInput(
       input.businessSummary || options.agentDescription?.trim() || fallbackBusinessDescription,
       500,
     ),
+    sectorRubro: clamp(input.sectorRubro, 200),
     instruction: clamp(input.instruction, 100000),
     businessDescription:
       trimmedBusinessDescription.length >= 12 ? clamp(input.businessDescription, 500) : clamp(fallbackBusinessDescription, 500),
@@ -1340,6 +1346,7 @@ export async function saveAgentBusinessProfileAction(input: {
   agentId: string;
   businessName: string;
   businessSummary: string;
+  sectorRubro: string;
   location: string;
   website: string;
   contactPhone: string;
@@ -1382,6 +1389,7 @@ export async function saveAgentBusinessProfileAction(input: {
   const currentTraining = parseAgentTrainingConfig(agent.trainingConfig) ?? defaultAgentTrainingConfig;
   const nextTraining = buildAgentTrainingConfig({
     ...currentTraining,
+    sectorRubro: parsed.data.sectorRubro,
     location: parsed.data.location,
     website: parsed.data.website,
     contactPhone: parsed.data.contactPhone,
@@ -1422,6 +1430,7 @@ export async function saveAgentBusinessProfileAction(input: {
       name: parsed.data.businessName,
       businessConfig: {
         businessDescription: parsed.data.businessSummary.trim(),
+        sectorRubro: parsed.data.sectorRubro,
         location: parsed.data.location,
         website: parsed.data.website,
         contactPhone: parsed.data.contactPhone,
