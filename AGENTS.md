@@ -51,6 +51,8 @@
 ## Regla obligatoria para nuevos componentes
 
 - Todo componente nuevo debe partir de `shadcn` o de un componente existente en `src/components/ui`.
+- Si ya existe un componente base en `src/components/ui` para el caso, usarlo en lugar de crear `div` o wrappers visuales nuevos dentro del feature.
+- Si falta una pieza, crearla o extenderla primero en `src/components/ui` y luego reutilizarla; no inventar un patrón aislado dentro del feature.
 - Si se crea un contenedor visual, debe reutilizar tokens y patrones del proyecto.
-- No generar UI “bonita por defecto” con radios grandes, paddings grandes o sombras intensas sin que el diseño lo requiera.
+- No generar UI "bonita por defecto" con radios grandes, paddings grandes o sombras intensas sin que el diseño lo requiera.
 - Antes de crear un nuevo patrón visual, buscar si ya existe uno similar en el repo y reutilizarlo.
