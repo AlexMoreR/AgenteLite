@@ -991,6 +991,7 @@ async function persistAgentTraining(
     assistantName: input.assistantName ?? "",
     instruction: input.instruction,
     businessDescription: input.businessDescription,
+    sectorRubro: input.sectorRubro ?? "",
     targetAudiences: input.targetAudiences,
     priceRangeMax: input.priceRangeMax,
     location: input.location,
@@ -1139,6 +1140,7 @@ export async function createAgentAction(formData: FormData): Promise<void> {
   const training = buildAgentTrainingConfig({
     instruction: parsed.data.instruction,
     businessDescription: parsed.data.businessDescription,
+    sectorRubro: parsed.data.sectorRubro,
     targetAudiences: parsed.data.targetAudiences,
     priceRangeMax: parsed.data.priceRangeMax,
     salesTone: parsed.data.salesTone as SalesTone,
