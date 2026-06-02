@@ -292,6 +292,27 @@ async function hasFollowNameColumn() {
   return followNameColumnExistsPromise;
 }
 
+const followActionsColumnExistsPromises = new Map<string, Promise<boolean>>();
+
+async function hasFollowActionsColumn(tableName: "FollowRule" | "Follow") {
+  if (!followActionsColumnExistsPromises.has(tableName)) {
+    followActionsColumnExistsPromises.set(
+      tableName,
+      prisma.$queryRaw<Array<{ exists: boolean }>>(Prisma.sql`
+        SELECT EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = ${tableName}
+            AND column_name = 'actions'
+        ) AS "exists"
+      `).then((rows) => Boolean(rows[0]?.exists)),
+    );
+  }
+
+  return followActionsColumnExistsPromises.get(tableName)!;
+}
+
 function normalizePositiveInt(value: number) {
   if (!Number.isFinite(value)) {
     return 1;
@@ -639,6 +660,7 @@ async function sendFollowMessage(input: {
 
 export async function createFollowRule(input: FollowRuleInput) {
   const data = mapCreateFollowRuleData(input);
+  const hasActionsColumn = await hasFollowActionsColumn("FollowRule");
   const [row] = await prisma.$queryRaw<RawFollowRuleRow[]>(Prisma.sql`
     INSERT INTO public."FollowRule" (
       "id",
@@ -652,7 +674,7 @@ export async function createFollowRule(input: FollowRuleInput) {
       "messageType",
       "content",
       "mediaUrl",
-      "actions",
+      ${hasActionsColumn ? Prisma.sql`"actions",` : Prisma.empty}
       "cancelOnActivity",
       "provider",
       "isActive",
@@ -670,7 +692,7 @@ export async function createFollowRule(input: FollowRuleInput) {
       ${data.messageType},
       ${data.content},
       ${data.mediaUrl},
-      ${JSON.stringify(data.actions)}::jsonb,
+      ${hasActionsColumn ? Prisma.sql`${JSON.stringify(data.actions)}::jsonb,` : Prisma.empty}
       ${data.cancelOnActivity},
       ${data.provider},
       ${data.isActive},
@@ -689,7 +711,7 @@ export async function createFollowRule(input: FollowRuleInput) {
       "messageType",
       "content",
       "mediaUrl",
-      "actions",
+      ${hasActionsColumn ? Prisma.sql`"actions",` : Prisma.sql`NULL::jsonb AS "actions",`}
       "cancelOnActivity",
       "provider",
       "isActive",
@@ -721,6 +743,7 @@ export async function deleteFollowRule(input: {
 }
 
 export async function listFollowRulesByWorkspace(workspaceId: string) {
+  const hasActionsColumn = await hasFollowActionsColumn("FollowRule");
   const rows = await prisma.$queryRaw<RawFollowRuleRow[]>(Prisma.sql`
     SELECT
       fr."id",
@@ -734,7 +757,7 @@ export async function listFollowRulesByWorkspace(workspaceId: string) {
       fr."messageType",
       fr."content",
       fr."mediaUrl",
-      fr."actions",
+      ${hasActionsColumn ? Prisma.sql`fr."actions",` : Prisma.sql`NULL::jsonb AS "actions",`}
       fr."cancelOnActivity",
       fr."provider",
       fr."isActive",
@@ -770,6 +793,7 @@ export async function createFollow(input: FollowInput) {
 
   const channel = await resolveDefaultEvolutionChannel(input.workspaceId, input.channelId ?? null);
   const hasNameColumn = await hasFollowNameColumn();
+  const hasActionsColumn = await hasFollowActionsColumn("Follow");
   const data = mapCreateFollowData({
     ...input,
     executeAt,
@@ -790,7 +814,7 @@ export async function createFollow(input: FollowInput) {
       "messageType",
       "content",
       "mediaUrl",
-      "actions",
+      ${hasActionsColumn ? Prisma.sql`"actions",` : Prisma.empty}
       "status",
       "provider",
       "cancelOnActivity",
@@ -814,7 +838,7 @@ export async function createFollow(input: FollowInput) {
       ${data.messageType},
       ${data.content},
       ${data.mediaUrl},
-      ${JSON.stringify(data.actions)}::jsonb,
+      ${hasActionsColumn ? Prisma.sql`${JSON.stringify(data.actions)}::jsonb,` : Prisma.empty}
       ${data.status},
       ${data.provider},
       ${data.cancelOnActivity},
@@ -839,7 +863,7 @@ export async function createFollow(input: FollowInput) {
       "messageType",
       "content",
       "mediaUrl",
-      "actions",
+      ${hasActionsColumn ? Prisma.sql`"actions",` : Prisma.sql`NULL::jsonb AS "actions",`}
       "status",
       "provider",
       "cancelOnActivity",
@@ -926,6 +950,7 @@ export async function listFollowsByContact(input: {
   limit?: number;
 }) {
   const hasNameColumn = await hasFollowNameColumn();
+  const hasActionsColumn = await hasFollowActionsColumn("Follow");
   const rows = await prisma.$queryRaw<RawFollowRow[]>(Prisma.sql`
     SELECT
       f."id",
@@ -940,7 +965,7 @@ export async function listFollowsByContact(input: {
       f."messageType",
       f."content",
       f."mediaUrl",
-      f."actions",
+      ${hasActionsColumn ? Prisma.sql`f."actions",` : Prisma.sql`NULL::jsonb AS "actions",`}
       f."status",
       f."provider",
       f."cancelOnActivity",
@@ -1007,6 +1032,7 @@ export async function cancelPendingFollowsByContact(input: {
 }) {
   const now = new Date();
   const reason = input.reason?.trim() || "Cancelado por actividad";
+  const hasActionsColumn = await hasFollowActionsColumn("Follow");
   const pendingFollows = (await listFollowsByContact({
     workspaceId: input.workspaceId,
     contactId: input.contactId,
@@ -1030,7 +1056,7 @@ export async function cancelPendingFollowsByContact(input: {
         "executionError" = ${reason},
         "lockedAt" = NULL,
         "lockedBy" = NULL,
-        "actions" = ${JSON.stringify(actions)}::jsonb,
+        ${hasActionsColumn ? Prisma.sql`"actions" = ${JSON.stringify(actions)}::jsonb,` : Prisma.empty}
         "updatedAt" = ${now}
       WHERE "id" = ${follow.id}
     `);
@@ -1078,10 +1104,11 @@ async function claimDueFollowsForExecution(input: {
 
 async function persistFollowActionProgress(followId: string, actions: FollowActionRecord[]) {
   const now = new Date();
+  const hasActionsColumn = await hasFollowActionsColumn("Follow");
   await prisma.$executeRaw(Prisma.sql`
     UPDATE public."Follow"
     SET
-      "actions" = ${JSON.stringify(actions)}::jsonb,
+      ${hasActionsColumn ? Prisma.sql`"actions" = ${JSON.stringify(actions)}::jsonb,` : Prisma.empty}
       "updatedAt" = ${now}
     WHERE "id" = ${followId}
   `);
@@ -1093,6 +1120,7 @@ async function finalizeFollowExecution(
   executionError: string | null,
 ) {
   const now = new Date();
+  const hasActionsColumn = await hasFollowActionsColumn("Follow");
   await prisma.$executeRaw(Prisma.sql`
     UPDATE public."Follow"
     SET
@@ -1101,7 +1129,7 @@ async function finalizeFollowExecution(
       "executionError" = ${executionError},
       "lockedAt" = NULL,
       "lockedBy" = NULL,
-      "actions" = ${JSON.stringify(actions)}::jsonb,
+      ${hasActionsColumn ? Prisma.sql`"actions" = ${JSON.stringify(actions)}::jsonb,` : Prisma.empty}
       "updatedAt" = ${now}
     WHERE "id" = ${followId}
   `);
@@ -1209,6 +1237,7 @@ export async function getFollowOverview(input: {
   contactId?: string;
 }) {
   const hasNameColumn = await hasFollowNameColumn();
+  const hasActionsColumn = await hasFollowActionsColumn("Follow");
   const [rules, follows] = await Promise.all([
     listFollowRulesByWorkspace(input.workspaceId),
     input.contactId
@@ -1227,7 +1256,7 @@ export async function getFollowOverview(input: {
             f."messageType",
             f."content",
             f."mediaUrl",
-            f."actions",
+            ${hasActionsColumn ? Prisma.sql`f."actions",` : Prisma.sql`NULL::jsonb AS "actions",`}
             f."status",
             f."provider",
             f."cancelOnActivity",
