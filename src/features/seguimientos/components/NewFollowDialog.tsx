@@ -1,10 +1,22 @@
 "use client";
 
 import { useActionState, useEffect, useMemo, useState } from "react";
-import { Plus } from "lucide-react";
+import { PlusCircle } from "lucide-react";
 import { toast } from "sonner";
-import { Button, buttonVariants } from "@/components/ui/button";
-import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from "@/components/ui/combobox";
+import { Button } from "@/components/ui/button";
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+} from "@/components/ui/combobox";
+import {
+  NativeSelect,
+  NativeSelectOption,
+} from "@/components/ui/native-select";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -21,6 +33,7 @@ import {
   createFollowRuleAction,
   type CreateFollowRuleActionState,
 } from "@/app/actions/follow-actions";
+import { Field, FieldLabel } from "@/components/ui/field";
 
 type SelectOption = {
   value: string;
@@ -44,15 +57,12 @@ type NewFollowDialogProps = {
   crmStages: SelectOption[];
 };
 
-function fieldClassName() {
-  return "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-400";
-}
-
-function labelClassName() {
-  return "text-xs font-medium uppercase tracking-[0.18em] text-slate-500";
-}
-
-function sourceOptionsForType(sourceType: SourceType, sourceOptions: SourceGroup[], crmStages: SelectOption[], contacts: SelectOption[]) {
+function sourceOptionsForType(
+  sourceType: SourceType,
+  sourceOptions: SourceGroup[],
+  crmStages: SelectOption[],
+  contacts: SelectOption[],
+) {
   if (sourceType === "MANUAL") return contacts;
   if (sourceType === "FLOW") return sourceOptions[0]?.options ?? [];
   if (sourceType === "PRODUCT") return sourceOptions[1]?.options ?? [];
@@ -101,13 +111,20 @@ export function NewFollowDialog({
   const [ruleName, setRuleName] = useState("");
   const [selectedChannelId, setSelectedChannelId] = useState("");
   const [ruleSourceType, setRuleSourceType] = useState<SourceType>("MANUAL");
-  const [ruleSourceValue, setRuleSourceValue] = useState<SelectOption | null>(null);
-  const [ruleMessageType, setRuleMessageType] = useState<FollowMessageType>("TEXT");
+  const [ruleSourceValue, setRuleSourceValue] = useState<SelectOption | null>(
+    null,
+  );
+  const [ruleMessageType, setRuleMessageType] =
+    useState<FollowMessageType>("TEXT");
   const [ruleContent, setRuleContent] = useState("");
-  const [actionState, formAction, pending] = useActionState(createFollowRuleAction, initialActionState);
+  const [actionState, formAction, pending] = useActionState(
+    createFollowRuleAction,
+    initialActionState,
+  );
 
   const ruleSourceOptions = useMemo(
-    () => sourceOptionsForType(ruleSourceType, sourceOptions, crmStages, contacts),
+    () =>
+      sourceOptionsForType(ruleSourceType, sourceOptions, crmStages, contacts),
     [contacts, crmStages, ruleSourceType, sourceOptions],
   );
 
@@ -140,70 +157,67 @@ export function NewFollowDialog({
       onOpenChange={(nextOpen) => {
         setOpen(nextOpen);
         if (!nextOpen) {
-        setStep("intro");
-        setRuleName("");
-        setSelectedChannelId("");
-        setRuleSourceType("MANUAL");
-        setRuleSourceValue(null);
-        setRuleMessageType("TEXT");
-        setRuleContent("");
-      }
-    }}
+          setStep("intro");
+          setRuleName("");
+          setSelectedChannelId("");
+          setRuleSourceType("MANUAL");
+          setRuleSourceValue(null);
+          setRuleMessageType("TEXT");
+          setRuleContent("");
+        }
+      }}
     >
-      <DialogTrigger asChild>
-        <button
-          type="button"
-          className={cn(buttonVariants({ variant: "default", size: "default" }))}
-        >
-          <Plus data-icon="inline-start" />
-          Nuevo
-        </button>
-      </DialogTrigger>
+      <DialogTrigger render={<Button type="button">Nuevo</Button>} />
 
       <DialogContent className="sm:max-w-3xl">
         {step === "intro" ? (
           <>
             <DialogHeader>
-              <DialogTitle>Nuevo seguimiento</DialogTitle>
-              <DialogDescription>Escribe el nombre y confirma el workspace donde se va a crear.</DialogDescription>
+              <DialogTitle className="inline-flex items-center gap-2">
+                <PlusCircle className="h-4 w-4 text-[var(--primary)]" />
+                Nuevo seguimiento
+              </DialogTitle>
             </DialogHeader>
 
             <div className="grid gap-4">
-              <div className="flex flex-col gap-2">
-                <label className={labelClassName()} htmlFor="new-follow-name">
-                  Nombre
-                </label>
+              <Field>
+                <FieldLabel>Nombre</FieldLabel>
                 <Input
                   id="new-follow-name"
                   value={ruleName}
                   onChange={(event) => setRuleName(event.target.value)}
-                  className={fieldClassName()}
                   placeholder="Seguimiento post demo"
                 />
-              </div>
+              </Field>
 
-              <div className="flex flex-col gap-2">
-                <label className={labelClassName()} htmlFor="new-follow-channel">
-                  Canal
-                </label>
-                <select
+              <Field>
+                <FieldLabel htmlFor="new-follow-channel">Canal</FieldLabel>
+                <NativeSelect
                   id="new-follow-channel"
                   value={selectedChannelId}
                   onChange={(event) => setSelectedChannelId(event.target.value)}
-                  className={fieldClassName()}
                 >
-                  <option value="">Canal por defecto</option>
+                  <NativeSelectOption value="">
+                    Canal por defecto
+                  </NativeSelectOption>
                   {channels.map((channel) => (
-                    <option key={channel.value} value={channel.value}>
+                    <NativeSelectOption
+                      key={channel.value}
+                      value={channel.value}
+                    >
                       {channel.label}
-                    </option>
+                    </NativeSelectOption>
                   ))}
-                </select>
-              </div>
+                </NativeSelect>
+              </Field>
             </div>
 
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setOpen(false)}
+              >
                 Cancelar
               </Button>
               <Button
@@ -228,20 +242,21 @@ export function NewFollowDialog({
               <DialogDescription>{stepDescription}</DialogDescription>
             </DialogHeader>
 
-            <form action={formAction} className="flex max-h-[70vh] flex-col gap-4 overflow-y-auto pr-1">
+            <form action={formAction} className="p-2">
               <input type="hidden" name="name" value={ruleName} />
               <input type="hidden" name="channelId" value={selectedChannelId} />
-              <input type="hidden" name="sourceId" value={ruleSourceValue?.value ?? ""} />
+              <input
+                type="hidden"
+                name="sourceId"
+                value={ruleSourceValue?.value ?? ""}
+              />
 
               <div className="grid gap-4 sm:grid-cols-2">
-                <div className="flex flex-col gap-2">
-                  <label className={labelClassName()} htmlFor="quick-rule-source-type">
-                    Origen
-                  </label>
-                  <select
+                <Field>
+                  <FieldLabel>Origen</FieldLabel>
+                  <NativeSelect
                     id="quick-rule-source-type"
                     name="sourceType"
-                    className={fieldClassName()}
                     value={ruleSourceType}
                     onChange={(event) => {
                       const nextType = event.target.value as SourceType;
@@ -249,18 +264,24 @@ export function NewFollowDialog({
                       setRuleSourceValue(null);
                     }}
                   >
-                    <option value="MANUAL">Manual</option>
-                    <option value="FLOW">Flujo</option>
-                    <option value="PRODUCT">Producto</option>
-                    <option value="TAG">Tag</option>
-                    <option value="CRM_STAGE">CRM</option>
-                  </select>
-                </div>
+                    <NativeSelectOption value="MANUAL">
+                      Manual
+                    </NativeSelectOption>
+                    <NativeSelectOption value="FLOW">Flujo</NativeSelectOption>
+                    <NativeSelectOption value="PRODUCT">
+                      Producto
+                    </NativeSelectOption>
+                    <NativeSelectOption value="TAG">Tag</NativeSelectOption>
+                    <NativeSelectOption value="CRM_STAGE">
+                      CRM
+                    </NativeSelectOption>
+                  </NativeSelect>
+                </Field>
 
-                <div className="flex flex-col gap-2">
-                  <label className={labelClassName()} htmlFor="quick-rule-source-id">
+                <Field>
+                  <FieldLabel htmlFor="quick-rule-source-id">
                     {ruleSourceLabelText}
-                  </label>
+                  </FieldLabel>
                   <Combobox
                     key={ruleSourceType}
                     items={ruleSourceOptions}
@@ -273,7 +294,6 @@ export function NewFollowDialog({
                     <ComboboxInput
                       id="quick-rule-source-id"
                       placeholder={ruleSourcePlaceholderText}
-                      className={fieldClassName()}
                     />
                     <ComboboxContent>
                       <ComboboxEmpty>{ruleSourceEmptyText}</ComboboxEmpty>
@@ -284,12 +304,15 @@ export function NewFollowDialog({
                               <span
                                 className={cn(
                                   "size-2.5 shrink-0 rounded-full",
-                                  ruleSourceType === "TAG" || ruleSourceType === "CRM_STAGE"
+                                  ruleSourceType === "TAG" ||
+                                    ruleSourceType === "CRM_STAGE"
                                     ? "opacity-100"
                                     : "bg-slate-300",
                                 )}
                                 style={
-                                  (ruleSourceType === "TAG" || ruleSourceType === "CRM_STAGE") && option.color
+                                  (ruleSourceType === "TAG" ||
+                                    ruleSourceType === "CRM_STAGE") &&
+                                  option.color
                                     ? { backgroundColor: option.color }
                                     : undefined
                                 }
@@ -301,85 +324,124 @@ export function NewFollowDialog({
                       </ComboboxList>
                     </ComboboxContent>
                   </Combobox>
-                </div>
+                </Field>
 
-                <div className="flex flex-col gap-2">
-                  <label className={labelClassName()} htmlFor="quick-rule-time-type">
+                <Field>
+                  <FieldLabel htmlFor="quick-rule-time-type">
                     Tipo de tiempo
-                  </label>
-                  <select id="quick-rule-time-type" name="timeType" className={fieldClassName()}>
-                    <option value="MINUTES">Minutos</option>
-                    <option value="HOURS">Horas</option>
-                    <option value="DAYS">Dias</option>
-                  </select>
-                </div>
+                  </FieldLabel>
+                  <NativeSelect id="quick-rule-time-type" name="timeType">
+                    <NativeSelectOption value="MINUTES">
+                      Minutos
+                    </NativeSelectOption>
+                    <NativeSelectOption value="HOURS">Horas</NativeSelectOption>
+                    <NativeSelectOption value="DAYS">Dias</NativeSelectOption>
+                  </NativeSelect>
+                </Field>
 
-                <div className="flex flex-col gap-2">
-                  <label className={labelClassName()} htmlFor="quick-rule-time-value">
+                <Field>
+                  <FieldLabel htmlFor="quick-rule-time-value">
                     Tiempo
-                  </label>
-                  <Input id="quick-rule-time-value" name="timeValue" type="number" min={1} defaultValue={1} className={fieldClassName()} />
-                </div>
+                  </FieldLabel>
+                  <Input
+                    id="quick-rule-time-value"
+                    name="timeValue"
+                    type="number"
+                    min={1}
+                    defaultValue={1}
+                  />
+                </Field>
 
-                <div className="flex flex-col gap-2">
-                  <label className={labelClassName()} htmlFor="quick-rule-message-type">
+                <Field>
+                  <FieldLabel htmlFor="quick-rule-message-type">
                     Tipo de mensaje
-                  </label>
-                  <select
+                  </FieldLabel>
+                  <NativeSelect
                     id="quick-rule-message-type"
                     name="messageType"
-                    className={fieldClassName()}
                     value={ruleMessageType}
-                    onChange={(event) => setRuleMessageType(event.target.value as FollowMessageType)}
+                    onChange={(event) =>
+                      setRuleMessageType(
+                        event.target.value as FollowMessageType,
+                      )
+                    }
                   >
-                    <option value="TEXT">Texto</option>
-                    <option value="AUDIO">Audio</option>
-                    <option value="IMAGE">Imagen</option>
-                    <option value="VIDEO">Video</option>
-                    <option value="DOC">Documento</option>
-                  </select>
-                </div>
+                    <NativeSelectOption value="TEXT">Texto</NativeSelectOption>
+                    <NativeSelectOption value="AUDIO">Audio</NativeSelectOption>
+                    <NativeSelectOption value="IMAGE">
+                      Imagen
+                    </NativeSelectOption>
+                    <NativeSelectOption value="VIDEO">Video</NativeSelectOption>
+                    <NativeSelectOption value="DOC">
+                      Documento
+                    </NativeSelectOption>
+                  </NativeSelect>
+                </Field>
 
-                <div className="flex flex-col gap-2">
-                  <label className={labelClassName()} htmlFor="quick-rule-media-url">
+                <Field>
+                  <FieldLabel htmlFor="quick-rule-media-url">
                     Media URL
-                  </label>
-                  <Input id="quick-rule-media-url" name="mediaUrl" className={fieldClassName()} placeholder="https://..." />
-                </div>
-              </div>
+                  </FieldLabel>
+                  <Input
+                    id="quick-rule-media-url"
+                    name="mediaUrl"
+                    placeholder="https://..."
+                  />
+                </Field>
 
-              <div className="flex flex-col gap-2">
-                <label className={labelClassName()} htmlFor="quick-rule-content">
-                  Contenido / caption
-                </label>
-                <Textarea
-                  id="quick-rule-content"
-                  name="content"
-                  className={fieldClassName()}
-                  rows={4}
-                  placeholder={ruleMessageType === "TEXT" ? "Hola, seguimos atentos a tu caso..." : "Opcional"}
-                  value={ruleContent}
-                  onChange={(event) => setRuleContent(event.target.value)}
-                  required={ruleMessageType === "TEXT"}
-                />
-                <p className="text-xs text-slate-500">
-                  {ruleMessageType === "TEXT"
-                    ? "El contenido es obligatorio para mensajes de texto."
-                    : "Solo es obligatorio si el mensaje es de texto."}
-                </p>
-              </div>
+                <Field>
+                  <FieldLabel htmlFor="quick-rule-content">
+                    Contenido / caption
+                  </FieldLabel>
+                  <Textarea
+                    id="quick-rule-content"
+                    name="content"
+                    rows={4}
+                    placeholder={
+                      ruleMessageType === "TEXT"
+                        ? "Hola, seguimos atentos a tu caso..."
+                        : "Opcional"
+                    }
+                    value={ruleContent}
+                    onChange={(event) => setRuleContent(event.target.value)}
+                    required={ruleMessageType === "TEXT"}
+                  />
+                  <p className="text-xs text-slate-500">
+                    {ruleMessageType === "TEXT"
+                      ? "El contenido es obligatorio para mensajes de texto."
+                      : "Solo es obligatorio si el mensaje es de texto."}
+                  </p>
+                </Field>
 
-              <label className="inline-flex items-center gap-2 text-sm text-slate-700">
-                <input type="checkbox" name="cancelOnActivity" defaultChecked className="h-4 w-4 rounded border-slate-300 text-slate-900" />
-                Cancelar por actividad
-              </label>
+                <Field orientation="horizontal">
+                  <Checkbox
+                    id="cancelOnActivity"
+                    name="cancelOnActivity"
+                    defaultChecked
+                  />
+                  <FieldLabel
+                    htmlFor="cancelOnActivity"
+                    className="font-normal"
+                  >
+                    Cancelar por actividad
+                  </FieldLabel>
+                </Field>
+              </div>
 
               <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setStep("intro")}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setStep("intro")}
+                >
                   Volver
                 </Button>
                 <Button type="submit" disabled={pending}>
-                  {pending ? "Guardando..." : isManualFollow ? "Programar seguimiento" : "Guardar regla"}
+                  {pending
+                    ? "Guardando..."
+                    : isManualFollow
+                      ? "Programar seguimiento"
+                      : "Guardar regla"}
                 </Button>
               </DialogFooter>
             </form>

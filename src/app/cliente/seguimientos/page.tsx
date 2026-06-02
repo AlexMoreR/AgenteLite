@@ -157,10 +157,11 @@ export default async function SeguimientosPage() {
         value: channel.id,
         label: `${channel.name} ${channel.evolutionInstanceName ? `· ${channel.evolutionInstanceName}` : ""}`,
       }))}
-      contacts={contacts.map((contact) => ({
-        value: contact.id,
-        label: contact.name?.trim() || contact.phoneNumber,
-      }))}
+    contacts={contacts.map((contact) => ({
+      value: contact.id,
+      label: contact.name?.trim() || contact.phoneNumber,
+      phoneNumber: contact.phoneNumber,
+    }))}
       sourceOptions={[
         {
           label: "Flujos",
