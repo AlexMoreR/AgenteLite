@@ -11,7 +11,6 @@ import {
 } from "lucide-react";
 import { auth } from "@/auth";
 import { MarketingIaResetButton } from "@/components/marketing/marketing-ia-reset-button";
-import { Button } from "@/components/ui/button";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import {
   getMarketingBusinessContextForUser,
@@ -212,12 +211,13 @@ function MarketingPageContent({
                   </div>
                 </div>
 
-                <Button asChild size="lg" className="h-11 w-full rounded-2xl sm:w-auto">
-                  <Link href="/cliente/marketing-ia/ads-generator">
-                    Abrir modulo
-                    <ArrowRight className="h-4 w-4" />
-                  </Link>
-                </Button>
+                <Link
+                  href="/cliente/marketing-ia/ads-generator"
+                  className="inline-flex h-11 w-full items-center justify-center gap-1.5 rounded-2xl bg-primary px-2.5 text-sm font-medium text-primary-foreground transition-all hover:bg-primary/80 sm:w-auto"
+                >
+                  Abrir modulo
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
               </div>
             </div>
           </div>

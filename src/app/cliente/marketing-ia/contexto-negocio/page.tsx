@@ -6,7 +6,6 @@ import { ArrowRight, Building2, Globe, MapPin, Megaphone, Users2 } from "lucide-
 import { auth } from "@/auth";
 import { MarketingBusinessIntakeModal } from "@/components/marketing/marketing-business-intake-modal";
 import { MarketingContextDetailModal } from "@/components/marketing/marketing-context-detail-modal";
-import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import {
@@ -128,12 +127,13 @@ export default async function MarketingBusinessContextPage({ searchParams }: Pag
 
             <div className="flex flex-wrap items-center gap-3">
               <MarketingBusinessIntakeModal context={businessContext} />
-              <Button asChild variant="outline" size="lg" className="rounded-2xl">
-                <Link href="/cliente/marketing-ia/ads-generator">
-                  Siguiente paso
-                  <ArrowRight className="h-4 w-4" />
-                </Link>
-              </Button>
+              <Link
+                href="/cliente/marketing-ia/ads-generator"
+                className="inline-flex h-9 items-center justify-center gap-1.5 rounded-2xl border border-border bg-background px-2.5 text-sm font-medium text-foreground transition-all hover:bg-muted hover:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50"
+              >
+                Siguiente paso
+                <ArrowRight className="h-4 w-4" />
+              </Link>
             </div>
           </div>
 

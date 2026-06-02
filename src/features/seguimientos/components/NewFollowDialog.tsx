@@ -3,7 +3,7 @@
 import { useActionState, useEffect, useMemo, useState } from "react";
 import { Plus } from "lucide-react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from "@/components/ui/combobox";
 import {
   Dialog,
@@ -151,10 +151,13 @@ export function NewFollowDialog({
     }}
     >
       <DialogTrigger asChild>
-        <Button>
+        <button
+          type="button"
+          className={cn(buttonVariants({ variant: "default", size: "default" }))}
+        >
           <Plus data-icon="inline-start" />
           Nuevo
-        </Button>
+        </button>
       </DialogTrigger>
 
       <DialogContent className="sm:max-w-3xl">
