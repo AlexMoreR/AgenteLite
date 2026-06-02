@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition, type FormEvent, type ReactNode, type RefObject } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition, type ComponentType, type FormEvent, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { useFormStatus } from "react-dom";
@@ -9,9 +9,16 @@ import {
   ArrowLeft,
   BadgeCheck,
   Bot,
+  CarFront,
+  Clock3,
   ChevronRight,
   CheckCheck,
+  Coffee,
   Facebook,
+  Flag,
+  Flower2,
+  Grid2x2,
+  Lightbulb,
   MessageCircle,
   MessageSquareText,
   LoaderCircle,
@@ -21,10 +28,12 @@ import {
   ChevronUp,
   Search,
   SendHorizonal,
+  Shapes,
   Smile,
   Tag,
   Trash2,
   UserRound,
+  Users,
   X,
 } from "lucide-react";
 import { ChatScrollAnchor } from "@/components/agents/chat-scroll-anchor";
@@ -299,6 +308,19 @@ const CHAT_COMPOSER_CATEGORY_LABELS: Record<ComposerEmojiTab, string> = {
   objetos: "Objetos",
   simbolos: "Símbolos",
   banderas: "Banderas",
+};
+
+const CHAT_COMPOSER_CATEGORY_ICONS: Record<ComposerEmojiTab, ComponentType<{ className?: string }>> = {
+  todos: Grid2x2,
+  recientes: Clock3,
+  caras: Smile,
+  personas: Users,
+  naturaleza: Flower2,
+  comida: Coffee,
+  viajes: CarFront,
+  objetos: Lightbulb,
+  simbolos: Shapes,
+  banderas: Flag,
 };
 
 function normalizeComposerEmojiSearch(value: string) {
@@ -1257,15 +1279,15 @@ function ComposerEmojiPicker({
   const emojiTabs: ComposerEmojiTab[] = ["todos", "recientes", ...CHAT_COMPOSER_CATEGORY_ORDER.slice(1)];
 
   return (
-    <div className="space-y-3">
-      <div className="space-y-2">
+    <div className="space-y-2.5">
+      <div className="space-y-1.5">
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <input
             value={query}
             onChange={(event) => onQueryChange(event.target.value)}
             placeholder="Buscar emoticones"
-            className="h-10 w-full rounded-2xl border border-[rgba(148,163,184,0.14)] bg-slate-50 pl-9 pr-10 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-[var(--primary)] focus:bg-white focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_18%,white)]"
+            className="h-9 w-full rounded-2xl border border-[rgba(148,163,184,0.14)] bg-slate-50 pl-9 pr-10 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-[var(--primary)] focus:bg-white focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_18%,white)]"
           />
           {query ? (
             <button
@@ -1280,29 +1302,40 @@ function ComposerEmojiPicker({
         </div>
 
         <Tabs value={activeTab} onValueChange={(value) => onActiveTabChange(value as ComposerEmojiTab)}>
-          <TabsList className="flex h-auto w-full flex-wrap gap-1.5 rounded-2xl bg-slate-100 p-1.5">
+          <TabsList className="flex h-auto w-full flex-wrap gap-1 rounded-2xl bg-slate-100 p-1">
             {emojiTabs.map((tab) => (
-              <TabsTrigger key={tab} value={tab} className="h-8 flex-1 min-w-[4.75rem] rounded-xl px-2 text-xs font-semibold">
-                {CHAT_COMPOSER_CATEGORY_LABELS[tab]}
+              <TabsTrigger
+                key={tab}
+                value={tab}
+                className="group flex h-9 min-w-0 flex-1 items-center justify-center rounded-xl px-0 text-slate-500 transition data-[state=active]:bg-white data-[state=active]:text-slate-950 data-[state=active]:shadow-sm"
+                title={CHAT_COMPOSER_CATEGORY_LABELS[tab]}
+                aria-label={CHAT_COMPOSER_CATEGORY_LABELS[tab]}
+              >
+                {(() => {
+                  const Icon = CHAT_COMPOSER_CATEGORY_ICONS[tab];
+
+                  return <Icon className="h-4.5 w-4.5 transition-transform duration-150 group-data-[state=active]:scale-105" />;
+                })()}
+                <span className="sr-only">{CHAT_COMPOSER_CATEGORY_LABELS[tab]}</span>
               </TabsTrigger>
             ))}
           </TabsList>
         </Tabs>
       </div>
 
-      <div className="max-h-72 overflow-y-auto pr-1">
+      <div className="max-h-[17rem] overflow-y-auto pr-1">
         {activeTab === "recientes" && !recentEmojis.length ? (
-          <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+          <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-center text-sm text-slate-500">
             Aquí aparecerán los últimos emoticones que uses.
           </div>
         ) : visibleEmojiItems.length ? (
-          <div className="grid grid-cols-7 gap-1">
+          <div className="grid grid-cols-6 gap-0.5">
             {visibleEmojiItems.map((item) => (
               <button
                 key={`${item.category}:${item.emoji}`}
                 type="button"
                 onClick={() => onSelectEmoji(item.emoji)}
-                className="flex h-11 w-11 items-center justify-center rounded-2xl text-[1.4rem] transition hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_18%,white)]"
+                className="flex h-10 w-10 items-center justify-center rounded-2xl text-[1.25rem] transition hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_18%,white)]"
                 aria-label={`Insertar ${item.label}`}
                 title={item.label}
               >
@@ -1311,7 +1344,7 @@ function ComposerEmojiPicker({
             ))}
           </div>
         ) : (
-          <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+          <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-center text-sm text-slate-500">
             No encontramos emoticones para esa búsqueda.
           </div>
         )}
@@ -2423,25 +2456,8 @@ const ConversationPanel = memo(function ConversationPanel({
                         align="start"
                         side="top"
                         sideOffset={12}
-                        className="w-[min(92vw,30rem)] rounded-[28px] border border-[rgba(148,163,184,0.14)] bg-white p-4 shadow-[0_24px_60px_-24px_rgba(15,23,42,0.35)]"
+                        className="w-[min(90vw,26rem)] rounded-[26px] border border-[rgba(148,163,184,0.14)] bg-white p-3.5 shadow-[0_24px_60px_-24px_rgba(15,23,42,0.35)]"
                       >
-                        <div className="mb-3 flex items-start justify-between gap-3">
-                          <div>
-                            <p className="text-sm font-semibold text-slate-900">Emojis</p>
-                            <p className="text-xs text-slate-500">Busca, elige y envía al instante</p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setIsEmojiPickerOpen(false);
-                              setEmojiSearchQuery("");
-                            }}
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 focus:outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_18%,white)]"
-                            aria-label="Cerrar selector de emojis"
-                          >
-                            <X className="h-4 w-4" />
-                          </button>
-                        </div>
                         <ComposerEmojiPicker
                           query={emojiSearchQuery}
                           activeTab={emojiPickerTab}

@@ -258,6 +258,30 @@ function toCachedMessageItem(
   };
 }
 
+function areCachedTagListsEqual(
+  left: SharedInboxSelectedConversation["tags"],
+  right: SharedInboxSelectedConversation["tags"],
+) {
+  if (left === right) {
+    return true;
+  }
+
+  if ((left?.length ?? 0) !== (right?.length ?? 0)) {
+    return false;
+  }
+
+  for (let index = 0; index < (left?.length ?? 0); index += 1) {
+    const leftTag = left?.[index];
+    const rightTag = right?.[index];
+
+    if (!leftTag || !rightTag || leftTag.label !== rightTag.label || leftTag.color !== rightTag.color) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 function getMessageEditedAtTime(message: CachedMessageItem | SharedInboxSelectedConversation["messages"][number]) {
   if (!("editedAt" in message) || !message.editedAt) {
     return null;
@@ -289,6 +313,41 @@ function areMergedMessagesEqual(
     getMessageCreatedAtTime(left) === getMessageCreatedAtTime(right) &&
     getMessageEditedAtTime(left) === getMessageEditedAtTime(right) &&
     getMessageDeletedAtTime(left) === getMessageDeletedAtTime(right)
+  );
+}
+
+function areCachedMessagesEqual(left: CachedMessageItem, right: CachedMessageItem) {
+  return (
+    left.id === right.id &&
+    left.content === right.content &&
+    left.direction === right.direction &&
+    left.authorType === right.authorType &&
+    left.outboundStatusLabel === right.outboundStatusLabel &&
+    left.type === right.type &&
+    left.mediaUrl === right.mediaUrl &&
+    left.createdAt === right.createdAt &&
+    left.editedAt === right.editedAt &&
+    left.deletedAt === right.deletedAt
+  );
+}
+
+function areCachedConversationsEqual(left: CachedConversation, right: CachedConversation) {
+  return (
+    left.id === right.id &&
+    left.label === right.label &&
+    left.secondaryLabel === right.secondaryLabel &&
+    left.avatarUrl === right.avatarUrl &&
+    left.contactId === right.contactId &&
+    left.contactName === right.contactName &&
+    left.automationPaused === right.automationPaused &&
+    left.loadMoreHref === right.loadMoreHref &&
+    left.loadMoreCursor === right.loadMoreCursor &&
+    left.hasMoreMessages === right.hasMoreMessages &&
+    left.cacheKey === right.cacheKey &&
+    left.isPreview === right.isPreview &&
+    areCachedTagListsEqual(left.tags, right.tags) &&
+    left.messages.length === right.messages.length &&
+    left.messages.every((message, index) => areCachedMessagesEqual(message, right.messages[index]!))
   );
 }
 
@@ -443,24 +502,37 @@ export function saveConversationToCache(conversation: SharedInboxSelectedConvers
 
     const store = readStore();
     const visitedStore = readVisitedStore();
+    let storeChanged = false;
+    let visitedChanged = false;
 
     for (const pendingConversation of pendingConversationSaves.values()) {
       const cachedConversation = serializeConversation(pendingConversation);
       const existingConversation = store.conversations[pendingConversation.id] ?? null;
       const mergedConversation = mergeCachedConversations(existingConversation, cachedConversation);
 
-      store.conversations[pendingConversation.id] = mergedConversation;
+      if (!existingConversation || !areCachedConversationsEqual(existingConversation, mergedConversation)) {
+        store.conversations[pendingConversation.id] = mergedConversation;
+        storeChanged = true;
+      }
+
       visitedStore[normalizeConversationStoreKey(pendingConversation.id)] = Date.now();
+      visitedChanged = true;
 
       if (pendingConversation.cacheKey && pendingConversation.cacheKey !== pendingConversation.id) {
         delete store.conversations[pendingConversation.cacheKey];
+        storeChanged = true;
         visitedStore[normalizeConversationStoreKey(pendingConversation.cacheKey)] = Date.now();
+        visitedChanged = true;
       }
     }
 
     pendingConversationSaves.clear();
-    writeStore(trimStore(store));
-    writeVisitedStore(trimVisitedStore(visitedStore));
+    if (storeChanged) {
+      writeStore(trimStore(store));
+    }
+    if (visitedChanged) {
+      writeVisitedStore(trimVisitedStore(visitedStore));
+    }
   }, CACHE_SAVE_DEBOUNCE_MS);
 }
 

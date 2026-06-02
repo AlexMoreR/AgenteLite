@@ -60,6 +60,42 @@ function normalizeEventName(eventName: string) {
   return eventName.trim().replace(/[\s.-]+/g, "_").toUpperCase();
 }
 
+function buildSocketUpdateSignature(input: {
+  eventName: string;
+  conversationKey?: string | null;
+  instanceName?: string | null;
+  phoneNumber?: string | null;
+  payload: unknown;
+}) {
+  const messageId = extractEvolutionMessageId(input.payload)?.trim() || "";
+  const messageText = extractEvolutionMessageText(input.payload)?.trim() || "";
+  const messageType = extractEvolutionMessageType(input.payload)?.trim() || "";
+  const mediaUrl = extractEvolutionMediaUrl(input.payload)?.trim() || "";
+  const remoteJid = extractEvolutionRemoteJid(input.payload)?.trim() || "";
+  const fromMe = extractEvolutionFromMe(input.payload) ? "1" : "0";
+  const edited = hasEvolutionEditedMessagePayload(input.payload) ? "1" : "0";
+  const deleted = hasEvolutionDeletedMessagePayload(input.payload) ? "1" : "0";
+
+  if (!messageId && !messageText && !messageType && !mediaUrl && !remoteJid) {
+    return null;
+  }
+
+  return [
+    normalizeEventName(input.eventName),
+    input.conversationKey?.trim() || "",
+    input.instanceName?.trim() || "",
+    input.phoneNumber?.trim() || "",
+    messageId,
+    messageText,
+    messageType,
+    mediaUrl,
+    remoteJid,
+    fromMe,
+    edited,
+    deleted,
+  ].join("|");
+}
+
 function shouldTriggerRefresh(eventName: string) {
   const normalized = normalizeEventName(eventName);
   if (!normalized) {
@@ -249,12 +285,24 @@ export function ChatsRealtimeSync({
   const liveUpdateInFlightRef = useRef(false);
   const liveUpdateQueuedRef = useRef(false);
   const lastLiveUpdateAtRef = useRef(0);
+  const lastLiveUpdateSignatureRef = useRef("");
   const listUpdateTimerRefs = useRef(new Map<string, number>());
   const listUpdateFollowUpTimerRefs = useRef(new Map<string, number>());
   const listUpdateInFlightKeysRef = useRef(new Set<string>());
   const listUpdatePendingByKeyRef = useRef(
-    new Map<string, { priority: RefreshPriority; instanceName: string; payload: unknown; chatKey?: string }>(),
+    new Map<
+      string,
+      {
+        priority: RefreshPriority;
+        instanceName: string;
+        payload: unknown;
+        chatKey?: string;
+        signature?: string | null;
+        followUp?: boolean;
+      }
+    >(),
   );
+  const lastListUpdateSignatureByKeyRef = useRef(new Map<string, string>());
   const lastListUpdateAtByKeyRef = useRef(new Map<string, number>());
   const pageRefreshTimerRef = useRef<number | null>(null);
   const lastPageRefreshAtRef = useRef(0);
@@ -436,6 +484,8 @@ export function ChatsRealtimeSync({
       payload: unknown;
       chatKey?: string;
       updateKey: string;
+      signature?: string | null;
+      followUp?: boolean;
     }) {
       const phoneNumber = extractPhoneNumberFromPayload(input.payload);
       if (!phoneNumber && !input.chatKey) {
@@ -452,6 +502,8 @@ export function ChatsRealtimeSync({
           instanceName: input.instanceName,
           payload: input.payload,
           chatKey: input.chatKey,
+          signature: input.signature ?? null,
+          followUp: input.followUp ?? false,
         });
         return true;
       }
@@ -516,15 +568,37 @@ export function ChatsRealtimeSync({
         listUpdatePendingByKeyRef.current.delete(input.updateKey);
 
         if (pendingUpdate) {
-          scheduleListUpdate(pendingUpdate.priority, pendingUpdate.instanceName, pendingUpdate.payload, pendingUpdate.chatKey);
+          scheduleListUpdate(
+            pendingUpdate.priority,
+            pendingUpdate.instanceName,
+            pendingUpdate.payload,
+            pendingUpdate.chatKey,
+            {
+              signature: pendingUpdate.signature ?? null,
+              followUp: pendingUpdate.followUp ?? false,
+            },
+          );
         }
       }
     }
 
-    const scheduleLiveUpdate = (priority: RefreshPriority) => {
+    const scheduleLiveUpdate = (
+      priority: RefreshPriority,
+      options: { signature?: string | null; followUp?: boolean } = {},
+    ) => {
       const now = Date.now();
       const minGap = priority === "active" ? ACTIVE_REFRESH_MIN_GAP_MS : BACKGROUND_REFRESH_MIN_GAP_MS;
       const preferredDelay = priority === "active" ? ACTIVE_REFRESH_DELAY_MS : BACKGROUND_REFRESH_DELAY_MS;
+      const signature = options.signature?.trim() || "";
+      if (signature && lastLiveUpdateSignatureRef.current === signature) {
+        debugRealtimeSync("skip duplicate live update", { priority, signature });
+        return;
+      }
+
+      if (signature) {
+        lastLiveUpdateSignatureRef.current = signature;
+      }
+
       const earliestAllowedAt = lastLiveUpdateAtRef.current + minGap;
       const targetAt = Math.max(now + preferredDelay, earliestAllowedAt);
 
@@ -535,9 +609,9 @@ export function ChatsRealtimeSync({
           if (success) {
             lastLiveUpdateAtRef.current = Date.now();
           }
-          if (priority === "active") {
-            // Segundo intento ~3000ms despues: captura la respuesta del agente IA cuya
-            // escritura en DB llega tarde respecto al socket event (fromMe: true).
+          if (priority === "active" && options.followUp) {
+            // Reintento diferido solo para mensajes salientes, donde el webhook puede
+            // llegar antes que la escritura final en la base de datos.
             clearLiveUpdateFollowUpTimer();
             liveUpdateFollowUpTimerRef.current = window.setTimeout(() => {
               void runLiveUpdate().then((retrySuccess) => {
@@ -551,7 +625,13 @@ export function ChatsRealtimeSync({
       }, Math.max(0, targetAt - now));
     };
 
-    const scheduleListUpdate = (priority: RefreshPriority, instanceName: string, payload: unknown, chatKey?: string) => {
+    const scheduleListUpdate = (
+      priority: RefreshPriority,
+      instanceName: string,
+      payload: unknown,
+      chatKey?: string,
+      options: { signature?: string | null; followUp?: boolean } = {},
+    ) => {
       const phoneNumber = extractPhoneNumberFromPayload(payload);
       const updateKey = chatKey?.trim() || (phoneNumber ? `${instanceName}:${phoneNumber}` : "");
       if (!updateKey) {
@@ -560,6 +640,24 @@ export function ChatsRealtimeSync({
           instanceName,
         });
         return;
+      }
+
+      const signature = options.signature?.trim() || "";
+      const lastSignature = lastListUpdateSignatureByKeyRef.current.get(updateKey) || "";
+      if (signature && signature === lastSignature) {
+        debugRealtimeSync("skip duplicate list update", {
+          updateKey,
+          priority,
+          instanceName,
+          chatKey: chatKey ?? null,
+          phoneNumber,
+          signature,
+        });
+        return;
+      }
+
+      if (signature) {
+        lastListUpdateSignatureByKeyRef.current.set(updateKey, signature);
       }
 
       const now = Date.now();
@@ -584,6 +682,8 @@ export function ChatsRealtimeSync({
           instanceName,
           payload,
           chatKey,
+          signature,
+          followUp: options.followUp,
         });
         return;
       }
@@ -598,29 +698,39 @@ export function ChatsRealtimeSync({
       });
       const primaryTimer = window.setTimeout(() => {
         listUpdateTimerRefs.current.delete(updateKey);
-        void runListUpdate({ priority, instanceName, payload, chatKey, updateKey }).then((success) => {
+        void runListUpdate({ priority, instanceName, payload, chatKey, updateKey, signature, followUp: options.followUp }).then((success) => {
           if (success) {
             lastListUpdateAtByKeyRef.current.set(updateKey, Date.now());
           }
 
-          // Segundo intento ~2500ms despues para capturar casos donde el webhook
-          // todavia no habia escrito el mensaje al DB en el primer intento (race condition).
           const existingFollowUpTimer = listUpdateFollowUpTimerRefs.current.get(updateKey);
           if (existingFollowUpTimer !== undefined) {
             window.clearTimeout(existingFollowUpTimer);
             listUpdateFollowUpTimerRefs.current.delete(updateKey);
           }
 
-          const followUpTimer = window.setTimeout(() => {
-            listUpdateFollowUpTimerRefs.current.delete(updateKey);
-            void runListUpdate({ priority: "background", instanceName, payload, chatKey, updateKey }).then((retrySuccess) => {
-              if (retrySuccess) {
-                lastListUpdateAtByKeyRef.current.set(updateKey, Date.now());
-              }
-            });
-          }, 2500);
+          if (options.followUp) {
+            // Reintento diferido solo para mensajes salientes; evita duplicar lecturas
+            // en eventos entrantes que ya quedaron bien con el primer summary.
+            const followUpTimer = window.setTimeout(() => {
+              listUpdateFollowUpTimerRefs.current.delete(updateKey);
+              void runListUpdate({
+                priority: "background",
+                instanceName,
+                payload,
+                chatKey,
+                updateKey,
+                signature,
+                followUp: false,
+              }).then((retrySuccess) => {
+                if (retrySuccess) {
+                  lastListUpdateAtByKeyRef.current.set(updateKey, Date.now());
+                }
+              });
+            }, 2500);
 
-          listUpdateFollowUpTimerRefs.current.set(updateKey, followUpTimer);
+            listUpdateFollowUpTimerRefs.current.set(updateKey, followUpTimer);
+          }
         });
       }, Math.max(0, targetAt - now));
 
@@ -677,6 +787,14 @@ export function ChatsRealtimeSync({
             Boolean(phoneNumber) &&
             Boolean(normalizedSelectedPhoneNumber) &&
             phoneNumber === normalizedSelectedPhoneNumber;
+          const eventSignature = buildSocketUpdateSignature({
+            eventName: normalizedEventName,
+            conversationKey: currentConversationKey,
+            instanceName,
+            phoneNumber,
+            payload,
+          });
+          const shouldFollowUp = extractEvolutionFromMe(payload) && !isEditedOrDeletedPayload;
 
           debugRealtimeSync("socket event", {
             eventName: normalizedEventName,
@@ -709,7 +827,10 @@ export function ChatsRealtimeSync({
               }
             }
 
-            scheduleLiveUpdate("active");
+            scheduleLiveUpdate("active", {
+              signature: eventSignature,
+              followUp: shouldFollowUp,
+            });
             if (isSelectedAgentConversation && !isEditedOrDeletedPayload) {
               window.dispatchEvent(
                 new CustomEvent("chat-list-update", {
@@ -728,6 +849,10 @@ export function ChatsRealtimeSync({
                 instanceName ?? normalizedActiveInstanceName,
                 payload,
                 currentConversationKey || undefined,
+                {
+                  signature: eventSignature,
+                  followUp: shouldFollowUp,
+                },
               );
               return;
             }
@@ -743,6 +868,10 @@ export function ChatsRealtimeSync({
               instanceName ?? normalizedActiveInstanceName,
               payload,
               isSelectedAgentConversation ? currentConversationKey || undefined : undefined,
+              {
+                signature: eventSignature,
+                followUp: shouldFollowUp,
+              },
             );
             return;
           }
@@ -778,7 +907,10 @@ export function ChatsRealtimeSync({
                 }
               }
 
-              scheduleLiveUpdate("active");
+              scheduleLiveUpdate("active", {
+                signature: eventSignature,
+                followUp: shouldFollowUp,
+              });
               if (!isEditedOrDeletedPayload) {
                 window.dispatchEvent(
                   new CustomEvent("chat-list-update", {
@@ -802,7 +934,10 @@ export function ChatsRealtimeSync({
             }
 
             if (phoneNumber) {
-              scheduleListUpdate("active", instanceName ?? normalizedActiveInstanceName, payload);
+              scheduleListUpdate("active", instanceName ?? normalizedActiveInstanceName, payload, undefined, {
+                signature: eventSignature,
+                followUp: shouldFollowUp,
+              });
               return;
             }
 
@@ -827,7 +962,10 @@ export function ChatsRealtimeSync({
             }
 
             if (isSelectedAgentConversation) {
-              scheduleLiveUpdate("active");
+              scheduleLiveUpdate("active", {
+                signature: eventSignature,
+                followUp: shouldFollowUp,
+              });
               if (isEditedOrDeletedPayload) {
                 return;
               }
@@ -839,7 +977,10 @@ export function ChatsRealtimeSync({
             }
 
             if (phoneNumber) {
-              scheduleListUpdate("active", payloadInstanceName, payload);
+              scheduleListUpdate("active", payloadInstanceName, payload, undefined, {
+                signature: eventSignature,
+                followUp: shouldFollowUp,
+              });
               return;
             }
 
@@ -849,7 +990,10 @@ export function ChatsRealtimeSync({
           if (phoneNumber) {
             if (globalEventsEnabled) {
               if (isSelectedAgentConversation) {
-                scheduleLiveUpdate("background");
+                scheduleLiveUpdate("background", {
+                  signature: eventSignature,
+                  followUp: shouldFollowUp,
+                });
               }
 
               if (isEditedOrDeletedPayload) {
@@ -863,7 +1007,10 @@ export function ChatsRealtimeSync({
               // desactualizado varios segundos; scheduleListUpdate es directo y rapido.
               const listInstanceName = payloadInstanceName || normalizedActiveInstanceName;
               if (listInstanceName) {
-                scheduleListUpdate("active", listInstanceName, payload);
+                scheduleListUpdate("active", listInstanceName, payload, undefined, {
+                  signature: eventSignature,
+                  followUp: shouldFollowUp,
+                });
               } else {
                 schedulePageRefresh("active");
               }
@@ -882,12 +1029,24 @@ export function ChatsRealtimeSync({
               return;
             }
 
-            scheduleListUpdate("active", payloadInstanceName || (instanceName ?? normalizedActiveInstanceName) || "", payload);
+            scheduleListUpdate(
+              "active",
+              payloadInstanceName || (instanceName ?? normalizedActiveInstanceName) || "",
+              payload,
+              undefined,
+              {
+                signature: eventSignature,
+                followUp: shouldFollowUp,
+              },
+            );
             return;
           }
 
           if (currentConversationKey?.startsWith("agent:")) {
-            scheduleLiveUpdate("background");
+            scheduleLiveUpdate("background", {
+              signature: eventSignature,
+              followUp: shouldFollowUp,
+            });
             if (isEditedOrDeletedPayload) {
               return;
             }
