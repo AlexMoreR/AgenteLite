@@ -827,6 +827,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           href: `/cliente/chats?chatKey=${encodeURIComponent(item.key)}${selectedConnectionKey ? `&connection=${encodeURIComponent(selectedConnectionKey)}` : ""}${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ""}`,
         }))}
         selectedConversation={selectedConversation}
+        selectedConversationTags={selectedConversation?.tags ?? []}
         backHref={chatListHref}
         headerBadge={null}
         headerActions={

@@ -280,6 +280,7 @@ export function ConversationList({
       label: conversation.label,
       secondaryLabel: conversation.secondaryLabel,
       avatarUrl: conversation.avatarUrl ?? null,
+      tags: conversation.tags ?? [],
       lastMessage: conversation.lastMessage,
       lastMessageType: conversation.lastMessageType ?? null,
       lastMessageDirection: conversation.lastMessageDirection ?? null,

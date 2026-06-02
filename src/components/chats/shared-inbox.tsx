@@ -460,7 +460,7 @@ function buildPendingConversationPreview(
     label: pendingConversation.label,
     secondaryLabel: pendingConversation.secondaryLabel,
     avatarUrl: pendingConversation.avatarUrl ?? null,
-    tags: [],
+    tags: pendingConversation.tags ?? [],
     contactId: null,
     contactName: null,
     messages: previewMessages,
@@ -525,6 +525,10 @@ type SharedInboxProps = {
   sidebarItems?: SharedInboxSidebarItem[];
   conversations: SharedInboxConversationItem[];
   selectedConversation: SharedInboxSelectedConversation | null;
+  selectedConversationTags?: Array<{
+    label: string;
+    color: string;
+  }>;
   statusMessages?: SharedInboxStatusMessageItem[];
   backHref: string;
   headerBadge?: ReactNode;
@@ -1946,6 +1950,10 @@ type ConversationPanelProps = {
   renderedMessages: SharedInboxMessageItem[];
   selectedConversationId: string;
   selectedConversationScrollKey: string;
+  selectedConversationTags: Array<{
+    label: string;
+    color: string;
+  }>;
   emptySelectionTitle: string;
   emptySelectionDescription: string;
   headerActions?: ReactNode;
@@ -1973,6 +1981,7 @@ const ConversationPanel = memo(function ConversationPanel({
   renderedMessages,
   selectedConversationId,
   selectedConversationScrollKey,
+  selectedConversationTags,
   emptySelectionTitle,
   emptySelectionDescription,
   headerActions,
@@ -2178,6 +2187,10 @@ const ConversationPanel = memo(function ConversationPanel({
                 >
                   <ArrowLeft className="h-4 w-4" />
                 </Link>
+                {(() => {
+                  const headerTags = renderedConversation?.tags?.length ? renderedConversation.tags : selectedConversationTags;
+
+                  return (
                 <div
                   className={`flex min-w-0 items-center gap-3 transition-opacity duration-200 ease-out ${
                     hasSettledConversation ? "opacity-100" : "opacity-80"
@@ -2246,13 +2259,13 @@ const ConversationPanel = memo(function ConversationPanel({
                         <Tag className="h-3.5 w-3.5" />
                       </button>
                     </div>
-                    {renderedConversation.tags?.length ? (
+                    {headerTags.length ? (
                       <div
                         className={`flex flex-wrap gap-1.5 transition-opacity duration-200 ease-out ${
                           hasSettledConversation ? "opacity-100" : "opacity-60"
                         }`}
                       >
-                        {renderedConversation.tags.map((tag) => (
+                        {headerTags.map((tag) => (
                           <Badge
                             key={`${renderedConversation.id}:${tag.label}`}
                             className="max-w-full px-2.5 py-1 text-[10px] shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
@@ -2269,6 +2282,8 @@ const ConversationPanel = memo(function ConversationPanel({
                     ) : null}
                   </div>
                 </div>
+                  );
+                })()}
               </div>
 
               {hasSettledConversation && (headerActions || headerBadge) ? (
@@ -2486,6 +2501,7 @@ export function SharedInbox({
   sidebarItems = [],
   conversations,
   selectedConversation,
+  selectedConversationTags = [],
   statusMessages = [],
   backHref,
   headerBadge,
@@ -2801,7 +2817,12 @@ export function SharedInbox({
     startSelectionTransition(() => {
       setLiveConversation(null);
       setOptimisticConversation(
-        cachedConversation ? cachedConversation : buildPendingConversationPreview(pendingConversation),
+        cachedConversation
+          ? {
+              ...cachedConversation,
+              tags: cachedConversation.tags?.length ? cachedConversation.tags : pendingConversation.tags ?? [],
+            }
+          : buildPendingConversationPreview(pendingConversation),
       );
     });
   }, [pendingConversation, startSelectionTransition]);
@@ -3763,6 +3784,7 @@ export function SharedInbox({
         renderedMessages={renderedMessages}
         selectedConversationId={selectedConversationId}
         selectedConversationScrollKey={selectedConversationScrollKey}
+        selectedConversationTags={selectedConversationTags}
         emptySelectionTitle={emptySelectionTitle}
         emptySelectionDescription={emptySelectionDescription}
         headerActions={headerActions}

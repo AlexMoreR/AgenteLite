@@ -11,6 +11,10 @@ export type PendingChatSelection = {
   label: string;
   secondaryLabel: string;
   avatarUrl?: string | null;
+  tags?: Array<{
+    label: string;
+    color: string;
+  }>;
   lastMessage?: string | null;
   lastMessageType?: SharedInboxConversationItem["lastMessageType"] | null;
   lastMessageDirection?: SharedInboxConversationItem["lastMessageDirection"] | null;
@@ -43,6 +47,7 @@ function areSelectionsEqual(left: PendingChatSelection | null, right: PendingCha
     left.label === right.label &&
     left.secondaryLabel === right.secondaryLabel &&
     left.avatarUrl === right.avatarUrl &&
+    areTagsEqual(left.tags, right.tags) &&
     left.lastMessage === right.lastMessage &&
     left.lastMessageType === right.lastMessageType &&
     left.lastMessageDirection === right.lastMessageDirection &&
@@ -52,6 +57,36 @@ function areSelectionsEqual(left: PendingChatSelection | null, right: PendingCha
     left.phoneNumber === right.phoneNumber &&
     left.hasCache === right.hasCache
   );
+}
+
+function areTagsEqual(
+  left?: Array<{
+    label: string;
+    color: string;
+  }> | null,
+  right?: Array<{
+    label: string;
+    color: string;
+  }> | null,
+) {
+  if (left === right) {
+    return true;
+  }
+
+  if ((left?.length ?? 0) !== (right?.length ?? 0)) {
+    return false;
+  }
+
+  for (let index = 0; index < (left?.length ?? 0); index += 1) {
+    const leftTag = left?.[index];
+    const rightTag = right?.[index];
+
+    if (!leftTag || !rightTag || leftTag.label !== rightTag.label || leftTag.color !== rightTag.color) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 function notify() {

@@ -366,9 +366,12 @@ export function mergeConversationSnapshots(
     mergedMessages.push(nextMessage);
   }
 
+  const mergedTags = next.tags !== undefined ? next.tags : existing.tags;
+
   return {
     ...existing,
     ...next,
+    tags: mergedTags,
     messages: mergedMessages.sort((left, right) => {
       const leftAt = getMessageCreatedAtTime(left);
       const rightAt = getMessageCreatedAtTime(right);
