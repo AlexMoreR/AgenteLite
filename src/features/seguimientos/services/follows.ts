@@ -15,6 +15,26 @@ export type FollowTimeType = "MINUTES" | "HOURS" | "DAYS";
 export type FollowMessageType = "TEXT" | "AUDIO" | "IMAGE" | "VIDEO" | "DOC";
 export type FollowStatus = "PENDING" | "EXECUTED" | "CANCELLED";
 export type FollowProvider = "EVOLUTION";
+export type FollowActionStatus = "PENDING" | "EXECUTED" | "FAILED" | "CANCELLED";
+
+export type FollowActionInput = {
+  order?: number;
+  messageType: FollowMessageType;
+  content?: string | null;
+  mediaUrl?: string | null;
+};
+
+export type FollowActionRecord = {
+  order: number;
+  messageType: FollowMessageType;
+  content: string | null;
+  mediaUrl: string | null;
+  status: FollowActionStatus;
+  executedAt: string | null;
+  executionError: string | null;
+  lockedAt: string | null;
+  lockedBy: string | null;
+};
 
 export type FollowRuleInput = {
   workspaceId: string;
@@ -27,6 +47,7 @@ export type FollowRuleInput = {
   messageType: FollowMessageType;
   content?: string | null;
   mediaUrl?: string | null;
+  actions?: FollowActionInput[];
   cancelOnActivity?: boolean;
   isActive?: boolean;
 };
@@ -42,6 +63,7 @@ export type FollowInput = {
   messageType: FollowMessageType;
   content?: string | null;
   mediaUrl?: string | null;
+  actions?: FollowActionInput[];
   executeAt?: Date | string | null;
   cancelOnActivity?: boolean;
 };
@@ -58,6 +80,7 @@ type RawFollowRuleRow = {
   messageType: FollowMessageType;
   content: string | null;
   mediaUrl: string | null;
+  actions: Prisma.JsonValue | null;
   cancelOnActivity: boolean;
   provider: FollowProvider;
   isActive: boolean;
@@ -84,6 +107,7 @@ type ClaimedFollowRow = {
   messageType: FollowMessageType;
   content: string | null;
   mediaUrl: string | null;
+  actions: Prisma.JsonValue | null;
   status: FollowStatus;
   provider: FollowProvider;
   cancelOnActivity: boolean;
@@ -110,6 +134,144 @@ type RawFollowRow = ClaimedFollowRow & {
 
 function normalizeText(value: string | null | undefined) {
   return value?.trim() || "";
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizeFollowActionStatus(value: unknown): FollowActionStatus {
+  if (value === "EXECUTED" || value === "FAILED" || value === "CANCELLED") {
+    return value;
+  }
+
+  return "PENDING";
+}
+
+function normalizeFollowActionRecord(
+  value: Record<string, unknown>,
+  fallbackOrder: number,
+): FollowActionRecord {
+  return {
+    order: Number.isFinite(Number(value.order)) ? Math.max(1, Math.round(Number(value.order))) : fallbackOrder,
+    messageType:
+      value.messageType === "AUDIO" ||
+      value.messageType === "IMAGE" ||
+      value.messageType === "VIDEO" ||
+      value.messageType === "DOC"
+        ? value.messageType
+        : "TEXT",
+    content: normalizeText(typeof value.content === "string" ? value.content : null) || null,
+    mediaUrl: normalizeText(typeof value.mediaUrl === "string" ? value.mediaUrl : null) || null,
+    status: normalizeFollowActionStatus(value.status),
+    executedAt: typeof value.executedAt === "string" ? value.executedAt : null,
+    executionError: normalizeText(typeof value.executionError === "string" ? value.executionError : null) || null,
+    lockedAt: typeof value.lockedAt === "string" ? value.lockedAt : null,
+    lockedBy: normalizeText(typeof value.lockedBy === "string" ? value.lockedBy : null) || null,
+  };
+}
+
+function buildLegacyFollowAction(input: {
+  messageType: FollowMessageType;
+  content?: string | null;
+  mediaUrl?: string | null;
+  order?: number;
+}): FollowActionRecord {
+  return {
+    order: Math.max(1, Math.round(input.order ?? 1)),
+    messageType: input.messageType,
+    content: normalizeText(input.content) || null,
+    mediaUrl: normalizeText(input.mediaUrl) || null,
+    status: "PENDING",
+    executedAt: null,
+    executionError: null,
+    lockedAt: null,
+    lockedBy: null,
+  };
+}
+
+function buildPersistedFollowActions(input: {
+  actions?: FollowActionInput[] | null;
+  messageType: FollowMessageType;
+  content?: string | null;
+  mediaUrl?: string | null;
+}): FollowActionRecord[] {
+  const normalizedActions =
+    input.actions?.length
+      ? input.actions
+          .map((action, index) =>
+            buildLegacyFollowAction({
+              messageType: action.messageType,
+              content: action.content ?? null,
+              mediaUrl: action.mediaUrl ?? null,
+              order: action.order ?? index + 1,
+            }),
+          )
+      : [buildLegacyFollowAction(input)];
+
+  return normalizedActions.map((action, index) => ({
+    ...action,
+    order: Math.max(1, action.order || index + 1),
+  }));
+}
+
+function parseStoredFollowActions(value: Prisma.JsonValue | null | undefined): FollowActionRecord[] {
+  if (!value) {
+    return [];
+  }
+
+  const items = Array.isArray(value)
+    ? value
+    : isPlainRecord(value) && Array.isArray(value.actions)
+      ? value.actions
+      : [];
+
+  return items
+    .filter(isPlainRecord)
+    .map((item, index) => normalizeFollowActionRecord(item, index + 1))
+    .sort((left, right) => left.order - right.order);
+}
+
+function buildExecutionErrorSummary(errors: Array<{ order: number; message: string }>) {
+  if (!errors.length) {
+    return null;
+  }
+
+  return errors
+    .map((item) => `Acción ${item.order}: ${item.message}`)
+    .join(" | ");
+}
+
+function buildCancelledFollowActions(input: {
+  actions: Prisma.JsonValue | null | undefined;
+  messageType: FollowMessageType;
+  content: string | null;
+  mediaUrl: string | null;
+  reason: string;
+}) {
+  const existingActions = parseStoredFollowActions(input.actions);
+  if (existingActions.length) {
+    return existingActions.map((action) => ({
+      ...action,
+      status: action.status === "EXECUTED" ? action.status : "CANCELLED",
+      executionError:
+        action.status === "EXECUTED" ? action.executionError : input.reason,
+      lockedAt: null,
+      lockedBy: null,
+    }));
+  }
+
+  return [
+    {
+      ...buildLegacyFollowAction({
+        messageType: input.messageType,
+        content: input.content,
+        mediaUrl: input.mediaUrl,
+      }),
+      status: "CANCELLED" as const,
+      executionError: input.reason,
+    },
+  ];
 }
 
 let followNameColumnExistsPromise: Promise<boolean> | null = null;
@@ -160,10 +322,6 @@ function normalizePhoneNumber(value: string) {
   return value.replace(/[^\d]/g, "");
 }
 
-function isMediaType(value: FollowMessageType): value is Exclude<FollowMessageType, "TEXT"> {
-  return value !== "TEXT";
-}
-
 function toCount(value: number | string | bigint) {
   if (typeof value === "number") return value;
   if (typeof value === "bigint") return Number(value);
@@ -203,6 +361,7 @@ function mapFollowRuleRow(row: RawFollowRuleRow) {
     messageType: row.messageType,
     content: row.content,
     mediaUrl: row.mediaUrl,
+    actions: parseStoredFollowActions(row.actions),
     cancelOnActivity: row.cancelOnActivity,
     provider: row.provider,
     isActive: row.isActive,
@@ -235,6 +394,7 @@ function mapFollowRow(row: RawFollowRow) {
     messageType: row.messageType,
     content: row.content,
     mediaUrl: row.mediaUrl,
+    actions: parseStoredFollowActions(row.actions),
     status: row.status,
     provider: row.provider,
     cancelOnActivity: row.cancelOnActivity,
@@ -316,6 +476,7 @@ async function resolveDefaultEvolutionChannel(workspaceId: string, preferredChan
 
 function mapCreateFollowRuleData(input: FollowRuleInput) {
   const now = new Date();
+  const actions = buildPersistedFollowActions(input);
   return {
     id: randomUUID(),
     workspaceId: input.workspaceId,
@@ -328,6 +489,7 @@ function mapCreateFollowRuleData(input: FollowRuleInput) {
     messageType: input.messageType,
     content: normalizeText(input.content) || null,
     mediaUrl: normalizeText(input.mediaUrl) || null,
+    actions,
     cancelOnActivity: input.cancelOnActivity ?? true,
     provider: "EVOLUTION" as const,
     isActive: input.isActive ?? true,
@@ -338,6 +500,7 @@ function mapCreateFollowRuleData(input: FollowRuleInput) {
 
 function mapCreateFollowData(input: FollowInput & { executeAt: Date; channelId: string | null }) {
   const now = new Date();
+  const actions = buildPersistedFollowActions(input);
   return {
     id: randomUUID(),
     workspaceId: input.workspaceId,
@@ -351,6 +514,7 @@ function mapCreateFollowData(input: FollowInput & { executeAt: Date; channelId: 
     messageType: input.messageType,
     content: normalizeText(input.content) || null,
     mediaUrl: normalizeText(input.mediaUrl) || null,
+    actions,
     status: "PENDING" as const,
     provider: "EVOLUTION" as const,
     cancelOnActivity: input.cancelOnActivity ?? true,
@@ -488,6 +652,7 @@ export async function createFollowRule(input: FollowRuleInput) {
       "messageType",
       "content",
       "mediaUrl",
+      "actions",
       "cancelOnActivity",
       "provider",
       "isActive",
@@ -505,6 +670,7 @@ export async function createFollowRule(input: FollowRuleInput) {
       ${data.messageType},
       ${data.content},
       ${data.mediaUrl},
+      ${JSON.stringify(data.actions)}::jsonb,
       ${data.cancelOnActivity},
       ${data.provider},
       ${data.isActive},
@@ -523,6 +689,7 @@ export async function createFollowRule(input: FollowRuleInput) {
       "messageType",
       "content",
       "mediaUrl",
+      "actions",
       "cancelOnActivity",
       "provider",
       "isActive",
@@ -567,6 +734,7 @@ export async function listFollowRulesByWorkspace(workspaceId: string) {
       fr."messageType",
       fr."content",
       fr."mediaUrl",
+      fr."actions",
       fr."cancelOnActivity",
       fr."provider",
       fr."isActive",
@@ -622,6 +790,7 @@ export async function createFollow(input: FollowInput) {
       "messageType",
       "content",
       "mediaUrl",
+      "actions",
       "status",
       "provider",
       "cancelOnActivity",
@@ -645,6 +814,7 @@ export async function createFollow(input: FollowInput) {
       ${data.messageType},
       ${data.content},
       ${data.mediaUrl},
+      ${JSON.stringify(data.actions)}::jsonb,
       ${data.status},
       ${data.provider},
       ${data.cancelOnActivity},
@@ -669,6 +839,7 @@ export async function createFollow(input: FollowInput) {
       "messageType",
       "content",
       "mediaUrl",
+      "actions",
       "status",
       "provider",
       "cancelOnActivity",
@@ -734,6 +905,7 @@ export async function createFollowsFromRulesForSource(input: {
       messageType: rule.messageType,
       content: rule.content,
       mediaUrl: rule.mediaUrl,
+      actions: rule.actions as FollowActionInput[] | undefined,
       cancelOnActivity: rule.cancelOnActivity,
       executeAt: input.executeAt ?? resolveExecuteAt(rule.timeType, rule.timeValue),
     });
@@ -768,6 +940,7 @@ export async function listFollowsByContact(input: {
       f."messageType",
       f."content",
       f."mediaUrl",
+      f."actions",
       f."status",
       f."provider",
       f."cancelOnActivity",
@@ -834,23 +1007,36 @@ export async function cancelPendingFollowsByContact(input: {
 }) {
   const now = new Date();
   const reason = input.reason?.trim() || "Cancelado por actividad";
+  const pendingFollows = (await listFollowsByContact({
+    workspaceId: input.workspaceId,
+    contactId: input.contactId,
+    limit: 100,
+  })).filter((follow) => follow.status === "PENDING" && follow.cancelOnActivity);
 
-  const cancelled = await prisma.$executeRaw(Prisma.sql`
-    UPDATE public."Follow"
-    SET
-      "status" = 'CANCELLED',
-      "cancelledAt" = ${now},
-      "executionError" = ${reason},
-      "lockedAt" = NULL,
-      "lockedBy" = NULL,
-      "updatedAt" = ${now}
-    WHERE "workspaceId" = ${input.workspaceId}
-      AND "contactId" = ${input.contactId}
-      AND "status" = 'PENDING'
-      AND "cancelOnActivity" = TRUE
-  `);
+  for (const follow of pendingFollows) {
+    const actions = buildCancelledFollowActions({
+      actions: follow.actions as Prisma.JsonValue | null,
+      messageType: follow.messageType as FollowMessageType,
+      content: follow.content,
+      mediaUrl: follow.mediaUrl,
+      reason,
+    });
 
-  return { cancelled };
+    await prisma.$executeRaw(Prisma.sql`
+      UPDATE public."Follow"
+      SET
+        "status" = 'CANCELLED',
+        "cancelledAt" = ${now},
+        "executionError" = ${reason},
+        "lockedAt" = NULL,
+        "lockedBy" = NULL,
+        "actions" = ${JSON.stringify(actions)}::jsonb,
+        "updatedAt" = ${now}
+      WHERE "id" = ${follow.id}
+    `);
+  }
+
+  return { cancelled: pendingFollows.length };
 }
 
 async function claimDueFollowsForExecution(input: {
@@ -890,60 +1076,96 @@ async function claimDueFollowsForExecution(input: {
   `);
 }
 
-async function markFollowExecuted(followId: string) {
+async function persistFollowActionProgress(followId: string, actions: FollowActionRecord[]) {
+  const now = new Date();
+  await prisma.$executeRaw(Prisma.sql`
+    UPDATE public."Follow"
+    SET
+      "actions" = ${JSON.stringify(actions)}::jsonb,
+      "updatedAt" = ${now}
+    WHERE "id" = ${followId}
+  `);
+}
+
+async function finalizeFollowExecution(
+  followId: string,
+  actions: FollowActionRecord[],
+  executionError: string | null,
+) {
   const now = new Date();
   await prisma.$executeRaw(Prisma.sql`
     UPDATE public."Follow"
     SET
       "status" = 'EXECUTED',
       "executedAt" = ${now},
-      "executionError" = NULL,
+      "executionError" = ${executionError},
       "lockedAt" = NULL,
       "lockedBy" = NULL,
+      "actions" = ${JSON.stringify(actions)}::jsonb,
       "updatedAt" = ${now}
     WHERE "id" = ${followId}
   `);
 }
 
-async function markFollowFailed(followId: string, error: unknown, cancel = false) {
-  const now = new Date();
-  await prisma.$executeRaw(Prisma.sql`
-    UPDATE public."Follow"
-    SET
-      "status" = ${cancel ? "CANCELLED" : "PENDING"},
-      "cancelledAt" = ${cancel ? now : null},
-      "executionError" = ${buildExecutionErrorMessage(error)},
-      "lockedAt" = NULL,
-      "lockedBy" = NULL,
-      "updatedAt" = ${now}
-    WHERE "id" = ${followId}
-  `);
+function resolveFollowExecutionActions(follow: Pick<ClaimedFollowRow, "actions" | "messageType" | "content" | "mediaUrl">) {
+  const storedActions = parseStoredFollowActions(follow.actions);
+  if (storedActions.length) {
+    return storedActions;
+  }
+
+  return [buildLegacyFollowAction({
+    messageType: follow.messageType,
+    content: follow.content,
+    mediaUrl: follow.mediaUrl,
+  })];
 }
 
 async function executeFollowRecord(follow: ClaimedFollowRow) {
-  try {
-    await sendFollowMessage({
-      workspaceId: follow.workspaceId,
-      contactId: follow.contactId,
-      channelId: follow.channelId,
-      messageType: follow.messageType,
-      content: follow.content,
-      mediaUrl: follow.mediaUrl,
-    });
+  const actions = resolveFollowExecutionActions(follow);
+  const workerId = follow.lockedBy || randomUUID();
+  const actionErrors: Array<{ order: number; message: string }> = [];
 
-    await markFollowExecuted(follow.id);
-    return { ok: true as const };
-  } catch (error) {
-    const isConfigurationError =
-      !follow.content?.trim() && follow.messageType === "TEXT" ||
-      (isMediaType(follow.messageType) && !follow.mediaUrl?.trim());
+  for (const action of actions) {
+    if (action.status !== "PENDING") {
+      continue;
+    }
 
-    await markFollowFailed(follow.id, error, isConfigurationError);
-    return {
-      ok: false as const,
-      error: buildExecutionErrorMessage(error),
-    };
+    const now = new Date().toISOString();
+    action.lockedAt = now;
+    action.lockedBy = workerId;
+    await persistFollowActionProgress(follow.id, actions);
+
+    try {
+      await sendFollowMessage({
+        workspaceId: follow.workspaceId,
+        contactId: follow.contactId,
+        channelId: follow.channelId,
+        messageType: action.messageType,
+        content: action.content,
+        mediaUrl: action.mediaUrl,
+      });
+
+      action.status = "EXECUTED";
+      action.executedAt = new Date().toISOString();
+      action.executionError = null;
+      action.lockedAt = null;
+      action.lockedBy = null;
+    } catch (error) {
+      const errorMessage = buildExecutionErrorMessage(error);
+      action.status = "FAILED";
+      action.executionError = errorMessage;
+      action.executedAt = null;
+      action.lockedAt = null;
+      action.lockedBy = null;
+      actionErrors.push({ order: action.order, message: errorMessage });
+    }
+
+    await persistFollowActionProgress(follow.id, actions);
   }
+
+  const executionError = buildExecutionErrorSummary(actionErrors);
+  await finalizeFollowExecution(follow.id, actions, executionError);
+  return { ok: true as const, executionError };
 }
 
 export async function executePendingFollows(input: {
@@ -960,12 +1182,16 @@ export async function executePendingFollows(input: {
   });
 
   const results: Array<{ followId: string; ok: boolean; error?: string }> = [];
+  let warningCount = 0;
   for (const follow of claimed) {
     const result = await executeFollowRecord(follow);
+    if (result.executionError) {
+      warningCount += 1;
+    }
     results.push({
       followId: follow.id,
       ok: result.ok,
-      error: result.ok ? undefined : result.error,
+      error: result.executionError ?? undefined,
     });
   }
 
@@ -973,6 +1199,7 @@ export async function executePendingFollows(input: {
     claimed: claimed.length,
     executed: results.filter((item) => item.ok).length,
     failed: results.filter((item) => !item.ok).length,
+    warnings: warningCount,
     results,
   };
 }
@@ -1000,6 +1227,7 @@ export async function getFollowOverview(input: {
             f."messageType",
             f."content",
             f."mediaUrl",
+            f."actions",
             f."status",
             f."provider",
             f."cancelOnActivity",

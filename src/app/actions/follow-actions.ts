@@ -9,6 +9,7 @@ import {
   createFollow,
   createFollowRule,
   deleteFollowRule,
+  type FollowActionInput,
 } from "@/features/seguimientos/services/follows";
 
 const createFollowRuleSchema = z.object({
@@ -23,6 +24,13 @@ const createFollowRuleSchema = z.object({
   mediaUrl: z.string().trim().max(2048).optional().default(""),
   cancelOnActivity: z.coerce.boolean().optional().default(true),
   isActive: z.coerce.boolean().optional().default(true),
+});
+
+const followActionSchema = z.object({
+  order: z.coerce.number().int().min(1).optional(),
+  messageType: z.enum(["TEXT", "AUDIO", "IMAGE", "VIDEO", "DOC"]),
+  content: z.string().trim().max(5000).optional().default(""),
+  mediaUrl: z.string().trim().max(2048).optional().default(""),
 });
 
 const createFollowSchema = z.object({
@@ -43,6 +51,65 @@ const cancelFollowSchema = z.object({
   contactId: z.string().trim().min(1, "Contacto invalido"),
   reason: z.string().trim().max(500).optional().default(""),
 });
+
+function normalizeFollowActionsFromFormData(formData: FormData) {
+  const rawValue = formData.get("actions");
+  const rawActions = typeof rawValue === "string" ? rawValue.trim() : "";
+
+  if (!rawActions) {
+    return null;
+  }
+
+  let parsedJson: unknown;
+  try {
+    parsedJson = JSON.parse(rawActions);
+  } catch {
+    return { error: "Revisa las acciones del seguimiento" } as const;
+  }
+
+  const parsed = z.array(followActionSchema).safeParse(parsedJson);
+  if (!parsed.success) {
+    return { error: "Revisa las acciones del seguimiento" } as const;
+  }
+
+  const actions: FollowActionInput[] = [];
+  for (const [index, action] of parsed.data.entries()) {
+    const normalized: FollowActionInput = {
+      order: action.order ?? index + 1,
+      messageType: action.messageType,
+      content: action.content?.trim() ?? "",
+      mediaUrl: action.mediaUrl?.trim() ?? "",
+    };
+
+    if (normalized.messageType === "TEXT") {
+      if (!normalized.content.trim()) {
+        return { error: "Agrega contenido para el mensaje de texto" } as const;
+      }
+    } else if (!normalized.mediaUrl.trim()) {
+      return { error: "Sube el archivo de cada acción multimedia" } as const;
+    }
+
+    actions.push(normalized);
+  }
+
+  if (!actions.length) {
+    return { error: "Agrega al menos una acción" } as const;
+  }
+
+  return { actions } as const;
+}
+
+function buildFallbackActions(formData: FormData) {
+  const messageType = String(formData.get("messageType") || "TEXT") as FollowActionInput["messageType"];
+  return [
+    {
+      order: 1,
+      messageType,
+      content: String(formData.get("content") || "").trim(),
+      mediaUrl: String(formData.get("mediaUrl") || "").trim(),
+    },
+  ] satisfies FollowActionInput[];
+}
 
 function isAllowedRole(role?: string | null) {
   return role === "ADMIN" || role === "CLIENTE";
@@ -90,9 +157,20 @@ export async function createFollowRuleAction(
     return { error: "Revisa los datos de la regla" };
   }
 
-  const content = parsed.data.content.trim();
-  if (parsed.data.messageType === "TEXT" && !content) {
+  const parsedActions = normalizeFollowActionsFromFormData(formData);
+  if (parsedActions && "error" in parsedActions) {
+    return { error: parsedActions.error };
+  }
+
+  const actions = parsedActions?.actions ?? buildFallbackActions(formData);
+  const primaryAction = actions[0];
+
+  if (primaryAction.messageType === "TEXT" && !primaryAction.content.trim()) {
     return { error: "Agrega contenido para un mensaje de texto" };
+  }
+
+  if (primaryAction.messageType !== "TEXT" && !primaryAction.mediaUrl.trim()) {
+    return { error: "Sube el archivo de la acción multimedia" };
   }
 
   if (parsed.data.sourceType === "MANUAL") {
@@ -108,9 +186,10 @@ export async function createFollowRuleAction(
       channelId: parsed.data.channelId || null,
       timeType: parsed.data.timeType,
       timeValue: parsed.data.timeValue,
-      messageType: parsed.data.messageType,
-      content: content || null,
-      mediaUrl: parsed.data.mediaUrl || null,
+      messageType: primaryAction.messageType,
+      content: primaryAction.content || null,
+      mediaUrl: primaryAction.mediaUrl || null,
+      actions,
       cancelOnActivity: parsed.data.cancelOnActivity,
     });
 
@@ -138,9 +217,10 @@ export async function createFollowRuleAction(
     sourceId: parsed.data.sourceId || null,
     timeType: parsed.data.timeType,
     timeValue: parsed.data.timeValue,
-    messageType: parsed.data.messageType,
-    content: content || null,
-    mediaUrl: parsed.data.mediaUrl || null,
+    messageType: primaryAction.messageType,
+    content: primaryAction.content || null,
+    mediaUrl: primaryAction.mediaUrl || null,
+    actions,
     cancelOnActivity: parsed.data.cancelOnActivity,
     isActive: parsed.data.isActive,
   });
@@ -228,8 +308,19 @@ export async function createFollowAction(formData: FormData): Promise<void> {
     return;
   }
 
-  const content = parsed.data.content.trim();
-  if (parsed.data.messageType === "TEXT" && !content) {
+  const parsedActions = normalizeFollowActionsFromFormData(formData);
+  if (parsedActions && "error" in parsedActions) {
+    return;
+  }
+
+  const actions = parsedActions?.actions ?? buildFallbackActions(formData);
+  const primaryAction = actions[0];
+
+  if (primaryAction.messageType === "TEXT" && !primaryAction.content.trim()) {
+    return;
+  }
+
+  if (primaryAction.messageType !== "TEXT" && !primaryAction.mediaUrl.trim()) {
     return;
   }
 
@@ -241,9 +332,10 @@ export async function createFollowAction(formData: FormData): Promise<void> {
     channelId: parsed.data.channelId || null,
     timeType: parsed.data.timeType,
     timeValue: parsed.data.timeValue,
-    messageType: parsed.data.messageType,
-    content: content || null,
-    mediaUrl: parsed.data.mediaUrl || null,
+    messageType: primaryAction.messageType,
+    content: primaryAction.content || null,
+    mediaUrl: primaryAction.mediaUrl || null,
+    actions,
     executeAt: parsed.data.executeAt ? new Date(parsed.data.executeAt) : null,
     cancelOnActivity: parsed.data.cancelOnActivity,
   });

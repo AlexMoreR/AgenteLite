@@ -1,7 +1,16 @@
 "use client";
 
 import { useActionState, useEffect, useMemo, useRef, useState } from "react";
-import { FileUp, Image as ImageIcon, LoaderCircle, PlusCircle, X } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  FileUp,
+  Image as ImageIcon,
+  LoaderCircle,
+  PlusCircle,
+  Trash2,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -21,7 +30,6 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -129,6 +137,47 @@ const followMediaAcceptMap: Record<Exclude<FollowMessageType, "TEXT">, string> =
   DOC: ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain",
 };
 
+type FollowActionDraft = {
+  id: string;
+  order: number;
+  messageType: FollowMessageType;
+  content: string;
+  mediaUrl: string;
+  mediaFileName: string;
+  mediaUploadError: string;
+  isUploadingMedia: boolean;
+  mediaDragActive: boolean;
+};
+
+function createFollowActionId() {
+  return typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `follow-action-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function createFollowActionDraft(order: number, messageType: FollowMessageType = "TEXT"): FollowActionDraft {
+  return {
+    id: createFollowActionId(),
+    order,
+    messageType,
+    content: "",
+    mediaUrl: "",
+    mediaFileName: "",
+    mediaUploadError: "",
+    isUploadingMedia: false,
+    mediaDragActive: false,
+  };
+}
+
+function buildSubmitFollowActions(actions: FollowActionDraft[]) {
+  return actions.map((action, index) => ({
+    order: index + 1,
+    messageType: action.messageType,
+    content: action.content.trim(),
+    mediaUrl: action.mediaUrl.trim(),
+  }));
+}
+
 function isAllowedFollowMediaFile(file: File, messageType: Exclude<FollowMessageType, "TEXT">) {
   if (messageType === "IMAGE") {
     return file.type.startsWith("image/");
@@ -165,7 +214,6 @@ const initialActionState: CreateFollowRuleActionState = {
 };
 
 export function NewFollowDialog({
-  workspaceName,
   channels,
   contacts,
   sourceOptions,
@@ -179,15 +227,10 @@ export function NewFollowDialog({
   const [ruleSourceValue, setRuleSourceValue] = useState<SelectOption | null>(
     null,
   );
-  const [ruleMessageType, setRuleMessageType] =
-    useState<FollowMessageType>("TEXT");
-  const [ruleContent, setRuleContent] = useState("");
-  const [mediaUrl, setMediaUrl] = useState("");
-  const [mediaFileName, setMediaFileName] = useState("");
-  const [mediaUploadError, setMediaUploadError] = useState("");
-  const [isUploadingMedia, setIsUploadingMedia] = useState(false);
-  const [mediaDragActive, setMediaDragActive] = useState(false);
-  const mediaInputRef = useRef<HTMLInputElement>(null);
+  const [followActions, setFollowActions] = useState<FollowActionDraft[]>(() => [
+    createFollowActionDraft(1),
+  ]);
+  const actionInputRefs = useRef(new Map<string, HTMLInputElement | null>());
   const [actionState, formAction, pending] = useActionState(
     createFollowRuleAction,
     initialActionState,
@@ -203,37 +246,97 @@ export function NewFollowDialog({
   const ruleSourcePlaceholderText = sourcePlaceholder(ruleSourceType);
   const ruleSourceEmptyText = sourceEmptyText(ruleSourceType);
   const isManualFollow = ruleSourceType === "MANUAL";
-  const isTextMessage =
-    ruleMessageType === "TEXT" || ruleMessageType.toUpperCase() === "TEXT";
-  const isMultimediaMessage = !isTextMessage;
   const stepTitle = isManualFollow ? "Programar seguimiento" : "Crear regla";
-  const stepDescription = isManualFollow
-    ? `Programa un seguimiento para ${workspaceName}.`
-    : `Configura la automatizacion reutilizable para ${workspaceName}.`;
 
-  function resetMediaUploadState() {
-    setMediaUrl("");
-    setMediaFileName("");
-    setMediaUploadError("");
-    setIsUploadingMedia(false);
-    setMediaDragActive(false);
-    if (mediaInputRef.current) {
-      mediaInputRef.current.value = "";
+  const serializedFollowActions = useMemo(
+    () => buildSubmitFollowActions(followActions),
+    [followActions],
+  );
+  const primaryFollowAction = serializedFollowActions[0] ?? {
+    order: 1,
+    messageType: "TEXT" as FollowMessageType,
+    content: "",
+    mediaUrl: "",
+  };
+
+  const followActionsHavePendingUpload = followActions.some(
+    (action) => action.isUploadingMedia,
+  );
+  const followActionsAreComplete = followActions.every((action) => {
+    if (action.mediaUploadError.trim()) {
+      return false;
     }
+
+    if (action.isUploadingMedia) {
+      return false;
+    }
+
+    if (action.messageType === "TEXT") {
+      return action.content.trim().length > 0;
+    }
+
+    return action.mediaUrl.trim().length > 0;
+  });
+
+  function resetFollowActions() {
+    setFollowActions([createFollowActionDraft(1)]);
+    actionInputRefs.current = new Map();
   }
 
-  async function uploadFollowMedia(file: File) {
-    if (!isMultimediaMessage) {
+  function updateFollowAction(
+    actionId: string,
+    updater: (action: FollowActionDraft) => FollowActionDraft,
+  ) {
+    setFollowActions((current) =>
+      current.map((action) => (action.id === actionId ? updater(action) : action)),
+    );
+  }
+
+  function setFollowActionMessageType(
+    actionId: string,
+    messageType: FollowMessageType,
+  ) {
+    updateFollowAction(actionId, (action) => ({
+      ...action,
+      messageType,
+      mediaUrl: "",
+      mediaFileName: "",
+      mediaUploadError: "",
+      isUploadingMedia: false,
+      mediaDragActive: false,
+    }));
+  }
+
+  function clearFollowActionMedia(actionId: string) {
+    updateFollowAction(actionId, (action) => ({
+      ...action,
+      mediaUrl: "",
+      mediaFileName: "",
+      mediaUploadError: "",
+      isUploadingMedia: false,
+      mediaDragActive: false,
+    }));
+  }
+
+  async function uploadFollowMedia(actionId: string, file: File) {
+    const currentAction = followActions.find((action) => action.id === actionId);
+    if (!currentAction || currentAction.messageType === "TEXT") {
       return;
     }
 
-    if (!isAllowedFollowMediaFile(file, ruleMessageType as Exclude<FollowMessageType, "TEXT">)) {
-      setMediaUploadError("El archivo no coincide con el tipo de mensaje seleccionado.");
+    if (!isAllowedFollowMediaFile(file, currentAction.messageType as Exclude<FollowMessageType, "TEXT">)) {
+      updateFollowAction(actionId, (action) => ({
+        ...action,
+        mediaUploadError: "El archivo no coincide con el tipo de mensaje seleccionado.",
+      }));
       return;
     }
 
-    setIsUploadingMedia(true);
-    setMediaUploadError("");
+    updateFollowAction(actionId, (action) => ({
+      ...action,
+      isUploadingMedia: true,
+      mediaUploadError: "",
+    }));
 
     try {
       const formData = new FormData();
@@ -249,36 +352,53 @@ export function NewFollowDialog({
         throw new Error(payload?.error || "No se pudo subir el archivo.");
       }
 
-      setMediaUrl(payload.url);
-      setMediaFileName(payload.fileName || file.name);
+      updateFollowAction(actionId, (action) => ({
+        ...action,
+        mediaUrl: payload.url || "",
+        mediaFileName: payload.fileName || file.name,
+        mediaUploadError: "",
+        isUploadingMedia: false,
+        mediaDragActive: false,
+      }));
       toast.success("Archivo subido");
     } catch (error) {
       const message = error instanceof Error ? error.message : "No se pudo subir el archivo.";
-      setMediaUploadError(message);
-      setMediaUrl("");
-      setMediaFileName("");
+      updateFollowAction(actionId, (action) => ({
+        ...action,
+        mediaUploadError: message,
+        mediaUrl: "",
+        mediaFileName: "",
+        isUploadingMedia: false,
+        mediaDragActive: false,
+      }));
       toast.error("Error al subir el archivo", {
         description: message,
       });
-    } finally {
-      setIsUploadingMedia(false);
     }
   }
 
-  function handleFollowMediaInputChange(event: React.ChangeEvent<HTMLInputElement>) {
+  function handleFollowMediaInputChange(
+    actionId: string,
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) {
     const file = event.target.files?.[0] ?? null;
     event.target.value = "";
     if (!file) {
       return;
     }
 
-    void uploadFollowMedia(file);
+    void uploadFollowMedia(actionId, file);
   }
 
-  function handleFollowMediaDrop(event: React.DragEvent<HTMLDivElement>) {
+  function handleFollowMediaDrop(actionId: string, event: React.DragEvent<HTMLDivElement>) {
     event.preventDefault();
-    setMediaDragActive(false);
-    if (!isMultimediaMessage || ruleMessageType !== "IMAGE") {
+    updateFollowAction(actionId, (action) => ({
+      ...action,
+      mediaDragActive: false,
+    }));
+
+    const action = followActions.find((item) => item.id === actionId);
+    if (!action || action.messageType !== "IMAGE") {
       return;
     }
 
@@ -290,7 +410,41 @@ export function NewFollowDialog({
       return;
     }
 
-    void uploadFollowMedia(file);
+    void uploadFollowMedia(actionId, file);
+  }
+
+  function addFollowAction() {
+    setFollowActions((current) => [
+      ...current,
+      createFollowActionDraft(current.length + 1),
+    ]);
+  }
+
+  function removeFollowAction(actionId: string) {
+    setFollowActions((current) => {
+      if (current.length <= 1) {
+        return current;
+      }
+
+      return current
+        .filter((action) => action.id !== actionId)
+        .map((action, index) => ({ ...action, order: index + 1 }));
+    });
+    actionInputRefs.current.delete(actionId);
+  }
+
+  function moveFollowAction(actionId: string, direction: -1 | 1) {
+    setFollowActions((current) => {
+      const index = current.findIndex((action) => action.id === actionId);
+      const nextIndex = index + direction;
+      if (index < 0 || nextIndex < 0 || nextIndex >= current.length) {
+        return current;
+      }
+
+      const next = [...current];
+      [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
+      return next.map((action, order) => ({ ...action, order: order + 1 }));
+    });
   }
 
   useEffect(() => {
@@ -318,9 +472,7 @@ export function NewFollowDialog({
           setSelectedChannelId("");
           setRuleSourceType("MANUAL");
           setRuleSourceValue(null);
-          setRuleMessageType("TEXT");
-          setRuleContent("");
-          resetMediaUploadState();
+          resetFollowActions();
         }
       }}
     >
@@ -499,141 +651,245 @@ export function NewFollowDialog({
                     </Field>
                   </div>
                   
-                  <FieldLabel className="py-2">Acciones</FieldLabel>
+                  <div className="py-2 text-sm font-medium">Acciones</div>
                   
 
-                  <Card   >
-                    <CardContent>
-                      <FieldGroup className="gap-2">
-                        <Field>
-                          <Select
-                            value={ruleMessageType}
-                            onValueChange={(value) => {
-                              setRuleMessageType(value as FollowMessageType);
-                              resetMediaUploadState();
-                            }}
-                          >
-                            <SelectTrigger id="quick-rule-message-type" aria-label="Tipo de mensaje">
-                              <SelectValue placeholder="Texto" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="TEXT">Texto</SelectItem>
-                              <SelectItem value="AUDIO">Audio</SelectItem>
-                              <SelectItem value="IMAGE">Imagen</SelectItem>
-                              <SelectItem value="VIDEO">Video</SelectItem>
-                              <SelectItem value="DOC">Documento</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <input type="hidden" name="messageType" value={ruleMessageType} />
-                        </Field>
+                  <FieldLabel className="py-2">Acciones</FieldLabel>
 
-                        <div className={isMultimediaMessage ? "grid gap-0 sm:grid-cols-2 sm:gap-2" : "grid gap-4"}>
-                          <Field className={isMultimediaMessage ? "" : "sm:col-span-2"}>
-                            <Textarea
-                              id="quick-rule-content"
-                              name="content"
-                              rows={4}
-                              placeholder={
-                                isTextMessage
-                                  ? "Hola, seguimos atentos a tu caso..."
-                                  : "Ingresa tu mensaje aqui"
-                              }
-                              value={ruleContent}
-                              onChange={(event) => setRuleContent(event.target.value)}
-                              required={isTextMessage}
-                            />
-                          </Field>
+                  <input
+                    type="hidden"
+                    name="messageType"
+                    value={primaryFollowAction.messageType}
+                  />
+                  <input type="hidden" name="content" value={primaryFollowAction.content} />
+                  <input type="hidden" name="mediaUrl" value={primaryFollowAction.mediaUrl} />
+                  <input
+                    type="hidden"
+                    name="actions"
+                    value={JSON.stringify(serializedFollowActions)}
+                  />
 
-                          {isMultimediaMessage ? (
-                            <Field>
+                  <div className="grid gap-3">
+                    {followActions.map((action, index) => {
+                      const isTextAction = action.messageType === "TEXT";
+                      const isFirstAction = index === 0;
+
+                      return (
+                        <Card key={action.id} className="border border-slate-200 shadow-none">
+                          <CardContent className="p-3">
+                            <div className="mb-2 flex items-center justify-between gap-2">
+                              <div className="text-sm font-medium">Acción {index + 1}</div>
+                              <div className="flex items-center gap-1">
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  onClick={() => moveFollowAction(action.id, -1)}
+                                  disabled={isFirstAction}
+                                  aria-label="Subir acción"
+                                >
+                                  <ArrowUp data-icon="inline-start" />
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  onClick={() => moveFollowAction(action.id, 1)}
+                                  disabled={index === followActions.length - 1}
+                                  aria-label="Bajar acción"
+                                >
+                                  <ArrowDown data-icon="inline-start" />
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  onClick={() => removeFollowAction(action.id)}
+                                  disabled={followActions.length === 1}
+                                  aria-label="Eliminar acción"
+                                >
+                                  <Trash2 data-icon="inline-start" />
+                                </Button>
+                              </div>
+                            </div>
+
+                            <FieldGroup className="gap-2">
+                              <Field>
+                                <Select
+                                  value={action.messageType}
+                                  onValueChange={(value) => {
+                                    setFollowActionMessageType(
+                                      action.id,
+                                      value as FollowMessageType,
+                                    );
+                                  }}
+                                >
+                                  <SelectTrigger
+                                    id={`quick-rule-message-type-${action.id}`}
+                                    aria-label="Tipo de mensaje"
+                                  >
+                                    <SelectValue placeholder="Texto" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="TEXT">Texto</SelectItem>
+                                    <SelectItem value="AUDIO">Audio</SelectItem>
+                                    <SelectItem value="IMAGE">Imagen</SelectItem>
+                                    <SelectItem value="VIDEO">Video</SelectItem>
+                                    <SelectItem value="DOC">Documento</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </Field>
+
                               <div
                                 className={
-                                  ruleMessageType === "IMAGE"
-                                    ? `rounded-lg border border-dashed px-3 py-1 ${mediaDragActive ? "border-primary bg-muted/40" : ""}`
-                                    : "rounded-lg border border-dashed px-3 py-1"
+                                  isTextAction
+                                    ? "grid gap-4"
+                                    : "grid gap-0 sm:grid-cols-2 sm:gap-2"
                                 }
-                                onDragOver={(event) => {
-                                  if (ruleMessageType !== "IMAGE") {
-                                    return;
-                                  }
-                                  event.preventDefault();
-                                  setMediaDragActive(true);
-                                }}
-                                onDragLeave={(event) => {
-                                  if (ruleMessageType !== "IMAGE") {
-                                    return;
-                                  }
-                                  event.preventDefault();
-                                  setMediaDragActive(false);
-                                }}
-                                onDrop={handleFollowMediaDrop}
                               >
-                                <input
-                                  ref={mediaInputRef}
-                                  id="quick-rule-media-upload"
-                                  type="file"
-                                  accept={followMediaAcceptMap[ruleMessageType as Exclude<FollowMessageType, "TEXT">]}
-                                  className="hidden"
-                                  onChange={handleFollowMediaInputChange}
-                                />
-
-                                <div className="flex items-center gap-2">
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    onClick={() => mediaInputRef.current?.click()}
-                                    disabled={isUploadingMedia}
-                                  >
-                                    {isUploadingMedia ? <LoaderCircle className="animate-spin" /> : ruleMessageType === "IMAGE" ? <ImageIcon /> : <FileUp />}
-                                    {mediaUrl ? "Cambiar archivo" : "Subir archivo"}
-                                  </Button>
-
-                                  {mediaUrl ? (
-                                    <>
-                                      <span className="text-xs text-muted-foreground truncate">
-                                        {mediaFileName || mediaUrl}
-                                      </span>
-                                      <Button
-                                        type="button"
-                                        variant="ghost"
-                                        size="icon-sm"
-                                        onClick={resetMediaUploadState}
-                                        aria-label="Quitar archivo"
-                                      >
-                                        <X />
-                                      </Button>
-                                    </>
-                                  ) : null}
-                                </div>
-
-                                <p className="mt-2 text-xs text-muted-foreground">
-                                  {followMediaHelperText(ruleMessageType as Exclude<FollowMessageType, "TEXT">)}
-                                </p>
-
-                                {mediaUrl && ruleMessageType === "IMAGE" ? (
-                                  // eslint-disable-next-line @next/next/no-img-element
-                                  <img
-                                    src={mediaUrl}
-                                    alt={mediaFileName || "Vista previa"}
-                                    className="mt-3 max-h-40 rounded-md object-contain"
+                                <Field className={isTextAction ? "sm:col-span-2" : ""}>
+                                  <Textarea
+                                    id={`quick-rule-content-${action.id}`}
+                                    rows={4}
+                                    placeholder={
+                                      isTextAction
+                                        ? "Hola, seguimos atentos a tu caso..."
+                                        : "Ingresa tu mensaje aqui"
+                                    }
+                                    value={action.content}
+                                    onChange={(event) =>
+                                      updateFollowAction(action.id, (current) => ({
+                                        ...current,
+                                        content: event.target.value,
+                                      }))
+                                    }
+                                    required={isTextAction}
                                   />
-                                ) : null}
+                                </Field>
 
-                                {mediaUploadError ? (
-                                  <p className="mt-2 text-xs text-destructive">{mediaUploadError}</p>
+                                {!isTextAction ? (
+                                  <Field>
+                                    <div
+                                      className={
+                                        action.messageType === "IMAGE"
+                                          ? `rounded-lg border border-dashed px-3 py-1 ${
+                                              action.mediaDragActive
+                                                ? "border-primary bg-muted/40"
+                                                : ""
+                                            }`
+                                          : "rounded-lg border border-dashed px-3 py-1"
+                                      }
+                                      onDragOver={(event) => {
+                                        if (action.messageType !== "IMAGE") {
+                                          return;
+                                        }
+                                        event.preventDefault();
+                                        updateFollowAction(action.id, (current) => ({
+                                          ...current,
+                                          mediaDragActive: true,
+                                        }));
+                                      }}
+                                      onDragLeave={(event) => {
+                                        if (action.messageType !== "IMAGE") {
+                                          return;
+                                        }
+                                        event.preventDefault();
+                                        updateFollowAction(action.id, (current) => ({
+                                          ...current,
+                                          mediaDragActive: false,
+                                        }));
+                                      }}
+                                      onDrop={(event) => handleFollowMediaDrop(action.id, event)}
+                                    >
+                                      <input
+                                        ref={(node) => {
+                                          if (node) {
+                                            actionInputRefs.current.set(action.id, node);
+                                            return;
+                                          }
+
+                                          actionInputRefs.current.delete(action.id);
+                                        }}
+                                        id={`quick-rule-media-upload-${action.id}`}
+                                        type="file"
+                                        accept={
+                                          followMediaAcceptMap[
+                                            action.messageType as Exclude<FollowMessageType, "TEXT">
+                                          ]
+                                        }
+                                        className="hidden"
+                                        onChange={(event) => handleFollowMediaInputChange(action.id, event)}
+                                      />
+
+                                      <div className="flex items-center gap-2">
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          onClick={() =>
+                                            actionInputRefs.current.get(action.id)?.click()
+                                          }
+                                          disabled={action.isUploadingMedia}
+                                        >
+                                          {action.isUploadingMedia ? (
+                                            <LoaderCircle className="animate-spin" />
+                                          ) : action.messageType === "IMAGE" ? (
+                                            <ImageIcon />
+                                          ) : (
+                                            <FileUp />
+                                          )}
+                                          {action.mediaUrl ? "Cambiar archivo" : "Subir archivo"}
+                                        </Button>
+
+                                        {action.mediaUrl ? (
+                                          <>
+                                            <span className="truncate text-xs text-muted-foreground">
+                                              {action.mediaFileName || action.mediaUrl}
+                                            </span>
+                                            <Button
+                                              type="button"
+                                              variant="ghost"
+                                              size="icon-sm"
+                                              onClick={() => clearFollowActionMedia(action.id)}
+                                              aria-label="Quitar archivo"
+                                            >
+                                              <X />
+                                            </Button>
+                                          </>
+                                        ) : null}
+                                      </div>
+
+                                      <p className="mt-2 text-xs text-muted-foreground">
+                                        {followMediaHelperText(
+                                          action.messageType as Exclude<FollowMessageType, "TEXT">,
+                                        )}
+                                      </p>
+
+                                      {action.mediaUrl && action.messageType === "IMAGE" ? (
+                                        // eslint-disable-next-line @next/next/no-img-element
+                                        <img
+                                          src={action.mediaUrl}
+                                          alt={action.mediaFileName || "Vista previa"}
+                                          className="mt-3 max-h-40 rounded-md object-contain"
+                                        />
+                                      ) : null}
+
+                                      {action.mediaUploadError ? (
+                                        <p className="mt-2 text-xs text-destructive">
+                                          {action.mediaUploadError}
+                                        </p>
+                                      ) : null}
+                                    </div>
+                                  </Field>
                                 ) : null}
                               </div>
-                            </Field>
-                          ) : (
-                            <input type="hidden" name="mediaUrl" value="" />
-                          )}
-                        </div>
+                            </FieldGroup>
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
+                  </div>
 
-                      </FieldGroup>
-                    </CardContent>
-                  </Card>
-
-                  <Button type="button" className="self-center my-2">
+                  <Button type="button" className="self-center my-2" onClick={addFollowAction}>
                     <PlusCircle data-icon="inline-start" />
                     Añadir Acción
                   </Button>
@@ -656,7 +912,7 @@ export function NewFollowDialog({
                   </Button>
                   <Button
                     type="submit"
-                    disabled={pending || isUploadingMedia || (isMultimediaMessage && !mediaUrl)}
+                    disabled={pending || followActionsHavePendingUpload || !followActionsAreComplete}
                   >
                     {pending
                       ? "Guardando..."

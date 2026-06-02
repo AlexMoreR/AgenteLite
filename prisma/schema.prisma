@@ -854,6 +854,7 @@ model FollowRule {
   messageType     FollowMessageType
   content         String?
   mediaUrl        String?
+  actions         Json?
   cancelOnActivity Boolean          @default(true)
   provider        FollowProvider    @default(EVOLUTION)
   isActive        Boolean           @default(true)
@@ -881,6 +882,7 @@ model Follow {
   messageType      FollowMessageType
   content          String?
   mediaUrl         String?
+  actions          Json?
   status           FollowStatus     @default(PENDING)
   provider         FollowProvider   @default(EVOLUTION)
   cancelOnActivity Boolean          @default(true)
