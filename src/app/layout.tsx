@@ -123,7 +123,7 @@ export default async function RootLayout({
             },
           },
         },
-        }).then((channels) =>
+      }).then((channels) =>
         channels.map((channel) => ({
           title: channel.name,
           url: `/cliente/chats?connection=${encodeURIComponent(`channel:${channel.id}`)}`,

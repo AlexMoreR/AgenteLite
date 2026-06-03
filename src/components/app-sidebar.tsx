@@ -1,286 +1,162 @@
-"use client";
+"use client"
 
+import * as React from "react"
+import Link from "next/link"
+import { usePathname } from "next/navigation"
 import {
   AlarmClock,
   Bot,
+  BriefcaseBusiness,
   Cable,
+  Blocks,
   FileText,
-  LayoutDashboard,
+  KanbanSquare,
   Megaphone,
+  MessageSquare,
+  MessageSquareMore,
   Package,
-  Tag,
+  Tags,
   Truck,
+  UserCog,
+  Users,
   Users2,
   Wallet,
-} from "lucide-react";
-import type { Role } from "@prisma/client";
-import { NavChats } from "@/components/nav-chats";
-import { NavMain, type NavMainItem } from "@/components/nav-main";
-import { NavCrm } from "@/components/nav-crm";
-import { NavUser } from "@/components/nav-user";
-import { TeamSwitcher } from "@/components/team-switcher";
-import type { AdminModuleKey } from "@/lib/admin-module-access";
+} from "lucide-react"
+
+import { NavChats } from "@/components/nav-chats"
+import { NavCrm } from "@/components/nav-crm"
+import { NavUser } from "@/components/nav-user"
+import { TeamSwitcher } from "@/components/team-switcher"
 import {
   Sidebar,
   SidebarContent,
+  SidebarGroup,
+  SidebarGroupContent,
   SidebarFooter,
   SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
   SidebarRail,
-  SidebarTrigger,
-  useSidebar,
-} from "@/components/ui/sidebar";
+} from "@/components/ui/sidebar"
+import {
+  adminModuleDefinitions,
+  type AdminModuleKey,
+} from "@/lib/admin-modules"
 
-const roleHome = {
-  ADMIN: "/admin",
-  EMPLEADO: "/empleado",
-  CLIENTE: "/cliente",
-} as const;
+const moduleIconMap: Record<AdminModuleKey, React.ComponentType> = {
+  config_users: Users,
+  config_business: BriefcaseBusiness,
+  config_permissions: UserCog,
+  config_whatsapp: MessageSquareMore,
+  products: Package,
+  categories: Tags,
+  suppliers: Truck,
+  quotes: Blocks,
+  chats: MessageSquare,
+  contacts: Users2,
+  crm: KanbanSquare,
+  flows: FileText,
+  seguimientos: AlarmClock,
+  marketing_ia: Megaphone,
+  finanzas: Wallet,
+  connection: Cable,
+  agents: Bot,
+  client_official_api: MessageSquare,
+}
 
-type AppSidebarProps = {
-  pathname: string;
-  currentConnectionKey?: string;
-  brandName: string;
-  adminModuleAccess: Record<AdminModuleKey, boolean>;
-  chatSidebarItems: Array<{
-    title: string;
-    url: string;
-    helper?: string;
-    kind?: "general" | "evolution" | "official";
-  }>;
-  user: {
-    name?: string | null;
-    email?: string | null;
-    image?: string | null;
-    role?: Role;
-  };
-};
+type AppSidebarProps = React.ComponentProps<typeof Sidebar> & {
+  adminModuleAccess?: Record<AdminModuleKey, boolean>
+  brandName?: string
+  user?: {
+    name?: string | null
+    email?: string | null
+    image?: string | null
+  }
+  currentConnectionKey?: string
+  chatSidebarItems?: Array<{
+    title: string
+    url: string
+    helper?: string
+    kind?: "general" | "evolution" | "official"
+  }>
+}
 
 export function AppSidebar({
-  pathname,
-  currentConnectionKey = "",
-  brandName,
-  adminModuleAccess,
-  chatSidebarItems,
+  adminModuleAccess = {} as Record<AdminModuleKey, boolean>,
+  brandName = "Workspace",
   user,
+  currentConnectionKey = "",
+  chatSidebarItems = [],
   ...props
-}: AppSidebarProps & React.ComponentProps<typeof Sidebar>) {
-  const { openDesktop } = useSidebar();
-  const dashboardHref = user.role ? roleHome[user.role] : "/";
-  const isAdminConfigRoute = pathname.startsWith("/admin/configuracion");
-  const isAdminCategoriesRoute = pathname.startsWith("/admin/categorias");
-  const isAdminProductsRoute = pathname.startsWith("/admin/productos");
-  const isAdminQuotesRoute = pathname.startsWith("/admin/cotizaciones");
-  const isAdminSuppliersRoute = pathname.startsWith("/admin/proveedores");
-  const isClientAgentsRoute = pathname.startsWith("/cliente/agentes");
-  const isClientChatsRoute = pathname.startsWith("/cliente/chats");
-  const isClientContactsRoute = pathname.startsWith("/cliente/contactos");
-  const isClientCrmRoute = pathname.startsWith("/cliente/crm");
-  const isClientFlowsRoute = pathname.startsWith("/cliente/flujos");
-  const isClientSeguimientosRoute = pathname.startsWith("/cliente/seguimientos");
-  const isClientMarketingRoute = pathname.startsWith("/cliente/marketing-ia");
-  const isClientFinanzasRoute = pathname.startsWith("/cliente/finanzas");
-  const isClientConnectionRoute = pathname.startsWith("/cliente/conexion");
-  const canAccessSidebarModule = (moduleKey: AdminModuleKey) => user.role === "ADMIN" ? adminModuleAccess[moduleKey] : true;
-  const canSeeChats = canAccessSidebarModule("chats");
-  const canSeeCrm = canAccessSidebarModule("crm");
-  const currentCrmView = pathname.startsWith("/cliente/crm/informe")
-    ? "informe"
-    : pathname.startsWith("/cliente/crm/kanban")
-      ? "kanban"
-      : "registro";
-
-  const navMainTop: NavMainItem[] = [
-    {
-      title: "Dashboard",
-      url: dashboardHref,
-      icon: LayoutDashboard,
-      isActive:
-        pathname === dashboardHref ||
-        (pathname.startsWith(`${dashboardHref}/`) &&
-          !isAdminConfigRoute &&
-          !isAdminCategoriesRoute &&
-          !isAdminProductsRoute &&
-          !isAdminQuotesRoute &&
-          !isAdminSuppliersRoute &&
-          !isClientAgentsRoute &&
-          !isClientChatsRoute &&
-          !isClientContactsRoute &&
-          !isClientCrmRoute &&
-          !isClientFlowsRoute &&
-          !isClientSeguimientosRoute &&
-          !isClientMarketingRoute &&
-          !isClientFinanzasRoute &&
-          !isClientConnectionRoute),
-      items: [
-        { title: "Vista general", url: dashboardHref },
-      ],
-    },
-  ];
-
-  if (user.role === "ADMIN") {
-    if (canAccessSidebarModule("products")) {
-      navMainTop.push({
-        title: "Productos",
-        url: "/admin/productos",
-        icon: Package,
-        isActive: pathname.startsWith("/admin/productos"),
-        items: [{ title: "Catalogo", url: "/admin/productos" }],
-      });
-    }
-
-    if (canAccessSidebarModule("categories")) {
-      navMainTop.push({
-        title: "Categorias",
-        url: "/admin/categorias",
-        icon: Tag,
-        isActive: pathname.startsWith("/admin/categorias"),
-        items: [{ title: "Gestion", url: "/admin/categorias" }],
-      });
-    }
-
-    if (canAccessSidebarModule("suppliers")) {
-      navMainTop.push({
-        title: "Proveedores",
-        url: "/admin/proveedores",
-        icon: Truck,
-        isActive: pathname.startsWith("/admin/proveedores"),
-        items: [{ title: "Gestion", url: "/admin/proveedores" }],
-      });
-    }
-
-    if (canAccessSidebarModule("quotes")) {
-      navMainTop.push({
-        title: "Cotizaciones",
-        url: "/admin/cotizaciones",
-        icon: FileText,
-        isActive: pathname.startsWith("/admin/cotizaciones"),
-        items: [{ title: "Listado", url: "/admin/cotizaciones" }],
-      });
-    }
-  }
-
-  const navMainBottom: NavMainItem[] = [];
-
-  if (user.role === "ADMIN" || user.role === "CLIENTE") {
-    if (canAccessSidebarModule("contacts")) {
-      navMainBottom.push({
-        title: "Contactos",
-        url: "/cliente/contactos",
-        icon: Users2,
-        isActive: pathname.startsWith("/cliente/contactos"),
-        items: [{ title: "Base", url: "/cliente/contactos" }],
-      });
-    }
-
-    if (canAccessSidebarModule("flows")) {
-      navMainBottom.push({
-        title: "Flujos",
-        url: "/cliente/flujos",
-        icon: FileText,
-        isActive: pathname.startsWith("/cliente/flujos"),
-        items: [{ title: "Builder", url: "/cliente/flujos" }],
-      });
-    }
-
-    if (canAccessSidebarModule("seguimientos")) {
-      navMainBottom.push({
-        title: "Seguimientos",
-        url: "/cliente/seguimientos",
-        icon: AlarmClock,
-        isActive: pathname.startsWith("/cliente/seguimientos"),
-        items: [{ title: "Reglas y colas", url: "/cliente/seguimientos" }],
-      });
-    }
-
-    if (canAccessSidebarModule("marketing_ia")) {
-      navMainBottom.push({
-        title: "Marketing IA",
-        url: "/cliente/marketing-ia",
-        icon: Megaphone,
-        isActive: pathname.startsWith("/cliente/marketing-ia"),
-        items: [{ title: "Anuncios", url: "/cliente/marketing-ia" }],
-      });
-    }
-
-    if (canAccessSidebarModule("finanzas")) {
-      navMainBottom.push({
-        title: "Finanzas",
-        url: "/cliente/finanzas",
-        icon: Wallet,
-        isActive: pathname.startsWith("/cliente/finanzas"),
-        items: [{ title: "Mis finanzas", url: "/cliente/finanzas" }],
-      });
-    }
-
-    if (canAccessSidebarModule("connection")) {
-      navMainBottom.push({
-        title: "Conexion",
-        url: "/cliente/conexion",
-        icon: Cable,
-        isActive: pathname.startsWith("/cliente/conexion"),
-        items: [
-          { title: "Resumen", url: "/cliente/conexion" },
-        ],
-      });
-    }
-
-    if (canAccessSidebarModule("agents")) {
-      navMainBottom.push({
-        title: "Agentes",
-        url: "/cliente/agentes",
-        icon: Bot,
-        isActive: pathname.startsWith("/cliente/agentes"),
-        items: [{ title: "Estudio", url: "/cliente/agentes" }],
-      });
-    }
-  }
-
-  const teams = [
-    { name: brandName, plan: "Cumpliendo suenos" },
-  ];
-
-  const canAccessConfig =
-    adminModuleAccess.config_users ||
-    adminModuleAccess.config_business ||
-    adminModuleAccess.config_permissions ||
-    adminModuleAccess.config_whatsapp;
+}: AppSidebarProps) {
+  const pathname = usePathname()
+  const visibleModules = adminModuleDefinitions.filter((module) => adminModuleAccess[module.key])
+  const visibleModulesWithoutChats = visibleModules.filter((module) => module.key !== "chats" && module.key !== "crm")
 
   return (
     <Sidebar collapsible="icon" {...props}>
-      <SidebarHeader className="relative gap-2 px-3 pr-2 md:px-4 md:pr-2">
-        <div className="min-w-0 flex-1">
-          <TeamSwitcher teams={teams} />
-        </div>
-        <SidebarTrigger
-          compact={!openDesktop}
-          className="hidden md:inline-flex absolute right-[-12px] top-1/2 z-10 -translate-y-1/2"
+      <SidebarHeader className="p-1.5">
+        <TeamSwitcher
+          teams={[
+            {
+              name: brandName,
+              logo: <Bot />,
+              plan: "Workspace",
+            },
+          ]}
         />
       </SidebarHeader>
-
       <SidebarContent>
-        <NavMain items={navMainTop} />
-        {canSeeChats ? (
-          <NavChats
-            currentConnectionKey={currentConnectionKey}
-            isChatsRoute={isClientChatsRoute}
-            chatSidebarItems={chatSidebarItems}
-          />
-        ) : null}
-        {canSeeCrm ? <NavCrm currentView={currentCrmView} isCrmRoute={isClientCrmRoute} /> : null}
-        <NavMain items={navMainBottom} />
+        <SidebarGroup className="p-0">
+          <SidebarGroupContent className="flex flex-col gap-0 p-0">
+            {adminModuleAccess.chats ? (
+              <NavChats
+                currentConnectionKey={currentConnectionKey}
+                isChatsRoute={pathname.startsWith("/cliente/chats")}
+                chatSidebarItems={chatSidebarItems}
+              />
+            ) : null}
+            {adminModuleAccess.crm ? (
+              <NavCrm
+                currentView={
+                  pathname.startsWith("/cliente/crm/informe")
+                    ? "informe"
+                    : pathname.startsWith("/cliente/crm/kanban")
+                      ? "kanban"
+                      : "registro"
+                }
+                isCrmRoute={pathname.startsWith("/cliente/crm")}
+              />
+            ) : null}
+            <SidebarMenu>
+              {visibleModulesWithoutChats.map((module) => {
+                const Icon = moduleIconMap[module.key]
+                const isActive = pathname === module.path || pathname.startsWith(`${module.path}/`)
+
+                return (
+                  <SidebarMenuItem key={module.key}>
+                    <SidebarMenuButton render={<Link href={module.path} />} isActive={isActive}>
+                      <Icon />
+                      <span>{module.label}</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                )
+              })}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter className="border-t-0 !p-0">
+      <SidebarFooter className="p-1.5">
         <NavUser
           user={{
-            name: user.name ?? "Usuario",
-            email: user.email ?? "m@example.com",
-            avatar: user.image ?? "",
-            role: user.role,
+            name: user?.name ?? "Usuario",
+            email: user?.email ?? "usuario@example.com",
+            avatar: user?.image ?? "/avatars/shadcn.jpg",
           }}
-          canAccessConfig={canAccessConfig}
         />
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>
-  );
+  )
 }

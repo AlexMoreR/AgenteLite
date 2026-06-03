@@ -1,14 +1,24 @@
 "use client";
 
+import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import type { Role } from "@prisma/client";
 import { AppSidebar } from "@/components/app-sidebar";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb";
 import { ClientPlanBlockModal } from "@/components/client-plan-block-modal";
 import { ClientPlanWarningBar } from "@/components/client-plan-warning-bar";
 import { Navbar } from "@/components/navbar";
-import { SidebarInset, SidebarProvider, SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
-import type { AdminModuleKey } from "@/lib/admin-module-access";
+import { Separator } from "@/components/ui/separator";
+import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import type { AdminModuleKey } from "@/lib/admin-modules";
 import { cn } from "@/lib/utils";
 
 type InitialUser = {
@@ -41,14 +51,100 @@ type AppShellProps = {
   } | null;
 };
 
-function MobileSidebarTrigger() {
-  const { openMobile } = useSidebar();
+const breadcrumbLabels: Record<string, string> = {
+  admin: "Admin",
+  agentes: "Agentes",
+  api: "API",
+  "api-oficial": "API oficial",
+  automatizar: "Automatizar",
+  canales: "Canales",
+  cliente: "Cliente",
+  configuracion: "Configuracion",
+  contactos: "Contactos",
+  cotizaciones: "Cotizaciones",
+  crm: "CRM",
+  dashboard: "Dashboard",
+  entrenamiento: "Entrenamiento",
+  finanzas: "Finanzas",
+  flujos: "Flujos",
+  informe: "Informe",
+  kanban: "Kanban",
+  "marketing-ia": "Marketing IA",
+  negocio: "Negocio",
+  onboarding: "Onboarding",
+  perfil: "Perfil",
+  profile: "Perfil",
+  permisos: "Permisos",
+  productos: "Productos",
+  registro: "Registro",
+  empleado: "Empleado",
+  seguimientos: "Seguimientos",
+  settings: "Settings",
+  whatsapp: "WhatsApp",
+  "whatsapp-business": "WhatsApp Business",
+  usuarios: "Usuarios",
+  avanzado: "Avanzado",
+  chats: "Chats",
+  chatbots: "Chatbots",
+  conocimiento: "Conocimiento",
+  acciones: "Acciones",
+  general: "General",
+  unauthorized: "Sin autorizacion",
+};
 
-  if (openMobile) {
+function formatBreadcrumbLabel(segment: string) {
+  return breadcrumbLabels[segment] ?? segment.replace(/-/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function AppBreadcrumb({ pathname }: { pathname: string }) {
+  const segments = pathname.split("/").filter(Boolean);
+
+  if (segments.length === 0) {
     return null;
   }
 
-  return <SidebarTrigger compact className="fixed left-0 top-1/2 z-50 -translate-y-1/2 md:hidden" />;
+  if (segments.length === 1) {
+    return (
+      <Breadcrumb>
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbPage>{formatBreadcrumbLabel(segments[segments.length - 1])}</BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
+    );
+  }
+
+  if (segments[0] === "cliente") {
+    return (
+      <Breadcrumb>
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbPage>{formatBreadcrumbLabel(segments[segments.length - 1])}</BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
+    );
+  }
+
+  const firstSegment = segments[0];
+  const lastSegment = segments[segments.length - 1];
+
+  return (
+    <Breadcrumb>
+      <BreadcrumbList>
+        <BreadcrumbItem className="hidden md:block">
+          <BreadcrumbLink asChild>
+            <Link href={`/${firstSegment}`}>{formatBreadcrumbLabel(firstSegment)}</Link>
+          </BreadcrumbLink>
+        </BreadcrumbItem>
+        <BreadcrumbSeparator className="hidden md:block" />
+        <BreadcrumbItem>
+          <BreadcrumbPage>{formatBreadcrumbLabel(lastSegment)}</BreadcrumbPage>
+        </BreadcrumbItem>
+      </BreadcrumbList>
+    </Breadcrumb>
+  );
 }
 
 export function AppShell({
@@ -86,12 +182,7 @@ export function AppShell({
   const isMarketingHome = pathname === "/";
   const isAuthPath = pathname === "/login" || pathname === "/register";
   const isAgentWorkspacePath = pathname.startsWith("/cliente/agentes/");
-  const isAgentCopilotPath = /^\/cliente\/agentes\/[^/]+$/.test(pathname);
   const isChatWorkspacePath = pathname.startsWith("/cliente/chats");
-  const isFlowsWorkspacePath = pathname.startsWith("/cliente/flujos");
-  const isFinanzasPath = pathname.startsWith("/cliente/finanzas");
-  const isViewportLockedWorkspacePath = isChatWorkspacePath || isFinanzasPath || isAgentCopilotPath;
-  const isFullHeightWorkspacePath = isAgentWorkspacePath || isChatWorkspacePath || isFlowsWorkspacePath || isFinanzasPath;
   const showClientPlanAlert = Boolean(user?.role === "CLIENTE" && pathname.startsWith("/cliente") && clientPlanAlert);
   const showClientPlanBlock = Boolean(user?.role === "CLIENTE" && pathname.startsWith("/cliente") && clientPlanBlock?.isExpired);
 
@@ -108,7 +199,7 @@ export function AppShell({
             "w-full",
             isMarketingHome
               ? "min-h-[calc(100vh-4.5rem)] px-0 pt-0 pb-0"
-              : "mx-auto max-w-6xl px-4 pt-3 pb-8 md:px-6 md:pt-4 md:pb-10",
+              : "px-4 pt-3 pb-8 md:px-6 md:pt-4 md:pb-10",
           )}
         >
           {children}
@@ -120,53 +211,36 @@ export function AppShell({
   if (user) {
     return (
       <SidebarProvider>
-        <div
-          className={cn(
-            "admin-print-shell flex min-h-screen",
-            isViewportLockedWorkspacePath && "chat-app-frame min-h-dvh h-dvh overflow-hidden md:min-h-screen md:h-dvh",
-          )}
-        >
-          <AppSidebar
-            pathname={pathname}
-            currentConnectionKey={currentConnectionKey}
-            user={{
-              name: user.name,
-              email: user.email,
-              image: user.image,
-              role: user.role,
-            }}
-            brandName={brandName}
-            adminModuleAccess={adminModuleAccess}
-            chatSidebarItems={chatSidebarItems}
-            className="admin-print-sidebar flex"
-          />
-          <SidebarInset
+        <AppSidebar
+          adminModuleAccess={adminModuleAccess}
+          brandName={brandName}
+          user={{
+            name: user.name,
+            email: user.email,
+            image: user.image,
+          }}
+          currentConnectionKey={currentConnectionKey}
+          chatSidebarItems={chatSidebarItems}
+        />
+        <SidebarInset className={cn("flex min-h-screen w-full flex-col", isAgentWorkspacePath && "bg-[#F1F5F9]")}>
+          <header className="flex h-12 shrink-0 items-center gap-1.5 border-b border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12">
+            <div className="flex w-full items-center gap-1.5 px-1.5">
+              <SidebarTrigger className="-ml-1" />
+              <Separator orientation="vertical"/>
+              {!isChatWorkspacePath ? <AppBreadcrumb pathname={pathname} /> : null}
+            </div>
+          </header>
+          <main
             className={cn(
-              "admin-print-inset rounded-none",
-              isAgentWorkspacePath && "bg-[#F1F5F9]",
-              isViewportLockedWorkspacePath && "chat-app-shell min-h-dvh h-dvh overflow-hidden md:min-h-0 md:h-dvh",
+              "flex w-full flex-1 flex-col gap-4 p-4 pt-0",
+              isAgentWorkspacePath && "bg-transparent",
             )}
           >
-            <MobileSidebarTrigger />
-            <main
-              className={cn(
-                "admin-print-main flex flex-1 flex-col rounded-none",
-                isFullHeightWorkspacePath
-                  ? cn(
-                      "min-h-0 overflow-hidden p-0",
-                      isFinanzasPath ? "md:p-2" : "md:p-4",
-                    )
-                  : "p-3 md:p-4",
-                isAgentWorkspacePath && "bg-transparent",
-                isViewportLockedWorkspacePath && "chat-app-main",
-              )}
-            >
-              {showClientPlanAlert && clientPlanAlert ? <ClientPlanWarningBar {...clientPlanAlert} /> : null}
-              {children}
-            </main>
-            {showClientPlanBlock && clientPlanBlock ? <ClientPlanBlockModal {...clientPlanBlock} /> : null}
-          </SidebarInset>
-        </div>
+            {showClientPlanAlert && clientPlanAlert ? <ClientPlanWarningBar {...clientPlanAlert} /> : null}
+            {children}
+          </main>
+          {showClientPlanBlock && clientPlanBlock ? <ClientPlanBlockModal {...clientPlanBlock} /> : null}
+        </SidebarInset>
       </SidebarProvider>
     );
   }
@@ -175,9 +249,8 @@ export function AppShell({
     <>
       <main
         className={cn(
-          isAuthPath
-            ? "w-full min-h-screen"
-            : "mx-auto w-full max-w-6xl px-4 md:px-6 min-h-screen py-8 md:py-10",
+          "w-full min-h-screen",
+          isAuthPath ? "px-0" : "px-4 md:px-6 py-8 md:py-10",
         )}
       >
         {children}

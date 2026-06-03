@@ -2,10 +2,8 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { ModuleAccessWorkspace } from "@/components/admin/module-access-workspace";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
-import {
-  adminModuleDefinitions,
-  getAdminModuleAccess,
-} from "@/lib/admin-module-access";
+import { adminModuleDefinitions } from "@/lib/admin-modules";
+import { getAdminModuleAccess } from "@/lib/admin-module-access";
 import { Role } from "@prisma/client";
 
 type PageProps = {

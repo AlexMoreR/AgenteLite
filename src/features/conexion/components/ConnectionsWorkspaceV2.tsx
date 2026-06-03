@@ -55,7 +55,7 @@ export function ConnectionsWorkspaceV2({
   items,
 }: ConnectionsWorkspaceProps) {
   return (
-    <section className="space-y-5">
+    <section className="app-page w-full space-y-5">
       <QueryFeedbackToast
         okMessage={okMessage}
         errorMessage={errorMessage}
@@ -63,7 +63,7 @@ export function ConnectionsWorkspaceV2({
         errorTitle="No pudimos continuar"
       />
 
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex w-full flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <div className="inline-flex items-center gap-3">
             <HiMiniChartBar className="h-6 w-6 text-sky-600" />
@@ -103,10 +103,10 @@ export function ConnectionsWorkspaceV2({
         </div>
       ) : null}
 
-      <div className="space-y-3">
+      <div className="w-full space-y-3">
 
         {items.length ? (
-          <div className="grid gap-4">
+          <div className="grid w-full gap-4">
             {items.map((item) => {
               const detailHref =
                 item.provider === "OFFICIAL_API" ? "/cliente/api-oficial" : `/cliente/conexion/whatsapp-business/${item.id}`;
@@ -189,14 +189,12 @@ export function ConnectionsWorkspaceV2({
                       ) : null}
 
                       <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <button
-                            type="button"
-                            aria-label={`Acciones para ${item.name}`}
-                            className="pointer-events-auto relative z-20 inline-flex h-8 w-8 items-center justify-center text-slate-500 transition hover:text-slate-800"
-                          >
-                            <MoreHorizontal className="h-4 w-4" />
-                          </button>
+                        <DropdownMenuTrigger
+                          type="button"
+                          aria-label={`Acciones para ${item.name}`}
+                          className="pointer-events-auto relative z-20 inline-flex h-8 w-8 items-center justify-center text-slate-500 transition hover:text-slate-800"
+                        >
+                          <MoreHorizontal className="h-4 w-4" />
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="min-w-36 rounded-xl">
                           <form action={deleteConnectionChannelAction}>

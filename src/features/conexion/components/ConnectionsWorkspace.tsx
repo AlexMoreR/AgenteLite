@@ -16,15 +16,15 @@ export function ConnectionsWorkspace({
   canSeeOfficialApiModule,
 }: ConnectionsWorkspaceProps) {
   return (
-    <section className="space-y-2">
-      <div className="">
+    <section className="app-page w-full space-y-2">
+      <div className="w-full">
         <h1 className="text-2xl font-semibold tracking-[-0.05em] text-slate-950">Conexión</h1>
         <p className="max-w-3xl text-sm text-slate-600">
           Crea tu conexión
         </p>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-2">
+      <div className="grid w-full gap-4 xl:grid-cols-2">
         <ConnectionCard
           title="WhatsApp Business"
           description="Administra los canales por agente conectados con Evolution API y entra directo al QR o al estado actual de cada numero."

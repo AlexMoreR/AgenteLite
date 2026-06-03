@@ -27,7 +27,7 @@ type WhatsAppBusinessWorkspaceProps = {
 
 export function WhatsAppBusinessWorkspace({ summary, items }: WhatsAppBusinessWorkspaceProps) {
   return (
-    <section className="space-y-5">
+    <section className="app-page space-y-5">
       <div className="space-y-2">
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Conexion</p>
         <h1 className="text-2xl font-semibold tracking-[-0.05em] text-slate-950">WhatsApp Business</h1>

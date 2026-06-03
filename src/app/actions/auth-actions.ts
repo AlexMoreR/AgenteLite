@@ -10,6 +10,8 @@ import { auth, signIn, signOut } from "@/auth";
 import {
   adminModuleDefinitions,
   type AdminModuleKey,
+} from "@/lib/admin-modules";
+import {
   getStoredRoleModuleAccessMap,
   setStoredRoleModuleAccessMap,
 } from "@/lib/admin-module-access";

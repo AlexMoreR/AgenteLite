@@ -28,7 +28,7 @@ import {
 import { adminUpdateUserModuleAccessAction } from "@/app/actions/auth-actions";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import type { AdminModuleKey } from "@/lib/admin-module-access";
+import type { AdminModuleKey } from "@/lib/admin-modules";
 
 type ModuleDefinition = {
   key: AdminModuleKey;
