@@ -9,12 +9,10 @@ import type { EvolutionChatSyncCandidate } from "@/lib/evolution-chat-sync";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
-  DialogClose,
   DialogContent,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 
 type EvolutionChatSyncDialogProps = {
@@ -163,15 +161,14 @@ export function EvolutionChatSyncDialog({ channelId }: EvolutionChatSyncDialogPr
             }
           }}
         >
-          <DialogTrigger asChild>
-            <Button
-              type="button"
-              variant="outline"
-              className="inline-flex h-9 w-full justify-center rounded-xl border border-[rgba(148,163,184,0.18)] bg-white px-3 text-sm font-medium text-slate-700 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
-            >
-              Sincronizar chats
-            </Button>
-          </DialogTrigger>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setOpen(true)}
+            className="inline-flex h-9 w-full justify-center rounded-xl border border-[rgba(148,163,184,0.18)] bg-white px-3 text-sm font-medium text-slate-700 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+          >
+            Sincronizar chats
+          </Button>
 
           <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-5xl lg:max-w-6xl">
             <DialogHeader>
@@ -328,11 +325,9 @@ export function EvolutionChatSyncDialog({ channelId }: EvolutionChatSyncDialogPr
 
             {state.phase === "batch" ? (
               <DialogFooter>
-                <DialogClose asChild>
-                  <Button type="button" variant="outline" disabled={isPending}>
-                    Ignorar
-                  </Button>
-                </DialogClose>
+                <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={isPending}>
+                  Ignorar
+                </Button>
                 <Button type="button" onClick={runApply} disabled={isPending}>
                   {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                   Agregar
@@ -340,11 +335,9 @@ export function EvolutionChatSyncDialog({ channelId }: EvolutionChatSyncDialogPr
               </DialogFooter>
             ) : state.phase === "none" ? (
               <DialogFooter>
-                <DialogClose asChild>
-                  <Button type="button" variant="outline">
-                    Cerrar
-                  </Button>
-                </DialogClose>
+                <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+                  Cerrar
+                </Button>
                 <Button type="button" onClick={runScan} disabled={isPending}>
                   {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                   Volver a revisar

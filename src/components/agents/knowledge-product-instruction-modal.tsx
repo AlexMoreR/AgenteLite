@@ -638,7 +638,7 @@ export function KnowledgeProductInstructionModal({
                             <span className="text-sm font-semibold text-foreground">Flujo hijo del embudo:</span>
                             <Select
                               value={followUpFlowValue || "__none__"}
-                              onValueChange={(value) => setFollowUpFlowValue(value === "__none__" ? "" : value)}
+                              onValueChange={(value) => setFollowUpFlowValue(value === "__none__" ? "" : value ?? "")}
                             >
                               <SelectTrigger className="mt-2 h-10 w-full rounded-xl border-border bg-background px-3 text-sm">
                                 <SelectValue placeholder="Sin flujo hijo" />

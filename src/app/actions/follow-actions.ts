@@ -74,18 +74,20 @@ function normalizeFollowActionsFromFormData(formData: FormData) {
 
   const actions: FollowActionInput[] = [];
   for (const [index, action] of parsed.data.entries()) {
+    const content = action.content?.trim() ?? "";
+    const mediaUrl = action.mediaUrl?.trim() ?? "";
     const normalized: FollowActionInput = {
       order: action.order ?? index + 1,
       messageType: action.messageType,
-      content: action.content?.trim() ?? "",
-      mediaUrl: action.mediaUrl?.trim() ?? "",
+      content,
+      mediaUrl,
     };
 
     if (normalized.messageType === "TEXT") {
-      if (!normalized.content.trim()) {
+      if (!content.trim()) {
         return { error: "Agrega contenido para el mensaje de texto" } as const;
       }
-    } else if (!normalized.mediaUrl.trim()) {
+    } else if (!mediaUrl.trim()) {
       return { error: "Sube el archivo de cada acción multimedia" } as const;
     }
 
@@ -158,18 +160,21 @@ export async function createFollowRuleAction(
   }
 
   const parsedActions = normalizeFollowActionsFromFormData(formData);
-  if (parsedActions && "error" in parsedActions) {
-    return { error: parsedActions.error };
+  const parsedActionsError = parsedActions?.error;
+  if (parsedActionsError) {
+    return { error: parsedActionsError };
   }
 
   const actions = parsedActions?.actions ?? buildFallbackActions(formData);
   const primaryAction = actions[0];
+  const primaryContent = primaryAction.content?.trim() ?? "";
+  const primaryMediaUrl = primaryAction.mediaUrl?.trim() ?? "";
 
-  if (primaryAction.messageType === "TEXT" && !primaryAction.content.trim()) {
+  if (primaryAction.messageType === "TEXT" && !primaryContent.trim()) {
     return { error: "Agrega contenido para un mensaje de texto" };
   }
 
-  if (primaryAction.messageType !== "TEXT" && !primaryAction.mediaUrl.trim()) {
+  if (primaryAction.messageType !== "TEXT" && !primaryMediaUrl.trim()) {
     return { error: "Sube el archivo de la acción multimedia" };
   }
 
@@ -309,18 +314,21 @@ export async function createFollowAction(formData: FormData): Promise<void> {
   }
 
   const parsedActions = normalizeFollowActionsFromFormData(formData);
-  if (parsedActions && "error" in parsedActions) {
+  const parsedActionsError = parsedActions?.error;
+  if (parsedActionsError) {
     return;
   }
 
   const actions = parsedActions?.actions ?? buildFallbackActions(formData);
   const primaryAction = actions[0];
+  const primaryContent = primaryAction.content?.trim() ?? "";
+  const primaryMediaUrl = primaryAction.mediaUrl?.trim() ?? "";
 
-  if (primaryAction.messageType === "TEXT" && !primaryAction.content.trim()) {
+  if (primaryAction.messageType === "TEXT" && !primaryContent.trim()) {
     return;
   }
 
-  if (primaryAction.messageType !== "TEXT" && !primaryAction.mediaUrl.trim()) {
+  if (primaryAction.messageType !== "TEXT" && !primaryMediaUrl.trim()) {
     return;
   }
 

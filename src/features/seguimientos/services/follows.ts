@@ -226,8 +226,15 @@ function parseStoredFollowActions(value: Prisma.JsonValue | null | undefined): F
       ? value.actions
       : [];
 
-  return items
-    .filter(isPlainRecord)
+  const records = items.reduce<Record<string, unknown>[]>((acc, item) => {
+    if (isPlainRecord(item)) {
+      acc.push(item);
+    }
+
+    return acc;
+  }, []);
+
+  return records
     .map((item, index) => normalizeFollowActionRecord(item, index + 1))
     .sort((left, right) => left.order - right.order);
 }
