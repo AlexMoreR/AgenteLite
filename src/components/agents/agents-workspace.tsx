@@ -306,14 +306,12 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
                       />
 
                       <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <button
-                            type="button"
-                            className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-[rgba(148,163,184,0.16)] bg-white text-slate-600 transition hover:bg-slate-50"
-                            aria-label={`Acciones para ${agent.name}`}
-                          >
-                            <MoreHorizontal className="h-4 w-4" />
-                          </button>
+                        <DropdownMenuTrigger
+                          type="button"
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-[rgba(148,163,184,0.16)] bg-white text-slate-600 transition hover:bg-slate-50"
+                          aria-label={`Acciones para ${agent.name}`}
+                        >
+                          <MoreHorizontal className="h-4 w-4" />
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem

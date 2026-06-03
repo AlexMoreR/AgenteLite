@@ -92,7 +92,17 @@ export function AppSidebar({
 }: AppSidebarProps) {
   const pathname = usePathname()
   const visibleModules = adminModuleDefinitions.filter((module) => adminModuleAccess[module.key])
-  const visibleModulesWithoutChats = visibleModules.filter((module) => module.key !== "chats" && module.key !== "crm")
+  const visibleModulesWithoutChats = visibleModules.filter(
+    (module) => module.key !== "chats" && module.key !== "crm" && module.key !== "config_business" && module.key !== "config_permissions" && module.key !== "config_whatsapp",
+  )
+  const topModules = visibleModulesWithoutChats.filter((module) =>
+    module.key === "products" || module.key === "categories" || module.key === "suppliers",
+  )
+  const contactsModule = visibleModulesWithoutChats.find((module) => module.key === "contacts") ?? null
+  const ContactsIcon = contactsModule ? moduleIconMap[contactsModule.key] : null
+  const remainingModules = visibleModulesWithoutChats.filter(
+    (module) => module.key !== "products" && module.key !== "categories" && module.key !== "suppliers" && module.key !== "contacts",
+  )
 
   return (
     <Sidebar collapsible="icon" {...props}>
@@ -108,8 +118,23 @@ export function AppSidebar({
         />
       </SidebarHeader>
       <SidebarContent>
-        <SidebarGroup className="p-0">
-          <SidebarGroupContent className="flex flex-col gap-0 p-0">
+        <SidebarGroup >
+          <SidebarGroupContent className="flex flex-col">
+            <SidebarMenu>
+              {topModules.map((module) => {
+                const Icon = moduleIconMap[module.key]
+                const isActive = pathname === module.path || pathname.startsWith(`${module.path}/`)
+
+                return (
+                  <SidebarMenuItem key={module.key}>
+                    <SidebarMenuButton render={<Link href={module.path} />} isActive={isActive}>
+                      <Icon />
+                      <span>{module.label}</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                )
+              })}
+            </SidebarMenu>
             {adminModuleAccess.chats ? (
               <NavChats
                 currentConnectionKey={currentConnectionKey}
@@ -129,8 +154,21 @@ export function AppSidebar({
                 isCrmRoute={pathname.startsWith("/cliente/crm")}
               />
             ) : null}
+            {contactsModule ? (
+              <SidebarMenu>
+                <SidebarMenuItem key={contactsModule.key}>
+                  <SidebarMenuButton
+                    render={<Link href={contactsModule.path} />}
+                    isActive={pathname === contactsModule.path || pathname.startsWith(`${contactsModule.path}/`)}
+                  >
+                    {ContactsIcon ? <ContactsIcon /> : null}
+                    <span>{contactsModule.label}</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            ) : null}
             <SidebarMenu>
-              {visibleModulesWithoutChats.map((module) => {
+              {remainingModules.map((module) => {
                 const Icon = moduleIconMap[module.key]
                 const isActive = pathname === module.path || pathname.startsWith(`${module.path}/`)
 

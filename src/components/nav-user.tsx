@@ -1,5 +1,7 @@
 "use client"
 
+import Link from "next/link"
+import { signOut } from "next-auth/react"
 import {
   Avatar,
   AvatarFallback,
@@ -20,7 +22,7 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar"
-import { ChevronsUpDownIcon, SparklesIcon, BadgeCheckIcon, CreditCardIcon, BellIcon, LogOutIcon } from "lucide-react"
+import { ChevronsUpDownIcon, LogOutIcon, Settings2, UserCircle2 } from "lucide-react"
 
 export function NavUser({
   user,
@@ -72,36 +74,23 @@ export function NavUser({
               </DropdownMenuLabel>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuGroup>
-              <DropdownMenuItem>
-                <SparklesIcon
-                />
-                Upgrade to Pro
-              </DropdownMenuItem>
-            </DropdownMenuGroup>
+            <DropdownMenuItem asChild>
+              <Link href="/profile" className="flex items-center gap-2">
+                <UserCircle2 className="h-4 w-4 text-slate-500" />
+                Perfil
+              </Link>
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuGroup>
-              <DropdownMenuItem>
-                <BadgeCheckIcon
-                />
-                Account
-              </DropdownMenuItem>
-              <DropdownMenuItem>
-                <CreditCardIcon
-                />
-                Billing
-              </DropdownMenuItem>
-              <DropdownMenuItem>
-                <BellIcon
-                />
-                Notifications
-              </DropdownMenuItem>
-            </DropdownMenuGroup>
+            <DropdownMenuItem asChild>
+              <Link href="/admin/configuracion" className="flex items-center gap-2">
+                <Settings2 className="h-4 w-4 text-slate-500" />
+                Configuracion
+              </Link>
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem>
-              <LogOutIcon
-              />
-              Log out
+            <DropdownMenuItem onClick={() => signOut({ callbackUrl: "/login" })} className="flex items-center gap-2">
+              <LogOutIcon className="h-4 w-4 text-slate-500" />
+              Cerrar sesion
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
