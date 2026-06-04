@@ -1,4 +1,5 @@
 import { getEvolutionFlowData } from "@/features/flows/services/getEvolutionFlowData";
+import type { FlowStep } from "@/lib/agent-product-flow";
 
 type BuilderNode = {
   id: string;
@@ -15,6 +16,7 @@ type BuilderEdge = {
 };
 
 type QuickResponseFlowReply = {
+  steps: FlowStep[];
   text: string | null;
   image: {
     url: string;
@@ -116,53 +118,68 @@ function getScenarioReplyFromState(input: {
     .map((nodeId) => nodeById.get(nodeId))
     .filter((node): node is BuilderNode => Boolean(node));
   const candidateNodes = orderedNodes.length > 0 ? orderedNodes : nodes;
-  const messageNodes = candidateNodes.filter((node) => node.kind === "message" && node.body.trim());
-  const replyNode =
-    messageNodes.find((node) => node.id === "reply") ??
-    messageNodes.find((node) => !node.title.toLowerCase().includes("bienvenida") && !node.title.toLowerCase().includes("fallback")) ??
-    messageNodes[0];
-  const imageNode = candidateNodes.find((node) => node.kind === "image") ?? nodes.find((node) => node.kind === "image");
-  const imageUrl = imageNode?.meta.trim() || "";
-  const imageCaption = imageNode?.body.trim() || null;
-  const image = imageUrl && isValidHttpUrl(imageUrl)
-    ? { url: imageUrl, caption: imageCaption }
-    : null;
-  const audioNode = candidateNodes.find((node) => node.kind === "audio") ?? nodes.find((node) => node.kind === "audio");
-  const audioUrl = audioNode?.meta.trim() || "";
-  const audioCaption = audioNode?.body.trim() || null;
-  const audio = audioUrl && isValidHttpUrl(audioUrl)
-    ? { url: audioUrl, caption: audioCaption }
-    : null;
-  const videoNode = candidateNodes.find((node) => node.kind === "video") ?? nodes.find((node) => node.kind === "video");
-  const videoUrl = videoNode?.meta.trim() || "";
-  const videoCaption = videoNode?.body.trim() || null;
-  const video = videoUrl && isValidHttpUrl(videoUrl)
-    ? { url: videoUrl, caption: videoCaption }
-    : null;
+  const steps = buildStepsFromNodes(candidateNodes);
+  const fallbackSteps = steps.length > 0 ? steps : buildStepsFromNodes(nodes);
 
-  const documentNodes = candidateNodes.filter((node) => node.kind === "document" && isValidHttpUrl(node.meta.trim()));
-  const documents = documentNodes.map((node) => {
-    const url = node.meta.trim();
-    const fileName = extractDocumentFileName(node.title, url);
-    return { url, caption: node.body.trim() || null, fileName };
-  });
-
-  const text = replyNode?.body.trim() || null;
-
-  if (!text && !image && !audio && !video && !documents.length) {
+  if (!fallbackSteps.length) {
     return null;
   }
 
-  const imageIndex = imageNode ? candidateNodes.indexOf(imageNode) : -1;
-  const replyIndex = replyNode ? candidateNodes.indexOf(replyNode) : -1;
-  const imageFirst = imageNode !== undefined && (replyIndex === -1 || imageIndex < replyIndex);
+  return buildReplyFromSteps(fallbackSteps);
+}
+
+function buildStepsFromNodes(nodes: BuilderNode[]): FlowStep[] {
+  const steps: FlowStep[] = [];
+
+  for (const node of nodes) {
+    if (node.kind === "trigger") {
+      continue;
+    }
+
+    if (node.kind === "message" && node.body.trim()) {
+      steps.push({ kind: "text", content: node.body.trim() });
+    } else if (node.kind === "image") {
+      const url = node.meta.trim();
+      if (isValidHttpUrl(url)) {
+        steps.push({ kind: "image", url, caption: node.body.trim() || null });
+      }
+    } else if (node.kind === "audio") {
+      const url = node.meta.trim();
+      if (isValidHttpUrl(url)) {
+        steps.push({ kind: "audio", url, caption: node.body.trim() || null });
+      }
+    } else if (node.kind === "video") {
+      const url = node.meta.trim();
+      if (isValidHttpUrl(url)) {
+        steps.push({ kind: "video", url, caption: node.body.trim() || null });
+      }
+    } else if (node.kind === "document") {
+      const url = node.meta.trim();
+      if (isValidHttpUrl(url)) {
+        steps.push({ kind: "document", url, caption: node.body.trim() || null, fileName: extractDocumentFileName(node.title, url) });
+      }
+    }
+  }
+
+  return steps;
+}
+
+function buildReplyFromSteps(steps: FlowStep[]): QuickResponseFlowReply {
+  const textStep = steps.find((step): step is Extract<FlowStep, { kind: "text" }> => step.kind === "text") ?? null;
+  const imageStep = steps.find((step): step is Extract<FlowStep, { kind: "image" }> => step.kind === "image") ?? null;
+  const audioStep = steps.find((step): step is Extract<FlowStep, { kind: "audio" }> => step.kind === "audio") ?? null;
+  const videoStep = steps.find((step): step is Extract<FlowStep, { kind: "video" }> => step.kind === "video") ?? null;
+  const documents = steps
+    .filter((step): step is Extract<FlowStep, { kind: "document" }> => step.kind === "document")
+    .map((step) => ({ url: step.url, caption: step.caption, fileName: step.fileName }));
 
   return {
-    text,
-    image,
-    audio,
-    video,
-    imageFirst,
+    steps,
+    text: textStep?.content ?? null,
+    image: imageStep ? { url: imageStep.url, caption: imageStep.caption } : null,
+    audio: audioStep ? { url: audioStep.url, caption: audioStep.caption } : null,
+    video: videoStep ? { url: videoStep.url, caption: videoStep.caption } : null,
+    imageFirst: Boolean(imageStep && (!textStep || steps.indexOf(imageStep) < steps.indexOf(textStep))),
     documents,
   };
 }
@@ -173,6 +190,7 @@ function normalizeScenarioReply(reply: QuickResponseFlowReply): QuickResponseFlo
   const shouldSkipTextBecauseCaptionMatches = Boolean(text && imageCaption && text === imageCaption);
 
   return {
+    steps: reply.steps,
     text: shouldSkipTextBecauseCaptionMatches ? null : text,
     image: reply.image ? { url: reply.image.url, caption: imageCaption } : null,
     audio: reply.audio ? { url: reply.audio.url, caption: reply.audio.caption?.trim() || null } : null,

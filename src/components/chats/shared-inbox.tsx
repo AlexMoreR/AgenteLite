@@ -24,6 +24,7 @@ import {
   MessageSquareText,
   LoaderCircle,
   Mic,
+  Paperclip,
   Pencil,
   PhoneIncoming,
   PhoneOutgoing,
@@ -581,6 +582,24 @@ type SharedInboxProps = {
         conversationId: string;
         agentId: string;
         audioUrl: string;
+        returnTo: string;
+      }) => Promise<{ ok: true } | { error: string }>;
+    };
+    media?: {
+      uploadPath: string;
+      conversationId: string;
+      source: string;
+      agentId: string;
+      returnTo: string;
+      sendAction: (input: {
+        source: string;
+        conversationId: string;
+        agentId: string;
+        mediaUrl: string;
+        mediaType: "IMAGE" | "VIDEO" | "DOCUMENT";
+        fileName: string;
+        mimeType: string;
+        caption?: string;
         returnTo: string;
       }) => Promise<{ ok: true } | { error: string }>;
     };
@@ -2053,6 +2072,54 @@ const ConversationPanel = memo(function ConversationPanel({
   const recordStreamRef = useRef<MediaStream | null>(null);
   const recordCancelledRef = useRef(false);
   const audioConfig = composer?.audio;
+  const mediaConfig = composer?.media;
+  const mediaFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [isSendingMedia, setIsSendingMedia] = useState(false);
+
+  const uploadAndSendMedia = useCallback(
+    async (file: File) => {
+      if (!mediaConfig) {
+        return;
+      }
+
+      setIsSendingMedia(true);
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const response = await fetch(mediaConfig.uploadPath, { method: "POST", body: formData });
+        const data = (await response.json().catch(() => null)) as
+          | { url?: string; fileName?: string; mimeType?: string; mediaType?: "IMAGE" | "VIDEO" | "DOCUMENT"; error?: string }
+          | null;
+        if (!response.ok || !data?.url || !data.mediaType) {
+          toast.error(data?.error || "No se pudo subir el archivo.");
+          return;
+        }
+
+        const result = await mediaConfig.sendAction({
+          source: mediaConfig.source,
+          conversationId: mediaConfig.conversationId,
+          agentId: mediaConfig.agentId,
+          mediaUrl: data.url,
+          mediaType: data.mediaType,
+          fileName: data.fileName || file.name,
+          mimeType: data.mimeType || file.type,
+          returnTo: mediaConfig.returnTo,
+        });
+
+        if (result && "ok" in result && result.ok) {
+          composerRouter.refresh();
+        } else {
+          toast.error((result && "error" in result && result.error) || "No se pudo enviar el archivo.");
+        }
+      } catch {
+        toast.error("No se pudo enviar el archivo.");
+      } finally {
+        setIsSendingMedia(false);
+      }
+    },
+    [mediaConfig, composerRouter],
+  );
 
   const stopRecordTracks = useCallback(() => {
     recordStreamRef.current?.getTracks().forEach((track) => track.stop());
@@ -2582,41 +2649,33 @@ const ConversationPanel = memo(function ConversationPanel({
                   ))}
 
                   <div className="flex items-end gap-2 md:gap-3">
-                    <Popover
-                      open={isEmojiPickerOpen}
-                      onOpenChange={(open) => {
-                        setIsEmojiPickerOpen(open);
-                        if (!open) {
-                          setEmojiSearchQuery("");
-                        }
-                      }}
-                    >
-                      <PopoverTrigger asChild>
+                    {mediaConfig && !isRecordingAudio ? (
+                      <>
+                        <input
+                          ref={mediaFileInputRef}
+                          type="file"
+                          accept="image/*,video/*,application/pdf"
+                          className="hidden"
+                          onChange={(event) => {
+                            const file = event.currentTarget.files?.[0];
+                            event.currentTarget.value = "";
+                            if (file) {
+                              void uploadAndSendMedia(file);
+                            }
+                          }}
+                        />
                         <button
                           type="button"
-                          className="inline-flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-full border border-border bg-muted/80 text-muted-foreground transition hover:border-border hover:bg-muted hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 md:h-10 md:w-10"
-                          aria-label="Abrir selector de emoticones"
-                          title="Emoticones"
+                          onClick={() => mediaFileInputRef.current?.click()}
+                          disabled={isSendingMedia}
+                          aria-label="Adjuntar imagen, video o PDF"
+                          title="Adjuntar imagen, video o PDF"
+                          className="inline-flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-full border border-border bg-muted/80 text-muted-foreground transition hover:bg-muted hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:h-10 md:w-10"
                         >
-                          <Smile className="h-5 w-5" />
+                          <Paperclip className="h-5 w-5" />
                         </button>
-                      </PopoverTrigger>
-                      <PopoverContent
-                        align="start"
-                        side="top"
-                        sideOffset={12}
-                        className="w-[min(90vw,26rem)] rounded-[26px] border border-border bg-popover p-3.5 shadow-[0_24px_60px_-24px_rgba(15,23,42,0.35)]"
-                      >
-                        <ComposerEmojiPicker
-                          query={emojiSearchQuery}
-                          activeTab={emojiPickerTab}
-                          recentEmojis={recentComposerEmojis}
-                          onQueryChange={setEmojiSearchQuery}
-                          onActiveTabChange={setEmojiPickerTab}
-                          onSelectEmoji={insertComposerEmoji}
-                        />
-                      </PopoverContent>
-                    </Popover>
+                      </>
+                    ) : null}
                     {isRecordingAudio ? (
                       <div className="flex min-h-[44px] flex-1 items-center gap-2 rounded-2xl border border-border bg-muted/80 px-4 text-sm text-foreground md:min-h-[40px]">
                         <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-red-500" />
@@ -2626,19 +2685,57 @@ const ConversationPanel = memo(function ConversationPanel({
                         </span>
                       </div>
                     ) : (
-                      <textarea
-                        ref={composerTextAreaRef}
-                        name="message"
-                        rows={1}
-                        placeholder={isSendingAudio ? "Enviando nota de voz..." : composer.placeholder || "Escribe un mensaje..."}
-                        disabled={isSendingAudio}
-                        onChange={(event) => setComposerHasText(event.currentTarget.value.trim().length > 0)}
-                        onSelect={(event) => syncComposerSelection(event.currentTarget)}
-                        onKeyUp={(event) => syncComposerSelection(event.currentTarget)}
-                        onMouseUp={(event) => syncComposerSelection(event.currentTarget)}
-                        onBlur={(event) => syncComposerSelection(event.currentTarget)}
-                        className="flex min-h-[44px] flex-1 resize-none rounded-2xl border border-border bg-muted/80 px-3 py-2.5 text-[14px] text-foreground placeholder:text-muted-foreground outline-none transition focus:border-[var(--primary)] focus:bg-background focus:ring-2 focus:ring-ring/50 disabled:opacity-70 md:min-h-[40px] md:py-2 md:text-sm"
-                      />
+                      <div className="flex min-h-[44px] min-w-0 flex-1 items-center gap-1 rounded-2xl border border-border bg-muted/80 px-1.5 transition focus-within:border-[var(--primary)] focus-within:bg-background focus-within:ring-2 focus-within:ring-ring/50 md:min-h-[40px]">
+                        <Popover
+                          open={isEmojiPickerOpen}
+                          onOpenChange={(open) => {
+                            setIsEmojiPickerOpen(open);
+                            if (!open) {
+                              setEmojiSearchQuery("");
+                            }
+                          }}
+                        >
+                          <PopoverTrigger asChild>
+                            <button
+                              type="button"
+                              disabled={isSendingAudio}
+                              className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-background hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:size-8"
+                              aria-label="Abrir selector de emoticones"
+                              title="Emoticones"
+                            >
+                              <Smile className="size-5" />
+                            </button>
+                          </PopoverTrigger>
+                          <PopoverContent
+                            align="start"
+                            side="top"
+                            sideOffset={12}
+                            className="w-[min(90vw,26rem)] rounded-[26px] border border-border bg-popover p-3.5 shadow-[0_24px_60px_-24px_rgba(15,23,42,0.35)]"
+                          >
+                            <ComposerEmojiPicker
+                              query={emojiSearchQuery}
+                              activeTab={emojiPickerTab}
+                              recentEmojis={recentComposerEmojis}
+                              onQueryChange={setEmojiSearchQuery}
+                              onActiveTabChange={setEmojiPickerTab}
+                              onSelectEmoji={insertComposerEmoji}
+                            />
+                          </PopoverContent>
+                        </Popover>
+                        <textarea
+                          ref={composerTextAreaRef}
+                          name="message"
+                          rows={1}
+                          placeholder={isSendingAudio ? "Enviando nota de voz..." : composer.placeholder || "Escribe un mensaje..."}
+                          disabled={isSendingAudio}
+                          onChange={(event) => setComposerHasText(event.currentTarget.value.trim().length > 0)}
+                          onSelect={(event) => syncComposerSelection(event.currentTarget)}
+                          onKeyUp={(event) => syncComposerSelection(event.currentTarget)}
+                          onMouseUp={(event) => syncComposerSelection(event.currentTarget)}
+                          onBlur={(event) => syncComposerSelection(event.currentTarget)}
+                          className="min-h-[42px] min-w-0 flex-1 resize-none bg-transparent py-2.5 pr-2 text-[14px] text-foreground placeholder:text-muted-foreground outline-none disabled:opacity-70 md:min-h-[38px] md:py-2 md:text-sm"
+                        />
+                      </div>
                     )}
                     {isRecordingAudio ? (
                       <>
@@ -2735,6 +2832,7 @@ export function SharedInbox({
     initialHasMoreConversations ?? conversations.length >= initialConversationBatchSize,
   );
   const [isLoadingMoreConversationItems, setIsLoadingMoreConversationItems] = useState(false);
+  const [assignedCounts, setAssignedCounts] = useState<{ mine: number; unassigned: number; all: number } | null>(null);
   const [optimisticConversation, setOptimisticConversation] = useState<SharedInboxSelectedConversation | null>(null);
   const [liveConversation, setLiveConversation] = useState<SharedInboxSelectedConversation | null>(null);
   const [optimisticOutgoingMessage, setOptimisticOutgoingMessage] = useState<OptimisticDraftMessage | null>(null);
@@ -2783,6 +2881,54 @@ export function SharedInbox({
   useEffect(() => {
     setHasHydrated(true);
   }, []);
+
+  // Conteos por filtro (Mías / Sin asignar / Todas) para mostrarlos junto a cada pestaña.
+  useEffect(() => {
+    const countsApiPath = conversationListApiPath.replace(/\/list$/, "/counts");
+    if (countsApiPath === conversationListApiPath) {
+      return;
+    }
+
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+    const fetchCounts = async () => {
+      try {
+        const params = new URLSearchParams();
+        if (searchQuery.trim()) params.set("q", searchQuery.trim());
+        if (selectedConnectionKey.trim()) params.set("connection", selectedConnectionKey.trim());
+        const qs = params.toString();
+
+        const response = await fetch(`${countsApiPath}${qs ? `?${qs}` : ""}`, {
+          credentials: "same-origin",
+          cache: "no-store",
+        });
+        if (!response.ok) {
+          return;
+        }
+
+        const payload = (await response.json().catch(() => null)) as
+          | { ok?: boolean; counts?: { mine: number; unassigned: number; all: number } }
+          | null;
+        if (!cancelled && payload?.ok && payload.counts) {
+          setAssignedCounts(payload.counts);
+        }
+      } catch {
+        // Ignoramos errores de red: se reintenta en el siguiente intervalo.
+      } finally {
+        if (!cancelled) {
+          timeoutId = setTimeout(fetchCounts, 15000);
+        }
+      }
+    };
+
+    fetchCounts();
+
+    return () => {
+      cancelled = true;
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [conversationListApiPath, searchQuery, selectedConnectionKey]);
 
   const buildSearchUrl = useCallback(
     (q: string) => {
@@ -3945,6 +4091,7 @@ export function SharedInbox({
         selectedConnectionKey={selectedConnectionKey}
         searchQuery={searchQuery}
         assignedFilter={assignedFilter}
+        assignedCounts={assignedCounts}
         isManager={isManager}
         searchInputValue={searchInputValue}
         searchInputRef={searchInputRef}

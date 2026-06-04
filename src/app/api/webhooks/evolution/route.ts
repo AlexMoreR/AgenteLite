@@ -7,6 +7,7 @@ import {
   buildActiveProductContextNote,
   resolveAgentProductFlowReply,
   type ActiveProductContext,
+  type FlowStep,
 } from "@/lib/agent-product-flow";
 import { composeAgentWelcomeReply } from "@/lib/agent-reply-composer";
 import { getConversationAutomationPaused, setConversationAutomationPaused } from "@/lib/conversation-automation";
@@ -180,6 +181,154 @@ async function persistEvolutionMessage(args: { data: Prisma.MessageUncheckedCrea
       externalId: externalId || null,
     },
   });
+}
+
+async function sendAndPersistEvolutionFlowStep(input: {
+  step: FlowStep;
+  workspaceId: string;
+  conversationId: string;
+  channelId: string;
+  contactId: string;
+  agentId: string;
+  instanceName: string;
+  phoneNumber: string;
+}) {
+  const {
+    step,
+    workspaceId,
+    conversationId,
+    channelId,
+    contactId,
+    agentId,
+    instanceName,
+    phoneNumber,
+  } = input;
+
+  if (step.kind === "text") {
+    const outbound = await sendEvolutionTextMessageWithReconnect({
+      instanceName,
+      phoneNumber,
+      text: step.content,
+      delayMs: 0,
+    });
+    await persistEvolutionMessage({
+      data: {
+        workspaceId,
+        conversationId,
+        channelId,
+        contactId,
+        agentId,
+        externalId: outbound.externalId,
+        direction: "OUTBOUND",
+        type: "TEXT",
+        status: "SENT",
+        content: step.content,
+        sentAt: new Date(),
+        rawPayload: outbound.raw as never,
+      },
+    });
+  } else if (step.kind === "image") {
+    const outbound = await sendEvolutionImageMessage({
+      instanceName,
+      phoneNumber,
+      imageUrl: step.url,
+      caption: step.caption,
+      delayMs: 0,
+    });
+    await persistEvolutionMessage({
+      data: {
+        workspaceId,
+        conversationId,
+        channelId,
+        contactId,
+        agentId,
+        externalId: outbound.externalId,
+        direction: "OUTBOUND",
+        type: "IMAGE",
+        status: "SENT",
+        content: step.caption,
+        mediaUrl: step.url,
+        sentAt: new Date(),
+        rawPayload: outbound.raw as never,
+      },
+    });
+  } else if (step.kind === "audio") {
+    const outbound = await sendEvolutionAudioMessage({
+      instanceName,
+      phoneNumber,
+      audioUrl: step.url,
+      caption: step.caption,
+      delayMs: 0,
+    });
+    await persistEvolutionMessage({
+      data: {
+        workspaceId,
+        conversationId,
+        channelId,
+        contactId,
+        agentId,
+        externalId: outbound.externalId,
+        direction: "OUTBOUND",
+        type: "AUDIO",
+        status: "SENT",
+        content: step.caption,
+        mediaUrl: step.url,
+        sentAt: new Date(),
+        rawPayload: outbound.raw as never,
+      },
+    });
+  } else if (step.kind === "video") {
+    const outbound = await sendEvolutionVideoMessage({
+      instanceName,
+      phoneNumber,
+      videoUrl: step.url,
+      caption: step.caption,
+      delayMs: 0,
+    });
+    await persistEvolutionMessage({
+      data: {
+        workspaceId,
+        conversationId,
+        channelId,
+        contactId,
+        agentId,
+        externalId: outbound.externalId,
+        direction: "OUTBOUND",
+        type: "VIDEO",
+        status: "SENT",
+        content: step.caption,
+        mediaUrl: step.url,
+        sentAt: new Date(),
+        rawPayload: outbound.raw as never,
+      },
+    });
+  } else if (step.kind === "document") {
+    const outbound = await sendEvolutionDocumentMessage({
+      instanceName,
+      phoneNumber,
+      documentUrl: step.url,
+      caption: step.caption,
+      fileName: step.fileName,
+      delayMs: 0,
+    });
+    await persistEvolutionMessage({
+      data: {
+        workspaceId,
+        conversationId,
+        channelId,
+        contactId,
+        agentId,
+        externalId: outbound.externalId,
+        direction: "OUTBOUND",
+        type: "DOCUMENT",
+        status: "SENT",
+        content: step.caption,
+        mediaUrl: step.url,
+        sentAt: new Date(),
+        rawPayload: outbound.raw as never,
+      },
+    });
+  }
 }
 
 function sleep(ms: number) {
@@ -1160,139 +1309,18 @@ export async function POST(request: Request) {
               delay: 800,
             }).catch(() => null);
 
-        if (ownerTriggeredFlow.reply.image) {
-          const imageOutbound = await sendEvolutionImageMessage({
-            instanceName: channel.evolutionInstanceName,
-            phoneNumber,
-            imageUrl: ownerTriggeredFlow.reply.image.url,
-            caption: ownerTriggeredFlow.reply.image.caption,
-            delayMs: 0,
-          });
-          await persistEvolutionMessage({
-            data: {
-              workspaceId: channel.workspaceId,
-              conversationId: conversation.id,
-              channelId: channel.id,
-              contactId: contact.id,
-              agentId: channel.agentId,
-              externalId: imageOutbound.externalId,
-              direction: "OUTBOUND",
-              type: "IMAGE",
-              status: "SENT",
-              content: ownerTriggeredFlow.reply.image.caption,
-              mediaUrl: ownerTriggeredFlow.reply.image.url,
-              sentAt: new Date(),
-              rawPayload: imageOutbound.raw as never,
-            },
+            for (const step of ownerTriggeredFlow.reply.steps) {
+              await sendAndPersistEvolutionFlowStep({
+                step,
+                workspaceId: channel.workspaceId,
+                conversationId: conversation.id,
+                channelId: channel.id,
+                contactId: contact.id,
+                agentId: channel.agentId,
+                instanceName: channel.evolutionInstanceName,
+                phoneNumber,
               });
             }
-
-        if (ownerTriggeredFlow.reply.audio) {
-          const audioOutbound = await sendEvolutionAudioMessage({
-            instanceName: channel.evolutionInstanceName,
-            phoneNumber,
-            audioUrl: ownerTriggeredFlow.reply.audio.url,
-            caption: ownerTriggeredFlow.reply.audio.caption,
-            delayMs: 0,
-          });
-          await persistEvolutionMessage({
-            data: {
-              workspaceId: channel.workspaceId,
-              conversationId: conversation.id,
-              channelId: channel.id,
-              contactId: contact.id,
-              agentId: channel.agentId,
-              externalId: audioOutbound.externalId,
-              direction: "OUTBOUND",
-              type: "AUDIO",
-              status: "SENT",
-              content: ownerTriggeredFlow.reply.audio.caption,
-              mediaUrl: ownerTriggeredFlow.reply.audio.url,
-              sentAt: new Date(),
-              rawPayload: audioOutbound.raw as never,
-            },
-          });
-        }
-
-        if (ownerTriggeredFlow.reply.video) {
-          const videoOutbound = await sendEvolutionVideoMessage({
-            instanceName: channel.evolutionInstanceName,
-            phoneNumber,
-            videoUrl: ownerTriggeredFlow.reply.video.url,
-            caption: ownerTriggeredFlow.reply.video.caption,
-            delayMs: 0,
-          });
-          await persistEvolutionMessage({
-            data: {
-              workspaceId: channel.workspaceId,
-              conversationId: conversation.id,
-              channelId: channel.id,
-              contactId: contact.id,
-              agentId: channel.agentId,
-              externalId: videoOutbound.externalId,
-              direction: "OUTBOUND",
-              type: "VIDEO",
-              status: "SENT",
-              content: ownerTriggeredFlow.reply.video.caption,
-              mediaUrl: ownerTriggeredFlow.reply.video.url,
-              sentAt: new Date(),
-              rawPayload: videoOutbound.raw as never,
-            },
-          });
-        }
-
-        for (const doc of ownerTriggeredFlow.reply.documents ?? []) {
-          const docOutbound = await sendEvolutionDocumentMessage({
-            instanceName: channel.evolutionInstanceName,
-            phoneNumber,
-            documentUrl: doc.url,
-            caption: doc.caption,
-            fileName: doc.fileName,
-            delayMs: 0,
-          });
-          await persistEvolutionMessage({
-            data: {
-              workspaceId: channel.workspaceId,
-              conversationId: conversation.id,
-              channelId: channel.id,
-              contactId: contact.id,
-              agentId: channel.agentId,
-              externalId: docOutbound.externalId,
-              direction: "OUTBOUND",
-              type: "DOCUMENT",
-              status: "SENT",
-              content: doc.caption,
-              mediaUrl: doc.url,
-              sentAt: new Date(),
-              rawPayload: docOutbound.raw as never,
-            },
-          });
-        }
-
-        if (ownerTriggeredFlow.reply.text) {
-          const textOutbound = await sendEvolutionTextMessageWithReconnect({
-            instanceName: channel.evolutionInstanceName,
-            phoneNumber,
-            text: ownerTriggeredFlow.reply.text,
-            delayMs: 0,
-          });
-          await persistEvolutionMessage({
-            data: {
-              workspaceId: channel.workspaceId,
-              conversationId: conversation.id,
-              channelId: channel.id,
-              contactId: contact.id,
-              agentId: channel.agentId,
-              externalId: textOutbound.externalId,
-              direction: "OUTBOUND",
-              type: "TEXT",
-              status: "SENT",
-              content: ownerTriggeredFlow.reply.text,
-              sentAt: new Date(),
-              rawPayload: textOutbound.raw as never,
-            },
-          });
-        }
       } catch (error) {
         console.error("[EVOLUTION] owner_triggered_flow_failed", {
           conversationId: conversation.id,
@@ -1787,8 +1815,8 @@ export async function POST(request: Request) {
         replyText = buildHandoffMessage();
         shouldComposeWelcome = false;
       } else if (quickResponseFlow) {
-        replyText = quickResponseFlow.reply.text ?? "";
-        shouldComposeWelcome = Boolean(replyText);
+        replyText = null;
+        shouldComposeWelcome = false;
       } else if (hardFlowReply) {
         // steps executed directly in the flow engine block below
         replyText = null;
@@ -1909,12 +1937,8 @@ export async function POST(request: Request) {
         historyCount: recentMessages.length,
       });
 
-      const quickResponseImageReply = shouldHandoffToHuman ? null : quickResponseFlow?.reply.image ?? null;
-      const quickResponseAudioReply = shouldHandoffToHuman ? null : quickResponseFlow?.reply.audio ?? null;
-      const quickResponseVideoReply = shouldHandoffToHuman ? null : quickResponseFlow?.reply.video ?? null;
       const knowledgeImageReply = shouldHandoffToHuman ? null : knowledgeBaseReply?.image ?? null;
-      const imageReply = quickResponseImageReply ?? knowledgeImageReply;
-      const documentReplies = shouldHandoffToHuman ? [] : (quickResponseFlow?.reply.documents ?? []);
+      const imageReply = knowledgeImageReply;
       const contactMatchTasks: Array<Promise<unknown>> = [];
       if (quickResponseFlow?.scenarioTitle) {
         contactMatchTasks.push(
@@ -1974,17 +1998,18 @@ export async function POST(request: Request) {
       }
 
 
-      // ── Flow engine: execute hardFlowReply steps in exact order ──────────────
-      const hardFlowSteps = hardFlowReply?.steps ?? [];
-      if (hardFlowReply && hardFlowSteps.length > 0) {
+      // Flow engine: execute quick/hard flow steps in exact order.
+      const orderedFlowSteps = shouldHandoffToHuman ? [] : quickResponseFlow?.reply.steps ?? hardFlowReply?.steps ?? [];
+      const orderedFlowMode = quickResponseFlow ? "quick_flow" : "hard_flow";
+      if (orderedFlowSteps.length > 0) {
         try {
           console.log("[EVOLUTION] auto_reply_sending", {
             conversationId: conversation.id,
             agentId: agent.id,
             phoneNumber,
             instanceName: channel.evolutionInstanceName,
-            mode: "hard_flow",
-            steps: hardFlowSteps.map((s) => s.kind),
+            mode: orderedFlowMode,
+            steps: orderedFlowSteps.map((s) => s.kind),
           });
 
           try {
@@ -1999,7 +2024,7 @@ export async function POST(request: Request) {
           }
 
           let welcomeApplied = false;
-          for (const step of hardFlowSteps) {
+          for (const step of orderedFlowSteps) {
             if (step.kind === "text") {
               let content = step.content;
               if (!welcomeApplied) {
@@ -2152,8 +2177,8 @@ export async function POST(request: Request) {
             conversationId: conversation.id,
             agentId: agent.id,
             phoneNumber,
-            mode: "hard_flow",
-            stepsCount: hardFlowSteps.length,
+            mode: orderedFlowMode,
+            stepsCount: orderedFlowSteps.length,
           });
         } catch (error) {
           const errorMessage = error instanceof Error ? (error.stack || error.message) : JSON.stringify(error);
@@ -2178,12 +2203,12 @@ export async function POST(request: Request) {
               direction: "OUTBOUND",
               type: "TEXT",
               status: "FAILED",
-              content: hardFlowSteps.find((s) => s.kind === "text")?.content ?? null,
+              content: orderedFlowSteps.find((s) => s.kind === "text")?.content ?? null,
               failedAt: new Date(),
             },
           });
         }
-      } else if (replyText || quickResponseImageReply || quickResponseAudioReply || quickResponseVideoReply || knowledgeImageReply || documentReplies.length > 0) {
+      } else if (replyText || knowledgeImageReply) {
         try {
           console.log("[EVOLUTION] auto_reply_sending", {
             conversationId: conversation.id,
@@ -2191,7 +2216,7 @@ export async function POST(request: Request) {
             phoneNumber,
             instanceName: channel.evolutionInstanceName,
             preview: replyText?.slice(0, 80) ?? "",
-            withImage: Boolean(quickResponseImageReply || knowledgeImageReply),
+            withImage: Boolean(knowledgeImageReply),
           });
 
             try {
@@ -2236,99 +2261,6 @@ export async function POST(request: Request) {
                 },
               });
             };
-
-            const sendVideo = async (videoUrl: string, caption: string | null) => {
-              if (!channel.evolutionInstanceName) return;
-              const outbound = await sendEvolutionVideoMessage({
-                instanceName: channel.evolutionInstanceName,
-                phoneNumber,
-                videoUrl,
-                caption,
-                delayMs: 0,
-              });
-              await persistEvolutionMessage({
-                data: {
-                  workspaceId: channel.workspaceId,
-                  conversationId: conversation.id,
-                  channelId: channel.id,
-                  contactId: contact.id,
-                  agentId: agent.id,
-                  externalId: outbound.externalId,
-                  direction: "OUTBOUND",
-                  type: "VIDEO",
-                  status: "SENT",
-                  content: caption,
-                  mediaUrl: videoUrl,
-                  sentAt: new Date(),
-                  rawPayload: outbound.raw as never,
-                },
-              });
-            };
-
-            const sendAudio = async (audioUrl: string, caption: string | null) => {
-              if (!channel.evolutionInstanceName) return;
-              const outbound = await sendEvolutionAudioMessage({
-                instanceName: channel.evolutionInstanceName,
-                phoneNumber,
-                audioUrl,
-                caption,
-                delayMs: 0,
-              });
-              await persistEvolutionMessage({
-                data: {
-                  workspaceId: channel.workspaceId,
-                  conversationId: conversation.id,
-                  channelId: channel.id,
-                  contactId: contact.id,
-                  agentId: agent.id,
-                  externalId: outbound.externalId,
-                  direction: "OUTBOUND",
-                  type: "AUDIO",
-                  status: "SENT",
-                  content: caption,
-                  mediaUrl: audioUrl,
-                  sentAt: new Date(),
-                  rawPayload: outbound.raw as never,
-                },
-              });
-            };
-
-            for (const doc of documentReplies) {
-              const docOutbound = await sendEvolutionDocumentMessage({
-                instanceName: channel.evolutionInstanceName,
-                phoneNumber,
-                documentUrl: doc.url,
-                caption: doc.caption,
-                fileName: doc.fileName,
-                delayMs: 0,
-              });
-              await persistEvolutionMessage({
-                data: {
-                  workspaceId: channel.workspaceId,
-                  conversationId: conversation.id,
-                  channelId: channel.id,
-                  contactId: contact.id,
-                  agentId: agent.id,
-                  externalId: docOutbound.externalId,
-                  direction: "OUTBOUND",
-                  type: "DOCUMENT",
-                  status: "SENT",
-                  content: doc.caption,
-                  mediaUrl: doc.url,
-                  sentAt: new Date(),
-                  rawPayload: docOutbound.raw as never,
-                },
-              });
-            }
-
-            const quickResponseVideo = quickResponseVideoReply;
-            if (quickResponseVideo?.url) {
-              await sendVideo(quickResponseVideo.url, quickResponseVideo.caption);
-            }
-
-            if (quickResponseAudioReply?.url) {
-              await sendAudio(quickResponseAudioReply.url, quickResponseAudioReply.caption);
-            }
 
             if (imageReply) {
               const imageOutbound = await sendEvolutionImageMessage({
@@ -2384,7 +2316,7 @@ export async function POST(request: Request) {
             agentId: agent.id,
             phoneNumber,
             sentText: Boolean(replyText),
-            sentImage: Boolean(knowledgeImageReply || quickResponseImageReply),
+            sentImage: Boolean(knowledgeImageReply),
           });
         } catch (error) {
           const errorMessage =

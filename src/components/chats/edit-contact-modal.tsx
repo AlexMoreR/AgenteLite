@@ -1,8 +1,17 @@
 "use client";
 
 import { useEffect, useActionState } from "react";
-import { X } from "lucide-react";
 import { updateContactAction } from "@/app/actions/chats-actions";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 type Props = {
   open: boolean;
@@ -34,58 +43,46 @@ export function EditContactModal({ open, onClose, contactId, contactName }: Prop
     }
   }, [state, onClose]);
 
-  if (!open) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div
-        className="w-full max-w-sm rounded-2xl bg-white shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-          <h2 className="text-sm font-semibold text-slate-900">Editar contacto</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-        <form action={formAction} className="space-y-4 p-5">
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) {
+          onClose();
+        }
+      }}
+    >
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Editar contacto</DialogTitle>
+        </DialogHeader>
+
+        <form action={formAction} className="space-y-4">
           <input type="hidden" name="contactId" value={contactId} />
-          <div className="space-y-1.5">
-            <label className="text-[12px] font-medium text-slate-500">Nombre</label>
-            <input
+          <div className="space-y-2">
+            <Label htmlFor="edit-contact-name">Nombre</Label>
+            <Input
+              id="edit-contact-name"
               key={contactId}
               name="name"
               defaultValue={contactName}
               placeholder="Nombre del contacto"
               autoFocus
-              className="h-10 w-full rounded-[14px] border border-slate-200 bg-white px-3 text-[13px] text-slate-800 outline-none transition focus:border-[var(--primary)]"
             />
           </div>
           {"error" in state && state.error ? (
-            <p className="text-xs text-rose-500">{state.error}</p>
+            <p className="text-sm text-destructive">{state.error}</p>
           ) : null}
-          <div className="flex justify-end gap-2 pt-1">
-            <button
-              type="button"
-              onClick={onClose}
-              className="h-9 rounded-[12px] border border-slate-200 px-4 text-[13px] text-slate-600 transition hover:bg-slate-50"
-            >
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>
               Cancelar
-            </button>
-            <button
-              type="submit"
-              disabled={isPending}
-              className="h-9 rounded-[12px] bg-[var(--primary)] px-4 text-[13px] font-semibold text-white transition disabled:opacity-60"
-            >
+            </Button>
+            <Button type="submit" disabled={isPending}>
               {isPending ? "Guardando..." : "Guardar"}
-            </button>
-          </div>
+            </Button>
+          </DialogFooter>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

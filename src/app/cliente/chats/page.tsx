@@ -1,7 +1,7 @@
 ﻿import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { sendUnifiedChatReplyAction, toggleConversationAutomationAction } from "@/app/actions/chats-actions";
-import { sendChatAudioReplyAction } from "@/app/actions/agent-actions";
+import { sendChatAudioReplyAction, sendChatMediaReplyAction } from "@/app/actions/agent-actions";
 import { AssignChatControl } from "@/components/chats/assign-chat-control";
 import { ChatsAutoRefresh } from "@/components/agents/chats-auto-refresh";
 import { ChatsRealtimeSync } from "@/components/chats/chats-realtime-sync";
@@ -899,6 +899,17 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
                   agentId: selectedUnified.agentId,
                   returnTo: selectedChatHref ?? "",
                   sendAction: sendChatAudioReplyAction,
+                }
+              : undefined,
+          media:
+            selectedUnified && selectedUnified.source === "agent" && selectedUnified.agentId
+              ? {
+                  uploadPath: "/api/cliente/chats/upload-media",
+                  source: selectedUnified.source,
+                  conversationId: selectedUnified.conversationId,
+                  agentId: selectedUnified.agentId,
+                  returnTo: selectedChatHref ?? "",
+                  sendAction: sendChatMediaReplyAction,
                 }
               : undefined,
         }}

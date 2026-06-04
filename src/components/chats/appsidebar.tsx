@@ -16,6 +16,7 @@ type AppSidebarProps = {
   selectedConnectionKey?: string;
   searchQuery?: string;
   assignedFilter?: AssignedFilter;
+  assignedCounts?: { mine: number; unassigned: number; all: number } | null;
   isManager?: boolean;
   searchInputValue: string;
   searchInputRef: React.RefObject<HTMLInputElement | null>;
@@ -43,6 +44,7 @@ export function AppSidebar({
   selectedConnectionKey = "",
   searchQuery = "",
   assignedFilter = "all",
+  assignedCounts = null,
   isManager = false,
   searchInputValue,
   searchInputRef,
@@ -116,19 +118,30 @@ export function AppSidebar({
           <div className="mt-2.5 flex items-center gap-1 rounded-xl bg-muted p-0.5">
             {visibleTabs.map((tab) => {
               const isActive = assignedFilter === tab.value;
+              const count = assignedCounts ? assignedCounts[tab.value] : null;
+              const countLabel = count != null ? (count > 99 ? "99+" : String(count)) : null;
               return (
                 <Link
                   key={tab.value}
                   href={buildFilterHref(tab.value)}
                   scroll={false}
                   aria-current={isActive ? "page" : undefined}
-                  className={`flex-1 rounded-lg px-2 py-1.5 text-center text-[12px] font-medium transition ${
+                  className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-center text-[12px] font-medium transition ${
                     isActive
                       ? "bg-background text-foreground shadow-sm"
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  {tab.label}
+                  <span>{tab.label}</span>
+                  {countLabel != null ? (
+                    <span
+                      className={`inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold leading-none ${
+                        isActive ? "bg-muted text-foreground" : "bg-background/70 text-muted-foreground"
+                      }`}
+                    >
+                      {countLabel}
+                    </span>
+                  ) : null}
                 </Link>
               );
             })}

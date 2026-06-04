@@ -30,7 +30,7 @@ import {
 } from "@/lib/agent-training";
 import { generateAgentReply } from "@/lib/agent-ai";
 import { resolveAgentKnowledgeBaseReply } from "@/lib/agent-knowledge-media";
-import { resolveAgentProductFlowReply } from "@/lib/agent-product-flow";
+import { resolveAgentProductFlowReply, type FlowStep } from "@/lib/agent-product-flow";
 import { composeAgentWelcomeReply } from "@/lib/agent-reply-composer";
 import { normalizeInternalPath } from "@/lib/app-url";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
@@ -38,9 +38,12 @@ import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
 import {
   deleteEvolutionInstance,
   sendEvolutionAudioMessage,
+  sendEvolutionDocumentMessage,
   sendEvolutionImageMessage,
+  sendEvolutionMediaBase64,
   sendEvolutionPresence,
   sendEvolutionTextMessage,
+  sendEvolutionVideoMessage,
   sendEvolutionVoiceNote,
 } from "@/lib/evolution";
 import { setConversationAutomationPaused } from "@/lib/conversation-automation";
@@ -2604,92 +2607,160 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<vo
   }
 
   if (quickResponseFlow) {
-    const reply = quickResponseFlow.reply;
-    const textToSend = reply.text?.trim() || "";
-    const imageToSend = reply.image;
     const now = new Date();
 
-    const sendText = async (text: string, sourceType: "manual") => {
-      const outbound = await sendEvolutionTextMessage({
-        instanceName: conversation.channel!.evolutionInstanceName!,
-        phoneNumber: conversation.contact!.phoneNumber!,
-        text,
-      });
+    const sendStep = async (step: FlowStep) => {
+      if (step.kind === "text") {
+        const outbound = await sendEvolutionTextMessage({
+          instanceName: conversation.channel!.evolutionInstanceName!,
+          phoneNumber: conversation.contact!.phoneNumber!,
+          text: step.content,
+        });
 
-      await prisma.message.create({
-        data: {
-          workspaceId: membership.workspace.id,
-          conversationId: conversation.id,
-          channelId: conversation.channel!.id,
-          contactId: conversation.contact!.id,
-          agentId: parsed.data.agentId,
-          externalId: outbound.externalId,
-          direction: "OUTBOUND",
-          type: "TEXT",
-          status: "SENT",
-          content: text,
-          sentAt: now,
-          rawPayload: {
-            source: sourceType,
-            evolution: outbound.raw,
-          } as never,
-        },
-      });
+        await prisma.message.create({
+          data: {
+            workspaceId: membership.workspace.id,
+            conversationId: conversation.id,
+            channelId: conversation.channel!.id,
+            contactId: conversation.contact!.id,
+            agentId: parsed.data.agentId,
+            externalId: outbound.externalId,
+            direction: "OUTBOUND",
+            type: "TEXT",
+            status: "SENT",
+            content: step.content,
+            sentAt: now,
+            rawPayload: {
+              source: "manual",
+              evolution: outbound.raw,
+            } as never,
+          },
+        });
+      } else if (step.kind === "image") {
+        const outbound = await sendEvolutionImageMessage({
+          instanceName: conversation.channel!.evolutionInstanceName!,
+          phoneNumber: conversation.contact!.phoneNumber!,
+          imageUrl: step.url,
+          caption: step.caption,
+        });
 
-      await syncLeadLifecycleForContact({
-        workspaceId: membership.workspace.id,
-        contactId: conversation.contact!.id,
-        hasHistory: true,
-      });
+        await prisma.message.create({
+          data: {
+            workspaceId: membership.workspace.id,
+            conversationId: conversation.id,
+            channelId: conversation.channel!.id,
+            contactId: conversation.contact!.id,
+            agentId: parsed.data.agentId,
+            externalId: outbound.externalId,
+            direction: "OUTBOUND",
+            type: "IMAGE",
+            status: "SENT",
+            content: step.caption,
+            mediaUrl: step.url,
+            sentAt: now,
+            rawPayload: {
+              source: "manual",
+              evolution: outbound.raw,
+            } as never,
+          },
+        });
+      } else if (step.kind === "audio") {
+        const outbound = await sendEvolutionAudioMessage({
+          instanceName: conversation.channel!.evolutionInstanceName!,
+          phoneNumber: conversation.contact!.phoneNumber!,
+          audioUrl: step.url,
+          caption: step.caption,
+        });
+
+        await prisma.message.create({
+          data: {
+            workspaceId: membership.workspace.id,
+            conversationId: conversation.id,
+            channelId: conversation.channel!.id,
+            contactId: conversation.contact!.id,
+            agentId: parsed.data.agentId,
+            externalId: outbound.externalId,
+            direction: "OUTBOUND",
+            type: "AUDIO",
+            status: "SENT",
+            content: step.caption,
+            mediaUrl: step.url,
+            sentAt: now,
+            rawPayload: {
+              source: "manual",
+              evolution: outbound.raw,
+            } as never,
+          },
+        });
+      } else if (step.kind === "video") {
+        const outbound = await sendEvolutionVideoMessage({
+          instanceName: conversation.channel!.evolutionInstanceName!,
+          phoneNumber: conversation.contact!.phoneNumber!,
+          videoUrl: step.url,
+          caption: step.caption,
+        });
+
+        await prisma.message.create({
+          data: {
+            workspaceId: membership.workspace.id,
+            conversationId: conversation.id,
+            channelId: conversation.channel!.id,
+            contactId: conversation.contact!.id,
+            agentId: parsed.data.agentId,
+            externalId: outbound.externalId,
+            direction: "OUTBOUND",
+            type: "VIDEO",
+            status: "SENT",
+            content: step.caption,
+            mediaUrl: step.url,
+            sentAt: now,
+            rawPayload: {
+              source: "manual",
+              evolution: outbound.raw,
+            } as never,
+          },
+        });
+      } else if (step.kind === "document") {
+        const outbound = await sendEvolutionDocumentMessage({
+          instanceName: conversation.channel!.evolutionInstanceName!,
+          phoneNumber: conversation.contact!.phoneNumber!,
+          documentUrl: step.url,
+          caption: step.caption,
+          fileName: step.fileName,
+        });
+
+        await prisma.message.create({
+          data: {
+            workspaceId: membership.workspace.id,
+            conversationId: conversation.id,
+            channelId: conversation.channel!.id,
+            contactId: conversation.contact!.id,
+            agentId: parsed.data.agentId,
+            externalId: outbound.externalId,
+            direction: "OUTBOUND",
+            type: "DOCUMENT",
+            status: "SENT",
+            content: step.caption,
+            mediaUrl: step.url,
+            sentAt: now,
+            rawPayload: {
+              source: "manual",
+              evolution: outbound.raw,
+            } as never,
+          },
+        });
+      }
     };
 
-    const sendImage = async (image: { url: string; caption: string | null }) => {
-      const outbound = await sendEvolutionImageMessage({
-        instanceName: conversation.channel!.evolutionInstanceName!,
-        phoneNumber: conversation.contact!.phoneNumber!,
-        imageUrl: image.url,
-        caption: image.caption,
-      });
-
-      await prisma.message.create({
-        data: {
-          workspaceId: membership.workspace.id,
-          conversationId: conversation.id,
-          channelId: conversation.channel!.id,
-          contactId: conversation.contact!.id,
-          agentId: parsed.data.agentId,
-          externalId: outbound.externalId,
-          direction: "OUTBOUND",
-          type: "IMAGE",
-          status: "SENT",
-          content: image.caption,
-          mediaUrl: image.url,
-          sentAt: now,
-          rawPayload: {
-            source: "manual",
-            evolution: outbound.raw,
-          } as never,
-        },
-      });
-
-      await syncLeadLifecycleForContact({
-        workspaceId: membership.workspace.id,
-        contactId: conversation.contact!.id,
-        hasHistory: true,
-      });
-    };
-
-    if (reply.imageFirst && imageToSend) {
-      await sendImage(imageToSend);
+    for (const step of quickResponseFlow.reply.steps) {
+      await sendStep(step);
     }
 
-    if (textToSend) {
-      await sendText(textToSend, "manual");
-    }
-
-    if (!reply.imageFirst && imageToSend) {
-      await sendImage(imageToSend);
-    }
+    await syncLeadLifecycleForContact({
+      workspaceId: membership.workspace.id,
+      contactId: conversation.contact!.id,
+      hasHistory: true,
+    });
 
     await prisma.conversation.update({
       where: { id: conversation.id },
@@ -2862,6 +2933,141 @@ export async function sendChatAudioReplyAction(input: {
       status: "SENT",
       content: null,
       mediaUrl: parsed.data.audioUrl,
+      sentAt: now,
+      rawPayload: {
+        source: "manual",
+        evolution: outbound.raw,
+      } as never,
+    },
+  });
+
+  await syncLeadLifecycleForContact({
+    workspaceId: membership.workspace.id,
+    contactId: conversation.contact.id,
+    hasHistory: true,
+  });
+
+  await prisma.conversation.update({
+    where: { id: conversation.id },
+    data: { lastMessageAt: now, status: "OPEN" },
+  });
+
+  await setConversationAutomationPaused({
+    conversationId: conversation.id,
+    paused: true,
+  });
+
+  const safeReturnTo = normalizeInternalPath(parsed.data.returnTo ?? "", "");
+  if (safeReturnTo) {
+    revalidatePath(safeReturnTo.split("?")[0]);
+  }
+  revalidatePath(`/cliente/agentes/${parsed.data.agentId}/chats`);
+
+  return { ok: true };
+}
+
+const sendChatMediaReplySchema = z.object({
+  source: z.string(),
+  conversationId: z.string().min(1),
+  agentId: z.string().min(1),
+  mediaUrl: z.string().min(1),
+  mediaType: z.enum(["IMAGE", "VIDEO", "DOCUMENT"]),
+  fileName: z.string().min(1),
+  mimeType: z.string().min(1),
+  caption: z.string().optional(),
+  returnTo: z.string().optional(),
+});
+
+export async function sendChatMediaReplyAction(input: {
+  source: string;
+  conversationId: string;
+  agentId: string;
+  mediaUrl: string;
+  mediaType: "IMAGE" | "VIDEO" | "DOCUMENT";
+  fileName: string;
+  mimeType: string;
+  caption?: string;
+  returnTo: string;
+}): Promise<{ ok: true } | { error: string }> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
+    return { error: "No autorizado" };
+  }
+  await requireClientWorkspaceAccess("agents");
+
+  const parsed = sendChatMediaReplySchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: "Datos invalidos" };
+  }
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    return { error: "Debes configurar tu negocio primero" };
+  }
+
+  const conversation = await prisma.conversation.findFirst({
+    where: {
+      id: parsed.data.conversationId,
+      workspaceId: membership.workspace.id,
+    },
+    include: {
+      contact: { select: { id: true, phoneNumber: true } },
+      channel: { select: { id: true, provider: true, evolutionInstanceName: true } },
+    },
+  });
+
+  if (
+    !conversation ||
+    conversation.channel?.provider !== "EVOLUTION" ||
+    !conversation.channel.evolutionInstanceName ||
+    !conversation.contact?.phoneNumber
+  ) {
+    return { error: "No se encontro el canal o contacto" };
+  }
+
+  // Enviamos el archivo en base64 para no depender de que la URL sea publica (funciona en local y prod).
+  let mediaBase64 = "";
+  try {
+    const pathname = new URL(parsed.data.mediaUrl).pathname;
+    const filePath = path.join(process.cwd(), "public", pathname);
+    mediaBase64 = (await readFile(filePath)).toString("base64");
+  } catch {
+    return { error: "No se pudo leer el archivo" };
+  }
+
+  const mediatype = parsed.data.mediaType === "IMAGE" ? "image" : parsed.data.mediaType === "VIDEO" ? "video" : "document";
+  const caption = parsed.data.caption?.trim() || "";
+
+  let outbound;
+  try {
+    outbound = await sendEvolutionMediaBase64({
+      instanceName: conversation.channel.evolutionInstanceName,
+      phoneNumber: conversation.contact.phoneNumber,
+      mediatype,
+      mimetype: parsed.data.mimeType,
+      base64: mediaBase64,
+      fileName: parsed.data.fileName,
+      caption,
+    });
+  } catch (mediaError) {
+    const detail = mediaError instanceof Error ? mediaError.message : "";
+    return { error: detail ? `No se pudo enviar el archivo: ${detail}` : "No se pudo enviar el archivo" };
+  }
+
+  const now = new Date();
+  await prisma.message.create({
+    data: {
+      workspaceId: membership.workspace.id,
+      conversationId: conversation.id,
+      channelId: conversation.channel.id,
+      contactId: conversation.contact.id,
+      agentId: parsed.data.agentId,
+      externalId: outbound.externalId,
+      direction: "OUTBOUND",
+      type: parsed.data.mediaType,
+      status: "SENT",
+      content: caption || null,
+      mediaUrl: parsed.data.mediaUrl,
       sentAt: now,
       rawPayload: {
         source: "manual",

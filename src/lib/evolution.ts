@@ -1204,6 +1204,44 @@ export async function sendEvolutionDocumentMessage(input: {
   return { externalId, raw: response };
 }
 
+export async function sendEvolutionMediaBase64(input: {
+  instanceName: string;
+  phoneNumber: string;
+  mediatype: "image" | "video" | "document";
+  mimetype: string;
+  base64: string;
+  fileName: string;
+  caption?: string | null;
+  delayMs?: number;
+}) {
+  const response = await evolutionRequest<EvolutionSendMediaResponse>(`/message/sendMedia/${input.instanceName}`, {
+    method: "POST",
+    body: JSON.stringify({
+      number: input.phoneNumber,
+      mediatype: input.mediatype,
+      mimetype: input.mimetype,
+      caption: input.caption?.trim() || "",
+      media: input.base64,
+      fileName: input.fileName,
+      delay: input.delayMs ?? 1200,
+    }),
+  });
+
+  const externalId =
+    response.key?.id ||
+    response.message?.key?.id ||
+    response.data?.key?.id ||
+    response.data?.id ||
+    response.id ||
+    response.messageId ||
+    null;
+
+  return {
+    externalId,
+    raw: response,
+  };
+}
+
 function isEvolutionConnectionClosedError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   return /connection closed/i.test(message);
