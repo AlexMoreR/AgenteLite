@@ -3,6 +3,7 @@
 import * as React from "react";
 import { MessageSquareText, Search, X } from "lucide-react";
 import { ConversationList } from "@/components/chats/conversation-list";
+import { SidebarInput } from "@/components/ui/sidebar";
 import { type SharedInboxConversationItem } from "./shared-inbox";
 
 type AppSidebarProps = {
@@ -48,37 +49,39 @@ export function AppSidebar({
     >
       <div className="flex min-h-0 w-full flex-col">
         <div className="sticky top-0 shrink-0 border-b border-[rgba(148,163,184,0.12)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(248,250,252,0.96)_100%)] px-3 py-2.5 backdrop-blur-sm md:px-3 md:py-3">
-          <form
-            className="relative"
-            action={searchAction}
-            onSubmit={(event) => {
-              event.preventDefault();
-              onSearchSubmit();
-            }}
-          >
-            <input type="hidden" name="chatKey" value={selectedConversationId} />
-            {selectedConnectionKey ? <input type="hidden" name="connection" value={selectedConnectionKey} /> : null}
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input
-              ref={searchInputRef}
-              type="text"
-              name="q"
-              value={searchInputValue}
-              onChange={(event) => onSearchChange(event.target.value)}
-              placeholder="Buscar chat..."
-              className="h-10 w-full rounded-2xl border border-[rgba(148,163,184,0.14)] bg-slate-50 pl-9 pr-8 text-[14px] text-slate-700 outline-none transition focus:border-[var(--primary)] focus:bg-white md:text-sm"
-            />
-            {searchInputValue ? (
-              <button
-                type="button"
-                onClick={onSearchClear}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded text-slate-400 transition hover:text-slate-600 focus:outline-none"
-                aria-label="Limpiar busqueda"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            ) : null}
-          </form>
+          <div className="flex items-center gap-2">
+            <form
+              className="relative flex-1"
+              action={searchAction}
+              onSubmit={(event) => {
+                event.preventDefault();
+                onSearchSubmit();
+              }}
+            >
+              <input type="hidden" name="chatKey" value={selectedConversationId} />
+              {selectedConnectionKey ? <input type="hidden" name="connection" value={selectedConnectionKey} /> : null}
+              <SidebarInput
+                ref={searchInputRef}
+                type="text"
+                name="q"
+                value={searchInputValue}
+                onChange={(event) => onSearchChange(event.target.value)}
+                placeholder="Buscar hats..."
+                className=""
+              />
+              {searchInputValue ? (
+                <button
+                  type="button"
+                  onClick={onSearchClear}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded text-slate-400 transition hover:text-slate-600 focus:outline-none"
+                  aria-label="Limpiar busqueda"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              ) : null}
+            </form>
+
+          </div>
         </div>
 
         <div

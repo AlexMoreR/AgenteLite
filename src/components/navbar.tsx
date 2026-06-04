@@ -9,6 +9,7 @@ import type { Role } from "@prisma/client";
 import { Bot, ChevronDown, Facebook, Instagram, LayoutDashboard, LogOut, Menu, Search, Settings, UserCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ThemeToggleButton } from "@/components/ui/theme-toggle";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -120,6 +121,7 @@ export function Navbar({
           </div>
 
           <div className="flex items-center gap-2">
+            <ThemeToggleButton />
             {user ? (
               <>
                 {dashboardHref ? (

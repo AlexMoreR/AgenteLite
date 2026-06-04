@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import type { CSSProperties } from "react";
+import Script from "next/script";
 import { Geist_Mono, Poppins, Geist } from "next/font/google";
 import { auth } from "@/auth";
 import { AppShell } from "@/components/app-shell";
@@ -162,7 +163,7 @@ export default async function RootLayout({
       : null;
 
   return (
-    <html lang="es-CO" className={cn("font-sans", geist.variable)}>
+    <html lang="es-CO" className={cn("font-sans", geist.variable)} suppressHydrationWarning>
       <body
         className={`${poppins.variable} ${geistMono.variable} antialiased`}
         style={
@@ -172,6 +173,16 @@ export default async function RootLayout({
           } as CSSProperties
         }
       >
+        <Script id="theme-init" strategy="beforeInteractive">
+          {`(() => {
+            try {
+              const storedTheme = localStorage.getItem("theme");
+              const isDark = storedTheme === "dark" || (!storedTheme && window.matchMedia("(prefers-color-scheme: dark)").matches);
+              document.documentElement.classList.toggle("dark", isDark);
+              document.documentElement.style.colorScheme = isDark ? "dark" : "light";
+            } catch (error) {}
+          })();`}
+        </Script>
         <Providers session={session}>
           <AppShell
             initialUser={session?.user ?? null}
