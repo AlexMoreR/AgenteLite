@@ -222,7 +222,13 @@ export function AppShell({
           currentConnectionKey={currentConnectionKey}
           chatSidebarItems={chatSidebarItems}
         />
-        <SidebarInset className={cn("flex min-h-screen w-full flex-col", isAgentWorkspacePath && "bg-[#F1F5F9]")}>
+        <SidebarInset
+          className={cn(
+            "flex min-h-screen w-full flex-col",
+            isChatWorkspacePath && "h-[100dvh] overflow-hidden",
+            isAgentWorkspacePath && "bg-[#F1F5F9]",
+          )}
+        >
           <header className="flex h-12 shrink-0 items-center gap-1.5 border-b border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12">
             <div className="flex w-full items-center gap-1.5 px-1.5">
               <SidebarTrigger className="-ml-1" />
@@ -232,7 +238,8 @@ export function AppShell({
           </header>
           <main
             className={cn(
-              "flex w-full flex-1 min-h-0 flex-col gap-4 p-4 pt-0",
+              "flex w-full flex-1 min-h-0 flex-col gap-4 pt-0",
+              isChatWorkspacePath && "overflow-hidden",
               isAgentWorkspacePath && "bg-transparent",
             )}
           >

@@ -35,6 +35,7 @@ import {
   UserRound,
   Users,
   X,
+  Sidebar,
 } from "lucide-react";
 import { ChatScrollAnchor } from "@/components/agents/chat-scroll-anchor";
 import { ChatSelectionOverlay } from "@/components/chats/chat-selection-overlay";
@@ -44,7 +45,6 @@ import {
   readConversationFromCache,
   saveConversationToCache,
 } from "@/components/chats/chat-history-cache";
-import { ConversationList } from "@/components/chats/conversation-list";
 import { EditContactModal } from "@/components/chats/edit-contact-modal";
 import { EtiquetaModal } from "@/components/chats/etiqueta-modal";
 import { Badge } from "@/components/ui/badge";
@@ -58,6 +58,11 @@ import {
   usePendingConversationSelection,
   type PendingChatSelection,
 } from "./chat-selection-store";
+import { AppSidebar } from "./appsidebar";
+import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "../ui/breadcrumb";
+import { SidebarHeader, SidebarInput } from "../ui/sidebar";
+import { Label } from "../ui/label";
+import { Switch } from "../ui/switch";
 
 const CHAT_TIME_ZONE = "America/Bogota";
 const CONVERSATION_LIST_LOAD_BATCH_SIZE = 10;
@@ -2547,7 +2552,6 @@ export function SharedInbox({
   const handleOpenEditContact = useCallback(() => setEditContactOpen(true), []);
   const handleOpenEtiquetaModal = useCallback(() => setEtiquetaModalOpen(true), []);
   const [, startSelectionTransition] = useTransition();
-  const conversationListScrollRef = useRef<HTMLDivElement | null>(null);
   const messagesScrollRef = useRef<HTMLDivElement | null>(null);
   const scrollFrameRef = useRef<number | null>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
@@ -3716,65 +3720,25 @@ export function SharedInbox({
         </div>
       ) : null}
 
-      <Card
-      className={`${mobileConversationActive ? "hidden md:flex" : "flex"} chat-inbox-sidebar min-h-0 flex-1 overflow-hidden border border-[rgba(148,163,184,0.14)] bg-white p-0 shadow-none md:h-full md:shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)]`}
-      >
-        <div className="flex min-h-0 w-full flex-col">
-          <div className="shrink-0 border-b border-[rgba(148,163,184,0.12)] bg-white px-3 py-2.5 md:px-3 md:py-3">
-            <form className="relative" action={searchAction} onSubmit={() => { if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current); }}>
-              <input type="hidden" name="chatKey" value={selectedConversationId} />
-              {selectedConnectionKey ? <input type="hidden" name="connection" value={selectedConnectionKey} /> : null}
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input
-                ref={searchInputRef}
-                type="text"
-                name="q"
-                value={searchInputValue}
-                onChange={(e) => handleSearchChange(e.target.value)}
-                placeholder="Buscar chat..."
-                className="h-10 w-full rounded-2xl border border-[rgba(148,163,184,0.14)] bg-slate-50 pl-9 pr-8 text-[14px] text-slate-700 outline-none transition focus:border-[var(--primary)] focus:bg-white md:text-sm"
-              />
-              {searchInputValue ? (
-                <button
-                  type="button"
-                  onClick={handleSearchClear}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded text-slate-400 transition hover:text-slate-600 focus:outline-none"
-                  aria-label="Limpiar búsqueda"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              ) : null}
-            </form>
-          </div>
-          <div
-            ref={conversationListScrollRef}
-            className="min-h-0 flex-1 overflow-y-auto overscroll-contain divide-y divide-[rgba(148,163,184,0.12)] [-webkit-overflow-scrolling:touch]"
-          >
-            {conversationItems.length > 0 ? (
-              <ConversationList
-                conversations={conversationItems}
-                selectedConversationId={selectedConversationId}
-                scrollContainerRef={conversationListScrollRef}
-                hasMoreConversations={hasMoreConversationItems}
-                isLoadingMoreConversations={isLoadingMoreConversationItems}
-                onLoadMoreConversations={loadMoreConversationItems}
-              />
-            ) : (
-              <div className="px-5 py-12 text-center">
-                <div className="mx-auto flex max-w-sm flex-col items-center gap-3">
-                  <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-50 text-slate-500">
-                    <MessageSquareText className="h-5 w-5" />
-                  </span>
-                  <div className="space-y-1">
-                    <h3 className="text-base font-semibold text-slate-950">{emptyListTitle}</h3>
-                    <p className="text-sm leading-6 text-slate-600">{emptyListDescription}</p>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      </Card>
+      <AppSidebar
+        conversationItems={conversationItems}
+        selectedConversationId={selectedConversationId}
+        searchAction={searchAction}
+        selectedConnectionKey={selectedConnectionKey}
+        searchInputValue={searchInputValue}
+        searchInputRef={searchInputRef}
+        onSearchChange={handleSearchChange}
+        onSearchClear={handleSearchClear}
+        onSearchSubmit={() => {
+          if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+        }}
+        hasMoreConversationItems={hasMoreConversationItems}
+        isLoadingMoreConversationItems={isLoadingMoreConversationItems}
+        onLoadMoreConversationItems={loadMoreConversationItems}
+        mobileConversationActive={mobileConversationActive}
+        emptyListTitle={emptyListTitle}
+        emptyListDescription={emptyListDescription}
+      />
 
       <ConversationPanel
         key={mobileConversationActive ? (selectedConversationId || "selected") : "empty"}
