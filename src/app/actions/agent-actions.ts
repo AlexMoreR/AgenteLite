@@ -1,5 +1,7 @@
 "use server";
 
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
@@ -39,6 +41,7 @@ import {
   sendEvolutionImageMessage,
   sendEvolutionPresence,
   sendEvolutionTextMessage,
+  sendEvolutionVoiceNote,
 } from "@/lib/evolution";
 import { setConversationAutomationPaused } from "@/lib/conversation-automation";
 import { buildDefaultWorkspacePlan } from "@/lib/plans";
@@ -2812,15 +2815,37 @@ export async function sendChatAudioReplyAction(input: {
     return { error: "No se encontro el canal o contacto" };
   }
 
+  // Enviamos el audio en base64 (no como URL) para que Evolution no dependa de poder
+  // descargar la URL publica: funciona igual en local y en produccion.
+  let audioBase64 = "";
+  try {
+    const pathname = new URL(parsed.data.audioUrl).pathname; // /uploads/chat-audio/xxx.webm
+    const filePath = path.join(process.cwd(), "public", pathname);
+    audioBase64 = (await readFile(filePath)).toString("base64");
+  } catch {
+    return { error: "No se pudo leer el audio grabado" };
+  }
+
   let outbound;
   try {
-    outbound = await sendEvolutionAudioMessage({
+    // Endpoint de nota de voz (PTT): Evolution convierte a opus. Es lo correcto para audios grabados.
+    outbound = await sendEvolutionVoiceNote({
       instanceName: conversation.channel.evolutionInstanceName,
       phoneNumber: conversation.contact.phoneNumber,
-      audioUrl: parsed.data.audioUrl,
+      audio: audioBase64,
     });
-  } catch {
-    return { error: "No se pudo enviar la nota de voz" };
+  } catch (voiceNoteError) {
+    // Fallback: enviarlo como media de audio normal (tambien en base64).
+    try {
+      outbound = await sendEvolutionAudioMessage({
+        instanceName: conversation.channel.evolutionInstanceName,
+        phoneNumber: conversation.contact.phoneNumber,
+        audioUrl: audioBase64,
+      });
+    } catch {
+      const detail = voiceNoteError instanceof Error ? voiceNoteError.message : "";
+      return { error: detail ? `No se pudo enviar la nota de voz: ${detail}` : "No se pudo enviar la nota de voz" };
+    }
   }
 
   const now = new Date();

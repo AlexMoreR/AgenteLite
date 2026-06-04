@@ -67,6 +67,8 @@ export async function scanEvolutionChatSyncByPhoneAction(input: {
 
 export async function applyEvolutionChatSyncAction(input: {
   channelId: string;
+  // Cantidad de mensajes mas recientes a importar. null = todo el historial.
+  importLimit?: number | null;
   candidate: {
     fingerprint: string;
     kind: "CONTACT" | "CONVERSATION";
@@ -102,6 +104,7 @@ export async function applyEvolutionChatSyncAction(input: {
     workspaceId: membership.workspace.id,
     channelId: input.channelId.trim(),
     candidate: input.candidate,
+    importLimit: input.importLimit,
   });
 
   if (!result.ok) {

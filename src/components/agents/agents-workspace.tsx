@@ -86,10 +86,10 @@ const statusLabelMap = {
 } as const;
 
 const statusToneMap = {
-  DRAFT: "bg-amber-50 text-amber-700 ring-amber-200",
+  DRAFT: "bg-amber-500/10 text-amber-600 ring-amber-500/30 dark:text-amber-400",
   ACTIVE: "bg-emerald-500 text-white ring-emerald-500 shadow-[0_10px_24px_-18px_rgba(16,185,129,0.8)]",
-  PAUSED: "bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)] ring-slate-200",
-  ARCHIVED: "bg-rose-50 text-rose-700 ring-rose-200",
+  PAUSED: "bg-primary/10 text-primary ring-primary/20",
+  ARCHIVED: "bg-destructive/10 text-destructive ring-destructive/30",
 } as const;
 
 function ProgressDot({ active, done }: { active: boolean; done: boolean }) {
@@ -241,10 +241,10 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0 flex-1">
             <div className="inline-flex items-center gap-3">
-              <Bot className="h-6 w-6 text-sky-600" />
-              <h1 className="text-2xl font-semibold tracking-[-0.05em] text-slate-950">Agentes</h1>
+              <Bot className="h-6 w-6 text-primary" />
+              <h1 className="text-2xl font-semibold tracking-[-0.05em] text-foreground">Agentes</h1>
             </div>
-            <p className="max-w-3xl text-sm text-slate-600">
+            <p className="max-w-3xl text-sm text-muted-foreground">
               Crea y administra tus agentes de venta para WhatsApp.
             </p>
           </div>
@@ -266,23 +266,23 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
               {agents.map((agent) => (
                 <Card
                   key={agent.id}
-                  className="border border-[rgba(148,163,184,0.14)] bg-white p-0 transition hover:border-[var(--primary)]/30 hover:shadow-[0_16px_40px_-32px_rgba(15,23,42,0.18)]"
+                  className="border border-border bg-card p-0 transition hover:border-[var(--primary)]/30 hover:shadow-[0_16px_40px_-32px_rgba(15,23,42,0.18)]"
                 >
                   <div className="flex items-center gap-3">
                     <Link href={`/cliente/agentes/${agent.id}`} className="flex min-w-0 flex-1 items-center gap-4 px-5 py-4">
-                      <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
+                      <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
                         <Bot className="h-5 w-5" />
                       </span>
 
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="text-lg font-semibold tracking-[-0.03em] text-slate-950">{agent.name}</h3>
+                          <h3 className="text-lg font-semibold tracking-[-0.03em] text-foreground">{agent.name}</h3>
                           <span
                             className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-medium ring-1 ${statusToneMap[agent.status]}`}
                           >
                             {statusLabelMap[agent.status]}
                           </span>
-                          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700 ring-1 ring-emerald-200">
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-600 ring-1 ring-emerald-500/30 dark:text-emerald-400">
                             <MessageSquareMore className="h-3.5 w-3.5" />
                             WhatsApp
                           </span>
@@ -291,8 +291,8 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
 
                       <div className="hidden shrink-0 items-center gap-8 lg:flex">
                         <div>
-                          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">Ultimo ajuste</p>
-                          <p className="mt-1 text-sm font-medium text-slate-900">{agent.updatedAtLabel}</p>
+                          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Ultimo ajuste</p>
+                          <p className="mt-1 text-sm font-medium text-foreground">{agent.updatedAtLabel}</p>
                         </div>
                       </div>
                     </Link>
@@ -308,7 +308,7 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
                       <DropdownMenu>
                         <DropdownMenuTrigger
                           type="button"
-                          className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-[rgba(148,163,184,0.16)] bg-white text-slate-600 transition hover:bg-slate-50"
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border bg-background text-muted-foreground transition hover:bg-muted"
                           aria-label={`Acciones para ${agent.name}`}
                         >
                           <MoreHorizontal className="h-4 w-4" />
@@ -316,7 +316,7 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem
                             onSelect={() => setPendingDelete(agent)}
-                            className="flex items-center gap-2 text-rose-600 focus:text-rose-700"
+                            className="flex items-center gap-2 text-destructive focus:text-destructive"
                           >
                             <Trash2 className="h-4 w-4" />
                             Eliminar agente

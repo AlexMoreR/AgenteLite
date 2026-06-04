@@ -296,12 +296,12 @@ export function KnowledgeProductInstructionModal({
   const renderPreview = (text: string) => {
     if (!text.trim()) {
       return (
-      <p className="text-sm text-slate-400">Sin embudo guardado. El agente usara solo la informacion base del producto.</p>
+      <p className="text-sm text-muted-foreground">Sin embudo guardado. El agente usara solo la informacion base del producto.</p>
       );
     }
     const parts = text.split(/(\/\S+)/g);
     return (
-      <p className="text-sm leading-7 text-slate-700 whitespace-pre-wrap">
+      <p className="text-sm leading-7 text-foreground whitespace-pre-wrap">
         {parts.map((part, i) => {
           if (part.startsWith("/")) {
             const title = part.slice(1);
@@ -312,8 +312,8 @@ export function KnowledgeProductInstructionModal({
                 variant="outline"
                 className={`h-5 rounded-full px-2 text-[11px] font-semibold ${
                   known
-                    ? "border-[color-mix(in_srgb,var(--primary)_18%,white)] bg-[color-mix(in_srgb,var(--primary)_10%,white)] text-[var(--primary)]"
-                    : "border-amber-200 bg-amber-50 text-amber-700"
+                    ? "border-primary/20 bg-primary/10 text-primary"
+                    : "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400"
                 }`}
               >
                 {part}
@@ -357,20 +357,20 @@ export function KnowledgeProductInstructionModal({
             setView("activation");
             setOpen(true);
           }}
-          className="min-w-0 flex-1 rounded-lg px-1 py-1 text-left transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[color-mix(in_srgb,var(--primary)_14%,white)]"
+          className="min-w-0 flex-1 rounded-lg px-1 py-1 text-left transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
         >
           <div className="flex flex-wrap items-center gap-1.5">
-            <p className="text-[15px] font-semibold text-slate-900">{productName}</p>
-            <span className="rounded-full bg-slate-50 px-2 py-0.5 text-[10px] text-slate-500 ring-1 ring-slate-200">
+            <p className="text-[15px] font-semibold text-foreground">{productName}</p>
+            <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground ring-1 ring-border">
               {categoryName}
             </span>
             {isSelected ? (
-              <span className="rounded-full bg-[color-mix(in_srgb,var(--primary)_8%,white)] px-2 py-0.5 text-[10px] font-medium text-[var(--primary)]">
+              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
                 Seleccionado
               </span>
             ) : null}
             {instructions.trim() ? (
-              <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-amber-100">
+              <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-600 ring-1 ring-amber-500/30 dark:text-amber-400">
                 <FileText className="h-3 w-3" />
                 Embudo
               </span>
@@ -426,7 +426,7 @@ export function KnowledgeProductInstructionModal({
                               Define como se activa este producto: por defecto, por IA o por palabras clave.
                             </CardDescription>
                           </div>
-                          <Badge variant="outline" className="h-5 rounded-full border-slate-200 bg-white px-2.5 text-[10px] font-semibold tracking-[0.08em] text-slate-600">
+                          <Badge variant="outline" className="h-5 rounded-full border-border bg-background px-2.5 text-[10px] font-semibold tracking-[0.08em] text-muted-foreground">
                             {activationMode === "chatbot" ? "CHATBOT" : activationMode === "ia" ? "IA" : "DEFAULT"}
                           </Badge>
                         </div>
@@ -465,7 +465,7 @@ export function KnowledgeProductInstructionModal({
                                 }}
                                 className={`min-h-36 rounded-xl border px-4 py-4 text-left transition ${
                                   isSelected
-                                    ? "border-[color-mix(in_srgb,var(--primary)_35%,white)] bg-[color-mix(in_srgb,var(--primary)_7%,white)] shadow-sm"
+                                    ? "border-primary bg-primary/10 shadow-sm"
                                     : "border-border bg-background hover:bg-muted/40"
                                 }`}
                               >
@@ -568,7 +568,7 @@ export function KnowledgeProductInstructionModal({
                       <CardHeader>
                         <div className="flex items-center gap-2">
                           <CardTitle>Embudo</CardTitle>
-                          <Badge variant="outline" className="h-5 rounded-full border-[color-mix(in_srgb,var(--primary)_18%,white)] bg-[color-mix(in_srgb,var(--primary)_8%,white)] px-2 text-[10px] font-medium text-[var(--primary)]">
+                          <Badge variant="outline" className="h-5 rounded-full border-primary/20 bg-primary/10 px-2 text-[10px] font-medium text-primary">
                             🪜 Paso a paso
                           </Badge>
                         </div>
@@ -577,7 +577,7 @@ export function KnowledgeProductInstructionModal({
                         <Accordion defaultValue={["opening"]} keepMounted className="">
                           {funnelSteps.map((step) => (
                             <AccordionItem key={step.key} value={step.key}>
-                              <AccordionTrigger className="py-2 text-[14px] font-semibold text-slate-900 hover:no-underline">
+                              <AccordionTrigger className="py-2 text-[14px] font-semibold text-foreground hover:no-underline">
                                 {step.emoji} {step.title}
                               </AccordionTrigger>
                               <AccordionContent className="pb-4">
@@ -605,7 +605,7 @@ export function KnowledgeProductInstructionModal({
                                   onClick={() => insertFlowReference(flow)}
                                   className="flex w-full items-start gap-3 border-b border-border px-3 py-2.5 text-left transition last:border-b-0 hover:bg-muted/40"
                                 >
-                                  <Badge variant="outline" className="mt-0.5 h-5 rounded-full border-[color-mix(in_srgb,var(--primary)_18%,white)] bg-[color-mix(in_srgb,var(--primary)_8%,white)] px-2 text-[10px] font-semibold text-[var(--primary)]">
+                                  <Badge variant="outline" className="mt-0.5 h-5 rounded-full border-primary/20 bg-primary/10 px-2 text-[10px] font-semibold text-primary">
                                     {flow.badge}
                                   </Badge>
                                   <span className="min-w-0">

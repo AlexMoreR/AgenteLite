@@ -196,29 +196,29 @@ export default async function AgentKnowledgePage({ params, searchParams }: PageP
 
   return (
     <AgentPanelShell agentId={agent.id}>
-      <Card className="border border-[rgba(148,163,184,0.14)] bg-white p-4 shadow-[0_8px_24px_rgba(15,23,42,0.04)] sm:p-5 lg:p-6">
+      <Card className="border border-border bg-card p-4 shadow-sm sm:p-5 lg:p-6">
         <div className="space-y-4">
           <div className="min-w-0">
             <div className="inline-flex items-center gap-3">
-              <BookOpenText className="h-6 w-6 text-[var(--primary)]" />
-              <h1 className="text-[18px] font-semibold tracking-[-0.04em] text-slate-950">Conocimiento</h1>
+              <BookOpenText className="h-6 w-6 text-primary" />
+              <h1 className="text-[18px] font-semibold tracking-[-0.04em] text-foreground">Conocimiento</h1>
             </div>
-            <p className="max-w-3xl text-sm text-slate-600">Selecciona los productos y flujos que este agente puede usar como contexto.</p>
+            <p className="max-w-3xl text-sm text-muted-foreground">Selecciona los productos y flujos que este agente puede usar como contexto.</p>
           </div>
 
           {okMessage ? (
-            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+            <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-600 dark:text-emerald-400">
               {okMessage}
             </div>
           ) : null}
 
           {errorMessage ? (
-            <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            <div className="rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
               {errorMessage}
             </div>
           ) : null}
 
-          <div className="border-b border-[rgba(148,163,184,0.16)]">
+          <div className="border-b border-border">
             <div className="flex flex-wrap items-center gap-1 overflow-x-auto">
             {tabs.map((tab) => {
               const Icon = tab.icon;
@@ -230,17 +230,17 @@ export default async function AgentKnowledgePage({ params, searchParams }: PageP
                   href={tab.href}
                   className={`inline-flex h-12 items-center gap-2 border-b-2 px-4 text-sm font-medium transition ${
                     isActive
-                      ? "border-[var(--primary)] text-slate-950"
-                      : "border-transparent text-slate-500 hover:text-[var(--primary)]"
+                      ? "border-primary text-foreground"
+                      : "border-transparent text-muted-foreground hover:text-primary"
                   }`}
                 >
-                  <Icon className={`h-4 w-4 ${isActive ? "text-[var(--primary)]" : "text-slate-400"}`} />
+                  <Icon className={`h-4 w-4 ${isActive ? "text-primary" : "text-muted-foreground"}`} />
                   <span>{tab.label}</span>
                   <span
                     className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
                       isActive
-                        ? "bg-[color-mix(in_srgb,var(--primary)_10%,white)] text-[var(--primary)]"
-                        : "bg-slate-100 text-slate-500"
+                        ? "bg-primary/10 text-primary"
+                        : "bg-muted text-muted-foreground"
                     }`}
                   >
                     {tab.count}
@@ -260,7 +260,7 @@ export default async function AgentKnowledgePage({ params, searchParams }: PageP
                   {products.map((product) => (
                     <div
                       key={product.id}
-                      className="flex items-center gap-3 rounded-[12px] border border-[rgba(148,163,184,0.14)] bg-white px-3 py-2.5 transition hover:border-[color-mix(in_srgb,var(--primary)_26%,white)]"
+                      className="flex items-center gap-3 rounded-[12px] border border-border bg-card px-3 py-2.5 transition hover:border-primary/40"
                     >
                       <div className="flex min-w-0 flex-1 items-center gap-3">
                         <KnowledgeSelectionCheckbox
@@ -294,12 +294,12 @@ export default async function AgentKnowledgePage({ params, searchParams }: PageP
                           }))}
                         />
                       </div>
-                      <p className="shrink-0 text-sm font-semibold text-slate-900">
+                      <p className="shrink-0 text-sm font-semibold text-foreground">
                         {formatMoney(String(product.price), "COP")}
                       </p>
                       <Link
                         href={`/admin/productos/${product.id}`}
-                        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-[rgba(148,163,184,0.18)] bg-white text-slate-500 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+                        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-border bg-background text-muted-foreground transition hover:border-primary hover:text-primary"
                       >
                         <Eye className="h-4 w-4" />
                       </Link>
@@ -308,13 +308,13 @@ export default async function AgentKnowledgePage({ params, searchParams }: PageP
                 </div>
               ) : (
                 <div className="py-10 text-center">
-                  <p className="text-sm font-medium text-slate-900">Todavia no hay productos en el catalogo</p>
-                  <p className="mt-2 text-sm leading-6 text-slate-500">
+                  <p className="text-sm font-medium text-foreground">Todavia no hay productos en el catalogo</p>
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
                     Primero crea productos para despues agregarlos al conocimiento del agente.
                   </p>
                   <Link
                     href="/admin/productos"
-                    className="mt-4 inline-flex h-10 items-center justify-center rounded-2xl border border-[rgba(148,163,184,0.18)] bg-white px-4 text-sm font-medium text-slate-700 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+                    className="mt-4 inline-flex h-10 items-center justify-center rounded-2xl border border-border bg-background px-4 text-sm font-medium text-foreground transition hover:border-primary hover:text-primary"
                   >
                     Ir a productos
                   </Link>
@@ -328,7 +328,7 @@ export default async function AgentKnowledgePage({ params, searchParams }: PageP
                   {flowTargets.map((flow) => (
                     <div
                       key={flow.id}
-                      className="flex items-start gap-3 rounded-[12px] border border-[rgba(148,163,184,0.14)] bg-white px-4 py-3 transition hover:border-[color-mix(in_srgb,var(--primary)_26%,white)]"
+                      className="flex items-start gap-3 rounded-[12px] border border-border bg-card px-4 py-3 transition hover:border-primary/40"
                     >
                       <div className="flex min-w-0 flex-1 items-start gap-3">
                         <KnowledgeSelectionCheckbox
@@ -340,22 +340,22 @@ export default async function AgentKnowledgePage({ params, searchParams }: PageP
                         />
                         <div className="min-w-0 flex-1 space-y-2">
                           <div className="flex flex-wrap items-center gap-1.5">
-                            <p className="text-[15px] font-semibold text-slate-900">{flow.title}</p>
-                            <span className="rounded-full bg-slate-50 px-2 py-0.5 text-[10px] text-slate-500 ring-1 ring-slate-200">
+                            <p className="text-[15px] font-semibold text-foreground">{flow.title}</p>
+                            <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground ring-1 ring-border">
                               {flow.badge}
                             </span>
                             {selectedFlowIds.has(flow.id) ? (
-                              <span className="rounded-full bg-[color-mix(in_srgb,var(--primary)_8%,white)] px-2 py-0.5 text-[10px] font-medium text-[var(--primary)]">
+                              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
                                 Seleccionado
                               </span>
                             ) : null}
                           </div>
-                          <p className="max-w-2xl text-sm leading-6 text-slate-500">{flow.intent || flow.description}</p>
+                          <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{flow.intent || flow.description}</p>
                         </div>
                       </div>
                       <Link
                         href={flow.href}
-                        className="inline-flex h-8 shrink-0 items-center justify-center rounded-xl border border-[rgba(148,163,184,0.18)] bg-white px-3 text-xs font-medium text-slate-700 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+                        className="inline-flex h-8 shrink-0 items-center justify-center rounded-xl border border-border bg-background px-3 text-xs font-medium text-foreground transition hover:border-primary hover:text-primary"
                       >
                         Abrir
                       </Link>
@@ -364,13 +364,13 @@ export default async function AgentKnowledgePage({ params, searchParams }: PageP
                 </div>
               ) : (
                 <div className="py-10 text-center">
-                  <p className="text-sm font-medium text-slate-900">Todavia no hay flujos disponibles</p>
-                  <p className="mt-2 text-sm leading-6 text-slate-500">
+                  <p className="text-sm font-medium text-foreground">Todavia no hay flujos disponibles</p>
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
                     Conecta primero la API oficial o un canal con Evolution para despues agregarlos al conocimiento del agente.
                   </p>
                   <Link
                     href="/cliente/flujos"
-                    className="mt-4 inline-flex h-10 items-center justify-center rounded-2xl border border-[rgba(148,163,184,0.18)] bg-white px-4 text-sm font-medium text-slate-700 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+                    className="mt-4 inline-flex h-10 items-center justify-center rounded-2xl border border-border bg-background px-4 text-sm font-medium text-foreground transition hover:border-primary hover:text-primary"
                   >
                     Ir a flujos
                   </Link>
@@ -378,7 +378,7 @@ export default async function AgentKnowledgePage({ params, searchParams }: PageP
               )}
             </div>
 
-            <div className="flex flex-col gap-3 border-t border-slate-200/80 pt-4 sm:flex-row">
+            <div className="flex flex-col gap-3 border-t border-border pt-4 sm:flex-row">
               <button
                 type="submit"
                 className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"

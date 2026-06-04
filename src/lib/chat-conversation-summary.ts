@@ -50,23 +50,14 @@ export function getContactTags(
 
 async function getIncomingCountForConversation(input: { workspaceId: string; conversationId: string }) {
   const rows = await prisma.$queryRaw<Array<{ incomingCount: bigint | number }>>`
-    WITH last_outbound AS (
-      SELECT MAX(mo."createdAt") AS "lastOutboundAt"
-      FROM "Message" mo
-      WHERE mo."workspaceId" = ${input.workspaceId}
-        AND mo."conversationId" = ${input.conversationId}
-        AND mo."direction" = 'OUTBOUND'
-        AND COALESCE(mo."rawPayload"::text, '') NOT ILIKE '%status@broadcast%'
-    )
     SELECT
       COUNT(*)::bigint AS "incomingCount"
     FROM "Message" mi
-    LEFT JOIN last_outbound lo ON true
     WHERE mi."workspaceId" = ${input.workspaceId}
       AND mi."conversationId" = ${input.conversationId}
       AND mi."direction" = 'INBOUND'
+      AND mi."readAt" IS NULL
       AND COALESCE(mi."rawPayload"::text, '') NOT ILIKE '%status@broadcast%'
-      AND mi."createdAt" > COALESCE(lo."lastOutboundAt", TIMESTAMP '1970-01-01')
   `;
 
   return Number(rows[0]?.incomingCount ?? 0);

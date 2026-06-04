@@ -32,6 +32,7 @@ type AppSidebarProps = {
 
 const ASSIGNED_FILTER_TABS: Array<{ value: AssignedFilter; label: string; managerOnly?: boolean }> = [
   { value: "mine", label: "Mías" },
+  { value: "unassigned", label: "Sin asignar", managerOnly: true },
   { value: "all", label: "Todas", managerOnly: true },
 ];
 

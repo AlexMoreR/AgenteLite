@@ -533,6 +533,10 @@ function extractMessageRecordList(payload: unknown): UnknownRecord[] {
 // metadata de paginacion inconsistente.
 const MAX_MESSAGE_PAGES = 100;
 
+// Cantidad de mensajes mas recientes que importa la sincronizacion (no trae todo el
+// historial: evita imports lentos de cientos/miles de mensajes).
+const IMPORT_RECENT_MESSAGE_LIMIT = 20;
+
 // Evolution API v2 responde /chat/findMessages como objeto paginado:
 // { messages: { total, pages, currentPage, records: [...] } }. Sin leer esta
 // metadata solo se importaria la primera pagina (historial truncado).
@@ -649,7 +653,15 @@ function buildMessageRecordIdentity(message: UnknownRecord, jidHint?: string | n
   return `jid:${remoteJid}|ts:${timestamp}|dir:${direction}|type:${type}|text:${text.slice(0, 160)}`;
 }
 
-async function fetchEvolutionChatMessageRecords(instanceName: string, remoteJid: string, remoteJidAlt?: string | null) {
+async function fetchEvolutionChatMessageRecords(
+  instanceName: string,
+  remoteJid: string,
+  remoteJidAlt?: string | null,
+  options?: { maxPages?: number },
+) {
+  // El import necesita TODAS las paginas; el preview solo la primera (mas recientes),
+  // para no disparar decenas de llamadas a Evolution solo para mostrar una muestra.
+  const pageCap = Math.max(1, Math.min(options?.maxPages ?? MAX_MESSAGE_PAGES, MAX_MESSAGE_PAGES));
   const normalizedRemoteJids = buildRemoteJidSearchVariants(remoteJid, remoteJidAlt);
   const messagesById = new Map<string, UnknownRecord>();
 
@@ -679,9 +691,9 @@ async function fetchEvolutionChatMessageRecords(instanceName: string, remoteJid:
   for (const jid of normalizedRemoteJids) {
     let page = 1;
 
-    // Recorre TODAS las paginas que reporte Evolution para esta variante de JID.
+    // Recorre las paginas que reporte Evolution para esta variante de JID (hasta pageCap).
     // Si la respuesta no trae metadata de paginacion, se ejecuta una sola vez.
-    while (page <= MAX_MESSAGE_PAGES) {
+    while (page <= pageCap) {
       let directPayload: unknown;
       try {
         directPayload = await evolutionSyncRequest<unknown>(`/chat/findMessages/${instanceName}`, {
@@ -784,12 +796,36 @@ async function buildImportedEvolutionMessages(input: {
   instanceName: string;
   remoteJid: string;
   remoteJidAlt?: string | null;
+  // Cantidad de mensajes mas recientes a importar. null = todo el historial.
+  // undefined = valor por defecto (IMPORT_RECENT_MESSAGE_LIMIT).
+  limit?: number | null;
 }) {
+  const limit = input.limit === undefined ? IMPORT_RECENT_MESSAGE_LIMIT : input.limit;
+  // Solo paginamos lo necesario: con ~45 mensajes por pagina, calculamos cuantas hacen
+  // falta para cubrir el limite. Si limit es null (Todas), recorremos todo el historial.
+  const maxPages = limit && limit > 0 ? Math.max(1, Math.ceil(limit / 45)) : MAX_MESSAGE_PAGES;
+
   const importedMessages: Array<{
     sourceIndex: number;
     draft: EvolutionChatSyncImportedMessageDraft;
   }> = [];
-  const rawMessages = await fetchEvolutionChatMessageRecords(input.instanceName, input.remoteJid, input.remoteJidAlt);
+  const allRawMessages = await fetchEvolutionChatMessageRecords(
+    input.instanceName,
+    input.remoteJid,
+    input.remoteJidAlt,
+    { maxPages },
+  );
+  const rawMessages =
+    limit && limit > 0
+      ? allRawMessages
+          .slice()
+          .sort((left, right) => {
+            const leftTime = extractMessageTimestamp(left)?.getTime() ?? 0;
+            const rightTime = extractMessageTimestamp(right)?.getTime() ?? 0;
+            return rightTime - leftTime; // mas reciente primero
+          })
+          .slice(0, limit)
+      : allRawMessages;
 
   const seenMessageSignatures = new Set<string>();
   const seenExternalIds = new Set<string>();
@@ -919,11 +955,20 @@ async function buildEvolutionChatMessagePreview(input: {
     });
   };
 
-  const fallbackMessages = await fetchEvolutionChatMessageRecords(input.instanceName, input.remoteJid, input.remoteJidAlt);
-  for (const [sourceIndex, message] of fallbackMessages.slice(-25).entries()) {
+  // El preview es solo una muestra: con la primera pagina basta (Evolution la devuelve
+  // con los mensajes mas recientes). Evita disparar las ~24 paginas del historial completo.
+  const fallbackMessages = await fetchEvolutionChatMessageRecords(
+    input.instanceName,
+    input.remoteJid,
+    input.remoteJidAlt,
+    { maxPages: 1 },
+  );
+  for (const [sourceIndex, message] of fallbackMessages.entries()) {
     enqueuePreview(message, sourceIndex);
   }
 
+  // Orden cronologico ascendente y nos quedamos con los 25 MAS RECIENTES (no los mas
+  // viejos): el array crudo viene "mas nuevo primero", por eso ordenamos y cortamos al final.
   return previewMessages
     .sort((left, right) => {
       const leftTime = new Date(left.preview.createdAt).getTime();
@@ -935,6 +980,7 @@ async function buildEvolutionChatMessagePreview(input: {
 
       return left.sourceIndex - right.sourceIndex;
     })
+    .slice(-25)
     .map((entry) => entry.preview);
 }
 
@@ -1390,6 +1436,8 @@ export async function applyEvolutionChatSyncCandidate(input: {
   workspaceId: string;
   channelId: string;
   candidate: EvolutionChatSyncCandidate;
+  // Cantidad de mensajes mas recientes a importar. null = todo el historial.
+  importLimit?: number | null;
 }) {
   const candidate = input.candidate;
 
@@ -1429,6 +1477,7 @@ export async function applyEvolutionChatSyncCandidate(input: {
       instanceName: channel.evolutionInstanceName,
       remoteJid: candidate.remoteJid ?? buildCanonicalRemoteJid(candidate.remotePhoneNumber) ?? "",
       remoteJidAlt: candidate.remoteJidAlt,
+      limit: input.importLimit,
     });
   } catch {
     return {

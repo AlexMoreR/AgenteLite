@@ -428,6 +428,21 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     });
   }
 
+  // Al abrir una conversacion, marcamos sus mensajes entrantes como leidos (vistos).
+  const selectedAgentConversationIdForRead =
+    selectedChatRef?.source === "agent" ? selectedChatRef.conversationId : null;
+  if (selectedAgentConversationIdForRead) {
+    await prisma.message.updateMany({
+      where: {
+        workspaceId: membership.workspace.id,
+        conversationId: selectedAgentConversationIdForRead,
+        direction: "INBOUND",
+        readAt: null,
+      },
+      data: { readAt: new Date() },
+    });
+  }
+
   const agentIncomingCountRowsPromise = activeAgentConversationIds.length
     ? prisma.$queryRaw<Array<{
         conversationId: string;
@@ -439,28 +454,16 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           WHERE c."workspaceId" = ${membership.workspace.id}
             AND c."id" IN (${Prisma.join(activeAgentConversationIds)})
         ),
-        last_outbound AS (
-          SELECT
-            m."conversationId",
-            MAX(m."createdAt") AS "lastOutboundAt"
-          FROM "Message" m
-          WHERE m."workspaceId" = ${membership.workspace.id}
-            AND m."conversationId" IN (${Prisma.join(activeAgentConversationIds)})
-            AND m."direction" = 'OUTBOUND'
-            AND COALESCE(m."rawPayload"::text, '') NOT ILIKE '%status@broadcast%'
-          GROUP BY m."conversationId"
-        ),
         incoming AS (
           SELECT
             m."conversationId",
             COUNT(*)::int AS "incomingCount"
           FROM "Message" m
-          LEFT JOIN last_outbound lo ON lo."conversationId" = m."conversationId"
           WHERE m."workspaceId" = ${membership.workspace.id}
             AND m."conversationId" IN (${Prisma.join(activeAgentConversationIds)})
             AND m."direction" = 'INBOUND'
+            AND m."readAt" IS NULL
             AND COALESCE(m."rawPayload"::text, '') NOT ILIKE '%status@broadcast%'
-            AND m."createdAt" > COALESCE(lo."lastOutboundAt", TIMESTAMP '1970-01-01')
           GROUP BY m."conversationId"
         )
         SELECT

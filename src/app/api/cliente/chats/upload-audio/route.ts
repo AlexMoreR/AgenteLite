@@ -65,8 +65,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: "No se recibio ningun archivo." }, { status: 400 });
   }
 
-  if (!ALLOWED_AUDIO_MIME_TYPES.has(file.type)) {
-    return NextResponse.json({ ok: false, error: "Formato de audio no permitido." }, { status: 400 });
+  const baseMimeType = file.type.split(";")[0].trim().toLowerCase();
+  if (!ALLOWED_AUDIO_MIME_TYPES.has(baseMimeType)) {
+    return NextResponse.json({ ok: false, error: `Formato de audio no permitido (${file.type || "desconocido"}).` }, { status: 400 });
   }
 
   if (file.size <= 0 || file.size > MAX_FILE_SIZE_BYTES) {
@@ -76,7 +77,7 @@ export async function POST(request: Request) {
   const uploadDir = path.join(process.cwd(), "public", "uploads", "chat-audio");
   await mkdir(uploadDir, { recursive: true });
 
-  const ext = getAudioExtension(file.type);
+  const ext = getAudioExtension(baseMimeType);
   const fileName = `${Date.now()}-${randomUUID()}${ext}`;
   const filePath = path.join(uploadDir, fileName);
   const bytes = Buffer.from(await file.arrayBuffer());

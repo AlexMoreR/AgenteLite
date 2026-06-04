@@ -1047,6 +1047,37 @@ function inferVideoMimeTypeFromUrl(videoUrl: string) {
   return "video/mp4";
 }
 
+export async function sendEvolutionVoiceNote(input: {
+  instanceName: string;
+  phoneNumber: string;
+  /** Puede ser una URL publica o el audio en base64 (sin prefijo data:). */
+  audio: string;
+  delayMs?: number;
+}) {
+  const response = await evolutionRequest<EvolutionSendMediaResponse>(`/message/sendWhatsAppAudio/${input.instanceName}`, {
+    method: "POST",
+    body: JSON.stringify({
+      number: input.phoneNumber,
+      audio: input.audio,
+      delay: input.delayMs ?? 1200,
+    }),
+  });
+
+  const externalId =
+    response.key?.id ||
+    response.message?.key?.id ||
+    response.data?.key?.id ||
+    response.data?.id ||
+    response.id ||
+    response.messageId ||
+    null;
+
+  return {
+    externalId,
+    raw: response,
+  };
+}
+
 export async function sendEvolutionVideoMessage(input: {
   instanceName: string;
   phoneNumber: string;

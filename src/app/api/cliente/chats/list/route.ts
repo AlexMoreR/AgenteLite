@@ -259,28 +259,16 @@ async function getAgentConversationList(input: {
           WHERE c."workspaceId" = ${input.workspaceId}
             AND c."id" IN (${Prisma.join(activeAgentConversationIds)})
         ),
-        last_outbound AS (
-          SELECT
-            m."conversationId",
-            MAX(m."createdAt") AS "lastOutboundAt"
-          FROM "Message" m
-          WHERE m."workspaceId" = ${input.workspaceId}
-            AND m."conversationId" IN (${Prisma.join(activeAgentConversationIds)})
-            AND m."direction" = 'OUTBOUND'
-            AND COALESCE(m."rawPayload"::text, '') NOT ILIKE '%status@broadcast%'
-          GROUP BY m."conversationId"
-        ),
         incoming AS (
           SELECT
             m."conversationId",
             COUNT(*)::int AS "incomingCount"
           FROM "Message" m
-          LEFT JOIN last_outbound lo ON lo."conversationId" = m."conversationId"
           WHERE m."workspaceId" = ${input.workspaceId}
             AND m."conversationId" IN (${Prisma.join(activeAgentConversationIds)})
             AND m."direction" = 'INBOUND'
+            AND m."readAt" IS NULL
             AND COALESCE(m."rawPayload"::text, '') NOT ILIKE '%status@broadcast%'
-            AND m."createdAt" > COALESCE(lo."lastOutboundAt", TIMESTAMP '1970-01-01')
           GROUP BY m."conversationId"
         )
         SELECT

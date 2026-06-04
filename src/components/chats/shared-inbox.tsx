@@ -5,6 +5,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { useFormStatus } from "react-dom";
+import { toast } from "sonner";
 import {
   ArrowLeft,
   BadgeCheck,
@@ -591,23 +592,6 @@ type SharedInboxProps = {
   messageScrollBehavior?: "bottom" | "preserve";
 };
 
-function countIncomingMessagesSinceLastOutbound(messages: SharedInboxMessageItem[]) {
-  let incomingCount = 0;
-
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (message.direction === "OUTBOUND") {
-      break;
-    }
-
-    if (message.direction === "INBOUND") {
-      incomingCount += 1;
-    }
-  }
-
-  return incomingCount;
-}
-
 function getMessagePreviewText(message?: SharedInboxMessageItem | null) {
   if (!message) {
     return null;
@@ -800,7 +784,9 @@ function buildConversationItemFromSnapshot(
     secondaryLabel: snapshot.secondaryLabel ?? existing?.secondaryLabel ?? "",
     tags: snapshot.tags ?? existing?.tags ?? [],
     channelType: existing?.channelType,
-    incomingCount: countIncomingMessagesSinceLastOutbound(snapshot.messages),
+    // Esta funcion solo actualiza la conversacion abierta: el usuario la esta viendo,
+    // asi que no hay mensajes sin leer.
+    incomingCount: 0,
     avatarUrl: snapshot.avatarUrl ?? existing?.avatarUrl ?? null,
     lastMessage: latestMessage ? getMessagePreviewText(latestMessage) : existing?.lastMessage ?? null,
     lastMessageType: latestMessage?.type ?? existing?.lastMessageType ?? null,
@@ -2088,14 +2074,17 @@ const ConversationPanel = memo(function ConversationPanel({
 
       setIsSendingAudio(true);
       try {
-        const ext = mimeType.includes("ogg") || mimeType.includes("opus") ? "ogg" : mimeType.includes("mp4") ? "mp4" : "webm";
-        const file = new File([blob], `nota-de-voz-${Date.now()}.${ext}`, { type: mimeType });
+        // El mime de MediaRecorder suele venir como "audio/webm;codecs=opus"; usamos el tipo base.
+        const baseMime = mimeType.split(";")[0].trim() || "audio/webm";
+        const ext = baseMime.includes("ogg") || baseMime.includes("opus") ? "ogg" : baseMime.includes("mp4") ? "mp4" : "webm";
+        const file = new File([blob], `nota-de-voz-${Date.now()}.${ext}`, { type: baseMime });
         const formData = new FormData();
         formData.append("file", file);
 
         const response = await fetch(audioConfig.uploadPath, { method: "POST", body: formData });
-        const data = (await response.json().catch(() => null)) as { url?: string } | null;
+        const data = (await response.json().catch(() => null)) as { url?: string; error?: string } | null;
         if (!response.ok || !data?.url) {
+          toast.error(data?.error || "No se pudo subir la nota de voz.");
           return;
         }
 
@@ -2109,7 +2098,11 @@ const ConversationPanel = memo(function ConversationPanel({
 
         if (result && "ok" in result && result.ok) {
           composerRouter.refresh();
+        } else {
+          toast.error((result && "error" in result && result.error) || "No se pudo enviar la nota de voz.");
         }
+      } catch {
+        toast.error("No se pudo enviar la nota de voz.");
       } finally {
         setIsSendingAudio(false);
       }
@@ -3711,8 +3704,26 @@ export function SharedInbox({
 
     if (loadMoreHistoryRestoreRef.current) {
       const restore = loadMoreHistoryRestoreRef.current;
-      const delta = container.scrollHeight - restore.scrollHeight;
-      container.scrollTop = Math.max(0, restore.scrollTop + delta);
+      // Anclamos a la distancia desde el fondo: al cargar mensajes antiguos arriba, el
+      // contenido inferior no cambia, asi que mantener (scrollHeight - scrollTop) constante
+      // conserva la vista exacta. Re-fijamos durante varios frames porque la virtualizacion
+      // reemplaza alturas estimadas por reales y el scrollHeight se ajusta despues del render.
+      const distanceFromBottom = Math.max(0, restore.scrollHeight - restore.scrollTop);
+      const pinScroll = () => {
+        const el = messagesScrollRef.current;
+        if (!el) return;
+        el.scrollTop = Math.max(0, el.scrollHeight - distanceFromBottom);
+      };
+      pinScroll();
+      let frames = 0;
+      const repin = () => {
+        pinScroll();
+        frames += 1;
+        if (frames < 6) {
+          window.requestAnimationFrame(repin);
+        }
+      };
+      window.requestAnimationFrame(repin);
       loadMoreHistoryRestoreRef.current = null;
       return;
     }

@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(perl -0pi -e ' *)"
+      "Bash(perl -0pi -e ' *)",
+      "Bash([ -f \"src/components/ui/$c.tsx\" ])",
+      "Bash(grep -n 'export\\\\|function\\\\|variant\\\\|orientation' src/components/ui/__TRACKED_VAR__.tsx)",
+      "Bash(echo \"---EXIT $?---\")"
     ]
   }
 }
