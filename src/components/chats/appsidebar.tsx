@@ -3,8 +3,10 @@
 import * as React from "react";
 import { MessageSquareText, Search, X } from "lucide-react";
 import { ConversationList } from "@/components/chats/conversation-list";
-import { SidebarInput } from "@/components/ui/sidebar";
+import { SidebarHeader, SidebarInput } from "@/components/ui/sidebar";
 import { type SharedInboxConversationItem } from "./shared-inbox";
+import { Label } from "../ui/label";
+import { Switch } from "@base-ui/react";
 
 type AppSidebarProps = {
   conversationItems: SharedInboxConversationItem[];
@@ -48,7 +50,7 @@ export function AppSidebar({
       className={`${mobileConversationActive ? "hidden md:flex" : "flex"} chat-inbox-sidebar min-h-0 flex-1 overflow-hidden border border-[rgba(148,163,184,0.14)] bg-white p-0 shadow-none md:h-full md:shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)]`}
     >
       <div className="flex min-h-0 w-full flex-col">
-        <div className="sticky top-0 shrink-0 border-b border-[rgba(148,163,184,0.12)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(248,250,252,0.96)_100%)] px-3 py-2.5 backdrop-blur-sm md:px-3 md:py-3">
+        <div className="shrink-0 border-b border-[rgba(148,163,184,0.12)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(248,250,252,0.96)_100%)] px-3 py-2.5 backdrop-blur-sm md:px-3 md:py-3">
           <div className="flex items-center gap-2">
             <form
               className="relative flex-1"
@@ -66,7 +68,7 @@ export function AppSidebar({
                 name="q"
                 value={searchInputValue}
                 onChange={(event) => onSearchChange(event.target.value)}
-                placeholder="Buscar hats..."
+                placeholder="Buscar chats..."
                 className=""
               />
               {searchInputValue ? (
