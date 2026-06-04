@@ -529,6 +529,42 @@ function extractMessageRecordList(payload: unknown): UnknownRecord[] {
   return hasMessageShape ? [record] : [];
 }
 
+// Tope de seguridad para no entrar en un bucle infinito si Evolution reporta
+// metadata de paginacion inconsistente.
+const MAX_MESSAGE_PAGES = 100;
+
+// Evolution API v2 responde /chat/findMessages como objeto paginado:
+// { messages: { total, pages, currentPage, records: [...] } }. Sin leer esta
+// metadata solo se importaria la primera pagina (historial truncado).
+function extractMessagePagination(payload: unknown): { pages: number; currentPage: number } | null {
+  const record = asRecord(payload);
+  if (!record) {
+    return null;
+  }
+
+  const data = asRecord(record.data);
+  const containers = [
+    asRecord(record.messages),
+    asRecord(data?.messages),
+    data,
+    record,
+  ];
+
+  for (const container of containers) {
+    if (!container) {
+      continue;
+    }
+
+    const pages = readNumber(container.pages);
+    const currentPage = readNumber(container.currentPage) ?? readNumber(container.page);
+    if (pages !== null && currentPage !== null) {
+      return { pages, currentPage };
+    }
+  }
+
+  return null;
+}
+
 function extractMessageTimestamp(payload: unknown) {
   const record = asRecord(payload);
   if (!record) {
@@ -641,24 +677,31 @@ async function fetchEvolutionChatMessageRecords(instanceName: string, remoteJid:
     });
 
   for (const jid of normalizedRemoteJids) {
-    try {
-      const directPayload = await evolutionSyncRequest<unknown>(`/chat/findMessages/${instanceName}`, {
-        method: "POST",
-        body: JSON.stringify({
-          where: {
-            key: {
-              remoteJid: jid,
+    let page = 1;
+
+    // Recorre TODAS las paginas que reporte Evolution para esta variante de JID.
+    // Si la respuesta no trae metadata de paginacion, se ejecuta una sola vez.
+    while (page <= MAX_MESSAGE_PAGES) {
+      let directPayload: unknown;
+      try {
+        directPayload = await evolutionSyncRequest<unknown>(`/chat/findMessages/${instanceName}`, {
+          method: "POST",
+          body: JSON.stringify({
+            where: {
+              key: {
+                remoteJid: jid,
+              },
             },
-          },
-        }),
-      });
+            page,
+          }),
+        });
+      } catch {
+        // If Evolution rejects one lookup path, keep scanning the rest.
+        break;
+      }
 
       const directMessages = extractMessageRecordList(directPayload);
       const filteredDirectMessages = filterMessagesForRemote(directMessages);
-
-      if (!filteredDirectMessages.length) {
-        continue;
-      }
 
       for (const message of filteredDirectMessages) {
         const messageId = buildMessageRecordIdentity(message, jid);
@@ -666,8 +709,18 @@ async function fetchEvolutionChatMessageRecords(instanceName: string, remoteJid:
           messagesById.set(messageId, message);
         }
       }
-    } catch {
-      // If Evolution rejects one lookup path, keep scanning the rest.
+
+      const pagination = extractMessagePagination(directPayload);
+      const currentPage = pagination?.currentPage ?? page;
+      const totalPages = pagination?.pages ?? 1;
+
+      // Detener si: no hay mas registros, no hay paginacion declarada, o ya
+      // alcanzamos la ultima pagina.
+      if (directMessages.length === 0 || currentPage >= totalPages) {
+        break;
+      }
+
+      page = currentPage + 1;
     }
   }
 
@@ -1186,6 +1239,150 @@ export async function scanEvolutionChatSyncCandidate(input: { workspaceId: strin
     ok: true as const,
     kind: "none" as const,
     message: "No encontramos diferencias entre Evolution y la base local para este canal.",
+  };
+}
+
+// Variante de sincronizacion dirigida a UN numero concreto. Primero ubica el chat en
+// Evolution (findChats) para descubrir sus JIDs REALES (remoteJid + remoteJidAlt), que
+// pueden ser @lid en vez de @s.whatsapp.net. Asi findMessages se consulta con ambas
+// variantes: a veces @s.whatsapp.net no devuelve nada y el @lid/alt si. Si el chat no
+// aparece en findChats, cae al JID canonico como ultimo recurso.
+export async function scanEvolutionChatSyncCandidateByPhone(input: {
+  workspaceId: string;
+  channelId: string;
+  phoneNumber: string;
+}) {
+  const channel = await prisma.whatsAppChannel.findFirst({
+    where: {
+      id: input.channelId,
+      workspaceId: input.workspaceId,
+      provider: "EVOLUTION",
+    },
+    select: {
+      id: true,
+      name: true,
+      evolutionInstanceName: true,
+    },
+  });
+
+  if (!channel?.evolutionInstanceName) {
+    return {
+      ok: false as const,
+      error: "El canal no tiene una instancia Evolution valida.",
+    };
+  }
+
+  const normalizedPhone = normalizePhoneDigits(input.phoneNumber);
+  if (!normalizedPhone) {
+    return {
+      ok: false as const,
+      error: "El numero ingresado no es valido. Usa solo digitos con codigo de pais (ej: 573001234567).",
+    };
+  }
+
+  const [localContacts, localConversations] = await Promise.all([
+    findLocalContactsByPhoneNumbers(input.workspaceId, [normalizedPhone]),
+    findLocalConversationsByChannel(input.workspaceId, input.channelId),
+  ]);
+
+  const localContact = buildPhoneLookupMap(localContacts).get(normalizedPhone);
+  const localConversation = buildPhoneLookupMap(
+    localConversations.map((conversation) => ({
+      phoneNumber: conversation.contact.phoneNumber,
+      lastMessageAt: conversation.lastMessageAt,
+      messageCount: conversation._count.messages,
+    })),
+  ).get(normalizedPhone);
+
+  const needsContact = !localContact;
+  const needsConversation = !localConversation;
+  const kind: EvolutionChatSyncCandidate["kind"] = needsContact ? "CONTACT" : "CONVERSATION";
+
+  const summary = needsContact
+    ? `El contacto ${normalizedPhone} no existe en Chats. Se importara con su historial de Evolution.`
+    : needsConversation
+      ? `El contacto ${normalizedPhone} existe pero no tiene conversacion en este canal. Se creara e importara su historial.`
+      : `Se sincronizaran los mensajes faltantes de ${normalizedPhone}.`;
+
+  // 1) Ubicar el chat real en Evolution para extraer remoteJid + remoteJidAlt (incl. @lid).
+  let matchedRemoteChat: UnknownRecord | null = null;
+  try {
+    const remoteChats = await fetchEvolutionChats(channel.evolutionInstanceName);
+    matchedRemoteChat =
+      remoteChats.find((chat) => {
+        const chatPhone = normalizePhoneDigits(extractComparablePhone(chat));
+        return chatPhone !== null && chatPhone === normalizedPhone;
+      }) ?? null;
+  } catch {
+    matchedRemoteChat = null;
+  }
+
+  let candidate: EvolutionChatSyncCandidate;
+
+  if (matchedRemoteChat) {
+    // Reutiliza el builder del escaneo completo: extrae los JIDs reales del chat y
+    // construye el preview consultando findMessages con remoteJid Y remoteJidAlt.
+    candidate = await buildEvolutionChatSyncCandidateFromRemoteChat({
+      instanceName: channel.evolutionInstanceName,
+      remoteChat: matchedRemoteChat,
+      remotePhoneNumber: normalizedPhone,
+      kind,
+      summary,
+      needsContact,
+      needsConversation,
+    });
+    candidate.remoteDisplayName = candidate.remoteDisplayName ?? localContact?.name ?? null;
+  } else {
+    // Fallback: sin chat en findChats, probar al menos el JID canonico @s.whatsapp.net.
+    const canonicalRemoteJid = buildCanonicalRemoteJid(normalizedPhone);
+    if (!canonicalRemoteJid) {
+      return {
+        ok: false as const,
+        error: "No se pudo construir el identificador de WhatsApp para ese numero.",
+      };
+    }
+
+    let messagePreview: EvolutionChatSyncCandidate["messagePreview"] = [];
+    try {
+      messagePreview = await buildEvolutionChatMessagePreview({
+        instanceName: channel.evolutionInstanceName,
+        remoteJid: canonicalRemoteJid,
+        remoteJidAlt: null,
+      });
+    } catch {
+      messagePreview = [];
+    }
+
+    candidate = {
+      fingerprint: buildCandidateFingerprint({ kind, phoneNumber: normalizedPhone, remoteItemId: null }),
+      kind,
+      remotePhoneNumber: normalizedPhone,
+      remoteDisplayName: localContact?.name ?? null,
+      remoteJid: canonicalRemoteJid,
+      remoteJidAlt: null,
+      remoteItemId: null,
+      summary,
+      needsContact,
+      needsConversation,
+      needsMessages: true,
+      messagePreview,
+    };
+  }
+
+  // Si ninguna variante devolvio mensajes, informar "sin cambios".
+  if (!candidate.messagePreview.length) {
+    return {
+      ok: true as const,
+      kind: "none" as const,
+      message: `No encontramos mensajes en Evolution para ${normalizedPhone} en este canal.`,
+    };
+  }
+
+  return {
+    ok: true as const,
+    kind: "batch" as const,
+    message: "Coincidencia lista para sincronizar.",
+    candidates: [candidate],
   };
 }
 

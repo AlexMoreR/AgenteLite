@@ -4,8 +4,12 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { AlertCircle, CheckCircle2, History, Loader2, RefreshCw, Users } from "lucide-react";
 import { toast } from "sonner";
-import { applyEvolutionChatSyncAction, scanEvolutionChatSyncAction } from "@/app/actions/evolution-chat-sync-actions";
-import type { EvolutionChatSyncCandidate } from "@/lib/evolution-chat-sync";
+import {
+  applyEvolutionChatSyncAction,
+  scanEvolutionChatSyncAction,
+  scanEvolutionChatSyncByPhoneAction,
+} from "@/app/actions/evolution-chat-sync-actions";
+import type { EvolutionChatSyncCandidate, EvolutionChatSyncScanResult } from "@/lib/evolution-chat-sync";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -50,6 +54,7 @@ function initialState(): SyncState {
 export function EvolutionChatSyncDialog({ channelId }: EvolutionChatSyncDialogProps) {
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<SyncState>(initialState);
+  const [phoneInput, setPhoneInput] = useState("");
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
   const candidateList =
@@ -61,6 +66,39 @@ export function EvolutionChatSyncDialog({ channelId }: EvolutionChatSyncDialogPr
       ? candidateList.find((candidate) => candidate.fingerprint === state.selectedFingerprint) ?? candidateList[0] ?? null
       : null;
 
+  function applyScanResult(
+    result: EvolutionChatSyncScanResult | { ok: false; error: string },
+  ) {
+    if (!result.ok) {
+      setState({
+        phase: "idle",
+        error: result.error,
+        scanMessage: null,
+      });
+      return;
+    }
+
+    if (result.kind === "none") {
+      setState({
+        phase: "none",
+        error: null,
+        scanMessage: result.message,
+      });
+      return;
+    }
+
+    setState({
+      phase: "batch",
+      error: null,
+      scanMessage: result.message,
+      candidates: Array.isArray(result.candidates)
+        ? result.candidates.filter((candidate): candidate is EvolutionChatSyncCandidate => Boolean(candidate))
+        : [],
+      selectedFingerprint:
+        Array.isArray(result.candidates) && result.candidates[0]?.fingerprint ? result.candidates[0].fingerprint : "",
+    });
+  }
+
   function runScan() {
     setState({
       phase: "idle",
@@ -70,35 +108,30 @@ export function EvolutionChatSyncDialog({ channelId }: EvolutionChatSyncDialogPr
 
     startTransition(async () => {
       const result = await scanEvolutionChatSyncAction({ channelId });
+      applyScanResult(result);
+    });
+  }
 
-      if (!result.ok) {
-        setState({
-          phase: "idle",
-          error: result.error,
-          scanMessage: null,
-        });
-        return;
-      }
-
-      if (result.kind === "none") {
-        setState({
-          phase: "none",
-          error: null,
-          scanMessage: result.message,
-        });
-        return;
-      }
-
+  function runScanByPhone() {
+    const phoneNumber = phoneInput.trim();
+    if (!phoneNumber) {
       setState({
-        phase: "batch",
-        error: null,
-        scanMessage: result.message,
-        candidates: Array.isArray(result.candidates)
-          ? result.candidates.filter((candidate): candidate is EvolutionChatSyncCandidate => Boolean(candidate))
-          : [],
-        selectedFingerprint:
-          Array.isArray(result.candidates) && result.candidates[0]?.fingerprint ? result.candidates[0].fingerprint : "",
+        phase: "idle",
+        error: "Ingresa un numero de telefono para sincronizar.",
+        scanMessage: null,
       });
+      return;
+    }
+
+    setState({
+      phase: "idle",
+      error: null,
+      scanMessage: null,
+    });
+
+    startTransition(async () => {
+      const result = await scanEvolutionChatSyncByPhoneAction({ channelId, phoneNumber });
+      applyScanResult(result);
     });
   }
 
@@ -156,6 +189,7 @@ export function EvolutionChatSyncDialog({ channelId }: EvolutionChatSyncDialogPr
             setOpen(nextOpen);
             if (!nextOpen) {
               setState(initialState());
+              setPhoneInput("");
             }
           }}
         >
@@ -198,6 +232,45 @@ export function EvolutionChatSyncDialog({ channelId }: EvolutionChatSyncDialogPr
                     {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                     Sincronizar chats
                   </Button>
+
+                  <div className="flex w-full items-center gap-3">
+                    <span className="h-px flex-1 bg-slate-200" />
+                    <span className="text-xs font-medium uppercase tracking-[0.16em] text-slate-400">o por numero</span>
+                    <span className="h-px flex-1 bg-slate-200" />
+                  </div>
+
+                  <div className="w-full space-y-2">
+                    <p className="text-sm leading-6 text-slate-600">
+                      Sincroniza un contacto especifico sin escanear toda la lista. Ingresa el numero con codigo de pais.
+                    </p>
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <input
+                        type="tel"
+                        inputMode="numeric"
+                        value={phoneInput}
+                        onChange={(event) => setPhoneInput(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" && !isPending) {
+                            event.preventDefault();
+                            runScanByPhone();
+                          }
+                        }}
+                        placeholder="573001234567"
+                        disabled={isPending}
+                        className="h-10 flex-1 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-[var(--primary)] focus:ring-2 focus:ring-[color:color-mix(in_srgb,var(--primary)_30%,white)] disabled:opacity-60"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={runScanByPhone}
+                        disabled={isPending || !phoneInput.trim()}
+                        className="rounded-xl"
+                      >
+                        {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                        Sincronizar numero
+                      </Button>
+                    </div>
+                  </div>
                 </div>
               ) : null}
 

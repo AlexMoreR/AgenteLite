@@ -398,8 +398,8 @@ export async function GET(request: Request) {
   const requestedFilterRaw = requestUrl.searchParams.get("assigned")?.trim() || "";
   let assignedFilter: "all" | "mine" | "unassigned" =
     requestedFilterRaw === "mine" || requestedFilterRaw === "unassigned" ? requestedFilterRaw : "all";
-  // Los no-managers (AGENT/VIEWER) no pueden ver "Todos": se fuerza a "Mias".
-  if (!isManager && assignedFilter === "all") {
+  // Los no-managers (empleados) solo pueden ver sus chats asignados: nunca "Todos" ni "Sin asignar".
+  if (!isManager) {
     assignedFilter = "mine";
   }
 

@@ -6,6 +6,7 @@ import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import {
   applyEvolutionChatSyncCandidate,
   scanEvolutionChatSyncCandidate,
+  scanEvolutionChatSyncCandidateByPhone,
   type EvolutionChatSyncApplyResult,
   type EvolutionChatSyncScanResult,
 } from "@/lib/evolution-chat-sync";
@@ -37,6 +38,30 @@ export async function scanEvolutionChatSyncAction(input: {
   return scanEvolutionChatSyncCandidate({
     workspaceId: membership.workspace.id,
     channelId: input.channelId.trim(),
+  });
+}
+
+export async function scanEvolutionChatSyncByPhoneAction(input: {
+  channelId: string;
+  phoneNumber: string;
+}): Promise<EvolutionChatSyncScanResult | { ok: false; error: string }> {
+  const membership = await requireWorkspace();
+  if (!membership) {
+    return { ok: false, error: "No autorizado" };
+  }
+
+  if (!input.channelId.trim()) {
+    return { ok: false, error: "Canal invalido" };
+  }
+
+  if (!input.phoneNumber.trim()) {
+    return { ok: false, error: "Ingresa un numero de telefono para sincronizar." };
+  }
+
+  return scanEvolutionChatSyncCandidateByPhone({
+    workspaceId: membership.workspace.id,
+    channelId: input.channelId.trim(),
+    phoneNumber: input.phoneNumber.trim(),
   });
 }
 

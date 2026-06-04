@@ -462,6 +462,7 @@ async function resolveDefaultEvolutionChannel(workspaceId: string, preferredChan
         id: true,
         name: true,
         provider: true,
+        agentId: true,
         evolutionInstanceName: true,
         phoneNumber: true,
         isActive: true,
@@ -492,6 +493,7 @@ async function resolveDefaultEvolutionChannel(workspaceId: string, preferredChan
       id: true,
       name: true,
       provider: true,
+      agentId: true,
       evolutionInstanceName: true,
       phoneNumber: true,
       isActive: true,
@@ -573,6 +575,12 @@ function buildMediaFileName(mediaUrl: string, fallback: string) {
   }
 }
 
+type FollowSendResult = {
+  channel: { id: string; agentId: string | null; evolutionInstanceName: string };
+  externalId: string | null;
+  raw: unknown;
+};
+
 async function sendFollowMessage(input: {
   workspaceId: string;
   contactId: string;
@@ -580,7 +588,7 @@ async function sendFollowMessage(input: {
   messageType: FollowMessageType;
   content: string | null;
   mediaUrl: string | null;
-}) {
+}): Promise<FollowSendResult> {
   const contact = await prisma.contact.findFirst({
     where: {
       id: input.contactId,
@@ -606,62 +614,199 @@ async function sendFollowMessage(input: {
   }
 
   const caption = input.content?.trim() || null;
+  const resolvedChannel = {
+    id: channel.id,
+    agentId: channel.agentId ?? null,
+    evolutionInstanceName: channel.evolutionInstanceName,
+  };
 
-  if (input.messageType === "TEXT") {
-    const text = caption?.trim();
-    if (!text) {
-      throw new Error("El seguimiento de texto no tiene contenido");
+  const sent = await (async () => {
+    if (input.messageType === "TEXT") {
+      const text = caption?.trim();
+      if (!text) {
+        throw new Error("El seguimiento de texto no tiene contenido");
+      }
+
+      return sendEvolutionTextMessageWithReconnect({
+        instanceName: resolvedChannel.evolutionInstanceName,
+        phoneNumber,
+        text,
+        delayMs: 0,
+      });
     }
 
-    return sendEvolutionTextMessageWithReconnect({
-      instanceName: channel.evolutionInstanceName,
-      phoneNumber,
-      text,
-      delayMs: 0,
-    });
-  }
+    if (!input.mediaUrl?.trim()) {
+      throw new Error("El seguimiento multimedia no tiene mediaUrl");
+    }
 
-  if (!input.mediaUrl?.trim()) {
-    throw new Error("El seguimiento multimedia no tiene mediaUrl");
-  }
+    if (input.messageType === "AUDIO") {
+      return sendEvolutionAudioMessage({
+        instanceName: resolvedChannel.evolutionInstanceName,
+        phoneNumber,
+        audioUrl: input.mediaUrl,
+        caption,
+        delayMs: 0,
+      });
+    }
 
-  if (input.messageType === "AUDIO") {
-    return sendEvolutionAudioMessage({
-      instanceName: channel.evolutionInstanceName,
+    if (input.messageType === "IMAGE") {
+      return sendEvolutionImageMessage({
+        instanceName: resolvedChannel.evolutionInstanceName,
+        phoneNumber,
+        imageUrl: input.mediaUrl,
+        caption,
+        delayMs: 0,
+      });
+    }
+
+    if (input.messageType === "VIDEO") {
+      return sendEvolutionVideoMessage({
+        instanceName: resolvedChannel.evolutionInstanceName,
+        phoneNumber,
+        videoUrl: input.mediaUrl,
+        caption,
+        delayMs: 0,
+      });
+    }
+
+    return sendEvolutionDocumentMessage({
+      instanceName: resolvedChannel.evolutionInstanceName,
       phoneNumber,
-      audioUrl: input.mediaUrl,
+      documentUrl: input.mediaUrl,
       caption,
+      fileName: buildMediaFileName(input.mediaUrl, "documento.pdf"),
       delayMs: 0,
     });
+  })();
+
+  return {
+    channel: resolvedChannel,
+    externalId: sent?.externalId ?? null,
+    raw: sent?.raw ?? null,
+  };
+}
+
+const FOLLOW_MESSAGE_TYPE_TO_DB: Record<FollowMessageType, "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT"> = {
+  TEXT: "TEXT",
+  IMAGE: "IMAGE",
+  AUDIO: "AUDIO",
+  VIDEO: "VIDEO",
+  DOC: "DOCUMENT",
+};
+
+// Resuelve (o crea) la conversacion del contacto en el canal usado para enviar el
+// seguimiento, replicando la logica del webhook (find-or-create con reintento ante
+// carreras de unicidad). Sin esto el mensaje del seguimiento no tendria conversationId
+// y nunca aparecería en la vista de chats.
+async function resolveFollowConversation(input: {
+  workspaceId: string;
+  channelId: string;
+  contactId: string;
+  agentId: string | null;
+}) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const existing = await prisma.conversation.findFirst({
+        where: {
+          workspaceId: input.workspaceId,
+          channelId: input.channelId,
+          contactId: input.contactId,
+        },
+        orderBy: { updatedAt: "desc" },
+        select: { id: true },
+      });
+
+      if (existing) {
+        return existing;
+      }
+
+      return await prisma.conversation.create({
+        data: {
+          workspaceId: input.workspaceId,
+          channelId: input.channelId,
+          agentId: input.agentId,
+          contactId: input.contactId,
+          status: "OPEN",
+          lastMessageAt: new Date(),
+        },
+        select: { id: true },
+      });
+    } catch (error) {
+      const isDuplicateConversation =
+        error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+
+      if (isDuplicateConversation && attempt < 2) {
+        await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1)));
+        continue;
+      }
+
+      throw error;
+    }
   }
 
-  if (input.messageType === "IMAGE") {
-    return sendEvolutionImageMessage({
-      instanceName: channel.evolutionInstanceName,
-      phoneNumber,
-      imageUrl: input.mediaUrl,
-      caption,
-      delayMs: 0,
+  return null;
+}
+
+// Persiste el mensaje saliente del seguimiento en la conversacion del chat. Usa upsert
+// idempotente por (channelId, externalId) para reconciliarse sin duplicar si Evolution
+// llega a emitir el webhook `fromMe` del mismo mensaje.
+async function persistFollowMessage(input: {
+  workspaceId: string;
+  contactId: string;
+  messageType: FollowMessageType;
+  content: string | null;
+  mediaUrl: string | null;
+  result: FollowSendResult;
+}) {
+  const conversation = await resolveFollowConversation({
+    workspaceId: input.workspaceId,
+    channelId: input.result.channel.id,
+    contactId: input.contactId,
+    agentId: input.result.channel.agentId,
+  });
+
+  if (!conversation) {
+    throw new Error("No se pudo resolver la conversacion del seguimiento");
+  }
+
+  const now = new Date();
+  const externalId = input.result.externalId?.trim() || "";
+  const data = {
+    workspaceId: input.workspaceId,
+    conversationId: conversation.id,
+    channelId: input.result.channel.id,
+    contactId: input.contactId,
+    agentId: input.result.channel.agentId,
+    direction: "OUTBOUND" as const,
+    type: FOLLOW_MESSAGE_TYPE_TO_DB[input.messageType],
+    status: "SENT" as const,
+    content: input.content?.trim() || null,
+    mediaUrl: input.mediaUrl?.trim() || null,
+    sentAt: now,
+    rawPayload: {
+      source: "follow",
+      evolution: input.result.raw,
+    } as Prisma.InputJsonValue,
+  };
+
+  if (externalId) {
+    await prisma.message.upsert({
+      where: {
+        channelId_externalId: {
+          channelId: input.result.channel.id,
+          externalId,
+        },
+      },
+      create: { ...data, externalId },
+      update: { ...data, externalId },
     });
+  } else {
+    await prisma.message.create({ data });
   }
 
-  if (input.messageType === "VIDEO") {
-    return sendEvolutionVideoMessage({
-      instanceName: channel.evolutionInstanceName,
-      phoneNumber,
-      videoUrl: input.mediaUrl,
-      caption,
-      delayMs: 0,
-    });
-  }
-
-  return sendEvolutionDocumentMessage({
-    instanceName: channel.evolutionInstanceName,
-    phoneNumber,
-    documentUrl: input.mediaUrl,
-    caption,
-    fileName: buildMediaFileName(input.mediaUrl, "documento.pdf"),
-    delayMs: 0,
+  await prisma.conversation.update({
+    where: { id: conversation.id },
+    data: { lastMessageAt: now, status: "OPEN" },
   });
 }
 
@@ -1171,7 +1316,7 @@ async function executeFollowRecord(follow: ClaimedFollowRow) {
     await persistFollowActionProgress(follow.id, actions);
 
     try {
-      await sendFollowMessage({
+      const sendResult = await sendFollowMessage({
         workspaceId: follow.workspaceId,
         contactId: follow.contactId,
         channelId: follow.channelId,
@@ -1179,6 +1324,26 @@ async function executeFollowRecord(follow: ClaimedFollowRow) {
         content: action.content,
         mediaUrl: action.mediaUrl,
       });
+
+      // El mensaje ya se envió a WhatsApp; persistirlo en la conversación es lo que lo
+      // hace visible en la vista de chats. Si esta escritura falla NO marcamos la acción
+      // como fallida (provocaría un reenvío duplicado), solo lo registramos.
+      try {
+        await persistFollowMessage({
+          workspaceId: follow.workspaceId,
+          contactId: follow.contactId,
+          messageType: action.messageType,
+          content: action.content,
+          mediaUrl: action.mediaUrl,
+          result: sendResult,
+        });
+      } catch (persistError) {
+        console.error("[follows] No se pudo persistir el mensaje de seguimiento en chats", {
+          followId: follow.id,
+          actionOrder: action.order,
+          error: persistError,
+        });
+      }
 
       action.status = "EXECUTED";
       action.executedAt = new Date().toISOString();

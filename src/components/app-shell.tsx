@@ -18,6 +18,7 @@ import { ClientPlanWarningBar } from "@/components/client-plan-warning-bar";
 import { Navbar } from "@/components/navbar";
 import { Separator } from "@/components/ui/separator";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { ChatNotificationBell } from "@/components/ui/chat-notification-bell";
 import { ThemeToggleButton } from "@/components/ui/theme-toggle";
 import type { AdminModuleKey } from "@/lib/admin-modules";
 import { cn } from "@/lib/utils";
@@ -237,7 +238,8 @@ export function AppShell({
               <SidebarTrigger className="-ml-1" />
               <Separator orientation="vertical"/>
               {!isChatWorkspacePath ? <AppBreadcrumb pathname={pathname} /> : null}
-              <div className="ml-auto flex items-center">
+              <div className="ml-auto flex items-center gap-0.5">
+                <ChatNotificationBell />
                 <ThemeToggleButton />
               </div>
             </div>

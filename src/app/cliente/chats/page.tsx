@@ -228,8 +228,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   const assignedParam = typeof params.assigned === "string" ? params.assigned.trim() : "";
   let assignedFilter: "all" | "mine" | "unassigned" =
     assignedParam === "mine" || assignedParam === "unassigned" ? assignedParam : "all";
-  // Los no-managers (AGENT/VIEWER) no pueden ver "Todos": se fuerza a "Mias".
-  if (!isManager && assignedFilter === "all") {
+  // Los no-managers (empleados) solo pueden ver sus chats asignados: nunca "Todos" ni "Sin asignar".
+  if (!isManager) {
     assignedFilter = "mine";
   }
   const assignedWhere: Prisma.ConversationWhereInput =
@@ -595,10 +595,18 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       ? channelsById.get(selectedUnified.channelId)?.evolutionInstanceName?.trim() || null
       : null;
   const evolutionGlobalWebsocketEventsEnabled = process.env.WEBSOCKET_GLOBAL_EVENTS === "true";
+  // Los empleados (no managers) solo reciben realtime del chat asignado que tienen abierto:
+  // no se suscriben a todos los canales ni a los eventos globales del workspace.
+  const realtimeGlobalEventsEnabled = evolutionGlobalWebsocketEventsEnabled && isManager;
+  const realtimeInstanceNames = isManager
+    ? evolutionInstanceNames
+    : selectedEvolutionInstanceName
+      ? [selectedEvolutionInstanceName]
+      : [];
   const chatsRealtimeSyncEnabled = Boolean(
     evolutionSettings.apiBaseUrl &&
       evolutionSettings.apiToken &&
-      (evolutionGlobalWebsocketEventsEnabled || evolutionInstanceNames.length > 0),
+      (realtimeGlobalEventsEnabled || realtimeInstanceNames.length > 0),
   );
   const chatListHref = `/cliente/chats${
     selectedConnectionKey || searchQuery || assignedFilter !== "all"
@@ -803,11 +811,11 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         enabled={chatsRealtimeSyncEnabled}
         apiBaseUrl={evolutionSettings.apiBaseUrl}
         apiKey={evolutionSettings.apiToken || null}
-        instanceNames={evolutionInstanceNames}
+        instanceNames={realtimeInstanceNames}
         activeInstanceName={selectedEvolutionInstanceName}
         selectedConversationKey={selectedUnified?.key ?? null}
         selectedConversationPhoneNumber={selectedUnified?.source === "agent" ? selectedUnified.secondaryLabel : null}
-        globalEventsEnabled={evolutionGlobalWebsocketEventsEnabled}
+        globalEventsEnabled={realtimeGlobalEventsEnabled}
       />
       <QueryFeedbackToast
         okMessage={okMessage}
