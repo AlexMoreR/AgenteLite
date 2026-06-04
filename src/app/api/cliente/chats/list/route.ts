@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { auth } from "@/auth";
 import { dedupeAndSortConversationListRows } from "@/lib/chat-conversation-list";
+import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { prisma } from "@/lib/prisma";
 
@@ -18,6 +19,7 @@ type UnifiedConversation = {
     color: string;
   }>;
   avatarUrl?: string | null;
+  assignedToUserId?: string | null;
   incomingCount?: number | null;
   lastMessage: string | null;
   lastMessageType?: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
@@ -100,16 +102,25 @@ async function getAgentConversationList(input: {
   workspaceId: string;
   searchQuery: string;
   selectedConnectionKey: string;
+  assignedFilter: "all" | "mine" | "unassigned";
+  currentUserId: string;
   offset: number;
   limit: number;
 }) {
   const normalizedSearchQuery = input.searchQuery.trim();
+  const assignedWhere: Prisma.ConversationWhereInput =
+    input.assignedFilter === "mine"
+      ? { assignedToUserId: input.currentUserId }
+      : input.assignedFilter === "unassigned"
+        ? { assignedToUserId: null }
+        : {};
   const conversationWhere: Prisma.ConversationWhereInput = {
     workspaceId: input.workspaceId,
     AND: [
       input.selectedConnectionKey.startsWith("channel:")
         ? { channelId: input.selectedConnectionKey.slice("channel:".length) }
         : {},
+      assignedWhere,
       normalizedSearchQuery
         ? {
             OR: [
@@ -178,6 +189,7 @@ async function getAgentConversationList(input: {
       id: true,
       agentId: true,
       channelId: true,
+      assignedToUserId: true,
       activeProductContext: true,
         contact: {
           select: {
@@ -324,6 +336,7 @@ async function getAgentConversationList(input: {
       agentId: conversation.agentId || linkedChannel?.agent?.id || undefined,
       contactId: conversation.contact.id,
       channelId: conversation.channelId || undefined,
+      assignedToUserId: conversation.assignedToUserId ?? null,
       label: getAgentContactLabel(conversation.contact),
       secondaryLabel: conversation.contact.phoneNumber,
       tags,
@@ -361,8 +374,13 @@ async function getAgentConversationList(input: {
 
 export async function GET(request: Request) {
   const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     return NextResponse.json({ ok: false, error: "No autorizado" }, { status: 401 });
+  }
+
+  const access = await getClientWorkspaceAccessForUser(session.user.id);
+  if (!access || !canAccessClientModule(access, "chats")) {
+    return NextResponse.json({ ok: false, error: "No autorizado" }, { status: 403 });
   }
 
   const membership = await getPrimaryWorkspaceForUser(session.user.id);
@@ -376,16 +394,29 @@ export async function GET(request: Request) {
   const offset = Math.max(0, Number.parseInt(requestUrl.searchParams.get("offset") || "0", 10) || 0);
   const limit = Math.max(1, Math.min(40, Number.parseInt(requestUrl.searchParams.get("limit") || "20", 10) || 20));
 
+  const isManager = membership.role === "OWNER" || membership.role === "ADMIN";
+  const requestedFilterRaw = requestUrl.searchParams.get("assigned")?.trim() || "";
+  let assignedFilter: "all" | "mine" | "unassigned" =
+    requestedFilterRaw === "mine" || requestedFilterRaw === "unassigned" ? requestedFilterRaw : "all";
+  // Los no-managers (AGENT/VIEWER) no pueden ver "Todos": se fuerza a "Mias".
+  if (!isManager && assignedFilter === "all") {
+    assignedFilter = "mine";
+  }
+
   const data = await getAgentConversationList({
     workspaceId: membership.workspace.id,
     searchQuery,
     selectedConnectionKey,
+    assignedFilter,
+    currentUserId: session.user.id,
     offset,
     limit,
   });
 
   return NextResponse.json({
     ok: true,
+    assignedFilter,
+    isManager,
     ...data,
   });
 }

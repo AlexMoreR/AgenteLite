@@ -1,8 +1,8 @@
 import { redirect } from "next/navigation";
-import { auth } from "@/auth";
 import { AgentPanelShell } from "@/components/agents/agent-panel-shell";
 import { AgentAdvancedPromptForm } from "@/components/agents/agent-advanced-prompt-form";
 import { prisma } from "@/lib/prisma";
+import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { defaultAgentTrainingConfig, parseAgentTrainingConfig } from "@/lib/agent-training";
 
@@ -12,12 +12,9 @@ type PageProps = {
 };
 
 export default async function AgentAvanzadoPage({ params, searchParams }: PageProps) {
-  const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
-    redirect("/unauthorized");
-  }
+  const access = await requireClientWorkspaceAccess("agents");
 
-  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  const membership = await getPrimaryWorkspaceForUser(access.userId);
   if (!membership) {
     redirect("/cliente/agentes?error=Debes+crear+tu+negocio+primero");
   }

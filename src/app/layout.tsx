@@ -6,6 +6,12 @@ import { auth } from "@/auth";
 import { AppShell } from "@/components/app-shell";
 import { Providers } from "@/components/providers";
 import { getAdminModuleAccess } from "@/lib/admin-module-access";
+import {
+  canAccessClientModule,
+  getClientWorkspaceAccessForUser,
+  getVisibleClientModuleAccess,
+} from "@/lib/client-workspace-access";
+import { clientAssignableModuleKeys } from "@/lib/client-workspace-modules";
 import { CLIENT_PLAN_PAYMENT_HREF, getWorkspacePlanState } from "@/lib/plans";
 import { prisma } from "@/lib/prisma";
 import { getSiteUrl, siteConfig } from "@/lib/site";
@@ -100,13 +106,24 @@ export default async function RootLayout({
 }>) {
   const session = await auth();
   const primaryWorkspace = session?.user?.id ? await getPrimaryWorkspaceForUser(session.user.id) : null;
-  const clientWorkspace = session?.user?.role === "CLIENTE" ? primaryWorkspace : null;
-  const [primaryColor, primaryStrongColor, brandName, adminModuleAccess] = await Promise.all([
+  const isClientAreaRole = session?.user?.role === "CLIENTE" || session?.user?.role === "EMPLEADO";
+  const clientWorkspace = isClientAreaRole ? primaryWorkspace : null;
+  const [primaryColor, primaryStrongColor, brandName, baseAdminModuleAccess, clientAccess] = await Promise.all([
     getSystemPrimaryColor(),
     getSystemPrimaryStrongColor(),
     getSystemBrandName(),
     getAdminModuleAccess(session?.user?.id, session?.user?.role),
+    session?.user?.id ? getClientWorkspaceAccessForUser(session.user.id) : Promise.resolve(null),
   ]);
+  const adminModuleAccess = { ...baseAdminModuleAccess };
+
+  if (clientAccess && isClientAreaRole) {
+    const visibleClientModuleAccess = getVisibleClientModuleAccess(clientAccess);
+    for (const key of clientAssignableModuleKeys) {
+      adminModuleAccess[key] = visibleClientModuleAccess[key];
+    }
+    adminModuleAccess.client_team = canAccessClientModule(clientAccess, "client_team");
+  }
   const chatSidebarItems = primaryWorkspace?.workspace.id
     ? await prisma.whatsAppChannel.findMany({
         where: {

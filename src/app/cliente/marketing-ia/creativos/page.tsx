@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
-import { redirect } from "next/navigation";
-import { auth } from "@/auth";
 import { CreativosWorkspace } from "@/components/marketing/creativos-workspace";
+import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 
 export const metadata: Metadata = {
   robots: {
@@ -11,11 +10,7 @@ export const metadata: Metadata = {
 };
 
 export default async function CreativosPage() {
-  const session = await auth();
-
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
-    redirect("/unauthorized");
-  }
+  await requireClientWorkspaceAccess("marketing_ia");
 
   return <CreativosWorkspace />;
 }

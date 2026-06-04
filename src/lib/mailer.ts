@@ -18,6 +18,13 @@ type PasswordResetEmailParams = {
   resetUrl: string;
 };
 
+type EmployeeInviteEmailParams = {
+  to: string;
+  name: string;
+  workspaceName: string;
+  inviteUrl: string;
+};
+
 function getSmtpConfig() {
   const host = process.env.SMTP_HOST;
   const port = Number(process.env.SMTP_PORT ?? "587");
@@ -114,5 +121,34 @@ export async function sendPasswordResetEmail(params: PasswordResetEmailParams): 
     subject: "Recupera tu contrasena",
     text: `Hola ${displayName}, usa este enlace para crear una nueva contrasena: ${params.resetUrl}`,
     html: `<p>Hola <strong>${displayName}</strong>,</p><p>Recibimos una solicitud para recuperar tu contrasena.</p><p>Crea una nueva desde este enlace:</p><p><a href="${params.resetUrl}">${params.resetUrl}</a></p><p>Si no fuiste tu, puedes ignorar este correo.</p>`,
+  });
+}
+
+export async function sendEmployeeInviteEmail(params: EmployeeInviteEmailParams): Promise<void> {
+  const config = getSmtpConfig();
+  if (!config) {
+    throw new Error("SMTP no configurado");
+  }
+
+  const nodemailer = await import("nodemailer");
+  const transporter = nodemailer.createTransport({
+    host: config.host,
+    port: config.port,
+    secure: config.secure,
+    auth: {
+      user: config.user,
+      pass: config.pass,
+    },
+  });
+
+  const displayName = params.name?.trim() || "usuario";
+  const workspaceName = params.workspaceName.trim() || "el negocio";
+
+  await transporter.sendMail({
+    from: config.from,
+    to: params.to,
+    subject: `Invitacion al equipo de ${workspaceName}`,
+    text: `Hola ${displayName}, te invitaron al equipo de ${workspaceName}. Crea tu contrasena aqui: ${params.inviteUrl}`,
+    html: `<p>Hola <strong>${displayName}</strong>,</p><p>Te invitaron al equipo de <strong>${workspaceName}</strong>.</p><p>Crea tu contrasena para entrar al panel:</p><p><a href="${params.inviteUrl}">${params.inviteUrl}</a></p>`,
   });
 }

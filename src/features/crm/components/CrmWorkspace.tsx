@@ -18,15 +18,15 @@ function MetricCard({
   icon: ReactNode;
 }) {
   return (
-    <Card className="rounded-[22px] border border-[#c7d8ff] bg-[#f6f9ff] px-4 py-3.5 shadow-[0_10px_26px_-20px_rgba(37,99,235,0.28)]">
-      <div className="flex items-center gap-3">
-        <div className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#d8e3ff] bg-[#edf3ff] text-[#3b63ff]">
+    <Card className="py-3.5">
+      <div className="flex items-center gap-3 px-4">
+        <div className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
           {icon}
         </div>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-[0.95rem] font-medium text-[#5b74a8]">{label}</p>
+          <p className="truncate text-sm font-medium text-muted-foreground">{label}</p>
         </div>
-        <p className="shrink-0 text-[1.45rem] font-semibold leading-none tracking-[-0.06em] text-[#0f172a]">{value}</p>
+        <p className="shrink-0 text-2xl font-semibold leading-none tracking-tight text-foreground">{value}</p>
       </div>
     </Card>
   );
@@ -57,14 +57,14 @@ function ReportCard({
   rows: Array<{ label: string; value: string }>;
 }) {
   return (
-    <Card className="rounded-[22px] border border-[var(--line)] bg-white px-4 py-4 shadow-none">
-      <div className="flex flex-col gap-3">
-        <h3 className="text-sm font-semibold text-slate-950">{title}</h3>
+    <Card>
+      <div className="flex flex-col gap-3 px-4">
+        <h3 className="text-sm font-semibold text-foreground">{title}</h3>
         <div className="flex flex-col gap-2">
           {rows.map((row) => (
-            <div key={row.label} className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2">
-              <span className="text-sm text-slate-600">{row.label}</span>
-              <span className="text-sm font-semibold text-slate-950">{row.value}</span>
+            <div key={row.label} className="flex items-center justify-between gap-3 rounded-lg bg-muted/50 px-3 py-2">
+              <span className="text-sm text-muted-foreground">{row.label}</span>
+              <span className="text-sm font-semibold text-foreground">{row.value}</span>
             </div>
           ))}
         </div>
@@ -128,7 +128,7 @@ export function CrmWorkspace({
             <TabsTrigger value="kanban">Kanban</TabsTrigger>
             <TabsTrigger value="informe">Informe</TabsTrigger>
           </TabsList>
-          <p className="text-xs text-slate-500">Actualizado: {formatCrmDateTime(data.generatedAt)}</p>
+          <p className="text-xs text-muted-foreground">Actualizado: {formatCrmDateTime(data.generatedAt)}</p>
         </div>
 
         <TabsContent value="registro" className="space-y-3">

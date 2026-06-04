@@ -31,6 +31,7 @@ import { resolveAgentKnowledgeBaseReply } from "@/lib/agent-knowledge-media";
 import { resolveAgentProductFlowReply } from "@/lib/agent-product-flow";
 import { composeAgentWelcomeReply } from "@/lib/agent-reply-composer";
 import { normalizeInternalPath } from "@/lib/app-url";
+import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
 import {
   deleteEvolutionInstance,
@@ -1081,7 +1082,7 @@ async function persistAgentTraining(
 
 export async function createAgentAction(formData: FormData): Promise<void> {
   const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     redirect("/unauthorized");
   }
 
@@ -1093,6 +1094,9 @@ export async function createAgentAction(formData: FormData): Promise<void> {
   }
 
   let membership: PrimaryWorkspaceMembership | null = await getPrimaryWorkspaceForUser(session.user.id);
+  if (membership || session.user.role === "EMPLEADO") {
+    await requireClientWorkspaceAccess("agents");
+  }
 
   if (!membership) {
     const slug = await generateUniqueWorkspaceSlug(parsed.data.businessName);
@@ -1217,9 +1221,10 @@ export async function createAgentAction(formData: FormData): Promise<void> {
 
 export async function updateAgentTrainingAction(formData: FormData): Promise<void> {
   const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     redirect("/unauthorized");
   }
+  await requireClientWorkspaceAccess("agents");
 
   const membership = await getPrimaryWorkspaceForUser(session.user.id);
   if (!membership) {
@@ -1271,13 +1276,14 @@ export async function autosaveAgentTrainingAction(
   formData: FormData,
 ): Promise<AgentTrainingAutosaveState> {
   const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     return {
       ok: false,
       message: "No autorizado",
       savedAt: null,
     };
   }
+  await requireClientWorkspaceAccess("agents");
 
   const membership = await getPrimaryWorkspaceForUser(session.user.id);
   if (!membership) {
@@ -1359,9 +1365,10 @@ export async function saveAgentBusinessProfileAction(input: {
   youtube: string;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     return { ok: false, error: "No autorizado" };
   }
+  await requireClientWorkspaceAccess("agents");
 
   const parsed = saveAgentBusinessProfileSchema.safeParse(input);
   if (!parsed.success) {
@@ -1468,9 +1475,10 @@ export async function runAgentPromptCopilotAction(input: {
   | { ok: false; error: string }
 > {
   const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     return { ok: false, error: "No autorizado" };
   }
+  await requireClientWorkspaceAccess("agents");
 
   const parsed = runAgentPromptCopilotSchema.safeParse(input);
   if (!parsed.success) {
@@ -1619,9 +1627,10 @@ export async function importAgentPromptCopilotHistoryAction(input: {
   history: Array<{ role: "user" | "assistant"; content: string }>;
 }): Promise<{ ok: true; imported: number } | { ok: false; error: string }> {
   const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     return { ok: false, error: "No autorizado" };
   }
+  await requireClientWorkspaceAccess("agents");
 
   const parsed = importAgentPromptCopilotHistorySchema.safeParse(input);
   if (!parsed.success) {
@@ -1679,9 +1688,10 @@ export async function clearAgentCopilotHistoryAction(input: {
   agentId: string;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     return { ok: false, error: "No autorizado" };
   }
+  await requireClientWorkspaceAccess("agents");
 
   const membership = await getPrimaryWorkspaceForUser(session.user.id);
   if (!membership) return { ok: false, error: "Workspace no encontrado" };
@@ -1704,9 +1714,10 @@ export async function applyAgentPromptCopilotChangesAction(input: {
   changes: AgentCopilotPatch;
 }): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
   const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     return { ok: false, error: "No autorizado" };
   }
+  await requireClientWorkspaceAccess("agents");
 
   const parsed = applyAgentPromptCopilotSchema.safeParse(input);
   if (!parsed.success) {
@@ -1794,9 +1805,10 @@ export async function applyAgentPromptCopilotChangesAction(input: {
 
 export async function saveAgentKnowledgeProductsAction(formData: FormData): Promise<void> {
   const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     redirect("/unauthorized");
   }
+  await requireClientWorkspaceAccess("agents");
 
   const parsed = saveAgentKnowledgeProductsSchema.safeParse({
     agentId: formData.get("agentId"),
@@ -1989,9 +2001,10 @@ export async function saveAgentKnowledgeProductsAction(formData: FormData): Prom
 
 export async function saveAgentKnowledgeProductInstructionAction(formData: FormData): Promise<void> {
   const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     redirect("/unauthorized");
   }
+  await requireClientWorkspaceAccess("agents");
 
   const parsed = saveAgentKnowledgeProductInstructionSchema.safeParse({
     agentId: formData.get("agentId"),
@@ -2157,9 +2170,10 @@ export async function saveAgentKnowledgeProductInstructionAction(formData: FormD
 
 export async function saveAgentAdvancedPromptAction(formData: FormData): Promise<void> {
   const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     redirect("/unauthorized");
   }
+  await requireClientWorkspaceAccess("agents");
 
   const membership = await getPrimaryWorkspaceForUser(session.user.id);
   if (!membership) {
@@ -2210,9 +2224,10 @@ export async function saveAgentAdvancedPromptAction(formData: FormData): Promise
 
 export async function saveAgentActionsAction(formData: FormData): Promise<void> {
   const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     redirect("/unauthorized");
   }
+  await requireClientWorkspaceAccess("agents");
 
   const parsed = saveAgentActionsSchema.safeParse({
     agentId: formData.get("agentId"),
@@ -2279,9 +2294,10 @@ export async function saveAgentActionsAction(formData: FormData): Promise<void> 
 
 export async function deleteAgentActionsAction(formData: FormData): Promise<void> {
   const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     redirect("/unauthorized");
   }
+  await requireClientWorkspaceAccess("agents");
 
   const agentId = String(formData.get("agentId") || "").trim();
   if (!agentId) {
@@ -2338,9 +2354,10 @@ export async function deleteAgentActionsAction(formData: FormData): Promise<void
 
 export async function deleteAgentAction(formData: FormData): Promise<void> {
   const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     redirect("/unauthorized");
   }
+  await requireClientWorkspaceAccess("agents");
 
   const parsed = deleteAgentSchema.safeParse({
     agentId: formData.get("agentId"),
@@ -2444,9 +2461,10 @@ export async function deleteAgentAction(formData: FormData): Promise<void> {
 
 export async function toggleAgentStatusAction(formData: FormData): Promise<void> {
   const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     redirect("/unauthorized");
   }
+  await requireClientWorkspaceAccess("agents");
 
   const parsed = toggleAgentStatusSchema.safeParse({
     agentId: getRequiredFormValue(formData, "agentId"),
@@ -2502,9 +2520,10 @@ export async function toggleAgentStatusAction(formData: FormData): Promise<void>
 
 export async function sendManualAgentReplyAction(formData: FormData): Promise<void> {
   const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     redirect("/unauthorized");
   }
+  await requireClientWorkspaceAccess("agents");
 
   const parsed = sendManualAgentReplySchema.safeParse({
     agentId: formData.get("agentId"),
@@ -2743,9 +2762,10 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<vo
 
 export async function saveAgentReactivationMessageAction(formData: FormData): Promise<void> {
   const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     redirect("/unauthorized");
   }
+  await requireClientWorkspaceAccess("agents");
 
   const parsed = saveAgentReactivationMessageSchema.safeParse({
     agentId: formData.get("agentId"),
@@ -2800,9 +2820,10 @@ export async function saveAgentReactivationMessageAction(formData: FormData): Pr
 
 export async function saveAgentResponseDelayAction(formData: FormData): Promise<void> {
   const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     redirect("/unauthorized");
   }
+  await requireClientWorkspaceAccess("agents");
 
   const parsed = saveAgentResponseDelaySchema.safeParse({
     agentId: formData.get("agentId"),
@@ -2872,9 +2893,10 @@ export async function simulateAgentReplyAction(input: {
   | { ok: false; error: string }
 > {
   const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     return { ok: false, error: "No autorizado" };
   }
+  await requireClientWorkspaceAccess("agents");
 
   const parsed = simulateAgentReplySchema.safeParse(input);
   if (!parsed.success) {

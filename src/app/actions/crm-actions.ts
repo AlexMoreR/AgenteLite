@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { auth } from "@/auth";
+import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { createFollowsFromRulesForSource } from "@/features/seguimientos/services/follows";
@@ -21,9 +22,10 @@ const updateCrmCollapsedSchema = z.object({
 export async function updateCrmStageAction(input: { contactId: string; status: CrmStage }) {
   const session = await auth();
 
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     return { error: "No autorizado" };
   }
+  await requireClientWorkspaceAccess("crm");
 
   const parsed = updateCrmStageSchema.safeParse(input);
   if (!parsed.success) {
@@ -73,9 +75,10 @@ export async function updateCrmStageAction(input: { contactId: string; status: C
 export async function updateCrmCollapsedAction(input: { contactId: string; collapsed: boolean }) {
   const session = await auth();
 
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     return { error: "No autorizado" };
   }
+  await requireClientWorkspaceAccess("crm");
 
   const parsed = updateCrmCollapsedSchema.safeParse(input);
   if (!parsed.success) {

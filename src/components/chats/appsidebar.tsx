@@ -1,10 +1,11 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { MessageSquareText, Search, X } from "lucide-react";
 import { ConversationList } from "@/components/chats/conversation-list";
 import { SidebarHeader, SidebarInput } from "@/components/ui/sidebar";
-import { type SharedInboxConversationItem } from "./shared-inbox";
+import { type AssignedFilter, type SharedInboxConversationItem } from "./shared-inbox";
 import { Label } from "../ui/label";
 import { Switch } from "@base-ui/react";
 
@@ -13,6 +14,9 @@ type AppSidebarProps = {
   selectedConversationId: string;
   searchAction: string;
   selectedConnectionKey?: string;
+  searchQuery?: string;
+  assignedFilter?: AssignedFilter;
+  isManager?: boolean;
   searchInputValue: string;
   searchInputRef: React.RefObject<HTMLInputElement | null>;
   onSearchChange: (value: string) => void;
@@ -26,11 +30,20 @@ type AppSidebarProps = {
   emptyListDescription: string;
 };
 
+const ASSIGNED_FILTER_TABS: Array<{ value: AssignedFilter; label: string; managerOnly?: boolean }> = [
+  { value: "mine", label: "Mías" },
+  { value: "unassigned", label: "Sin asignar" },
+  { value: "all", label: "Todos", managerOnly: true },
+];
+
 export function AppSidebar({
   conversationItems,
   selectedConversationId,
   searchAction,
   selectedConnectionKey = "",
+  searchQuery = "",
+  assignedFilter = "all",
+  isManager = false,
   searchInputValue,
   searchInputRef,
   onSearchChange,
@@ -44,6 +57,20 @@ export function AppSidebar({
   emptyListDescription,
 }: AppSidebarProps) {
   const conversationListScrollRef = React.useRef<HTMLDivElement | null>(null);
+
+  const buildFilterHref = React.useCallback(
+    (value: AssignedFilter) => {
+      const params = new URLSearchParams();
+      if (selectedConnectionKey) params.set("connection", selectedConnectionKey);
+      if (searchQuery.trim()) params.set("q", searchQuery.trim());
+      if (value !== "all") params.set("assigned", value);
+      const qs = params.toString();
+      return qs ? `${searchAction}?${qs}` : searchAction;
+    },
+    [searchAction, selectedConnectionKey, searchQuery],
+  );
+
+  const visibleTabs = ASSIGNED_FILTER_TABS.filter((tab) => isManager || !tab.managerOnly);
 
   return (
     <aside
@@ -62,6 +89,7 @@ export function AppSidebar({
             >
               <input type="hidden" name="chatKey" value={selectedConversationId} />
               {selectedConnectionKey ? <input type="hidden" name="connection" value={selectedConnectionKey} /> : null}
+              {assignedFilter !== "all" ? <input type="hidden" name="assigned" value={assignedFilter} /> : null}
               <SidebarInput
                 ref={searchInputRef}
                 type="text"
@@ -83,6 +111,27 @@ export function AppSidebar({
               ) : null}
             </form>
 
+          </div>
+
+          <div className="mt-2.5 flex items-center gap-1 rounded-xl bg-slate-100/80 p-0.5">
+            {visibleTabs.map((tab) => {
+              const isActive = assignedFilter === tab.value;
+              return (
+                <Link
+                  key={tab.value}
+                  href={buildFilterHref(tab.value)}
+                  scroll={false}
+                  aria-current={isActive ? "page" : undefined}
+                  className={`flex-1 rounded-lg px-2 py-1.5 text-center text-[12px] font-medium transition ${
+                    isActive
+                      ? "bg-white text-slate-900 shadow-[0_1px_2px_rgba(15,23,42,0.08)]"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  {tab.label}
+                </Link>
+              );
+            })}
           </div>
         </div>
 

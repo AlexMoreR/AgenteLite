@@ -14,8 +14,16 @@ import {
   deleteConnectionChannelAction,
   toggleConnectionChannelStatusAction,
 } from "@/app/actions/connection-actions";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { FormActionSwitch } from "@/components/ui/form-action-switch";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { NewConnectionChannelModal } from "./NewConnectionChannelModal";
 
@@ -55,7 +63,7 @@ export function ConnectionsWorkspaceV2({
   items,
 }: ConnectionsWorkspaceProps) {
   return (
-    <section className="app-page w-full space-y-5">
+    <section className="app-page w-full space-y-5 p-6">
       <QueryFeedbackToast
         okMessage={okMessage}
         errorMessage={errorMessage}
@@ -64,12 +72,12 @@ export function ConnectionsWorkspaceV2({
       />
 
       <div className="flex w-full flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
+        <div className="space-y-1">
           <div className="inline-flex items-center gap-3">
-            <HiMiniChartBar className="h-6 w-6 text-sky-600" />
-            <h1 className="text-2xl font-semibold tracking-[-0.05em] text-slate-950">Conexion</h1>
+            <HiMiniChartBar className="size-6 text-sky-600" />
+            <h1 className="text-2xl font-semibold tracking-tight text-foreground">Conexion</h1>
           </div>
-          <p className="max-w-3xl text-sm text-slate-600">Crea y administra tus canales de conexion.</p>
+          <p className="max-w-3xl text-sm text-muted-foreground">Crea y administra tus canales de conexion.</p>
         </div>
 
         <NewConnectionChannelModal
@@ -80,31 +88,29 @@ export function ConnectionsWorkspaceV2({
       </div>
 
       {targetAgent ? (
-        <div className="rounded-[24px] border border-[rgba(37,99,235,0.14)] bg-[linear-gradient(180deg,rgba(239,246,255,0.84),rgba(255,255,255,0.98))] px-5 py-4 shadow-[0_16px_40px_-32px_rgba(37,99,235,0.28)]">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <Card>
+          <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-start gap-3">
-              <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
-                <FiLink className="h-5 w-5" />
+              <span className="inline-flex size-11 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <FiLink className="size-5" />
               </span>
               <div className="space-y-1">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--primary)]">Agente seleccionado</p>
-                <p className="text-base font-semibold tracking-[-0.03em] text-slate-950">{targetAgent.name}</p>
-                <p className="text-sm text-slate-600">Crea un canal nuevo o usa uno existente para vincularlo a este agente.</p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-primary">Agente seleccionado</p>
+                <p className="text-base font-semibold text-foreground">{targetAgent.name}</p>
+                <p className="text-sm text-muted-foreground">
+                  Crea un canal nuevo o usa uno existente para vincularlo a este agente.
+                </p>
               </div>
             </div>
 
-            <Link
-              href={`/cliente/agentes/${targetAgent.id}`}
-              className="inline-flex h-10 items-center justify-center rounded-full border border-[rgba(148,163,184,0.18)] bg-white px-4 text-sm font-medium text-slate-700 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
-            >
-              Ver agente
-            </Link>
-          </div>
-        </div>
+            <Button asChild variant="outline">
+              <Link href={`/cliente/agentes/${targetAgent.id}`}>Ver agente</Link>
+            </Button>
+          </CardContent>
+        </Card>
       ) : null}
 
       <div className="w-full space-y-3">
-
         {items.length ? (
           <div className="grid w-full gap-4">
             {items.map((item) => {
@@ -113,47 +119,34 @@ export function ConnectionsWorkspaceV2({
               const canAssignToTargetAgent = Boolean(targetAgent && item.linkedAgentId !== targetAgent.id);
 
               return (
-                <div
-                  key={item.id}
-                  className="group relative rounded-2xl border border-[rgba(148,163,184,0.16)] bg-white px-4 py-3 shadow-[0_10px_28px_-24px_rgba(15,23,42,0.18)] transition duration-200 hover:border-[color:color-mix(in_srgb,var(--primary)_24%,white)] hover:shadow-[0_18px_36px_-28px_rgba(15,23,42,0.2)]"
-                >
-                  <Link
-                    href={detailHref}
-                    aria-label={`Abrir ${item.name}`}
-                    className="absolute inset-0 z-0 rounded-[24px]"
-                  />
+                <Card key={item.id} className="relative py-3 transition hover:ring-foreground/20">
+                  <Link href={detailHref} aria-label={`Abrir ${item.name}`} className="absolute inset-0 z-0" />
 
-                  <div className="pointer-events-none relative z-10 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-                    <div className="flex min-w-0 flex-1 items-center gap-2.5 xl:self-center">
-                      <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center text-emerald-600">
-                        <WhatsAppGlyph className="h-5 w-5" />
+                  <CardContent className="pointer-events-none relative z-10 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                    <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                      <span className="inline-flex size-8 shrink-0 items-center justify-center text-emerald-600">
+                        <WhatsAppGlyph className="size-5" />
                       </span>
 
-                      <div className="flex min-w-0 flex-1 flex-col justify-center gap-1.5">
+                      <div className="flex min-w-0 flex-1 flex-col gap-1">
                         <div className="flex min-w-0 flex-wrap items-center gap-2">
-                          <h3 className="text-[15px] font-semibold tracking-[-0.03em] text-slate-950">{item.name}</h3>
+                          <h3 className="text-sm font-semibold text-foreground">{item.name}</h3>
                           {item.linkedAgentName ? (
-                            <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-[var(--primary)]">
-                              <Bot className="h-3 w-3" />
+                            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-primary">
+                              <Bot className="size-3" />
                               {item.linkedAgentName}
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-slate-500">
-                              <span className="inline-flex items-center gap-1.5">
-                                <FiCpu className="h-3 w-3" />
-                                Sin agente
-                              </span>
+                            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                              <FiCpu className="size-3" />
+                              Sin agente
                             </span>
                           )}
                         </div>
 
-                        <div className="flex flex-wrap items-center gap-2 text-[13px] text-slate-600">
-                          {item.phoneNumber ? (
-                            <span className="text-[12px]">
-                              {item.phoneNumber}
-                            </span>
-                          ) : null}
-                        </div>
+                        {item.phoneNumber ? (
+                          <span className="text-xs text-muted-foreground">{item.phoneNumber}</span>
+                        ) : null}
                       </div>
                     </div>
 
@@ -168,57 +161,57 @@ export function ConnectionsWorkspaceV2({
                           { name: "returnTo", value: "/cliente/conexion" },
                         ]}
                         wrapperClassName="pointer-events-auto relative z-20"
-                        switchClassName="h-5 w-8 data-[state=checked]:shadow-[0_8px_18px_-14px_color-mix(in_srgb,var(--primary)_88%,black)] [&>span]:h-4 [&>span]:w-4 [&>span]:translate-x-0.5 data-[state=checked]:[&>span]:translate-x-[0.875rem]"
                       />
-                      <MetricPill icon={<FiMessageCircle className="h-4 w-4" />} value={String(item.conversationsCount)} />
-                      <MetricPill icon={<FiMail className="h-4 w-4" />} value={String(item.messagesCount)} />
+                      <MetricPill icon={<FiMessageCircle className="size-4" />} value={String(item.conversationsCount)} />
+                      <MetricPill icon={<FiMail className="size-4" />} value={String(item.messagesCount)} />
 
                       {canAssignToTargetAgent ? (
                         <form action={assignConnectionChannelAction} className="pointer-events-auto relative z-20">
                           <input type="hidden" name="channelId" value={item.id} />
                           <input type="hidden" name="agentId" value={targetAgent?.id} />
-                          <input type="hidden" name="returnTo" value={targetAgent ? `/cliente/conexion?agentId=${targetAgent.id}` : "/cliente/conexion"} />
-                          <button
-                            type="submit"
-                            className="inline-flex h-9 items-center justify-center gap-2 rounded-full bg-[var(--primary)] px-3.5 text-[13px] font-medium text-white transition hover:bg-[var(--primary-strong)]"
-                          >
-                            <FiLink className="h-3.5 w-3.5" />
+                          <input
+                            type="hidden"
+                            name="returnTo"
+                            value={targetAgent ? `/cliente/conexion?agentId=${targetAgent.id}` : "/cliente/conexion"}
+                          />
+                          <Button type="submit" size="sm">
+                            <FiLink />
                             Asignar a este agente
-                          </button>
+                          </Button>
                         </form>
                       ) : null}
 
                       <DropdownMenu>
                         <DropdownMenuTrigger
-                          type="button"
-                          aria-label={`Acciones para ${item.name}`}
-                          className="pointer-events-auto relative z-20 inline-flex h-8 w-8 items-center justify-center text-slate-500 transition hover:text-slate-800"
+                          className="pointer-events-auto relative z-20"
+                          render={
+                            <Button type="button" variant="ghost" size="icon-sm" aria-label={`Acciones para ${item.name}`} />
+                          }
                         >
-                          <MoreHorizontal className="h-4 w-4" />
+                          <MoreHorizontal />
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="min-w-36 rounded-xl">
+                        <DropdownMenuContent align="end">
                           <form action={deleteConnectionChannelAction}>
                             <input type="hidden" name="channelId" value={item.id} />
-                            <button
-                              type="submit"
-                              className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm text-rose-600 transition hover:bg-rose-50 focus:bg-rose-50 focus:text-rose-700"
-                            >
-                              <FiTrash2 className="h-4 w-4" />
+                            <DropdownMenuItem variant="destructive" className="w-full" render={<button type="submit" />}>
+                              <FiTrash2 />
                               Eliminar
-                            </button>
+                            </DropdownMenuItem>
                           </form>
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </div>
-                  </div>
-                </div>
+                  </CardContent>
+                </Card>
               );
             })}
           </div>
         ) : (
-          <div className="rounded-[24px] border border-dashed border-[rgba(148,163,184,0.3)] bg-white px-5 py-8 text-sm text-slate-600">
-            Aun no hay conexiones creadas. Usa el boton de nuevo canal para comenzar.
-          </div>
+          <Card className="border border-dashed">
+            <CardContent className="text-sm text-muted-foreground">
+              Aun no hay conexiones creadas. Usa el boton de nuevo canal para comenzar.
+            </CardContent>
+          </Card>
         )}
       </div>
     </section>
@@ -226,27 +219,21 @@ export function ConnectionsWorkspaceV2({
 }
 
 function StatusPill({ label }: { label: string }) {
-  const tone =
-    label === "Conectado"
-      ? "text-emerald-700"
-      : label === "Esperando QR"
-        ? "text-amber-700"
-        : "text-slate-600";
   const dotTone =
-    label === "Conectado" ? "bg-[#16a34a]" : label === "Esperando QR" ? "bg-[#f59e0b]" : "bg-slate-400";
+    label === "Conectado" ? "bg-emerald-500" : label === "Esperando QR" ? "bg-amber-500" : "bg-muted-foreground";
 
   return (
-    <span className={`inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] ${tone}`}>
-      <span className={`h-2 w-2 rounded-full ${dotTone}`} />
+    <Badge variant="outline" className="gap-1.5 uppercase">
+      <span className={`size-1.5 rounded-full ${dotTone}`} />
       {label}
-    </span>
+    </Badge>
   );
 }
 
 function MetricPill({ icon, value }: { icon: ReactNode; value: string }) {
   return (
-    <span className="inline-flex items-center gap-1.5 text-[13px] text-slate-600">
-      <span className="text-slate-400">{icon}</span>
+    <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
+      {icon}
       <span>{value}</span>
     </span>
   );

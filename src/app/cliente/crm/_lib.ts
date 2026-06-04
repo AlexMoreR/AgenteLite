@@ -1,15 +1,11 @@
-import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import { getCrmData, getCrmKanbanData } from "@/features/crm";
+import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 
 export async function getAuthorizedCrmData() {
-  const session = await auth();
+  const access = await requireClientWorkspaceAccess("crm");
 
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
-    redirect("/unauthorized");
-  }
-
-  const data = await getCrmData({ userId: session.user.id });
+  const data = await getCrmData({ userId: access.userId });
 
   if (!data) {
     redirect("/cliente");
@@ -19,13 +15,9 @@ export async function getAuthorizedCrmData() {
 }
 
 export async function getAuthorizedCrmKanbanData() {
-  const session = await auth();
+  const access = await requireClientWorkspaceAccess("crm");
 
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
-    redirect("/unauthorized");
-  }
-
-  const data = await getCrmKanbanData({ userId: session.user.id });
+  const data = await getCrmKanbanData({ userId: access.userId });
 
   if (!data) {
     redirect("/cliente");

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { Input } from "@/components/ui/input";
 
 type AgentOption = {
   id: string;
@@ -31,7 +32,7 @@ export function AgentAssignAutosaveForm({
       <select
         name="agentId"
         defaultValue={defaultValue}
-        className="h-9 min-w-0 w-full rounded-xl border border-[rgba(148,163,184,0.18)] bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-[var(--primary)] focus:ring-4 focus:ring-[color:color-mix(in_srgb,var(--primary)_10%,white)]"
+        className="h-9 w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 text-sm text-foreground outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30"
         aria-label="Seleccionar agente para el canal"
         onChange={() => formRef.current?.requestSubmit()}
       >
@@ -95,11 +96,11 @@ export function ReactivationAutosaveForm({
     <form ref={formRef} action={action}>
       <input type="hidden" name="agentId" value={agentId} />
       <input type="hidden" name="returnTo" value={returnTo} />
-      <input
+      <Input
         type="text"
         name="reactivationMessage"
         defaultValue={defaultValue}
-        className="h-9 min-w-0 w-full rounded-xl border border-[rgba(148,163,184,0.18)] bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-[var(--primary)] focus:ring-4 focus:ring-[color:color-mix(in_srgb,var(--primary)_10%,white)]"
+        className="h-9"
         placeholder="Escribe el mensaje de reactivacion"
         maxLength={300}
         onChange={scheduleSubmit}
@@ -157,7 +158,7 @@ export function ResponseDelayAutosaveForm({
       <input type="hidden" name="agentId" value={agentId} />
       <input type="hidden" name="returnTo" value={returnTo} />
       <div className="relative">
-        <input
+        <Input
           type="number"
           name="responseDelaySeconds"
           defaultValue={defaultValue}
@@ -165,12 +166,12 @@ export function ResponseDelayAutosaveForm({
           max={120}
           step={1}
           inputMode="numeric"
-          className="h-9 min-w-0 w-full rounded-xl border border-[rgba(148,163,184,0.18)] bg-white px-3 pr-12 text-sm text-slate-700 outline-none transition focus:border-[var(--primary)] focus:ring-4 focus:ring-[color:color-mix(in_srgb,var(--primary)_10%,white)]"
+          className="h-9 pr-12"
           aria-label="Retraso de respuesta IA en segundos"
           onChange={scheduleSubmit}
           onBlur={submitNow}
         />
-        <span className="pointer-events-none absolute inset-y-0 right-3 inline-flex items-center text-sm text-slate-400">seg</span>
+        <span className="pointer-events-none absolute inset-y-0 right-3 inline-flex items-center text-sm text-muted-foreground">seg</span>
       </div>
     </form>
   );

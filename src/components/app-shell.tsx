@@ -79,6 +79,7 @@ const breadcrumbLabels: Record<string, string> = {
   productos: "Productos",
   registro: "Registro",
   empleado: "Empleado",
+  equipo: "Equipo",
   seguimientos: "Seguimientos",
   settings: "Settings",
   whatsapp: "WhatsApp",
@@ -184,8 +185,9 @@ export function AppShell({
   const isAuthPath = pathname === "/login" || pathname === "/register";
   const isAgentWorkspacePath = pathname.startsWith("/cliente/agentes/");
   const isChatWorkspacePath = pathname.startsWith("/cliente/chats");
-  const showClientPlanAlert = Boolean(user?.role === "CLIENTE" && pathname.startsWith("/cliente") && clientPlanAlert);
-  const showClientPlanBlock = Boolean(user?.role === "CLIENTE" && pathname.startsWith("/cliente") && clientPlanBlock?.isExpired);
+  const isClientPlanRole = user?.role === "CLIENTE" || user?.role === "EMPLEADO";
+  const showClientPlanAlert = Boolean(isClientPlanRole && pathname.startsWith("/cliente") && clientPlanAlert);
+  const showClientPlanBlock = Boolean(isClientPlanRole && pathname.startsWith("/cliente") && clientPlanBlock?.isExpired);
 
   if (showTopMenu) {
     return (
@@ -225,7 +227,7 @@ export function AppShell({
         />
         <SidebarInset
           className={cn(
-            "flex min-h-screen w-full flex-col",
+            "flex min-h-screen w-full min-w-0 flex-col",
             isChatWorkspacePath && "h-[100dvh] overflow-hidden",
             isAgentWorkspacePath && "bg-[#F1F5F9]",
           )}
@@ -242,7 +244,7 @@ export function AppShell({
           </header>
           <main
             className={cn(
-              "flex w-full flex-1 min-h-0 flex-col gap-4 pt-0",
+              "flex w-full min-w-0 flex-1 min-h-0 flex-col gap-4 pt-0",
               isChatWorkspacePath && "overflow-hidden",
               isAgentWorkspacePath && "bg-transparent",
             )}

@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { auth } from "@/auth";
 import { ConnectionsWorkspace, getConnectionsOverview, getWhatsAppBusinessConnections } from "@/features/conexion";
 import { getAdminModuleAccess } from "@/lib/admin-module-access";
+import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
@@ -18,12 +18,9 @@ type PageProps = {
 };
 
 export default async function ClienteConexionPage({ searchParams }: PageProps) {
-  const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
-    redirect("/unauthorized");
-  }
+  const access = await requireClientWorkspaceAccess("connection");
 
-  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  const membership = await getPrimaryWorkspaceForUser(access.userId);
   if (!membership) {
     redirect("/cliente?error=Debes+crear+tu+negocio+primero");
   }
@@ -31,10 +28,10 @@ export default async function ClienteConexionPage({ searchParams }: PageProps) {
   const [overview, connections, moduleAccess, params] = await Promise.all([
     getConnectionsOverview(membership.workspace.id),
     getWhatsAppBusinessConnections(membership.workspace.id),
-    getAdminModuleAccess(session.user.id, session.user.role),
+    getAdminModuleAccess(access.userId, access.role),
     searchParams,
   ]);
-  const canSeeOfficialApiModule = session.user.role === "ADMIN" || moduleAccess.client_official_api;
+  const canSeeOfficialApiModule = access.role === "ADMIN" || moduleAccess.client_official_api;
   const okMessage = typeof params.ok === "string" ? params.ok : "";
   const errorMessage = typeof params.error === "string" ? params.error : "";
   const targetAgentId = typeof params.agentId === "string" ? params.agentId : "";

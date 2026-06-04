@@ -1,6 +1,7 @@
 import type { Role } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { adminModuleDefinitions, type AdminModuleKey } from "@/lib/admin-modules";
+import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
 
 const ADMIN_MODULE_ACCESS_SETTING_KEY = "adminModuleAccess";
 let ensureAppSettingTablePromise: Promise<void> | null = null;
@@ -168,6 +169,11 @@ export async function canAccessOfficialApiModule(
 
   if (role === "ADMIN") {
     return true;
+  }
+
+  if (role === "EMPLEADO") {
+    const access = await getClientWorkspaceAccessForUser(userId);
+    return Boolean(access && canAccessClientModule(access, "client_official_api"));
   }
 
   if (role !== "CLIENTE") {

@@ -1,21 +1,15 @@
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
-import { auth } from "@/auth";
 import { getFinanzasData } from "@/features/finanzas/services/getFinanzasData";
 import { FinanzasEntryWorkspace } from "@/features/finanzas/components/FinanzasEntryWorkspace";
+import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 
 export const metadata: Metadata = { title: "Finanzas" };
 
 export default async function FinanzasPage() {
-  const session = await auth();
-  if (
-    !session?.user?.id ||
-    !["ADMIN", "CLIENTE"].includes(session.user.role ?? "")
-  ) {
-    redirect("/unauthorized");
-  }
+  const access = await requireClientWorkspaceAccess("finanzas");
 
-  const data = await getFinanzasData(session.user.id);
+  const data = await getFinanzasData(access.userId);
   if (!data) redirect("/cliente");
 
   return <FinanzasEntryWorkspace />;

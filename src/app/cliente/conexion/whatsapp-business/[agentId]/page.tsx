@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { WhatsAppBusinessConnectionWorkspace, getWhatsAppBusinessConnectionDetail } from "@/features/conexion";
+import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
@@ -21,12 +21,9 @@ type PageProps = {
 };
 
 export default async function ClienteConexionWhatsAppBusinessDetailPage({ params, searchParams }: PageProps) {
-  const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
-    redirect("/unauthorized");
-  }
+  const access = await requireClientWorkspaceAccess("connection");
 
-  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  const membership = await getPrimaryWorkspaceForUser(access.userId);
   if (!membership) {
     redirect("/cliente/conexion?error=Debes+crear+tu+negocio+primero");
   }

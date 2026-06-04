@@ -1,8 +1,8 @@
 import { redirect } from "next/navigation";
-import { auth } from "@/auth";
 import { OfficialApiChatbotWorkspace, OfficialApiLockedState, getOfficialApiChatbotData } from "@/features/official-api";
 import { getEvolutionFlowData } from "@/features/flows/services/getEvolutionFlowData";
 import { canAccessOfficialApiModule } from "@/lib/admin-module-access";
+import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
 type PageProps = {
@@ -14,19 +14,16 @@ type PageProps = {
 };
 
 export default async function ClientFlowWorkflowPage({ params, searchParams }: PageProps) {
-  const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
-    redirect("/unauthorized");
-  }
+  const access = await requireClientWorkspaceAccess("flows");
 
-  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  const membership = await getPrimaryWorkspaceForUser(access.userId);
   if (!membership?.workspace.id) {
     redirect("/cliente");
   }
 
   const { workflowId } = await params;
   const query = await searchParams;
-  const canUseOfficialApi = await canAccessOfficialApiModule(session.user.id, session.user.role);
+  const canUseOfficialApi = await canAccessOfficialApiModule(access.userId, access.role);
 
   if (query.sourceType === "official-api") {
     if (!canUseOfficialApi) {

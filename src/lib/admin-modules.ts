@@ -125,6 +125,13 @@ export const adminModuleDefinitions = [
     path: "/cliente/api-oficial",
     group: "Cliente",
   },
+  {
+    key: "client_team",
+    label: "Equipo",
+    description: "Invita empleados y define que modulos puede usar cada uno.",
+    path: "/cliente/equipo",
+    group: "Cliente",
+  },
 ] as const;
 
 export type AdminModuleKey = (typeof adminModuleDefinitions)[number]["key"];

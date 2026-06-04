@@ -3,6 +3,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
+import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
 const MAX_FILE_SIZE_BYTES = 16 * 1024 * 1024;
@@ -61,8 +62,13 @@ function getSafeMediaExtension(fileName: string) {
 
 export async function POST(request: Request) {
   const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     return NextResponse.json({ ok: false, error: "No autorizado" }, { status: 401 });
+  }
+
+  const access = await getClientWorkspaceAccessForUser(session.user.id);
+  if (!access || !canAccessClientModule(access, "flows")) {
+    return NextResponse.json({ ok: false, error: "No autorizado" }, { status: 403 });
   }
 
   const membership = await getPrimaryWorkspaceForUser(session.user.id);

@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { auth } from "@/auth";
 import { AdsGeneratorWorkspace } from "@/features/ads-generator";
 import type { AdProductInput } from "@/features/ads-generator";
 import { getAdsGeneratorHistory } from "@/lib/ads-generator-history";
+import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { getMarketingBusinessContextForUser } from "@/lib/marketing-business-context";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
@@ -30,19 +30,15 @@ function splitLines(value: string) {
 }
 
 export default async function AdsGeneratorEditorPage({ searchParams }: PageProps) {
-  const session = await auth();
+  const access = await requireClientWorkspaceAccess("marketing_ia");
 
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
-    redirect("/unauthorized");
-  }
-
-  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  const membership = await getPrimaryWorkspaceForUser(access.userId);
   if (!membership?.workspace.id) {
     redirect("/cliente/marketing-ia/ads-generator");
   }
 
   const params = await searchParams;
-  const businessContext = await getMarketingBusinessContextForUser(session.user.id);
+  const businessContext = await getMarketingBusinessContextForUser(access.userId);
   const history = await getAdsGeneratorHistory(membership.workspace.id);
   const entryId = getSingleValue(params.entryId);
   const selectedEntry = entryId ? history.find((entry) => entry.id === entryId) : null;

@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { canAccessOfficialApiModule } from "@/lib/admin-module-access";
+import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
 import { normalizeInternalPath } from "@/lib/app-url";
 import { getOfficialApiConfigByWorkspaceId, hasOfficialApiBaseCredentials } from "@/lib/official-api-config";
@@ -21,9 +22,10 @@ const sendOfficialApiReplySchema = z.object({
 
 export async function sendOfficialApiReplyAction(formData: FormData): Promise<void> {
   const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     redirect("/unauthorized");
   }
+  await requireClientWorkspaceAccess("client_official_api");
   if (!(await canAccessOfficialApiModule(session.user.id, session.user.role))) {
     redirect("/unauthorized");
   }

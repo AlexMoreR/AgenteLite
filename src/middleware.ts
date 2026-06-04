@@ -19,6 +19,7 @@ export default auth((req) => {
   const session = req.auth;
   const pathname = nextUrl.pathname;
   const role = session?.user?.role;
+  const primaryWorkspaceId = session?.user?.primaryWorkspaceId;
   const requestHost = req.headers.get("host")?.toLowerCase();
 
   if (requestHost && legacyHosts.has(requestHost)) {
@@ -29,7 +30,8 @@ export default auth((req) => {
   }
 
   if (authPages.includes(pathname) && role) {
-    return NextResponse.redirect(new URL(roleHome[role], nextUrl));
+    const home = role === "EMPLEADO" && primaryWorkspaceId ? "/cliente" : roleHome[role];
+    return NextResponse.redirect(new URL(home, nextUrl));
   }
 
   if (pathname.startsWith("/profile") && !session?.user) {
@@ -49,7 +51,7 @@ export default auth((req) => {
   }
 
   if (pathname.startsWith("/cliente")) {
-    if (!role || !["ADMIN", "CLIENTE"].includes(role)) {
+    if (!role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(role)) {
       return NextResponse.redirect(new URL("/unauthorized", nextUrl));
     }
   }

@@ -63,6 +63,7 @@ const moduleIconMap: Record<AdminModuleKey, React.ComponentType> = {
   connection: Cable,
   agents: Bot,
   client_official_api: MessageSquare,
+  client_team: Users,
 }
 
 type AppSidebarProps = React.ComponentProps<typeof Sidebar> & {

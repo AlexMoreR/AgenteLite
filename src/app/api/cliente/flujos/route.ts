@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { canAccessOfficialApiModule } from "@/lib/admin-module-access";
+import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
 import { saveOfficialApiChatbotBuilderState } from "@/lib/official-api-chatbot";
 import { getOfficialApiConfigByWorkspaceId, hasOfficialApiBaseCredentials } from "@/lib/official-api-config";
 import { prisma } from "@/lib/prisma";
@@ -77,8 +78,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 export async function POST(request: Request) {
   const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     return NextResponse.json({ ok: false, error: "No autorizado" }, { status: 401 });
+  }
+
+  const access = await getClientWorkspaceAccessForUser(session.user.id);
+  if (!access || !canAccessClientModule(access, "flows")) {
+    return NextResponse.json({ ok: false, error: "No autorizado" }, { status: 403 });
   }
 
   const membership = await getPrimaryWorkspaceForUser(session.user.id);
@@ -123,7 +129,7 @@ export async function POST(request: Request) {
   };
 
   if (parsed.data.sourceType === "official-api") {
-    if (!(await canAccessOfficialApiModule(session.user.id, session.user.role))) {
+    if (!(await canAccessOfficialApiModule(access.userId, access.role))) {
       return NextResponse.json({ ok: false, error: "Modulo API oficial desactivado para este rol." }, { status: 403 });
     }
 

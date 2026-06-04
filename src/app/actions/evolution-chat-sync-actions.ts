@@ -1,6 +1,7 @@
 "use server";
 
 import { auth } from "@/auth";
+import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import {
   applyEvolutionChatSyncCandidate,
@@ -13,9 +14,10 @@ import { revalidatePath } from "next/cache";
 
 async function requireWorkspace() {
   const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     return null;
   }
+  await requireClientWorkspaceAccess("chats");
 
   return getPrimaryWorkspaceForUser(session.user.id);
 }

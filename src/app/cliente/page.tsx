@@ -4,6 +4,7 @@ import Link from "next/link";
 import { ArrowRight, Sparkles } from "lucide-react";
 import { auth } from "@/auth";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
+import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
 export const metadata: Metadata = {
@@ -19,8 +20,12 @@ type PageProps = {
 
 export default async function ClientePage({ searchParams }: PageProps) {
   const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     redirect("/unauthorized");
+  }
+
+  if (session.user.role === "EMPLEADO") {
+    await requireClientWorkspaceAccess(undefined, { redirectTo: "/unauthorized" });
   }
 
   const membership = await getPrimaryWorkspaceForUser(session.user.id);

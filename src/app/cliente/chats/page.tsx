@@ -1,7 +1,7 @@
 ﻿import { redirect } from "next/navigation";
-import { auth } from "@/auth";
 import { after } from "next/server";
 import { sendUnifiedChatReplyAction, toggleConversationAutomationAction } from "@/app/actions/chats-actions";
+import { AssignChatControl } from "@/components/chats/assign-chat-control";
 import { ClearChatButton } from "@/components/chats/clear-chat-button";
 import { ChatsAutoRefresh } from "@/components/agents/chats-auto-refresh";
 import { ChatsRealtimeSync } from "@/components/chats/chats-realtime-sync";
@@ -15,6 +15,7 @@ import { getEvolutionSettings } from "@/lib/system-settings";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
+import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
 
 export const dynamic = "force-dynamic";
@@ -191,12 +192,9 @@ function clampMessagePage(value: number) {
 }
 
 export default async function ClienteChatsPage({ searchParams }: PageProps) {
-  const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
-    redirect("/unauthorized");
-  }
+  const access = await requireClientWorkspaceAccess("chats");
 
-  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  const membership = await getPrimaryWorkspaceForUser(access.userId);
   if (!membership?.workspace.id) {
     redirect("/cliente");
   }
@@ -225,6 +223,21 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   const selectedChatKeyParam = typeof params.chatKey === "string" ? params.chatKey : "";
   const selectedConnectionParam = typeof params.connection === "string" ? params.connection : "";
   const searchQuery = typeof params.q === "string" ? params.q.trim() : "";
+
+  const isManager = membership.role === "OWNER" || membership.role === "ADMIN";
+  const assignedParam = typeof params.assigned === "string" ? params.assigned.trim() : "";
+  let assignedFilter: "all" | "mine" | "unassigned" =
+    assignedParam === "mine" || assignedParam === "unassigned" ? assignedParam : "all";
+  // Los no-managers (AGENT/VIEWER) no pueden ver "Todos": se fuerza a "Mias".
+  if (!isManager && assignedFilter === "all") {
+    assignedFilter = "mine";
+  }
+  const assignedWhere: Prisma.ConversationWhereInput =
+    assignedFilter === "mine"
+      ? { assignedToUserId: access.userId }
+      : assignedFilter === "unassigned"
+        ? { assignedToUserId: null }
+        : {};
   const messagePage = clampMessagePage(parsePositiveInteger(typeof params.messagePage === "string" ? params.messagePage : undefined, 1));
   const okMessage = typeof params.ok === "string" ? params.ok : "";
   const errorMessage = typeof params.error === "string" ? params.error : "";
@@ -238,6 +251,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       selectedConnectionParam.startsWith("channel:")
         ? { channelId: selectedConnectionParam.slice("channel:".length) }
         : {},
+      assignedWhere,
       searchQuery
         ? {
             OR: [
@@ -302,6 +316,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         agentId: true,
         channelId: true,
         automationPaused: true,
+        assignedToUserId: true,
+        assignedTo: { select: { id: true, name: true, email: true } },
         activeProductContext: true,
         contact: {
           select: {
@@ -585,10 +601,11 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       (evolutionGlobalWebsocketEventsEnabled || evolutionInstanceNames.length > 0),
   );
   const chatListHref = `/cliente/chats${
-    selectedConnectionKey || searchQuery
+    selectedConnectionKey || searchQuery || assignedFilter !== "all"
       ? `?${new URLSearchParams([
           ...(selectedConnectionKey ? [["connection", selectedConnectionKey]] : []),
           ...(searchQuery ? [["q", searchQuery]] : []),
+          ...(assignedFilter !== "all" ? [["assigned", assignedFilter]] : []),
         ]).toString()}`
       : ""
   }`;
@@ -597,6 +614,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         ["chatKey", selectedUnified.key],
         ...(selectedConnectionKey ? [["connection", selectedConnectionKey]] : []),
         ...(searchQuery ? [["q", searchQuery]] : []),
+        ...(assignedFilter !== "all" ? [["assigned", assignedFilter]] : []),
         ...(messagePage > 1 ? [["messagePage", String(messagePage)]] : []),
       ]).toString()}`
     : "";
@@ -803,6 +821,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         selectedConversationId={selectedUnified?.key ?? ""}
         mobileConversationActive={Boolean(selectedChatKeyParam)}
         selectedConnectionKey={selectedConnectionKey}
+        assignedFilter={assignedFilter}
+        isManager={isManager}
         initialConversationBatchSize={conversationListTake}
         initialHasMoreConversations={hasMoreConversationItems}
         conversationListApiPath="/api/cliente/chats/list"
@@ -824,7 +844,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           lastMessageType: item.lastMessageType ?? null,
           lastMessageDirection: item.lastMessageDirection,
           lastMessageAt: item.lastMessageAt,
-          href: `/cliente/chats?chatKey=${encodeURIComponent(item.key)}${selectedConnectionKey ? `&connection=${encodeURIComponent(selectedConnectionKey)}` : ""}${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ""}`,
+          href: `/cliente/chats?chatKey=${encodeURIComponent(item.key)}${selectedConnectionKey ? `&connection=${encodeURIComponent(selectedConnectionKey)}` : ""}${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ""}${assignedFilter !== "all" ? `&assigned=${assignedFilter}` : ""}`,
         }))}
         selectedConversation={selectedConversation}
         selectedConversationTags={selectedConversation?.tags ?? []}
@@ -833,6 +853,10 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         headerActions={
           selectedUnified?.source === "agent" && selectedConversation ? (
             <div key={`header-actions:${selectedConversation.id}`} className="flex items-center gap-1">
+              <AssignChatControl
+                conversationId={selectedConversation.id}
+                assignee={selectedAgentConversation?.assignedTo ?? null}
+              />
               <ClearChatButton
                 conversationId={selectedConversation.id}
                 returnTo={selectedChatHref}

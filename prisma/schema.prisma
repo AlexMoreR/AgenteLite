@@ -28,6 +28,7 @@ model User {
   quotesCreated        Quote[]           @relation("QuoteCreatedBy")
   ownedWorkspaces      Workspace[]       @relation("WorkspaceOwner")
   workspaceMemberships WorkspaceMember[]
+  assignedConversations Conversation[]   @relation("ConversationAssignee")
 }
 
 model EmailAuthToken {
@@ -84,6 +85,11 @@ model WorkspaceMember {
   workspaceId String
   userId      String
   role        WorkspaceMemberRole @default(ADMIN)
+  moduleAccess Json?
+  isActive    Boolean             @default(true)
+  invitedAt   DateTime?
+  acceptedAt  DateTime?
+  deactivatedAt DateTime?
   createdAt   DateTime            @default(now())
   updatedAt   DateTime            @updatedAt
   user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -91,6 +97,7 @@ model WorkspaceMember {
 
   @@unique([workspaceId, userId])
   @@index([userId])
+  @@index([workspaceId, isActive])
 }
 
 model Agent {
@@ -181,6 +188,7 @@ model Conversation {
   agentId            String?
   channelId          String?
   contactId          String
+  assignedToUserId   String?
   status             ConversationStatus @default(OPEN)
   lastMessageAt      DateTime?
   autoReplyBatchStartedAt DateTime?
@@ -199,10 +207,12 @@ model Conversation {
   channel            WhatsAppChannel?   @relation(fields: [channelId], references: [id])
   contact            Contact            @relation(fields: [contactId], references: [id], onDelete: Cascade)
   workspace          Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assignedTo         User?              @relation("ConversationAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
   messages           Message[]
   contactMatches     ContactMatch[]
 
   @@index([workspaceId, status])
+  @@index([workspaceId, assignedToUserId])
   @@index([workspaceId, lastMessageAt])
   @@index([workspaceId, lastMessageAt, updatedAt])
   @@index([workspaceId, autoReplyBatchDueAt])

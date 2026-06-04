@@ -10,6 +10,7 @@ import { getConversationAutomationPaused, setConversationAutomationPaused } from
 import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
 import { sendEvolutionTextMessage } from "@/lib/evolution";
 import { normalizeInternalPath } from "@/lib/app-url";
+import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
@@ -32,9 +33,10 @@ export async function updateContactAction(
   formData: FormData,
 ): Promise<UpdateContactActionState> {
   const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     return { error: "No autorizado" };
   }
+  await requireClientWorkspaceAccess("chats");
 
   const parsed = updateContactSchema.safeParse({
     contactId: formData.get("contactId"),
@@ -73,9 +75,10 @@ export async function updateContactAction(
 
 export async function deleteContactAction(formData: FormData): Promise<void> {
   const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     redirect("/unauthorized");
   }
+  await requireClientWorkspaceAccess("chats");
 
   const parsed = deleteContactSchema.safeParse({
     contactId: formData.get("contactId"),
@@ -191,9 +194,10 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<vo
 
 export async function toggleConversationAutomationAction(formData: FormData): Promise<void> {
   const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     redirect("/unauthorized");
   }
+  await requireClientWorkspaceAccess("chats");
 
   const parsed = toggleConversationAutomationSchema.safeParse({
     conversationId: formData.get("conversationId"),
@@ -326,9 +330,10 @@ const clearConversationSchema = z.object({
 
 export async function clearConversationMessagesAction(formData: FormData): Promise<void> {
   const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     redirect("/unauthorized");
   }
+  await requireClientWorkspaceAccess("chats");
 
   const parsed = clearConversationSchema.safeParse({
     conversationId: formData.get("conversationId"),
@@ -391,9 +396,10 @@ export async function createEtiquetaAction(
   formData: FormData,
 ): Promise<{ error?: string; success?: boolean }> {
   const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     return { error: "No autorizado" };
   }
+  await requireClientWorkspaceAccess("chats");
 
   const parsed = createEtiquetaSchema.safeParse({
     name: formData.get("name"),
@@ -447,14 +453,118 @@ export async function getContactTagIdsAction(contactId: string): Promise<{ tagId
   return { tagIds: rows.map((r) => r.tagId) };
 }
 
+export type AssignableMember = {
+  id: string;
+  name: string | null;
+  email: string;
+  role: "OWNER" | "ADMIN" | "AGENT" | "VIEWER";
+};
+
+export async function getAssignableMembersAction(): Promise<{
+  members?: AssignableMember[];
+  currentUserId?: string;
+  isManager?: boolean;
+  error?: string;
+}> {
+  const session = await auth();
+  if (!session?.user?.id) return { error: "No autorizado" };
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) return { error: "Workspace no encontrado" };
+
+  const members = await prisma.workspaceMember.findMany({
+    where: { workspaceId: membership.workspace.id, isActive: true },
+    select: {
+      role: true,
+      user: { select: { id: true, name: true, email: true } },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+
+  return {
+    members: members.map((m) => ({
+      id: m.user.id,
+      name: m.user.name,
+      email: m.user.email,
+      role: m.role,
+    })),
+    currentUserId: session.user.id,
+    isManager: membership.role === "OWNER" || membership.role === "ADMIN",
+  };
+}
+
+export async function assignChatAction(input: {
+  conversationId: string;
+  assignToUserId: string | null;
+}): Promise<{
+  ok?: boolean;
+  error?: string;
+  assignedTo?: { id: string; name: string | null } | null;
+}> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
+    return { error: "No autorizado" };
+  }
+  await requireClientWorkspaceAccess("chats");
+
+  const conversationId = typeof input?.conversationId === "string" ? input.conversationId.trim() : "";
+  const targetUserId =
+    typeof input?.assignToUserId === "string" && input.assignToUserId.trim() ? input.assignToUserId.trim() : null;
+  if (!conversationId) return { error: "Datos invalidos" };
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) return { error: "Workspace no encontrado" };
+
+  const conversation = await prisma.conversation.findFirst({
+    where: { id: conversationId, workspaceId: membership.workspace.id },
+    select: { id: true, assignedToUserId: true },
+  });
+  if (!conversation) return { error: "Conversacion no encontrada" };
+
+  // OWNER/ADMIN pueden asignar a cualquiera. AGENT/VIEWER solo pueden tomar
+  // chats para si mismos o soltar los suyos.
+  const isManager = membership.role === "OWNER" || membership.role === "ADMIN";
+  if (!isManager) {
+    if (targetUserId && targetUserId !== session.user.id) {
+      return { error: "Solo puedes asignarte chats a ti mismo" };
+    }
+    if (
+      !targetUserId &&
+      conversation.assignedToUserId &&
+      conversation.assignedToUserId !== session.user.id
+    ) {
+      return { error: "No puedes liberar un chat asignado a otra persona" };
+    }
+  }
+
+  let assignedTo: { id: string; name: string | null } | null = null;
+  if (targetUserId) {
+    const targetMember = await prisma.workspaceMember.findFirst({
+      where: { workspaceId: membership.workspace.id, userId: targetUserId, isActive: true },
+      select: { user: { select: { id: true, name: true } } },
+    });
+    if (!targetMember) return { error: "El usuario no pertenece al equipo" };
+    assignedTo = targetMember.user;
+  }
+
+  await prisma.conversation.update({
+    where: { id: conversation.id },
+    data: { assignedToUserId: targetUserId },
+  });
+
+  revalidatePath("/cliente/chats");
+  return { ok: true, assignedTo };
+}
+
 export async function toggleContactTagAction(
   contactId: string,
   tagId: string,
 ): Promise<{ error?: string }> {
   const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     return { error: "No autorizado" };
   }
+  await requireClientWorkspaceAccess("chats");
 
   const membership = await getPrimaryWorkspaceForUser(session.user.id);
   if (!membership) return { error: "Workspace no encontrado" };

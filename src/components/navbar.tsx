@@ -27,6 +27,7 @@ type InitialUser = {
   name?: string | null;
   email?: string | null;
   role?: Role;
+  primaryWorkspaceId?: string | null;
 };
 
 export function Navbar({
@@ -47,7 +48,12 @@ export function Navbar({
   const user = data?.user ?? initialUser;
   const pathname = usePathname();
   if (pathname === "/login" || pathname === "/register") return null;
-  const dashboardHref = user?.role ? roleLinks[user.role] : null;
+  const dashboardHref =
+    user?.role === "EMPLEADO" && user.primaryWorkspaceId
+      ? "/cliente"
+      : user?.role
+        ? roleLinks[user.role]
+        : null;
   const initials = (user?.name ?? user?.email ?? "U").slice(0, 1).toUpperCase();
   const isMarketingHome = pathname === "/";
 

@@ -1,18 +1,15 @@
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
-import { auth } from "@/auth";
 import { getFinanzasData } from "@/features/finanzas/services/getFinanzasData";
 import { FinanzasWorkspace } from "@/features/finanzas/components/FinanzasWorkspace";
+import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 
 export const metadata: Metadata = { title: "Asistente de Finanzas" };
 
 export default async function FinanzasAssistantPage() {
-  const session = await auth();
-  if (!session?.user?.id || !["ADMIN", "CLIENTE"].includes(session.user.role ?? "")) {
-    redirect("/unauthorized");
-  }
+  const access = await requireClientWorkspaceAccess("finanzas");
 
-  const data = await getFinanzasData(session.user.id);
+  const data = await getFinanzasData(access.userId);
   if (!data) redirect("/cliente");
 
   const workspaceKey = [data.workspaceId, data.currency, data.googleSheet?.id ?? "no-sheet"].join("|");

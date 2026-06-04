@@ -3,11 +3,11 @@ import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { ArrowRight, Building2, Globe, MapPin, Megaphone, Users2 } from "lucide-react";
-import { auth } from "@/auth";
 import { MarketingBusinessIntakeModal } from "@/components/marketing/marketing-business-intake-modal";
 import { MarketingContextDetailModal } from "@/components/marketing/marketing-context-detail-modal";
 import { Card } from "@/components/ui/card";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
+import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import {
   getMarketingBusinessContextForUser,
   getMarketingContextCompletion,
@@ -26,13 +26,9 @@ type PageProps = {
 };
 
 export default async function MarketingBusinessContextPage({ searchParams }: PageProps) {
-  const session = await auth();
+  const access = await requireClientWorkspaceAccess("marketing_ia");
 
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
-    redirect("/unauthorized");
-  }
-
-  const businessContext = await getMarketingBusinessContextForUser(session.user.id);
+  const businessContext = await getMarketingBusinessContextForUser(access.userId);
   const params = await searchParams;
   const okMessage = typeof params.ok === "string" ? params.ok : "";
   const errorMessage = typeof params.error === "string" ? params.error : "";

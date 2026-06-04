@@ -540,12 +540,16 @@ export type SharedInboxSidebarItem = {
   channelType?: SharedInboxConversationItem["channelType"];
 };
 
+export type AssignedFilter = "all" | "mine" | "unassigned";
+
 type SharedInboxProps = {
   searchAction: string;
   selectedConversationId: string;
   mobileConversationActive?: boolean;
   searchQuery: string;
   selectedConnectionKey?: string;
+  assignedFilter?: AssignedFilter;
+  isManager?: boolean;
   conversationListApiPath?: string;
   initialConversationBatchSize?: number;
   initialHasMoreConversations?: boolean;
@@ -703,6 +707,7 @@ function buildConversationItemHrefFromParams(
   selectedConnectionKey: string,
   searchQuery: string,
   conversation: SharedInboxConversationItemLike,
+  assignedFilter: AssignedFilter = "all",
 ) {
   const chatKey =
     (typeof conversation.id === "string" && conversation.id.trim()) ||
@@ -718,6 +723,7 @@ function buildConversationItemHrefFromParams(
   params.set("chatKey", chatKey);
   if (selectedConnectionKey) params.set("connection", selectedConnectionKey);
   if (searchQuery.trim()) params.set("q", searchQuery.trim());
+  if (assignedFilter !== "all") params.set("assigned", assignedFilter);
   const qs = params.toString();
   return qs ? `${searchAction}?${qs}` : searchAction;
 }
@@ -2514,6 +2520,8 @@ export function SharedInbox({
   mobileConversationActive = false,
   searchQuery,
   selectedConnectionKey = "",
+  assignedFilter = "all",
+  isManager = false,
   conversationListApiPath = "/api/cliente/chats/list",
   initialConversationBatchSize = 20,
   initialHasMoreConversations,
@@ -2534,7 +2542,7 @@ export function SharedInbox({
 }: SharedInboxProps) {
   const [conversationItems, setConversationItems] = useState<SharedInboxConversationItem[]>(() =>
     normalizeConversationItems(conversations, (item) =>
-      buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item),
+      buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item, assignedFilter),
     ),
   );
   const [hasMoreConversationItems, setHasMoreConversationItems] = useState(
@@ -2576,7 +2584,7 @@ export function SharedInbox({
   const [searchInputValue, setSearchInputValue] = useState(searchQuery);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const listQueryKeyRef = useRef(`${searchQuery.trim()}::${selectedConnectionKey.trim()}`);
+  const listQueryKeyRef = useRef(`${searchQuery.trim()}::${selectedConnectionKey.trim()}::${assignedFilter}`);
 
   useEffect(() => {
     if (searchInputRef.current && document.activeElement === searchInputRef.current) {
@@ -2596,10 +2604,11 @@ export function SharedInbox({
       if (selectedConversationId) params.set("chatKey", selectedConversationId);
       if (selectedConnectionKey) params.set("connection", selectedConnectionKey);
       if (q) params.set("q", q);
+      if (assignedFilter !== "all") params.set("assigned", assignedFilter);
       const qs = params.toString();
       return qs ? `${searchAction}?${qs}` : searchAction;
     },
-    [searchAction, selectedConversationId, selectedConnectionKey],
+    [searchAction, selectedConversationId, selectedConnectionKey, assignedFilter],
   );
 
   const handleSearchChange = useCallback(
@@ -2652,6 +2661,10 @@ export function SharedInbox({
         params.set("connection", selectedConnectionKey.trim());
       }
 
+      if (assignedFilter !== "all") {
+        params.set("assigned", assignedFilter);
+      }
+
       const response = await fetch(`${conversationListApiPath}?${params.toString()}`, {
         credentials: "same-origin",
         cache: "no-store",
@@ -2678,7 +2691,7 @@ export function SharedInbox({
       }
 
       const normalizedPayloadConversations = normalizeConversationItems(payload.conversations, (item) =>
-        buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item),
+        buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item, assignedFilter),
       );
       debugConversationList("loadMore payload", {
         offset,
@@ -2726,6 +2739,7 @@ export function SharedInbox({
     searchAction,
     searchQuery,
     selectedConnectionKey,
+    assignedFilter,
   ]);
 
   const pendingConversation = usePendingConversationSelection();
@@ -2737,7 +2751,7 @@ export function SharedInbox({
   }, [selectedConversation]);
 
   useEffect(() => {
-    const nextListQueryKey = `${searchQuery.trim()}::${selectedConnectionKey.trim()}`;
+    const nextListQueryKey = `${searchQuery.trim()}::${selectedConnectionKey.trim()}::${assignedFilter}`;
     const queryChanged = listQueryKeyRef.current !== nextListQueryKey;
     listQueryKeyRef.current = nextListQueryKey;
 
@@ -2745,7 +2759,7 @@ export function SharedInbox({
       setHasMoreConversationItems(initialHasMoreConversations ?? conversations.length >= initialConversationBatchSize);
       setConversationItems(
         normalizeConversationItems(conversations, (item) =>
-          buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item),
+          buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item, assignedFilter),
         ),
       );
       return;
@@ -2755,14 +2769,14 @@ export function SharedInbox({
       if (current.length === 0) {
         return sortConversationItems(
           normalizeConversationItems(conversations, (item) =>
-            buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item),
+            buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item, assignedFilter),
           ),
         );
       }
 
       const currentById = new Map(current.map((item) => [item.id, item]));
       const merged = normalizeConversationItems(conversations, (item) =>
-        buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item),
+        buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item, assignedFilter),
       ).map((conversation) =>
         mergeConversationListItem(conversation, currentById.get(conversation.id) ?? null),
       );
@@ -2777,7 +2791,7 @@ export function SharedInbox({
 
       return sorted;
     });
-  }, [conversations, initialConversationBatchSize, initialHasMoreConversations, searchAction, searchQuery, selectedConnectionKey]);
+  }, [conversations, initialConversationBatchSize, initialHasMoreConversations, searchAction, searchQuery, selectedConnectionKey, assignedFilter]);
 
   useEffect(() => {
     selectedConversationRef.current = selectedConversation;
@@ -3725,6 +3739,9 @@ export function SharedInbox({
         selectedConversationId={selectedConversationId}
         searchAction={searchAction}
         selectedConnectionKey={selectedConnectionKey}
+        searchQuery={searchQuery}
+        assignedFilter={assignedFilter}
+        isManager={isManager}
         searchInputValue={searchInputValue}
         searchInputRef={searchInputRef}
         onSearchChange={handleSearchChange}

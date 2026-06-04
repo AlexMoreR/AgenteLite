@@ -52,6 +52,19 @@ async function requireAdminSession(): Promise<void> {
   }
 }
 
+async function resolveLoginRedirect(userId: string, role: Role) {
+  if (role !== "EMPLEADO") {
+    return roleRedirect[role];
+  }
+
+  const membership = await prisma.workspaceMember.findFirst({
+    where: { userId, isActive: true },
+    select: { workspaceId: true },
+  });
+
+  return membership ? "/cliente" : "/empleado";
+}
+
 export async function loginAction(
   prevState: ActionState = defaultState,
   formData: FormData,
@@ -89,7 +102,7 @@ export async function loginAction(
     await signIn("credentials", {
       email,
       password,
-      redirectTo: roleRedirect[user.role],
+      redirectTo: await resolveLoginRedirect(user.id, user.role),
     });
   } catch (error) {
     if (error instanceof AuthError) {
@@ -372,6 +385,17 @@ export async function resetPasswordWithTokenAction(
   await prisma.user.update({
     where: { id: payload.userId },
     data: { password: hashedPassword },
+  });
+
+  await prisma.workspaceMember.updateMany({
+    where: {
+      userId: payload.userId,
+      invitedAt: { not: null },
+      acceptedAt: null,
+    },
+    data: {
+      acceptedAt: new Date(),
+    },
   });
 
   return { ok: true, message: "Contrasena actualizada. Ya puedes iniciar sesion" };

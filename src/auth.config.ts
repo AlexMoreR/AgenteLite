@@ -1,5 +1,5 @@
 import type { NextAuthConfig } from "next-auth";
-import type { Role } from "@prisma/client";
+import type { Role, WorkspaceMemberRole } from "@prisma/client";
 
 const authConfig = {
   pages: {
@@ -28,7 +28,7 @@ const authConfig = {
       }
 
       if (pathname.startsWith("/cliente")) {
-        return !!role && ["ADMIN", "CLIENTE"].includes(role);
+        return !!role && ["ADMIN", "CLIENTE", "EMPLEADO"].includes(role);
       }
 
       return true;
@@ -39,6 +39,8 @@ const authConfig = {
         token.name = user.name;
         token.email = user.email;
         token.picture = user.image;
+        token.primaryWorkspaceId = user.primaryWorkspaceId ?? null;
+        token.workspaceMemberRole = user.workspaceMemberRole ?? null;
       }
 
       if (trigger === "update" && session) {
@@ -55,6 +57,10 @@ const authConfig = {
       if (session.user) {
         session.user.id = token.sub ?? "";
         session.user.role = token.role as Role | undefined;
+        session.user.primaryWorkspaceId =
+          typeof token.primaryWorkspaceId === "string" ? token.primaryWorkspaceId : null;
+        session.user.workspaceMemberRole =
+          typeof token.workspaceMemberRole === "string" ? (token.workspaceMemberRole as WorkspaceMemberRole) : null;
         session.user.name = typeof token.name === "string" ? token.name : null;
         session.user.email = typeof token.email === "string" ? token.email : "";
         session.user.image = typeof token.picture === "string" ? token.picture : null;

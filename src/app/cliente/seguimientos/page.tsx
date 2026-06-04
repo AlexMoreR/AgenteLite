@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { auth } from "@/auth";
 import { SeguimientosWorkspace } from "@/features/seguimientos/components/SeguimientosWorkspace";
 import { getFollowOverview } from "@/features/seguimientos/services/follows";
 import { canAccessOfficialApiModule } from "@/lib/admin-module-access";
 import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowItems";
+import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { prisma } from "@/lib/prisma";
 
@@ -25,17 +25,14 @@ const CRM_STAGES = [
 ];
 
 export default async function SeguimientosPage() {
-  const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
-    redirect("/unauthorized");
-  }
+  const access = await requireClientWorkspaceAccess("seguimientos");
 
-  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  const membership = await getPrimaryWorkspaceForUser(access.userId);
   if (!membership?.workspace.id) {
     redirect("/cliente");
   }
 
-  const canUseOfficialApi = await canAccessOfficialApiModule(session.user.id, session.user.role);
+  const canUseOfficialApi = await canAccessOfficialApiModule(access.userId, access.role);
   const [overview, channels, contacts, flows, products, tags] = await Promise.all([
     getFollowOverview({ workspaceId: membership.workspace.id }),
     prisma.whatsAppChannel.findMany({

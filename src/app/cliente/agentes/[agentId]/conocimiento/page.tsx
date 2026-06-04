@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { BookOpenText, Boxes, Eye, Workflow, Zap } from "lucide-react";
-import { auth } from "@/auth";
 import { saveAgentKnowledgeProductsAction } from "@/app/actions/agent-actions";
 import { AgentPanelShell } from "@/components/agents/agent-panel-shell";
 import { KnowledgeProductInstructionModal } from "@/components/agents/knowledge-product-instruction-modal";
@@ -11,6 +10,7 @@ import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowIte
 import { formatMoney } from "@/lib/currency";
 import { canAccessOfficialApiModule } from "@/lib/admin-module-access";
 import { defaultAgentTrainingConfig, parseAgentTrainingConfig } from "@/lib/agent-training";
+import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
@@ -68,12 +68,9 @@ function isMissingAgentKnowledgeFunnelColumnsError(error: unknown) {
 }
 
 export default async function AgentKnowledgePage({ params, searchParams }: PageProps) {
-  const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
-    redirect("/unauthorized");
-  }
+  const access = await requireClientWorkspaceAccess("agents");
 
-  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  const membership = await getPrimaryWorkspaceForUser(access.userId);
   if (!membership) {
     redirect("/cliente/agentes?error=Debes+crear+tu+negocio+primero");
   }
@@ -82,7 +79,7 @@ export default async function AgentKnowledgePage({ params, searchParams }: PageP
   const okMessage = getSingleParam(query.ok);
   const errorMessage = getSingleParam(query.error);
   const activeTab = getSingleParam(query.tab) === "flows" ? "flows" : "products";
-  const canUseOfficialApi = await canAccessOfficialApiModule(session.user.id, session.user.role);
+  const canUseOfficialApi = await canAccessOfficialApiModule(access.userId, access.role);
 
   const agent = await prisma.agent.findFirst({
     where: {

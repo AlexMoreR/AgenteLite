@@ -9,6 +9,7 @@ import {
 } from "@/app/actions/workspace-actions";
 import { clearConversationCache } from "@/components/chats/chat-history-cache";
 import { WhatsAppGlyph } from "@/components/icons/whatsapp-glyph";
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,16 +17,19 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
+const cleanupItemClass =
+  "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition disabled:pointer-events-none disabled:opacity-50";
+
 function ClearChatsSubmitButton() {
   const { pending } = useFormStatus();
 
   return (
     <button
       type="submit"
-      className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm text-rose-600 transition hover:bg-rose-50 focus:bg-rose-50 focus:text-rose-700"
+      className={`${cleanupItemClass} text-destructive hover:bg-destructive/10 focus:bg-destructive/10`}
       disabled={pending}
     >
-      <Trash2 className="h-4 w-4" />
+      <Trash2 className="size-4" />
       {pending ? "Limpiando..." : "Limpiar chats"}
     </button>
   );
@@ -37,10 +41,10 @@ function ClearContactsSubmitButton() {
   return (
     <button
       type="submit"
-      className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm text-rose-600 transition hover:bg-rose-50 focus:bg-rose-50 focus:text-rose-700"
+      className={`${cleanupItemClass} text-destructive hover:bg-destructive/10 focus:bg-destructive/10`}
       disabled={pending}
     >
-      <Users2 className="h-4 w-4" />
+      <Users2 className="size-4" />
       {pending ? "Limpiando..." : "Limpiar contactos"}
     </button>
   );
@@ -52,10 +56,10 @@ function ClearEvolutionGhostChatsSubmitButton() {
   return (
     <button
       type="submit"
-      className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm text-amber-700 transition hover:bg-amber-50 focus:bg-amber-50 focus:text-amber-800"
+      className={`${cleanupItemClass} text-amber-600 hover:bg-amber-500/10 focus:bg-amber-500/10 dark:text-amber-400`}
       disabled={pending}
     >
-      <Trash2 className="h-4 w-4" />
+      <Trash2 className="size-4" />
       {pending ? "Limpiando..." : "Limpiar chats fantasma"}
     </button>
   );
@@ -65,13 +69,9 @@ export function BusinessChatsCleanupMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          aria-label="Abrir acciones del negocio"
-          className="inline-flex h-10 w-10 items-center justify-center rounded-[16px] border border-[rgba(22,163,74,0.18)] bg-[color-mix(in_srgb,white_90%,#dcfce7)] text-emerald-600 transition hover:border-[rgba(22,163,74,0.35)] hover:text-emerald-700"
-        >
-          <WhatsAppGlyph className="h-3 w-3" />
-        </button>
+        <Button type="button" variant="outline" size="icon" aria-label="Abrir acciones del negocio">
+          <WhatsAppGlyph className="size-4" />
+        </Button>
       </DropdownMenuTrigger>
 
       <DropdownMenuContent align="end" className="min-w-52 rounded-2xl p-2">

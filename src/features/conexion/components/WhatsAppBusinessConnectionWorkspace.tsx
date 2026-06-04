@@ -8,9 +8,12 @@ import {
 import { assignConnectionChannelAction, toggleConnectionChannelStatusAction } from "@/app/actions/connection-actions";
 import { WhatsappQrAutoRefresh } from "@/components/agents/whatsapp-qr-auto-refresh";
 import { WhatsappQrCountdown } from "@/components/agents/whatsapp-qr-countdown";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { FormActionSwitch } from "@/components/ui/form-action-switch";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { ConnectionTabs } from "./ConnectionTabs";
 import { EvolutionChatSyncDialog } from "./EvolutionChatSyncDialog";
 import { AgentAssignAutosaveForm, ReactivationAutosaveForm, ResponseDelayAutosaveForm } from "./ConnectionAutosaveControls";
 
@@ -61,7 +64,7 @@ export function WhatsAppBusinessConnectionWorkspace({
       : connection.phoneNumber || "QR";
 
   return (
-    <section className="space-y-5">
+    <section className="space-y-5 p-6">
       <QueryFeedbackToast
         okMessage={okMessage}
         errorMessage={effectiveErrorMessage}
@@ -72,25 +75,27 @@ export function WhatsAppBusinessConnectionWorkspace({
       {!isConnected ? <WhatsappQrAutoRefresh isConnected={isConnected} /> : null}
 
       {isConnected ? (
-        <div className="rounded-none border border-[rgba(148,163,184,0.14)] bg-white p-4 shadow-[0_20px_60px_-48px_rgba(15,23,42,0.24)] sm:rounded-none sm:p-5">
-          <div className="px-1 py-1 sm:px-0 sm:py-0">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <>
+          <Card>
+            <CardContent className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
               <div className="flex items-start gap-2.5">
-                <Avatar className="h-10 w-10 rounded-md border border-emerald-100 bg-emerald-50">
-                  {connection.logoUrl ? <AvatarImage src={connection.logoUrl} alt={`Logo de ${connection.name}`} className="object-cover" /> : null}
-                  <AvatarFallback className="rounded-md bg-emerald-50 text-emerald-600">
-                    <CheckCircle2 className="h-5 w-5" />
+                <Avatar className="size-10 rounded-md">
+                  {connection.logoUrl ? (
+                    <AvatarImage src={connection.logoUrl} alt={`Logo de ${connection.name}`} className="object-cover" />
+                  ) : null}
+                  <AvatarFallback className="rounded-md bg-emerald-500/10 text-emerald-600">
+                    <CheckCircle2 className="size-5" />
                   </AvatarFallback>
                 </Avatar>
                 <div className="min-w-0 space-y-0.5">
-                  <h2 className="truncate text-[14px] font-semibold tracking-[-0.03em] text-slate-950">{connection.name}</h2>
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[13px] text-slate-600">
+                  <h2 className="truncate text-sm font-semibold text-foreground">{connection.name}</h2>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm text-muted-foreground">
                     <div className="inline-flex items-center gap-1.5">
-                      <Smartphone className="h-3.5 w-3.5 text-slate-500" />
+                      <Smartphone className="size-3.5" />
                       <span>{providerLabel}</span>
                     </div>
                     <div className="inline-flex items-center gap-1.5">
-                      <Bot className="h-3.5 w-3.5 text-[var(--primary)]" />
+                      <Bot className="size-3.5 text-primary" />
                       <span className="truncate">{connection.agentName || "Sin agente"}</span>
                     </div>
                   </div>
@@ -109,159 +114,139 @@ export function WhatsAppBusinessConnectionWorkspace({
                 />
 
                 {connection.agentId ? (
-                  <Link
-                    href={`/cliente/agentes/${connection.agentId}`}
-                    className="inline-flex h-9 items-center justify-center rounded-lg bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
-                  >
-                    Ir al agente
-                  </Link>
+                  <Button asChild>
+                    <Link href={`/cliente/agentes/${connection.agentId}`}>Ir al agente</Link>
+                  </Button>
                 ) : null}
               </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
+            </CardContent>
+          </Card>
 
-      <div className={`grid gap-4 ${isConnected ? "" : "xl:grid-cols-[320px_minmax(0,1fr)]"}`}>
-        {!isConnected ? (
-          <div className="rounded-lg border border-[rgba(148,163,184,0.14)] bg-white p-4 shadow-[0_20px_60px_-48px_rgba(15,23,42,0.3)] sm:rounded-lg sm:p-5">
-            <div className="flex flex-col items-center">
-              <div className="flex aspect-square w-full max-w-[248px] items-center justify-center rounded-lg bg-slate-50">
+          <ConnectionTabs
+            colaboradores={
+              <Card>
+                <CardContent className="text-sm text-muted-foreground">
+                  Aun no hay colaboradores para este canal.
+                </CardContent>
+              </Card>
+            }
+            ajustes={
+              <div className="space-y-4">
+                {availableAgents.length ? (
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <Card>
+                      <CardContent className="space-y-2">
+                        <p className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
+                          <UserRound className="size-4 text-primary" />
+                          <span>Agente vinculado</span>
+                        </p>
+                  <AgentAssignAutosaveForm
+                    action={assignConnectionChannelAction}
+                    channelId={connection.id}
+                    returnTo={`/cliente/conexion/whatsapp-business/${connection.id}`}
+                    defaultValue={connection.agentId || ""}
+                    availableAgents={availableAgents.map((agent) => ({ id: agent.id, name: agent.name }))}
+                  />
+                </CardContent>
+              </Card>
+
+              {connection.agentId ? (
+                <>
+                  <Card>
+                    <CardContent className="space-y-2.5">
+                      <p className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
+                        <Power className="size-4 text-primary" />
+                        <span>Agente activo</span>
+                      </p>
+                      <FormActionSwitch
+                        action={toggleAgentStatusAction}
+                        checked={connection.agentIsActive}
+                        ariaLabel={
+                          connection.agentIsActive
+                            ? `Apagar agente ${connection.agentName}`
+                            : `Encender agente ${connection.agentName}`
+                        }
+                        hiddenFields={[
+                          { name: "agentId", value: connection.agentId },
+                          { name: "returnTo", value: `/cliente/conexion/whatsapp-business/${connection.id}` },
+                        ]}
+                        wrapperClassName="flex w-full items-center justify-start"
+                      />
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardContent className="space-y-2">
+                      <p className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
+                        <MessageSquareReply className="size-4 text-primary" />
+                        <span>Frase de reactivacion</span>
+                      </p>
+                      <ReactivationAutosaveForm
+                        action={saveAgentReactivationMessageAction}
+                        agentId={connection.agentId}
+                        returnTo={`/cliente/conexion/whatsapp-business/${connection.id}`}
+                        defaultValue={connection.agentReactivationMessage || "Somos tu socio aliado."}
+                      />
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardContent className="space-y-2">
+                      <p className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
+                        <TimerReset className="size-4 text-primary" />
+                        <span>Retraso de respuesta IA</span>
+                      </p>
+                      <ResponseDelayAutosaveForm
+                        action={saveAgentResponseDelayAction}
+                        agentId={connection.agentId}
+                        returnTo={`/cliente/conexion/whatsapp-business/${connection.id}`}
+                        defaultValue={connection.agentResponseDelaySeconds}
+                      />
+                    </CardContent>
+                  </Card>
+                </>
+              ) : null}
+            </div>
+                ) : null}
+
+                {connection.provider === "EVOLUTION" ? <EvolutionChatSyncDialog channelId={connection.id} /> : null}
+              </div>
+            }
+          />
+        </>
+      ) : (
+        <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
+          <Card>
+            <CardContent className="flex flex-col items-center">
+              <div className="flex aspect-square w-full max-w-[248px] items-center justify-center rounded-lg bg-muted">
                 {qrDataUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={qrDataUrl} alt="QR de conexion de WhatsApp" className="h-auto w-[90%] max-w-[220px]" />
                 ) : (
-                  <p className="text-sm text-slate-500">Esperando QR...</p>
+                  <p className="text-sm text-muted-foreground">Esperando QR...</p>
                 )}
               </div>
 
               {pairingCode ? (
-                <div className="mt-4 w-full rounded-lg bg-slate-50 px-4 py-3">
-                  <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">Codigo alterno</p>
-                  <p className="mt-2 font-mono text-sm font-semibold text-slate-900">{pairingCode}</p>
+                <div className="mt-4 w-full rounded-lg bg-muted px-4 py-3">
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Codigo alterno</p>
+                  <p className="mt-2 font-mono text-sm font-semibold text-foreground">{pairingCode}</p>
                 </div>
               ) : null}
 
               <div className="mt-4 w-full">
                 <WhatsappQrCountdown isConnected={isConnected} cycleSeconds={40} />
               </div>
-            </div>
-          </div>
-        ) : null}
+            </CardContent>
+          </Card>
 
-        <div
-          className={
-            isConnected
-              ? "bg-transparent p-0 shadow-none"
-              : "rounded-lg border border-[rgba(148,163,184,0.14)] bg-white p-4 shadow-[0_20px_60px_-48px_rgba(15,23,42,0.24)] sm:rounded-lg sm:p-5"
-          }
-        >
-          {isConnected ? (
-            <div className="px-1 py-1 sm:px-0 sm:py-0">
-              {availableAgents.length ? (
-                <div className="mt-2.5 grid gap-3 md:grid-cols-2">
-                  <div className="rounded-lg border border-[color:color-mix(in_srgb,var(--primary)_18%,white)] bg-white px-4 py-2.5 shadow-[0_18px_48px_-40px_rgba(37,99,235,0.45)]">
-                    <div className="space-y-1">
-                      <div className="space-y-0.5">
-                        <p className="inline-flex items-center gap-2 text-sm font-medium text-slate-900">
-                          <UserRound className="h-4 w-4 text-[var(--primary)]" />
-                          <span>Agente vinculado</span>
-                        </p>
-                        <p className="text-[13px] text-slate-500">Selecciona el agente que respondera en este canal.</p>
-                      </div>
-                      <AgentAssignAutosaveForm
-                        action={assignConnectionChannelAction}
-                        channelId={connection.id}
-                        returnTo={`/cliente/conexion/whatsapp-business/${connection.id}`}
-                        defaultValue={connection.agentId || ""}
-                        availableAgents={availableAgents.map((agent) => ({ id: agent.id, name: agent.name }))}
-                      />
-                    </div>
-                  </div>
-
-                  {connection.agentId ? (
-                    <>
-                      <div className="rounded-lg border border-[color:color-mix(in_srgb,var(--primary)_18%,white)] bg-white px-4 py-2.5 shadow-[0_18px_48px_-40px_rgba(37,99,235,0.45)]">
-                        <div className="space-y-2.5">
-                          <div className="min-w-0">
-                            <p className="inline-flex items-center gap-2 text-sm font-medium text-slate-900">
-                              <Power className="h-4 w-4 text-[var(--primary)]" />
-                              <span>Agente activo</span>
-                            </p>
-                            <p className="mt-0.5 text-[13px] text-slate-500">
-                              {connection.agentIsActive && connection.agentStatus === "ACTIVE"
-                                ? "Las respuestas automaticas del agente estan habilitadas para este canal."
-                                : "Las respuestas automaticas del agente estan detenidas en este canal."}
-                            </p>
-                          </div>
-                          <FormActionSwitch
-                            action={toggleAgentStatusAction}
-                            checked={connection.agentIsActive}
-                            ariaLabel={connection.agentIsActive ? `Apagar agente ${connection.agentName}` : `Encender agente ${connection.agentName}`}
-                            hiddenFields={[
-                              { name: "agentId", value: connection.agentId },
-                              { name: "returnTo", value: `/cliente/conexion/whatsapp-business/${connection.id}` },
-                            ]}
-                            wrapperClassName="flex w-full items-center justify-start"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="rounded-lg border border-[color:color-mix(in_srgb,var(--primary)_18%,white)] bg-white px-4 py-2.5 shadow-[0_18px_48px_-40px_rgba(37,99,235,0.45)]">
-                        <div className="space-y-2">
-                          <div className="space-y-0.5">
-                            <p className="inline-flex items-center gap-2 text-sm font-medium text-slate-900">
-                              <MessageSquareReply className="h-4 w-4 text-[var(--primary)]" />
-                              <span>Frase de reactivacion</span>
-                            </p>
-                            <p className="text-[13px] text-slate-500">Mensaje enviado al reactivar una conversacion.</p>
-                          </div>
-                          <ReactivationAutosaveForm
-                            action={saveAgentReactivationMessageAction}
-                            agentId={connection.agentId}
-                            returnTo={`/cliente/conexion/whatsapp-business/${connection.id}`}
-                            defaultValue={connection.agentReactivationMessage || "Somos tu socio aliado."}
-                          />
-                        </div>
-                      </div>
-
-                      <div className="rounded-lg border border-[color:color-mix(in_srgb,var(--primary)_18%,white)] bg-white px-4 py-2.5 shadow-[0_18px_48px_-40px_rgba(37,99,235,0.45)]">
-                        <div className="space-y-2">
-                          <div className="space-y-0.5">
-                            <p className="inline-flex items-center gap-2 text-sm font-medium text-slate-900">
-                              <TimerReset className="h-4 w-4 text-[var(--primary)]" />
-                              <span>Retraso de respuesta IA</span>
-                            </p>
-                            <p className="text-[13px] text-slate-500">Espera antes de enviar cada respuesta.</p>
-                          </div>
-                          <ResponseDelayAutosaveForm
-                            action={saveAgentResponseDelayAction}
-                            agentId={connection.agentId}
-                            returnTo={`/cliente/conexion/whatsapp-business/${connection.id}`}
-                            defaultValue={connection.agentResponseDelaySeconds}
-                          />
-                        </div>
-                      </div>
-
-                    </>
-                  ) : null}
-                </div>
-              ) : null}
-              {connection.provider === "EVOLUTION" ? (
-                <div className="mt-2.5">
-                  <EvolutionChatSyncDialog channelId={connection.id} />
-                </div>
-              ) : null}
-            </div>
-          ) : (
-            <div className="space-y-5">
+          <Card>
+            <CardContent className="space-y-5">
               <div className="flex items-center gap-3">
-                <div className="inline-flex h-11 w-11 items-center justify-center rounded-lg bg-[color-mix(in_srgb,var(--primary)_10%,white)] text-[var(--primary)]">
-                  <Smartphone className="h-5 w-5" />
+                <div className="inline-flex size-11 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <Smartphone className="size-5" />
                 </div>
-                <div>
-                  <h2 className="text-[1.05rem] font-semibold tracking-[-0.04em] text-slate-950">Escanea el QR</h2>
-                </div>
+                <h2 className="text-lg font-semibold text-foreground">Escanea el QR</h2>
               </div>
 
               <div className="grid gap-3 md:grid-cols-3">
@@ -277,22 +262,22 @@ export function WhatsAppBusinessConnectionWorkspace({
                   description="Apunta la camara y espera la confirmacion de conexion."
                 />
               </div>
-            </div>
-          )}
+            </CardContent>
+          </Card>
         </div>
-      </div>
+      )}
     </section>
   );
 }
 
 function StepCard({ step, title, description }: { step: string; title: string; description: string }) {
   return (
-    <div className="rounded-lg border border-[rgba(148,163,184,0.12)] bg-slate-50/70 px-4 py-4">
-      <div className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-white text-xs font-semibold text-[var(--primary)] shadow-sm">
+    <div className="rounded-lg border bg-muted/50 p-4">
+      <div className="inline-flex size-7 items-center justify-center rounded-lg bg-primary/10 text-xs font-semibold text-primary">
         {step}
       </div>
-      <p className="mt-3 text-sm font-semibold leading-5 text-slate-900">{title}</p>
-      <p className="mt-2 text-sm leading-5 text-slate-600">{description}</p>
+      <p className="mt-3 text-sm font-semibold text-foreground">{title}</p>
+      <p className="mt-2 text-sm text-muted-foreground">{description}</p>
     </div>
   );
 }

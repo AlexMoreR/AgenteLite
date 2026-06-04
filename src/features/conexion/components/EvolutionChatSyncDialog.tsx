@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { applyEvolutionChatSyncAction, scanEvolutionChatSyncAction } from "@/app/actions/evolution-chat-sync-actions";
 import type { EvolutionChatSyncCandidate } from "@/lib/evolution-chat-sync";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -142,15 +143,12 @@ export function EvolutionChatSyncDialog({ channelId }: EvolutionChatSyncDialogPr
   }
 
   return (
-    <div className="rounded-lg border border-[color:color-mix(in_srgb,var(--primary)_18%,white)] bg-white px-4 py-2.5 shadow-[0_18px_48px_-40px_rgba(37,99,235,0.45)]">
-      <div className="space-y-2">
-        <div className="space-y-0.5">
-          <p className="inline-flex items-center gap-2 text-sm font-medium text-slate-900">
-            <History className="h-4 w-4 text-[var(--primary)]" />
-            <span>Sincronizar chats</span>
-          </p>
-          <p className="text-[13px] text-slate-500">Compara Evolution con los chats locales y detiene el proceso en la primera diferencia.</p>
-        </div>
+    <Card>
+      <CardContent className="space-y-2">
+        <p className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
+          <History className="size-4 text-primary" />
+          <span>Sincronizar chats</span>
+        </p>
 
         <Dialog
           open={open}
@@ -161,12 +159,7 @@ export function EvolutionChatSyncDialog({ channelId }: EvolutionChatSyncDialogPr
             }
           }}
         >
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => setOpen(true)}
-            className="inline-flex h-9 w-full justify-center rounded-xl border border-[rgba(148,163,184,0.18)] bg-white px-3 text-sm font-medium text-slate-700 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
-          >
+          <Button type="button" variant="outline" onClick={() => setOpen(true)} className="w-full">
             Sincronizar chats
           </Button>
 
@@ -346,7 +339,7 @@ export function EvolutionChatSyncDialog({ channelId }: EvolutionChatSyncDialogPr
             ) : null}
           </DialogContent>
         </Dialog>
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }

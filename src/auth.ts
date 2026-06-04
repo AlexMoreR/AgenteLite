@@ -7,6 +7,22 @@ import { prisma } from "@/lib/prisma";
 import { loginSchema } from "@/lib/validations/auth";
 import authConfig from "@/auth.config";
 
+async function getUserWorkspaceSessionFields(userId: string) {
+  const membership = await prisma.workspaceMember.findFirst({
+    where: { userId, isActive: true },
+    orderBy: { createdAt: "asc" },
+    select: {
+      role: true,
+      workspaceId: true,
+    },
+  });
+
+  return {
+    primaryWorkspaceId: membership?.workspaceId ?? null,
+    workspaceMemberRole: membership?.role ?? null,
+  };
+}
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authConfig,
   adapter: PrismaAdapter(prisma),
@@ -39,12 +55,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             return null;
           }
 
+          const workspaceFields = await getUserWorkspaceSessionFields(user.id);
+
           return {
             id: user.id,
             name: user.name,
             email: user.email,
             role: user.role,
             image: user.image,
+            ...workspaceFields,
           };
         }
 
@@ -67,12 +86,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           return null;
         }
 
+        const workspaceFields = await getUserWorkspaceSessionFields(user.id);
+
         return {
           id: user.id,
           name: user.name,
           email: user.email,
           role: user.role,
           image: user.image,
+          ...workspaceFields,
         };
       },
     }),

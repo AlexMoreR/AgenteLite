@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { redirect } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowRight,
@@ -9,9 +8,9 @@ import {
   Sparkles,
   Users2,
 } from "lucide-react";
-import { auth } from "@/auth";
 import { MarketingIaResetButton } from "@/components/marketing/marketing-ia-reset-button";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
+import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import {
   getMarketingBusinessContextForUser,
   getMarketingContextCompletion,
@@ -30,16 +29,12 @@ type PageProps = {
 };
 
 export default async function MarketingIaPage({ searchParams }: PageProps) {
-  const session = await auth();
-
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
-    redirect("/unauthorized");
-  }
+  const access = await requireClientWorkspaceAccess("marketing_ia");
 
   const params = await searchParams;
   const okMessage = typeof params.ok === "string" ? params.ok : "";
   const errorMessage = typeof params.error === "string" ? params.error : "";
-  const businessContext = await getMarketingBusinessContextForUser(session.user.id);
+  const businessContext = await getMarketingBusinessContextForUser(access.userId);
 
   return (
     <MarketingPageContent

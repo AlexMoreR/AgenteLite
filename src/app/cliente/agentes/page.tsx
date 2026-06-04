@@ -1,7 +1,6 @@
-import { redirect } from "next/navigation";
-import { auth } from "@/auth";
 import { AgentsWorkspace } from "@/components/agents/agents-workspace";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
+import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { prisma } from "@/lib/prisma";
 
@@ -10,12 +9,9 @@ type PageProps = {
 };
 
 export default async function ClienteAgentesPage({ searchParams }: PageProps) {
-  const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
-    redirect("/unauthorized");
-  }
+  const access = await requireClientWorkspaceAccess("agents");
 
-  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  const membership = await getPrimaryWorkspaceForUser(access.userId);
   const agents = membership
     ? await prisma.agent.findMany({
         where: { workspaceId: membership.workspace.id },

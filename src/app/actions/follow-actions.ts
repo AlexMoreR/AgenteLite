@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { auth } from "@/auth";
+import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import {
   cancelPendingFollowsByContact,
@@ -114,7 +115,7 @@ function buildFallbackActions(formData: FormData) {
 }
 
 function isAllowedRole(role?: string | null) {
-  return role === "ADMIN" || role === "CLIENTE";
+  return role === "ADMIN" || role === "CLIENTE" || role === "EMPLEADO";
 }
 
 export type CreateFollowRuleActionState =
@@ -133,6 +134,7 @@ export async function createFollowRuleAction(
   if (!session?.user?.id || !isAllowedRole(session.user.role)) {
     return { error: "No autorizado" };
   }
+  await requireClientWorkspaceAccess("seguimientos");
 
   const membership = await getPrimaryWorkspaceForUser(session.user.id);
   if (!membership) {
@@ -255,6 +257,7 @@ export async function deleteFollowRuleAction(
   if (!session?.user?.id || !isAllowedRole(session.user.role)) {
     return { error: "No autorizado" };
   }
+  await requireClientWorkspaceAccess("seguimientos");
 
   const membership = await getPrimaryWorkspaceForUser(session.user.id);
   if (!membership) {
@@ -289,6 +292,7 @@ export async function createFollowAction(formData: FormData): Promise<void> {
   if (!session?.user?.id || !isAllowedRole(session.user.role)) {
     return;
   }
+  await requireClientWorkspaceAccess("seguimientos");
 
   const membership = await getPrimaryWorkspaceForUser(session.user.id);
   if (!membership) {
@@ -363,6 +367,7 @@ export async function cancelFollowsByContactAction(formData: FormData): Promise<
   if (!session?.user?.id || !isAllowedRole(session.user.role)) {
     return;
   }
+  await requireClientWorkspaceAccess("seguimientos");
 
   const membership = await getPrimaryWorkspaceForUser(session.user.id);
   if (!membership) {

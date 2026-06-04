@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
+import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import {
@@ -591,9 +592,10 @@ export async function sendFinanceMessageAction(
   | { ok: false; error: string }
 > {
   const session = await auth();
-  if (!session?.user?.id || !["ADMIN", "CLIENTE"].includes(session.user.role ?? "")) {
+  if (!session?.user?.id || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role ?? "")) {
     return { ok: false, error: "No autorizado" };
   }
+  await requireClientWorkspaceAccess("finanzas");
 
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return { ok: false, error: "OpenAI no configurado" };
@@ -1180,9 +1182,10 @@ Fecha actual: ${new Date().toLocaleDateString("es-CO")}`;
 
 export async function saveAgentPromptAction(prompt: string): Promise<ActionResult> {
   const session = await auth();
-  if (!session?.user?.id || !["ADMIN", "CLIENTE"].includes(session.user.role ?? "")) {
+  if (!session?.user?.id || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role ?? "")) {
     return { ok: false, error: "No autorizado" };
   }
+  await requireClientWorkspaceAccess("finanzas");
 
   const membership = await getPrimaryWorkspaceForUser(session.user.id);
   if (!membership) return { ok: false, error: "Workspace no encontrado" };
@@ -1201,9 +1204,10 @@ export async function saveAgentPromptAction(prompt: string): Promise<ActionResul
 
 export async function clearChatHistoryAction(): Promise<ActionResult> {
   const session = await auth();
-  if (!session?.user?.id || !["ADMIN", "CLIENTE"].includes(session.user.role ?? "")) {
+  if (!session?.user?.id || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role ?? "")) {
     return { ok: false, error: "No autorizado" };
   }
+  await requireClientWorkspaceAccess("finanzas");
 
   const membership = await getPrimaryWorkspaceForUser(session.user.id);
   if (!membership) return { ok: false, error: "Workspace no encontrado" };
@@ -1240,9 +1244,10 @@ export async function addTransactionAction(
   | { ok: false; error: string }
 > {
   const session = await auth();
-  if (!session?.user?.id || !["ADMIN", "CLIENTE"].includes(session.user.role ?? "")) {
+  if (!session?.user?.id || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role ?? "")) {
     return { ok: false, error: "No autorizado" };
   }
+  await requireClientWorkspaceAccess("finanzas");
 
   const membership = await getPrimaryWorkspaceForUser(session.user.id);
   if (!membership) return { ok: false, error: "Workspace no encontrado" };
@@ -1417,9 +1422,10 @@ export async function connectGoogleSheetAction(
   formData: FormData,
 ): Promise<ActionResult & { headersCreated?: boolean }> {
   const session = await auth();
-  if (!session?.user?.id || !["ADMIN", "CLIENTE"].includes(session.user.role ?? "")) {
+  if (!session?.user?.id || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role ?? "")) {
     return { ok: false, error: "No autorizado" };
   }
+  await requireClientWorkspaceAccess("finanzas");
 
   const membership = await getPrimaryWorkspaceForUser(session.user.id);
   if (!membership) return { ok: false, error: "Workspace no encontrado" };
@@ -1514,9 +1520,10 @@ function resolveType(cell: string): "INCOME" | "EXPENSE" | null {
 export async function syncGoogleSheetAction(): Promise<ActionResult & { headersJustCreated?: boolean }> {
   try {
   const session = await auth();
-  if (!session?.user?.id || !["ADMIN", "CLIENTE"].includes(session.user.role ?? "")) {
+  if (!session?.user?.id || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role ?? "")) {
     return { ok: false, error: "No autorizado" };
   }
+  await requireClientWorkspaceAccess("finanzas");
 
   const membership = await getPrimaryWorkspaceForUser(session.user.id);
   if (!membership) return { ok: false, error: "Workspace no encontrado" };

@@ -78,6 +78,7 @@ const moduleIconMap = {
   connection: Cable,
   agents: Bot,
   client_official_api: MessageSquare,
+  client_team: Users,
 } satisfies Record<AdminModuleKey, React.ComponentType<{ className?: string }>>;
 
 export function ModuleAccessWorkspace({ roles, modules }: ModuleAccessWorkspaceProps) {

@@ -61,7 +61,7 @@ export async function generateUniqueWorkspaceSlug(name: string): Promise<string>
 
 export const getPrimaryWorkspaceForUser = cache(async (userId: string): Promise<PrimaryWorkspaceMembership | null> => {
   return prisma.workspaceMember.findFirst({
-    where: { userId },
+    where: { userId, isActive: true },
     orderBy: { createdAt: "asc" },
     select: {
       role: true,

@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { auth } from "@/auth";
 import { AdsGeneratorLibrary } from "@/features/ads-generator";
 import { getAdsGeneratorHistory } from "@/lib/ads-generator-history";
+import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
 export const metadata: Metadata = {
@@ -13,13 +13,9 @@ export const metadata: Metadata = {
 };
 
 export default async function AdsGeneratorPage() {
-  const session = await auth();
+  const access = await requireClientWorkspaceAccess("marketing_ia");
 
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
-    redirect("/unauthorized");
-  }
-
-  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  const membership = await getPrimaryWorkspaceForUser(access.userId);
   if (!membership?.workspace.id) {
     redirect("/cliente/marketing-ia");
   }

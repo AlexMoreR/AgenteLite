@@ -13,9 +13,9 @@ export default async function ClienteCrmInformePage() {
   const data = await getAuthorizedCrmData();
 
   return (
-    <section className="space-y-3">
+    <section className="space-y-3 p-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-base font-semibold text-slate-950">CRM / Informe</h1>
+        <h1 className="text-base font-semibold text-foreground">CRM / Informe</h1>
         <CrmUpdatedAt generatedAt={data.generatedAt} />
       </div>
 

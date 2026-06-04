@@ -8,6 +8,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { generateAdCreativesForProduct, type AdCreative } from "@/lib/ad-creatives";
+import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import {
   improveMarketingFieldWithAI,
   type MarketingImprovementField,
@@ -129,9 +130,10 @@ const improveMarketingBusinessDescriptionSchema = z.object({
 async function requireMarketingWorkspace() {
   const session = await auth();
 
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     throw new Error("No autorizado");
   }
+  await requireClientWorkspaceAccess("marketing_ia");
 
   const membership = await getPrimaryWorkspaceForUser(session.user.id);
   if (!membership) {

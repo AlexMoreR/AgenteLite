@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { loadAgentConversationDetail } from "@/lib/chat-message-loader";
+import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
 import { resolveEvolutionMessageMediaUrl } from "@/lib/evolution";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
@@ -27,8 +28,13 @@ function parseChatKey(input: string) {
 
 export async function GET(request: Request) {
   const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     return NextResponse.json({ ok: false, error: "No autorizado" }, { status: 401 });
+  }
+
+  const access = await getClientWorkspaceAccessForUser(session.user.id);
+  if (!access || !canAccessClientModule(access, "chats")) {
+    return NextResponse.json({ ok: false, error: "No autorizado" }, { status: 403 });
   }
 
   const membership = await getPrimaryWorkspaceForUser(session.user.id);

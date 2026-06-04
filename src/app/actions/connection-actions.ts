@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { auth } from "@/auth";
+import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { createEvolutionChannel, deleteEvolutionInstance } from "@/lib/evolution";
 import { getOfficialApiConfigByWorkspaceId } from "@/lib/official-api-config";
 import { prisma } from "@/lib/prisma";
@@ -36,9 +37,10 @@ function getOptionalFormValue(formData: FormData, key: string) {
 
 export async function createConnectionChannelAction(formData: FormData): Promise<void> {
   const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     redirect("/unauthorized");
   }
+  await requireClientWorkspaceAccess("connection");
 
   const membership = await getPrimaryWorkspaceForUser(session.user.id);
   if (!membership) {
@@ -135,9 +137,10 @@ const toggleConnectionChannelStatusSchema = z.object({
 
 export async function deleteConnectionChannelAction(formData: FormData): Promise<void> {
   const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     redirect("/unauthorized");
   }
+  await requireClientWorkspaceAccess("connection");
 
   const membership = await getPrimaryWorkspaceForUser(session.user.id);
   if (!membership) {
@@ -189,9 +192,10 @@ export async function deleteConnectionChannelAction(formData: FormData): Promise
 
 export async function assignConnectionChannelAction(formData: FormData): Promise<void> {
   const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     redirect("/unauthorized");
   }
+  await requireClientWorkspaceAccess("connection");
 
   const membership = await getPrimaryWorkspaceForUser(session.user.id);
   if (!membership) {
@@ -249,9 +253,10 @@ export async function assignConnectionChannelAction(formData: FormData): Promise
 
 export async function toggleConnectionChannelStatusAction(formData: FormData): Promise<void> {
   const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     redirect("/unauthorized");
   }
+  await requireClientWorkspaceAccess("connection");
 
   const membership = await getPrimaryWorkspaceForUser(session.user.id);
   if (!membership) {

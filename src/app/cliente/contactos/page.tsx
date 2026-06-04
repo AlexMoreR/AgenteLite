@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { auth } from "@/auth";
 import { ContactosWorkspace, getContactosData } from "@/features/contactos";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
+import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 
 export const metadata: Metadata = {
   robots: {
@@ -16,11 +16,7 @@ type PageProps = {
 };
 
 export default async function ClienteContactosPage({ searchParams }: PageProps) {
-  const session = await auth();
-
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
-    redirect("/unauthorized");
-  }
+  const access = await requireClientWorkspaceAccess("contacts");
 
   const params = await searchParams;
   const searchQuery = typeof params.q === "string" ? params.q.trim() : "";
@@ -33,7 +29,7 @@ export default async function ClienteContactosPage({ searchParams }: PageProps) 
   const errorMessage = typeof params.error === "string" ? params.error : "";
 
   const data = await getContactosData({
-    userId: session.user.id,
+    userId: access.userId,
     searchQuery,
     selectedContactId,
     agentFilterId,
