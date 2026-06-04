@@ -2231,35 +2231,33 @@ const ConversationPanel = memo(function ConversationPanel({
                 >
                   <TooltipProvider delayDuration={300}>
                     <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button
-                          type="button"
-                          onClick={onOpenStatusDialog}
-                          className={`group relative shrink-0 rounded-[22px] p-[2px] transition focus:outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_18%,white)] ${
-                            hasStatusMessages
-                              ? "bg-gradient-to-br from-emerald-400 via-lime-300 to-cyan-400 shadow-[0_14px_28px_-18px_rgba(16,185,129,0.55)]"
-                              : "bg-transparent"
-                          }`}
-                          aria-label={hasStatusMessages ? "Abrir estados de WhatsApp" : "Abrir detalles del contacto"}
-                          title={hasStatusMessages ? "Estados" : "Contacto"}
-                        >
-                          <span className="relative block">
-                            <ContactAvatar
-                              avatarUrl={renderedConversation.avatarUrl}
-                              label={renderedConversation.label}
-                              className={`h-10 w-10 rounded-[18px] border border-[rgba(148,163,184,0.12)] bg-slate-100 text-slate-500 transition ${
-                                hasStatusMessages ? "ring-2 ring-white" : ""
-                              }`}
-                              fallbackClassName="rounded-[18px] bg-slate-100 text-sm font-semibold text-slate-700"
+                      <TooltipTrigger
+                        type="button"
+                        onClick={onOpenStatusDialog}
+                        className={`group relative shrink-0 rounded-[22px] p-[2px] transition focus:outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_18%,white)] ${
+                          hasStatusMessages
+                            ? "bg-gradient-to-br from-emerald-400 via-lime-300 to-cyan-400 shadow-[0_14px_28px_-18px_rgba(16,185,129,0.55)]"
+                            : "bg-transparent"
+                        }`}
+                        aria-label={hasStatusMessages ? "Abrir estados de WhatsApp" : "Abrir detalles del contacto"}
+                        title={hasStatusMessages ? "Estados" : "Contacto"}
+                      >
+                        <span className="relative block">
+                          <ContactAvatar
+                            avatarUrl={renderedConversation.avatarUrl}
+                            label={renderedConversation.label}
+                            className={`h-10 w-10 rounded-[18px] border border-[rgba(148,163,184,0.12)] bg-slate-100 text-slate-500 transition ${
+                              hasStatusMessages ? "ring-2 ring-white" : ""
+                            }`}
+                            fallbackClassName="rounded-[18px] bg-slate-100 text-sm font-semibold text-slate-700"
+                          />
+                          {hasStatusMessages ? (
+                            <span
+                              aria-hidden="true"
+                              className="absolute -right-0.5 -top-0.5 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500 shadow-[0_4px_10px_-4px_rgba(16,185,129,0.75)]"
                             />
-                            {hasStatusMessages ? (
-                              <span
-                                aria-hidden="true"
-                                className="absolute -right-0.5 -top-0.5 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500 shadow-[0_4px_10px_-4px_rgba(16,185,129,0.75)]"
-                              />
-                            ) : null}
-                          </span>
-                        </button>
+                          ) : null}
+                        </span>
                       </TooltipTrigger>
                       {renderedConversation.secondaryLabel ? (
                         <TooltipContent side="right">
@@ -3661,7 +3659,7 @@ export function SharedInbox({
       }`}
     >
       {hasSidebar ? (
-        <div className="hidden min-h-0 overflow-hidden rounded-xl border border-[rgba(255,255,255,0.08)] bg-[#171717] p-0 text-white shadow-[0_28px_70px_-42px_rgba(15,23,42,0.42)] md:flex md:h-full">
+        <div className="hidden chat-inbox-sidebar min-h-0 overflow-hidden rounded-xl border border-[rgba(255,255,255,0.08)] bg-[#171717] p-0 text-white shadow-[0_28px_70px_-42px_rgba(15,23,42,0.42)] md:flex md:h-full">
           <div className="flex min-h-0 w-full flex-col">
             <div className="border-b border-white/8 px-4 py-4">
               <div className="flex items-center gap-3">

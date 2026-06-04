@@ -103,58 +103,7 @@ body {
   line-height: 1.45;
 }
 
-body:has(.chat-app-layout) {
-  background: linear-gradient(180deg, #eef2f7 0%, #e6ebf1 100%);
-}
-
-html:has(.chat-app-layout),
-body:has(.chat-app-layout) {
-  height: 100%;
-  margin: 0;
-  overflow: hidden;
-}
-
-.chat-app-frame,
-.chat-app-shell,
-.chat-app-main,
-.chat-app-layout,
-.chat-inbox-grid,
-.chat-inbox-panel {
-  min-height: 0;
-  overflow: hidden;
-}
-
-.chat-app-frame,
-.chat-app-shell,
-.chat-app-layout {
-  height: 100%;
-}
-
-.chat-app-frame {
-  isolation: isolate;
-}
-
-.chat-app-shell {
-  background: transparent;
-}
-
-.chat-app-main {
-  backdrop-filter: blur(16px);
-}
-
 @media (max-width: 767px) {
-  body:has(.chat-app-layout) .chat-app-frame,
-  body:has(.chat-app-layout) .chat-app-shell,
-  body:has(.chat-app-layout) .chat-app-main,
-  body:has(.chat-app-layout) .chat-app-layout {
-    height: 100dvh;
-    max-height: 100dvh;
-  }
-
-  body:has(.chat-inbox-grid) .chat-app-frame,
-  body:has(.chat-inbox-grid) .chat-app-shell,
-  body:has(.chat-inbox-grid) .chat-app-main,
-  body:has(.chat-inbox-grid) .chat-app-layout,
   body:has(.chat-inbox-grid) .chat-inbox-grid,
   body:has(.chat-inbox-grid) .chat-inbox-panel {
     height: 100dvh;

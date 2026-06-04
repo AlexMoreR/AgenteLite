@@ -363,7 +363,7 @@ export function AgentPromptCopilot({
 
   if (isEmptyState) {
     return (
-      <div className="chat-app-layout flex h-full min-h-0 flex-col overflow-hidden rounded-[22px] border border-[color-mix(in_srgb,var(--primary)_20%,white)] bg-[linear-gradient(160deg,rgba(255,255,255,0.88)_0%,rgba(241,245,249,0.82)_60%)] p-0 shadow-[inset_0_1px_0_rgba(255,255,255,0.98),0_0_0_1px_rgba(226,232,240,0.92),0_4px_10px_rgba(15,23,42,0.06),0_18px_38px_-18px_rgba(15,23,42,0.16)]">
+      <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[22px] border border-[color-mix(in_srgb,var(--primary)_20%,white)] bg-[linear-gradient(160deg,rgba(255,255,255,0.88)_0%,rgba(241,245,249,0.82)_60%)] p-0 shadow-[inset_0_1px_0_rgba(255,255,255,0.98),0_0_0_1px_rgba(226,232,240,0.92),0_4px_10px_rgba(15,23,42,0.06),0_18px_38px_-18px_rgba(15,23,42,0.16)]">
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-6 px-6 pb-8">
           <style>{`@keyframes copilot-float{0%,100%{transform:translateY(0);}50%{transform:translateY(-8px);}}`}</style>
           <div
@@ -387,7 +387,7 @@ export function AgentPromptCopilot({
   }
 
   return (
-    <div className="chat-app-layout flex h-full min-h-0 flex-col overflow-hidden rounded-[22px] border border-[rgba(203,213,225,0.88)] bg-[rgba(255,255,255,0.82)] p-0 shadow-[inset_0_1px_0_rgba(255,255,255,0.98),inset_0_0_0_1px_rgba(255,255,255,0.55),0_0_0_1px_rgba(226,232,240,0.92),0_4px_10px_rgba(15,23,42,0.06),0_18px_38px_-18px_rgba(15,23,42,0.16)]">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[22px] border border-[rgba(203,213,225,0.88)] bg-[rgba(255,255,255,0.82)] p-0 shadow-[inset_0_1px_0_rgba(255,255,255,0.98),inset_0_0_0_1px_rgba(255,255,255,0.55),0_0_0_1px_rgba(226,232,240,0.92),0_4px_10px_rgba(15,23,42,0.06),0_18px_38px_-18px_rgba(15,23,42,0.16)]">
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-transparent px-4 pb-[calc(env(safe-area-inset-bottom)+7rem)] pt-5 sm:px-5 sm:pb-[calc(env(safe-area-inset-bottom)+7.2rem)] md:pb-5">
           {messages.map((message) => (

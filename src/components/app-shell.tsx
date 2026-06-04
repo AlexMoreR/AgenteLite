@@ -232,7 +232,7 @@ export function AppShell({
           </header>
           <main
             className={cn(
-              "flex w-full flex-1 flex-col gap-4 p-4 pt-0",
+              "flex w-full flex-1 min-h-0 flex-col gap-4 p-4 pt-0",
               isAgentWorkspacePath && "bg-transparent",
             )}
           >

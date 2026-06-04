@@ -125,7 +125,7 @@ function getConversationTagBadgeStyle(color?: string | null) {
 }
 
 function getConversationAvatarClassName() {
-  return "h-10 w-10 rounded-2xl border border-[rgba(148,163,184,0.12)] bg-slate-100 text-slate-500 md:h-11 md:w-11";
+  return "h-10 w-10 md:h-11 md:w-11 after:border-0";
 }
 
 const ConversationListItem = memo(function ConversationListItem({

@@ -655,7 +655,7 @@ export function FinanzasWorkspace({
 
   return (
     <div
-      className="chat-app-layout flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-[var(--background)]"
+      className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-[var(--background)]"
       style={{ ["--finance-composer-height" as string]: `${composerHeight}px` }}
     >
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-0 py-0 md:px-2 md:py-2 lg:px-3">

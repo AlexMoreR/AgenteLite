@@ -1,6 +1,6 @@
 export default function LoadingChatsPage() {
   return (
-    <section className="chat-app-layout flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
+    <section className="flex h-full min-h-0 flex-1 flex-col gap-4 overflow-hidden">
       <div className="flex min-h-0 flex-1 gap-4 overflow-hidden">
         <aside className="flex w-[380px] min-w-0 flex-col gap-4 rounded-3xl border border-[rgba(148,163,184,0.14)] bg-white p-4 shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)]">
           <div className="h-12 rounded-2xl bg-slate-100 animate-pulse" />
