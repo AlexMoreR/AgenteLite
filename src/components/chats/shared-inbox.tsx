@@ -22,6 +22,7 @@ import {
   MessageCircle,
   MessageSquareText,
   LoaderCircle,
+  Mic,
   Pencil,
   PhoneIncoming,
   PhoneOutgoing,
@@ -568,6 +569,20 @@ type SharedInboxProps = {
     action: (formData: FormData) => void | Promise<void>;
     hiddenFields: Array<{ name: string; value: string }>;
     placeholder?: string;
+    audio?: {
+      uploadPath: string;
+      conversationId: string;
+      source: string;
+      agentId: string;
+      returnTo: string;
+      sendAction: (input: {
+        source: string;
+        conversationId: string;
+        agentId: string;
+        audioUrl: string;
+        returnTo: string;
+      }) => Promise<{ ok: true } | { error: string }>;
+    };
   };
   emptyListTitle: string;
   emptyListDescription: string;
@@ -1293,18 +1308,18 @@ function ComposerEmojiPicker({
     <div className="space-y-2.5">
       <div className="space-y-1.5">
         <div className="relative">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input
             value={query}
             onChange={(event) => onQueryChange(event.target.value)}
             placeholder="Buscar emoticones"
-            className="h-9 w-full rounded-2xl border border-[rgba(148,163,184,0.14)] bg-slate-50 pl-9 pr-10 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-[var(--primary)] focus:bg-white focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_18%,white)]"
+            className="h-9 w-full rounded-2xl border border-border bg-muted pl-9 pr-10 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-[var(--primary)] focus:bg-background focus:ring-2 focus:ring-ring/50"
           />
           {query ? (
             <button
               type="button"
               onClick={() => onQueryChange("")}
-              className="absolute right-2 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+              className="absolute right-2 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground"
               aria-label="Limpiar búsqueda"
             >
               <X className="h-4 w-4" />
@@ -1313,12 +1328,12 @@ function ComposerEmojiPicker({
         </div>
 
         <Tabs value={activeTab} onValueChange={(value) => onActiveTabChange(value as ComposerEmojiTab)}>
-          <TabsList className="flex h-auto w-full flex-wrap gap-1 rounded-2xl bg-slate-100 p-1">
+          <TabsList className="flex h-auto w-full flex-wrap gap-1 rounded-2xl bg-muted p-1">
             {emojiTabs.map((tab) => (
               <TabsTrigger
                 key={tab}
                 value={tab}
-                className="group flex h-9 min-w-0 flex-1 items-center justify-center rounded-xl px-0 text-slate-500 transition data-[state=active]:bg-white data-[state=active]:text-slate-950 data-[state=active]:shadow-sm"
+                className="group flex h-9 min-w-0 flex-1 items-center justify-center rounded-xl px-0 text-muted-foreground transition data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
                 title={CHAT_COMPOSER_CATEGORY_LABELS[tab]}
                 aria-label={CHAT_COMPOSER_CATEGORY_LABELS[tab]}
               >
@@ -1336,7 +1351,7 @@ function ComposerEmojiPicker({
 
       <div className="max-h-[17rem] overflow-y-auto pr-1">
         {activeTab === "recientes" && !recentEmojis.length ? (
-          <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-center text-sm text-slate-500">
+          <div className="rounded-2xl border border-dashed border-border bg-muted px-4 py-5 text-center text-sm text-muted-foreground">
             Aquí aparecerán los últimos emoticones que uses.
           </div>
         ) : visibleEmojiItems.length ? (
@@ -1346,7 +1361,7 @@ function ComposerEmojiPicker({
                 key={`${item.category}:${item.emoji}`}
                 type="button"
                 onClick={() => onSelectEmoji(item.emoji)}
-                className="flex h-10 w-10 items-center justify-center rounded-2xl text-[1.25rem] transition hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_18%,white)]"
+                className="flex h-10 w-10 items-center justify-center rounded-2xl text-[1.25rem] transition hover:bg-muted focus:outline-none focus:ring-2 focus:ring-ring/50"
                 aria-label={`Insertar ${item.label}`}
                 title={item.label}
               >
@@ -1355,7 +1370,7 @@ function ComposerEmojiPicker({
             ))}
           </div>
         ) : (
-          <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-center text-sm text-slate-500">
+          <div className="rounded-2xl border border-dashed border-border bg-muted px-4 py-5 text-center text-sm text-muted-foreground">
             No encontramos emoticones para esa búsqueda.
           </div>
         )}
@@ -1615,7 +1630,7 @@ const MessageBubble = memo(function MessageBubble({
     >
       {showDateDivider ? (
         <div className="flex justify-center">
-          <span className="rounded-full border border-white/70 bg-white/80 px-3 py-1 text-[11px] font-medium text-slate-500 shadow-sm backdrop-blur">
+          <span className="rounded-full border border-border bg-muted px-3 py-1 text-[11px] font-medium text-muted-foreground shadow-sm backdrop-blur">
             {formatDateDivider(message.createdAt)}
           </span>
         </div>
@@ -1626,20 +1641,20 @@ const MessageBubble = memo(function MessageBubble({
           className={`max-w-[88%] rounded-[8px] px-[6px] py-[6px] text-[13px] leading-5 shadow-[0_10px_24px_-20px_rgba(15,23,42,0.16)] md:max-w-[72%] md:px-[6px] md:py-[6px] ${
             outbound
               ? "bg-[var(--primary)] text-white"
-              : "border border-[rgba(148,163,184,0.12)] bg-white text-slate-800"
+              : "border border-border bg-card text-foreground"
           } ${isOptimistic ? "opacity-85" : ""}`}
         >
           {callSummary ? (
             <div className="space-y-2">
               <Badge
                 className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-[12px] font-semibold normal-case tracking-normal shadow-none ${
-                  outbound ? "bg-white/14 text-white" : "bg-slate-100 text-slate-700"
+                  outbound ? "bg-white/14 text-white" : "bg-muted text-foreground"
                 }`}
               >
                 {CallIcon ? <CallIcon className={`h-4 w-4 ${outbound ? "text-white/85" : "text-[var(--primary)]"}`} /> : null}
                 <span>Llamada {callSummary.directionLabel}</span>
                 {callSummary.statusText ? (
-                  <span className={`font-normal ${outbound ? "text-white/75" : "text-slate-500"}`}>
+                  <span className={`font-normal ${outbound ? "text-white/75" : "text-muted-foreground"}`}>
                     {callSummary.statusText}
                   </span>
                 ) : null}
@@ -1656,10 +1671,10 @@ const MessageBubble = memo(function MessageBubble({
                   className={`group flex w-full max-w-[280px] items-center gap-3 overflow-hidden rounded-2xl border px-2.5 py-2 text-left transition ${
                     outbound
                       ? "border-white/14 bg-white/10 hover:bg-white/14"
-                      : "border-[rgba(148,163,184,0.16)] bg-[#1f7a4d]/[0.14] hover:bg-[#1f7a4d]/[0.18]"
+                      : "border-border bg-muted hover:bg-muted/80"
                   }`}
                 >
-                  <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-xl border border-black/5 bg-white">
+                  <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-xl border border-black/5 bg-card">
                     {adPreview.thumbnailUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
@@ -1668,7 +1683,7 @@ const MessageBubble = memo(function MessageBubble({
                         className="h-full w-full object-cover"
                       />
                     ) : (
-                      <div className="flex h-full w-full items-center justify-center bg-slate-100">
+                      <div className="flex h-full w-full items-center justify-center bg-muted">
                         {adPreview.sourceApp === "facebook" ? (
                           <Facebook className="h-4 w-4 text-blue-600" />
                         ) : (
@@ -1685,14 +1700,14 @@ const MessageBubble = memo(function MessageBubble({
                       ) : (
                         <MessageCircle className={`h-3.5 w-3.5 ${outbound ? "text-white/80" : "text-emerald-600"}`} />
                       )}
-                      <span className={`text-[11px] font-medium ${outbound ? "text-white/75" : "text-slate-500"}`}>
+                      <span className={`text-[11px] font-medium ${outbound ? "text-white/75" : "text-muted-foreground"}`}>
                         {adPreview.sourceApp === "facebook" ? "Anuncio de Facebook" : "Referencia de anuncio"}
                       </span>
                     </div>
-                    <p className={`truncate text-[13px] font-semibold leading-5 ${outbound ? "text-white" : "text-slate-900"}`}>
+                    <p className={`truncate text-[13px] font-semibold leading-5 ${outbound ? "text-white" : "text-foreground"}`}>
                       {adPreview.title}
                     </p>
-                    <p className={`text-[11px] font-medium ${outbound ? "text-white/80" : "text-slate-500"}`}>
+                    <p className={`text-[11px] font-medium ${outbound ? "text-white/80" : "text-muted-foreground"}`}>
                       Ver detalles
                     </p>
                   </div>
@@ -1702,10 +1717,10 @@ const MessageBubble = memo(function MessageBubble({
                   className={`flex w-full max-w-[280px] items-center gap-3 overflow-hidden rounded-2xl border px-2.5 py-2 ${
                     outbound
                       ? "border-white/14 bg-white/10"
-                      : "border-[rgba(148,163,184,0.16)] bg-[#1f7a4d]/[0.14]"
+                      : "border-border bg-muted"
                   }`}
                 >
-                  <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-xl border border-black/5 bg-white">
+                  <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-xl border border-black/5 bg-card">
                     {adPreview.thumbnailUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
@@ -1714,7 +1729,7 @@ const MessageBubble = memo(function MessageBubble({
                         className="h-full w-full object-cover"
                       />
                     ) : (
-                      <div className="flex h-full w-full items-center justify-center bg-slate-100">
+                      <div className="flex h-full w-full items-center justify-center bg-muted">
                         {adPreview.sourceApp === "facebook" ? (
                           <Facebook className="h-4 w-4 text-blue-600" />
                         ) : (
@@ -1731,14 +1746,14 @@ const MessageBubble = memo(function MessageBubble({
                       ) : (
                         <MessageCircle className={`h-3.5 w-3.5 ${outbound ? "text-white/80" : "text-emerald-600"}`} />
                       )}
-                      <span className={`text-[11px] font-medium ${outbound ? "text-white/75" : "text-slate-500"}`}>
+                      <span className={`text-[11px] font-medium ${outbound ? "text-white/75" : "text-muted-foreground"}`}>
                         {adPreview.sourceApp === "facebook" ? "Anuncio de Facebook" : "Referencia de anuncio"}
                       </span>
                     </div>
-                    <p className={`truncate text-[13px] font-semibold leading-5 ${outbound ? "text-white" : "text-slate-900"}`}>
+                    <p className={`truncate text-[13px] font-semibold leading-5 ${outbound ? "text-white" : "text-foreground"}`}>
                       {adPreview.title}
                     </p>
-                    <p className={`text-[11px] font-medium ${outbound ? "text-white/80" : "text-slate-500"}`}>
+                    <p className={`text-[11px] font-medium ${outbound ? "text-white/80" : "text-muted-foreground"}`}>
                       Ver detalles
                     </p>
                   </div>
@@ -1819,7 +1834,7 @@ const MessageBubble = memo(function MessageBubble({
           ) : imagePreviewExhausted ? (
             <div className="space-y-2">
               <div className={`flex h-[180px] w-full items-center justify-center rounded-xl border border-dashed ${
-                outbound ? "border-white/20 bg-white/10 text-white/80" : "border-[rgba(148,163,184,0.22)] bg-slate-50 text-slate-500"
+                outbound ? "border-white/20 bg-white/10 text-white/80" : "border-border bg-muted text-muted-foreground"
               }`}>
                 <span className="text-sm font-medium">Imagen no disponible</span>
               </div>
@@ -1837,7 +1852,7 @@ const MessageBubble = memo(function MessageBubble({
             </div>
           ) : stickerUrl ? (
             <div className="space-y-2">
-              <div className="inline-flex max-w-[220px] items-center justify-center overflow-hidden rounded-xl border border-[rgba(148,163,184,0.12)] bg-white">
+              <div className="inline-flex max-w-[220px] items-center justify-center overflow-hidden rounded-xl border border-border bg-card">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={stickerUrl}
@@ -1862,7 +1877,7 @@ const MessageBubble = memo(function MessageBubble({
                 target="_blank"
                 rel="noreferrer"
                 className={`inline-flex items-center rounded-xl px-3 py-2 text-sm font-medium underline-offset-2 transition hover:underline ${
-                  outbound ? "bg-white/14 text-white" : "bg-slate-100 text-slate-700"
+                  outbound ? "bg-white/14 text-white" : "bg-muted text-foreground"
                 }`}
               >
                 Abrir documento
@@ -1875,23 +1890,23 @@ const MessageBubble = memo(function MessageBubble({
                 className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium ${
                   outbound
                     ? "border-white/14 bg-white/10 text-white"
-                    : "border-[rgba(148,163,184,0.16)] bg-slate-50 text-slate-700"
+                    : "border-border bg-muted text-foreground"
                 }`}
               >
-                <LoaderCircle className={`h-4 w-4 shrink-0 animate-spin ${outbound ? "text-white/80" : "text-slate-500"}`} />
+                <LoaderCircle className={`h-4 w-4 shrink-0 animate-spin ${outbound ? "text-white/80" : "text-muted-foreground"}`} />
                 <span>{mediaPreviewLabel}</span>
               </div>
               {shouldRenderMediaCaption ? renderMessageText(message.content) : null}
             </div>
           ) : (
             renderMessageText(message.content) || (
-              <p className={`text-[12px] italic ${outbound ? "text-white/75" : "text-slate-500"}`}>
+              <p className={`text-[12px] italic ${outbound ? "text-white/75" : "text-muted-foreground"}`}>
                 {isDeleted ? "Mensaje eliminado" : "-"}
               </p>
             )
           )}
 
-          <div className={`mt-0.5 flex items-center justify-end gap-1 text-[10px] ${outbound ? "text-white/80" : "text-slate-400"}`}>
+          <div className={`mt-0.5 flex items-center justify-end gap-1 text-[10px] ${outbound ? "text-white/80" : "text-muted-foreground"}`}>
             {isDeleted ? (
               <Badge className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-normal tracking-[0.08em] shadow-none ${
                 outbound ? "bg-white/14 text-white/80" : "bg-rose-50 text-rose-600"
@@ -1902,7 +1917,7 @@ const MessageBubble = memo(function MessageBubble({
             ) : null}
             {message.editedAt ? (
               <Badge className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-normal tracking-[0.08em] shadow-none ${
-                outbound ? "bg-white/14 text-white/80" : "bg-slate-100 text-slate-500"
+                outbound ? "bg-white/14 text-white/80" : "bg-muted text-muted-foreground"
               }`}>
                 <Pencil className="h-2.5 w-2.5" />
                 Editado
@@ -1934,7 +1949,7 @@ const MESSAGE_VIRTUALIZATION_THRESHOLD = 28;
 const MESSAGE_VIRTUALIZATION_OVERSCAN_PX = 720;
 const messageBubbleHeightCache = new WeakMap<SharedInboxMessageItem, number>();
 const CHAT_MESSAGES_BACKGROUND_BASE_STYLE = {
-  backgroundColor: "#eef2f7",
+  backgroundColor: "var(--background)",
 } as const;
 
 const CHAT_MESSAGES_BACKGROUND_OVERLAY_STYLE = {
@@ -1942,7 +1957,6 @@ const CHAT_MESSAGES_BACKGROUND_OVERLAY_STYLE = {
   backgroundRepeat: "repeat",
   backgroundSize: "540px 960px",
   backgroundPosition: "0 0",
-  opacity: 0.08,
 } as const;
 
 function estimateMessageBubbleHeight(message: SharedInboxMessageItem) {
@@ -2042,6 +2056,137 @@ const ConversationPanel = memo(function ConversationPanel({
   const scrollFrameRef = useRef<number | null>(null);
   const composerTextAreaRef = useRef<HTMLTextAreaElement | null>(null);
   const composerSelectionRef = useRef({ start: 0, end: 0 });
+  const composerRouter = useRouter();
+  const [composerHasText, setComposerHasText] = useState(false);
+  const [isRecordingAudio, setIsRecordingAudio] = useState(false);
+  const [recordSeconds, setRecordSeconds] = useState(0);
+  const [isSendingAudio, setIsSendingAudio] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const recordStreamRef = useRef<MediaStream | null>(null);
+  const recordCancelledRef = useRef(false);
+  const audioConfig = composer?.audio;
+
+  const stopRecordTracks = useCallback(() => {
+    recordStreamRef.current?.getTracks().forEach((track) => track.stop());
+    recordStreamRef.current = null;
+  }, []);
+
+  const clearRecordTimer = useCallback(() => {
+    if (recordTimerRef.current) {
+      clearInterval(recordTimerRef.current);
+      recordTimerRef.current = null;
+    }
+  }, []);
+
+  const uploadAndSendAudio = useCallback(
+    async (blob: Blob, mimeType: string) => {
+      if (!audioConfig) {
+        return;
+      }
+
+      setIsSendingAudio(true);
+      try {
+        const ext = mimeType.includes("ogg") || mimeType.includes("opus") ? "ogg" : mimeType.includes("mp4") ? "mp4" : "webm";
+        const file = new File([blob], `nota-de-voz-${Date.now()}.${ext}`, { type: mimeType });
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const response = await fetch(audioConfig.uploadPath, { method: "POST", body: formData });
+        const data = (await response.json().catch(() => null)) as { url?: string } | null;
+        if (!response.ok || !data?.url) {
+          return;
+        }
+
+        const result = await audioConfig.sendAction({
+          source: audioConfig.source,
+          conversationId: audioConfig.conversationId,
+          agentId: audioConfig.agentId,
+          audioUrl: data.url,
+          returnTo: audioConfig.returnTo,
+        });
+
+        if (result && "ok" in result && result.ok) {
+          composerRouter.refresh();
+        }
+      } finally {
+        setIsSendingAudio(false);
+      }
+    },
+    [audioConfig, composerRouter],
+  );
+
+  const startAudioRecording = useCallback(async () => {
+    if (!audioConfig || isRecordingAudio || isSendingAudio) {
+      return;
+    }
+
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      recordStreamRef.current = stream;
+      const recorder = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+      recordCancelledRef.current = false;
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      recorder.onstop = () => {
+        clearRecordTimer();
+        stopRecordTracks();
+        setIsRecordingAudio(false);
+        setRecordSeconds(0);
+
+        const chunks = audioChunksRef.current;
+        audioChunksRef.current = [];
+        const cancelled = recordCancelledRef.current;
+        const mimeType = recorder.mimeType || "audio/webm";
+
+        if (cancelled || chunks.length === 0) {
+          return;
+        }
+
+        void uploadAndSendAudio(new Blob(chunks, { type: mimeType }), mimeType);
+      };
+
+      recorder.start();
+      mediaRecorderRef.current = recorder;
+      setIsRecordingAudio(true);
+      setRecordSeconds(0);
+      recordTimerRef.current = setInterval(() => setRecordSeconds((value) => value + 1), 1000);
+    } catch {
+      stopRecordTracks();
+    }
+  }, [audioConfig, clearRecordTimer, isRecordingAudio, isSendingAudio, stopRecordTracks, uploadAndSendAudio]);
+
+  const stopAndSendAudio = useCallback(() => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      recordCancelledRef.current = false;
+      mediaRecorderRef.current.stop();
+    }
+  }, []);
+
+  const cancelAudioRecording = useCallback(() => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      recordCancelledRef.current = true;
+      mediaRecorderRef.current.stop();
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      clearRecordTimer();
+      stopRecordTracks();
+    };
+  }, [clearRecordTimer, stopRecordTracks]);
 
   useEffect(() => {
     try {
@@ -2151,6 +2296,7 @@ const ConversationPanel = memo(function ConversationPanel({
 
     textarea.setRangeText(emoji, start, end, "end");
     composerSelectionRef.current = { start: nextCursor, end: nextCursor };
+    setComposerHasText(textarea.value.trim().length > 0);
     setIsEmojiPickerOpen(false);
     setEmojiSearchQuery("");
     setRecentComposerEmojis((current) => [emoji, ...current.filter((item) => item !== emoji)].slice(0, 24));
@@ -2215,18 +2361,18 @@ const ConversationPanel = memo(function ConversationPanel({
 
   return (
     <Card
-      className={`${selectedConversationId ? "flex md:flex" : "!hidden md:flex"} chat-inbox-panel relative min-h-0 flex-1 overflow-hidden rounded-none border border-[rgba(148,163,184,0.14)] bg-transparent p-0 shadow-none md:h-full md:shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)]`}
+      className={`${selectedConversationId ? "flex md:flex" : "!hidden md:flex"} chat-inbox-panel relative min-h-0 flex-1 overflow-hidden rounded-none border border-border bg-transparent p-0 shadow-none md:h-full md:shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)]`}
     >
       <div aria-hidden="true" className="pointer-events-none absolute inset-0" style={CHAT_MESSAGES_BACKGROUND_BASE_STYLE} />
-      <div aria-hidden="true" className="pointer-events-none absolute inset-0" style={CHAT_MESSAGES_BACKGROUND_OVERLAY_STYLE} />
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0 opacity-[0.08] dark:opacity-[0.14] dark:invert" style={CHAT_MESSAGES_BACKGROUND_OVERLAY_STYLE} />
       {renderedConversation ? (
         <div className="relative z-10 flex min-h-0 h-full w-full flex-1 flex-col">
-          <div className="shrink-0 border-b border-[rgba(148,163,184,0.12)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcff_100%)] px-3 pb-2.5 pt-[calc(env(safe-area-inset-top)+0.625rem)] md:px-[10px] md:py-[10px]">
+          <div className="shrink-0 border-b border-border bg-card px-3 pb-2.5 pt-[calc(env(safe-area-inset-top)+0.625rem)] md:px-[10px] md:py-[10px]">
             <div className="flex min-w-0 items-center justify-between gap-3">
               <div className="flex min-w-0 flex-1 items-center gap-3">
                 <Link
                   href={backHref}
-                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[rgba(148,163,184,0.14)] bg-white text-slate-500 transition hover:bg-slate-50 md:hidden"
+                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground transition hover:bg-muted md:hidden"
                   aria-label="Volver a chats"
                 >
                   <ArrowLeft className="h-4 w-4" />
@@ -2245,7 +2391,7 @@ const ConversationPanel = memo(function ConversationPanel({
                       <TooltipTrigger
                         type="button"
                         onClick={onOpenStatusDialog}
-                        className={`group relative shrink-0 rounded-[22px] p-[2px] transition focus:outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_18%,white)] ${
+                        className={`group relative shrink-0 rounded-[22px] p-[2px] transition focus:outline-none focus:ring-2 focus:ring-ring/50 ${
                           hasStatusMessages
                             ? "bg-gradient-to-br from-emerald-400 via-lime-300 to-cyan-400 shadow-[0_14px_28px_-18px_rgba(16,185,129,0.55)]"
                             : "bg-transparent"
@@ -2257,15 +2403,15 @@ const ConversationPanel = memo(function ConversationPanel({
                           <ContactAvatar
                             avatarUrl={renderedConversation.avatarUrl}
                             label={renderedConversation.label}
-                            className={`h-10 w-10 rounded-[18px] border border-[rgba(148,163,184,0.12)] bg-slate-100 text-slate-500 transition ${
+                            className={`h-10 w-10 rounded-[18px] border border-border bg-muted text-muted-foreground transition ${
                               hasStatusMessages ? "ring-2 ring-white" : ""
                             }`}
-                            fallbackClassName="rounded-[18px] bg-slate-100 text-sm font-semibold text-slate-700"
+                            fallbackClassName="rounded-[18px] bg-muted text-sm font-semibold text-foreground"
                           />
                           {hasStatusMessages ? (
                             <span
                               aria-hidden="true"
-                              className="absolute -right-0.5 -top-0.5 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500 shadow-[0_4px_10px_-4px_rgba(16,185,129,0.75)]"
+                              className="absolute -right-0.5 -top-0.5 h-3.5 w-3.5 rounded-full border-2 border-background bg-emerald-500 shadow-[0_4px_10px_-4px_rgba(16,185,129,0.75)]"
                             />
                           ) : null}
                         </span>
@@ -2279,14 +2425,14 @@ const ConversationPanel = memo(function ConversationPanel({
                   </TooltipProvider>
                   <div className="min-w-0 space-y-0.5">
                     <div className="flex min-w-0 items-center gap-1.5">
-                      <h2 className="truncate text-[13px] font-semibold text-slate-950 md:text-sm">
+                      <h2 className="truncate text-[13px] font-semibold text-foreground md:text-sm">
                         {renderedConversation.label}
                       </h2>
                       {renderedConversation.contactId ? (
                         <button
                           type="button"
                           onClick={onEditContact}
-                          className="shrink-0 inline-flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                          className="shrink-0 inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-muted-foreground"
                           aria-label="Editar contacto"
                         >
                           <Pencil className="h-3.5 w-3.5" />
@@ -2295,7 +2441,7 @@ const ConversationPanel = memo(function ConversationPanel({
                       <button
                         type="button"
                         onClick={onOpenTags}
-                        className="shrink-0 inline-flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                        className="shrink-0 inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-muted-foreground"
                         aria-label="Etiquetas"
                       >
                         <Tag className="h-3.5 w-3.5" />
@@ -2360,7 +2506,7 @@ const ConversationPanel = memo(function ConversationPanel({
                           <Link
                             href={renderedConversation.loadMoreHref}
                             scroll={false}
-                            className="inline-flex items-center rounded-full border border-[rgba(148,163,184,0.16)] bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-800"
+                            className="inline-flex items-center rounded-full border border-border bg-card px-3 py-1.5 text-[11px] font-medium text-muted-foreground shadow-sm transition hover:bg-muted hover:text-foreground"
                           >
                             Cargar mensajes anteriores
                           </Link>
@@ -2368,7 +2514,7 @@ const ConversationPanel = memo(function ConversationPanel({
                       ) : isLoadingOlderMessages ? (
                         <div className="flex justify-center px-3 py-1.5">
                           <span
-                            className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-[rgba(148,163,184,0.14)] bg-white text-slate-500 shadow-sm"
+                            className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-sm"
                             aria-label="Cargando historial"
                             role="status"
                           >
@@ -2380,7 +2526,7 @@ const ConversationPanel = memo(function ConversationPanel({
                           <button
                             type="button"
                             onClick={() => void onLoadOlderMessages()}
-                            className="inline-flex items-center rounded-full border border-[rgba(148,163,184,0.16)] bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-800"
+                            className="inline-flex items-center rounded-full border border-border bg-card px-3 py-1.5 text-[11px] font-medium text-muted-foreground shadow-sm transition hover:bg-muted hover:text-foreground"
                           >
                             Cargar mensajes anteriores
                           </button>
@@ -2421,7 +2567,7 @@ const ConversationPanel = memo(function ConversationPanel({
             </div>
 
             {composer && renderedConversation ? (
-              <div className="chat-composer z-20 shrink-0 border-t border-[rgba(148,163,184,0.12)] bg-white/96 px-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 shadow-[0_-12px_28px_-24px_rgba(15,23,42,0.2)] backdrop-blur md:border-t md:bg-white md:px-2 md:py-2 md:shadow-none md:backdrop-blur-0">
+              <div className="chat-composer z-20 shrink-0 border-t border-border bg-background/96 px-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 shadow-[0_-12px_28px_-24px_rgba(15,23,42,0.2)] backdrop-blur md:border-t md:bg-background md:px-2 md:py-2 md:shadow-none md:backdrop-blur-0">
                 <form
                   action={composer.action}
                   className="mx-auto w-full max-w-5xl"
@@ -2435,6 +2581,7 @@ const ConversationPanel = memo(function ConversationPanel({
                     }
 
                     onComposerDraft(message);
+                    setComposerHasText(false);
                   }}
                 >
                   {composerHiddenFields.map((field) => (
@@ -2454,7 +2601,7 @@ const ConversationPanel = memo(function ConversationPanel({
                       <PopoverTrigger asChild>
                         <button
                           type="button"
-                          className="inline-flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-full border border-[rgba(148,163,184,0.14)] bg-slate-50/80 text-slate-600 transition hover:border-[rgba(148,163,184,0.24)] hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_18%,white)] md:h-10 md:w-10"
+                          className="inline-flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-full border border-border bg-muted/80 text-muted-foreground transition hover:border-border hover:bg-muted hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 md:h-10 md:w-10"
                           aria-label="Abrir selector de emoticones"
                           title="Emoticones"
                         >
@@ -2465,7 +2612,7 @@ const ConversationPanel = memo(function ConversationPanel({
                         align="start"
                         side="top"
                         sideOffset={12}
-                        className="w-[min(90vw,26rem)] rounded-[26px] border border-[rgba(148,163,184,0.14)] bg-white p-3.5 shadow-[0_24px_60px_-24px_rgba(15,23,42,0.35)]"
+                        className="w-[min(90vw,26rem)] rounded-[26px] border border-border bg-popover p-3.5 shadow-[0_24px_60px_-24px_rgba(15,23,42,0.35)]"
                       >
                         <ComposerEmojiPicker
                           query={emojiSearchQuery}
@@ -2477,18 +2624,64 @@ const ConversationPanel = memo(function ConversationPanel({
                         />
                       </PopoverContent>
                     </Popover>
-                    <textarea
-                      ref={composerTextAreaRef}
-                      name="message"
-                      rows={1}
-                      placeholder={composer.placeholder || "Escribe un mensaje..."}
-                      onSelect={(event) => syncComposerSelection(event.currentTarget)}
-                      onKeyUp={(event) => syncComposerSelection(event.currentTarget)}
-                      onMouseUp={(event) => syncComposerSelection(event.currentTarget)}
-                      onBlur={(event) => syncComposerSelection(event.currentTarget)}
-                      className="flex min-h-[44px] flex-1 resize-none rounded-2xl border border-[rgba(148,163,184,0.14)] bg-slate-50/80 px-3 py-2.5 text-[14px] text-slate-800 placeholder:text-slate-400 outline-none transition focus:border-[var(--primary)] focus:bg-white focus:ring-2 focus:ring-[color-mix(in_srgb,var(--primary)_18%,white)] md:min-h-[40px] md:py-2 md:text-sm"
-                    />
-                    <ComposerSendButton />
+                    {isRecordingAudio ? (
+                      <div className="flex min-h-[44px] flex-1 items-center gap-2 rounded-2xl border border-border bg-muted/80 px-4 text-sm text-foreground md:min-h-[40px]">
+                        <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-red-500" />
+                        <span className="font-medium">Grabando</span>
+                        <span className="tabular-nums text-muted-foreground">
+                          {`${Math.floor(recordSeconds / 60)}:${String(recordSeconds % 60).padStart(2, "0")}`}
+                        </span>
+                      </div>
+                    ) : (
+                      <textarea
+                        ref={composerTextAreaRef}
+                        name="message"
+                        rows={1}
+                        placeholder={isSendingAudio ? "Enviando nota de voz..." : composer.placeholder || "Escribe un mensaje..."}
+                        disabled={isSendingAudio}
+                        onChange={(event) => setComposerHasText(event.currentTarget.value.trim().length > 0)}
+                        onSelect={(event) => syncComposerSelection(event.currentTarget)}
+                        onKeyUp={(event) => syncComposerSelection(event.currentTarget)}
+                        onMouseUp={(event) => syncComposerSelection(event.currentTarget)}
+                        onBlur={(event) => syncComposerSelection(event.currentTarget)}
+                        className="flex min-h-[44px] flex-1 resize-none rounded-2xl border border-border bg-muted/80 px-3 py-2.5 text-[14px] text-foreground placeholder:text-muted-foreground outline-none transition focus:border-[var(--primary)] focus:bg-background focus:ring-2 focus:ring-ring/50 disabled:opacity-70 md:min-h-[40px] md:py-2 md:text-sm"
+                      />
+                    )}
+                    {isRecordingAudio ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={cancelAudioRecording}
+                          aria-label="Cancelar grabacion"
+                          title="Cancelar"
+                          className="inline-flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-full border border-border bg-muted/80 text-muted-foreground transition hover:bg-muted hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 md:h-10 md:w-10"
+                        >
+                          <Trash2 className="h-5 w-5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={stopAndSendAudio}
+                          aria-label="Enviar nota de voz"
+                          title="Enviar"
+                          className="inline-flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-2xl bg-[var(--primary)] text-white transition hover:bg-[var(--primary-strong)] md:h-10 md:w-10"
+                        >
+                          <SendHorizonal className="h-5 w-5" />
+                        </button>
+                      </>
+                    ) : composerHasText || !audioConfig ? (
+                      <ComposerSendButton />
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={startAudioRecording}
+                        disabled={isSendingAudio}
+                        aria-label="Grabar nota de voz"
+                        title="Grabar nota de voz"
+                        className="inline-flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-2xl bg-[var(--primary)] text-white transition hover:bg-[var(--primary-strong)] disabled:cursor-not-allowed disabled:opacity-70 md:h-10 md:w-10"
+                      >
+                        <Mic className="h-5 w-5" />
+                      </button>
+                    )}
                   </div>
                 </form>
               </div>
@@ -2498,12 +2691,12 @@ const ConversationPanel = memo(function ConversationPanel({
       ) : (
         <div className="flex min-h-[74vh] items-center justify-center px-6 py-10 text-center">
           <div className="mx-auto flex max-w-sm flex-col items-center gap-3">
-            <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-50 text-slate-500">
+            <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-muted text-muted-foreground">
               <MessageSquareText className="h-5 w-5" />
             </span>
             <div className="space-y-1">
-              <h3 className="text-base font-semibold text-slate-950">{emptySelectionTitle}</h3>
-              <p className="text-sm leading-6 text-slate-600">
+              <h3 className="text-base font-semibold text-foreground">{emptySelectionTitle}</h3>
+              <p className="text-sm leading-6 text-muted-foreground">
                 {emptySelectionDescription}
               </p>
             </div>
@@ -3801,8 +3994,8 @@ export function SharedInbox({
       contactId={renderedConversation?.contactId}
     />
     <Dialog open={statusDialogOpen} onOpenChange={setStatusDialogOpen}>
-      <DialogContent className="w-[min(92vw,34rem)] max-w-none overflow-hidden border border-[rgba(148,163,184,0.14)] bg-white p-0 shadow-[0_30px_80px_-36px_rgba(15,23,42,0.45)]">
-        <div className="border-b border-[rgba(148,163,184,0.12)] bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] px-5 py-4">
+      <DialogContent className="w-[min(92vw,34rem)] max-w-none overflow-hidden border border-border bg-popover p-0 shadow-[0_30px_80px_-36px_rgba(15,23,42,0.45)]">
+        <div className="border-b border-border bg-card px-5 py-4">
           <DialogHeader className="text-left">
             <DialogTitle>Estados de WhatsApp</DialogTitle>
             <DialogDescription>
@@ -3830,35 +4023,35 @@ export function SharedInbox({
               return (
                 <div
                   key={message.id}
-                  className="rounded-2xl border border-[rgba(148,163,184,0.12)] bg-slate-50/80 p-4"
+                  className="rounded-2xl border border-border bg-muted/80 p-4"
                 >
                   <div className="flex items-start gap-3">
                     <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 via-lime-300 to-cyan-400 p-[2px]">
-                      <div className="flex h-full w-full items-center justify-center rounded-full bg-white text-emerald-600">
+                      <div className="flex h-full w-full items-center justify-center rounded-full bg-card text-emerald-600">
                         <MessageCircle className="h-4 w-4" />
                       </div>
                     </div>
                     <div className="min-w-0 flex-1 space-y-1">
                       <div className="flex items-center justify-between gap-3">
-                        <p className="truncate text-sm font-semibold text-slate-950">{previewText}</p>
-                        <Badge variant="outline" className="h-5 border-emerald-200 bg-emerald-50 px-2 text-[10px] text-emerald-700">
+                        <p className="truncate text-sm font-semibold text-foreground">{previewText}</p>
+                        <Badge variant="outline" className="h-5 border-emerald-500/20 bg-emerald-500/10 px-2 text-[10px] text-emerald-600">
                           {message.type ?? "TEXT"}
                         </Badge>
                       </div>
-                      <p className="text-xs text-slate-500">{formatChatTime(message.createdAt)}</p>
+                      <p className="text-xs text-muted-foreground">{formatChatTime(message.createdAt)}</p>
                     </div>
                   </div>
                 </div>
               );
             })
           ) : (
-            <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-[rgba(148,163,184,0.18)] bg-slate-50/70 px-6 py-10 text-center">
-              <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-slate-400 shadow-[0_8px_24px_-18px_rgba(15,23,42,0.35)]">
+            <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-border bg-muted/70 px-6 py-10 text-center">
+              <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-card text-muted-foreground shadow-[0_8px_24px_-18px_rgba(15,23,42,0.35)]">
                 <MessageCircle className="h-5 w-5" />
               </span>
               <div className="space-y-1">
-                <p className="text-sm font-semibold text-slate-900">No hay estados sincronizados</p>
-                <p className="text-sm text-slate-500">
+                <p className="text-sm font-semibold text-foreground">No hay estados sincronizados</p>
+                <p className="text-sm text-muted-foreground">
                   Si Evolution expone estados para este chat, aparecerán aquí al tocar la foto.
                 </p>
               </div>

@@ -35,6 +35,7 @@ import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
 import {
   deleteEvolutionInstance,
+  sendEvolutionAudioMessage,
   sendEvolutionImageMessage,
   sendEvolutionPresence,
   sendEvolutionTextMessage,
@@ -2758,6 +2759,115 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<vo
 
   revalidatePath(`/cliente/agentes/${parsed.data.agentId}/chats`);
   redirect(`/cliente/agentes/${parsed.data.agentId}/chats?conversationId=${conversation.id}&ok=Mensaje+enviado`);
+}
+
+const sendChatAudioReplySchema = z.object({
+  source: z.string(),
+  conversationId: z.string().min(1),
+  agentId: z.string().min(1),
+  audioUrl: z.string().min(1),
+  returnTo: z.string().optional(),
+});
+
+export async function sendChatAudioReplyAction(input: {
+  source: string;
+  conversationId: string;
+  agentId: string;
+  audioUrl: string;
+  returnTo: string;
+}): Promise<{ ok: true } | { error: string }> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
+    return { error: "No autorizado" };
+  }
+  await requireClientWorkspaceAccess("agents");
+
+  const parsed = sendChatAudioReplySchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: "Datos invalidos" };
+  }
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    return { error: "Debes configurar tu negocio primero" };
+  }
+
+  const conversation = await prisma.conversation.findFirst({
+    where: {
+      id: parsed.data.conversationId,
+      workspaceId: membership.workspace.id,
+    },
+    include: {
+      contact: { select: { id: true, phoneNumber: true } },
+      channel: { select: { id: true, provider: true, evolutionInstanceName: true } },
+    },
+  });
+
+  if (
+    !conversation ||
+    conversation.channel?.provider !== "EVOLUTION" ||
+    !conversation.channel.evolutionInstanceName ||
+    !conversation.contact?.phoneNumber
+  ) {
+    return { error: "No se encontro el canal o contacto" };
+  }
+
+  let outbound;
+  try {
+    outbound = await sendEvolutionAudioMessage({
+      instanceName: conversation.channel.evolutionInstanceName,
+      phoneNumber: conversation.contact.phoneNumber,
+      audioUrl: parsed.data.audioUrl,
+    });
+  } catch {
+    return { error: "No se pudo enviar la nota de voz" };
+  }
+
+  const now = new Date();
+  await prisma.message.create({
+    data: {
+      workspaceId: membership.workspace.id,
+      conversationId: conversation.id,
+      channelId: conversation.channel.id,
+      contactId: conversation.contact.id,
+      agentId: parsed.data.agentId,
+      externalId: outbound.externalId,
+      direction: "OUTBOUND",
+      type: "AUDIO",
+      status: "SENT",
+      content: null,
+      mediaUrl: parsed.data.audioUrl,
+      sentAt: now,
+      rawPayload: {
+        source: "manual",
+        evolution: outbound.raw,
+      } as never,
+    },
+  });
+
+  await syncLeadLifecycleForContact({
+    workspaceId: membership.workspace.id,
+    contactId: conversation.contact.id,
+    hasHistory: true,
+  });
+
+  await prisma.conversation.update({
+    where: { id: conversation.id },
+    data: { lastMessageAt: now, status: "OPEN" },
+  });
+
+  await setConversationAutomationPaused({
+    conversationId: conversation.id,
+    paused: true,
+  });
+
+  const safeReturnTo = normalizeInternalPath(parsed.data.returnTo ?? "", "");
+  if (safeReturnTo) {
+    revalidatePath(safeReturnTo.split("?")[0]);
+  }
+  revalidatePath(`/cliente/agentes/${parsed.data.agentId}/chats`);
+
+  return { ok: true };
 }
 
 export async function saveAgentReactivationMessageAction(formData: FormData): Promise<void> {

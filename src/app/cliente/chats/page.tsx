@@ -1,8 +1,8 @@
 ﻿import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { sendUnifiedChatReplyAction, toggleConversationAutomationAction } from "@/app/actions/chats-actions";
+import { sendChatAudioReplyAction } from "@/app/actions/agent-actions";
 import { AssignChatControl } from "@/components/chats/assign-chat-control";
-import { ClearChatButton } from "@/components/chats/clear-chat-button";
 import { ChatsAutoRefresh } from "@/components/agents/chats-auto-refresh";
 import { ChatsRealtimeSync } from "@/components/chats/chats-realtime-sync";
 import { SharedInbox } from "@/components/chats/shared-inbox";
@@ -857,10 +857,6 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
                 conversationId={selectedConversation.id}
                 assignee={selectedAgentConversation?.assignedTo ?? null}
               />
-              <ClearChatButton
-                conversationId={selectedConversation.id}
-                returnTo={selectedChatHref}
-              />
               <FormActionSwitch
                 action={toggleConversationAutomationAction}
                 checked={!selectedConversation.automationPaused}
@@ -883,6 +879,17 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
                 ...(selectedChatHref ? [{ name: "returnTo", value: selectedChatHref }] : []),
               ]
             : [],
+          audio:
+            selectedUnified && selectedUnified.source === "agent" && selectedUnified.agentId
+              ? {
+                  uploadPath: "/api/cliente/chats/upload-audio",
+                  source: selectedUnified.source,
+                  conversationId: selectedUnified.conversationId,
+                  agentId: selectedUnified.agentId,
+                  returnTo: selectedChatHref ?? "",
+                  sendAction: sendChatAudioReplyAction,
+                }
+              : undefined,
         }}
         emptyListTitle="Aun no hay conversaciones"
         emptyListDescription="Cuando lleguen mensajes por tus canales, apareceran aqui en una sola bandeja."

@@ -167,8 +167,8 @@ const ConversationListItem = memo(function ConversationListItem({
       onFocus={() => onPrefetch(conversation)}
       className={`group relative grid w-full grid-cols-[40px_minmax(0,1fr)] items-start gap-3 overflow-hidden px-3 py-2.5 transition-[background-color,box-shadow,transform] duration-200 md:grid-cols-[44px_minmax(0,1fr)] md:px-3 md:py-3 ${
         isSelected
-          ? "bg-[color-mix(in_srgb,var(--primary)_6%,white)]"
-          : "hover:bg-[color-mix(in_srgb,var(--primary)_4%,white)] hover:shadow-[inset_0_0_0_1px_rgba(16,185,129,0.08)]"
+          ? "bg-primary/10"
+          : "hover:bg-muted/50 hover:shadow-[inset_0_0_0_1px_rgba(16,185,129,0.08)]"
         }`}
     >
       <span
@@ -182,7 +182,7 @@ const ConversationListItem = memo(function ConversationListItem({
           avatarUrl={conversation.avatarUrl}
           label={conversation.label ?? conversation.secondaryLabel ?? ""}
           className={getConversationAvatarClassName()}
-          fallbackClassName="rounded-2xl bg-slate-100 text-slate-500 text-[13px] font-semibold"
+          fallbackClassName="rounded-2xl bg-muted text-muted-foreground text-[13px] font-semibold"
         />
 
         {incomingCountLabel ? (
@@ -203,17 +203,17 @@ const ConversationListItem = memo(function ConversationListItem({
       <div className="min-w-0 space-y-[1px] overflow-hidden">
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0 flex flex-1 items-center gap-1.5">
-            <p className="min-w-0 flex-1 truncate text-[13px] font-semibold leading-[1.12] text-slate-950 md:text-[13px]">
+            <p className="min-w-0 flex-1 truncate text-[13px] font-semibold leading-[1.12] text-foreground md:text-[13px]">
               {conversation.label}
             </p>
           </div>
-          <span className="shrink-0 text-[10px] text-slate-500 md:text-[10px]">
+          <span className="shrink-0 text-[10px] text-muted-foreground md:text-[10px]">
             {conversation.lastMessageAt ? formatConversationTime(conversation.lastMessageAt) : ""}
           </span>
         </div>
 
         <div className="mt-0.5 flex min-w-0 max-w-full items-center gap-2 overflow-hidden">
-          <p className="block min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[12px] leading-[1.12] text-slate-600 md:text-[13px]">
+          <p className="block min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[12px] leading-[1.12] text-muted-foreground md:text-[13px]">
             {previewText}
           </p>
         </div>
@@ -490,7 +490,7 @@ export function ConversationList({
 
       {isLoadingMoreConversations ? (
         <div className="flex items-center justify-center py-3" aria-live="polite" aria-label="Cargando más conversaciones">
-          <LoaderCircle className="h-5 w-5 animate-spin text-slate-400" />
+          <LoaderCircle className="h-5 w-5 animate-spin text-muted-foreground" />
         </div>
       ) : null}
 
