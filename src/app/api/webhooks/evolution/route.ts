@@ -793,6 +793,20 @@ export async function POST(request: Request) {
   const messageWasEdited = hasEvolutionEditedMessagePayload(payload);
   const messageWasDeleted = hasEvolutionDeletedMessagePayload(payload);
   let shouldTouchConversation = !messageWasEdited && !messageWasDeleted;
+
+  if (messageType === "STICKER") {
+    console.log("[EVOLUTION] sticker_received", {
+      eventName,
+      instanceName,
+      channelId: channel.id,
+      fromMe,
+      direction,
+      messageExternalId,
+      hasMediaUrl: Boolean(mediaUrl),
+      messageWasEdited,
+      messageWasDeleted,
+    });
+  }
   const callFallbackConversation =
     isCallEvent && !phoneNumber
       ? await prisma.conversation.findFirst({
@@ -1024,6 +1038,21 @@ export async function POST(request: Request) {
       } as never,
       ...(direction === "OUTBOUND" ? { sentAt: new Date() } : {}),
     };
+
+    if (messageType === "STICKER") {
+      console.log("[EVOLUTION] sticker_persist", {
+        conversationId: conversation.id,
+        channelId: channel.id,
+        externalId: inboundExternalId,
+        fromMe,
+        direction,
+        hasContent: Boolean(messageText && messageText.trim()),
+        hasMediaUrl: Boolean(mediaUrl),
+        messageWasEdited,
+        messageWasDeleted,
+        isCallEvent,
+      });
+    }
 
     if (messageWasDeleted && messageExternalId) {
       const existingMessageRecord = await prisma.message.findFirst({
@@ -1477,14 +1506,19 @@ export async function POST(request: Request) {
       });
     }
 
+    // No analizar imagenes de stickers, ni cuando el agente esta apagado.
+    const agentIsActive = Boolean(agent?.isActive && agent.status === "ACTIVE");
+    const shouldAnalyzeImage = Boolean(
+      resolvedCurrentMediaUrl && messageType === "IMAGE" && agentIsActive,
+    );
+
     let latestIncomingImageAnalysis: string | null = null;
-    latestIncomingImageAnalysis =
-      resolvedCurrentMediaUrl && (messageType === "IMAGE" || messageType === "STICKER")
-        ? await analyzeImageForAgent({
-            imageUrl: resolvedCurrentMediaUrl,
-            model: agent.model,
-          })
-        : null;
+    latestIncomingImageAnalysis = shouldAnalyzeImage && resolvedCurrentMediaUrl
+      ? await analyzeImageForAgent({
+          imageUrl: resolvedCurrentMediaUrl,
+          model: agent.model,
+        })
+      : null;
 
     if (latestIncomingImageAnalysis) {
       console.log("[EVOLUTION] image_analysis", {
@@ -1493,7 +1527,7 @@ export async function POST(request: Request) {
         messageType,
         analysis: latestIncomingImageAnalysis,
       });
-    } else if (resolvedCurrentMediaUrl && (messageType === "IMAGE" || messageType === "STICKER")) {
+    } else if (shouldAnalyzeImage) {
       console.log("[EVOLUTION] image_analysis_missing", {
         conversationId: conversation.id,
         agentId: agent.id,

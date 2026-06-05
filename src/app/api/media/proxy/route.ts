@@ -5,6 +5,13 @@ function isAllowedMediaProtocol(protocol: string) {
   return protocol === "http:" || protocol === "https:";
 }
 
+// Los medios de *.whatsapp.net estan cifrados y no son descargables directamente;
+// intentar el fetch solo provoca cuelgues de DNS de varios segundos.
+function isWhatsAppCdnHost(hostname: string) {
+  const host = hostname.toLowerCase();
+  return host === "whatsapp.net" || host.endsWith(".whatsapp.net");
+}
+
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
   const targetValue = requestUrl.searchParams.get("url")?.trim();
@@ -31,6 +38,13 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false, error: "Protocolo no permitido" }, { status: 400 });
   }
 
+  if (isWhatsAppCdnHost(targetUrl.hostname)) {
+    return NextResponse.json(
+      { ok: false, error: "Medio de WhatsApp no disponible" },
+      { status: 404 },
+    );
+  }
+
   const evolutionSettings = await getEvolutionSettings();
   const headers: HeadersInit = {};
   if (evolutionSettings.apiBaseUrl) {
@@ -44,10 +58,26 @@ export async function GET(request: Request) {
     }
   }
 
-  const response = await fetch(targetUrl, {
-    cache: "no-store",
-    headers,
-  });
+  let response: Response;
+  try {
+    response = await fetch(targetUrl, {
+      cache: "no-store",
+      headers,
+    });
+  } catch (error) {
+    // Las URLs de WhatsApp (*.whatsapp.net) son medios cifrados que no se pueden
+    // descargar con un fetch directo, ademas de posibles fallos de DNS/red.
+    // Devolvemos 502 en lugar de dejar que la excepcion tumbe la ruta.
+    console.warn("[MEDIA_PROXY] fetch_failed", {
+      url: targetUrl.toString(),
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return NextResponse.json(
+      { ok: false, error: "No se pudo obtener el medio" },
+      { status: 502 },
+    );
+  }
+
   if (!response.ok || !response.body) {
     return NextResponse.json({ ok: false, error: "No se pudo obtener el medio" }, { status: 502 });
   }

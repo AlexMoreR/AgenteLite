@@ -288,18 +288,36 @@ function normalizeBase64DataUrl(base64Like: string, mimeType: string) {
   return `data:${mimeType};base64,${compact}`;
 }
 
+// Los hosts del CDN de WhatsApp (mmg/a.whatsapp.net, *.cdn.whatsapp.net) sirven
+// medios CIFRADOS que no se pueden descargar con un fetch directo desde el navegador
+// ni desde el servidor. Solo se obtienen via la API de Evolution (getBase64...).
+// Tratarlos como "renderizables" provoca imagenes rotas y cuelgues de DNS en el proxy.
+export function isWhatsAppCdnMediaUrl(value?: string | null) {
+  if (!value) {
+    return false;
+  }
+
+  try {
+    const host = new URL(value.trim()).hostname.toLowerCase();
+    return host === "whatsapp.net" || host.endsWith(".whatsapp.net");
+  } catch {
+    return false;
+  }
+}
+
 function isRenderableMediaUrl(value?: string | null) {
   if (!value) {
     return false;
   }
 
   const normalized = value.trim().toLowerCase();
-  return (
+  const isUrlLike =
     normalized.startsWith("data:") ||
     normalized.startsWith("blob:") ||
     normalized.startsWith("http://") ||
-    normalized.startsWith("https://")
-  );
+    normalized.startsWith("https://");
+
+  return isUrlLike && !isWhatsAppCdnMediaUrl(value);
 }
 
 function extractBase64Candidate(value: unknown): string | null {
@@ -588,6 +606,11 @@ export async function resolveEvolutionMessageMediaUrl(input: {
     if (thumbnailUrl) {
       return thumbnailUrl;
     }
+  }
+
+  // No persistir URLs del CDN de WhatsApp: no son descargables y rompen la UI/proxy.
+  if (isWhatsAppCdnMediaUrl(input.mediaUrl)) {
+    return null;
   }
 
   return input.mediaUrl || null;
