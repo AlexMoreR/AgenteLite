@@ -35,6 +35,12 @@ export async function GET(request: Request) {
   const instanceName = requestUrl.searchParams.get("instanceName")?.trim() || "";
   const phoneNumber = requestUrl.searchParams.get("phoneNumber")?.trim() || "";
 
+  // Los empleados (no-managers) solo pueden recibir summaries de sus chats asignados.
+  // El realtime escucha toda la instancia de WhatsApp, asi que sin este filtro se les
+  // inyectarian en la lista chats ajenos que luego no pueden abrir (quedan cargando).
+  const isManager = membership.role === "OWNER" || membership.role === "ADMIN";
+  const assignedToUserId = isManager ? undefined : session.user.id;
+
   let conversation = null;
 
   if (chatKey) {
@@ -45,6 +51,7 @@ export async function GET(request: Request) {
     conversation = await getAgentConversationSummaryByConversationId({
       workspaceId: membership.workspace.id,
       conversationId,
+      assignedToUserId,
     });
   } else {
     if (!instanceName || !phoneNumber) {
@@ -54,6 +61,7 @@ export async function GET(request: Request) {
       workspaceId: membership.workspace.id,
       instanceName,
       phoneNumber,
+      assignedToUserId,
     });
   }
 

@@ -5,6 +5,8 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { sendManualAgentReplyAction } from "@/app/actions/agent-actions";
+import { generateAgentReply } from "@/lib/agent-ai";
+import { buildActiveProductContextNote, type ActiveProductContext } from "@/lib/agent-product-flow";
 import { createFollowsFromRulesForSource } from "@/features/seguimientos/services/follows";
 import { getConversationAutomationPaused, setConversationAutomationPaused } from "@/lib/conversation-automation";
 import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
@@ -13,10 +15,16 @@ import { normalizeInternalPath } from "@/lib/app-url";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
+import { Prisma } from "@prisma/client";
 
 const updateContactSchema = z.object({
   contactId: z.string().trim().min(1),
   name: z.string().trim().max(120),
+  phoneNumber: z.string().trim().max(40).optional(),
+  city: z.string().trim().max(120).optional(),
+  address: z.string().trim().max(200).optional(),
+  interested: z.string().trim().max(200).optional(),
+  tagIds: z.array(z.string().trim().min(1)).default([]),
 });
 
 const deleteContactSchema = z.object({
@@ -26,7 +34,106 @@ const deleteContactSchema = z.object({
 
 type UpdateContactActionState =
   | { error: string; success?: false }
-  | { success: true; contactId: string; name: string };
+  | {
+      success: true;
+      contactId: string;
+      name: string;
+      tags: Array<{
+        label: string;
+        color: string;
+      }>;
+    };
+
+export type ContactDetails = {
+  contactId: string;
+  name: string;
+  phoneNumber: string;
+  city: string;
+  address: string;
+  interested: string;
+  tagIds: string[];
+  tags: Array<{
+    id: string;
+    name: string;
+    color: string;
+  }>;
+  availableTags: Array<{
+    id: string;
+    name: string;
+    color: string;
+  }>;
+};
+
+function readMetadataString(metadata: unknown, key: string): string {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return "";
+  }
+  const value = (metadata as Record<string, unknown>)[key];
+  return typeof value === "string" ? value : "";
+}
+
+export async function getContactDetailsAction(
+  contactId: string,
+): Promise<{ error: string } | { details: ContactDetails }> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
+    return { error: "No autorizado" };
+  }
+  await requireClientWorkspaceAccess("chats");
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    return { error: "Workspace no encontrado" };
+  }
+
+  const [contact, availableTags] = await Promise.all([
+    prisma.contact.findFirst({
+      where: { id: contactId, workspaceId: membership.workspace.id },
+      select: {
+        id: true,
+        name: true,
+        phoneNumber: true,
+        metadata: true,
+        ContactTag: {
+          orderBy: { createdAt: "asc" },
+          select: {
+            tagId: true,
+            Tag: {
+              select: {
+                id: true,
+                name: true,
+                color: true,
+              },
+            },
+          },
+        },
+      },
+    }),
+    prisma.tag.findMany({
+      where: { workspaceId: membership.workspace.id },
+      select: { id: true, name: true, color: true },
+      orderBy: { createdAt: "asc" },
+    }),
+  ]);
+
+  if (!contact) {
+    return { error: "Contacto no encontrado" };
+  }
+
+  return {
+    details: {
+      contactId: contact.id,
+      name: contact.name ?? "",
+      phoneNumber: contact.phoneNumber,
+      city: readMetadataString(contact.metadata, "city"),
+      address: readMetadataString(contact.metadata, "address"),
+      interested: readMetadataString(contact.metadata, "interested"),
+      tagIds: contact.ContactTag.map((item) => item.tagId),
+      tags: contact.ContactTag.map((item) => item.Tag),
+      availableTags,
+    },
+  };
+}
 
 export async function updateContactAction(
   _prevState: UpdateContactActionState | { error?: string; success?: boolean },
@@ -38,9 +145,15 @@ export async function updateContactAction(
   }
   await requireClientWorkspaceAccess("chats");
 
+  const hasInterestedField = formData.has("interested");
   const parsed = updateContactSchema.safeParse({
     contactId: formData.get("contactId"),
     name: formData.get("name"),
+    phoneNumber: formData.get("phoneNumber") ?? undefined,
+    city: formData.get("city") ?? undefined,
+    address: formData.get("address") ?? undefined,
+    interested: hasInterestedField ? formData.get("interested") ?? undefined : undefined,
+    tagIds: formData.getAll("tagIds"),
   });
 
   if (!parsed.success) {
@@ -54,22 +167,122 @@ export async function updateContactAction(
 
   const contact = await prisma.contact.findFirst({
     where: { id: parsed.data.contactId, workspaceId: membership.workspace.id },
-    select: { id: true },
+    select: {
+      id: true,
+      phoneNumber: true,
+      metadata: true,
+      ContactTag: {
+        select: { tagId: true },
+      },
+    },
   });
 
   if (!contact) {
     return { error: "Contacto no encontrado" };
   }
 
-  await prisma.contact.update({
-    where: { id: contact.id },
-    data: { name: parsed.data.name || null },
-  });
+  const nextPhoneNumber = parsed.data.phoneNumber?.trim();
+  // El teléfono es único por workspace: evitamos colisiones con otro contacto.
+  if (nextPhoneNumber && nextPhoneNumber !== contact.phoneNumber) {
+    const existing = await prisma.contact.findFirst({
+      where: {
+        workspaceId: membership.workspace.id,
+        phoneNumber: nextPhoneNumber,
+        id: { not: contact.id },
+      },
+      select: { id: true },
+    });
+    if (existing) {
+      return { error: "Ya existe un contacto con ese teléfono" };
+    }
+  }
+
+  // ciudad y direccion se guardan en metadata; interested queda como legacy si el formulario lo envia.
+  const selectedTagIds = Array.from(new Set(parsed.data.tagIds.map((tagId) => tagId.trim()).filter(Boolean)));
+  const selectedTags = selectedTagIds.length
+    ? await prisma.tag.findMany({
+        where: {
+          workspaceId: membership.workspace.id,
+          id: { in: selectedTagIds },
+        },
+        select: { id: true, name: true, color: true },
+        orderBy: { createdAt: "asc" },
+      })
+    : [];
+  if (selectedTags.length !== selectedTagIds.length) {
+    return { error: "Una o mas etiquetas no existen" };
+  }
+
+  const baseMetadata =
+    contact.metadata && typeof contact.metadata === "object" && !Array.isArray(contact.metadata)
+      ? (contact.metadata as Record<string, unknown>)
+      : {};
+  const nextMetadata: Record<string, unknown> = {
+    ...baseMetadata,
+    city: parsed.data.city?.trim() || null,
+    address: parsed.data.address?.trim() || null,
+    ...(hasInterestedField ? { interested: parsed.data.interested?.trim() || null } : {}),
+  };
+
+  const currentTagIds = new Set(contact.ContactTag.map((item) => item.tagId));
+  const nextTagIds = new Set(selectedTagIds);
+  const tagIdsToAdd = selectedTagIds.filter((tagId) => !currentTagIds.has(tagId));
+  const tagIdsToRemove = Array.from(currentTagIds).filter((tagId) => !nextTagIds.has(tagId));
+
+  await prisma.$transaction([
+    prisma.contact.update({
+      where: { id: contact.id },
+      data: {
+        name: parsed.data.name || null,
+        ...(nextPhoneNumber ? { phoneNumber: nextPhoneNumber } : {}),
+        metadata: nextMetadata as Prisma.InputJsonValue,
+      },
+    }),
+    ...tagIdsToRemove.map((tagId) =>
+      prisma.contactTag.delete({
+        where: {
+          contactId_tagId: {
+            contactId: contact.id,
+            tagId,
+          },
+        },
+      }),
+    ),
+    ...tagIdsToAdd.map((tagId) =>
+      prisma.contactTag.create({
+        data: {
+          contactId: contact.id,
+          tagId,
+          workspaceId: membership.workspace.id,
+        },
+      }),
+    ),
+  ]);
+
+  if (tagIdsToAdd.length) {
+    await Promise.allSettled(
+      tagIdsToAdd.map((tagId) =>
+        createFollowsFromRulesForSource({
+          workspaceId: membership.workspace.id,
+          contactId: contact.id,
+          sourceType: "TAG",
+          sourceId: tagId,
+        }),
+      ),
+    );
+  }
+
+  revalidatePath("/cliente/chats");
+  revalidatePath("/cliente/contactos");
 
   return {
     success: true,
     contactId: contact.id,
     name: parsed.data.name.trim(),
+    tags: selectedTags.map((tag) => ({
+      label: tag.name,
+      color: tag.color,
+    })),
   };
 }
 
@@ -384,6 +597,98 @@ export async function getEtiquetasAction(): Promise<{ items?: EtiquetaItem[]; er
   });
 
   return { items: tags };
+}
+
+export async function generateSuggestedReplyAction(
+  conversationId: string,
+): Promise<{ suggestion?: string; error?: string }> {
+  const session = await auth();
+  if (!session?.user?.id) return { error: "No autorizado" };
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) return { error: "Workspace no encontrado" };
+
+  const trimmedId = conversationId.trim();
+  if (!trimmedId) return { error: "Conversación inválida" };
+
+  const conversation = await prisma.conversation.findFirst({
+    where: { id: trimmedId, workspaceId: membership.workspace.id },
+    select: {
+      id: true,
+      activeProductContext: true,
+      agent: {
+        select: { systemPrompt: true, model: true, fallbackMessage: true },
+      },
+      messages: {
+        orderBy: { createdAt: "desc" },
+        take: 30,
+        select: { direction: true, content: true, type: true, mediaUrl: true },
+      },
+    },
+  });
+
+  if (!conversation) return { error: "Conversación no encontrada" };
+  if (!conversation.agent) {
+    return { error: "Esta conversación no tiene un agente asignado" };
+  }
+
+  // Los mensajes vienen del más reciente al más antiguo; el modelo los necesita en orden cronológico.
+  const supportedTurnTypes = new Set([
+    "TEXT",
+    "IMAGE",
+    "AUDIO",
+    "VIDEO",
+    "STICKER",
+    "DOCUMENT",
+    "TEMPLATE",
+    "SYSTEM",
+  ]);
+  const orderedMessages = [...conversation.messages].reverse();
+  const history = orderedMessages.map((message) => ({
+    direction: message.direction,
+    content: message.content,
+    type: supportedTurnTypes.has(message.type)
+      ? (message.type as "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "TEMPLATE" | "SYSTEM")
+      : undefined,
+    mediaUrl: message.mediaUrl,
+  }));
+
+  const latestInbound = [...orderedMessages]
+    .reverse()
+    .find((message) => message.direction === "INBOUND");
+
+  const activeProductContext =
+    (conversation.activeProductContext as ActiveProductContext | null | undefined) ?? null;
+  const productNote = buildActiveProductContextNote(activeProductContext);
+
+  const baseSystemPrompt = conversation.agent.systemPrompt?.trim() || "";
+  const effectiveSystemPrompt = [
+    baseSystemPrompt,
+    productNote,
+    "Genera una sola respuesta lista para enviar al cliente, sin saludos repetidos ni firmas.",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  try {
+    const suggestion = await generateAgentReply({
+      model: conversation.agent.model,
+      systemPrompt: effectiveSystemPrompt,
+      fallbackMessage: conversation.agent.fallbackMessage,
+      history,
+      latestUserMessage: latestInbound?.content ?? null,
+    });
+
+    const cleaned = suggestion?.trim();
+    if (!cleaned) {
+      return { error: "No se pudo generar una sugerencia" };
+    }
+
+    return { suggestion: cleaned };
+  } catch (error) {
+    console.error("[generateSuggestedReplyAction] error", error);
+    return { error: "No se pudo generar la sugerencia. Inténtalo de nuevo." };
+  }
 }
 
 const createEtiquetaSchema = z.object({

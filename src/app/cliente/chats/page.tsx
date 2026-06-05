@@ -3,6 +3,8 @@ import { after } from "next/server";
 import { sendUnifiedChatReplyAction, toggleConversationAutomationAction } from "@/app/actions/chats-actions";
 import { sendChatAudioReplyAction, sendChatMediaReplyAction } from "@/app/actions/agent-actions";
 import { AssignChatControl } from "@/components/chats/assign-chat-control";
+import { CrmStageControl } from "@/components/chats/crm-stage-control";
+import type { CrmStage } from "@/features/crm/types";
 import { ChatsAutoRefresh } from "@/components/agents/chats-auto-refresh";
 import { ChatsRealtimeSync } from "@/components/chats/chats-realtime-sync";
 import { SharedInbox } from "@/components/chats/shared-inbox";
@@ -698,6 +700,25 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     };
   }
 
+  // Etapa actual del CRM para el contacto de la conversación seleccionada.
+  const selectedContactId = selectedConversation?.contactId ?? null;
+  const selectedContactCrmStage = selectedContactId
+    ? await (async () => {
+        try {
+          const rows = await prisma.$queryRaw<Array<{ crmStage: string }>>`
+            SELECT c."crmStage"::text AS "crmStage"
+            FROM "Contact" c
+            WHERE c."id" = ${selectedContactId}
+              AND c."workspaceId" = ${membership.workspace.id}
+            LIMIT 1
+          `;
+          return rows[0]?.crmStage ?? "NUEVO";
+        } catch {
+          return "NUEVO";
+        }
+      })()
+    : "NUEVO";
+
   const selectedConversationPhoneNumber = normalizePhoneFromJid(selectedConversation?.secondaryLabel ?? null) ?? normalizePhoneDigits(selectedConversation?.secondaryLabel);
   const selectedConversationStatusMessages = await (async () => {
     const databaseStatusMessages = selectedConversation?.id
@@ -864,6 +885,12 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         headerActions={
           selectedUnified?.source === "agent" && selectedConversation ? (
             <div key={`header-actions:${selectedConversation.id}`} className="flex items-center gap-1">
+              {selectedContactId ? (
+                <CrmStageControl
+                  contactId={selectedContactId}
+                  stage={selectedContactCrmStage as CrmStage}
+                />
+              ) : null}
               <AssignChatControl
                 conversationId={selectedConversation.id}
                 assignee={selectedAgentConversation?.assignedTo ?? null}

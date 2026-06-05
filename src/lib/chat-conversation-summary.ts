@@ -66,11 +66,15 @@ async function getIncomingCountForConversation(input: { workspaceId: string; con
 export async function getAgentConversationSummaryByConversationId(input: {
   workspaceId: string;
   conversationId: string;
+  // Si se especifica, solo se devuelve la conversacion cuando esta asignada a este usuario.
+  // Lo usan los empleados (no-managers) para no recibir summaries de chats que no son suyos.
+  assignedToUserId?: string;
 }): Promise<ChatConversationSummary | null> {
   const conversation = await prisma.conversation.findFirst({
     where: {
       id: input.conversationId,
       workspaceId: input.workspaceId,
+      ...(input.assignedToUserId ? { assignedToUserId: input.assignedToUserId } : {}),
     },
     select: {
       id: true,
@@ -148,6 +152,9 @@ export async function getAgentConversationSummaryByPhoneNumber(input: {
   workspaceId: string;
   instanceName: string;
   phoneNumber: string;
+  // Si se especifica, solo se devuelve la conversacion cuando esta asignada a este usuario.
+  // Lo usan los empleados (no-managers) para no recibir summaries de chats que no son suyos.
+  assignedToUserId?: string;
 }): Promise<ChatConversationSummary | null> {
   const phoneVariants = Array.from(new Set([
     input.phoneNumber,
@@ -194,6 +201,7 @@ export async function getAgentConversationSummaryByPhoneNumber(input: {
       workspaceId: input.workspaceId,
       channelId: channel.id,
       contactId: contact.id,
+      ...(input.assignedToUserId ? { assignedToUserId: input.assignedToUserId } : {}),
     },
     select: {
       id: true,

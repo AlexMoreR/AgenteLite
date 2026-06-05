@@ -126,13 +126,13 @@ export function AppSidebar({
                   href={buildFilterHref(tab.value)}
                   scroll={false}
                   aria-current={isActive ? "page" : undefined}
-                  className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-center text-[12px] font-medium transition ${
+                  className={`flex flex-1 items-center justify-center gap-1 whitespace-nowrap rounded-lg px-1.5 py-1.5 text-center text-[11px] font-medium transition ${
                     isActive
                       ? "bg-background text-foreground shadow-sm"
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  <span>{tab.label}</span>
+                  <span className="whitespace-nowrap">{tab.label}</span>
                   {countLabel != null ? (
                     <span
                       className={`inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold leading-none ${

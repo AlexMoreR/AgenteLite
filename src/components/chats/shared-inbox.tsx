@@ -19,12 +19,15 @@ import {
   Flag,
   Flower2,
   Grid2x2,
+  Headphones,
+  ImageIcon,
   Lightbulb,
   MessageCircle,
   MessageSquareText,
+  FileText,
   LoaderCircle,
   Mic,
-  Paperclip,
+  Plus,
   Pencil,
   PhoneIncoming,
   PhoneOutgoing,
@@ -33,6 +36,7 @@ import {
   SendHorizonal,
   Shapes,
   Smile,
+  Star,
   Tag,
   Trash2,
   UserRound,
@@ -61,6 +65,7 @@ import {
   usePendingConversationSelection,
   type PendingChatSelection,
 } from "./chat-selection-store";
+import { generateSuggestedReplyAction } from "@/app/actions/chats-actions";
 import { AppSidebar } from "./appsidebar";
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "../ui/breadcrumb";
 import { SidebarHeader, SidebarInput } from "../ui/sidebar";
@@ -2054,6 +2059,8 @@ const ConversationPanel = memo(function ConversationPanel({
   const [viewportHeight, setViewportHeight] = useState(0);
   const [scrollTop, setScrollTop] = useState(0);
   const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
+  const [isAttachMenuOpen, setIsAttachMenuOpen] = useState(false);
+  const [isSuggestingReply, setIsSuggestingReply] = useState(false);
   const [emojiSearchQuery, setEmojiSearchQuery] = useState("");
   const [emojiPickerTab, setEmojiPickerTab] = useState<ComposerEmojiTab>("todos");
   const [recentComposerEmojis, setRecentComposerEmojis] = useState<string[]>([]);
@@ -2074,6 +2081,7 @@ const ConversationPanel = memo(function ConversationPanel({
   const audioConfig = composer?.audio;
   const mediaConfig = composer?.media;
   const mediaFileInputRef = useRef<HTMLInputElement | null>(null);
+  const documentFileInputRef = useRef<HTMLInputElement | null>(null);
   const [isSendingMedia, setIsSendingMedia] = useState(false);
 
   const uploadAndSendMedia = useCallback(
@@ -2367,6 +2375,39 @@ const ConversationPanel = memo(function ConversationPanel({
     });
   }, []);
 
+  const handleSuggestReply = useCallback(async () => {
+    const conversationId = mediaConfig?.conversationId ?? audioConfig?.conversationId;
+    if (!conversationId || isSuggestingReply) {
+      return;
+    }
+
+    setIsSuggestingReply(true);
+    try {
+      const result = await generateSuggestedReplyAction(conversationId);
+      if (result.error || !result.suggestion) {
+        toast.error(result.error || "No se pudo generar la sugerencia");
+        return;
+      }
+
+      const textarea = composerTextAreaRef.current;
+      if (textarea) {
+        const suggestion = result.suggestion;
+        textarea.value = suggestion;
+        composerSelectionRef.current = { start: suggestion.length, end: suggestion.length };
+        setComposerHasText(suggestion.trim().length > 0);
+        window.requestAnimationFrame(() => {
+          textarea.focus();
+          textarea.setSelectionRange(suggestion.length, suggestion.length);
+        });
+      }
+    } catch (error) {
+      console.error("[handleSuggestReply] error", error);
+      toast.error("No se pudo generar la sugerencia");
+    } finally {
+      setIsSuggestingReply(false);
+    }
+  }, [mediaConfig?.conversationId, audioConfig?.conversationId, isSuggestingReply]);
+
   const { messageHeights, totalMessageHeight } = useMemo(() => {
     const nextHeights = renderedMessages.map((message) => estimateMessageBubbleHeight(message));
     return {
@@ -2649,33 +2690,6 @@ const ConversationPanel = memo(function ConversationPanel({
                   ))}
 
                   <div className="flex items-end gap-2 md:gap-3">
-                    {mediaConfig && !isRecordingAudio ? (
-                      <>
-                        <input
-                          ref={mediaFileInputRef}
-                          type="file"
-                          accept="image/*,video/*,application/pdf"
-                          className="hidden"
-                          onChange={(event) => {
-                            const file = event.currentTarget.files?.[0];
-                            event.currentTarget.value = "";
-                            if (file) {
-                              void uploadAndSendMedia(file);
-                            }
-                          }}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => mediaFileInputRef.current?.click()}
-                          disabled={isSendingMedia}
-                          aria-label="Adjuntar imagen, video o PDF"
-                          title="Adjuntar imagen, video o PDF"
-                          className="inline-flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-full border border-border bg-muted/80 text-muted-foreground transition hover:bg-muted hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:h-10 md:w-10"
-                        >
-                          <Paperclip className="h-5 w-5" />
-                        </button>
-                      </>
-                    ) : null}
                     {isRecordingAudio ? (
                       <div className="flex min-h-[44px] flex-1 items-center gap-2 rounded-2xl border border-border bg-muted/80 px-4 text-sm text-foreground md:min-h-[40px]">
                         <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-red-500" />
@@ -2686,6 +2700,106 @@ const ConversationPanel = memo(function ConversationPanel({
                       </div>
                     ) : (
                       <div className="flex min-h-[44px] min-w-0 flex-1 items-center gap-1 rounded-2xl border border-border bg-muted/80 px-1.5 transition focus-within:border-[var(--primary)] focus-within:bg-background focus-within:ring-2 focus-within:ring-ring/50 md:min-h-[40px]">
+                        {mediaConfig ? (
+                          <>
+                            <input
+                              ref={mediaFileInputRef}
+                              type="file"
+                              accept="image/*,video/*"
+                              className="hidden"
+                              onChange={(event) => {
+                                const file = event.currentTarget.files?.[0];
+                                event.currentTarget.value = "";
+                                if (file) {
+                                  void uploadAndSendMedia(file);
+                                }
+                              }}
+                            />
+                            <input
+                              ref={documentFileInputRef}
+                              type="file"
+                              accept="application/pdf"
+                              className="hidden"
+                              onChange={(event) => {
+                                const file = event.currentTarget.files?.[0];
+                                event.currentTarget.value = "";
+                                if (file) {
+                                  void uploadAndSendMedia(file);
+                                }
+                              }}
+                            />
+                            <Popover open={isAttachMenuOpen} onOpenChange={setIsAttachMenuOpen}>
+                              <PopoverTrigger asChild>
+                                <button
+                                  type="button"
+                                  disabled={isSendingMedia}
+                                  aria-label="Adjuntar"
+                                  title="Adjuntar"
+                                  className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-background hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:size-8"
+                                >
+                                  <Plus className="size-5" />
+                                </button>
+                              </PopoverTrigger>
+                              <PopoverContent
+                                align="start"
+                                side="top"
+                                sideOffset={12}
+                                className="w-[min(80vw,16rem)] rounded-2xl border border-border bg-popover p-1.5 shadow-[0_24px_60px_-24px_rgba(15,23,42,0.35)]"
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setIsAttachMenuOpen(false);
+                                    documentFileInputRef.current?.click();
+                                  }}
+                                  className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-foreground transition hover:bg-muted focus:outline-none focus-visible:bg-muted"
+                                >
+                                  <FileText className="h-5 w-5 shrink-0 text-[#7c5cff]" />
+                                  <span>Documento</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setIsAttachMenuOpen(false);
+                                    mediaFileInputRef.current?.click();
+                                  }}
+                                  className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-foreground transition hover:bg-muted focus:outline-none focus-visible:bg-muted"
+                                >
+                                  <ImageIcon className="h-5 w-5 shrink-0 text-[#2f9bff]" />
+                                  <span>Fotos y videos</span>
+                                </button>
+                                {audioConfig ? (
+                                  <button
+                                    type="button"
+                                    disabled={isSendingAudio}
+                                    onClick={() => {
+                                      setIsAttachMenuOpen(false);
+                                      void startAudioRecording();
+                                    }}
+                                    className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-foreground transition hover:bg-muted focus:outline-none focus-visible:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+                                  >
+                                    <Headphones className="h-5 w-5 shrink-0 text-[#ff7a59]" />
+                                    <span>Audio</span>
+                                  </button>
+                                ) : null}
+                              </PopoverContent>
+                            </Popover>
+                            <button
+                              type="button"
+                              onClick={() => void handleSuggestReply()}
+                              disabled={isSuggestingReply || isSendingAudio}
+                              aria-label="Respuesta sugerida con IA"
+                              title="Respuesta sugerida con IA"
+                              className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-background hover:text-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:size-8"
+                            >
+                              {isSuggestingReply ? (
+                                <LoaderCircle className="size-5 animate-spin" />
+                              ) : (
+                                <Star className="size-5" />
+                              )}
+                            </button>
+                          </>
+                        ) : null}
                         <Popover
                           open={isEmojiPickerOpen}
                           onOpenChange={(open) => {
@@ -3411,7 +3525,13 @@ export function SharedInbox({
       cancelled = true;
       controller.abort();
     };
-  }, [pendingConversation?.chatKey, selectedConversationId]);
+    // Dependemos solo de la clave efectiva (selectedConversationKey), no de
+    // pendingConversation.chatKey y selectedConversationId por separado. Si dependiera de
+    // ambos, cuando router.push actualiza selectedConversationId para "alcanzar" la
+    // selección pendiente, el efecto se re-ejecutaría con la MISMA clave efectiva: el
+    // cleanup abortaría el fetch en curso y la nueva corrida saldría por el guard de
+    // in-flight, dejando el historial sin cargar hasta un segundo click.
+  }, [selectedConversationKey]);
 
   useEffect(() => {
     const normalizedSelectedConversationId = (pendingConversation?.chatKey ?? selectedConversationId).trim();
@@ -3552,6 +3672,38 @@ export function SharedInbox({
       setOptimisticConversation(null);
     }
   }, [hasLoadedSelectedConversationContent, pendingConversation?.id, selectedConversationId]);
+
+  // Red de seguridad: si una seleccion pendiente nunca llega a resolverse (p. ej. el
+  // servidor no devuelve el chat porque ya no esta asignado a este usuario), el overlay
+  // "Historial" quedaria girando indefinidamente y confunde al empleado. Tras un tiempo
+  // prudente sin resolver, limpiamos la seleccion para volver al estado vacio en vez de
+  // dejar el spinner colgado.
+  useEffect(() => {
+    if (!pendingConversation?.id) {
+      return;
+    }
+
+    if (pendingConversation.id === selectedConversationId || hasLoadedSelectedConversationContent) {
+      return;
+    }
+
+    if (pendingConversation.hasCache || cachedConversationForCurrentSelection) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      clearPendingConversationSelection();
+      setOptimisticConversation(null);
+    }, 10000);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    cachedConversationForCurrentSelection,
+    hasLoadedSelectedConversationContent,
+    pendingConversation?.hasCache,
+    pendingConversation?.id,
+    selectedConversationId,
+  ]);
 
   useEffect(() => {
     if (!renderedConversation || renderedConversation.isPreview) {
