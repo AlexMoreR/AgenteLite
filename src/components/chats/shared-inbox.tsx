@@ -36,7 +36,7 @@ import {
   SendHorizonal,
   Shapes,
   Smile,
-  Star,
+  Sparkles,
   Tag,
   Trash2,
   UserRound,
@@ -2728,6 +2728,20 @@ const ConversationPanel = memo(function ConversationPanel({
                                 }
                               }}
                             />
+                            <button
+                              type="button"
+                              onClick={() => void handleSuggestReply()}
+                              disabled={isSuggestingReply || isSendingAudio}
+                              aria-label="Respuesta sugerida con IA"
+                              title="Respuesta sugerida con IA"
+                              className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-background hover:text-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:size-8"
+                            >
+                              {isSuggestingReply ? (
+                                <LoaderCircle className="size-5 animate-spin" />
+                              ) : (
+                                <Sparkles className="size-5" />
+                              )}
+                            </button>
                             <Popover open={isAttachMenuOpen} onOpenChange={setIsAttachMenuOpen}>
                               <PopoverTrigger asChild>
                                 <button
@@ -2784,20 +2798,6 @@ const ConversationPanel = memo(function ConversationPanel({
                                 ) : null}
                               </PopoverContent>
                             </Popover>
-                            <button
-                              type="button"
-                              onClick={() => void handleSuggestReply()}
-                              disabled={isSuggestingReply || isSendingAudio}
-                              aria-label="Respuesta sugerida con IA"
-                              title="Respuesta sugerida con IA"
-                              className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-background hover:text-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:size-8"
-                            >
-                              {isSuggestingReply ? (
-                                <LoaderCircle className="size-5 animate-spin" />
-                              ) : (
-                                <Star className="size-5" />
-                              )}
-                            </button>
                           </>
                         ) : null}
                         <Popover
