@@ -1161,14 +1161,15 @@ export async function POST(request: Request) {
           },
         });
       } else {
-        await persistEvolutionMessage({
-          data: {
-            ...messageData,
-            content: messageText,
-            deletedAt: new Date(),
-          },
+        // No creamos una burbuja nueva para un borrado cuyo mensaje original no
+        // tenemos: Evolution reenvia el "revoke" de mensajes que ya marcamos como
+        // eliminados (p. ej. al borrar desde el CRM) y crear uno nuevo generaba
+        // burbujas "Eliminado" duplicadas.
+        console.warn("[EVOLUTION] delete_without_match_ignored", {
+          instanceName,
+          channelId: channel.id,
+          messageExternalId,
         });
-        shouldTouchConversation = true;
       }
     } else if (isCallEvent && messageExternalId) {
       const callMessageWhere = {

@@ -51,6 +51,9 @@ type AppShellProps = {
     expiresAtLabel: string;
     paymentHref: string;
   } | null;
+  // Estado inicial del sidebar leído de la cookie `sidebar_state` en el server,
+  // para que persista entre recargas.
+  sidebarDefaultOpen?: boolean;
 };
 
 const breadcrumbLabels: Record<string, string> = {
@@ -158,6 +161,7 @@ export function AppShell({
   chatSidebarItems,
   clientPlanAlert,
   clientPlanBlock,
+  sidebarDefaultOpen = true,
 }: AppShellProps) {
   const { data } = useSession();
   const pathname = usePathname();
@@ -214,7 +218,7 @@ export function AppShell({
 
   if (user) {
     return (
-      <SidebarProvider>
+      <SidebarProvider defaultOpen={sidebarDefaultOpen}>
         <AppSidebar
           adminModuleAccess={adminModuleAccess}
           brandName={brandName}

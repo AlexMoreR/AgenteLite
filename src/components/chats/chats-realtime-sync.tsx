@@ -29,7 +29,9 @@ type ChatsRealtimeSyncProps = {
 
 type RefreshPriority = "active" | "background";
 
-const CHAT_REALTIME_DEBUG = process.env.NODE_ENV !== "production";
+// Logs de depuración del realtime desactivados. Poner en true puntualmente si se
+// necesita diagnosticar el socket de Evolution; en desarrollo normal ensucian la consola.
+const CHAT_REALTIME_DEBUG = false;
 const ACTIVE_REFRESH_DELAY_MS = 180;
 const BACKGROUND_REFRESH_DELAY_MS = 1200;
 const ACTIVE_REFRESH_MIN_GAP_MS = 350;

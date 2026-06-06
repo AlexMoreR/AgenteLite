@@ -12,7 +12,8 @@ import { setPendingConversationSelection } from "./chat-selection-store";
 import { readConversationFromCache } from "./chat-history-cache";
 import type { SharedInboxConversationItem } from "./shared-inbox";
 
-const CHAT_LIST_DEBUG = process.env.NODE_ENV !== "production";
+// Logs de depuración desactivados (ensuciaban la consola en desarrollo).
+const CHAT_LIST_DEBUG = false;
 
 function debugConversationList(...args: unknown[]) {
   if (!CHAT_LIST_DEBUG) {

@@ -90,7 +90,8 @@ import { Switch } from "../ui/switch";
 
 const CHAT_TIME_ZONE = "America/Bogota";
 const CONVERSATION_LIST_LOAD_BATCH_SIZE = 10;
-const CHAT_LIST_DEBUG = process.env.NODE_ENV !== "production";
+// Logs de depuración de la lista desactivados (ensuciaban la consola en desarrollo).
+const CHAT_LIST_DEBUG = false;
 const CHAT_COMPOSER_RECENT_KEY = "shared-inbox:composer-recent-emojis";
 
 type ComposerEmojiCategory =
@@ -2159,9 +2160,6 @@ const MessageBubble = memo(function MessageBubble({
   );
 });
 
-const MESSAGE_VIRTUALIZATION_THRESHOLD = 28;
-const MESSAGE_VIRTUALIZATION_OVERSCAN_PX = 720;
-const messageBubbleHeightCache = new WeakMap<SharedInboxMessageItem, number>();
 const CHAT_MESSAGES_BACKGROUND_BASE_STYLE = {
   backgroundColor: "var(--background)",
 } as const;
@@ -2172,34 +2170,6 @@ const CHAT_MESSAGES_BACKGROUND_OVERLAY_STYLE = {
   backgroundSize: "540px 960px",
   backgroundPosition: "0 0",
 } as const;
-
-function estimateMessageBubbleHeight(message: SharedInboxMessageItem) {
-  const cachedHeight = messageBubbleHeightCache.get(message);
-  if (cachedHeight !== undefined) {
-    return cachedHeight;
-  }
-
-  const contentLength = message.content?.trim().length ?? 0;
-  let height: number;
-
-  if (message.type === "IMAGE") {
-    height = 392;
-  } else if (message.type === "VIDEO") {
-    height = 340;
-  } else if (message.type === "STICKER") {
-    height = 240;
-  } else if (message.type === "AUDIO") {
-    height = 152;
-  } else if (message.type === "DOCUMENT") {
-    height = 128;
-  } else {
-    const estimatedTextLines = Math.max(1, Math.ceil(contentLength / 46));
-    height = Math.min(92 + (estimatedTextLines - 1) * 20, 320);
-  }
-
-  messageBubbleHeightCache.set(message, height);
-  return height;
-}
 
 type ConversationPanelProps = {
   backHref: string;
@@ -2270,8 +2240,6 @@ const ConversationPanel = memo(function ConversationPanel({
   headerBadge,
 }: ConversationPanelProps) {
   const canLoadOlderMessages = Boolean(renderedConversation?.loadMoreCursor && renderedConversation.hasMoreMessages);
-  const [viewportHeight, setViewportHeight] = useState(0);
-  const [scrollTop, setScrollTop] = useState(0);
   const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
   const [isAttachMenuOpen, setIsAttachMenuOpen] = useState(false);
   const [isSuggestingReply, setIsSuggestingReply] = useState(false);
@@ -2279,7 +2247,6 @@ const ConversationPanel = memo(function ConversationPanel({
   const [emojiPickerTab, setEmojiPickerTab] = useState<ComposerEmojiTab>("todos");
   const [recentComposerEmojis, setRecentComposerEmojis] = useState<string[]>([]);
   const [recentComposerEmojisReady, setRecentComposerEmojisReady] = useState(false);
-  const scrollFrameRef = useRef<number | null>(null);
   const composerTextAreaRef = useRef<HTMLTextAreaElement | null>(null);
   const composerSelectionRef = useRef({ start: 0, end: 0 });
   const composerRouter = useRouter();
@@ -2506,47 +2473,6 @@ const ConversationPanel = memo(function ConversationPanel({
   }, [recentComposerEmojis, recentComposerEmojisReady]);
 
   useEffect(() => {
-    const container = messagesScrollRef.current;
-    if (!container) {
-      return;
-    }
-
-    function updateViewportHeight() {
-      const nextHeight = container?.clientHeight ?? 0;
-      setViewportHeight((current) => (current === nextHeight ? current : nextHeight));
-    }
-
-    function updateScrollTop() {
-      if (scrollFrameRef.current !== null) {
-        return;
-      }
-
-      scrollFrameRef.current = window.requestAnimationFrame(() => {
-        scrollFrameRef.current = null;
-        const nextScrollTop = container?.scrollTop ?? 0;
-        setScrollTop((current) => (current === nextScrollTop ? current : nextScrollTop));
-      });
-    }
-
-    updateViewportHeight();
-    updateScrollTop();
-    container.addEventListener("scroll", updateScrollTop, { passive: true });
-
-    const resizeObserver = new ResizeObserver(updateViewportHeight);
-    resizeObserver.observe(container);
-
-    return () => {
-      if (scrollFrameRef.current !== null) {
-        window.cancelAnimationFrame(scrollFrameRef.current);
-        scrollFrameRef.current = null;
-      }
-
-      container.removeEventListener("scroll", updateScrollTop);
-      resizeObserver.disconnect();
-    };
-  }, [messagesScrollRef]);
-
-  useEffect(() => {
     composerSelectionRef.current = { start: 0, end: 0 };
     setIsEmojiPickerOpen(false);
     setEmojiSearchQuery("");
@@ -2638,58 +2564,6 @@ const ConversationPanel = memo(function ConversationPanel({
       setIsSuggestingReply(false);
     }
   }, [mediaConfig?.conversationId, audioConfig?.conversationId, isSuggestingReply, autoResizeComposer]);
-
-  const { messageHeights, totalMessageHeight } = useMemo(() => {
-    const nextHeights = renderedMessages.map((message) => estimateMessageBubbleHeight(message));
-    return {
-      messageHeights: nextHeights,
-      totalMessageHeight: nextHeights.reduce((sum, height) => sum + height, 0),
-    };
-  }, [renderedMessages]);
-
-  const virtualizedMessages = useMemo(() => {
-    if (renderedMessages.length <= MESSAGE_VIRTUALIZATION_THRESHOLD || viewportHeight <= 0) {
-      return {
-        start: 0,
-        end: renderedMessages.length,
-        topSpacer: 0,
-        bottomSpacer: 0,
-      };
-    }
-
-    const overscanTop = Math.max(0, scrollTop - MESSAGE_VIRTUALIZATION_OVERSCAN_PX);
-    const overscanBottom = scrollTop + viewportHeight + MESSAGE_VIRTUALIZATION_OVERSCAN_PX;
-    let start = 0;
-    let accumulatedTop = 0;
-
-    while (start < messageHeights.length && accumulatedTop + messageHeights[start] < overscanTop) {
-      accumulatedTop += messageHeights[start];
-      start += 1;
-    }
-
-    let end = start;
-    let accumulatedBottom = accumulatedTop;
-
-    while (end < messageHeights.length && accumulatedBottom < overscanBottom) {
-      accumulatedBottom += messageHeights[end];
-      end += 1;
-    }
-
-    return {
-      start,
-      end,
-      topSpacer: accumulatedTop,
-      bottomSpacer: Math.max(0, totalMessageHeight - accumulatedBottom),
-    };
-  }, [messageHeights, renderedMessages.length, scrollTop, totalMessageHeight, viewportHeight]);
-
-  const visibleMessages = useMemo(() => {
-    if (virtualizedMessages.start === 0 && virtualizedMessages.end === renderedMessages.length) {
-      return renderedMessages;
-    }
-
-    return renderedMessages.slice(virtualizedMessages.start, virtualizedMessages.end);
-  }, [renderedMessages, virtualizedMessages.end, virtualizedMessages.start]);
 
   return (
     <Card
@@ -2827,9 +2701,6 @@ const ConversationPanel = memo(function ConversationPanel({
                     !hasSettledConversation ? "opacity-85" : "opacity-100"
                   }`}
                 >
-                  {virtualizedMessages.topSpacer > 0 ? (
-                    <div aria-hidden="true" style={{ height: virtualizedMessages.topSpacer }} />
-                  ) : null}
                   {canLoadOlderMessages ? (
                     <div className="pb-2 pt-1">
                       <div ref={loadMoreSentinelRef} aria-hidden="true" className="h-px w-full" />
@@ -2867,24 +2738,18 @@ const ConversationPanel = memo(function ConversationPanel({
                     </div>
                   ) : null}
                   <div className="space-y-2.5 md:space-y-3">
-                    {visibleMessages.map((message, index) => {
-                      const absoluteIndex = virtualizedMessages.start + index;
-                      return (
-                        <MessageBubble
-                          key={message.id}
-                          message={message}
-                          previousMessage={renderedMessages[absoluteIndex - 1]}
-                          onRetry={
-                            message.outboundStatusLabel === "error" ? onRetryFailedMessage : undefined
-                          }
-                          onReply={onReplyToMessage}
-                          onDelete={onDeleteMessage}
-                        />
-                      );
-                    })}
-                    {virtualizedMessages.bottomSpacer > 0 ? (
-                      <div aria-hidden="true" style={{ height: virtualizedMessages.bottomSpacer }} />
-                    ) : null}
+                    {renderedMessages.map((message, index) => (
+                      <MessageBubble
+                        key={message.id}
+                        message={message}
+                        previousMessage={renderedMessages[index - 1]}
+                        onRetry={
+                          message.outboundStatusLabel === "error" ? onRetryFailedMessage : undefined
+                        }
+                        onReply={onReplyToMessage}
+                        onDelete={onDeleteMessage}
+                      />
+                    ))}
                     {messageScrollBehavior === "preserve" ? (
                       <ChatScrollAnchor dependencyKey={selectedConversationScrollKey} behavior="preserve" />
                     ) : null}
@@ -4099,6 +3964,10 @@ export function SharedInbox({
           ),
     [baseRenderedMessages, deletedMessageIds],
   );
+  // Ref para leer el último mensaje dentro de efectos sin meter el array en deps
+  // (un array en deps cambia de tamaño y React lanza error).
+  const renderedMessagesRef = useRef(renderedMessages);
+  renderedMessagesRef.current = renderedMessages;
 
   useEffect(() => {
     if (!optimisticOutgoingMessage || !renderedConversation) {
@@ -4288,8 +4157,6 @@ export function SharedInbox({
   loadMoreHrefRef.current = renderedConversation?.loadMoreHref ?? null;
   const messageScrollBehaviorRef = useRef(messageScrollBehavior);
   messageScrollBehaviorRef.current = messageScrollBehavior;
-  const settledConversationBottomScrollAppliedRef = useRef("");
-  const settledConversationBottomScrollTimeoutRef = useRef<number | null>(null);
   const composerHiddenFields = composer
     ? buildComposerHiddenFields(
         composer.hiddenFields,
@@ -4336,14 +4203,6 @@ export function SharedInbox({
   const selectedConversationScrollKey = renderedConversation
     ? `${renderedConversation.id}:${renderedMessages.length}:${renderedMessages.at(-1)?.id ?? ""}`
     : "empty";
-  const selectedConversationMessageCount = useMemo(() => {
-    if (selectedConversationScrollKey === "empty") {
-      return 0;
-    }
-
-    const count = Number(selectedConversationScrollKey.split(":")[1]);
-    return Number.isFinite(count) ? count : 0;
-  }, [selectedConversationScrollKey]);
   const hasSidebar = sidebarItems.length > 0;
 
   useEffect(() => {
@@ -4362,11 +4221,6 @@ export function SharedInbox({
     lastScrollTopRef.current = 0;
     historyLoadArmedRef.current = false;
     historyLoadConsumedRef.current = false;
-    settledConversationBottomScrollAppliedRef.current = "";
-    if (settledConversationBottomScrollTimeoutRef.current !== null) {
-      window.clearTimeout(settledConversationBottomScrollTimeoutRef.current);
-      settledConversationBottomScrollTimeoutRef.current = null;
-    }
   }, [selectedConversationId]);
 
   // Track whether the user is near the bottom of the message list and only arm
@@ -4436,10 +4290,10 @@ export function SharedInbox({
 
     if (loadMoreHistoryRestoreRef.current) {
       const restore = loadMoreHistoryRestoreRef.current;
-      // Anclamos a la distancia desde el fondo: al cargar mensajes antiguos arriba, el
-      // contenido inferior no cambia, asi que mantener (scrollHeight - scrollTop) constante
-      // conserva la vista exacta. Re-fijamos durante varios frames porque la virtualizacion
-      // reemplaza alturas estimadas por reales y el scrollHeight se ajusta despues del render.
+      // Al cargar mensajes antiguos arriba, el contenido inferior no cambia, así que
+      // mantener (scrollHeight - scrollTop) constante conserva la vista exacta. Como ya
+      // no hay virtualización, la altura es real: basta fijar antes del paint (este
+      // useLayoutEffect) + un par de frames por si algún media termina de cargar.
       const distanceFromBottom = Math.max(0, restore.scrollHeight - restore.scrollTop);
       const pinScroll = () => {
         const el = messagesScrollRef.current;
@@ -4447,15 +4301,7 @@ export function SharedInbox({
         el.scrollTop = Math.max(0, el.scrollHeight - distanceFromBottom);
       };
       pinScroll();
-      let frames = 0;
-      const repin = () => {
-        pinScroll();
-        frames += 1;
-        if (frames < 6) {
-          window.requestAnimationFrame(repin);
-        }
-      };
-      window.requestAnimationFrame(repin);
+      window.requestAnimationFrame(pinScroll);
       loadMoreHistoryRestoreRef.current = null;
       return;
     }
@@ -4514,88 +4360,18 @@ export function SharedInbox({
       return;
     }
 
-    if (isNearBottomRef.current) {
+    // Bajar SOLO cuando el último mensaje es el que TÚ acabas de enviar (burbuja
+    // optimista). Los mensajes que llegan por realtime (entrantes o respuestas del
+    // bot) NO mueven el scroll; si son entrantes, solo suman al contador de no leídos.
+    const lastMessage = renderedMessagesRef.current.at(-1);
+    const lastMessageIsOwnDraft =
+      typeof lastMessage?.id === "string" && lastMessage.id.startsWith("optimistic:");
+    if (lastMessageIsOwnDraft) {
       jumpToBottom(true);
-    } else {
+    } else if (lastMessage?.direction === "INBOUND") {
       setUnreadCount((prev) => prev + added);
     }
   }, [selectedConversationScrollKey, messageScrollBehavior]);
-
-  useLayoutEffect(() => {
-    if (messageScrollBehavior !== "bottom") {
-      return;
-    }
-
-    if (!hasSettledConversation || selectedConversationMessageCount <= 1) {
-      return;
-    }
-
-    if (settledConversationBottomScrollAppliedRef.current === selectedConversationId) {
-      return;
-    }
-
-    const container = messagesScrollRef.current;
-    if (!container) {
-      return;
-    }
-
-    settledConversationBottomScrollAppliedRef.current = selectedConversationId;
-
-    const frame = window.requestAnimationFrame(() => {
-      container.scrollTop = container.scrollHeight;
-      isNearBottomRef.current = true;
-      setUnreadCount(0);
-    });
-
-    return () => window.cancelAnimationFrame(frame);
-  }, [
-    hasSettledConversation,
-    messageScrollBehavior,
-    selectedConversationId,
-    selectedConversationMessageCount,
-  ]);
-
-  useEffect(() => {
-    if (messageScrollBehavior !== "bottom") {
-      return;
-    }
-
-    if (!hasSettledConversation || selectedConversationMessageCount <= 1) {
-      return;
-    }
-
-    if (!selectedConversationId) {
-      return;
-    }
-
-    if (settledConversationBottomScrollTimeoutRef.current !== null) {
-      window.clearTimeout(settledConversationBottomScrollTimeoutRef.current);
-    }
-
-    settledConversationBottomScrollTimeoutRef.current = window.setTimeout(() => {
-      const container = messagesScrollRef.current;
-      if (!container) {
-        return;
-      }
-
-      container.scrollTop = container.scrollHeight;
-      isNearBottomRef.current = true;
-      setUnreadCount(0);
-      settledConversationBottomScrollTimeoutRef.current = null;
-    }, 180);
-
-    return () => {
-      if (settledConversationBottomScrollTimeoutRef.current !== null) {
-        window.clearTimeout(settledConversationBottomScrollTimeoutRef.current);
-        settledConversationBottomScrollTimeoutRef.current = null;
-      }
-    };
-  }, [
-    hasSettledConversation,
-    messageScrollBehavior,
-    selectedConversationId,
-    selectedConversationMessageCount,
-  ]);
 
   const scrollToBottom = useCallback(() => {
     const container = messagesScrollRef.current;

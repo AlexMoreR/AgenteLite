@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import type { CSSProperties } from "react";
+import { cookies } from "next/headers";
 import Script from "next/script";
 import { Geist_Mono, Poppins, Geist } from "next/font/google";
 import { auth } from "@/auth";
@@ -105,6 +106,11 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const session = await auth();
+  // Persistir el estado del sidebar entre recargas: el SidebarProvider escribe la
+  // cookie `sidebar_state` al colapsar/expandir; aquí la leemos en el server para que
+  // el primer render ya respete ese estado (sin parpadeo de hidratación).
+  const cookieStore = await cookies();
+  const sidebarDefaultOpen = cookieStore.get("sidebar_state")?.value !== "false";
   const primaryWorkspace = session?.user?.id ? await getPrimaryWorkspaceForUser(session.user.id) : null;
   const isClientAreaRole = session?.user?.role === "CLIENTE" || session?.user?.role === "EMPLEADO";
   const clientWorkspace = isClientAreaRole ? primaryWorkspace : null;
@@ -208,6 +214,7 @@ export default async function RootLayout({
             chatSidebarItems={chatSidebarItems}
             clientPlanAlert={clientPlanAlert}
             clientPlanBlock={clientPlanBlock}
+            sidebarDefaultOpen={sidebarDefaultOpen}
           >
             {children}
           </AppShell>
