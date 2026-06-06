@@ -1729,8 +1729,20 @@ export async function POST(request: Request) {
         data: conversationUpdateData,
       });
 
-      if (hardFlowResolution?.activeProductContext && previousActiveProductContext) {
-        const activeProductContextNote = buildActiveProductContextNote(hardFlowResolution.activeProductContext);
+      // Los modos default/ia enganchan en dos turnos: el contexto del producto
+      // solo se inyecta cuando el producto ya estaba activo. En modo CHATBOT
+      // (activacion por palabras clave) el envio es deterministico, asi que si
+      // no hubo un flujo que enviar le damos el contexto a la IA desde el primer
+      // turno para que responda sobre el producto y no solo con el saludo.
+      const resolvedActiveProductContext = hardFlowResolution?.activeProductContext ?? null;
+      const resolvedProductIsChatbot = /Activacion:\s*chatbot/i.test(
+        resolvedActiveProductContext?.instructions ?? "",
+      );
+      if (
+        resolvedActiveProductContext &&
+        (previousActiveProductContext || (resolvedProductIsChatbot && !hardFlowReply))
+      ) {
+        const activeProductContextNote = buildActiveProductContextNote(resolvedActiveProductContext);
         if (activeProductContextNote) {
           aiContextNotes.add(activeProductContextNote);
         }

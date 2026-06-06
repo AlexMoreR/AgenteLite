@@ -67,6 +67,13 @@ function normalizeText(value: string) {
     .trim();
 }
 
+type ProductActivationMode = "default" | "ia" | "chatbot";
+
+function parseProductActivationMode(instructions: string | null): ProductActivationMode {
+  const match = instructions?.match(/Activacion:\s*(default|ia|chatbot)/i);
+  return (match?.[1]?.toLowerCase() as ProductActivationMode | undefined) ?? "default";
+}
+
 function tokenize(value: string) {
   const stopWords = new Set([
     "el",
@@ -584,6 +591,8 @@ export async function resolveAgentProductFlowReply(input: {
 
   if (matchedProduct) {
     const instructions = matchedProduct.instructions?.trim() || "";
+    const activationMode = parseProductActivationMode(instructions);
+    const isChatbotActivation = activationMode === "chatbot";
     const hasPriorSameProductContext =
       input.activeProductContext?.productId === matchedProduct.productId &&
       Boolean(input.activeProductContext?.followUpFlowId?.trim());
@@ -599,7 +608,13 @@ export async function resolveAgentProductFlowReply(input: {
       followUpFlowId: matchedProduct.followUpFlowId ?? null,
     };
 
-    if (!hasPriorSameProductContext) {
+    // Para productos con activacion CHATBOT (por palabras clave) el envio del
+    // embudo es deterministico: si las palabras clave coinciden, enviamos el
+    // flujo del producto de inmediato en la primera interaccion, sin esperar
+    // un segundo turno. Los modos default/ia mantienen el enganche en dos turnos.
+    const shouldResolveFunnelFlow = hasPriorSameProductContext || isChatbotActivation;
+
+    if (!shouldResolveFunnelFlow) {
       if (process.env.NODE_ENV !== "production") {
         console.info("[agent-product-flow] follow-up blocked", {
           agentId: input.agentId,
@@ -626,7 +641,17 @@ export async function resolveAgentProductFlowReply(input: {
       };
     }
 
-    const flowTitles = availableFlowCandidates.map((flow) => flow.title);
+    // En modo chatbot habilitamos el flujo hijo del propio producto para que
+    // sea elegible aunque sea la primera interaccion (no hay contexto previo).
+    const productFollowUpFlowId = matchedProduct.followUpFlowId?.trim() || "";
+    const productEnabledChildFlowIds = isChatbotActivation && productFollowUpFlowId
+      ? new Set([...enabledChildFlowIds, productFollowUpFlowId])
+      : enabledChildFlowIds;
+    const productFlowCandidates = isChatbotActivation
+      ? flowCandidates.filter((flow) => !flow.isChildFlow || productEnabledChildFlowIds.has(flow.id))
+      : availableFlowCandidates;
+
+    const flowTitles = productFlowCandidates.map((flow) => flow.title);
     const references = extractFlowReferences(instructions, flowTitles);
     const flowByNormalizedTitle = new Map(flowTargets.map((flow) => [normalizeText(flow.title), flow]));
     const referencedFlowIds = references
@@ -636,7 +661,7 @@ export async function resolveAgentProductFlowReply(input: {
           return false;
         }
 
-        return candidateFlowIds.has(value);
+        return candidateFlowIds.has(value) || value === productFollowUpFlowId;
       });
 
     if (referencedFlowIds.length > 0) {
@@ -662,6 +687,36 @@ export async function resolveAgentProductFlowReply(input: {
           flowTitle: referencedFlow?.title ?? matchedProduct.name,
           productName: matchedProduct.name,
           flowId: referencedFlowIds[0],
+          aiFollowUpEnabled: reply.aiFollowUpEnabled,
+          activeProductContext,
+        };
+      }
+    }
+
+    // Fallback chatbot: si el embudo no referencia un flujo en su texto,
+    // enviamos el "Flujo hijo del embudo" configurado para el producto.
+    if (isChatbotActivation && productFollowUpFlowId) {
+      const reply = await getFlowReply({
+        workspaceId: input.workspaceId,
+        flowId: productFollowUpFlowId,
+        includeOfficialApi: input.includeOfficialApi,
+      });
+
+      if (reply) {
+        if (process.env.NODE_ENV !== "production") {
+          console.info("[agent-product-flow] chatbot-follow-up-flow-hit", {
+            agentId: input.agentId,
+            productName: matchedProduct.name,
+            followUpFlowId: productFollowUpFlowId,
+          });
+        }
+
+        const followUpFlow = flowTargets.find((flow) => flow.id === productFollowUpFlowId);
+        return {
+          steps: reply.steps,
+          flowTitle: followUpFlow?.title ?? matchedProduct.name,
+          productName: matchedProduct.name,
+          flowId: productFollowUpFlowId,
           aiFollowUpEnabled: reply.aiFollowUpEnabled,
           activeProductContext,
         };

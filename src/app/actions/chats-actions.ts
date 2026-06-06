@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { auth } from "@/auth";
-import { sendManualAgentReplyAction } from "@/app/actions/agent-actions";
+import { sendManualAgentReplyAction, type SendChatReplyResult } from "@/app/actions/agent-actions";
 import { generateAgentReply } from "@/lib/agent-ai";
 import { buildActiveProductContextNote, type ActiveProductContext } from "@/lib/agent-product-flow";
 import { createFollowsFromRulesForSource } from "@/features/seguimientos/services/follows";
@@ -371,6 +371,7 @@ const sendUnifiedChatReplySchema = z.object({
   message: z.string().trim().min(1).max(4096),
   agentId: z.string().trim().optional(),
   returnTo: z.string().trim().min(1).max(500).optional(),
+  quotedMessageId: z.string().trim().optional(),
 });
 
 const toggleConversationAutomationSchema = z.object({
@@ -378,30 +379,34 @@ const toggleConversationAutomationSchema = z.object({
   returnTo: z.string().trim().min(1).max(500),
 });
 
-export async function sendUnifiedChatReplyAction(formData: FormData): Promise<void> {
+export async function sendUnifiedChatReplyAction(formData: FormData): Promise<SendChatReplyResult> {
   const parsed = sendUnifiedChatReplySchema.safeParse({
     source: formData.get("source"),
     conversationId: formData.get("conversationId"),
     message: formData.get("message"),
     agentId: formData.get("agentId"),
     returnTo: formData.get("returnTo"),
+    quotedMessageId: formData.get("quotedMessageId"),
   });
 
+  // Errores como resultado (sin redirect) para mostrarlos en la burbuja sin recarga.
   if (!parsed.success) {
-    redirect("/cliente/chats?error=No+se+pudo+enviar+el+mensaje");
+    return { ok: false, error: "No se pudo enviar el mensaje" };
+  }
+
+  if (!parsed.data.agentId) {
+    return { ok: false, error: "No se encontro el agente" };
   }
 
   const safeReturnTo = normalizeInternalPath(parsed.data.returnTo, "");
-
-  if (!parsed.data.agentId) {
-    redirect("/cliente/chats?error=No+se+encontro+el+agente");
-  }
-
   const nextData = new FormData();
   nextData.set("agentId", parsed.data.agentId);
   nextData.set("conversationId", parsed.data.conversationId);
   nextData.set("message", parsed.data.message);
   nextData.set("returnTo", safeReturnTo || `/cliente/chats?chatKey=agent:${parsed.data.conversationId}`);
+  if (parsed.data.quotedMessageId) {
+    nextData.set("quotedMessageId", parsed.data.quotedMessageId);
+  }
   return sendManualAgentReplyAction(nextData);
 }
 

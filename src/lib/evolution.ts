@@ -854,6 +854,7 @@ export async function sendEvolutionTextMessage(input: {
   phoneNumber: string;
   text: string;
   delayMs?: number;
+  quoted?: { id: string; text?: string } | null;
 }) {
   const response = await evolutionRequest<EvolutionSendTextResponse>(`/message/sendText/${input.instanceName}`, {
     method: "POST",
@@ -861,6 +862,14 @@ export async function sendEvolutionTextMessage(input: {
       number: input.phoneNumber,
       text: input.text,
       delay: input.delayMs ?? 1200,
+      ...(input.quoted?.id
+        ? {
+            quoted: {
+              key: { id: input.quoted.id },
+              message: { conversation: input.quoted.text ?? "" },
+            },
+          }
+        : {}),
     }),
   });
 

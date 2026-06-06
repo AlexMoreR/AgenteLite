@@ -115,6 +115,7 @@ const sendManualAgentReplySchema = z.object({
   conversationId: z.string().trim().min(1, "Conversacion invalida"),
   message: z.string().trim().min(1, "Escribe un mensaje").max(2000, "Mensaje demasiado largo"),
   returnTo: z.string().trim().max(500).optional(),
+  quotedMessageId: z.string().trim().optional(),
 });
 
 const saveAgentReactivationMessageSchema = z.object({
@@ -2525,7 +2526,11 @@ export async function toggleAgentStatusAction(formData: FormData): Promise<void>
   redirect(`/cliente/agentes?ok=${nextStatus === "ACTIVE" ? "Agente+encendido" : "Agente+apagado"}`);
 }
 
-export async function sendManualAgentReplyAction(formData: FormData): Promise<void> {
+export type SendChatReplyResult =
+  | { ok: true; suppressOptimistic?: boolean }
+  | { ok: false; error: string };
+
+export async function sendManualAgentReplyAction(formData: FormData): Promise<SendChatReplyResult> {
   const session = await auth();
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     redirect("/unauthorized");
@@ -2539,22 +2544,15 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<vo
     returnTo: formData.get("returnTo"),
   });
 
-  const fallbackAgentId = String(formData.get("agentId") || "");
-  const fallbackReturnTo = normalizeInternalPath(String(formData.get("returnTo") || ""), "");
-  const returnToPath = parsed.success && parsed.data.returnTo
-    ? normalizeInternalPath(parsed.data.returnTo, "").split("?")[0]
-    : fallbackReturnTo.split("?")[0];
-
+  // Errores devueltos como resultado (sin redirect): el inbox los valida
+  // internamente y los muestra en la burbuja, sin navegacion ni efecto de recarga.
   if (!parsed.success) {
-    if (fallbackReturnTo) {
-      redirect(`${fallbackReturnTo}${fallbackReturnTo.includes("?") ? "&" : "?"}error=No+se+pudo+enviar+el+mensaje`);
-    }
-    redirect(`/cliente/agentes/${fallbackAgentId}/chats?error=No+se+pudo+enviar+el+mensaje`);
+    return { ok: false, error: "No se pudo enviar el mensaje" };
   }
 
   const membership = await getPrimaryWorkspaceForUser(session.user.id);
   if (!membership) {
-    redirect("/cliente/agentes?error=Debes+configurar+tu+negocio+primero");
+    return { ok: false, error: "Debes configurar tu negocio primero" };
   }
 
   const conversation = await prisma.conversation.findFirst({
@@ -2580,11 +2578,7 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<vo
   });
 
   if (!conversation || conversation.channel?.provider !== "EVOLUTION" || !conversation.channel.evolutionInstanceName || !conversation.contact?.phoneNumber) {
-    const safeReturnTo = normalizeInternalPath(parsed.data.returnTo, "");
-    if (safeReturnTo) {
-      redirect(`${safeReturnTo}${safeReturnTo.includes("?") ? "&" : "?"}error=No+se+encontro+el+canal+o+contacto`);
-    }
-    redirect(`/cliente/agentes/${parsed.data.agentId}/chats?error=No+se+encontro+el+canal+o+contacto`);
+    return { ok: false, error: "No se encontro el canal o contacto" };
   }
 
   const quickResponseFlow = await resolveEvolutionQuickResponseFlow({
@@ -2770,21 +2764,40 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<vo
       },
     });
 
-    const safeReturnTo = normalizeInternalPath(parsed.data.returnTo, "");
-    if (safeReturnTo) {
-      revalidatePath(returnToPath);
-      redirect(`${safeReturnTo}${safeReturnTo.includes("?") ? "&" : "?"}ok=Flujo+enviado`);
-    }
-
-    revalidatePath(`/cliente/agentes/${parsed.data.agentId}/chats`);
-    redirect(`/cliente/agentes/${parsed.data.agentId}/chats?conversationId=${conversation.id}&ok=Flujo+enviado`);
+    // Flujo disparado: los pasos del flujo ya se enviaron y apareceran por realtime.
+    // Quitamos la burbuja optimista del texto escrito (no se envia tal cual al cliente).
+    return { ok: true, suppressOptimistic: true };
   }
 
-  const outbound = await sendEvolutionTextMessage({
-    instanceName: conversation.channel.evolutionInstanceName,
-    phoneNumber: conversation.contact.phoneNumber,
-    text: parsed.data.message,
-  });
+  // Mensaje citado (Responder): buscamos el original para mandar la cita a Evolution
+  // y guardar un preview que renderizamos en la burbuja.
+  const quotedMessage = parsed.data.quotedMessageId
+    ? await prisma.message.findFirst({
+        where: {
+          id: parsed.data.quotedMessageId,
+          workspaceId: membership.workspace.id,
+          conversationId: conversation.id,
+        },
+        select: { externalId: true, content: true, direction: true, type: true },
+      })
+    : null;
+  const replyTo = quotedMessage
+    ? { content: quotedMessage.content ?? "", direction: quotedMessage.direction, type: quotedMessage.type }
+    : null;
+
+  let outbound: Awaited<ReturnType<typeof sendEvolutionTextMessage>>;
+  try {
+    outbound = await sendEvolutionTextMessage({
+      instanceName: conversation.channel.evolutionInstanceName,
+      phoneNumber: conversation.contact.phoneNumber,
+      text: parsed.data.message,
+      quoted: quotedMessage?.externalId
+        ? { id: quotedMessage.externalId, text: quotedMessage.content ?? "" }
+        : null,
+    });
+  } catch {
+    return { ok: false, error: "No se pudo enviar el mensaje" };
+  }
 
   await prisma.message.create({
     data: {
@@ -2802,6 +2815,7 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<vo
       rawPayload: {
         source: "manual",
         evolution: outbound.raw,
+        ...(replyTo ? { replyTo } : {}),
       } as never,
     },
   });
@@ -2825,14 +2839,11 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<vo
     paused: true,
   });
 
-  const safeReturnTo = normalizeInternalPath(parsed.data.returnTo, "");
-  if (safeReturnTo) {
-    revalidatePath(returnToPath);
-    redirect(`${safeReturnTo}${safeReturnTo.includes("?") ? "&" : "?"}ok=Mensaje+enviado`);
-  }
-
-  revalidatePath(`/cliente/agentes/${parsed.data.agentId}/chats`);
-  redirect(`/cliente/agentes/${parsed.data.agentId}/chats?conversationId=${conversation.id}&ok=Mensaje+enviado`);
+  // Exito: sin redirect ni revalidatePath (eso forzaba un refetch del RSC que se
+  // sentia como recarga). El inbox muestra la burbuja optimista al instante y el
+  // sync en tiempo real reemplaza con el mensaje real. La pagina es dinamica, asi
+  // que cualquier navegacion posterior trae datos frescos igual.
+  return { ok: true };
 }
 
 const sendChatAudioReplySchema = z.object({

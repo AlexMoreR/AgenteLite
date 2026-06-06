@@ -9,11 +9,18 @@ import { toast } from "sonner";
 import {
   ArrowLeft,
   BadgeCheck,
+  AlertTriangle,
   Bot,
   CarFront,
   Clock3,
   ChevronRight,
   CheckCheck,
+  ChevronDown,
+  Copy,
+  Forward,
+  Pin,
+  Reply,
+  Star,
   Coffee,
   Facebook,
   Flag,
@@ -32,6 +39,7 @@ import {
   PhoneIncoming,
   PhoneOutgoing,
   ChevronUp,
+  RotateCcw,
   Search,
   SendHorizonal,
   Shapes,
@@ -55,8 +63,16 @@ import {
 import { EditContactModal } from "@/components/chats/edit-contact-modal";
 import { EtiquetaModal } from "@/components/chats/etiqueta-modal";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -447,6 +463,13 @@ type OptimisticDraftMessage = SharedInboxMessageItem & {
   isOptimistic: true;
 };
 
+type ComposerReplyTarget = {
+  id: string;
+  content: string;
+  type: SharedInboxMessageItem["type"];
+  direction: "INBOUND" | "OUTBOUND";
+};
+
 type LiveConversationSnapshot = SharedInboxSelectedConversation & {
   messages: Array<SharedInboxMessageItem & { createdAt: Date }>;
 };
@@ -573,7 +596,7 @@ type SharedInboxProps = {
   headerBadge?: ReactNode;
   headerActions?: ReactNode;
   composer?: {
-    action: (formData: FormData) => void | Promise<void>;
+    action: (formData: FormData) => void | Promise<{ ok: boolean; error?: string; suppressOptimistic?: boolean } | void>;
     hiddenFields: Array<{ name: string; value: string }>;
     placeholder?: string;
     audio?: {
@@ -1246,14 +1269,16 @@ function ComposerSendButton() {
   const { pending } = useFormStatus();
 
   return (
-    <button
+    <Button
       type="submit"
+      variant="ghost"
+      size="icon"
       disabled={pending}
-      className="inline-flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-2xl bg-[var(--primary)] text-white transition hover:bg-[var(--primary-strong)] disabled:cursor-not-allowed disabled:opacity-70 md:h-10 md:w-10"
+      className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-[var(--primary)] transition hover:bg-background disabled:cursor-not-allowed disabled:opacity-70 md:size-8"
       aria-label={pending ? "Enviando mensaje" : "Enviar mensaje"}
     >
-      <SendHorizonal className={`h-5 w-5 ${pending ? "animate-pulse" : ""}`} />
-    </button>
+      <SendHorizonal className={`size-6 ${pending ? "animate-pulse" : ""}`} />
+    </Button>
   );
 }
 
@@ -1546,15 +1571,137 @@ function extractChatAdPreview(rawPayload: unknown): ChatAdPreview | null {
   };
 }
 
+// Extrae el preview de una cita (Responder): para mensajes propios usa el `replyTo`
+// que guardamos al enviar; para entrantes lee la cita de WhatsApp (contextInfo).
+function getMessageReplyPreview(message: SharedInboxMessageItem): { author: string; text: string } | null {
+  const raw = message.rawPayload;
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+  const record = raw as Record<string, unknown>;
+
+  const replyTo = record.replyTo;
+  if (replyTo && typeof replyTo === "object") {
+    const r = replyTo as Record<string, unknown>;
+    const text = typeof r.content === "string" ? r.content.trim() : "";
+    return { author: r.direction === "OUTBOUND" ? "Tú" : "Cliente", text: text || "Mensaje" };
+  }
+
+  const evolution = record.evolution as Record<string, unknown> | undefined;
+  const data = evolution?.data as Record<string, unknown> | undefined;
+  const msg = data?.message as Record<string, unknown> | undefined;
+  if (msg) {
+    for (const value of Object.values(msg)) {
+      if (!value || typeof value !== "object") {
+        continue;
+      }
+      const ctx = (value as Record<string, unknown>).contextInfo as Record<string, unknown> | undefined;
+      const quoted = ctx?.quotedMessage as Record<string, unknown> | undefined;
+      if (!quoted) {
+        continue;
+      }
+      const ext = quoted.extendedTextMessage as Record<string, unknown> | undefined;
+      const text =
+        (typeof quoted.conversation === "string" && quoted.conversation) ||
+        (ext && typeof ext.text === "string" ? ext.text : "") ||
+        "";
+      if (text) {
+        return { author: "", text: text.trim() };
+      }
+    }
+  }
+  return null;
+}
+
+// Menu de acciones del mensaje (estilo WhatsApp): flecha que aparece al pasar el
+// mouse y abre las opciones. "Copiar" y "Responder" funcionan; el resto se
+// implementa por partes (varias requieren backend: Evolution API + schema + realtime).
+function MessageActionsMenu({
+  message,
+  outbound,
+  onReply,
+}: {
+  message: SharedInboxMessageItem;
+  outbound: boolean;
+  onReply?: (message: SharedInboxMessageItem) => void;
+}) {
+  const handleCopy = () => {
+    const text = (message.content ?? "").trim();
+    if (!text) {
+      toast.info("Este mensaje no tiene texto para copiar");
+      return;
+    }
+    if (!navigator.clipboard?.writeText) {
+      toast.error("Tu navegador no permite copiar");
+      return;
+    }
+    void navigator.clipboard
+      .writeText(text)
+      .then(() => toast.success("Mensaje copiado"))
+      .catch(() => toast.error("No se pudo copiar el mensaje"));
+  };
+
+  const pending = (label: string) => () => toast.info(`${label}: disponible próximamente`);
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <button
+            type="button"
+            aria-label="Opciones del mensaje"
+            className={`absolute right-1 top-1 z-10 inline-flex size-6 items-center justify-center rounded-full opacity-0 transition group-hover/bubble:opacity-100 focus-visible:opacity-100 data-[popup-open]:opacity-100 ${
+              outbound ? "text-white/90 hover:bg-white/20" : "text-muted-foreground hover:bg-muted"
+            }`}
+          >
+            <ChevronDown className="size-4" />
+          </button>
+        }
+      />
+      <DropdownMenuContent align="end" side="bottom" className="w-52">
+        <DropdownMenuItem onClick={() => onReply?.(message)}>
+          <Reply className="size-4" /> Responder
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={handleCopy}>
+          <Copy className="size-4" /> Copiar
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={pending("Reaccionar")}>
+          <Smile className="size-4" /> Reaccionar
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={pending("Reenviar")}>
+          <Forward className="size-4" /> Reenviar
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={pending("Fijar")}>
+          <Pin className="size-4" /> Fijar
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={pending("Destacar")}>
+          <Star className="size-4" /> Destacar
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={pending("Reportar")}>
+          <Flag className="size-4" /> Reportar
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem variant="destructive" onClick={pending("Eliminar")}>
+          <Trash2 className="size-4" /> Eliminar
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 // Componente memoizado: solo re-renderiza si cambian sus props directas.
 // Evita que los ~N mensajes renderizados re-ejecuten cuando cambia estado de UI
 // en SharedInbox (modal abierto, optimisticOutgoingMessage, pendingConversation, etc.).
 const MessageBubble = memo(function MessageBubble({
   message,
   previousMessage,
+  onRetry,
+  onReply,
 }: {
   message: SharedInboxMessageItem;
   previousMessage: SharedInboxMessageItem | undefined;
+  onRetry?: () => void;
+  onReply?: (message: SharedInboxMessageItem) => void;
 }) {
   const [imagePreviewIndex, setImagePreviewIndex] = useState(0);
   const [isImageViewerOpen, setIsImageViewerOpen] = useState(false);
@@ -1584,7 +1731,6 @@ const MessageBubble = memo(function MessageBubble({
     () => (message.type === "DOCUMENT" ? extractMediaUrlFromPayload(message, "DOCUMENT") : null),
     [message],
   );
-  const isOptimistic = "isOptimistic" in message && Boolean((message as { isOptimistic?: boolean }).isOptimistic);
   const isDeleted = Boolean(message.deletedAt);
   const mediaPreviewLabel = getMediaPreviewLabel(message.type);
   const mediaCaption = message.content?.trim() || "";
@@ -1633,6 +1779,7 @@ const MessageBubble = memo(function MessageBubble({
 
   const callSummary = getCallMessageSummary(message);
   const CallIcon = callSummary?.icon ?? null;
+  const replyPreview = useMemo(() => getMessageReplyPreview(message), [message]);
 
   return (
     <div
@@ -1648,12 +1795,31 @@ const MessageBubble = memo(function MessageBubble({
 
       <div className={`flex ${outbound ? "justify-end" : "justify-start"}`}>
         <div
-          className={`max-w-[88%] rounded-[8px] px-[6px] py-[6px] text-[13px] leading-5 shadow-[0_10px_24px_-20px_rgba(15,23,42,0.16)] md:max-w-[72%] md:px-[6px] md:py-[6px] ${
+          className={`group/bubble relative max-w-[88%] rounded-[8px] px-[6px] py-[6px] text-[13px] leading-5 shadow-[0_10px_24px_-20px_rgba(15,23,42,0.16)] md:max-w-[72%] md:px-[6px] md:py-[6px] ${
             outbound
               ? "bg-[var(--primary)] text-white"
               : "border border-border bg-card text-foreground"
-          } ${isOptimistic ? "opacity-85" : ""}`}
+          }`}
         >
+          {!isDeleted && !callSummary ? (
+            <MessageActionsMenu message={message} outbound={outbound} onReply={onReply} />
+          ) : null}
+          {replyPreview ? (
+            <div
+              className={`mb-1 rounded-md border-l-2 px-2 py-1 text-[11px] ${
+                outbound ? "border-white/60 bg-white/15" : "border-[var(--primary)] bg-muted"
+              }`}
+            >
+              {replyPreview.author ? (
+                <p className={`font-semibold ${outbound ? "text-white" : "text-[var(--primary)]"}`}>
+                  {replyPreview.author}
+                </p>
+              ) : null}
+              <p className={`truncate ${outbound ? "text-white/80" : "text-muted-foreground"}`}>
+                {replyPreview.text}
+              </p>
+            </div>
+          ) : null}
           {callSummary ? (
             <div className="space-y-2">
               <Badge
@@ -1944,6 +2110,21 @@ const MessageBubble = memo(function MessageBubble({
             {outbound && message.outboundStatusLabel ? (
               message.outboundStatusLabel === "entregado" ? (
                 <CheckCheck className="ml-1 h-3 w-3 shrink-0" aria-hidden="true" />
+              ) : message.outboundStatusLabel === "error" ? (
+                <span className="ml-1 inline-flex items-center gap-1 font-medium text-amber-100">
+                  <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden="true" />
+                  No se envió
+                  {onRetry ? (
+                    <button
+                      type="button"
+                      onClick={onRetry}
+                      className="ml-0.5 inline-flex cursor-pointer items-center gap-0.5 rounded-full bg-white/20 px-1.5 py-0.5 font-semibold text-white transition hover:bg-white/30"
+                    >
+                      <RotateCcw className="h-2.5 w-2.5" />
+                      Reintentar
+                    </button>
+                  ) : null}
+                </span>
               ) : (
                 <span className="ml-1">{message.outboundStatusLabel}</span>
               )
@@ -2012,7 +2193,11 @@ type ConversationPanelProps = {
   onOpenStatusDialog: () => void;
   onEditContact: () => void;
   onOpenTags: () => void;
-  onComposerDraft: (message: string) => void;
+  onComposerDraft: (message: string, formData: FormData) => void;
+  onRetryFailedMessage?: () => void;
+  onReplyToMessage?: (message: SharedInboxMessageItem) => void;
+  replyTarget?: ComposerReplyTarget | null;
+  onCancelReply?: () => void;
   onLoadOlderMessages: () => void | Promise<void>;
   renderedConversation: SharedInboxSelectedConversation | null;
   renderedMessages: SharedInboxMessageItem[];
@@ -2044,6 +2229,10 @@ const ConversationPanel = memo(function ConversationPanel({
   onEditContact,
   onOpenTags,
   onComposerDraft,
+  onRetryFailedMessage,
+  onReplyToMessage,
+  replyTarget,
+  onCancelReply,
   onLoadOlderMessages,
   renderedConversation,
   renderedMessages,
@@ -2643,6 +2832,10 @@ const ConversationPanel = memo(function ConversationPanel({
                           key={message.id}
                           message={message}
                           previousMessage={renderedMessages[absoluteIndex - 1]}
+                          onRetry={
+                            message.outboundStatusLabel === "error" ? onRetryFailedMessage : undefined
+                          }
+                          onReply={onReplyToMessage}
                         />
                       );
                     })}
@@ -2668,11 +2861,11 @@ const ConversationPanel = memo(function ConversationPanel({
             </div>
 
             {composer && renderedConversation ? (
-              <div className="chat-composer z-20 shrink-0 border-t border-border bg-background/96 px-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 shadow-[0_-12px_28px_-24px_rgba(15,23,42,0.2)] backdrop-blur md:border-t md:bg-background md:px-2 md:py-2 md:shadow-none md:backdrop-blur-0">
+              <div className="chat-composer z-20 shrink-0 bg-transparent px-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 md:px-2 md:py-2">
                 <form
-                  action={composer.action}
                   className="mx-auto w-full max-w-5xl"
                   onSubmit={(event: FormEvent<HTMLFormElement>) => {
+                    event.preventDefault();
                     const form = event.currentTarget;
                     const formData = new FormData(form);
                     const message = String(formData.get("message") || "").trim();
@@ -2681,13 +2874,37 @@ const ConversationPanel = memo(function ConversationPanel({
                       return;
                     }
 
-                    onComposerDraft(message);
+                    // El handler externo crea la burbuja optimista y envia sin
+                    // navegacion (la accion valida internamente y devuelve resultado).
+                    onComposerDraft(message, formData);
                     setComposerHasText(false);
+                    form.reset();
                   }}
                 >
                   {composerHiddenFields.map((field) => (
                     <input key={`${field.name}-${field.value}`} type="hidden" name={field.name} value={field.value} />
                   ))}
+
+                  {replyTarget ? (
+                    <div className="mb-1.5 flex items-center gap-2 rounded-xl border-l-4 border-[var(--primary)] bg-muted/70 px-3 py-1.5">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[11px] font-semibold text-[var(--primary)]">
+                          {replyTarget.direction === "OUTBOUND" ? "Tú" : "Cliente"}
+                        </p>
+                        <p className="truncate text-[12px] text-muted-foreground">
+                          {replyTarget.content || "Mensaje"}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={onCancelReply}
+                        aria-label="Cancelar respuesta"
+                        className="inline-flex size-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-background hover:text-foreground"
+                      >
+                        <X className="size-4" />
+                      </button>
+                    </div>
+                  ) : null}
 
                   <div className="flex items-end gap-2 md:gap-3">
                     {isRecordingAudio ? (
@@ -2697,6 +2914,30 @@ const ConversationPanel = memo(function ConversationPanel({
                         <span className="tabular-nums text-muted-foreground">
                           {`${Math.floor(recordSeconds / 60)}:${String(recordSeconds % 60).padStart(2, "0")}`}
                         </span>
+                        <div className="ml-auto flex items-center gap-1">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={cancelAudioRecording}
+                            aria-label="Cancelar grabacion"
+                            title="Cancelar"
+                            className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-background hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 md:size-8"
+                          >
+                            <Trash2 className="size-5" />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={stopAndSendAudio}
+                            aria-label="Enviar nota de voz"
+                            title="Enviar"
+                            className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-[var(--primary)] transition hover:bg-background focus:outline-none focus:ring-2 focus:ring-ring/50 md:size-8"
+                          >
+                            <SendHorizonal className="size-6" />
+                          </Button>
+                        </div>
                       </div>
                     ) : (
                       <div className="flex min-h-[44px] min-w-0 flex-1 items-center gap-1 rounded-2xl border border-border bg-muted/80 px-1.5 transition focus-within:border-[var(--primary)] focus-within:bg-background focus-within:ring-2 focus-within:ring-ring/50 md:min-h-[40px]">
@@ -2728,31 +2969,35 @@ const ConversationPanel = memo(function ConversationPanel({
                                 }
                               }}
                             />
-                            <button
+                            <Button
                               type="button"
+                              variant="ghost"
+                              size="icon"
                               onClick={() => void handleSuggestReply()}
                               disabled={isSuggestingReply || isSendingAudio}
                               aria-label="Respuesta sugerida con IA"
                               title="Respuesta sugerida con IA"
-                              className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-background hover:text-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:size-8"
+                              className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-background hover:text-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:size-8"
                             >
                               {isSuggestingReply ? (
                                 <LoaderCircle className="size-5 animate-spin" />
                               ) : (
                                 <Sparkles className="size-5" />
                               )}
-                            </button>
+                            </Button>
                             <Popover open={isAttachMenuOpen} onOpenChange={setIsAttachMenuOpen}>
                               <PopoverTrigger asChild>
-                                <button
+                                <Button
                                   type="button"
+                                  variant="ghost"
+                                  size="icon"
                                   disabled={isSendingMedia}
                                   aria-label="Adjuntar"
                                   title="Adjuntar"
-                                  className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-background hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:size-8"
+                                  className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-background hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:size-8"
                                 >
                                   <Plus className="size-5" />
-                                </button>
+                                </Button>
                               </PopoverTrigger>
                               <PopoverContent
                                 align="start"
@@ -2760,41 +3005,44 @@ const ConversationPanel = memo(function ConversationPanel({
                                 sideOffset={12}
                                 className="w-[min(80vw,16rem)] rounded-2xl border border-border bg-popover p-1.5 shadow-[0_24px_60px_-24px_rgba(15,23,42,0.35)]"
                               >
-                                <button
+                                <Button
                                   type="button"
+                                  variant="ghost"
                                   onClick={() => {
                                     setIsAttachMenuOpen(false);
                                     documentFileInputRef.current?.click();
                                   }}
-                                  className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-foreground transition hover:bg-muted focus:outline-none focus-visible:bg-muted"
+                                  className="flex h-auto w-full items-center justify-start gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-normal text-foreground transition hover:bg-muted focus:outline-none focus-visible:bg-muted"
                                 >
-                                  <FileText className="h-5 w-5 shrink-0 text-[#7c5cff]" />
+                                  <FileText className="size-5 shrink-0 text-[#7c5cff]" />
                                   <span>Documento</span>
-                                </button>
-                                <button
+                                </Button>
+                                <Button
                                   type="button"
+                                  variant="ghost"
                                   onClick={() => {
                                     setIsAttachMenuOpen(false);
                                     mediaFileInputRef.current?.click();
                                   }}
-                                  className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-foreground transition hover:bg-muted focus:outline-none focus-visible:bg-muted"
+                                  className="flex h-auto w-full items-center justify-start gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-normal text-foreground transition hover:bg-muted focus:outline-none focus-visible:bg-muted"
                                 >
-                                  <ImageIcon className="h-5 w-5 shrink-0 text-[#2f9bff]" />
+                                  <ImageIcon className="size-5 shrink-0 text-[#2f9bff]" />
                                   <span>Fotos y videos</span>
-                                </button>
+                                </Button>
                                 {audioConfig ? (
-                                  <button
+                                  <Button
                                     type="button"
+                                    variant="ghost"
                                     disabled={isSendingAudio}
                                     onClick={() => {
                                       setIsAttachMenuOpen(false);
                                       void startAudioRecording();
                                     }}
-                                    className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-foreground transition hover:bg-muted focus:outline-none focus-visible:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+                                    className="flex h-auto w-full items-center justify-start gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-normal text-foreground transition hover:bg-muted focus:outline-none focus-visible:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
                                   >
-                                    <Headphones className="h-5 w-5 shrink-0 text-[#ff7a59]" />
+                                    <Headphones className="size-5 shrink-0 text-[#ff7a59]" />
                                     <span>Audio</span>
-                                  </button>
+                                  </Button>
                                 ) : null}
                               </PopoverContent>
                             </Popover>
@@ -2810,15 +3058,17 @@ const ConversationPanel = memo(function ConversationPanel({
                           }}
                         >
                           <PopoverTrigger asChild>
-                            <button
+                            <Button
                               type="button"
+                              variant="ghost"
+                              size="icon"
                               disabled={isSendingAudio}
-                              className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-background hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:size-8"
+                              className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-background hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:size-8"
                               aria-label="Abrir selector de emoticones"
                               title="Emoticones"
                             >
                               <Smile className="size-5" />
-                            </button>
+                            </Button>
                           </PopoverTrigger>
                           <PopoverContent
                             align="start"
@@ -2849,42 +3099,23 @@ const ConversationPanel = memo(function ConversationPanel({
                           onBlur={(event) => syncComposerSelection(event.currentTarget)}
                           className="min-h-[42px] min-w-0 flex-1 resize-none bg-transparent py-2.5 pr-2 text-[14px] text-foreground placeholder:text-muted-foreground outline-none disabled:opacity-70 md:min-h-[38px] md:py-2 md:text-sm"
                         />
+                        {composerHasText || !audioConfig ? (
+                          <ComposerSendButton />
+                        ) : (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={startAudioRecording}
+                            disabled={isSendingAudio}
+                            aria-label="Grabar nota de voz"
+                            title="Grabar nota de voz"
+                            className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-background focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:size-8"
+                          >
+                            <Mic className="size-5" />
+                          </Button>
+                        )}
                       </div>
-                    )}
-                    {isRecordingAudio ? (
-                      <>
-                        <button
-                          type="button"
-                          onClick={cancelAudioRecording}
-                          aria-label="Cancelar grabacion"
-                          title="Cancelar"
-                          className="inline-flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-full border border-border bg-muted/80 text-muted-foreground transition hover:bg-muted hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 md:h-10 md:w-10"
-                        >
-                          <Trash2 className="h-5 w-5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={stopAndSendAudio}
-                          aria-label="Enviar nota de voz"
-                          title="Enviar"
-                          className="inline-flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-2xl bg-[var(--primary)] text-white transition hover:bg-[var(--primary-strong)] md:h-10 md:w-10"
-                        >
-                          <SendHorizonal className="h-5 w-5" />
-                        </button>
-                      </>
-                    ) : composerHasText || !audioConfig ? (
-                      <ComposerSendButton />
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={startAudioRecording}
-                        disabled={isSendingAudio}
-                        aria-label="Grabar nota de voz"
-                        title="Grabar nota de voz"
-                        className="inline-flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-2xl bg-[var(--primary)] text-white transition hover:bg-[var(--primary-strong)] disabled:cursor-not-allowed disabled:opacity-70 md:h-10 md:w-10"
-                      >
-                        <Mic className="h-5 w-5" />
-                      </button>
                     )}
                   </div>
                 </form>
@@ -2950,6 +3181,7 @@ export function SharedInbox({
   const [optimisticConversation, setOptimisticConversation] = useState<SharedInboxSelectedConversation | null>(null);
   const [liveConversation, setLiveConversation] = useState<SharedInboxSelectedConversation | null>(null);
   const [optimisticOutgoingMessage, setOptimisticOutgoingMessage] = useState<OptimisticDraftMessage | null>(null);
+  const [replyTarget, setReplyTarget] = useState<ComposerReplyTarget | null>(null);
   const [editContactOpen, setEditContactOpen] = useState(false);
   const handleCloseEditContact = useCallback(() => setEditContactOpen(false), []);
   const [etiquetaModalOpen, setEtiquetaModalOpen] = useState(false);
@@ -3272,18 +3504,6 @@ export function SharedInbox({
     selectedConversationCache && conversationIdMatchesKey(selectedConversationKey, selectedConversationCache.id)
       ? selectedConversationCache
       : null;
-  useEffect(() => {
-    if (!optimisticOutgoingMessage) {
-      return;
-    }
-
-    const timer = window.setTimeout(() => {
-      setOptimisticOutgoingMessage(null);
-    }, 12000);
-
-    return () => window.clearTimeout(timer);
-  }, [optimisticOutgoingMessage]);
-
   useEffect(() => {
     if (!pendingConversation?.id) {
       return;
@@ -3835,13 +4055,37 @@ export function SharedInbox({
     setOptimisticOutgoingMessage(null);
   }, [optimisticDraftHasPersistedMatch, optimisticOutgoingMessage, renderedConversation]);
 
+  // Resuelve la burbuja optimista segun el resultado de la accion de envio:
+  // - result null  -> la accion lanzo excepcion -> marcar "error" (+ Reintentar)
+  // - result.ok === false -> error de validacion interna -> marcar "error"
+  // - result.suppressOptimistic -> se disparo un flujo -> quitar la burbuja del texto
+  // - ok (o void) -> dejar la burbuja; el sync en tiempo real la reemplaza por el real
+  const finalizeOptimisticSend = useCallback(
+    (optimisticId: string, result: { ok?: boolean; suppressOptimistic?: boolean } | null) => {
+      setOptimisticOutgoingMessage((current) => {
+        if (!current || current.id !== optimisticId) {
+          return current;
+        }
+        if (!result || result.ok === false) {
+          return { ...current, outboundStatusLabel: "error" };
+        }
+        if (result.suppressOptimistic) {
+          return null;
+        }
+        return current;
+      });
+    },
+    [],
+  );
+
   const handleComposerDraft = useCallback(
-    (message: string) => {
-      if (!renderedConversation) {
+    (message: string, formData: FormData) => {
+      if (!renderedConversation || !composer) {
         return;
       }
 
       const now = new Date();
+      const optimisticId = `optimistic:${renderedConversation.id}:${Date.now()}`;
       const optimisticListSnapshot = {
         id: renderedConversation.id,
         label: renderedConversation.label,
@@ -3856,17 +4100,28 @@ export function SharedInbox({
         channelType: selectedConversationId.startsWith("official:") ? "whatsapp_official" : "whatsapp",
       };
 
+      // La burbuja aparece al instante y se ve como un mensaje ya enviado
+      // (sin etiqueta "enviando" ni atenuado). Si falla, se marca "error" despues.
       setOptimisticOutgoingMessage({
-        id: `optimistic:${renderedConversation.id}:${Date.now()}`,
+        id: optimisticId,
         conversationId: renderedConversation.id,
         content: message,
         direction: "OUTBOUND",
         createdAt: now,
         authorType: "user",
-        outboundStatusLabel: "enviando",
+        outboundStatusLabel: null,
         type: "TEXT",
         mediaUrl: null,
-        rawPayload: { optimistic: true },
+        rawPayload: replyTarget
+          ? {
+              optimistic: true,
+              replyTo: {
+                content: replyTarget.content,
+                direction: replyTarget.direction,
+                type: replyTarget.type,
+              },
+            }
+          : { optimistic: true },
         isOptimistic: true,
       });
 
@@ -3878,9 +4133,45 @@ export function SharedInbox({
         }),
       );
 
+      // Cita (Responder): mandamos el id del mensaje citado y limpiamos el target.
+      if (replyTarget) {
+        formData.set("quotedMessageId", replyTarget.id);
+        setReplyTarget(null);
+      }
+
+      // Envio sin navegacion: la accion valida internamente y devuelve un resultado.
+      void Promise.resolve(composer.action(formData))
+        .then((result) => finalizeOptimisticSend(optimisticId, result ?? { ok: true }))
+        .catch(() => finalizeOptimisticSend(optimisticId, null));
     },
-    [renderedConversation, selectedConversationId],
+    [renderedConversation, selectedConversationId, composer, finalizeOptimisticSend, replyTarget],
   );
+
+  const handleReplyToMessage = useCallback((target: SharedInboxMessageItem) => {
+    if (!target.id || target.id.startsWith("optimistic:")) {
+      return;
+    }
+    const typeLabels: Record<string, string> = {
+      IMAGE: "Imagen",
+      AUDIO: "Audio",
+      VIDEO: "Video",
+      STICKER: "Sticker",
+      DOCUMENT: "Documento",
+    };
+    const previewText = (target.content ?? "").trim() || typeLabels[target.type ?? "TEXT"] || "Mensaje";
+    setReplyTarget({
+      id: target.id,
+      content: previewText,
+      type: target.type ?? "TEXT",
+      direction: target.direction,
+    });
+  }, []);
+
+  const handleCancelReply = useCallback(() => setReplyTarget(null), []);
+
+  useEffect(() => {
+    setReplyTarget(null);
+  }, [selectedConversationId]);
   const hasSettledConversation = Boolean(renderedConversation && currentSelectedConversation && renderedConversation.id === currentSelectedConversation.id);
   const canLoadOlderMessages = Boolean(renderedConversation?.loadMoreCursor && renderedConversation.hasMoreMessages);
   const loadOlderMessagesRef = useRef(loadOlderMessages);
@@ -3899,6 +4190,43 @@ export function SharedInbox({
         pendingConversation && pendingConversation.id === renderedConversation?.id ? pendingConversation : null,
       )
     : [];
+  // Refs para mantener estable handleRetryFailedMessage (asi MessageBubble no
+  // re-renderiza toda la lista en cada render por un callback nuevo).
+  const composerRef = useRef(composer);
+  composerRef.current = composer;
+  const composerHiddenFieldsRef = useRef(composerHiddenFields);
+  composerHiddenFieldsRef.current = composerHiddenFields;
+  const optimisticOutgoingMessageRef = useRef(optimisticOutgoingMessage);
+  optimisticOutgoingMessageRef.current = optimisticOutgoingMessage;
+
+  const handleRetryFailedMessage = useCallback(() => {
+    const composerValue = composerRef.current;
+    const failed = optimisticOutgoingMessageRef.current;
+    const text = failed?.content?.trim();
+    if (!composerValue || !failed || !text) {
+      return;
+    }
+
+    const formData = new FormData();
+    formData.set("message", text);
+    for (const field of composerHiddenFieldsRef.current) {
+      formData.set(field.name, field.value);
+    }
+
+    // Reintento: vuelve a verse como mensaje enviado (sin etiqueta de error) y se
+    // valida internamente; si vuelve a fallar, se marca "error" de nuevo.
+    const optimisticId = `optimistic:${failed.conversationId}:${Date.now()}`;
+    setOptimisticOutgoingMessage({
+      ...failed,
+      id: optimisticId,
+      outboundStatusLabel: null,
+      createdAt: new Date(),
+    });
+
+    void Promise.resolve(composerValue.action(formData))
+      .then((result) => finalizeOptimisticSend(optimisticId, result ?? { ok: true }))
+      .catch(() => finalizeOptimisticSend(optimisticId, null));
+  }, [finalizeOptimisticSend]);
   const selectedConversationScrollKey = renderedConversation
     ? `${renderedConversation.id}:${renderedMessages.length}:${renderedMessages.at(-1)?.id ?? ""}`
     : "empty";
@@ -4277,6 +4605,10 @@ export function SharedInbox({
         onEditContact={handleOpenEditContact}
         onOpenTags={handleOpenEtiquetaModal}
         onComposerDraft={handleComposerDraft}
+        onRetryFailedMessage={handleRetryFailedMessage}
+        onReplyToMessage={handleReplyToMessage}
+        replyTarget={replyTarget}
+        onCancelReply={handleCancelReply}
         onLoadOlderMessages={loadOlderMessages}
         renderedConversation={renderedConversation}
         renderedMessages={renderedMessages}
