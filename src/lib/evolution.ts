@@ -911,6 +911,21 @@ export async function sendEvolutionTextMessage(input: {
   };
 }
 
+export async function deleteEvolutionMessageForEveryone(input: {
+  instanceName: string;
+  key: { id: string; remoteJid: string; fromMe: boolean; participant?: string };
+}) {
+  await evolutionRequest(`/chat/deleteMessageForEveryone/${input.instanceName}`, {
+    method: "DELETE",
+    body: JSON.stringify({
+      id: input.key.id,
+      remoteJid: input.key.remoteJid,
+      fromMe: input.key.fromMe,
+      ...(input.key.participant ? { participant: input.key.participant } : {}),
+    }),
+  });
+}
+
 export async function sendEvolutionImageMessage(input: {
   instanceName: string;
   phoneNumber: string;

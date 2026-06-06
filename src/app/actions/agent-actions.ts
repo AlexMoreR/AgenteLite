@@ -115,9 +115,9 @@ const sendManualAgentReplySchema = z.object({
   conversationId: z.string().trim().min(1, "Conversacion invalida"),
   message: z.string().trim().min(1, "Escribe un mensaje").max(2000, "Mensaje demasiado largo"),
   returnTo: z.string().trim().max(500).optional(),
-  quotedMessageId: z.string().trim().optional(),
-  quotedContent: z.string().trim().max(4096).optional(),
-  quotedDirection: z.enum(["INBOUND", "OUTBOUND"]).optional(),
+  quotedMessageId: z.string().trim().nullish(),
+  quotedContent: z.string().trim().max(4096).nullish(),
+  quotedDirection: z.enum(["INBOUND", "OUTBOUND"]).nullish(),
 });
 
 const saveAgentReactivationMessageSchema = z.object({
@@ -2544,6 +2544,9 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
     conversationId: formData.get("conversationId"),
     message: formData.get("message"),
     returnTo: formData.get("returnTo"),
+    quotedMessageId: formData.get("quotedMessageId"),
+    quotedContent: formData.get("quotedContent"),
+    quotedDirection: formData.get("quotedDirection"),
   });
 
   // Errores devueltos como resultado (sin redirect): el inbox los valida
@@ -2752,19 +2755,24 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
       await sendStep(step);
     }
 
-    await syncLeadLifecycleForContact({
-      workspaceId: membership.workspace.id,
-      contactId: conversation.contact!.id,
-      hasHistory: true,
-    });
+    // Pasos ya enviados y guardados: lo de abajo es secundario y no debe marcar error.
+    try {
+      await syncLeadLifecycleForContact({
+        workspaceId: membership.workspace.id,
+        contactId: conversation.contact!.id,
+        hasHistory: true,
+      });
 
-    await prisma.conversation.update({
-      where: { id: conversation.id },
-      data: {
-        lastMessageAt: now,
-        status: "OPEN",
-      },
-    });
+      await prisma.conversation.update({
+        where: { id: conversation.id },
+        data: {
+          lastMessageAt: now,
+          status: "OPEN",
+        },
+      });
+    } catch (error) {
+      console.error("[sendManualAgentReplyAction] post-envio flujo fallo (pasos ya enviados)", error);
+    }
 
     // Flujo disparado: los pasos del flujo ya se enviaron y apareceran por realtime.
     // Quitamos la burbuja optimista del texto escrito (no se envia tal cual al cliente).
@@ -2855,24 +2863,32 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
     },
   });
 
-  await syncLeadLifecycleForContact({
-    workspaceId: membership.workspace.id,
-    contactId: conversation.contact.id,
-    hasHistory: true,
-  });
+  // El mensaje YA se envio a WhatsApp y se guardo en BD: el envio fue exitoso.
+  // Los pasos siguientes (etiquetas de lead, lastMessageAt, pausar IA) son
+  // secundarios y NO deben poder marcar "No se envio" si fallan. Por eso van en
+  // try/catch best-effort: si revientan, se loguean pero el resultado sigue ok.
+  try {
+    await syncLeadLifecycleForContact({
+      workspaceId: membership.workspace.id,
+      contactId: conversation.contact.id,
+      hasHistory: true,
+    });
 
-  await prisma.conversation.update({
-    where: { id: conversation.id },
-    data: {
-      lastMessageAt: new Date(),
-      status: "OPEN",
-    },
-  });
+    await prisma.conversation.update({
+      where: { id: conversation.id },
+      data: {
+        lastMessageAt: new Date(),
+        status: "OPEN",
+      },
+    });
 
-  await setConversationAutomationPaused({
-    conversationId: conversation.id,
-    paused: true,
-  });
+    await setConversationAutomationPaused({
+      conversationId: conversation.id,
+      paused: true,
+    });
+  } catch (error) {
+    console.error("[sendManualAgentReplyAction] post-envio fallo (mensaje ya enviado)", error);
+  }
 
   // Exito: sin redirect ni revalidatePath (eso forzaba un refetch del RSC que se
   // sentia como recarga). El inbox muestra la burbuja optimista al instante y el

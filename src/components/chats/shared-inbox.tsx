@@ -81,7 +81,7 @@ import {
   usePendingConversationSelection,
   type PendingChatSelection,
 } from "./chat-selection-store";
-import { generateSuggestedReplyAction } from "@/app/actions/chats-actions";
+import { deleteChatMessageAction, generateSuggestedReplyAction } from "@/app/actions/chats-actions";
 import { AppSidebar } from "./appsidebar";
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "../ui/breadcrumb";
 import { SidebarHeader, SidebarInput } from "../ui/sidebar";
@@ -1629,10 +1629,12 @@ function MessageActionsMenu({
   message,
   outbound,
   onReply,
+  onDelete,
 }: {
   message: SharedInboxMessageItem;
   outbound: boolean;
   onReply?: (message: SharedInboxMessageItem) => void;
+  onDelete?: (message: SharedInboxMessageItem) => void;
 }) {
   // El DropdownMenu de base-ui (FloatingTree/ids/atributos) no es estable en SSR y
   // provoca un mismatch de hidratación que ROMPE la interactividad del menú. Lo
@@ -1668,8 +1670,10 @@ function MessageActionsMenu({
         <button
           type="button"
           aria-label="Opciones del mensaje"
-          className={`absolute right-1 top-1 z-10 inline-flex size-6 items-center justify-center rounded-full opacity-100 transition ${
-            outbound ? "text-white/90 hover:bg-white/20" : "text-muted-foreground hover:bg-muted"
+          className={`absolute right-0.5 top-0.5 z-10 inline-flex size-6 items-center justify-center rounded-full opacity-0 shadow-sm transition group-hover/bubble:opacity-100 focus-visible:opacity-100 data-[popup-open]:opacity-100 ${
+            outbound
+              ? "bg-[var(--primary)] text-white hover:brightness-110"
+              : "bg-card text-muted-foreground hover:bg-muted"
           }`}
         >
           <ChevronDown className="size-4" />
@@ -1698,7 +1702,7 @@ function MessageActionsMenu({
           <Flag className="size-4" /> Reportar
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem variant="destructive" onClick={pending("Eliminar")}>
+        <DropdownMenuItem variant="destructive" onClick={() => onDelete?.(message)}>
           <Trash2 className="size-4" /> Eliminar
         </DropdownMenuItem>
       </DropdownMenuContent>
@@ -1714,11 +1718,13 @@ const MessageBubble = memo(function MessageBubble({
   previousMessage,
   onRetry,
   onReply,
+  onDelete,
 }: {
   message: SharedInboxMessageItem;
   previousMessage: SharedInboxMessageItem | undefined;
   onRetry?: () => void;
   onReply?: (message: SharedInboxMessageItem) => void;
+  onDelete?: (message: SharedInboxMessageItem) => void;
 }) {
   const [imagePreviewIndex, setImagePreviewIndex] = useState(0);
   const [isImageViewerOpen, setIsImageViewerOpen] = useState(false);
@@ -1819,7 +1825,7 @@ const MessageBubble = memo(function MessageBubble({
           }`}
         >
           {!isDeleted && !callSummary ? (
-            <MessageActionsMenu message={message} outbound={outbound} onReply={onReply} />
+            <MessageActionsMenu message={message} outbound={outbound} onReply={onReply} onDelete={onDelete} />
           ) : null}
           {replyPreview ? (
             <div
@@ -2213,6 +2219,7 @@ type ConversationPanelProps = {
   onComposerDraft: (message: string, formData: FormData) => void;
   onRetryFailedMessage?: () => void;
   onReplyToMessage?: (message: SharedInboxMessageItem) => void;
+  onDeleteMessage?: (message: SharedInboxMessageItem) => void;
   replyTarget?: ComposerReplyTarget | null;
   onCancelReply?: () => void;
   onLoadOlderMessages: () => void | Promise<void>;
@@ -2248,6 +2255,7 @@ const ConversationPanel = memo(function ConversationPanel({
   onComposerDraft,
   onRetryFailedMessage,
   onReplyToMessage,
+  onDeleteMessage,
   replyTarget,
   onCancelReply,
   onLoadOlderMessages,
@@ -2870,6 +2878,7 @@ const ConversationPanel = memo(function ConversationPanel({
                             message.outboundStatusLabel === "error" ? onRetryFailedMessage : undefined
                           }
                           onReply={onReplyToMessage}
+                          onDelete={onDeleteMessage}
                         />
                       );
                     })}
@@ -3220,6 +3229,7 @@ export function SharedInbox({
   const [liveConversation, setLiveConversation] = useState<SharedInboxSelectedConversation | null>(null);
   const [optimisticOutgoingMessage, setOptimisticOutgoingMessage] = useState<OptimisticDraftMessage | null>(null);
   const [replyTarget, setReplyTarget] = useState<ComposerReplyTarget | null>(null);
+  const [deletedMessageIds, setDeletedMessageIds] = useState<ReadonlySet<string>>(() => new Set());
   const [editContactOpen, setEditContactOpen] = useState(false);
   const handleCloseEditContact = useCallback(() => setEditContactOpen(false), []);
   const [etiquetaModalOpen, setEtiquetaModalOpen] = useState(false);
@@ -4065,7 +4075,7 @@ export function SharedInbox({
           Math.abs(message.createdAt.getTime() - optimisticOutgoingMessage.createdAt.getTime()) < 120_000,
         ),
     );
-  const renderedMessages = useMemo(
+  const baseRenderedMessages = useMemo(
     () =>
       renderedConversation &&
       optimisticOutgoingMessage &&
@@ -4075,6 +4085,19 @@ export function SharedInbox({
         ? [...renderedConversation.messages, optimisticOutgoingMessage]
         : renderedConversation?.messages ?? [],
     [optimisticDraftHasPersistedMatch, optimisticDraftMatchesLatestMessage, optimisticOutgoingMessage, renderedConversation],
+  );
+  // Aplica borrados optimistas: marca como eliminado al instante mientras el
+  // servidor confirma (si falla, se revierte el id en deletedMessageIds).
+  const renderedMessages = useMemo(
+    () =>
+      deletedMessageIds.size === 0
+        ? baseRenderedMessages
+        : baseRenderedMessages.map((message) =>
+            deletedMessageIds.has(message.id) && !message.deletedAt
+              ? { ...message, deletedAt: new Date() }
+              : message,
+          ),
+    [baseRenderedMessages, deletedMessageIds],
   );
 
   useEffect(() => {
@@ -4209,6 +4232,48 @@ export function SharedInbox({
   }, []);
 
   const handleCancelReply = useCallback(() => setReplyTarget(null), []);
+
+  const handleDeleteMessage = useCallback((target: SharedInboxMessageItem) => {
+    if (!target.id || target.id.startsWith("optimistic:")) {
+      return;
+    }
+    const isOutbound = target.direction === "OUTBOUND";
+    const confirmText = isOutbound
+      ? "¿Eliminar este mensaje? Se borrará también en el WhatsApp del cliente."
+      : "¿Eliminar este mensaje de la bandeja? (Seguirá en el WhatsApp del cliente.)";
+    if (typeof window !== "undefined" && !window.confirm(confirmText)) {
+      return;
+    }
+
+    // Borrado optimista: se marca "eliminado" al instante. Si falla, se revierte.
+    setDeletedMessageIds((current) => {
+      const next = new Set(current);
+      next.add(target.id);
+      return next;
+    });
+
+    const formData = new FormData();
+    formData.set("messageId", target.id);
+    void Promise.resolve(deleteChatMessageAction(formData))
+      .then((result) => {
+        if (!result?.ok) {
+          setDeletedMessageIds((current) => {
+            const next = new Set(current);
+            next.delete(target.id);
+            return next;
+          });
+          toast.error(result?.error || "No se pudo eliminar el mensaje");
+        }
+      })
+      .catch(() => {
+        setDeletedMessageIds((current) => {
+          const next = new Set(current);
+          next.delete(target.id);
+          return next;
+        });
+        toast.error("No se pudo eliminar el mensaje");
+      });
+  }, []);
 
   useEffect(() => {
     setReplyTarget(null);
@@ -4648,6 +4713,7 @@ export function SharedInbox({
         onComposerDraft={handleComposerDraft}
         onRetryFailedMessage={handleRetryFailedMessage}
         onReplyToMessage={handleReplyToMessage}
+        onDeleteMessage={handleDeleteMessage}
         replyTarget={replyTarget}
         onCancelReply={handleCancelReply}
         onLoadOlderMessages={loadOlderMessages}

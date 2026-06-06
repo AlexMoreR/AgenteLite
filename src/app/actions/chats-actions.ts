@@ -10,7 +10,7 @@ import { buildActiveProductContextNote, type ActiveProductContext } from "@/lib/
 import { createFollowsFromRulesForSource } from "@/features/seguimientos/services/follows";
 import { getConversationAutomationPaused, setConversationAutomationPaused } from "@/lib/conversation-automation";
 import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
-import { sendEvolutionTextMessage } from "@/lib/evolution";
+import { deleteEvolutionMessageForEveryone, sendEvolutionTextMessage } from "@/lib/evolution";
 import { normalizeInternalPath } from "@/lib/app-url";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { prisma } from "@/lib/prisma";
@@ -371,9 +371,9 @@ const sendUnifiedChatReplySchema = z.object({
   message: z.string().trim().min(1).max(4096),
   agentId: z.string().trim().optional(),
   returnTo: z.string().trim().min(1).max(500).optional(),
-  quotedMessageId: z.string().trim().optional(),
-  quotedContent: z.string().trim().max(4096).optional(),
-  quotedDirection: z.enum(["INBOUND", "OUTBOUND"]).optional(),
+  quotedMessageId: z.string().trim().nullish(),
+  quotedContent: z.string().trim().max(4096).nullish(),
+  quotedDirection: z.enum(["INBOUND", "OUTBOUND"]).nullish(),
 });
 
 const toggleConversationAutomationSchema = z.object({
@@ -418,6 +418,85 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
     nextData.set("quotedDirection", parsed.data.quotedDirection);
   }
   return sendManualAgentReplyAction(nextData);
+}
+
+const deleteChatMessageSchema = z.object({
+  messageId: z.string().trim().min(1),
+});
+
+export async function deleteChatMessageAction(formData: FormData): Promise<{ ok: boolean; error?: string }> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
+    return { ok: false, error: "No autorizado" };
+  }
+  await requireClientWorkspaceAccess("chats");
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    return { ok: false, error: "Workspace no encontrado" };
+  }
+
+  const parsed = deleteChatMessageSchema.safeParse({ messageId: formData.get("messageId") });
+  if (!parsed.success) {
+    return { ok: false, error: "Datos invalidos" };
+  }
+
+  const message = await prisma.message.findFirst({
+    where: { id: parsed.data.messageId, workspaceId: membership.workspace.id },
+    select: {
+      id: true,
+      externalId: true,
+      direction: true,
+      rawPayload: true,
+      channel: { select: { provider: true, evolutionInstanceName: true } },
+      contact: { select: { phoneNumber: true } },
+    },
+  });
+
+  if (!message) {
+    return { ok: false, error: "Mensaje no encontrado" };
+  }
+
+  // Solo los mensajes propios (salientes) con id real de WhatsApp pueden borrarse
+  // "para todos". Los entrantes se eliminan solo en nuestro inbox (para mí).
+  const isRealWhatsAppId = Boolean(message.externalId) && !/^[a-f0-9]{64}$/.test(message.externalId ?? "");
+  const canDeleteForEveryone =
+    message.direction === "OUTBOUND" &&
+    isRealWhatsAppId &&
+    message.channel?.provider === "EVOLUTION" &&
+    Boolean(message.channel.evolutionInstanceName) &&
+    Boolean(message.contact?.phoneNumber);
+
+  if (canDeleteForEveryone) {
+    const raw = message.rawPayload;
+    const evolution =
+      raw && typeof raw === "object" && !Array.isArray(raw)
+        ? ((raw as Record<string, unknown>).evolution as Record<string, unknown> | undefined)
+        : undefined;
+    const data = evolution?.data as Record<string, unknown> | undefined;
+    const storedKey =
+      ((data?.key as Record<string, unknown> | undefined) ??
+        (evolution?.key as Record<string, unknown> | undefined)) ?? undefined;
+    const remoteJid =
+      (typeof storedKey?.remoteJid === "string" ? storedKey.remoteJid : null) ??
+      `${message.contact!.phoneNumber}@s.whatsapp.net`;
+
+    try {
+      await deleteEvolutionMessageForEveryone({
+        instanceName: message.channel!.evolutionInstanceName!,
+        key: { id: message.externalId!, remoteJid, fromMe: true },
+      });
+    } catch {
+      return { ok: false, error: "No se pudo eliminar en WhatsApp" };
+    }
+  }
+
+  await prisma.message.update({
+    where: { id: message.id },
+    data: { deletedAt: new Date() },
+  });
+
+  return { ok: true };
 }
 
 export async function toggleConversationAutomationAction(formData: FormData): Promise<void> {
