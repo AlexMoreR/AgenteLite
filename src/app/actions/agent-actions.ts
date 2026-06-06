@@ -2793,7 +2793,13 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
   // Para citar en WhatsApp, Evolution necesita la KEY real del mensaje original
   // (remoteJid + fromMe + id). La sacamos del payload guardado; si no está, la
   // reconstruimos con el jid del contacto.
-  const quotedExternalId = quotedMessage?.externalId ?? null;
+  // Si el externalId es un hash sintetico (sha256, 64 hex) y no un id real de
+  // WhatsApp, Evolution no podra encontrar el original para citar: mejor enviar sin
+  // cita que romper el envio. (Caso conocido: media con externalId hasheado.)
+  const quotedExternalId =
+    quotedMessage?.externalId && !/^[a-f0-9]{64}$/.test(quotedMessage.externalId)
+      ? quotedMessage.externalId
+      : null;
   let quotedKey: { id: string; remoteJid?: string; fromMe?: boolean } | null = null;
   if (quotedExternalId) {
     const raw = quotedMessage?.rawPayload;

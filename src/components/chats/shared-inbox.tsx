@@ -2556,6 +2556,21 @@ const ConversationPanel = memo(function ConversationPanel({
     };
   }, []);
 
+  // Ajusta la altura del textarea al contenido para que se expanda hacia arriba
+  // (el composer esta anclado abajo) en lugar de mostrar scroll. Solo aparece
+  // scroll una vez superada la altura maxima.
+  const autoResizeComposer = useCallback((target: HTMLTextAreaElement | null) => {
+    if (!target) {
+      return;
+    }
+
+    const maxHeight = 160;
+    target.style.height = "auto";
+    const nextHeight = Math.min(target.scrollHeight, maxHeight);
+    target.style.height = `${nextHeight}px`;
+    target.style.overflowY = target.scrollHeight > maxHeight ? "auto" : "hidden";
+  }, []);
+
   const insertComposerEmoji = useCallback((emoji: string) => {
     const textarea = composerTextAreaRef.current;
     if (!textarea) {
@@ -2571,6 +2586,7 @@ const ConversationPanel = memo(function ConversationPanel({
     textarea.setRangeText(emoji, start, end, "end");
     composerSelectionRef.current = { start: nextCursor, end: nextCursor };
     setComposerHasText(textarea.value.trim().length > 0);
+    autoResizeComposer(textarea);
     setIsEmojiPickerOpen(false);
     setEmojiSearchQuery("");
     setRecentComposerEmojis((current) => [emoji, ...current.filter((item) => item !== emoji)].slice(0, 24));
@@ -2579,7 +2595,7 @@ const ConversationPanel = memo(function ConversationPanel({
       textarea.focus();
       textarea.setSelectionRange(nextCursor, nextCursor);
     });
-  }, []);
+  }, [autoResizeComposer]);
 
   const handleSuggestReply = useCallback(async () => {
     const conversationId = mediaConfig?.conversationId ?? audioConfig?.conversationId;
@@ -2601,6 +2617,7 @@ const ConversationPanel = memo(function ConversationPanel({
         textarea.value = suggestion;
         composerSelectionRef.current = { start: suggestion.length, end: suggestion.length };
         setComposerHasText(suggestion.trim().length > 0);
+        autoResizeComposer(textarea);
         window.requestAnimationFrame(() => {
           textarea.focus();
           textarea.setSelectionRange(suggestion.length, suggestion.length);
@@ -2612,7 +2629,7 @@ const ConversationPanel = memo(function ConversationPanel({
     } finally {
       setIsSuggestingReply(false);
     }
-  }, [mediaConfig?.conversationId, audioConfig?.conversationId, isSuggestingReply]);
+  }, [mediaConfig?.conversationId, audioConfig?.conversationId, isSuggestingReply, autoResizeComposer]);
 
   const { messageHeights, totalMessageHeight } = useMemo(() => {
     const nextHeights = renderedMessages.map((message) => estimateMessageBubbleHeight(message));
@@ -2896,6 +2913,7 @@ const ConversationPanel = memo(function ConversationPanel({
                     onComposerDraft(message, formData);
                     setComposerHasText(false);
                     form.reset();
+                    autoResizeComposer(composerTextAreaRef.current);
                   }}
                 >
                   {composerHiddenFields.map((field) => (
@@ -3109,7 +3127,10 @@ const ConversationPanel = memo(function ConversationPanel({
                           rows={1}
                           placeholder={isSendingAudio ? "Enviando nota de voz..." : composer.placeholder || "Escribe un mensaje..."}
                           disabled={isSendingAudio}
-                          onChange={(event) => setComposerHasText(event.currentTarget.value.trim().length > 0)}
+                          onChange={(event) => {
+                            setComposerHasText(event.currentTarget.value.trim().length > 0);
+                            autoResizeComposer(event.currentTarget);
+                          }}
                           onSelect={(event) => syncComposerSelection(event.currentTarget)}
                           onKeyUp={(event) => syncComposerSelection(event.currentTarget)}
                           onMouseUp={(event) => syncComposerSelection(event.currentTarget)}

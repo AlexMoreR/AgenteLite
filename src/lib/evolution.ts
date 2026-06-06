@@ -881,13 +881,15 @@ export async function sendEvolutionTextMessage(input: {
       delay: input.delayMs ?? 1200,
       ...(input.quoted?.id
         ? {
+            // Solo enviamos la `key`: Evolution reconstruye el mensaje citado real
+            // desde su propia BD (getMessage por key.id). Si mandáramos un `message`
+            // sintético, Evolution lo usaría tal cual y la cita quedaría frágil/falsa.
             quoted: {
               key: {
                 id: input.quoted.id,
                 fromMe: input.quoted.fromMe ?? false,
                 ...(input.quoted.remoteJid ? { remoteJid: input.quoted.remoteJid } : {}),
               },
-              message: { conversation: input.quoted.text ?? "" },
             },
           }
         : {}),
