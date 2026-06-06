@@ -116,6 +116,8 @@ const sendManualAgentReplySchema = z.object({
   message: z.string().trim().min(1, "Escribe un mensaje").max(2000, "Mensaje demasiado largo"),
   returnTo: z.string().trim().max(500).optional(),
   quotedMessageId: z.string().trim().optional(),
+  quotedContent: z.string().trim().max(4096).optional(),
+  quotedDirection: z.enum(["INBOUND", "OUTBOUND"]).optional(),
 });
 
 const saveAgentReactivationMessageSchema = z.object({
@@ -2769,8 +2771,9 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
     return { ok: true, suppressOptimistic: true };
   }
 
-  // Mensaje citado (Responder): buscamos el original para mandar la cita a Evolution
-  // y guardar un preview que renderizamos en la burbuja.
+  // Mensaje citado (Responder). El preview (replyTo) viene del cliente para que la
+  // cita SIEMPRE se guarde y se renderice, sin depender del lookup en BD. El lookup
+  // solo resuelve el externalId (id de WhatsApp) para que Evolution cite de verdad.
   const quotedMessage = parsed.data.quotedMessageId
     ? await prisma.message.findFirst({
         where: {
@@ -2778,12 +2781,38 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
           workspaceId: membership.workspace.id,
           conversationId: conversation.id,
         },
-        select: { externalId: true, content: true, direction: true, type: true },
+        select: { externalId: true, content: true, direction: true, rawPayload: true },
       })
     : null;
-  const replyTo = quotedMessage
-    ? { content: quotedMessage.content ?? "", direction: quotedMessage.direction, type: quotedMessage.type }
-    : null;
+  const replyTo = parsed.data.quotedContent
+    ? { content: parsed.data.quotedContent, direction: parsed.data.quotedDirection ?? "INBOUND" }
+    : quotedMessage
+      ? { content: quotedMessage.content ?? "", direction: quotedMessage.direction }
+      : null;
+
+  // Para citar en WhatsApp, Evolution necesita la KEY real del mensaje original
+  // (remoteJid + fromMe + id). La sacamos del payload guardado; si no está, la
+  // reconstruimos con el jid del contacto.
+  const quotedExternalId = quotedMessage?.externalId ?? null;
+  let quotedKey: { id: string; remoteJid?: string; fromMe?: boolean } | null = null;
+  if (quotedExternalId) {
+    const raw = quotedMessage?.rawPayload;
+    const evolution =
+      raw && typeof raw === "object" && !Array.isArray(raw)
+        ? ((raw as Record<string, unknown>).evolution as Record<string, unknown> | undefined)
+        : undefined;
+    const data = evolution?.data as Record<string, unknown> | undefined;
+    const storedKey =
+      ((data?.key as Record<string, unknown> | undefined) ??
+        (evolution?.key as Record<string, unknown> | undefined)) ?? undefined;
+    const storedRemoteJid = typeof storedKey?.remoteJid === "string" ? storedKey.remoteJid : undefined;
+    const storedFromMe = typeof storedKey?.fromMe === "boolean" ? storedKey.fromMe : undefined;
+    quotedKey = {
+      id: quotedExternalId,
+      remoteJid: storedRemoteJid ?? `${conversation.contact.phoneNumber}@s.whatsapp.net`,
+      fromMe: storedFromMe ?? (replyTo?.direction ?? quotedMessage?.direction) === "OUTBOUND",
+    };
+  }
 
   let outbound: Awaited<ReturnType<typeof sendEvolutionTextMessage>>;
   try {
@@ -2791,8 +2820,8 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
       instanceName: conversation.channel.evolutionInstanceName,
       phoneNumber: conversation.contact.phoneNumber,
       text: parsed.data.message,
-      quoted: quotedMessage?.externalId
-        ? { id: quotedMessage.externalId, text: quotedMessage.content ?? "" }
+      quoted: quotedKey
+        ? { id: quotedKey.id, remoteJid: quotedKey.remoteJid, fromMe: quotedKey.fromMe, text: replyTo?.content ?? "" }
         : null,
     });
   } catch {

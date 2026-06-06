@@ -1,7 +1,18 @@
 import { prisma } from "@/lib/prisma";
 import { getEvolutionSettings } from "@/lib/system-settings";
 
-const WEBHOOK_EVENTS = ["QRCODE_UPDATED", "CONNECTION_UPDATE", "MESSAGES_UPSERT", "SEND_MESSAGE"];
+const WEBHOOK_EVENTS = [
+  "QRCODE_UPDATED",
+  "CONNECTION_UPDATE",
+  "MESSAGES_UPSERT",
+  "SEND_MESSAGE",
+  // Senales de respaldo: si MESSAGES_UPSERT no llega (o se pierde), estos eventos
+  // disparan el rescate de mensajes recientes via la API de Evolution.
+  "CONTACTS_UPSERT",
+  "CONTACTS_UPDATE",
+  "CHATS_UPSERT",
+  "CHATS_UPDATE",
+];
 
 type EvolutionConnectResponse = {
   code?: string;
@@ -534,6 +545,12 @@ export async function resolveEvolutionMessageMediaUrl(input: {
     return input.mediaUrl ?? null;
   }
 
+  // Medio ya persistido en el almacenamiento propio de AgenteLite: es una URL estable
+  // y renderable, no hay que re-resolver el binario contra Evolution.
+  if (input.mediaUrl?.trim().startsWith("/uploads/chat-media/")) {
+    return input.mediaUrl ?? null;
+  }
+
   const payloadMessageId = input.rawPayload ? extractEvolutionMessageIdFromPayload(input.rawPayload) : null;
   const resolvedMessageId = payloadMessageId || input.messageId?.trim() || null;
 
@@ -854,7 +871,7 @@ export async function sendEvolutionTextMessage(input: {
   phoneNumber: string;
   text: string;
   delayMs?: number;
-  quoted?: { id: string; text?: string } | null;
+  quoted?: { id: string; remoteJid?: string; fromMe?: boolean; text?: string } | null;
 }) {
   const response = await evolutionRequest<EvolutionSendTextResponse>(`/message/sendText/${input.instanceName}`, {
     method: "POST",
@@ -865,7 +882,11 @@ export async function sendEvolutionTextMessage(input: {
       ...(input.quoted?.id
         ? {
             quoted: {
-              key: { id: input.quoted.id },
+              key: {
+                id: input.quoted.id,
+                fromMe: input.quoted.fromMe ?? false,
+                ...(input.quoted.remoteJid ? { remoteJid: input.quoted.remoteJid } : {}),
+              },
               message: { conversation: input.quoted.text ?? "" },
             },
           }

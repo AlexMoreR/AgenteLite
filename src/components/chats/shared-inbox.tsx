@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition, type ComponentType, type FormEvent, type ReactNode, type RefObject } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, useTransition, type ComponentType, type FormEvent, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { useFormStatus } from "react-dom";
@@ -1158,7 +1158,10 @@ function toProxiedMediaUrl(url: string) {
   if (
     url.startsWith("data:") ||
     url.startsWith("blob:") ||
-    url.startsWith("/api/media/proxy")
+    url.startsWith("/api/media/proxy") ||
+    // Medios ya persistidos en nuestro almacenamiento: los sirve Next directo desde
+    // /public, no deben pasar por el proxy (que resolveria "/..." contra Evolution).
+    url.startsWith("/uploads/")
   ) {
     return url;
   }
@@ -1571,6 +1574,12 @@ function extractChatAdPreview(rawPayload: unknown): ChatAdPreview | null {
   };
 }
 
+// Helpers para detectar montaje en cliente sin setState en efecto (evita el mismatch
+// de hidratación del DropdownMenu de base-ui).
+const subscribeNoop = () => () => {};
+const getMountedClient = () => true;
+const getMountedServer = () => false;
+
 // Extrae el preview de una cita (Responder): para mensajes propios usa el `replyTo`
 // que guardamos al enviar; para entrantes lee la cita de WhatsApp (contextInfo).
 function getMessageReplyPreview(message: SharedInboxMessageItem): { author: string; text: string } | null {
@@ -1625,6 +1634,12 @@ function MessageActionsMenu({
   outbound: boolean;
   onReply?: (message: SharedInboxMessageItem) => void;
 }) {
+  // El DropdownMenu de base-ui (FloatingTree/ids/atributos) no es estable en SSR y
+  // provoca un mismatch de hidratación que ROMPE la interactividad del menú. Lo
+  // montamos solo en el cliente (useSyncExternalStore: false en server, true en
+  // cliente) para evitarlo sin setState dentro de un efecto.
+  const mounted = useSyncExternalStore(subscribeNoop, getMountedClient, getMountedServer);
+
   const handleCopy = () => {
     const text = (message.content ?? "").trim();
     if (!text) {
@@ -1643,21 +1658,23 @@ function MessageActionsMenu({
 
   const pending = (label: string) => () => toast.info(`${label}: disponible próximamente`);
 
+  if (!mounted) {
+    return null;
+  }
+
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger
-        render={
-          <button
-            type="button"
-            aria-label="Opciones del mensaje"
-            className={`absolute right-1 top-1 z-10 inline-flex size-6 items-center justify-center rounded-full opacity-0 transition group-hover/bubble:opacity-100 focus-visible:opacity-100 data-[popup-open]:opacity-100 ${
-              outbound ? "text-white/90 hover:bg-white/20" : "text-muted-foreground hover:bg-muted"
-            }`}
-          >
-            <ChevronDown className="size-4" />
-          </button>
-        }
-      />
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label="Opciones del mensaje"
+          className={`absolute right-1 top-1 z-10 inline-flex size-6 items-center justify-center rounded-full opacity-100 transition ${
+            outbound ? "text-white/90 hover:bg-white/20" : "text-muted-foreground hover:bg-muted"
+          }`}
+        >
+          <ChevronDown className="size-4" />
+        </button>
+      </DropdownMenuTrigger>
       <DropdownMenuContent align="end" side="bottom" className="w-52">
         <DropdownMenuItem onClick={() => onReply?.(message)}>
           <Reply className="size-4" /> Responder
@@ -4133,9 +4150,12 @@ export function SharedInbox({
         }),
       );
 
-      // Cita (Responder): mandamos el id del mensaje citado y limpiamos el target.
+      // Cita (Responder): mandamos el id (para citar en WhatsApp) y el preview
+      // (texto + dirección) para que la cita se guarde y se vea siempre.
       if (replyTarget) {
         formData.set("quotedMessageId", replyTarget.id);
+        formData.set("quotedContent", replyTarget.content);
+        formData.set("quotedDirection", replyTarget.direction);
         setReplyTarget(null);
       }
 

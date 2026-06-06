@@ -372,6 +372,8 @@ const sendUnifiedChatReplySchema = z.object({
   agentId: z.string().trim().optional(),
   returnTo: z.string().trim().min(1).max(500).optional(),
   quotedMessageId: z.string().trim().optional(),
+  quotedContent: z.string().trim().max(4096).optional(),
+  quotedDirection: z.enum(["INBOUND", "OUTBOUND"]).optional(),
 });
 
 const toggleConversationAutomationSchema = z.object({
@@ -387,6 +389,8 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
     agentId: formData.get("agentId"),
     returnTo: formData.get("returnTo"),
     quotedMessageId: formData.get("quotedMessageId"),
+    quotedContent: formData.get("quotedContent"),
+    quotedDirection: formData.get("quotedDirection"),
   });
 
   // Errores como resultado (sin redirect) para mostrarlos en la burbuja sin recarga.
@@ -406,6 +410,12 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
   nextData.set("returnTo", safeReturnTo || `/cliente/chats?chatKey=agent:${parsed.data.conversationId}`);
   if (parsed.data.quotedMessageId) {
     nextData.set("quotedMessageId", parsed.data.quotedMessageId);
+  }
+  if (parsed.data.quotedContent) {
+    nextData.set("quotedContent", parsed.data.quotedContent);
+  }
+  if (parsed.data.quotedDirection) {
+    nextData.set("quotedDirection", parsed.data.quotedDirection);
   }
   return sendManualAgentReplyAction(nextData);
 }

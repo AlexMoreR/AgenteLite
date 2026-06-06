@@ -393,6 +393,7 @@ model Message {
   editedAt       DateTime?
   deletedAt      DateTime?
   rawPayload     Json?
+  isStatusBroadcast Boolean        @default(false)
   sentAt         DateTime?
   deliveredAt    DateTime?
   readAt         DateTime?

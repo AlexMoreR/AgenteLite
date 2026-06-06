@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { ensureEvolutionInstanceFullHistory, resolveEvolutionMessageMediaUrl } from "@/lib/evolution";
+import { persistChatMediaFromDataUrl } from "@/lib/chat-media-storage";
 import { getEvolutionSettings } from "@/lib/system-settings";
 import {
   extractEvolutionFromMe,
@@ -849,16 +850,35 @@ async function buildImportedEvolutionMessages(input: {
       let mediaUrl = extractEvolutionMediaUrl(payload);
 
       if (type === "IMAGE" || type === "AUDIO" || type === "VIDEO" || type === "STICKER" || type === "DOCUMENT") {
+        const rawMediaUrl = mediaUrl;
+        let resolvedMediaUrl: string | null = rawMediaUrl;
         try {
-          mediaUrl = await resolveEvolutionMessageMediaUrl({
+          resolvedMediaUrl = await resolveEvolutionMessageMediaUrl({
             instanceName: input.instanceName,
             messageId,
             mediaType: type,
-            mediaUrl,
+            mediaUrl: rawMediaUrl,
             rawPayload: payload,
           });
         } catch {
-          mediaUrl = extractEvolutionMediaUrl(payload);
+          resolvedMediaUrl = rawMediaUrl;
+        }
+
+        // Persistir el binario en el almacenamiento propio (igual que el webhook) para
+        // no depender de re-resoluciones y, sobre todo, para no guardar el data: base64
+        // pesado en la columna de la BD. Si la persistencia no aplica (no es un data:
+        // URL) o falla, conservamos una URL no-data como fallback de resolucion perezosa.
+        const persistedMediaUrl = await persistChatMediaFromDataUrl({
+          dataUrl: resolvedMediaUrl,
+          mediaType: type,
+        });
+
+        if (persistedMediaUrl) {
+          mediaUrl = persistedMediaUrl;
+        } else if (resolvedMediaUrl && !resolvedMediaUrl.startsWith("data:")) {
+          mediaUrl = resolvedMediaUrl;
+        } else {
+          mediaUrl = rawMediaUrl;
         }
       }
 
@@ -1640,5 +1660,52 @@ export async function applyEvolutionChatSyncCandidate(input: {
             ? "Se agrego la conversacion local."
             : "Se sincronizo la conversacion local.",
     ...contactAndConversation,
+  };
+}
+
+// Rescate automatico para el webhook: cuando llega un evento de contacto/chat pero
+// Evolution no emitio (o se perdio) el MESSAGES_UPSERT, traemos los mensajes recientes
+// de ese telefono via la API de Evolution y los persistimos. Es idempotente: apply usa
+// createMany con skipDuplicates por externalId, asi que reimportar no duplica.
+export async function backfillEvolutionMessagesByPhone(input: {
+  workspaceId: string;
+  channelId: string;
+  phoneNumber: string;
+  // Cantidad de mensajes mas recientes a traer. Por defecto IMPORT_RECENT_MESSAGE_LIMIT (20).
+  importLimit?: number | null;
+}): Promise<
+  | { ok: true; imported: number; created: boolean }
+  | { ok: false; reason: string }
+> {
+  const scan = await scanEvolutionChatSyncCandidateByPhone({
+    workspaceId: input.workspaceId,
+    channelId: input.channelId,
+    phoneNumber: input.phoneNumber,
+  });
+
+  if (!scan.ok) {
+    return { ok: false, reason: scan.error };
+  }
+
+  if (scan.kind !== "batch" || !scan.candidates.length) {
+    // "none": no hay mensajes en Evolution para ese numero en este canal.
+    return { ok: true, imported: 0, created: false };
+  }
+
+  const result = await applyEvolutionChatSyncCandidate({
+    workspaceId: input.workspaceId,
+    channelId: input.channelId,
+    candidate: scan.candidates[0],
+    importLimit: input.importLimit === undefined ? IMPORT_RECENT_MESSAGE_LIMIT : input.importLimit,
+  });
+
+  if (!result.ok) {
+    return { ok: false, reason: result.error };
+  }
+
+  return {
+    ok: true,
+    imported: result.messagesImported ?? 0,
+    created: Boolean(result.createdContact || result.createdConversation),
   };
 }

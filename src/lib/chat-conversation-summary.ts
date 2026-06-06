@@ -1,5 +1,4 @@
 import { prisma } from "@/lib/prisma";
-import { isEvolutionStatusBroadcastPayload } from "@/lib/evolution-webhook";
 
 export type ChatConversationSummary = {
   id: string;
@@ -57,7 +56,7 @@ async function getIncomingCountForConversation(input: { workspaceId: string; con
       AND mi."conversationId" = ${input.conversationId}
       AND mi."direction" = 'INBOUND'
       AND mi."readAt" IS NULL
-      AND COALESCE(mi."rawPayload"::text, '') NOT ILIKE '%status@broadcast%'
+      AND mi."isStatusBroadcast" = false
   `;
 
   return Number(rows[0]?.incomingCount ?? 0);
@@ -100,16 +99,16 @@ export async function getAgentConversationSummaryByConversationId(input: {
       where: {
         workspaceId: input.workspaceId,
         conversationId: conversation.id,
+        isStatusBroadcast: false,
       },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      take: 20,
+      take: 1,
       select: {
         content: true,
         direction: true,
         createdAt: true,
         deletedAt: true,
         type: true,
-        rawPayload: true,
       },
     }),
     prisma.$queryRaw<Array<{ name: string; color: string }>>`
@@ -128,7 +127,7 @@ export async function getAgentConversationSummaryByConversationId(input: {
     }),
   ]);
 
-  const lastMessage = lastMessageRows.find((message) => !isEvolutionStatusBroadcastPayload(message.rawPayload)) ?? null;
+  const lastMessage = lastMessageRows[0] ?? null;
 
   return {
     id: conversation.id,
@@ -217,16 +216,16 @@ export async function getAgentConversationSummaryByPhoneNumber(input: {
       where: {
         workspaceId: input.workspaceId,
         conversationId: conversation.id,
+        isStatusBroadcast: false,
       },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      take: 20,
+      take: 1,
       select: {
         content: true,
         direction: true,
         createdAt: true,
         deletedAt: true,
         type: true,
-        rawPayload: true,
       },
     }),
     prisma.$queryRaw<Array<{ name: string; color: string }>>`
@@ -245,7 +244,7 @@ export async function getAgentConversationSummaryByPhoneNumber(input: {
     }),
   ]);
 
-  const lastMessage = lastMessageRows.find((message) => !isEvolutionStatusBroadcastPayload(message.rawPayload)) ?? null;
+  const lastMessage = lastMessageRows[0] ?? null;
 
   return {
     id: conversation.id,

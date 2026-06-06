@@ -236,7 +236,7 @@ async function getAgentConversationList(input: {
         FROM "Message" m
         WHERE m."workspaceId" = ${input.workspaceId}
           AND m."conversationId" IN (${Prisma.join(activeAgentConversationIds)})
-          AND COALESCE(m."rawPayload"::text, '') NOT ILIKE '%status@broadcast%'
+          AND m."isStatusBroadcast" = false
         ORDER BY m."conversationId", m."createdAt" DESC, m."id" DESC
       `
     : Promise.resolve([] as Array<{
@@ -268,7 +268,7 @@ async function getAgentConversationList(input: {
             AND m."conversationId" IN (${Prisma.join(activeAgentConversationIds)})
             AND m."direction" = 'INBOUND'
             AND m."readAt" IS NULL
-            AND COALESCE(m."rawPayload"::text, '') NOT ILIKE '%status@broadcast%'
+            AND m."isStatusBroadcast" = false
           GROUP BY m."conversationId"
         )
         SELECT

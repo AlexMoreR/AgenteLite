@@ -1,5 +1,4 @@
 import { prisma } from "@/lib/prisma";
-import { isEvolutionStatusBroadcastPayload } from "@/lib/evolution-webhook";
 
 export type AgentConversationMessageRecord = {
   id: string;
@@ -103,6 +102,10 @@ export async function loadAgentConversationDetail(input: {
     where: {
       workspaceId: input.workspaceId,
       conversationId: input.conversationId,
+      // Los broadcasts/estados se excluyen vía columna indexada (antes era un
+      // filtro en JS sobre rawPayload). rawPayload se mantiene en el select
+      // porque el UI lo usa para resolver media y previews de anuncios.
+      isStatusBroadcast: false,
     },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     take: batchSize + 1,
@@ -121,7 +124,7 @@ export async function loadAgentConversationDetail(input: {
     },
   });
 
-  const visibleMessages = messages.slice(0, batchSize).filter((message) => !isEvolutionStatusBroadcastPayload(message.rawPayload));
+  const visibleMessages = messages.slice(0, batchSize);
   const orderedMessages = [...visibleMessages].sort((left, right) => {
     const diff = left.createdAt.getTime() - right.createdAt.getTime();
     if (diff !== 0) {

@@ -535,6 +535,86 @@ export function isInboundMessageEvent(eventName: string | null): boolean {
   );
 }
 
+// Eventos de contacto/chat (CONTACTS_UPSERT/UPDATE/SET, CHATS_UPSERT/UPDATE/SET).
+// Sirven como senal de respaldo: si llegan pero no llego el MESSAGES_UPSERT, usamos
+// la API de Evolution para rescatar los mensajes recientes de ese chat.
+export function isEvolutionContactSyncEvent(eventName: string | null): boolean {
+  if (!eventName) {
+    return false;
+  }
+
+  const normalized = eventName.toUpperCase();
+  // Excluir explicitamente eventos de mensajes; solo contactos/chats.
+  if (normalized.includes("MESSAGE")) {
+    return false;
+  }
+
+  const isContactOrChat = normalized.includes("CONTACT") || normalized.includes("CHAT");
+  if (!isContactOrChat) {
+    return false;
+  }
+
+  return normalized.includes("UPSERT") || normalized.includes("UPDATE") || normalized.includes("SET");
+}
+
+// Extrae los telefonos involucrados en un evento de contacto/chat. La data de Evolution
+// puede venir como un objeto unico o como un arreglo de contactos. Ignora grupos (@g.us),
+// status broadcasts y JIDs @lid (que no mapean a un numero real).
+export function extractEvolutionContactSyncPhones(payload: unknown): string[] {
+  const root = asRecord(payload);
+  const data = root?.data;
+
+  const records: UnknownRecord[] = [];
+  if (Array.isArray(data)) {
+    for (const item of data) {
+      const record = asRecord(item);
+      if (record) records.push(record);
+    }
+  } else {
+    const record = asRecord(data);
+    if (record) {
+      records.push(record);
+    } else if (root) {
+      records.push(root);
+    }
+  }
+
+  const phones = new Set<string>();
+  for (const record of records) {
+    const jid =
+      readString(record.id) ||
+      readString(record.remoteJid) ||
+      readString(record.remoteJidAlt) ||
+      readString(record.jid) ||
+      readString(asRecord(record.key)?.remoteJid) ||
+      readString(record.chatId);
+
+    if (!jid) {
+      continue;
+    }
+
+    const atIndex = jid.indexOf("@");
+    if (atIndex >= 0) {
+      const domain = jid.slice(atIndex + 1).toLowerCase();
+      // Solo numeros reales de WhatsApp. Descarta grupos, status, newsletters y @lid.
+      if (domain !== "s.whatsapp.net" && domain !== "c.us") {
+        continue;
+      }
+    }
+
+    if (isEvolutionStatusBroadcastJid(jid)) {
+      continue;
+    }
+
+    const phone = normalizePhoneFromJid(jid);
+    if (phone) {
+      phones.add(phone);
+    }
+  }
+
+  return Array.from(phones);
+}
+
 export function isMessageUpdateEvent(eventName: string | null): boolean {
   if (!eventName) {
     return false;

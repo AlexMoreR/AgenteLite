@@ -32,9 +32,11 @@ import {
   extractEvolutionPhoneNumber,
   extractEvolutionQrCode,
   extractEvolutionRemoteJid,
+  extractEvolutionContactSyncPhones,
   hasEvolutionCallPayload,
   hasEvolutionDeletedMessagePayload,
   hasEvolutionEditedMessagePayload,
+  isEvolutionContactSyncEvent,
   isEvolutionStatusBroadcastPayload,
   isInboundMessageEvent,
   normalizePhoneFromJid,
@@ -77,6 +79,8 @@ import {
   sendNotificarAsesorNotification,
 } from "@/features/agent-actions";
 import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
+import { backfillEvolutionMessagesByPhone } from "@/lib/evolution-chat-sync";
+import { persistChatMediaFromDataUrl } from "@/lib/chat-media-storage";
 
 function mapChannelStatus(eventName: string | null, rawState: string | null) {
   const state = rawState?.toLowerCase() ?? "";
@@ -612,6 +616,32 @@ async function resolveConversationWithLock(args: {
   return null;
 }
 
+// Throttle en memoria para el rescate de mensajes por evento de contacto/chat.
+// Evita rafagas de llamadas a la API de Evolution cuando llegan muchos eventos
+// seguidos del mismo chat. El import es idempotente, asi que esto solo limita costo.
+const CONTACT_SYNC_BACKFILL_THROTTLE_MS = 15_000;
+const contactSyncBackfillThrottle = new Map<string, number>();
+
+function shouldRunContactSyncBackfill(key: string, now: number) {
+  const last = contactSyncBackfillThrottle.get(key);
+  if (last !== undefined && now - last < CONTACT_SYNC_BACKFILL_THROTTLE_MS) {
+    return false;
+  }
+
+  contactSyncBackfillThrottle.set(key, now);
+
+  // Limpieza oportunista para que el Map no crezca sin limite.
+  if (contactSyncBackfillThrottle.size > 5000) {
+    for (const [entryKey, entryTime] of contactSyncBackfillThrottle) {
+      if (now - entryTime >= CONTACT_SYNC_BACKFILL_THROTTLE_MS) {
+        contactSyncBackfillThrottle.delete(entryKey);
+      }
+    }
+  }
+
+  return true;
+}
+
 export async function POST(request: Request) {
   const payload = await request.json().catch(() => null);
 
@@ -744,6 +774,58 @@ export async function POST(request: Request) {
     hasEvolutionDeletedMessagePayload(payload);
 
   if (!isMessageEvent) {
+    // Rescate: llego un evento de contacto/chat pero no un MESSAGES_UPSERT. A veces
+    // Evolution no emite (o se pierde) el upsert del mensaje con foto. Usamos la API de
+    // Evolution para traer los mensajes recientes de ese chat y rellenar lo que falte.
+    if (isEvolutionContactSyncEvent(eventName) && channel.evolutionInstanceName) {
+      const syncChannel = channel;
+      const now = Date.now();
+      const phonesToBackfill = extractEvolutionContactSyncPhones(payload).filter((phone) =>
+        shouldRunContactSyncBackfill(`${syncChannel.id}:${phone}`, now),
+      );
+
+      if (phonesToBackfill.length > 0) {
+        after(async () => {
+          for (const phone of phonesToBackfill) {
+            try {
+              const result = await backfillEvolutionMessagesByPhone({
+                workspaceId: syncChannel.workspaceId,
+                channelId: syncChannel.id,
+                phoneNumber: phone,
+              });
+
+              if (result.ok && result.imported > 0) {
+                console.log("[EVOLUTION] contact_sync_backfill", {
+                  eventName,
+                  instanceName,
+                  channelId: syncChannel.id,
+                  phone,
+                  imported: result.imported,
+                  created: result.created,
+                });
+              } else if (!result.ok) {
+                console.warn("[EVOLUTION] contact_sync_backfill_failed", {
+                  eventName,
+                  instanceName,
+                  channelId: syncChannel.id,
+                  phone,
+                  reason: result.reason,
+                });
+              }
+            } catch (error) {
+              console.error("[EVOLUTION] contact_sync_backfill_error", {
+                eventName,
+                instanceName,
+                channelId: syncChannel.id,
+                phone,
+                error: error instanceof Error ? error.message : String(error),
+              });
+            }
+          }
+        });
+      }
+    }
+
     return NextResponse.json({
       ok: true,
       message: "Event logged",
@@ -1036,6 +1118,9 @@ export async function POST(request: Request) {
         source: direction === "OUTBOUND" ? "instance" : "webhook",
         evolution: payload,
       } as never,
+      // Los broadcasts ya se descartan antes de persistir (ver guard de status@broadcast),
+      // pero lo calculamos igual para que la columna sea siempre consistente con rawPayload.
+      isStatusBroadcast: isEvolutionStatusBroadcastPayload(payload),
       ...(direction === "OUTBOUND" ? { sentAt: new Date() } : {}),
     };
 
@@ -1229,6 +1314,62 @@ export async function POST(request: Request) {
           ? "url"
           : "none",
     });
+  }
+
+  // Persistir el binario del medio en el almacenamiento propio de AgenteLite en el
+  // momento de la ingesta (unico instante en que esta garantizado disponible en
+  // WhatsApp), guardando una URL permanente y renderable en message.mediaUrl. Asi el
+  // chat lee una URL estable en vez de re-resolver contra Evolution en cada carga.
+  // La resolucion perezosa del live route se mantiene como fallback.
+  if (
+    !messageWasDeleted &&
+    !messageWasEdited &&
+    !isCallEvent &&
+    (messageType === "IMAGE" ||
+      messageType === "STICKER" ||
+      messageType === "VIDEO" ||
+      messageType === "AUDIO" ||
+      messageType === "DOCUMENT")
+  ) {
+    try {
+      // Reutiliza el binario ya resuelto para la IA (IMAGE/STICKER/AUDIO); para
+      // VIDEO/DOCUMENT lo resuelve aqui (la IA no los consume).
+      const mediaDataUrl =
+        resolvedCurrentMediaUrl ??
+        (await resolveEvolutionMessageMediaUrl({
+          instanceName: channel.evolutionInstanceName,
+          messageId: messageExternalId,
+          mediaType: messageType,
+          mediaUrl,
+          rawPayload: payload,
+        }));
+
+      const persistedMediaUrl = await persistChatMediaFromDataUrl({
+        dataUrl: mediaDataUrl,
+        mediaType: messageType,
+      });
+
+      if (persistedMediaUrl) {
+        await prisma.message.update({
+          where: {
+            channelId_externalId: {
+              channelId: channel.id,
+              externalId: inboundExternalId,
+            },
+          },
+          data: { mediaUrl: persistedMediaUrl },
+        });
+      }
+    } catch (error) {
+      // No bloquear la ingesta: si falla, queda la resolucion perezosa como fallback.
+      console.warn("[EVOLUTION] media_persist_failed", {
+        conversationId: conversation.id,
+        channelId: channel.id,
+        externalId: inboundExternalId,
+        messageType,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   const response = NextResponse.json({
