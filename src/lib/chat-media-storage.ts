@@ -24,6 +24,27 @@ export function isPersistedChatMediaUrl(value?: string | null) {
   return value.trim().startsWith(CHAT_MEDIA_PUBLIC_PREFIX);
 }
 
+/**
+ * Indica si una URL de medio persistido (`/uploads/chat-media/<archivo>`) corresponde
+ * a un archivo que realmente existe en el disco de ESTE servidor. La BD es compartida
+ * entre entornos (local/desplegado), asi que una fila puede referenciar un binario que
+ * solo se escribio en otro servidor; en ese caso hay que re-resolver contra Evolution.
+ */
+export async function persistedChatMediaFileExists(publicUrl?: string | null): Promise<boolean> {
+  if (!isPersistedChatMediaUrl(publicUrl)) {
+    return false;
+  }
+
+  const fileName = publicUrl!.trim().slice(CHAT_MEDIA_PUBLIC_PREFIX.length);
+  // Defensa contra path traversal: solo nombre de archivo plano.
+  if (!fileName || fileName.includes("/") || fileName.includes("\\") || fileName.includes("..")) {
+    return false;
+  }
+
+  const filePath = path.join(process.cwd(), ...CHAT_MEDIA_DIR_SEGMENTS, fileName);
+  return fileExists(filePath);
+}
+
 function extensionForMime(mimeType: string, mediaType: PersistableMediaType) {
   const mime = mimeType.toLowerCase();
 

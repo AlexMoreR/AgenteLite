@@ -536,6 +536,12 @@ export function saveConversationToCache(conversation: SharedInboxSelectedConvers
   }, CACHE_SAVE_DEBOUNCE_MS);
 }
 
+// Si la caché supera este tiempo, no la usamos para el render inicial: evita mostrar
+// un "chat viejo" al recargar. La navegación entre chats la mantiene fresca (se
+// reescribe en cada update), así que sigue siendo instantánea; solo se descarta la
+// caché añeja de sesiones anteriores y se carga el estado actual (SSR preview + /live).
+const CACHE_FRESHNESS_MS = 60_000;
+
 export function readConversationFromCache(conversationId: string) {
   if (!conversationId) {
     return null;
@@ -548,7 +554,16 @@ export function readConversationFromCache(conversationId: string) {
     store.conversations[normalizedConversationId] ??
     store.conversations[conversationId.split(":").slice(1).join(":")] ??
     null;
-  return cached ? hydrateConversation(cached) : null;
+
+  if (!cached) {
+    return null;
+  }
+
+  if (typeof cached.cachedAt === "number" && Date.now() - cached.cachedAt > CACHE_FRESHNESS_MS) {
+    return null;
+  }
+
+  return hydrateConversation(cached);
 }
 
 export function clearConversationCache() {

@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState, useActionState } from "react";
+import { User, Phone, MapPin, Home, Heart } from "lucide-react";
 import { getContactDetailsAction, updateContactAction, type ContactDetails } from "@/app/actions/chats-actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -94,18 +94,6 @@ export function EditContactModal({ open, onClose, contactId, contactName }: Prop
     [availableTags, selectedTagIds],
   );
 
-  const handleToggleTag = (tagId: string, checked: boolean) => {
-    setSelectedTagIds((current) => {
-      const next = new Set(current);
-      if (checked) {
-        next.add(tagId);
-      } else {
-        next.delete(tagId);
-      }
-      return next;
-    });
-  };
-
   return (
     <Dialog
       open={open}
@@ -115,102 +103,89 @@ export function EditContactModal({ open, onClose, contactId, contactName }: Prop
         }
       }}
     >
-      <DialogContent className="sm:max-w-sm">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Editar contacto</DialogTitle>
         </DialogHeader>
 
         <form action={formAction} className="space-y-4">
           <input type="hidden" name="contactId" value={contactId} />
-          <div className="space-y-2">
-            <Label htmlFor="edit-contact-name">Nombre</Label>
-            <Input
-              id="edit-contact-name"
-              key={`name:${fieldsKey}`}
-              name="name"
-              defaultValue={loadedDetails?.name ?? contactName}
-              placeholder="Nombre del contacto"
-              autoFocus
-            />
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="edit-contact-name" className="flex items-center gap-1.5">
+                <User className="h-3.5 w-3.5 text-muted-foreground" /> Nombre
+              </Label>
+              <Input
+                id="edit-contact-name"
+                key={`name:${fieldsKey}`}
+                name="name"
+                defaultValue={loadedDetails?.name ?? contactName}
+                placeholder="Nombre del contacto"
+                autoFocus
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-contact-phone" className="flex items-center gap-1.5">
+                <Phone className="h-3.5 w-3.5 text-muted-foreground" /> Teléfono
+              </Label>
+              <Input
+                id="edit-contact-phone"
+                key={`phone:${fieldsKey}`}
+                name="phoneNumber"
+                type="tel"
+                defaultValue={loadedDetails?.phoneNumber ?? ""}
+                placeholder="Número de teléfono"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-contact-city" className="flex items-center gap-1.5">
+                <MapPin className="h-3.5 w-3.5 text-muted-foreground" /> Ciudad
+              </Label>
+              <Input
+                id="edit-contact-city"
+                key={`city:${fieldsKey}`}
+                name="city"
+                defaultValue={loadedDetails?.city ?? ""}
+                placeholder="Ciudad"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-contact-address" className="flex items-center gap-1.5">
+                <Home className="h-3.5 w-3.5 text-muted-foreground" /> Dirección
+              </Label>
+              <Input
+                id="edit-contact-address"
+                key={`address:${fieldsKey}`}
+                name="address"
+                defaultValue={loadedDetails?.address ?? ""}
+                placeholder="Dirección"
+              />
+            </div>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="edit-contact-phone">Teléfono</Label>
-            <Input
-              id="edit-contact-phone"
-              key={`phone:${fieldsKey}`}
-              name="phoneNumber"
-              type="tel"
-              defaultValue={loadedDetails?.phoneNumber ?? ""}
-              placeholder="Número de teléfono"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="edit-contact-city">Ciudad</Label>
-            <Input
-              id="edit-contact-city"
-              key={`city:${fieldsKey}`}
-              name="city"
-              defaultValue={loadedDetails?.city ?? ""}
-              placeholder="Ciudad"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="edit-contact-address">Dirección</Label>
-            <Input
-              id="edit-contact-address"
-              key={`address:${fieldsKey}`}
-              name="address"
-              defaultValue={loadedDetails?.address ?? ""}
-              placeholder="Dirección"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>Interesado en</Label>
+            <Label className="flex items-center gap-1.5">
+              <Heart className="h-3.5 w-3.5 text-muted-foreground" /> Interesado en
+            </Label>
             {(loadingDetails ? [] : Array.from(selectedTagIds)).map((tagId) => (
               <input key={tagId} type="hidden" name="tagIds" value={tagId} />
             ))}
-            <div className="flex min-h-10 flex-col gap-2 rounded-lg border border-input bg-background px-2 py-2 text-sm">
-              {selectedTags.length ? (
-                <div className="flex flex-wrap gap-1.5">
-                  {selectedTags.map((tag) => (
-                    <Badge
-                      key={tag.id}
-                      variant="outline"
-                      className="max-w-full justify-start"
-                      style={{ borderColor: tag.color, color: tag.color }}
-                      title={tag.name}
-                    >
-                      <span className="truncate">{tag.name}</span>
-                    </Badge>
-                  ))}
-                </div>
-              ) : null}
-
+            <div className="flex min-h-10 flex-wrap items-center gap-1.5 rounded-lg border border-input bg-background px-2 py-2 text-sm">
               {loadingDetails ? (
-                <p className="px-1 py-1 text-sm text-muted-foreground">Cargando etiquetas...</p>
-              ) : availableTags.length ? (
-                <div className="flex max-h-32 flex-col gap-1 overflow-y-auto pr-1">
-                  {availableTags.map((tag) => {
-                    const checked = selectedTagIds.has(tag.id);
-                    return (
-                      <label
-                        key={tag.id}
-                        htmlFor={`edit-contact-tag-${tag.id}`}
-                        className="flex min-h-8 cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 transition hover:bg-muted"
-                      >
-                        <Checkbox
-                          id={`edit-contact-tag-${tag.id}`}
-                          checked={checked}
-                          onCheckedChange={(nextChecked) => handleToggleTag(tag.id, nextChecked)}
-                        />
-                        <span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: tag.color }} />
-                        <span className="min-w-0 flex-1 truncate">{tag.name}</span>
-                      </label>
-                    );
-                  })}
-                </div>
+                <p className="px-1 text-sm text-muted-foreground">Cargando etiquetas...</p>
+              ) : selectedTags.length ? (
+                selectedTags.map((tag) => (
+                  <Badge
+                    key={tag.id}
+                    variant="outline"
+                    className="max-w-full justify-start"
+                    style={{ borderColor: tag.color, color: tag.color }}
+                    title={tag.name}
+                  >
+                    <span className="truncate">{tag.name}</span>
+                  </Badge>
+                ))
               ) : (
-                <p className="px-1 py-1 text-sm text-muted-foreground">Sin etiquetas creadas</p>
+                <p className="px-1 text-sm text-muted-foreground">Sin etiquetas</p>
               )}
             </div>
           </div>

@@ -79,7 +79,7 @@ export function AppSidebar({
       className={`${mobileConversationActive ? "hidden md:flex" : "flex"} chat-inbox-sidebar min-h-0 flex-1 overflow-hidden border border-border bg-card p-0 shadow-none md:h-full md:shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)]`}
     >
       <div className="flex min-h-0 w-full flex-col">
-        <div className="shrink-0 border-b border-border bg-card px-3 py-2.5 backdrop-blur-sm md:px-3 md:py-3">
+        <div className="shrink-0 border-b border-border bg-card px-3 py-2 backdrop-blur-sm md:px-3 md:py-2">
           <div className="flex items-center gap-2">
             <form
               className="relative flex-1"
@@ -115,7 +115,7 @@ export function AppSidebar({
 
           </div>
 
-          <div className="mt-2.5 flex items-center gap-1 rounded-xl bg-muted p-0.5">
+          <div className="mt-1 flex items-center gap-1 rounded-xl bg-muted p-0.5">
             {visibleTabs.map((tab) => {
               const isActive = assignedFilter === tab.value;
               const count = assignedCounts ? assignedCounts[tab.value] : null;
@@ -126,7 +126,7 @@ export function AppSidebar({
                   href={buildFilterHref(tab.value)}
                   scroll={false}
                   aria-current={isActive ? "page" : undefined}
-                  className={`flex flex-1 items-center justify-center gap-1 whitespace-nowrap rounded-lg px-1.5 py-1.5 text-center text-[11px] font-medium transition ${
+                  className={`flex flex-1 items-center justify-center gap-1 whitespace-nowrap rounded-lg px-1.5 py-1.5 text-center text-[13px] font-medium transition ${
                     isActive
                       ? "bg-background text-foreground shadow-sm"
                       : "text-muted-foreground hover:text-foreground"

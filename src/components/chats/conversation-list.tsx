@@ -224,14 +224,14 @@ const ConversationListItem = memo(function ConversationListItem({
             {conversation.tags.map((tag) => (
               <Badge
                 key={`${conversation.id}:${tag.label}`}
-                className="max-w-full rounded-[4px] px-1.5 py-0.5 text-[10px] font-medium shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
+                className="max-w-full px-2.5 py-1 text-[10px] shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
                 style={{
                   ...getConversationTagBadgeStyle(tag.color),
                   color: "#ffffff",
                 }}
                 title={tag.label}
               >
-                <span className="truncate">{tag.label.toUpperCase()}</span>
+                <span className="truncate">{tag.label}</span>
               </Badge>
             ))}
           </div>

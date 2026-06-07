@@ -1699,9 +1699,6 @@ function MessageActionsMenu({
         <DropdownMenuItem onClick={pending("Destacar")}>
           <Star className="size-4" /> Destacar
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={pending("Reportar")}>
-          <Flag className="size-4" /> Reportar
-        </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem variant="destructive" onClick={() => onDelete?.(message)}>
           <Trash2 className="size-4" /> Eliminar
@@ -2696,11 +2693,7 @@ const ConversationPanel = memo(function ConversationPanel({
                 ref={messagesScrollRef}
                 className="chat-messages-scroll h-full overflow-y-auto overscroll-contain bg-transparent px-2.5 py-2.5 pb-3 [-webkit-overflow-scrolling:touch] md:px-5 md:py-5 md:pb-5"
               >
-                <div
-                  className={`flex min-h-full flex-col justify-end transition-opacity duration-150 ease-out ${
-                    !hasSettledConversation ? "opacity-85" : "opacity-100"
-                  }`}
-                >
+                <div className="flex min-h-full flex-col justify-end">
                   {canLoadOlderMessages ? (
                     <div className="pb-2 pt-1">
                       <div ref={loadMoreSentinelRef} aria-hidden="true" className="h-px w-full" />
@@ -4360,15 +4353,24 @@ export function SharedInbox({
       return;
     }
 
-    // Bajar SOLO cuando el último mensaje es el que TÚ acabas de enviar (burbuja
-    // optimista). Los mensajes que llegan por realtime (entrantes o respuestas del
-    // bot) NO mueven el scroll; si son entrantes, solo suman al contador de no leídos.
+    // Comportamiento estilo WhatsApp:
+    // - Tu propio envío (burbuja optimista) → baja para verlo.
+    // - Estás cerca del fondo (leyendo lo último) → baja natural al mensaje nuevo.
+    // - Estás arriba en el historial → NO mueve el scroll; si es entrante, muestra
+    //   el contador "↓ N" de no leídos.
     const lastMessage = renderedMessagesRef.current.at(-1);
     const lastMessageIsOwnDraft =
       typeof lastMessage?.id === "string" && lastMessage.id.startsWith("optimistic:");
-    if (lastMessageIsOwnDraft) {
+
+    if (lastMessageIsOwnDraft || isNearBottomRef.current) {
       jumpToBottom(true);
-    } else if (lastMessage?.direction === "INBOUND") {
+      return;
+    }
+
+    // Scrolleado arriba: anclamos a la posición previa para que el re-render no la
+    // mueva, y contamos el no leído si el mensaje es entrante.
+    container.scrollTop = lastScrollTopRef.current;
+    if (lastMessage?.direction === "INBOUND") {
       setUnreadCount((prev) => prev + added);
     }
   }, [selectedConversationScrollKey, messageScrollBehavior]);

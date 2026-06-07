@@ -236,37 +236,6 @@ function buildOptimisticConversationListSnapshot(input: {
   };
 }
 
-function buildOptimisticLiveConversationSnapshot(input: {
-  conversationKey: string;
-  payload: unknown;
-}) {
-  const messageId = extractEvolutionMessageId(input.payload);
-  if (!messageId) {
-    return null;
-  }
-
-  const lastMessageDirection = extractEvolutionFromMe(input.payload) ? "OUTBOUND" : "INBOUND";
-  const messageType = extractEvolutionMessageType(input.payload);
-
-  return {
-    id: input.conversationKey,
-    messages: [
-      {
-        id: messageId,
-        content: extractEvolutionMessageText(input.payload)?.trim() || null,
-        direction: lastMessageDirection,
-        authorType: lastMessageDirection === "OUTBOUND" ? "bot" : "user",
-        outboundStatusLabel: null,
-        type: messageType,
-        mediaUrl: extractEvolutionMediaUrl(input.payload),
-        rawPayload: input.payload,
-        createdAt: new Date().toISOString(),
-        editedAt: null,
-        deletedAt: null,
-      },
-    ],
-  };
-}
 
 export function ChatsRealtimeSync({
   apiBaseUrl,
@@ -813,22 +782,11 @@ export function ChatsRealtimeSync({
           });
 
           if (hasActiveAgentConversation) {
-            if (isSelectedAgentConversation && !isEditedOrDeletedPayload && !extractEvolutionFromMe(payload)) {
-              const liveConversationSnapshot = buildOptimisticLiveConversationSnapshot({
-                conversationKey: currentConversationKey || "",
-                payload,
-              });
-              if (liveConversationSnapshot) {
-                window.dispatchEvent(
-                  new CustomEvent("chat-live-update", {
-                    detail: {
-                      conversation: liveConversationSnapshot,
-                    },
-                  }),
-                );
-              }
-            }
-
+            // (Antes: snapshot optimista de entrante para "feedback instantáneo".
+            // Se quitó: usaba el id en formato chatKey y, al no coincidir con el id de
+            // BD de la conversación cargada, el merge colapsaba el chat a 1 mensaje y
+            // luego el /live lo restauraba → parpadeo "desaparece y reaparece". El
+            // /live ya carga rápido el mensaje nuevo sin colapsar.)
             scheduleLiveUpdate("active", {
               signature: eventSignature,
               followUp: shouldFollowUp,
@@ -893,22 +851,8 @@ export function ChatsRealtimeSync({
             }
 
             if (isSelectedAgentConversation) {
-              if (!isEditedOrDeletedPayload && !extractEvolutionFromMe(payload)) {
-                const liveConversationSnapshot = buildOptimisticLiveConversationSnapshot({
-                  conversationKey: currentConversationKey || "",
-                  payload,
-                });
-                if (liveConversationSnapshot) {
-                  window.dispatchEvent(
-                    new CustomEvent("chat-live-update", {
-                      detail: {
-                        conversation: liveConversationSnapshot,
-                      },
-                    }),
-                  );
-                }
-              }
-
+              // Snapshot optimista de entrante removido (causaba el parpadeo
+              // "desaparece y reaparece"): el /live agrega el mensaje sin colapsar.
               scheduleLiveUpdate("active", {
                 signature: eventSignature,
                 followUp: shouldFollowUp,

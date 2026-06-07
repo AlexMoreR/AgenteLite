@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { getEvolutionSettings } from "@/lib/system-settings";
+import { persistedChatMediaFileExists } from "@/lib/chat-media-storage";
 
 const WEBHOOK_EVENTS = [
   "QRCODE_UPDATED",
@@ -546,9 +547,15 @@ export async function resolveEvolutionMessageMediaUrl(input: {
   }
 
   // Medio ya persistido en el almacenamiento propio de AgenteLite: es una URL estable
-  // y renderable, no hay que re-resolver el binario contra Evolution.
+  // y renderable, no hay que re-resolver el binario contra Evolution. PERO la BD es
+  // compartida entre entornos: una fila puede apuntar a un binario que solo se escribio
+  // en OTRO servidor (p.ej. el webhook lo proceso el desplegado y este es local). Si el
+  // archivo no existe en ESTE disco, no devolvemos una ruta rota: caemos a re-resolver
+  // contra Evolution mas abajo (auto-reparacion).
   if (input.mediaUrl?.trim().startsWith("/uploads/chat-media/")) {
-    return input.mediaUrl ?? null;
+    if (await persistedChatMediaFileExists(input.mediaUrl)) {
+      return input.mediaUrl ?? null;
+    }
   }
 
   const payloadMessageId = input.rawPayload ? extractEvolutionMessageIdFromPayload(input.rawPayload) : null;
@@ -627,6 +634,13 @@ export async function resolveEvolutionMessageMediaUrl(input: {
 
   // No persistir URLs del CDN de WhatsApp: no son descargables y rompen la UI/proxy.
   if (isWhatsAppCdnMediaUrl(input.mediaUrl)) {
+    return null;
+  }
+
+  // Si llegamos hasta aqui con una ruta persistida local, es porque el archivo NO existe
+  // en este servidor (se verifico al inicio) y no se pudo re-resolver: devolver la ruta
+  // daria una imagen rota, mejor null para que la UI muestre el placeholder de medio.
+  if (input.mediaUrl?.trim().startsWith("/uploads/chat-media/")) {
     return null;
   }
 
