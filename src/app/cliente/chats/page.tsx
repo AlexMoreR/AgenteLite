@@ -434,17 +434,26 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   }
 
   // Al abrir una conversacion, marcamos sus mensajes entrantes como leidos (vistos).
+  // La escritura se difiere con after() para que NO bloquee el render del chat; el badge
+  // de no-leídos del chat abierto se fuerza a 0 en código más abajo, así la UI queda
+  // correcta de inmediato aunque la escritura termine después de la respuesta.
   const selectedAgentConversationIdForRead =
     selectedChatRef?.source === "agent" ? selectedChatRef.conversationId : null;
   if (selectedAgentConversationIdForRead) {
-    await prisma.message.updateMany({
-      where: {
-        workspaceId: membership.workspace.id,
-        conversationId: selectedAgentConversationIdForRead,
-        direction: "INBOUND",
-        readAt: null,
-      },
-      data: { readAt: new Date() },
+    after(async () => {
+      try {
+        await prisma.message.updateMany({
+          where: {
+            workspaceId: membership.workspace.id,
+            conversationId: selectedAgentConversationIdForRead,
+            direction: "INBOUND",
+            readAt: null,
+          },
+          data: { readAt: new Date() },
+        });
+      } catch {
+        // No bloqueamos ni rompemos la carga si falla el marcado como leído.
+      }
     });
   }
 
@@ -575,7 +584,11 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       tags,
       avatarUrl,
       assignedToName: conversation.assignedTo?.name?.trim() || conversation.assignedTo?.email || null,
-      incomingCount: agentIncomingCountById.get(conversation.id) ?? 0,
+      // El chat abierto se marca como leído (vía after()); su badge va a 0 de inmediato.
+      incomingCount:
+        conversation.id === selectedAgentConversationIdForRead
+          ? 0
+          : agentIncomingCountById.get(conversation.id) ?? 0,
       lastMessage: latestAgentMessageByConversationId.get(conversation.id)?.deletedAt ? "Mensaje eliminado" : latestAgentMessageByConversationId.get(conversation.id)?.content ?? null,
       lastMessageType: latestAgentMessageByConversationId.get(conversation.id)?.type ?? null,
       lastMessageDirection: latestAgentMessageByConversationId.get(conversation.id)?.direction ?? null,
