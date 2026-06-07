@@ -8,6 +8,7 @@ import type { CrmStage } from "@/features/crm/types";
 import { ChatsAutoRefresh } from "@/components/agents/chats-auto-refresh";
 import { ChatsRealtimeSync } from "@/components/chats/chats-realtime-sync";
 import { ChatIncomingNotifier } from "@/components/chats/chat-incoming-notifier";
+import { loadAgentConversationDetail } from "@/lib/chat-message-loader";
 import { SharedInbox } from "@/components/chats/shared-inbox";
 import { FormActionSwitch } from "@/components/ui/form-action-switch";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
@@ -673,6 +674,46 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     const previewDirection = selectedUnified.lastMessageDirection || "INBOUND";
     const previewCreatedAt = selectedUnified.lastMessageAt ?? new Date();
 
+    // Cargamos los últimos 10 mensajes en el servidor para que el chat aparezca completo
+    // y con scroll abajo desde el primer pintado (sin esperar al fetch de /live). El /live
+    // solo queda para realtime/refresco. Los mediaUrl van tal cual están guardados (la
+    // resolución/auto-reparación pesada la hace el /live de seguimiento, ~2.5s después).
+    const detail = await loadAgentConversationDetail({
+      workspaceId: membership.workspace.id,
+      conversationId: selectedUnified.conversationId,
+      batchSize: 10,
+    });
+
+    const detailMessages = detail?.messages.map((message) => ({
+      id: message.id,
+      content: message.content,
+      direction: message.direction,
+      createdAt: message.createdAt,
+      editedAt: message.editedAt,
+      deletedAt: message.deletedAt,
+      authorType: (message.direction === "OUTBOUND" ? "bot" : "user") as "user" | "bot",
+      outboundStatusLabel: null,
+      type: (message.type ?? "TEXT") as NonNullable<UnifiedConversation["lastMessageType"]>,
+      mediaUrl: message.mediaUrl,
+      rawPayload: message.rawPayload,
+    }));
+
+    const previewMessages = previewText
+      ? [{
+          id: `${selectedUnified.key}:preview`,
+          content: previewText,
+          direction: previewDirection,
+          createdAt: previewCreatedAt,
+          authorType: (previewDirection === "OUTBOUND" ? "bot" : "user") as "user" | "bot",
+          outboundStatusLabel: null,
+          type: (selectedUnified.lastMessageType ?? "TEXT") as NonNullable<UnifiedConversation["lastMessageType"]>,
+          mediaUrl: null,
+          rawPayload: null,
+        }]
+      : [];
+
+    const hasRealMessages = Boolean(detailMessages && detailMessages.length > 0);
+
     selectedConversation = {
       id: selectedUnified.conversationId,
       label: selectedUnified.label,
@@ -681,25 +722,14 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       avatarUrl: selectedUnified.avatarUrl ?? null,
       contactId: selectedContactId,
       contactName: selectedUnified.label,
-      automationPaused: selectedAgentConversation?.automationPaused ?? false,
+      automationPaused: detail?.automationPaused ?? selectedAgentConversation?.automationPaused ?? false,
       cacheKey: selectedUnified.key,
-      messages: previewText
-        ? [{
-            id: `${selectedUnified.key}:preview`,
-            content: previewText,
-            direction: previewDirection,
-            createdAt: previewCreatedAt,
-            authorType: previewDirection === "OUTBOUND" ? "bot" : "user",
-            outboundStatusLabel: null,
-            type: selectedUnified.lastMessageType ?? "TEXT",
-            mediaUrl: null,
-            rawPayload: null,
-          }]
-        : [],
-      hasMoreMessages: false,
-      loadMoreCursor: null,
+      messages: hasRealMessages ? detailMessages! : previewMessages,
+      hasMoreMessages: hasRealMessages ? Boolean(detail?.hasMoreMessages) : false,
+      loadMoreCursor: hasRealMessages ? detail?.loadMoreCursor ?? null : null,
       loadMoreHref: null,
-      isPreview: true,
+      // Si trajimos mensajes reales NO es preview: el chat se muestra completo de una.
+      isPreview: !hasRealMessages,
     };
   }
 
@@ -758,6 +788,14 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       return databaseStatusMessages;
     }
 
+    // Velocidad: el fetch de estados a Evolution es una llamada externa que bloquea el
+    // render del chat. Las historias llegan por webhook y quedan persistidas, así que solo
+    // hacemos la llamada en vivo cuando el contacto YA tiene estados en BD (para enriquecer);
+    // si no hay ninguno, abrimos el chat al instante sin esa llamada.
+    if (databaseStatusMessages.length === 0) {
+      return databaseStatusMessages;
+    }
+
     try {
       const response = await fetch(`${evolutionSettings.apiBaseUrl}/messages/fetch/${encodeURIComponent(selectedEvolutionInstanceName)}`, {
         method: "GET",
@@ -766,6 +804,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           "Content-Type": "application/json",
         },
         cache: "no-store",
+        // Cap de seguridad: nunca bloquear la apertura del chat más de 1.5s por estados.
+        signal: AbortSignal.timeout(1500),
       });
 
       if (!response.ok) {

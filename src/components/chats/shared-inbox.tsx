@@ -54,7 +54,6 @@ import {
   Sidebar,
 } from "lucide-react";
 import { ChatScrollAnchor } from "@/components/agents/chat-scroll-anchor";
-import { ChatSelectionOverlay } from "@/components/chats/chat-selection-overlay";
 import { ContactAvatar } from "@/components/chats/contact-avatar";
 import { getContactDetailsAction } from "@/app/actions/chats-actions";
 import {
@@ -2722,7 +2721,6 @@ const ConversationPanel = memo(function ConversationPanel({
           </div>
 
           <div className="relative flex min-h-0 flex-1 flex-col bg-transparent">
-            <ChatSelectionOverlay selectedConversationId={selectedConversationId} />
             <div className="relative min-h-0 flex-1">
               <div
                 ref={messagesScrollRef}
@@ -3252,6 +3250,10 @@ export function SharedInbox({
   const historyLoadConsumedRef = useRef(false);
   const loadMoreHistoryInFlightRef = useRef(false);
   const loadMoreHistoryRestoreRef = useRef<{ scrollTop: number; scrollHeight: number } | null>(null);
+  // Mientras un chat recién se abre, los ajustes programáticos de scroll (pin al fondo)
+  // disparan el listener de scroll y podrían "armar"/lanzar la carga de mensajes anteriores,
+  // que ancla la vista arriba. Suprimimos esa carga hasta este timestamp tras abrir.
+  const suppressHistoryLoadUntilRef = useRef(0);
   const selectedConversationDetailFollowUpTimerRef = useRef<number | null>(null);
   const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -3543,7 +3545,10 @@ export function SharedInbox({
   // evitar que el listado se reordene cuando el evento pertenece al chat abierto.
   const selectedConversationKey = (pendingConversation?.chatKey ?? selectedConversationId).trim();
   const selectedConversationCache = useMemo(
-    () => (hasHydrated && selectedConversationKey ? readConversationFromCache(selectedConversationKey) : null),
+    () =>
+      hasHydrated && selectedConversationKey
+        ? readConversationFromCache(selectedConversationKey, { ignoreFreshness: true })
+        : null,
     [hasHydrated, selectedConversationKey],
   );
   const selectedConversationMatchesCurrentKey =
@@ -3562,7 +3567,7 @@ export function SharedInbox({
     }
 
     const cacheKey = pendingConversation.cacheKey || pendingConversation.id;
-    const cachedConversation = readConversationFromCache(cacheKey);
+    const cachedConversation = readConversationFromCache(cacheKey, { ignoreFreshness: true });
 
     startSelectionTransition(() => {
       setLiveConversation(null);
@@ -3884,51 +3889,40 @@ export function SharedInbox({
     [optimisticConversation, pendingConversation],
   );
 
-  const renderedConversation = useMemo(() => {
-    if (!pendingConversationPreview) {
+  const computedRenderedConversation = useMemo(() => {
+    // Si hay contenido en vivo o en caché para este chat (con mensajes), es la fuente
+    // completa: mostrarlo de inmediato. La caché hace que reabrir un chat sea instantáneo.
+    if (
+      liveOrCachedConversation &&
+      liveOrCachedConversation.messages.length > 0 &&
+      (!pendingConversationPreview || pendingConversationPreview.id === liveOrCachedConversation.id)
+    ) {
       return liveOrCachedConversation;
     }
 
-    if (!liveOrCachedConversation || pendingConversationPreview.id !== liveOrCachedConversation.id) {
-      return pendingConversationPreview;
-    }
-
-    const previewLastMessage = pendingConversationPreview.messages.at(-1) ?? null;
-    const currentLastMessage = liveOrCachedConversation.messages.at(-1) ?? null;
-
-    if (!previewLastMessage) {
-      return liveOrCachedConversation;
-    }
-
-    if (!currentLastMessage) {
-      return pendingConversationPreview;
-    }
-
-    const previewAt = previewLastMessage.createdAt.getTime();
-    const currentAt = currentLastMessage.createdAt.getTime();
-
-    if (previewAt > currentAt) {
-      return pendingConversationPreview;
-    }
-
-    if (previewAt === currentAt) {
-      const previewContent = previewLastMessage.content?.trim() || "";
-      const currentContent = currentLastMessage.content?.trim() || "";
-      const previewDirection = previewLastMessage.direction;
-      const currentDirection = currentLastMessage.direction;
-      const previewIsMedia = Boolean(getMediaPreviewLabel(previewLastMessage.type));
-
-      if (previewIsMedia) {
-        return liveOrCachedConversation;
-      }
-
-      if (previewContent !== currentContent || previewDirection !== currentDirection) {
-        return pendingConversationPreview;
-      }
-    }
-
-    return liveOrCachedConversation;
+    // Sin caché todavía: mostramos el preview (último mensaje) mientras llega el historial.
+    return pendingConversationPreview ?? liveOrCachedConversation;
   }, [liveOrCachedConversation, pendingConversationPreview]);
+
+  // Anti-parpadeo: al cambiar de chat, el contenido pasa por estados intermedios
+  // (preview → live/cache que momentáneamente llega sin mensajes → completo). Para no
+  // mostrar un frame "vacío", si la versión calculada queda sin mensajes mantenemos la
+  // última versión CON mensajes de la MISMA conversación (incluido el preview).
+  const stickyRenderedConversationRef = useRef<SharedInboxSelectedConversation | null>(null);
+  const renderedConversation = useMemo(() => {
+    const computed = computedRenderedConversation;
+    if (computed && computed.messages.length > 0) {
+      stickyRenderedConversationRef.current = computed;
+      return computed;
+    }
+
+    const sticky = stickyRenderedConversationRef.current;
+    if (sticky && conversationIdMatchesKey(selectedConversationKey, sticky.id)) {
+      return sticky;
+    }
+
+    return computed;
+  }, [computedRenderedConversation, selectedConversationKey]);
 
   useEffect(() => {
     if (!pendingConversation?.id || pendingConversation.id !== selectedConversationId) {
@@ -4339,8 +4333,12 @@ export function SharedInbox({
       .then((result) => finalizeOptimisticSend(optimisticId, result ?? { ok: true }))
       .catch(() => finalizeOptimisticSend(optimisticId, null));
   }, [finalizeOptimisticSend]);
+  // Identidad estable de la conversación: normalizamos el id (el preview viene como
+  // "agent:<id>" y el cargado como "<id>"), si no, split(":")[0] daría "agent" para todos
+  // los chats y no detectaría el cambio de conversación → el scroll no bajaría al fondo.
+  // Usamos "|" como separador porque el id puede contener ":".
   const selectedConversationScrollKey = renderedConversation
-    ? `${renderedConversation.id}:${renderedMessages.length}:${renderedMessages.at(-1)?.id ?? ""}`
+    ? `${extractConversationIdFromKey(renderedConversation.id)}|${renderedMessages.length}|${renderedMessages.at(-1)?.id ?? ""}`
     : "empty";
   const hasSidebar = sidebarItems.length > 0;
 
@@ -4374,8 +4372,11 @@ export function SharedInbox({
       const el = container!;
       const nextScrollTop = el.scrollTop;
       const previousScrollTop = lastScrollTopRef.current;
+      // Ventana tras abrir el chat: ignoramos los scrolls programáticos (pin al fondo) para
+      // no armar ni lanzar la carga de mensajes anteriores, que anclaría la vista arriba.
+      const historyLoadSuppressed = suppressHistoryLoadUntilRef.current > Date.now();
 
-      if (nextScrollTop < previousScrollTop) {
+      if (!historyLoadSuppressed && nextScrollTop < previousScrollTop) {
         historyLoadArmedRef.current = true;
       }
 
@@ -4390,6 +4391,7 @@ export function SharedInbox({
       if (isNearBottomRef.current) setUnreadCount(0);
 
       if (
+        historyLoadSuppressed ||
         !historyLoadArmedRef.current ||
         historyLoadConsumedRef.current ||
         nextScrollTop > TOP_SCROLL_THRESHOLD_PX ||
@@ -4450,6 +4452,13 @@ export function SharedInbox({
         window.cancelAnimationFrame(scrollFrameRef.current);
       }
 
+      // En salto inmediato (no-smooth) fijamos el scroll YA, dentro de este useLayoutEffect
+      // (antes del paint), para que no se vea un frame "arriba" antes del rAF. El rAF queda
+      // como re-anclaje por si la altura cambia (media que termina de cargar, etc.).
+      if (!smooth) {
+        container.scrollTop = container.scrollHeight;
+      }
+
       scrollFrameRef.current = window.requestAnimationFrame(() => {
         scrollFrameRef.current = window.requestAnimationFrame(() => {
           if (smooth) {
@@ -4471,8 +4480,8 @@ export function SharedInbox({
       return;
     }
 
-    const prevConvId = prevKey.split(":")[0];
-    const curConvId = currentKey.split(":")[0];
+    const prevConvId = prevKey.split("|")[0];
+    const curConvId = currentKey.split("|")[0];
 
     if (prevConvId !== curConvId) {
       // Different conversation opened — always jump to bottom.
@@ -4481,10 +4490,18 @@ export function SharedInbox({
     }
 
     // Same conversation: check for appended messages.
-    const prevCount = Number(prevKey.split(":")[1]) || 0;
-    const curCount = Number(currentKey.split(":")[1]) || 0;
+    const prevCount = Number(prevKey.split("|")[1]) || 0;
+    const curCount = Number(currentKey.split("|")[1]) || 0;
     const added = curCount - prevCount;
-    if (added <= 0) return;
+    if (added <= 0) {
+      // Mismo número de mensajes pero el contenido/altura pudo cambiar (p. ej. al pasar
+      // de la caché al detalle del servidor). Si el usuario está al fondo, lo mantenemos
+      // pegado abajo para que no parezca que "se subió".
+      if (isNearBottomRef.current) {
+        jumpToBottom(false);
+      }
+      return;
+    }
 
     // First messages arriving (0 → N): always jump to bottom regardless of scroll position.
     if (prevCount === 0) {
@@ -4520,6 +4537,73 @@ export function SharedInbox({
       setUnreadCount((prev) => prev + added);
     }
   }, [selectedConversationScrollKey, messageScrollBehavior]);
+
+  // Al ABRIR una conversación (cambia el id normalizado), fijamos el scroll al fondo de
+  // forma agresiva en varios frames/timeouts. Así, aunque el contenido pase por las
+  // transiciones caché → SSR → /live (que cambian la altura), el chat siempre queda en el
+  // último mensaje y no se ve "subido". No interfiere con la llegada de mensajes nuevos
+  // (eso lo maneja el efecto de arriba), porque solo corre cuando cambia la conversación.
+  const openedConversationIdRef = useRef("");
+  useLayoutEffect(() => {
+    if (messageScrollBehavior !== "bottom") return;
+    const convId = renderedConversation ? extractConversationIdFromKey(renderedConversation.id) : "";
+    if (!convId || convId === openedConversationIdRef.current) return;
+    openedConversationIdRef.current = convId;
+    // Bloquea la carga automática de historial durante la apertura (los pines de scroll
+    // disparan el listener y, si no, anclarían la vista arriba).
+    suppressHistoryLoadUntilRef.current = Date.now() + 700;
+
+    const pinToBottom = () => {
+      const el = messagesScrollRef.current;
+      if (!el) return;
+      el.scrollTop = el.scrollHeight;
+      lastScrollTopRef.current = el.scrollTop;
+      isNearBottomRef.current = true;
+    };
+
+    pinToBottom();
+    const raf1 = window.requestAnimationFrame(() => {
+      pinToBottom();
+      window.requestAnimationFrame(pinToBottom);
+    });
+    const t1 = window.setTimeout(pinToBottom, 80);
+    const t2 = window.setTimeout(pinToBottom, 250);
+
+    return () => {
+      window.cancelAnimationFrame(raf1);
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+    };
+  }, [renderedConversation, messageScrollBehavior]);
+
+  // Cuando el contenido CRECE después del render (típicamente una imagen/media que termina
+  // de cargar), si el usuario está al fondo o el chat se acaba de abrir, volvemos a pegar
+  // la vista abajo. Sin esto, los chats con foto/video quedan a media altura al abrir.
+  useEffect(() => {
+    if (messageScrollBehavior !== "bottom") return;
+    const container = messagesScrollRef.current;
+    const content = container?.firstElementChild;
+    if (!container || !content) return;
+
+    let lastScrollHeight = container.scrollHeight;
+    const observer = new ResizeObserver(() => {
+      const el = messagesScrollRef.current;
+      if (!el) return;
+      const grew = el.scrollHeight > lastScrollHeight + 1;
+      lastScrollHeight = el.scrollHeight;
+      if (!grew) return;
+
+      const justOpened = suppressHistoryLoadUntilRef.current > Date.now();
+      if (isNearBottomRef.current || justOpened) {
+        el.scrollTop = el.scrollHeight;
+        lastScrollTopRef.current = el.scrollTop;
+        isNearBottomRef.current = true;
+      }
+    });
+
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [messageScrollBehavior, selectedConversationId]);
 
   const scrollToBottom = useCallback(() => {
     const container = messagesScrollRef.current;

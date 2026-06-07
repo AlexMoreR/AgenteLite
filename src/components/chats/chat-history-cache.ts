@@ -537,12 +537,16 @@ export function saveConversationToCache(conversation: SharedInboxSelectedConvers
 }
 
 // Si la caché supera este tiempo, no la usamos para el render inicial: evita mostrar
-// un "chat viejo" al recargar. La navegación entre chats la mantiene fresca (se
-// reescribe en cada update), así que sigue siendo instantánea; solo se descarta la
-// caché añeja de sesiones anteriores y se carga el estado actual (SSR preview + /live).
-const CACHE_FRESHNESS_MS = 60_000;
+// un "chat viejo" al recargar tras mucho tiempo. La navegación entre chats la mantiene
+// fresca (se reescribe en cada update) y al abrir un chat se refresca con /live, así que
+// una ventana amplia hace que reabrir un chat ya visitado sea instantáneo sin riesgo de
+// quedarse con contenido obsoleto (el SSR + /live lo corrigen en cuanto llegan).
+const CACHE_FRESHNESS_MS = 1_800_000; // 30 minutos
 
-export function readConversationFromCache(conversationId: string) {
+export function readConversationFromCache(
+  conversationId: string,
+  options?: { ignoreFreshness?: boolean },
+) {
   if (!conversationId) {
     return null;
   }
@@ -559,7 +563,14 @@ export function readConversationFromCache(conversationId: string) {
     return null;
   }
 
-  if (typeof cached.cachedAt === "number" && Date.now() - cached.cachedAt > CACHE_FRESHNESS_MS) {
+  // Para mostrar (ignoreFreshness) devolvemos la caché aunque sea vieja: reabrir un chat
+  // es instantáneo y el /live de seguimiento la refresca enseguida. La frescura solo se
+  // usa para decidir si el warmup debe volver a pedir el historial.
+  if (
+    !options?.ignoreFreshness &&
+    typeof cached.cachedAt === "number" &&
+    Date.now() - cached.cachedAt > CACHE_FRESHNESS_MS
+  ) {
     return null;
   }
 
