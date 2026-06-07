@@ -2683,14 +2683,14 @@ const ConversationPanel = memo(function ConversationPanel({
                     </div>
                     {headerTags.length ? (
                       <div
-                        className={`flex min-w-0 flex-nowrap items-center gap-1.5 overflow-hidden transition-opacity duration-200 ease-out ${
+                        className={`flex flex-wrap gap-1.5 transition-opacity duration-200 ease-out ${
                           hasSettledConversation ? "opacity-100" : "opacity-60"
                         }`}
                       >
                         {headerTags.map((tag) => (
                           <Badge
                             key={`${renderedConversation.id}:${tag.label}`}
-                            className="shrink-0 max-w-[120px] px-2.5 py-1 text-[10px] shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
+                            className="max-w-full px-2.5 py-1 text-[10px] shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
                             style={{
                               backgroundColor: tag.color,
                               color: "#ffffff",

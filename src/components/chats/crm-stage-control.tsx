@@ -22,6 +22,16 @@ const STAGE_DOT_CLASS: Record<CrmStage, string> = {
   PERDIDO: "bg-slate-400",
 };
 
+// Color de relleno del botón por etapa.
+const STAGE_BUTTON_CLASS: Record<CrmStage, string> = {
+  NUEVO: "bg-violet-500 hover:bg-violet-600",
+  CALIFICADO: "bg-cyan-500 hover:bg-cyan-600",
+  PROPUESTA: "bg-amber-500 hover:bg-amber-600",
+  NEGOCIACION: "bg-rose-500 hover:bg-rose-600",
+  GANADO: "bg-emerald-500 hover:bg-emerald-600",
+  PERDIDO: "bg-slate-400 hover:bg-slate-500",
+};
+
 export function CrmStageControl({ contactId, stage }: CrmStageControlProps) {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -80,14 +90,13 @@ export function CrmStageControl({ contactId, stage }: CrmStageControlProps) {
         type="button"
         onClick={handleToggle}
         disabled={isPending}
-        className="inline-flex h-7 max-w-[160px] items-center gap-1.5 rounded-md border border-border bg-card px-2 text-[12px] font-medium text-foreground transition hover:bg-muted disabled:opacity-60"
+        className={`inline-flex h-7 max-w-[160px] items-center gap-1.5 rounded-md px-2.5 text-[12px] font-medium text-white transition disabled:opacity-60 ${STAGE_BUTTON_CLASS[currentStage]}`}
         title={error ?? `Etapa CRM: ${currentLabel}`}
         aria-haspopup="menu"
         aria-expanded={open}
       >
-        <span className={`h-2 w-2 shrink-0 rounded-full ${STAGE_DOT_CLASS[currentStage]}`} />
         <span className="truncate">{currentLabel}</span>
-        <ChevronDown className="h-3 w-3 shrink-0 opacity-60" />
+        <ChevronDown className="h-3 w-3 shrink-0 opacity-80" />
       </button>
 
       {open ? (
