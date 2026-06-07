@@ -22,7 +22,7 @@ export function ContactAvatar({
   return (
     <Avatar className={className}>
       {avatarUrl ? <AvatarImage src={avatarUrl} alt={safeLabel} /> : null}
-      <AvatarFallback className={fallbackClassName ?? "bg-blue-300 text-white"}>
+      <AvatarFallback className={fallbackClassName ?? "bg-muted text-muted-foreground"}>
         <User className="h-1/2 w-1/2" aria-hidden />
       </AvatarFallback>
     </Avatar>

@@ -276,7 +276,7 @@ function ContactCard({
           avatarUrl={contact.avatarUrl}
           label={name}
           className="h-11 w-11 shrink-0 rounded-xl border border-[rgba(148,163,184,0.12)] bg-slate-100 text-slate-500"
-          fallbackClassName="rounded-xl bg-blue-300 text-white"
+          fallbackClassName="rounded-xl bg-slate-100 text-slate-500"
         />
 
         <div className="min-w-0 flex-1 space-y-1">
@@ -723,7 +723,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                       avatarUrl={selectedContact.avatarUrl}
                       label={getContactDisplayName(selectedContact)}
                       className="h-12 w-12 shrink-0 rounded-[20px] border border-[rgba(148,163,184,0.12)] bg-slate-100 text-slate-500"
-                      fallbackClassName="rounded-[20px] bg-blue-300 text-white"
+                      fallbackClassName="rounded-[20px] bg-slate-100 text-slate-500"
                     />
 
                     <div className="min-w-0 space-y-1">

@@ -34,6 +34,7 @@ import {
   FileText,
   LoaderCircle,
   Mic,
+  MapPin,
   Plus,
   Pencil,
   PhoneIncoming,
@@ -55,6 +56,7 @@ import {
 import { ChatScrollAnchor } from "@/components/agents/chat-scroll-anchor";
 import { ChatSelectionOverlay } from "@/components/chats/chat-selection-overlay";
 import { ContactAvatar } from "@/components/chats/contact-avatar";
+import { getContactDetailsAction } from "@/app/actions/chats-actions";
 import {
   mergeConversationSnapshots,
   readConversationFromCache,
@@ -596,6 +598,7 @@ type SharedInboxProps = {
   backHref: string;
   headerBadge?: ReactNode;
   headerActions?: ReactNode;
+  contactPanelActions?: ReactNode;
   composer?: {
     action: (formData: FormData) => void | Promise<{ ok: boolean; error?: string; suppressOptimistic?: boolean } | void>;
     hiddenFields: Array<{ name: string; value: string }>;
@@ -2203,6 +2206,7 @@ type ConversationPanelProps = {
   emptySelectionDescription: string;
   headerActions?: ReactNode;
   headerBadge?: ReactNode;
+  contactPanelActions?: ReactNode;
 };
 
 const ConversationPanel = memo(function ConversationPanel({
@@ -2236,6 +2240,7 @@ const ConversationPanel = memo(function ConversationPanel({
   emptySelectionDescription,
   headerActions,
   headerBadge,
+  contactPanelActions,
 }: ConversationPanelProps) {
   const canLoadOlderMessages = Boolean(renderedConversation?.loadMoreCursor && renderedConversation.hasMoreMessages);
   const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
@@ -2262,6 +2267,28 @@ const ConversationPanel = memo(function ConversationPanel({
   const mediaFileInputRef = useRef<HTMLInputElement | null>(null);
   const documentFileInputRef = useRef<HTMLInputElement | null>(null);
   const [isSendingMedia, setIsSendingMedia] = useState(false);
+  const [isContactPanelOpen, setIsContactPanelOpen] = useState(false);
+  const [contactCity, setContactCity] = useState("");
+
+  const panelContactId = renderedConversation?.contactId ?? null;
+  useEffect(() => {
+    if (!isContactPanelOpen || !panelContactId) {
+      setContactCity("");
+      return;
+    }
+
+    let cancelled = false;
+    getContactDetailsAction(panelContactId).then((result) => {
+      if (cancelled) return;
+      if ("details" in result) {
+        setContactCity(result.details.city);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isContactPanelOpen, panelContactId]);
 
   const uploadAndSendMedia = useCallback(
     async (file: File) => {
@@ -2570,7 +2597,8 @@ const ConversationPanel = memo(function ConversationPanel({
       <div aria-hidden="true" className="pointer-events-none absolute inset-0" style={CHAT_MESSAGES_BACKGROUND_BASE_STYLE} />
       <div aria-hidden="true" className="pointer-events-none absolute inset-0 opacity-[0.08] dark:opacity-[0.14] dark:invert" style={CHAT_MESSAGES_BACKGROUND_OVERLAY_STYLE} />
       {renderedConversation ? (
-        <div className="relative z-10 flex min-h-0 h-full w-full flex-1 flex-col">
+        <div className="relative z-10 flex min-h-0 h-full w-full flex-1">
+        <div className="flex min-h-0 h-full min-w-0 flex-1 flex-col">
           <div className="shrink-0 border-b border-border bg-card px-3 pb-2.5 pt-[calc(env(safe-area-inset-top)+0.625rem)] md:px-[10px] md:py-[10px]">
             <div className="flex min-w-0 items-center justify-between gap-3">
               <div className="flex min-w-0 flex-1 items-center gap-3">
@@ -2610,7 +2638,7 @@ const ConversationPanel = memo(function ConversationPanel({
                             className={`h-10 w-10 rounded-[18px] border border-border bg-muted text-muted-foreground transition ${
                               hasStatusMessages ? "ring-2 ring-white" : ""
                             }`}
-                            fallbackClassName="rounded-[18px] bg-blue-300 text-white"
+                            fallbackClassName="rounded-[18px] bg-muted text-muted-foreground"
                           />
                           {hasStatusMessages ? (
                             <span
@@ -2632,16 +2660,18 @@ const ConversationPanel = memo(function ConversationPanel({
                       <h2 className="truncate text-[13px] font-semibold text-foreground md:text-sm">
                         {renderedConversation.label}
                       </h2>
-                      {renderedConversation.contactId ? (
-                        <button
-                          type="button"
-                          onClick={onEditContact}
-                          className="shrink-0 inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-muted-foreground"
-                          aria-label="Editar contacto"
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </button>
-                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => setIsContactPanelOpen((open) => !open)}
+                        aria-pressed={isContactPanelOpen}
+                        className={`shrink-0 inline-flex h-6 w-6 items-center justify-center rounded-md transition hover:bg-muted ${
+                          isContactPanelOpen ? "bg-muted text-foreground" : "text-muted-foreground"
+                        }`}
+                        aria-label={isContactPanelOpen ? "Cerrar detalles del contacto" : "Abrir detalles del contacto"}
+                        title="Detalles del contacto"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
                       <button
                         type="button"
                         onClick={onOpenTags}
@@ -2653,14 +2683,14 @@ const ConversationPanel = memo(function ConversationPanel({
                     </div>
                     {headerTags.length ? (
                       <div
-                        className={`flex flex-wrap gap-1.5 transition-opacity duration-200 ease-out ${
+                        className={`flex min-w-0 flex-nowrap items-center gap-1.5 overflow-hidden transition-opacity duration-200 ease-out ${
                           hasSettledConversation ? "opacity-100" : "opacity-60"
                         }`}
                       >
                         {headerTags.map((tag) => (
                           <Badge
                             key={`${renderedConversation.id}:${tag.label}`}
-                            className="max-w-full px-2.5 py-1 text-[10px] shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
+                            className="shrink-0 max-w-[120px] px-2.5 py-1 text-[10px] shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
                             style={{
                               backgroundColor: tag.color,
                               color: "#ffffff",
@@ -3029,6 +3059,116 @@ const ConversationPanel = memo(function ConversationPanel({
             ) : null}
           </div>
         </div>
+        {isContactPanelOpen ? (
+          <aside className="hidden w-72 shrink-0 flex-col border-l border-border bg-card md:flex lg:w-80">
+            <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
+              <h3 className="text-sm font-semibold text-foreground">Contacto</h3>
+              <button
+                type="button"
+                onClick={() => setIsContactPanelOpen(false)}
+                aria-label="Cerrar panel"
+                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+              <div className="flex items-center gap-3">
+                <ContactAvatar
+                  avatarUrl={renderedConversation.avatarUrl}
+                  label={renderedConversation.label}
+                  className="h-12 w-12 shrink-0 rounded-full border border-border bg-muted text-muted-foreground"
+                  fallbackClassName="rounded-full bg-muted text-muted-foreground"
+                />
+                <div className="min-w-0 flex-1 space-y-0.5">
+                  <p className="truncate text-sm font-semibold text-foreground">
+                    {renderedConversation.label}
+                  </p>
+                  {renderedConversation.secondaryLabel ? (
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <span className="min-w-0 flex-1 truncate">{renderedConversation.secondaryLabel}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void navigator.clipboard?.writeText(renderedConversation.secondaryLabel);
+                          toast.success("Copiado");
+                        }}
+                        aria-label="Copiar número"
+                        title="Copiar"
+                        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ) : null}
+                  {contactCity ? (
+                    <p className="flex items-center gap-1 truncate text-xs text-muted-foreground">
+                      <MapPin className="h-3.5 w-3.5 shrink-0" />
+                      <span className="min-w-0 truncate">{contactCity}</span>
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="mt-3 flex items-center gap-2">
+                {renderedConversation.contactId ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={onEditContact}
+                    className="h-8 w-8"
+                    aria-label="Editar"
+                    title="Editar"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                ) : null}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={onOpenTags}
+                  className="h-8 w-8"
+                  aria-label="Etiquetas"
+                  title="Etiquetas"
+                >
+                  <Tag className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+
+              {(renderedConversation.tags?.length ?? 0) > 0 ? (
+                <div className="mt-5 space-y-3">
+                  <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Etiquetas
+                  </h4>
+                  <div className="flex flex-wrap gap-1.5">
+                    {renderedConversation.tags?.map((tag) => (
+                      <Badge
+                        key={`panel:${renderedConversation.id}:${tag.label}`}
+                        className="max-w-full px-2.5 py-1 text-[10px]"
+                        style={{ backgroundColor: tag.color, color: "#ffffff" }}
+                        title={tag.label}
+                      >
+                        <span className="truncate">{tag.label}</span>
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {contactPanelActions ? (
+                <div className="mt-5 space-y-3">
+                  <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Agente asignado
+                  </h4>
+                  {contactPanelActions}
+                </div>
+              ) : null}
+            </div>
+          </aside>
+        ) : null}
+        </div>
       ) : (
         <div className="flex min-h-[74vh] items-center justify-center px-6 py-10 text-center">
           <div className="mx-auto flex max-w-sm flex-col items-center gap-3">
@@ -3067,6 +3207,7 @@ export function SharedInbox({
   backHref,
   headerBadge,
   headerActions,
+  contactPanelActions,
   composer,
   emptyListTitle,
   emptyListDescription,
@@ -4505,6 +4646,7 @@ export function SharedInbox({
         emptySelectionDescription={emptySelectionDescription}
         headerActions={headerActions}
         headerBadge={headerBadge}
+        contactPanelActions={contactPanelActions}
       />
     </div>
 

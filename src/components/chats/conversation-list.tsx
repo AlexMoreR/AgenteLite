@@ -183,7 +183,7 @@ const ConversationListItem = memo(function ConversationListItem({
           avatarUrl={conversation.avatarUrl}
           label={conversation.label ?? conversation.secondaryLabel ?? ""}
           className={getConversationAvatarClassName()}
-          fallbackClassName="rounded-full bg-blue-300 text-white"
+          fallbackClassName="rounded-full bg-muted text-muted-foreground"
         />
 
         {incomingCountLabel ? (

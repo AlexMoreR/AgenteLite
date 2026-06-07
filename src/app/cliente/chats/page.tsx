@@ -891,10 +891,6 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
                   stage={selectedContactCrmStage as CrmStage}
                 />
               ) : null}
-              <AssignChatControl
-                conversationId={selectedConversation.id}
-                assignee={selectedAgentConversation?.assignedTo ?? null}
-              />
               <FormActionSwitch
                 action={toggleConversationAutomationAction}
                 checked={!selectedConversation.automationPaused}
@@ -905,6 +901,15 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
                 ]}
               />
             </div>
+          ) : null
+        }
+        contactPanelActions={
+          selectedUnified?.source === "agent" && selectedConversation ? (
+            <AssignChatControl
+              key={`panel-assign:${selectedConversation.id}`}
+              conversationId={selectedConversation.id}
+              assignee={selectedAgentConversation?.assignedTo ?? null}
+            />
           ) : null
         }
         composer={{
