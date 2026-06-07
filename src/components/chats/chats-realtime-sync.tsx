@@ -10,6 +10,7 @@ import {
   extractEvolutionFromMe,
   extractEvolutionMessageId,
   extractEvolutionMediaUrl,
+  extractEvolutionPushName,
   extractEvolutionRemoteJid,
   hasEvolutionDeletedMessagePayload,
   hasEvolutionEditedMessagePayload,
@@ -770,17 +771,24 @@ export function ChatsRealtimeSync({
             hasMessageContent &&
             /MESSAGE/.test(normalizedEventName);
           if (isInboundMessage) {
-            const dedupKey = extractEvolutionMessageId(payload)?.trim() || eventSignature || "";
-            if (dedupKey && !notifiedMessageIdsRef.current.has(dedupKey)) {
-              notifiedMessageIdsRef.current.add(dedupKey);
-              if (notifiedMessageIdsRef.current.size > 200) {
-                const oldest = notifiedMessageIdsRef.current.values().next().value;
-                if (oldest) notifiedMessageIdsRef.current.delete(oldest);
+            // Dedup SOLO por messageId real (único por mensaje). Si no hay messageId,
+            // no deduplicamos: así mensajes con el mismo texto siempre notifican
+            // (evita que el segundo "test" idéntico quede silenciado).
+            const messageId = extractEvolutionMessageId(payload)?.trim() || "";
+            const isDuplicate = messageId ? notifiedMessageIdsRef.current.has(messageId) : false;
+            if (!isDuplicate) {
+              if (messageId) {
+                notifiedMessageIdsRef.current.add(messageId);
+                if (notifiedMessageIdsRef.current.size > 200) {
+                  const oldest = notifiedMessageIdsRef.current.values().next().value;
+                  if (oldest) notifiedMessageIdsRef.current.delete(oldest);
+                }
               }
               window.dispatchEvent(
                 new CustomEvent("chat-incoming-message", {
                   detail: {
                     phoneNumber,
+                    senderName: extractEvolutionPushName(payload)?.trim() || null,
                     text: extractEvolutionMessageText(payload)?.trim() || "",
                     type: extractEvolutionMessageType(payload) || null,
                     chatKey: isSelectedAgentConversation ? currentConversationKey ?? null : null,

@@ -483,6 +483,20 @@ export function extractEvolutionRemoteJid(payload: unknown): string | null {
   );
 }
 
+// Nombre visible del remitente (perfil de WhatsApp) si viene en el payload.
+export function extractEvolutionPushName(payload: unknown): string | null {
+  const root = asRecord(payload);
+  const data = asRecord(root?.data);
+  const sender = asRecord(data?.sender) ?? asRecord(root?.sender);
+
+  return (
+    pickString(data, ["pushName", "pushname", "notifyName", "verifiedName"]) ||
+    pickString(root, ["pushName", "pushname", "notifyName", "verifiedName"]) ||
+    pickString(sender, ["pushName", "pushname", "name", "notifyName"]) ||
+    null
+  );
+}
+
 export function isEvolutionStatusBroadcastJid(value: string | null | undefined): boolean {
   const normalized = value?.trim().toLowerCase() ?? "";
   if (!normalized) {

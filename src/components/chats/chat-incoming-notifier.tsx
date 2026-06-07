@@ -6,6 +6,7 @@ import { getStoredNotificationSound, playNotificationSound } from "./chat-notifi
 
 type IncomingMessageDetail = {
   phoneNumber?: string | null;
+  senderName?: string | null;
   text?: string | null;
   type?: string | null;
   chatKey?: string | null;
@@ -77,20 +78,17 @@ export function ChatIncomingNotifier({ enabled = true }: { enabled?: boolean }) 
   useEffect(() => {
     if (!enabled) return;
 
-    const playSound = () => {
-      const soundId = getStoredNotificationSound();
-      if (soundId === "silence") {
-        return;
-      }
-      const ctx = audioContextRef.current;
-      if (!ctx) return;
-      playNotificationSound(soundId, ctx);
-    };
-
     const handleIncoming = (event: Event) => {
       const detail = (event as CustomEvent<IncomingMessageDetail>).detail ?? {};
 
-      playSound();
+      const soundId = getStoredNotificationSound();
+      const ctx = audioContextRef.current;
+      // Solo podemos reproducir Web Audio (sonido personalizado) si el contexto ya
+      // fue desbloqueado por una interacción del usuario (state === "running").
+      const playedWebAudio = soundId !== "silence" && ctx?.state === "running";
+      if (playedWebAudio && ctx) {
+        playNotificationSound(soundId, ctx);
+      }
 
       if (
         typeof Notification !== "undefined" &&
@@ -99,12 +97,22 @@ export function ChatIncomingNotifier({ enabled = true }: { enabled?: boolean }) 
         document.visibilityState !== "visible"
       ) {
         try {
+          const title = detail.senderName?.trim() || detail.phoneNumber?.trim() || "Nuevo mensaje";
           const body = detail.text?.trim() || previewFromType(detail.type);
-          const notification = new Notification("Nuevo mensaje", {
+          // Si ya sonó el Web Audio, la notificación va silenciada para no duplicar.
+          // Si NO pudo sonar (contexto bloqueado, sin clic previo), dejamos que el
+          // sistema reproduzca su propio sonido como respaldo. Si el usuario eligió
+          // "Silenciar", la notificación también va sin sonido.
+          const silent = playedWebAudio || soundId === "silence";
+          const notification = new Notification(title, {
             body,
             tag: detail.chatKey || detail.phoneNumber || "chat",
+            // renotify: vuelve a alertar (sonido/popup) en cada mensaje aunque
+            // reemplace una notificación previa del mismo contacto (mismo tag).
+            renotify: true,
             icon: "/magilus-logo.svg",
-          });
+            silent,
+          } as NotificationOptions);
           notification.onclick = () => {
             window.focus();
             notification.close();
