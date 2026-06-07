@@ -2158,7 +2158,8 @@ const MessageBubble = memo(function MessageBubble({
 });
 
 const CHAT_MESSAGES_BACKGROUND_BASE_STYLE = {
-  backgroundColor: "var(--background)",
+  // Token por defecto de shadcn: blanco con una tonalidad un poco mas oscura.
+  backgroundColor: "var(--muted)",
 } as const;
 
 const CHAT_MESSAGES_BACKGROUND_OVERLAY_STYLE = {
@@ -2842,7 +2843,7 @@ const ConversationPanel = memo(function ConversationPanel({
                         </div>
                       </div>
                     ) : (
-                      <div className="flex min-h-[44px] min-w-0 flex-1 items-center gap-1 rounded-2xl border border-border bg-muted/80 px-1.5 transition focus-within:border-[var(--primary)] focus-within:bg-background focus-within:ring-2 focus-within:ring-ring/50 md:min-h-[40px]">
+                      <div className="flex min-h-[44px] min-w-0 flex-1 items-center gap-1 rounded-2xl border border-border bg-background px-1.5 transition focus-within:border-[var(--primary)] focus-within:bg-background focus-within:ring-2 focus-within:ring-ring/50 md:min-h-[40px]">
                         {mediaConfig ? (
                           <>
                             <input

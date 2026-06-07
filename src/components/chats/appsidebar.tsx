@@ -134,11 +134,7 @@ export function AppSidebar({
                 >
                   <span className="whitespace-nowrap">{tab.label}</span>
                   {countLabel != null ? (
-                    <span
-                      className={`inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold leading-none ${
-                        isActive ? "bg-muted text-foreground" : "bg-background/70 text-muted-foreground"
-                      }`}
-                    >
+                    <span className="inline-flex h-4 min-w-[1.25rem] items-center justify-center rounded-full bg-blue-600 px-1.5 text-[10px] font-semibold leading-none text-white">
                       {countLabel}
                     </span>
                   ) : null}
