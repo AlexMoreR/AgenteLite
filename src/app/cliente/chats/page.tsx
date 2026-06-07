@@ -7,6 +7,7 @@ import { CrmStageControl } from "@/components/chats/crm-stage-control";
 import type { CrmStage } from "@/features/crm/types";
 import { ChatsAutoRefresh } from "@/components/agents/chats-auto-refresh";
 import { ChatsRealtimeSync } from "@/components/chats/chats-realtime-sync";
+import { ChatIncomingNotifier } from "@/components/chats/chat-incoming-notifier";
 import { SharedInbox } from "@/components/chats/shared-inbox";
 import { FormActionSwitch } from "@/components/ui/form-action-switch";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
@@ -44,6 +45,7 @@ type UnifiedConversation = {
   }>;
   avatarUrl?: string | null;
   incomingCount?: number | null;
+  assignedToName?: string | null;
   lastMessage: string | null;
   lastMessageType?: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
   lastMessageDirection?: "INBOUND" | "OUTBOUND" | null;
@@ -571,6 +573,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       secondaryLabel: conversation.contact.phoneNumber,
       tags,
       avatarUrl,
+      assignedToName: conversation.assignedTo?.name?.trim() || conversation.assignedTo?.email || null,
       incomingCount: agentIncomingCountById.get(conversation.id) ?? 0,
       lastMessage: latestAgentMessageByConversationId.get(conversation.id)?.deletedAt ? "Mensaje eliminado" : latestAgentMessageByConversationId.get(conversation.id)?.content ?? null,
       lastMessageType: latestAgentMessageByConversationId.get(conversation.id)?.type ?? null,
@@ -841,6 +844,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         selectedConversationPhoneNumber={selectedUnified?.source === "agent" ? selectedUnified.secondaryLabel : null}
         globalEventsEnabled={realtimeGlobalEventsEnabled}
       />
+      <ChatIncomingNotifier enabled={chatsRealtimeSyncEnabled} />
       <QueryFeedbackToast
         okMessage={okMessage}
         errorMessage={errorMessage}
@@ -872,6 +876,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           channelType: "whatsapp",
           incomingCount: item.incomingCount ?? 0,
           avatarUrl: item.avatarUrl ?? null,
+          assignedToName: item.assignedToName ?? null,
           lastMessage: item.lastMessage,
           lastMessageType: item.lastMessageType ?? null,
           lastMessageDirection: item.lastMessageDirection,

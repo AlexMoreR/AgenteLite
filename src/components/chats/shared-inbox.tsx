@@ -412,6 +412,7 @@ export type SharedInboxConversationItem = {
   channelType?: "whatsapp" | "whatsapp_official" | "instagram" | "facebook";
   incomingCount?: number | null;
   avatarUrl?: string | null;
+  assignedToName?: string | null;
   lastMessage: string | null;
   lastMessageType?: SharedInboxMessageItem["type"] | null;
   lastMessageDirection?: "INBOUND" | "OUTBOUND" | null;
@@ -835,6 +836,7 @@ function buildConversationItemFromSnapshot(
     secondaryLabel: snapshot.secondaryLabel ?? existing?.secondaryLabel ?? "",
     tags: snapshot.tags ?? existing?.tags ?? [],
     channelType: existing?.channelType,
+    assignedToName: existing?.assignedToName ?? null,
     // Esta funcion solo actualiza la conversacion abierta: el usuario la esta viendo,
     // asi que no hay mensajes sin leer.
     incomingCount: 0,
@@ -870,6 +872,7 @@ function buildConversationItemFromListSnapshot(
     secondaryLabel: snapshot.secondaryLabel,
     tags: snapshot.tags ?? existing?.tags ?? [],
     channelType: snapshot.channelType ?? existing?.channelType,
+    assignedToName: snapshot.assignedToName ?? existing?.assignedToName ?? null,
     incomingCount: snapshot.incomingCount ?? existing?.incomingCount ?? 0,
     avatarUrl: snapshot.avatarUrl ?? existing?.avatarUrl ?? null,
     lastMessage: lastMessage || (isMediaPreviewType ? null : existing?.lastMessage ?? null),
@@ -1011,6 +1014,7 @@ function areConversationListItemsEqual(
     left.label === right.label &&
     left.secondaryLabel === right.secondaryLabel &&
     left.avatarUrl === right.avatarUrl &&
+    left.assignedToName === right.assignedToName &&
     left.lastMessage === right.lastMessage &&
     left.lastMessageType === right.lastMessageType &&
     left.lastMessageDirection === right.lastMessageDirection &&

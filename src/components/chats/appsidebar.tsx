@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { MessageSquareText, Search, X } from "lucide-react";
+import { ListFilter, MessageSquareText, Search, X } from "lucide-react";
 import { ConversationList } from "@/components/chats/conversation-list";
 import { SidebarHeader, SidebarInput } from "@/components/ui/sidebar";
 import { type AssignedFilter, type SharedInboxConversationItem } from "./shared-inbox";
@@ -59,6 +59,7 @@ export function AppSidebar({
   emptyListDescription,
 }: AppSidebarProps) {
   const conversationListScrollRef = React.useRef<HTMLDivElement | null>(null);
+  const [filtersOpen, setFiltersOpen] = React.useState(true);
 
   const buildFilterHref = React.useCallback(
     (value: AssignedFilter) => {
@@ -113,8 +114,21 @@ export function AppSidebar({
               ) : null}
             </form>
 
+            <button
+              type="button"
+              onClick={() => setFiltersOpen((open) => !open)}
+              aria-label="Filtrar"
+              aria-pressed={filtersOpen}
+              title="Filtrar"
+              className={`shrink-0 inline-flex h-7 w-7 items-center justify-center rounded-md transition hover:text-foreground ${
+                filtersOpen ? "text-foreground" : "text-muted-foreground"
+              }`}
+            >
+              <ListFilter className="h-3.5 w-3.5" />
+            </button>
           </div>
 
+          {filtersOpen ? (
           <div className="mt-1 flex items-center gap-1 rounded-xl bg-muted p-0.5">
             {visibleTabs.map((tab) => {
               const isActive = assignedFilter === tab.value;
@@ -142,6 +156,7 @@ export function AppSidebar({
               );
             })}
           </div>
+          ) : null}
         </div>
 
         <div

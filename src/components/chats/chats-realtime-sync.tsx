@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { io, type Socket } from "socket.io-client";
 import { usePendingConversationSelection } from "./chat-selection-store";
 import {
@@ -247,7 +247,6 @@ export function ChatsRealtimeSync({
   enabled = true,
   globalEventsEnabled = false,
 }: ChatsRealtimeSyncProps) {
-  const [isVisible, setIsVisible] = useState(() => (typeof document === "undefined" ? true : document.visibilityState === "visible"));
   const normalizedInstanceNamesKey = Array.from(
     new Set(instanceNames.map((name) => name.trim()).filter(Boolean)),
   ).join("\u0000");
@@ -296,17 +295,8 @@ export function ChatsRealtimeSync({
     : null;
   const activeInstanceNameRef = useRef(activeInstanceName);
   activeInstanceNameRef.current = activeInstanceName;
-
-  useEffect(() => {
-    function handleVisibilityChange() {
-      setIsVisible(document.visibilityState === "visible");
-    }
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    handleVisibilityChange();
-
-    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, []);
+  // Dedup de notificaciones: un mismo mensaje puede llegar por varios sockets (global + instancia).
+  const notifiedMessageIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     const normalizedBaseUrl = normalizeBaseUrl(apiBaseUrl);
@@ -319,7 +309,7 @@ export function ChatsRealtimeSync({
       ...normalizedInstanceNames,
     ]));
 
-    if (!enabled || !isVisible || !normalizedBaseUrl || socketTargets.length === 0) {
+    if (!enabled || !normalizedBaseUrl || socketTargets.length === 0) {
       return;
     }
 
@@ -767,6 +757,40 @@ export function ChatsRealtimeSync({
           });
           const shouldFollowUp = extractEvolutionFromMe(payload) && !isEditedOrDeletedPayload;
 
+          // Notificación + sonido para mensajes entrantes (no propios, no editados/eliminados),
+          // solo de chats individuales (phoneNumber válido) y eventos de mensaje reales.
+          const hasMessageContent =
+            Boolean(extractEvolutionMessageText(payload)?.trim()) ||
+            Boolean(extractEvolutionMediaUrl(payload)?.trim()) ||
+            Boolean(extractEvolutionMessageType(payload)?.trim());
+          const isInboundMessage =
+            !extractEvolutionFromMe(payload) &&
+            !isEditedOrDeletedPayload &&
+            Boolean(phoneNumber) &&
+            hasMessageContent &&
+            /MESSAGE/.test(normalizedEventName);
+          if (isInboundMessage) {
+            const dedupKey = extractEvolutionMessageId(payload)?.trim() || eventSignature || "";
+            if (dedupKey && !notifiedMessageIdsRef.current.has(dedupKey)) {
+              notifiedMessageIdsRef.current.add(dedupKey);
+              if (notifiedMessageIdsRef.current.size > 200) {
+                const oldest = notifiedMessageIdsRef.current.values().next().value;
+                if (oldest) notifiedMessageIdsRef.current.delete(oldest);
+              }
+              window.dispatchEvent(
+                new CustomEvent("chat-incoming-message", {
+                  detail: {
+                    phoneNumber,
+                    text: extractEvolutionMessageText(payload)?.trim() || "",
+                    type: extractEvolutionMessageType(payload) || null,
+                    chatKey: isSelectedAgentConversation ? currentConversationKey ?? null : null,
+                    isActiveConversation: isSelectedAgentConversation,
+                  },
+                }),
+              );
+            }
+          }
+
           debugRealtimeSync("socket event", {
             eventName: normalizedEventName,
             instanceName,
@@ -1038,7 +1062,7 @@ export function ChatsRealtimeSync({
         socket.disconnect();
       }
     };
-  }, [apiBaseUrl, apiKey, enabled, isVisible, normalizedInstanceNamesKey, globalEventsEnabled]);
+  }, [apiBaseUrl, apiKey, enabled, normalizedInstanceNamesKey, globalEventsEnabled]);
 
   return null;
 }

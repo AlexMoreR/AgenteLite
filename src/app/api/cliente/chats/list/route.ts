@@ -20,6 +20,7 @@ type UnifiedConversation = {
   }>;
   avatarUrl?: string | null;
   assignedToUserId?: string | null;
+  assignedToName?: string | null;
   incomingCount?: number | null;
   lastMessage: string | null;
   lastMessageType?: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
@@ -190,6 +191,7 @@ async function getAgentConversationList(input: {
       agentId: true,
       channelId: true,
       assignedToUserId: true,
+      assignedTo: { select: { name: true, email: true } },
       activeProductContext: true,
         contact: {
           select: {
@@ -325,6 +327,7 @@ async function getAgentConversationList(input: {
       contactId: conversation.contact.id,
       channelId: conversation.channelId || undefined,
       assignedToUserId: conversation.assignedToUserId ?? null,
+      assignedToName: conversation.assignedTo?.name?.trim() || conversation.assignedTo?.email || null,
       label: getAgentContactLabel(conversation.contact),
       secondaryLabel: conversation.contact.phoneNumber,
       tags,

@@ -1,9 +1,9 @@
 "use client";
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState, useTransition, type RefObject } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition, type RefObject } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { BadgeCheck, Facebook, FileText, Image as ImageIcon, Instagram, LoaderCircle, Mic, Sticker, Video } from "lucide-react";
+import { BadgeCheck, Facebook, FileText, Image as ImageIcon, Instagram, LoaderCircle, Mic, Sticker, UserRound, Video } from "lucide-react";
 import { WhatsAppGlyph } from "@/components/icons/whatsapp-glyph";
 import { Badge } from "@/components/ui/badge";
 import { ContactAvatar } from "./contact-avatar";
@@ -129,6 +129,93 @@ function getConversationAvatarClassName() {
   return "size-10 after:border-0";
 }
 
+// Muestra las etiquetas en una sola fila; si no caben, agrega un badge "+N" al final.
+function ConversationTagsRow({
+  tags,
+  conversationId,
+}: {
+  tags: NonNullable<SharedInboxConversationItem["tags"]>;
+  conversationId: string;
+}) {
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const measureRef = useRef<HTMLDivElement>(null);
+  const [visibleCount, setVisibleCount] = useState(tags.length);
+
+  useLayoutEffect(() => {
+    const wrapper = wrapperRef.current;
+    const measure = measureRef.current;
+    if (!wrapper || !measure) return;
+
+    const recompute = () => {
+      const available = wrapper.clientWidth;
+      if (available <= 0) return;
+      const badges = Array.from(measure.children) as HTMLElement[];
+      const GAP = 4; // gap-1
+      const RESERVED = 42; // espacio del badge "+N" (incluye gap)
+      let used = 0;
+      let count = 0;
+      for (let i = 0; i < badges.length; i++) {
+        const candidate = used + (count > 0 ? GAP : 0) + badges[i].offsetWidth;
+        const reserve = i === badges.length - 1 ? 0 : RESERVED;
+        if (candidate + reserve <= available) {
+          used = candidate;
+          count += 1;
+        } else {
+          break;
+        }
+      }
+      setVisibleCount(Math.max(count, 1));
+    };
+
+    recompute();
+    const observer = new ResizeObserver(recompute);
+    observer.observe(wrapper);
+    return () => observer.disconnect();
+  }, [tags]);
+
+  const hidden = tags.length - visibleCount;
+
+  return (
+    <div ref={wrapperRef} className="relative pt-0.5">
+      <div
+        ref={measureRef}
+        aria-hidden="true"
+        className="pointer-events-none invisible absolute left-0 top-0 flex flex-nowrap gap-1"
+      >
+        {tags.map((tag) => (
+          <Badge
+            key={`measure:${conversationId}:${tag.label}`}
+            className="shrink-0 px-2.5 py-1 text-[10px]"
+          >
+            <span>{tag.label}</span>
+          </Badge>
+        ))}
+      </div>
+
+      <div className="flex flex-nowrap items-center gap-1 overflow-hidden">
+        {tags.slice(0, visibleCount).map((tag) => (
+          <Badge
+            key={`${conversationId}:${tag.label}`}
+            className="shrink-0 max-w-[140px] px-2.5 py-1 text-[10px] shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
+            style={{
+              ...getConversationTagBadgeStyle(tag.color),
+              color: "#ffffff",
+            }}
+            title={tag.label}
+          >
+            <span className="truncate">{tag.label}</span>
+          </Badge>
+        ))}
+        {hidden > 0 ? (
+          <Badge className="shrink-0 border-0 bg-muted px-2 py-1 text-[10px] font-semibold text-muted-foreground shadow-none">
+            +{hidden}
+          </Badge>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 const ConversationListItem = memo(function ConversationListItem({
   conversation,
   isSelected,
@@ -202,6 +289,16 @@ const ConversationListItem = memo(function ConversationListItem({
       </div>
 
       <div className="min-w-0 space-y-[1px] overflow-hidden">
+        <div className="flex min-w-0 items-center gap-1 text-[10px] leading-[1.1]">
+          <UserRound className="h-3 w-3 shrink-0 text-muted-foreground" />
+          <span
+            className={`min-w-0 truncate font-medium ${
+              conversation.assignedToName ? "text-foreground/70" : "text-muted-foreground italic"
+            }`}
+          >
+            {conversation.assignedToName ?? "---"}
+          </span>
+        </div>
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0 flex flex-1 items-center gap-1.5">
             <p className="min-w-0 flex-1 truncate text-[13px] font-semibold leading-[1.12] text-foreground md:text-[13px]">
@@ -220,21 +317,7 @@ const ConversationListItem = memo(function ConversationListItem({
         </div>
 
         {conversation.tags?.length ? (
-          <div className="flex flex-wrap gap-1 pt-0.5">
-            {conversation.tags.map((tag) => (
-              <Badge
-                key={`${conversation.id}:${tag.label}`}
-                className="max-w-full px-2.5 py-1 text-[10px] shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
-                style={{
-                  ...getConversationTagBadgeStyle(tag.color),
-                  color: "#ffffff",
-                }}
-                title={tag.label}
-              >
-                <span className="truncate">{tag.label}</span>
-              </Badge>
-            ))}
-          </div>
+          <ConversationTagsRow tags={conversation.tags} conversationId={conversation.id} />
         ) : null}
       </div>
     </Link>

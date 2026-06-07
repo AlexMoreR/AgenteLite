@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Bot, CheckCircle2, MessageSquareReply, Power, Smartphone, TimerReset, UserRound } from "lucide-react";
+import { Bot, CheckCircle2, MessageSquareReply, Power, Smartphone, TimerReset, UserRound, Volume2 } from "lucide-react";
 import {
   saveAgentReactivationMessageAction,
   saveAgentResponseDelayAction,
@@ -16,6 +16,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ConnectionTabs } from "./ConnectionTabs";
 import { EvolutionChatSyncDialog } from "./EvolutionChatSyncDialog";
 import { AgentAssignAutosaveForm, ReactivationAutosaveForm, ResponseDelayAutosaveForm } from "./ConnectionAutosaveControls";
+import { NotificationSoundSelect } from "@/components/chats/notification-sound-select";
 
 type WhatsAppBusinessConnectionWorkspaceProps = {
   connection: {
@@ -208,6 +209,16 @@ export function WhatsAppBusinessConnectionWorkspace({
               ) : null}
             </div>
                 ) : null}
+
+                <Card>
+                  <CardContent className="space-y-2">
+                    <p className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
+                      <Volume2 className="size-4 text-primary" />
+                      <span>Sonido</span>
+                    </p>
+                    <NotificationSoundSelect />
+                  </CardContent>
+                </Card>
 
                 {connection.provider === "EVOLUTION" ? <EvolutionChatSyncDialog channelId={connection.id} /> : null}
               </div>
