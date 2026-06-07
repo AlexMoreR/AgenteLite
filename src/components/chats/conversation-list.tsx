@@ -126,7 +126,7 @@ function getConversationTagBadgeStyle(color?: string | null) {
 }
 
 function getConversationAvatarClassName() {
-  return "h-10 w-10 md:h-11 md:w-11 after:border-0";
+  return "size-10 after:border-0";
 }
 
 const ConversationListItem = memo(function ConversationListItem({
@@ -166,7 +166,7 @@ const ConversationListItem = memo(function ConversationListItem({
       }}
       onMouseEnter={() => onPrefetch(conversation)}
       onFocus={() => onPrefetch(conversation)}
-      className={`group relative grid w-full grid-cols-[40px_minmax(0,1fr)] items-start gap-3 overflow-hidden px-3 py-2.5 transition-[background-color,box-shadow,transform] duration-200 md:grid-cols-[44px_minmax(0,1fr)] md:px-3 md:py-3 ${
+      className={`group relative grid w-full grid-cols-[40px_minmax(0,1fr)] items-start gap-2 overflow-hidden px-3 py-2.5 transition-[background-color,box-shadow,transform] duration-200 md:grid-cols-[40px_minmax(0,1fr)] md:px-3 md:py-3 ${
         isSelected
           ? "bg-primary/10"
           : "hover:bg-muted/50 hover:shadow-[inset_0_0_0_1px_rgba(16,185,129,0.08)]"
@@ -178,12 +178,12 @@ const ConversationListItem = memo(function ConversationListItem({
         }`}
       />
 
-      <div className="relative h-10 w-10 shrink-0 md:h-11 md:w-11">
+      <div className="relative size-10 shrink-0">
         <ContactAvatar
           avatarUrl={conversation.avatarUrl}
           label={conversation.label ?? conversation.secondaryLabel ?? ""}
           className={getConversationAvatarClassName()}
-          fallbackClassName="rounded-2xl bg-muted text-muted-foreground text-[13px] font-semibold"
+          fallbackClassName="rounded-full bg-blue-300 text-white"
         />
 
         {incomingCountLabel ? (

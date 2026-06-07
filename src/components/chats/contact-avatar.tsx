@@ -1,17 +1,8 @@
 "use client";
 
+import { User } from "lucide-react";
+
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-
-function getAvatarInitials(label?: string | null) {
-  const parts = (label ?? "")
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2);
-
-  const initials = parts.map((part) => part.charAt(0).toUpperCase()).join("");
-  return initials || "CT";
-}
 
 type ContactAvatarProps = {
   avatarUrl?: string | null;
@@ -31,7 +22,9 @@ export function ContactAvatar({
   return (
     <Avatar className={className}>
       {avatarUrl ? <AvatarImage src={avatarUrl} alt={safeLabel} /> : null}
-      <AvatarFallback className={fallbackClassName}>{getAvatarInitials(safeLabel)}</AvatarFallback>
+      <AvatarFallback className={fallbackClassName ?? "bg-blue-300 text-white"}>
+        <User className="h-1/2 w-1/2" aria-hidden />
+      </AvatarFallback>
     </Avatar>
   );
 }

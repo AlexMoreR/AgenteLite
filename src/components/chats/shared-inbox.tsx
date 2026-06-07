@@ -2610,7 +2610,7 @@ const ConversationPanel = memo(function ConversationPanel({
                             className={`h-10 w-10 rounded-[18px] border border-border bg-muted text-muted-foreground transition ${
                               hasStatusMessages ? "ring-2 ring-white" : ""
                             }`}
-                            fallbackClassName="rounded-[18px] bg-muted text-sm font-semibold text-foreground"
+                            fallbackClassName="rounded-[18px] bg-blue-300 text-white"
                           />
                           {hasStatusMessages ? (
                             <span
