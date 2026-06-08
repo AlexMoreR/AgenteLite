@@ -2,7 +2,13 @@
 // Se guarda en localStorage (preferencia por navegador/dispositivo) y la usan tanto
 // el selector en Ajustes como el ChatIncomingNotifier en la página de chats.
 
-export type NotificationSoundId = "silence" | "sound1" | "sound2" | "sound3";
+export type NotificationSoundId =
+  | "silence"
+  | "sound1"
+  | "sound2"
+  | "sound3"
+  | "sound4"
+  | "sound5";
 
 export const NOTIFICATION_SOUND_STORAGE_KEY = "chat-notification-sound";
 export const NOTIFICATION_SOUND_CHANGED_EVENT = "chat-notification-sound-changed";
@@ -13,10 +19,19 @@ export const NOTIFICATION_SOUND_OPTIONS: Array<{ value: NotificationSoundId; lab
   { value: "sound1", label: "Sonido 1" },
   { value: "sound2", label: "Sonido 2" },
   { value: "sound3", label: "Sonido 3" },
+  { value: "sound4", label: "Sonido 4" },
+  { value: "sound5", label: "Sonido 5" },
 ];
 
 function isNotificationSoundId(value: unknown): value is NotificationSoundId {
-  return value === "silence" || value === "sound1" || value === "sound2" || value === "sound3";
+  return (
+    value === "silence" ||
+    value === "sound1" ||
+    value === "sound2" ||
+    value === "sound3" ||
+    value === "sound4" ||
+    value === "sound5"
+  );
 }
 
 export function getStoredNotificationSound(): NotificationSoundId {
@@ -36,9 +51,23 @@ export function setStoredNotificationSound(value: NotificationSoundId) {
 }
 
 // Cada sonido es una secuencia de tonos (frecuencia + tiempos) generada con Web Audio.
-type Tone = { freq: number; start: number; duration: number };
+// `gain` (0–1) escala el volumen del tono; sirve para superponer parciales sin saturar.
+// `type` elige la forma de onda (triangle suena más cálido/agradable que sine).
+type Tone = { freq: number; start: number; duration: number; gain?: number; type?: OscillatorType };
 
-const SOUND_PATTERNS: Record<Exclude<NotificationSoundId, "silence">, Tone[]> = {
+// Sonidos que usan un ARCHIVO de audio (en /public) en vez de tonos generados.
+// El archivo debe existir en public/sounds/. Si no existe, se intenta reproducir y falla
+// en silencio (no rompe nada); puedes volver a un tono generado quitando la entrada.
+const SOUND_FILES: Partial<Record<NotificationSoundId, string>> = {
+  sound1: "/sounds/sonido-1.mp3",
+  sound2: "/sounds/sonido-2.mp3",
+  sound3: "/sounds/sonido-3.mp3",
+  sound4: "/sounds/sonido-4.mp3",
+  sound5: "/sounds/sonido-5.mp3",
+};
+
+// Tonos generados de respaldo (solo se usan si un sonido NO tiene archivo asociado).
+const SOUND_PATTERNS: Partial<Record<NotificationSoundId, Tone[]>> = {
   // Ding-dong descendente suave.
   sound1: [
     { freq: 880, start: 0, duration: 0.18 },
@@ -62,6 +91,19 @@ export function playNotificationSound(soundId: NotificationSoundId, ctx: AudioCo
     return;
   }
 
+  // Si el sonido tiene un archivo asociado, lo reproducimos con un <audio>.
+  const fileUrl = SOUND_FILES[soundId];
+  if (fileUrl && typeof Audio !== "undefined") {
+    try {
+      const audio = new Audio(fileUrl);
+      audio.volume = 0.85;
+      void audio.play().catch(() => {});
+    } catch {
+      // Si falla (archivo ausente, etc.) no rompemos nada.
+    }
+    return;
+  }
+
   const pattern = SOUND_PATTERNS[soundId];
   if (!pattern) {
     return;
@@ -76,14 +118,15 @@ export function playNotificationSound(soundId: NotificationSoundId, ctx: AudioCo
     const startAt = baseTime + tone.start;
     const endAt = startAt + tone.duration;
 
+    const peak = 0.2 * (tone.gain ?? 1);
     const gain = ctx.createGain();
     gain.connect(ctx.destination);
     gain.gain.setValueAtTime(0.0001, startAt);
-    gain.gain.exponentialRampToValueAtTime(0.2, startAt + 0.02);
+    gain.gain.exponentialRampToValueAtTime(peak, startAt + 0.02);
     gain.gain.exponentialRampToValueAtTime(0.0001, endAt);
 
     const osc = ctx.createOscillator();
-    osc.type = "sine";
+    osc.type = tone.type ?? "sine";
     osc.frequency.setValueAtTime(tone.freq, startAt);
     osc.connect(gain);
     osc.start(startAt);

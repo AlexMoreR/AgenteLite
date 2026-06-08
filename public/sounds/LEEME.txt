@@ -1,0 +1,19 @@
+Coloca aquí los sonidos de notificación de chat.
+
+Archivos esperados (nombres exactos):
+  - sonido-1.mp3   ->  para "Sonido 1"
+  - sonido-2.mp3   ->  para "Sonido 2"
+  - sonido-3.mp3   ->  para "Sonido 3"
+  - sonido-4.mp3   ->  para "Sonido 4"
+  - sonido-5.mp3   ->  para "Sonido 5"
+
+Ruta final:  public/sounds/sonido-N.mp3   (se sirven en /sounds/sonido-N.mp3)
+
+Notas:
+- Formato recomendado: MP3 (lo más compatible). Si tu archivo es .wav/.ogg, conviértelo
+  a .mp3 o avísame para cambiar la extensión en el código.
+- Si quieres otros nombres, dime cuáles y los ajusto en chat-notification-sound.ts (SOUND_FILES).
+- Mantén los archivos cortos (1–3 segundos).
+- Si falta algún archivo, ese sonido simplemente no suena (no rompe nada).
+
+Puedes borrar este LEEME.txt cuando agregues los sonidos.
