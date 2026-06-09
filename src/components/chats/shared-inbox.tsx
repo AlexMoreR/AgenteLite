@@ -575,6 +575,7 @@ export type SharedInboxSidebarItem = {
 };
 
 export type AssignedFilter = "all" | "mine" | "unassigned";
+export type StatusFilter = "all" | "open" | "resolved";
 
 type SharedInboxProps = {
   searchAction: string;
@@ -583,6 +584,7 @@ type SharedInboxProps = {
   searchQuery: string;
   selectedConnectionKey?: string;
   assignedFilter?: AssignedFilter;
+  statusFilter?: StatusFilter;
   isManager?: boolean;
   conversationListApiPath?: string;
   initialConversationBatchSize?: number;
@@ -758,6 +760,7 @@ function buildConversationItemHrefFromParams(
   searchQuery: string,
   conversation: SharedInboxConversationItemLike,
   assignedFilter: AssignedFilter = "all",
+  statusFilter: StatusFilter = "open",
 ) {
   const chatKey =
     (typeof conversation.id === "string" && conversation.id.trim()) ||
@@ -774,6 +777,7 @@ function buildConversationItemHrefFromParams(
   if (selectedConnectionKey) params.set("connection", selectedConnectionKey);
   if (searchQuery.trim()) params.set("q", searchQuery.trim());
   if (assignedFilter !== "all") params.set("assigned", assignedFilter);
+  if (statusFilter !== "open") params.set("status", statusFilter);
   const qs = params.toString();
   return qs ? `${searchAction}?${qs}` : searchAction;
 }
@@ -2595,7 +2599,7 @@ const ConversationPanel = memo(function ConversationPanel({
 
   return (
     <Card
-      className={`${selectedConversationId ? "flex md:flex" : "!hidden md:flex"} chat-inbox-panel relative min-h-0 flex-1 overflow-hidden rounded-none border border-border bg-transparent p-0 shadow-none md:h-full md:shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)]`}
+      className={`${selectedConversationId ? "flex md:flex" : "!hidden md:!flex"} chat-inbox-panel relative min-h-0 flex-1 overflow-hidden rounded-none border border-border bg-transparent p-0 shadow-none md:h-full md:shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)]`}
     >
       <div aria-hidden="true" className="pointer-events-none absolute inset-0" style={CHAT_MESSAGES_BACKGROUND_BASE_STYLE} />
       <div aria-hidden="true" className="pointer-events-none absolute inset-0 opacity-[0.08] dark:opacity-[0.14] dark:invert" style={CHAT_MESSAGES_BACKGROUND_OVERLAY_STYLE} />
@@ -3172,13 +3176,15 @@ const ConversationPanel = memo(function ConversationPanel({
         ) : null}
         </div>
       ) : (
-        <div className="flex min-h-[74vh] items-center justify-center px-6 py-10 text-center">
-          <div className="mx-auto flex max-w-sm flex-col items-center gap-3">
-            <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-muted text-muted-foreground">
-              <MessageSquareText className="h-5 w-5" />
+        <div className="relative z-10 flex h-full w-full flex-1 items-center justify-center px-6 py-10 text-center">
+          <div className="mx-auto flex max-w-sm flex-col items-center gap-4">
+            <span className="inline-flex h-20 w-20 items-center justify-center rounded-full bg-primary/10 text-primary">
+              <span className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-primary/15">
+                <MessageSquareText className="h-7 w-7" />
+              </span>
             </span>
-            <div className="space-y-1">
-              <h3 className="text-base font-semibold text-foreground">{emptySelectionTitle}</h3>
+            <div className="space-y-1.5">
+              <h3 className="text-lg font-semibold text-foreground">{emptySelectionTitle}</h3>
               <p className="text-sm leading-6 text-muted-foreground">
                 {emptySelectionDescription}
               </p>
@@ -3197,6 +3203,7 @@ export function SharedInbox({
   searchQuery,
   selectedConnectionKey = "",
   assignedFilter = "all",
+  statusFilter = "open",
   isManager = false,
   conversationListApiPath = "/api/cliente/chats/list",
   initialConversationBatchSize = 20,
@@ -3219,7 +3226,7 @@ export function SharedInbox({
 }: SharedInboxProps) {
   const [conversationItems, setConversationItems] = useState<SharedInboxConversationItem[]>(() =>
     normalizeConversationItems(conversations, (item) =>
-      buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item, assignedFilter),
+      buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item, assignedFilter, statusFilter),
     ),
   );
   const [hasMoreConversationItems, setHasMoreConversationItems] = useState(
@@ -3337,10 +3344,11 @@ export function SharedInbox({
       if (selectedConnectionKey) params.set("connection", selectedConnectionKey);
       if (q) params.set("q", q);
       if (assignedFilter !== "all") params.set("assigned", assignedFilter);
+      if (statusFilter !== "open") params.set("status", statusFilter);
       const qs = params.toString();
       return qs ? `${searchAction}?${qs}` : searchAction;
     },
-    [searchAction, selectedConversationId, selectedConnectionKey, assignedFilter],
+    [searchAction, selectedConversationId, selectedConnectionKey, assignedFilter, statusFilter],
   );
 
   const handleSearchChange = useCallback(
@@ -3397,6 +3405,10 @@ export function SharedInbox({
         params.set("assigned", assignedFilter);
       }
 
+      if (statusFilter !== "open") {
+        params.set("status", statusFilter);
+      }
+
       const response = await fetch(`${conversationListApiPath}?${params.toString()}`, {
         credentials: "same-origin",
         cache: "no-store",
@@ -3423,7 +3435,7 @@ export function SharedInbox({
       }
 
       const normalizedPayloadConversations = normalizeConversationItems(payload.conversations, (item) =>
-        buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item, assignedFilter),
+        buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item, assignedFilter, statusFilter),
       );
       debugConversationList("loadMore payload", {
         offset,
@@ -3483,7 +3495,7 @@ export function SharedInbox({
   }, [selectedConversation]);
 
   useEffect(() => {
-    const nextListQueryKey = `${searchQuery.trim()}::${selectedConnectionKey.trim()}::${assignedFilter}`;
+    const nextListQueryKey = `${searchQuery.trim()}::${selectedConnectionKey.trim()}::${assignedFilter}::${statusFilter}`;
     const queryChanged = listQueryKeyRef.current !== nextListQueryKey;
     listQueryKeyRef.current = nextListQueryKey;
 
@@ -3491,7 +3503,7 @@ export function SharedInbox({
       setHasMoreConversationItems(initialHasMoreConversations ?? conversations.length >= initialConversationBatchSize);
       setConversationItems(
         normalizeConversationItems(conversations, (item) =>
-          buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item, assignedFilter),
+          buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item, assignedFilter, statusFilter),
         ),
       );
       return;
@@ -3501,14 +3513,14 @@ export function SharedInbox({
       if (current.length === 0) {
         return sortConversationItems(
           normalizeConversationItems(conversations, (item) =>
-            buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item, assignedFilter),
+            buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item, assignedFilter, statusFilter),
           ),
         );
       }
 
       const currentById = new Map(current.map((item) => [item.id, item]));
       const merged = normalizeConversationItems(conversations, (item) =>
-        buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item, assignedFilter),
+        buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item, assignedFilter, statusFilter),
       ).map((conversation) =>
         mergeConversationListItem(conversation, currentById.get(conversation.id) ?? null),
       );
@@ -3523,7 +3535,7 @@ export function SharedInbox({
 
       return sorted;
     });
-  }, [conversations, initialConversationBatchSize, initialHasMoreConversations, searchAction, searchQuery, selectedConnectionKey, assignedFilter]);
+  }, [conversations, initialConversationBatchSize, initialHasMoreConversations, searchAction, searchQuery, selectedConnectionKey, assignedFilter, statusFilter]);
 
   useEffect(() => {
     selectedConversationRef.current = selectedConversation;
@@ -4685,6 +4697,7 @@ export function SharedInbox({
         selectedConnectionKey={selectedConnectionKey}
         searchQuery={searchQuery}
         assignedFilter={assignedFilter}
+        statusFilter={statusFilter}
         assignedCounts={assignedCounts}
         isManager={isManager}
         searchInputValue={searchInputValue}

@@ -18,8 +18,13 @@ type SortKey = "numero" | "nombre" | "fecha" | "estado";
 type SortDirection = "asc" | "desc";
 
 const PAGE_SIZE = 10;
-const nativeSelectBaseClassName =
-  "w-full rounded-lg border border-input bg-transparent pr-10 pl-2.5 text-sm text-foreground outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30";
+const DATE_RANGE_LABELS: Record<string, string> = {
+  "1": "1 Dia",
+  "7": "7 Dias",
+  "15": "15 Dias",
+  "30": "30 Dias",
+  __all__: "Todos",
+};
 
 function formatCrmDate(value: string) {
   const date = new Date(value);
@@ -314,31 +319,39 @@ export function CrmRegistroTable({
         </div>
 
         <div className="flex items-center gap-2 lg:ml-auto">
-          <select
+          <Select
             value={statusFilter}
-            onChange={(event) => setStatusFilter(event.target.value as CrmStage | "__all__")}
-            className={`${nativeSelectBaseClassName} h-9 sm:min-w-40 sm:w-auto`}
-            aria-label="Filtrar por estado"
+            onValueChange={(value) => setStatusFilter(value as CrmStage | "__all__")}
           >
-            <option value="__all__">Estados</option>
-            {statusOptions.map((status) => (
-              <option key={status.value} value={status.value}>
-                {status.label}
-              </option>
-            ))}
-          </select>
-          <select
+            <SelectTrigger className="h-9 w-full sm:w-auto sm:min-w-40" aria-label="Filtrar por estado">
+              <SelectValue placeholder="Estados">
+                {(value) => (value === "__all__" ? "Estados" : getCrmStageLabel(value as CrmStage))}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">Estados</SelectItem>
+              {statusOptions.map((status) => (
+                <SelectItem key={status.value} value={status.value}>
+                  {status.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
             value={dateRangeFilter}
-            onChange={(event) => setDateRangeFilter(event.target.value as "__all__" | "1" | "7" | "15" | "30")}
-            className={`${nativeSelectBaseClassName} h-9 sm:min-w-40 sm:w-auto`}
-            aria-label="Filtrar por rango de dias"
+            onValueChange={(value) => setDateRangeFilter(value as "__all__" | "1" | "7" | "15" | "30")}
           >
-            <option value="1">1 Dia</option>
-            <option value="7">7 Dias</option>
-            <option value="15">15 Dias</option>
-            <option value="30">30 Dias</option>
-            <option value="__all__">Todos</option>
-          </select>
+            <SelectTrigger className="h-9 w-full sm:w-auto sm:min-w-40" aria-label="Filtrar por rango de dias">
+              <SelectValue>{(value) => DATE_RANGE_LABELS[value as string] ?? "Todos"}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="1">1 Dia</SelectItem>
+              <SelectItem value="7">7 Dias</SelectItem>
+              <SelectItem value="15">15 Dias</SelectItem>
+              <SelectItem value="30">30 Dias</SelectItem>
+              <SelectItem value="__all__">Todos</SelectItem>
+            </SelectContent>
+          </Select>
           <Button
             type="button"
             variant="ghost"
@@ -396,13 +409,14 @@ export function CrmRegistroTable({
 
                 <div className="mt-3 flex flex-wrap gap-1.5">
                   {record.tags.map((tag) => (
-                    <span
+                    <Badge
                       key={`${record.id}:${tag.label}`}
-                      className="inline-flex max-w-full items-center rounded-full px-2.5 py-0.75 text-[10px] font-semibold uppercase tracking-[0.08em] text-white shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
-                      style={getTagStyle(tag.color)}
+                      className="shrink-0 max-w-[140px] px-2.5 py-1 text-[10px] shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
+                      style={{ ...getTagStyle(tag.color), color: "#ffffff" }}
+                      title={tag.label}
                     >
-                      {tag.label}
-                    </span>
+                      <span className="truncate">{tag.label}</span>
+                    </Badge>
                   ))}
                 </div>
 
@@ -500,7 +514,9 @@ export function CrmRegistroTable({
                   Estado
                 </HeaderLabel>
               </TableHead>
-              <TableHead className="px-2 py-1 normal-case tracking-normal">Acciones</TableHead>
+              <TableHead className="px-2 py-1 normal-case tracking-normal">
+                <span className="sr-only">Acciones</span>
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -543,13 +559,14 @@ export function CrmRegistroTable({
                     <TableCell>
                       <div className="flex flex-wrap gap-1.5">
                         {record.tags.map((tag) => (
-                          <span
+                          <Badge
                             key={`${record.id}:${tag.label}`}
-                            className="inline-flex max-w-full items-center rounded-full px-2.5 py-0.75 text-[10px] font-semibold uppercase tracking-[0.08em] text-white shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
-                            style={getTagStyle(tag.color)}
+                            className="shrink-0 max-w-[140px] px-2.5 py-1 text-[10px] shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
+                            style={{ ...getTagStyle(tag.color), color: "#ffffff" }}
+                            title={tag.label}
                           >
-                            {tag.label}
-                          </span>
+                            <span className="truncate">{tag.label}</span>
+                          </Badge>
                         ))}
                       </div>
                     </TableCell>
@@ -588,25 +605,6 @@ export function CrmRegistroTable({
                     </TableCell>
                     <TableCell className="px-1.5 py-0.5">
                       <div className="flex items-center gap-1">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 border border-transparent hover:border-border"
-                          onClick={() => void handleCopy(record.name, `desktop-name-${record.id}`)}
-                          aria-label={`Copiar nombre de ${record.name}`}
-                        >
-                          <Copy className="h-4 w-4 text-muted-foreground" />
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 border border-transparent hover:border-border"
-                          aria-label={`Ver ${record.name}`}
-                        >
-                          <Eye className="h-4 w-4 text-muted-foreground" />
-                        </Button>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button

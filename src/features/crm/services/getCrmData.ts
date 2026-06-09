@@ -1,4 +1,3 @@
-import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getContactTags } from "@/lib/chat-conversation-summary";
 import { groupCrmRecordsByStage, sortCrmRecords } from "../domain/crm-config";
@@ -26,7 +25,6 @@ function getContactDetail(contact: {
   conversations: Array<{
     messages: Array<{
       content: string | null;
-      rawPayload?: Prisma.JsonValue | null;
     }>;
   }>;
 }) {
@@ -63,66 +61,6 @@ function normalizeOriginLabel(value: string): CrmRecord["origin"] {
   }
 
   if (/(facebook|meta ads|meta|ads)/i.test(normalized)) {
-    return "FACEBOOK";
-  }
-
-  return "GENERICO";
-}
-
-function getContactOrigin(metadata: unknown, rawPayload: Prisma.JsonValue | null | undefined): CrmRecord["origin"] {
-  if (isRecord(metadata)) {
-    const explicitOrigin =
-      readString(metadata.crmOrigin) ||
-      readString(metadata.origin) ||
-      readString(metadata.leadOrigin) ||
-      readString(metadata.source) ||
-      readString(metadata.sourceType) ||
-      readString(metadata.campaign) ||
-      readString(metadata.campaignSource) ||
-      readString(metadata.marketingSource) ||
-      readString(metadata.sourceApp);
-
-    if (explicitOrigin) {
-      return normalizeOriginLabel(explicitOrigin);
-    }
-  }
-
-  if (!isRecord(rawPayload)) {
-    return "GENERICO";
-  }
-
-  const evolutionRoot = isRecord(rawPayload.evolution) ? rawPayload.evolution : rawPayload;
-  const dataRoot = isRecord(evolutionRoot.data) ? evolutionRoot.data : evolutionRoot;
-  const contextInfo = isRecord(dataRoot.contextInfo) ? dataRoot.contextInfo : null;
-  const externalAdReply = contextInfo && isRecord(contextInfo.externalAdReply) ? contextInfo.externalAdReply : null;
-
-  if (!externalAdReply) {
-    return "GENERICO";
-  }
-
-  const combinedText = [
-    readString(externalAdReply.sourceApp),
-    readString(externalAdReply.sourceUrl),
-    readString(externalAdReply.title),
-    readString(externalAdReply.body),
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-
-  if (!combinedText) {
-    return "GENERICO";
-  }
-
-  if (combinedText.includes("marketplace")) {
-    return "MARKETPLACE";
-  }
-
-  if (combinedText.includes("recomend") || combinedText.includes("referid") || combinedText.includes("referenc")) {
-    return "RECOMENDADO";
-  }
-
-  if (combinedText.includes("facebook") || combinedText.includes("meta")) {
     return "FACEBOOK";
   }
 
@@ -186,6 +124,7 @@ export async function getCrmData({ userId }: GetCrmDataInput): Promise<CrmData |
       phoneNumber: true,
       notes: true,
       metadata: true,
+      crmStage: true,
       createdAt: true,
       updatedAt: true,
       ContactTag: {
@@ -209,27 +148,12 @@ export async function getCrmData({ userId }: GetCrmDataInput): Promise<CrmData |
             take: 1,
             select: {
               content: true,
-              rawPayload: true,
             },
           },
         },
       },
     },
   });
-
-  const crmStageRows =
-    rawContacts.length > 0
-      ? await prisma.$queryRaw<Array<{ contactId: string; crmStage: string }>>`
-          SELECT
-            c."id" AS "contactId",
-            c."crmStage"::text AS "crmStage"
-          FROM "Contact" c
-          WHERE c."workspaceId" = ${membership.workspace.id}
-            AND c."id" IN (${Prisma.join(rawContacts.map((contact) => contact.id))})
-        `
-      : [];
-
-  const crmStageByContactId = new Map(crmStageRows.map((row) => [row.contactId, row.crmStage]));
 
   const records: CrmRecord[] = rawContacts.map((contact) => ({
     id: contact.id,
@@ -238,9 +162,9 @@ export async function getCrmData({ userId }: GetCrmDataInput): Promise<CrmData |
     date: getContactLastActivity(contact).toISOString(),
     tags: getContactTags(contact.ContactTag.map((item) => item.Tag)),
     detail: getContactDetail(contact),
-    status: (crmStageByContactId.get(contact.id) as CrmRecord["status"]) ?? "NUEVO",
+    status: (contact.crmStage as CrmRecord["status"]) ?? "NUEVO",
     isCollapsed: getContactCollapsedState(contact.metadata),
-    origin: getContactOrigin(contact.metadata, contact.conversations[0]?.messages[0]?.rawPayload),
+    origin: getContactOriginFromMetadata(contact.metadata),
   }));
 
   const sortedRecords = sortCrmRecords(records);
@@ -292,6 +216,7 @@ export async function getCrmKanbanData({ userId }: GetCrmDataInput): Promise<Crm
       phoneNumber: true,
       notes: true,
       metadata: true,
+      crmStage: true,
       updatedAt: true,
       ContactTag: {
         select: {
@@ -321,20 +246,6 @@ export async function getCrmKanbanData({ userId }: GetCrmDataInput): Promise<Crm
     },
   });
 
-  const crmStageRows =
-    rawContacts.length > 0
-      ? await prisma.$queryRaw<Array<{ contactId: string; crmStage: string }>>`
-          SELECT
-            c."id" AS "contactId",
-            c."crmStage"::text AS "crmStage"
-          FROM "Contact" c
-          WHERE c."workspaceId" = ${membership.workspace.id}
-            AND c."id" IN (${Prisma.join(rawContacts.map((contact) => contact.id))})
-        `
-      : [];
-
-  const crmStageByContactId = new Map(crmStageRows.map((row) => [row.contactId, row.crmStage]));
-
   const records: CrmRecord[] = rawContacts.map((contact) => ({
     id: contact.id,
     number: contact.phoneNumber,
@@ -342,7 +253,7 @@ export async function getCrmKanbanData({ userId }: GetCrmDataInput): Promise<Crm
     date: getContactLastActivity(contact).toISOString(),
     tags: getContactTags(contact.ContactTag.map((item) => item.Tag)),
     detail: getContactDetail(contact),
-    status: (crmStageByContactId.get(contact.id) as CrmRecord["status"]) ?? "NUEVO",
+    status: (contact.crmStage as CrmRecord["status"]) ?? "NUEVO",
     isCollapsed: getContactCollapsedState(contact.metadata),
     origin: getContactOriginFromMetadata(contact.metadata),
   }));

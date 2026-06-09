@@ -180,6 +180,7 @@ model Contact {
 
   @@unique([workspaceId, phoneNumber])
   @@index([workspaceId, createdAt])
+  @@index([workspaceId, updatedAt])
 }
 
 model Conversation {

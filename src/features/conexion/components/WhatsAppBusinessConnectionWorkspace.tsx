@@ -17,6 +17,7 @@ import { ConnectionTabs } from "./ConnectionTabs";
 import { EvolutionChatSyncDialog } from "./EvolutionChatSyncDialog";
 import { AgentAssignAutosaveForm, ReactivationAutosaveForm, ResponseDelayAutosaveForm } from "./ConnectionAutosaveControls";
 import { NotificationSoundSelect } from "@/components/chats/notification-sound-select";
+import { ChannelCollaboratorsForm } from "./ChannelCollaboratorsForm";
 
 type WhatsAppBusinessConnectionWorkspaceProps = {
   connection: {
@@ -45,6 +46,8 @@ type WhatsAppBusinessConnectionWorkspaceProps = {
     name: string;
     status: string;
   }>;
+  collaboratorMembers?: Array<{ id: string; name: string | null; email: string }>;
+  collaboratorIds?: string[];
 };
 
 export function WhatsAppBusinessConnectionWorkspace({
@@ -57,6 +60,8 @@ export function WhatsAppBusinessConnectionWorkspace({
   okMessage,
   errorMessage,
   availableAgents,
+  collaboratorMembers = [],
+  collaboratorIds = [],
 }: WhatsAppBusinessConnectionWorkspaceProps) {
   const effectiveErrorMessage = hasQrCode || channelStatus === "QRCODE" || isConnected ? "" : errorMessage;
   const providerLabel =
@@ -126,8 +131,12 @@ export function WhatsAppBusinessConnectionWorkspace({
           <ConnectionTabs
             colaboradores={
               <Card>
-                <CardContent className="text-sm text-muted-foreground">
-                  Aun no hay colaboradores para este canal.
+                <CardContent>
+                  <ChannelCollaboratorsForm
+                    channelId={connection.id}
+                    members={collaboratorMembers}
+                    collaboratorIds={collaboratorIds}
+                  />
                 </CardContent>
               </Card>
             }

@@ -30,26 +30,47 @@ export default async function ClienteConexionWhatsAppBusinessDetailPage({ params
 
   const [{ agentId }, paramsData] = await Promise.all([params, searchParams]);
   const detail = await getWhatsAppBusinessConnectionDetail(membership.workspace.id, agentId);
-  const availableAgents = await prisma.agent.findMany({
-    where: {
-      workspaceId: membership.workspace.id,
-      status: {
-        not: "ARCHIVED",
+  const [availableAgents, workspaceMembers] = await Promise.all([
+    prisma.agent.findMany({
+      where: {
+        workspaceId: membership.workspace.id,
+        status: {
+          not: "ARCHIVED",
+        },
       },
-    },
-    orderBy: {
-      name: "asc",
-    },
-    select: {
-      id: true,
-      name: true,
-      status: true,
-    },
-  });
+      orderBy: {
+        name: "asc",
+      },
+      select: {
+        id: true,
+        name: true,
+        status: true,
+      },
+    }),
+    prisma.workspaceMember.findMany({
+      where: { workspaceId: membership.workspace.id, isActive: true },
+      select: { user: { select: { id: true, name: true, email: true } } },
+      orderBy: { createdAt: "asc" },
+    }),
+  ]);
 
   if (!detail) {
     redirect("/cliente/conexion?error=Canal+no+encontrado");
   }
+
+  // Colaboradores guardados en metadata del canal.
+  const channelMetadata =
+    detail.channel?.metadata && typeof detail.channel.metadata === "object" && !Array.isArray(detail.channel.metadata)
+      ? (detail.channel.metadata as Record<string, unknown>)
+      : {};
+  const collaboratorIds = Array.isArray(channelMetadata.collaboratorIds)
+    ? (channelMetadata.collaboratorIds as unknown[]).filter((id): id is string => typeof id === "string")
+    : [];
+  const collaboratorMembers = workspaceMembers.map((member) => ({
+    id: member.user.id,
+    name: member.user.name,
+    email: member.user.email,
+  }));
 
   const okMessage = typeof paramsData.ok === "string" ? paramsData.ok : "";
   const errorMessage = typeof paramsData.error === "string" ? paramsData.error : "";
@@ -65,6 +86,8 @@ export default async function ClienteConexionWhatsAppBusinessDetailPage({ params
       okMessage={okMessage}
       errorMessage={errorMessage}
       availableAgents={availableAgents}
+      collaboratorMembers={collaboratorMembers}
+      collaboratorIds={collaboratorIds}
     />
   );
 }

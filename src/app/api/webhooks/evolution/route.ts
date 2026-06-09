@@ -616,6 +616,69 @@ async function resolveConversationWithLock(args: {
   return null;
 }
 
+// Auto-asignación round-robin entre los colaboradores del canal.
+// Solo asigna si la conversación está SIN asignar (no toca las que ya tienen dueño).
+// El turno se guarda en channel.metadata.lastAutoAssignedUserId.
+async function autoAssignConversationToCollaborator(args: {
+  conversationId: string;
+  channelId: string;
+  workspaceId: string;
+}) {
+  const [conversation, channel] = await Promise.all([
+    prisma.conversation.findUnique({
+      where: { id: args.conversationId },
+      select: { assignedToUserId: true },
+    }),
+    prisma.whatsAppChannel.findUnique({
+      where: { id: args.channelId },
+      select: { metadata: true },
+    }),
+  ]);
+
+  // Si ya está asignada, no la tocamos.
+  if (!conversation || conversation.assignedToUserId) {
+    return;
+  }
+
+  const metadata =
+    channel?.metadata && typeof channel.metadata === "object" && !Array.isArray(channel.metadata)
+      ? (channel.metadata as Record<string, unknown>)
+      : {};
+
+  const collaboratorIds = Array.isArray(metadata.collaboratorIds)
+    ? (metadata.collaboratorIds as unknown[]).filter((id): id is string => typeof id === "string")
+    : [];
+
+  if (collaboratorIds.length === 0) {
+    return;
+  }
+
+  // Solo colaboradores que sigan siendo miembros activos del workspace.
+  const activeMembers = await prisma.workspaceMember.findMany({
+    where: { workspaceId: args.workspaceId, isActive: true, userId: { in: collaboratorIds } },
+    select: { userId: true },
+  });
+  const activeSet = new Set(activeMembers.map((m) => m.userId));
+  const validIds = collaboratorIds.filter((id) => activeSet.has(id));
+  if (validIds.length === 0) {
+    return;
+  }
+
+  // Siguiente colaborador tras el último asignado (round-robin cíclico).
+  const lastId = typeof metadata.lastAutoAssignedUserId === "string" ? metadata.lastAutoAssignedUserId : null;
+  const lastIndex = lastId ? validIds.indexOf(lastId) : -1;
+  const nextUserId = validIds[(lastIndex + 1) % validIds.length];
+
+  await prisma.conversation.update({
+    where: { id: args.conversationId },
+    data: { assignedToUserId: nextUserId },
+  });
+  await prisma.whatsAppChannel.update({
+    where: { id: args.channelId },
+    data: { metadata: { ...metadata, lastAutoAssignedUserId: nextUserId } as Prisma.InputJsonValue },
+  });
+}
+
 // Throttle en memoria para el rescate de mensajes por evento de contacto/chat.
 // Evita rafagas de llamadas a la API de Evolution cuando llegan muchos eventos
 // seguidos del mismo chat. El import es idempotente, asi que esto solo limita costo.
@@ -1099,6 +1162,21 @@ export async function POST(request: Request) {
       },
     });
   }
+
+  // Auto-asignación round-robin: en un mensaje entrante, si la conversación está sin
+  // asignar, se asigna al siguiente colaborador del canal. No toca las ya asignadas.
+  if (direction === "INBOUND" && !messageWasEdited && !messageWasDeleted && conversation.id) {
+    try {
+      await autoAssignConversationToCollaborator({
+        conversationId: conversation.id,
+        channelId: channel.id,
+        workspaceId: channel.workspaceId,
+      });
+    } catch {
+      // La auto-asignación nunca debe romper el procesamiento del mensaje.
+    }
+  }
+
   try {
     const status = (direction === "OUTBOUND" ? "SENT" : "RECEIVED") as Prisma.MessageUncheckedCreateInput["status"];
 

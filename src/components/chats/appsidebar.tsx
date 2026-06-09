@@ -2,10 +2,11 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ListFilter, MessageSquareText, Search, X } from "lucide-react";
 import { ConversationList } from "@/components/chats/conversation-list";
 import { SidebarHeader, SidebarInput } from "@/components/ui/sidebar";
-import { type AssignedFilter, type SharedInboxConversationItem } from "./shared-inbox";
+import { type AssignedFilter, type StatusFilter, type SharedInboxConversationItem } from "./shared-inbox";
 import { Label } from "../ui/label";
 import { Switch } from "@base-ui/react";
 
@@ -16,6 +17,7 @@ type AppSidebarProps = {
   selectedConnectionKey?: string;
   searchQuery?: string;
   assignedFilter?: AssignedFilter;
+  statusFilter?: StatusFilter;
   assignedCounts?: { mine: number; unassigned: number; all: number } | null;
   isManager?: boolean;
   searchInputValue: string;
@@ -37,6 +39,12 @@ const ASSIGNED_FILTER_TABS: Array<{ value: AssignedFilter; label: string; manage
   { value: "all", label: "Todas", managerOnly: true },
 ];
 
+const STATUS_FILTER_OPTIONS: Array<{ value: StatusFilter; label: string }> = [
+  { value: "all", label: "Todas" },
+  { value: "open", label: "Abiertas" },
+  { value: "resolved", label: "Resueltas" },
+];
+
 export function AppSidebar({
   conversationItems,
   selectedConversationId,
@@ -44,6 +52,7 @@ export function AppSidebar({
   selectedConnectionKey = "",
   searchQuery = "",
   assignedFilter = "all",
+  statusFilter = "open",
   assignedCounts = null,
   isManager = false,
   searchInputValue,
@@ -59,7 +68,27 @@ export function AppSidebar({
   emptyListDescription,
 }: AppSidebarProps) {
   const conversationListScrollRef = React.useRef<HTMLDivElement | null>(null);
-  const [filtersOpen, setFiltersOpen] = React.useState(true);
+  const router = useRouter();
+  const filterMenuRef = React.useRef<HTMLDivElement | null>(null);
+  const [filterMenuOpen, setFilterMenuOpen] = React.useState(false);
+  // Selección provisional del menú (se aplica con el botón "Aplicar").
+  const [draftStatus, setDraftStatus] = React.useState<StatusFilter>(statusFilter);
+
+  React.useEffect(() => {
+    setDraftStatus(statusFilter);
+  }, [statusFilter]);
+
+  // Cerrar el menú al hacer clic fuera.
+  React.useEffect(() => {
+    if (!filterMenuOpen) return;
+    function onPointerDown(event: MouseEvent) {
+      if (filterMenuRef.current && !filterMenuRef.current.contains(event.target as Node)) {
+        setFilterMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [filterMenuOpen]);
 
   const buildFilterHref = React.useCallback(
     (value: AssignedFilter) => {
@@ -67,11 +96,37 @@ export function AppSidebar({
       if (selectedConnectionKey) params.set("connection", selectedConnectionKey);
       if (searchQuery.trim()) params.set("q", searchQuery.trim());
       if (value !== "all") params.set("assigned", value);
+      if (statusFilter !== "open") params.set("status", statusFilter);
       const qs = params.toString();
       return qs ? `${searchAction}?${qs}` : searchAction;
     },
-    [searchAction, selectedConnectionKey, searchQuery],
+    [searchAction, selectedConnectionKey, searchQuery, statusFilter],
   );
+
+  const buildStatusHref = React.useCallback(
+    (value: StatusFilter) => {
+      const params = new URLSearchParams();
+      if (selectedConnectionKey) params.set("connection", selectedConnectionKey);
+      if (searchQuery.trim()) params.set("q", searchQuery.trim());
+      if (assignedFilter !== "all") params.set("assigned", assignedFilter);
+      // "open" es el estado por defecto (oculta resueltas) → no necesita parámetro.
+      if (value !== "open") params.set("status", value);
+      const qs = params.toString();
+      return qs ? `${searchAction}?${qs}` : searchAction;
+    },
+    [searchAction, selectedConnectionKey, searchQuery, assignedFilter],
+  );
+
+  const applyStatusFilter = React.useCallback(
+    (value: StatusFilter) => {
+      setFilterMenuOpen(false);
+      router.push(buildStatusHref(value), { scroll: false });
+    },
+    [buildStatusHref, router],
+  );
+
+  // El filtro "activo" (punto en el botón) es cuando NO estás en la vista por defecto (abiertas).
+  const filtersActive = statusFilter !== "open";
 
   const visibleTabs = ASSIGNED_FILTER_TABS.filter((tab) => isManager || !tab.managerOnly);
 
@@ -80,7 +135,7 @@ export function AppSidebar({
       className={`${mobileConversationActive ? "hidden md:flex" : "flex"} chat-inbox-sidebar min-h-0 flex-1 overflow-hidden border border-border bg-card p-0 shadow-none md:h-full md:shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)]`}
     >
       <div className="flex min-h-0 w-full flex-col">
-        <div className="shrink-0 border-b border-border bg-card px-3 py-2 backdrop-blur-sm md:px-3 md:py-2">
+        <div className="relative z-30 shrink-0 border-b border-border bg-card px-3 py-2 backdrop-blur-sm md:px-3 md:py-2">
           <div className="flex items-center gap-2">
             <form
               className="relative flex-1"
@@ -114,21 +169,70 @@ export function AppSidebar({
               ) : null}
             </form>
 
-            <button
-              type="button"
-              onClick={() => setFiltersOpen((open) => !open)}
-              aria-label="Filtrar"
-              aria-pressed={filtersOpen}
-              title="Filtrar"
-              className={`shrink-0 inline-flex h-7 w-7 items-center justify-center rounded-md transition hover:text-foreground ${
-                filtersOpen ? "text-foreground" : "text-muted-foreground"
-              }`}
-            >
-              <ListFilter className="h-3.5 w-3.5" />
-            </button>
+            <div ref={filterMenuRef} className="relative shrink-0">
+              <button
+                type="button"
+                onClick={() => setFilterMenuOpen((open) => !open)}
+                aria-label="Filtrar conversaciones"
+                aria-expanded={filterMenuOpen}
+                aria-haspopup="dialog"
+                title="Filtrar"
+                className={`relative inline-flex h-7 w-7 items-center justify-center rounded-md transition hover:text-foreground ${
+                  filterMenuOpen || filtersActive ? "text-foreground" : "text-muted-foreground"
+                }`}
+              >
+                <ListFilter className="h-3.5 w-3.5" />
+                {filtersActive ? (
+                  <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-primary" />
+                ) : null}
+              </button>
+
+              {filterMenuOpen ? (
+                <div className="absolute right-0 z-50 mt-2 w-64 rounded-xl border border-border bg-popover p-3 shadow-[0_18px_50px_-24px_rgba(15,23,42,0.35)]">
+                  <p className="mb-2 text-[13px] font-semibold text-foreground">Filtrar conversaciones</p>
+
+                  <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Estado</p>
+                  <div className="flex items-center gap-1 rounded-lg bg-muted p-0.5">
+                    {STATUS_FILTER_OPTIONS.map((option) => {
+                      const isActive = draftStatus === option.value;
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => setDraftStatus(option.value)}
+                          className={`flex-1 rounded-md px-2 py-1.5 text-[12px] font-medium transition ${
+                            isActive
+                              ? "bg-background text-foreground shadow-sm"
+                              : "text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          {option.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="mt-3 flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => applyStatusFilter("open")}
+                      className="rounded-md px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground transition hover:text-foreground"
+                    >
+                      Limpiar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => applyStatusFilter(draftStatus)}
+                      className="rounded-md bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground transition hover:opacity-90"
+                    >
+                      Aplicar
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
           </div>
 
-          {filtersOpen ? (
           <div className="mt-1 flex items-center gap-1 rounded-xl bg-muted p-0.5">
             {visibleTabs.map((tab) => {
               const isActive = assignedFilter === tab.value;
@@ -140,7 +244,7 @@ export function AppSidebar({
                   href={buildFilterHref(tab.value)}
                   scroll={false}
                   aria-current={isActive ? "page" : undefined}
-                  className={`flex flex-1 items-center justify-center gap-1 whitespace-nowrap rounded-lg px-1.5 py-1.5 text-center text-[13px] font-medium transition ${
+                  className={`flex flex-1 items-center justify-center gap-1 whitespace-nowrap rounded-lg px-1.5 py-1 text-center text-[13px] font-medium transition ${
                     isActive
                       ? "bg-background text-foreground shadow-sm"
                       : "text-muted-foreground hover:text-foreground"
@@ -156,7 +260,6 @@ export function AppSidebar({
               );
             })}
           </div>
-          ) : null}
         </div>
 
         <div

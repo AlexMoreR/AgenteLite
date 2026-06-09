@@ -8,6 +8,7 @@ import type { CrmStage } from "@/features/crm/types";
 import { ChatsAutoRefresh } from "@/components/agents/chats-auto-refresh";
 import { ChatsRealtimeSync } from "@/components/chats/chats-realtime-sync";
 import { ChatIncomingNotifier } from "@/components/chats/chat-incoming-notifier";
+import { ResolveChatControl } from "@/components/chats/resolve-chat-control";
 import { loadAgentConversationDetail } from "@/lib/chat-message-loader";
 import { SharedInbox } from "@/components/chats/shared-inbox";
 import { FormActionSwitch } from "@/components/ui/form-action-switch";
@@ -243,6 +244,18 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       : assignedFilter === "unassigned"
         ? { assignedToUserId: null }
         : {};
+
+  // Filtro de estado de conversación. Por DEFECTO se ocultan las resueltas (solo abiertas):
+  // las resueltas solo aparecen al elegir "Resueltas" o "Todas".
+  const statusParam = typeof params.status === "string" ? params.status.trim() : "";
+  const statusFilter: "all" | "open" | "resolved" =
+    statusParam === "all" || statusParam === "resolved" ? statusParam : "open";
+  const statusWhere: Prisma.ConversationWhereInput =
+    statusFilter === "resolved"
+      ? { status: { in: ["CLOSED", "ARCHIVED"] } }
+      : statusFilter === "all"
+        ? {}
+        : { status: { in: ["OPEN", "PENDING"] } };
   const messagePage = clampMessagePage(parsePositiveInteger(typeof params.messagePage === "string" ? params.messagePage : undefined, 1));
   const okMessage = typeof params.ok === "string" ? params.ok : "";
   const errorMessage = typeof params.error === "string" ? params.error : "";
@@ -257,6 +270,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         ? { channelId: selectedConnectionParam.slice("channel:".length) }
         : {},
       assignedWhere,
+      statusWhere,
       searchQuery
         ? {
             OR: [
@@ -321,6 +335,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         agentId: true,
         channelId: true,
         automationPaused: true,
+        status: true,
         assignedToUserId: true,
         assignedTo: { select: { id: true, name: true, email: true } },
         activeProductContext: true,
@@ -631,11 +646,12 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       (realtimeGlobalEventsEnabled || realtimeInstanceNames.length > 0),
   );
   const chatListHref = `/cliente/chats${
-    selectedConnectionKey || searchQuery || assignedFilter !== "all"
+    selectedConnectionKey || searchQuery || assignedFilter !== "all" || statusFilter !== "open"
       ? `?${new URLSearchParams([
           ...(selectedConnectionKey ? [["connection", selectedConnectionKey]] : []),
           ...(searchQuery ? [["q", searchQuery]] : []),
           ...(assignedFilter !== "all" ? [["assigned", assignedFilter]] : []),
+          ...(statusFilter !== "open" ? [["status", statusFilter]] : []),
         ]).toString()}`
       : ""
   }`;
@@ -645,6 +661,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         ...(selectedConnectionKey ? [["connection", selectedConnectionKey]] : []),
         ...(searchQuery ? [["q", searchQuery]] : []),
         ...(assignedFilter !== "all" ? [["assigned", assignedFilter]] : []),
+        ...(statusFilter !== "open" ? [["status", statusFilter]] : []),
         ...(messagePage > 1 ? [["messagePage", String(messagePage)]] : []),
       ]).toString()}`
     : "";
@@ -911,6 +928,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         mobileConversationActive={Boolean(selectedChatKeyParam)}
         selectedConnectionKey={selectedConnectionKey}
         assignedFilter={assignedFilter}
+        statusFilter={statusFilter}
         isManager={isManager}
         initialConversationBatchSize={conversationListTake}
         initialHasMoreConversations={hasMoreConversationItems}
@@ -934,7 +952,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           lastMessageType: item.lastMessageType ?? null,
           lastMessageDirection: item.lastMessageDirection,
           lastMessageAt: item.lastMessageAt,
-          href: `/cliente/chats?chatKey=${encodeURIComponent(item.key)}${selectedConnectionKey ? `&connection=${encodeURIComponent(selectedConnectionKey)}` : ""}${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ""}${assignedFilter !== "all" ? `&assigned=${assignedFilter}` : ""}`,
+          href: `/cliente/chats?chatKey=${encodeURIComponent(item.key)}${selectedConnectionKey ? `&connection=${encodeURIComponent(selectedConnectionKey)}` : ""}${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ""}${assignedFilter !== "all" ? `&assigned=${assignedFilter}` : ""}${statusFilter !== "open" ? `&status=${statusFilter}` : ""}`,
         }))}
         selectedConversation={selectedConversation}
         selectedConversationTags={selectedConversation?.tags ?? []}
@@ -957,6 +975,11 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
                   { name: "conversationId", value: selectedConversation.id },
                   { name: "returnTo", value: selectedChatHref },
                 ]}
+              />
+              <ResolveChatControl
+                key={`resolve:${selectedConversation.id}:${selectedAgentConversation?.status ?? "OPEN"}`}
+                conversationId={selectedConversation.id}
+                status={selectedAgentConversation?.status ?? "OPEN"}
               />
             </div>
           ) : null
@@ -1005,8 +1028,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         }}
         emptyListTitle="Aun no hay conversaciones"
         emptyListDescription="Cuando lleguen mensajes por tus canales, apareceran aqui en una sola bandeja."
-        emptySelectionTitle="Selecciona una conversacion"
-        emptySelectionDescription="Elige un chat de la columna izquierda para ver el historial y responder desde el panel."
+        emptySelectionTitle="Tus conversaciones"
+        emptySelectionDescription="Selecciona un chat de la lista para comenzar"
       />
     </section>
   );

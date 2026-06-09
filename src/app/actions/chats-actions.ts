@@ -1002,3 +1002,104 @@ export async function toggleContactTagAction(
 
   return {};
 }
+
+// Cambia el estado de la conversación (Abierto / Resuelto). "Resuelto" = CLOSED.
+export async function updateConversationStatusAction(input: {
+  conversationId: string;
+  status: "OPEN" | "CLOSED";
+}): Promise<{ error?: string }> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
+    return { error: "No autorizado" };
+  }
+  await requireClientWorkspaceAccess("chats");
+
+  const conversationId = input.conversationId?.trim();
+  if (!conversationId || (input.status !== "OPEN" && input.status !== "CLOSED")) {
+    return { error: "Datos invalidos" };
+  }
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    return { error: "Workspace no encontrado" };
+  }
+
+  const conversation = await prisma.conversation.findFirst({
+    where: { id: conversationId, workspaceId: membership.workspace.id },
+    select: { id: true, agentId: true },
+  });
+
+  if (!conversation) {
+    return { error: "Conversacion no encontrada" };
+  }
+
+  await prisma.conversation.update({
+    where: { id: conversation.id },
+    data: {
+      status: input.status,
+      closedAt: input.status === "CLOSED" ? new Date() : null,
+    },
+  });
+
+  revalidatePath("/cliente/chats");
+  if (conversation.agentId) {
+    revalidatePath(`/cliente/agentes/${conversation.agentId}/chats`);
+  }
+
+  return {};
+}
+
+// Colaboradores (miembros del equipo) asignados a un canal. Se guardan en metadata.collaboratorIds.
+export async function updateChannelCollaboratorsAction(input: {
+  channelId: string;
+  collaboratorIds: string[];
+}): Promise<{ error?: string }> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
+    return { error: "No autorizado" };
+  }
+  await requireClientWorkspaceAccess("connection");
+
+  const channelId = input.channelId?.trim();
+  if (!channelId) {
+    return { error: "Datos invalidos" };
+  }
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    return { error: "Workspace no encontrado" };
+  }
+
+  const channel = await prisma.whatsAppChannel.findFirst({
+    where: { id: channelId, workspaceId: membership.workspace.id },
+    select: { id: true, metadata: true },
+  });
+  if (!channel) {
+    return { error: "Canal no encontrado" };
+  }
+
+  // Solo aceptamos ids que sean miembros activos del workspace.
+  const validMembers = await prisma.workspaceMember.findMany({
+    where: { workspaceId: membership.workspace.id, isActive: true },
+    select: { userId: true },
+  });
+  const validIds = new Set(validMembers.map((m) => m.userId));
+  const collaboratorIds = Array.from(
+    new Set((Array.isArray(input.collaboratorIds) ? input.collaboratorIds : []).filter((id) => validIds.has(id))),
+  );
+
+  const baseMetadata =
+    channel.metadata && typeof channel.metadata === "object" && !Array.isArray(channel.metadata)
+      ? (channel.metadata as Record<string, unknown>)
+      : {};
+
+  await prisma.whatsAppChannel.update({
+    where: { id: channel.id },
+    data: {
+      metadata: { ...baseMetadata, collaboratorIds } as Prisma.InputJsonValue,
+    },
+  });
+
+  revalidatePath(`/cliente/conexion/whatsapp-business/${channelId}`);
+  return {};
+}

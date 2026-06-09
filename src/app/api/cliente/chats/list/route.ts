@@ -104,6 +104,7 @@ async function getAgentConversationList(input: {
   searchQuery: string;
   selectedConnectionKey: string;
   assignedFilter: "all" | "mine" | "unassigned";
+  statusFilter: "all" | "open" | "resolved";
   currentUserId: string;
   offset: number;
   limit: number;
@@ -115,6 +116,12 @@ async function getAgentConversationList(input: {
       : input.assignedFilter === "unassigned"
         ? { assignedToUserId: null }
         : {};
+  const statusWhere: Prisma.ConversationWhereInput =
+    input.statusFilter === "resolved"
+      ? { status: { in: ["CLOSED", "ARCHIVED"] } }
+      : input.statusFilter === "all"
+        ? {}
+        : { status: { in: ["OPEN", "PENDING"] } };
   const conversationWhere: Prisma.ConversationWhereInput = {
     workspaceId: input.workspaceId,
     AND: [
@@ -122,6 +129,7 @@ async function getAgentConversationList(input: {
         ? { channelId: input.selectedConnectionKey.slice("channel:".length) }
         : {},
       assignedWhere,
+      statusWhere,
       normalizedSearchQuery
         ? {
             OR: [
@@ -394,11 +402,16 @@ export async function GET(request: Request) {
     assignedFilter = "mine";
   }
 
+  const requestedStatusRaw = requestUrl.searchParams.get("status")?.trim() || "";
+  const statusFilter: "all" | "open" | "resolved" =
+    requestedStatusRaw === "open" || requestedStatusRaw === "resolved" ? requestedStatusRaw : "all";
+
   const data = await getAgentConversationList({
     workspaceId: membership.workspace.id,
     searchQuery,
     selectedConnectionKey,
     assignedFilter,
+    statusFilter,
     currentUserId: session.user.id,
     offset,
     limit,

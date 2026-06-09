@@ -119,12 +119,18 @@ export async function getWhatsAppBusinessConnectionDetail(workspaceId: string, c
   }
 
   if (channel?.id && remoteConnectionQr.qrCode && channel.qrCode !== remoteConnectionQr.qrCode) {
+    const baseMetadata =
+      channel.metadata && typeof channel.metadata === "object" && !Array.isArray(channel.metadata)
+        ? (channel.metadata as Record<string, unknown>)
+        : {};
     await prisma.whatsAppChannel.update({
       where: { id: channel.id },
       data: {
         status: "QRCODE",
         qrCode: remoteConnectionQr.qrCode,
+        // Fusionamos para no borrar otras claves del metadata (p. ej. collaboratorIds).
         metadata: {
+          ...baseMetadata,
           pairingCode: remoteConnectionQr.pairingCode ?? null,
         },
       },

@@ -15,14 +15,13 @@ export default async function ClienteCrmRegistroPage() {
 
   return (
     <section className="space-y-3 p-6">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-base font-semibold text-foreground">CRM / Registro</h1>
-        <CrmUpdatedAt generatedAt={data.generatedAt} />
-      </div>
-
       <CrmStatsCards data={data} />
 
       <CrmRegistroTable records={data.records} referenceNow={data.generatedAt} />
+
+      <div className="flex justify-end">
+        <CrmUpdatedAt generatedAt={data.generatedAt} />
+      </div>
     </section>
   );
 }
