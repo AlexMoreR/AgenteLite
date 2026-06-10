@@ -2321,6 +2321,8 @@ const ConversationPanel = memo(function ConversationPanel({
   const mediaFileInputRef = useRef<HTMLInputElement | null>(null);
   const documentFileInputRef = useRef<HTMLInputElement | null>(null);
   const [isSendingMedia, setIsSendingMedia] = useState(false);
+  // Progreso de envío de archivos (1 o varios): alimenta el indicador "Enviando… (2 de 3)".
+  const [mediaSendProgress, setMediaSendProgress] = useState<{ current: number; total: number } | null>(null);
   const [isContactPanelOpen, setIsContactPanelOpen] = useState(false);
   const [contactCity, setContactCity] = useState("");
 
@@ -2344,13 +2346,14 @@ const ConversationPanel = memo(function ConversationPanel({
     };
   }, [isContactPanelOpen, panelContactId]);
 
-  const uploadAndSendMedia = useCallback(
-    async (file: File) => {
+  // Sube y envía UN archivo; devuelve true si se envió. No toca el estado de carga global
+  // (eso lo maneja el batch) para poder reutilizarlo al enviar varios en secuencia.
+  const sendSingleMediaFile = useCallback(
+    async (file: File): Promise<boolean> => {
       if (!mediaConfig) {
-        return;
+        return false;
       }
 
-      setIsSendingMedia(true);
       try {
         const formData = new FormData();
         formData.append("file", file);
@@ -2360,8 +2363,8 @@ const ConversationPanel = memo(function ConversationPanel({
           | { url?: string; fileName?: string; mimeType?: string; mediaType?: "IMAGE" | "VIDEO" | "DOCUMENT"; error?: string }
           | null;
         if (!response.ok || !data?.url || !data.mediaType) {
-          toast.error(data?.error || "No se pudo subir el archivo.");
-          return;
+          toast.error(data?.error || `No se pudo subir "${file.name}".`);
+          return false;
         }
 
         const result = await mediaConfig.sendAction({
@@ -2376,17 +2379,48 @@ const ConversationPanel = memo(function ConversationPanel({
         });
 
         if (result && "ok" in result && result.ok) {
-          composerRouter.refresh();
-        } else {
-          toast.error((result && "error" in result && result.error) || "No se pudo enviar el archivo.");
+          return true;
         }
+
+        toast.error((result && "error" in result && result.error) || `No se pudo enviar "${file.name}".`);
+        return false;
       } catch {
-        toast.error("No se pudo enviar el archivo.");
-      } finally {
-        setIsSendingMedia(false);
+        toast.error(`No se pudo enviar "${file.name}".`);
+        return false;
       }
     },
-    [mediaConfig, composerRouter],
+    [mediaConfig],
+  );
+
+  // Envía uno o varios archivos en secuencia, mostrando progreso. Antes solo se enviaba el
+  // primer archivo seleccionado y sin ningún indicador de carga.
+  const uploadAndSendMediaFiles = useCallback(
+    async (files: File[]) => {
+      if (!mediaConfig || files.length === 0) {
+        return;
+      }
+
+      setIsSendingMedia(true);
+      setMediaSendProgress({ current: 1, total: files.length });
+
+      let sentCount = 0;
+      for (let index = 0; index < files.length; index += 1) {
+        setMediaSendProgress({ current: index + 1, total: files.length });
+        const ok = await sendSingleMediaFile(files[index]);
+        if (ok) {
+          sentCount += 1;
+        }
+      }
+
+      if (sentCount > 0) {
+        composerRouter.refresh();
+        toast.success(sentCount === 1 ? "Archivo enviado" : `${sentCount} archivos enviados`);
+      }
+
+      setIsSendingMedia(false);
+      setMediaSendProgress(null);
+    },
+    [mediaConfig, sendSingleMediaFile, composerRouter],
   );
 
   const stopRecordTracks = useCallback(() => {
@@ -2893,7 +2927,16 @@ const ConversationPanel = memo(function ConversationPanel({
                   ) : null}
 
                   <div className="flex items-end gap-2 md:gap-3">
-                    {isRecordingAudio ? (
+                    {isSendingMedia ? (
+                      <div className="flex min-h-[44px] flex-1 items-center gap-2.5 rounded-2xl border border-border bg-muted/80 px-4 text-sm text-foreground md:min-h-[40px]">
+                        <LoaderCircle className="size-4 shrink-0 animate-spin text-[var(--primary)]" />
+                        <span className="font-medium">
+                          {mediaSendProgress && mediaSendProgress.total > 1
+                            ? `Enviando archivos… (${mediaSendProgress.current} de ${mediaSendProgress.total})`
+                            : "Enviando archivo…"}
+                        </span>
+                      </div>
+                    ) : isRecordingAudio ? (
                       <div className="flex min-h-[44px] flex-1 items-center gap-2 rounded-2xl border border-border bg-muted/80 px-4 text-sm text-foreground md:min-h-[40px]">
                         <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-red-500" />
                         <span className="font-medium">Grabando</span>
@@ -2933,12 +2976,13 @@ const ConversationPanel = memo(function ConversationPanel({
                               ref={mediaFileInputRef}
                               type="file"
                               accept="image/*,video/*"
+                              multiple
                               className="hidden"
                               onChange={(event) => {
-                                const file = event.currentTarget.files?.[0];
+                                const files = Array.from(event.currentTarget.files ?? []);
                                 event.currentTarget.value = "";
-                                if (file) {
-                                  void uploadAndSendMedia(file);
+                                if (files.length > 0) {
+                                  void uploadAndSendMediaFiles(files);
                                 }
                               }}
                             />
@@ -2946,12 +2990,13 @@ const ConversationPanel = memo(function ConversationPanel({
                               ref={documentFileInputRef}
                               type="file"
                               accept="application/pdf"
+                              multiple
                               className="hidden"
                               onChange={(event) => {
-                                const file = event.currentTarget.files?.[0];
+                                const files = Array.from(event.currentTarget.files ?? []);
                                 event.currentTarget.value = "";
-                                if (file) {
-                                  void uploadAndSendMedia(file);
+                                if (files.length > 0) {
+                                  void uploadAndSendMediaFiles(files);
                                 }
                               }}
                             />
