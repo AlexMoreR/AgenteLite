@@ -4877,7 +4877,14 @@ export function SharedInbox({
       />
 
       <ConversationPanel
-        key={mobileConversationActive ? (selectedConversationId || "selected") : "empty"}
+        // Clave del panel = clave EFECTIVA del chat (pendiente o de la URL). Antes usaba
+        // selectedConversationId (solo la URL), que cambia al confirmarse la navegación
+        // DESPUÉS de mostrar el chat optimista → el panel se re-montaba a mitad de la
+        // apertura, el contenedor de scroll nacía arriba y se veía un "sube y baja" antes
+        // de re-anclar al fondo. selectedConversationKey es idéntica en el estado pendiente
+        // y tras el commit (misma "agent:<id>"), así que el panel se monta UNA sola vez al
+        // hacer click y el pin al fondo queda estable.
+        key={mobileConversationActive ? (selectedConversationKey || "selected") : "empty"}
         backHref={backHref}
         composer={composer}
         composerHiddenFields={composerHiddenFields}
