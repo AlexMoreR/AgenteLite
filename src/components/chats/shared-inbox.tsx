@@ -3632,6 +3632,37 @@ export function SharedInbox({
     });
   }, [pendingConversation, startSelectionTransition]);
 
+  // Los snapshots de realtime (chat-live-update / chat-list-update) llegan con el id crudo
+  // de la conversación (sin prefijo "agent:"/"official:") y sin href. Si la conversación es
+  // nueva (no estaba en el SSR), el item insertado quedaría con id sin prefijo y href "".
+  // Al hacer click, router.push("") navega a la URL ACTUAL (no abre el chat nuevo: parece
+  // que "entra y vuelve al chat anterior") y además el efecto que carga el historial se
+  // salta el item por no empezar con "agent:". Normalizamos id (a chatKey) y href aquí para
+  // que un chat recién llegado sea clickeable al primer intento.
+  const normalizeRealtimeConversationItem = useCallback(
+    (item: SharedInboxConversationItem): SharedInboxConversationItem => {
+      if (item.href.trim() && item.id.includes(":")) {
+        return item;
+      }
+
+      const chatKey = item.id.includes(":")
+        ? item.id
+        : `${item.source === "official" ? "official" : "agent"}:${item.id}`;
+      const withKey = chatKey === item.id ? item : { ...item, id: chatKey };
+      const href = buildConversationItemHrefFromParams(
+        searchAction,
+        selectedConnectionKey,
+        searchQuery,
+        withKey,
+        assignedFilter,
+        statusFilter,
+      );
+
+      return href === withKey.href ? withKey : { ...withKey, href };
+    },
+    [searchAction, selectedConnectionKey, searchQuery, assignedFilter, statusFilter],
+  );
+
   useEffect(() => {
     function handleLiveUpdate(event: Event) {
       const customEvent = event as CustomEvent<{ conversation?: unknown }>;
@@ -3653,14 +3684,14 @@ export function SharedInbox({
       });
       setConversationItems((current) => {
         const currentItem = findConversationItemBySnapshotId(current, snapshot.id) ?? undefined;
-        const updatedItem = buildConversationItemFromSnapshot(snapshot, currentItem);
+        const updatedItem = normalizeRealtimeConversationItem(buildConversationItemFromSnapshot(snapshot, currentItem));
         return updateConversationItemInSortedList(current, snapshot.id, updatedItem);
       });
     }
 
     window.addEventListener("chat-live-update", handleLiveUpdate as EventListener);
     return () => window.removeEventListener("chat-live-update", handleLiveUpdate as EventListener);
-  }, [pendingConversation?.chatKey, selectedConversationId]);
+  }, [normalizeRealtimeConversationItem, pendingConversation?.chatKey, selectedConversationId]);
 
   useEffect(() => {
     function handleListUpdate(event: Event) {
@@ -3672,14 +3703,14 @@ export function SharedInbox({
 
       setConversationItems((current) => {
         const currentItem = findConversationItemBySnapshotId(current, snapshot.id) ?? undefined;
-        const updatedItem = buildConversationItemFromListSnapshot(snapshot, currentItem);
+        const updatedItem = normalizeRealtimeConversationItem(buildConversationItemFromListSnapshot(snapshot, currentItem));
         return updateConversationItemInSortedList(current, snapshot.id, updatedItem);
       });
     }
 
     window.addEventListener("chat-list-update", handleListUpdate as EventListener);
     return () => window.removeEventListener("chat-list-update", handleListUpdate as EventListener);
-  }, []);
+  }, [normalizeRealtimeConversationItem]);
 
   useEffect(() => {
     function handleContactUpdate(event: Event) {
