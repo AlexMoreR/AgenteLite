@@ -2812,6 +2812,17 @@ const ConversationPanel = memo(function ConversationPanel({
                 className="chat-messages-scroll h-full overflow-y-auto overscroll-contain bg-transparent px-2.5 py-2.5 pb-3 [-webkit-overflow-scrolling:touch] md:px-5 md:py-5 md:pb-5"
               >
                 <div className="flex min-h-full flex-col justify-end">
+                  {renderedConversation?.isPreview ? (
+                    <div
+                      className="flex justify-center pb-2.5 pt-1"
+                      role="status"
+                      aria-label="Cargando conversación"
+                    >
+                      <span className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-sm">
+                        <LoaderCircle className="h-4 w-4 animate-spin" />
+                      </span>
+                    </div>
+                  ) : null}
                   {canLoadOlderMessages ? (
                     <div className="pb-2 pt-1">
                       <div ref={loadMoreSentinelRef} aria-hidden="true" className="h-px w-full" />
@@ -2969,7 +2980,7 @@ const ConversationPanel = memo(function ConversationPanel({
                         </div>
                       </div>
                     ) : (
-                      <div className="flex min-h-[44px] min-w-0 flex-1 items-center gap-1 rounded-2xl border border-border bg-background px-1.5 transition focus-within:border-[var(--primary)] focus-within:bg-background focus-within:ring-2 focus-within:ring-ring/50 md:min-h-[40px]">
+                      <div className="flex min-h-[44px] min-w-0 flex-1 items-center gap-0.5 rounded-2xl border border-border bg-background px-1.5 transition focus-within:border-[var(--primary)] focus-within:bg-background focus-within:ring-2 focus-within:ring-ring/50 md:min-h-[40px]">
                         {mediaConfig ? (
                           <>
                             <input
@@ -3008,7 +3019,7 @@ const ConversationPanel = memo(function ConversationPanel({
                               disabled={isSuggestingReply || isSendingAudio}
                               aria-label="Respuesta sugerida con IA"
                               title="Respuesta sugerida con IA"
-                              className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-background hover:text-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:size-8"
+                              className="inline-flex size-8 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-background hover:text-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:size-7"
                             >
                               {isSuggestingReply ? (
                                 <LoaderCircle className="size-5 animate-spin" />
@@ -3025,7 +3036,7 @@ const ConversationPanel = memo(function ConversationPanel({
                                   disabled={isSendingMedia}
                                   aria-label="Adjuntar"
                                   title="Adjuntar"
-                                  className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-background hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:size-8"
+                                  className="inline-flex size-8 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-background hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:size-7"
                                 >
                                   <Plus className="size-5" />
                                 </Button>
@@ -3094,7 +3105,7 @@ const ConversationPanel = memo(function ConversationPanel({
                               variant="ghost"
                               size="icon"
                               disabled={isSendingAudio}
-                              className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-background hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:size-8"
+                              className="inline-flex size-8 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-background hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:size-7"
                               aria-label="Abrir selector de emoticones"
                               title="Emoticones"
                             >
