@@ -362,6 +362,15 @@ function normalizeComposerEmojiSearch(value: string) {
     .replace(/[\u0300-\u036f]/g, "");
 }
 
+// Normaliza texto para b\u00fasqueda de chats: min\u00fasculas y sin tildes/diacr\u00edticos, para que
+// "envios" encuentre "Env\u00edos" y "rafa" encuentre "Rafa\u00e9l".
+function normalizeChatSearchText(value: string) {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
 function debugConversationList(...args: unknown[]) {
   if (!CHAT_LIST_DEBUG) {
     return;
@@ -3313,6 +3322,11 @@ export function SharedInbox({
   const [searchInputValue, setSearchInputValue] = useState(searchQuery);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Ids de chats que coinciden con la búsqueda por CONTENIDO de mensaje (no por nombre/
+  // teléfono/último mensaje visible). Vienen del fetch aumentativo al API de lista; sirven
+  // para que esos chats aparezcan aunque el texto buscado no esté en los campos visibles.
+  const [searchMatchIds, setSearchMatchIds] = useState<ReadonlySet<string> | null>(null);
+  const searchAugmentAbortRef = useRef<AbortController | null>(null);
   const listQueryKeyRef = useRef(`${searchQuery.trim()}::${selectedConnectionKey.trim()}::${assignedFilter}`);
 
   useEffect(() => {
@@ -3375,18 +3389,69 @@ export function SharedInbox({
     };
   }, [conversationListApiPath, searchQuery, selectedConnectionKey]);
 
-  const buildSearchUrl = useCallback(
-    (q: string) => {
-      const params = new URLSearchParams();
-      if (selectedConversationId) params.set("chatKey", selectedConversationId);
-      if (selectedConnectionKey) params.set("connection", selectedConnectionKey);
-      if (q) params.set("q", q);
-      if (assignedFilter !== "all") params.set("assigned", assignedFilter);
-      if (statusFilter !== "open") params.set("status", statusFilter);
-      const qs = params.toString();
-      return qs ? `${searchAction}?${qs}` : searchAction;
+  // Búsqueda aumentativa: trae del servidor los chats que coinciden por contenido de
+  // mensaje o que están más allá de lo ya cargado, y los AGREGA (nunca quita) a la lista.
+  // No navega ni reemplaza la lista: así borrar el buscador siempre restaura todos los
+  // chats al instante (la lista base nunca se encoge por la búsqueda).
+  const runSearchAugmentation = useCallback(
+    async (rawQuery: string) => {
+      const q = rawQuery.trim();
+      searchAugmentAbortRef.current?.abort();
+
+      if (!q) {
+        searchAugmentAbortRef.current = null;
+        setSearchMatchIds(null);
+        return;
+      }
+
+      const controller = new AbortController();
+      searchAugmentAbortRef.current = controller;
+
+      try {
+        const params = new URLSearchParams();
+        params.set("q", q);
+        params.set("limit", "40");
+        if (selectedConnectionKey.trim()) params.set("connection", selectedConnectionKey.trim());
+        if (assignedFilter !== "all") params.set("assigned", assignedFilter);
+        if (statusFilter !== "open") params.set("status", statusFilter);
+
+        const response = await fetch(`${conversationListApiPath}?${params.toString()}`, {
+          credentials: "same-origin",
+          cache: "no-store",
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          return;
+        }
+
+        const payload = (await response.json().catch(() => null)) as
+          | { ok?: boolean; conversations?: SharedInboxConversationItem[] }
+          | null;
+
+        if (!payload?.ok || !Array.isArray(payload.conversations)) {
+          return;
+        }
+
+        const normalized = normalizeConversationItems(payload.conversations, (item) =>
+          buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, q, item, assignedFilter, statusFilter),
+        );
+
+        setConversationItems((current) => {
+          const currentIds = new Set(current.map((item) => item.id));
+          const additions = normalized.filter((item) => item.id && !currentIds.has(item.id));
+          return additions.length === 0 ? current : sortConversationItems([...current, ...additions]);
+        });
+        setSearchMatchIds(new Set(normalized.map((item) => item.id)));
+      } catch {
+        // Abort o fallo de red: la búsqueda local sobre lo ya cargado sigue funcionando.
+      } finally {
+        if (searchAugmentAbortRef.current === controller) {
+          searchAugmentAbortRef.current = null;
+        }
+      }
     },
-    [searchAction, selectedConversationId, selectedConnectionKey, assignedFilter, statusFilter],
+    [conversationListApiPath, searchAction, selectedConnectionKey, assignedFilter, statusFilter],
   );
 
   const handleSearchChange = useCallback(
@@ -3394,17 +3459,43 @@ export function SharedInbox({
       setSearchInputValue(value);
       if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
       searchDebounceRef.current = setTimeout(() => {
-        router.replace(buildSearchUrl(value.trim()));
-      }, 350);
+        void runSearchAugmentation(value);
+      }, 250);
     },
-    [buildSearchUrl, router],
+    [runSearchAugmentation],
   );
 
   const handleSearchClear = useCallback(() => {
     setSearchInputValue("");
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
-    router.replace(buildSearchUrl(""));
-  }, [buildSearchUrl, router]);
+    searchAugmentAbortRef.current?.abort();
+    searchAugmentAbortRef.current = null;
+    setSearchMatchIds(null);
+    searchInputRef.current?.focus();
+  }, []);
+
+  // Lista que se muestra: filtrado LOCAL e instantáneo de los chats ya cargados por nombre,
+  // teléfono o último mensaje (sin tildes/mayúsculas), más los que el servidor marcó como
+  // coincidencia por contenido de mensaje. Sin texto → se muestran todos. Esto hace que
+  // escribir filtre al instante y que borrar restaure la lista completa de inmediato.
+  const displayedConversationItems = useMemo(() => {
+    const normalizedQuery = normalizeChatSearchText(searchInputValue.trim());
+    if (!normalizedQuery) {
+      return conversationItems;
+    }
+
+    return conversationItems.filter((item) => {
+      if (searchMatchIds?.has(item.id)) {
+        return true;
+      }
+
+      return (
+        normalizeChatSearchText(item.label).includes(normalizedQuery) ||
+        normalizeChatSearchText(item.secondaryLabel).includes(normalizedQuery) ||
+        normalizeChatSearchText(item.lastMessage ?? "").includes(normalizedQuery)
+      );
+    });
+  }, [conversationItems, searchInputValue, searchMatchIds]);
 
   const loadMoreConversationItems = useCallback(async () => {
     if (isLoadingMoreConversationItems || !hasMoreConversationItems) {
@@ -4760,7 +4851,7 @@ export function SharedInbox({
       ) : null}
 
       <AppSidebar
-        conversationItems={conversationItems}
+        conversationItems={displayedConversationItems}
         selectedConversationId={selectedConversationId}
         searchAction={searchAction}
         selectedConnectionKey={selectedConnectionKey}
@@ -4775,6 +4866,7 @@ export function SharedInbox({
         onSearchClear={handleSearchClear}
         onSearchSubmit={() => {
           if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+          void runSearchAugmentation(searchInputValue);
         }}
         hasMoreConversationItems={hasMoreConversationItems}
         isLoadingMoreConversationItems={isLoadingMoreConversationItems}
