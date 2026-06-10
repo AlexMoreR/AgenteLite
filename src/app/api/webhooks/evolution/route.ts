@@ -11,6 +11,7 @@ import {
 } from "@/lib/agent-product-flow";
 import { composeAgentWelcomeReply } from "@/lib/agent-reply-composer";
 import { getConversationAutomationPaused, setConversationAutomationPaused } from "@/lib/conversation-automation";
+import { recordConversationActivity } from "@/lib/conversation-activity";
 import { prisma } from "@/lib/prisma";
 import {
   cancelPendingFollowsByContact,
@@ -676,6 +677,20 @@ async function autoAssignConversationToCollaborator(args: {
   await prisma.whatsAppChannel.update({
     where: { id: args.channelId },
     data: { metadata: { ...metadata, lastAutoAssignedUserId: nextUserId } as Prisma.InputJsonValue },
+  });
+
+  // Registro de actividad: "<Nombre> auto-asignado a esta conversación".
+  const assignee = await prisma.user.findUnique({
+    where: { id: nextUserId },
+    select: { name: true, email: true },
+  });
+  const assigneeName = assignee?.name?.trim() || assignee?.email || "Colaborador";
+  await recordConversationActivity({
+    workspaceId: args.workspaceId,
+    conversationId: args.conversationId,
+    channelId: args.channelId,
+    kind: "assigned",
+    text: `${assigneeName} auto-asignado a esta conversación`,
   });
 }
 

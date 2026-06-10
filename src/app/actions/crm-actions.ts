@@ -7,6 +7,8 @@ import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { createFollowsFromRulesForSource } from "@/features/seguimientos/services/follows";
+import { recordConversationActivity } from "@/lib/conversation-activity";
+import { CRM_STAGE_META } from "@/features/crm/domain/crm-config";
 import type { CrmStage } from "@/features/crm/types";
 
 const updateCrmStageSchema = z.object({
@@ -64,6 +66,25 @@ export async function updateCrmStageAction(input: { contactId: string; status: C
     sourceType: "CRM_STAGE",
     sourceId: parsed.data.status,
   });
+
+  // Registro de actividad en la conversación más reciente del contacto.
+  const recentConversation = await prisma.conversation.findFirst({
+    where: { workspaceId: membership.workspace.id, contactId: contact.id },
+    orderBy: { lastMessageAt: "desc" },
+    select: { id: true, channelId: true },
+  });
+  if (recentConversation) {
+    const actorName = session.user.name?.trim() || "Alguien";
+    const stageLabel = CRM_STAGE_META[parsed.data.status]?.label ?? parsed.data.status;
+    await recordConversationActivity({
+      workspaceId: membership.workspace.id,
+      conversationId: recentConversation.id,
+      channelId: recentConversation.channelId,
+      contactId: contact.id,
+      kind: "stage_changed",
+      text: `${actorName} cambió la etapa a "${stageLabel}"`,
+    });
+  }
 
   revalidatePath("/cliente/crm");
   revalidatePath("/cliente/contactos");

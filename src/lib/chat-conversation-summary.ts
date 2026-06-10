@@ -100,6 +100,8 @@ export async function getAgentConversationSummaryByConversationId(input: {
         workspaceId: input.workspaceId,
         conversationId: conversation.id,
         isStatusBroadcast: false,
+        // Los mensajes de actividad (SYSTEM) no cuentan como "último mensaje" del preview.
+        type: { not: "SYSTEM" },
       },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: 1,
@@ -217,6 +219,8 @@ export async function getAgentConversationSummaryByPhoneNumber(input: {
         workspaceId: input.workspaceId,
         conversationId: conversation.id,
         isStatusBroadcast: false,
+        // Los mensajes de actividad (SYSTEM) no cuentan como "último mensaje" del preview.
+        type: { not: "SYSTEM" },
       },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: 1,

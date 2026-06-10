@@ -404,6 +404,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         WHERE m."workspaceId" = ${membership.workspace.id}
           AND m."conversationId" IN (${Prisma.join(activeAgentConversationIds)})
           AND COALESCE(m."rawPayload"::text, '') NOT ILIKE '%status@broadcast%'
+          AND (m."rawPayload"->>'source') IS DISTINCT FROM 'activity'
         ORDER BY m."conversationId", m."createdAt" DESC, m."id" DESC
       `
     : Promise.resolve([] as Array<{
@@ -960,7 +961,10 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         headerBadge={null}
         headerActions={
           selectedUnified?.source === "agent" && selectedConversation ? (
-            <div key={`header-actions:${selectedConversation.id}`} className="flex items-center gap-1">
+            <div
+              key={`header-actions:${selectedConversation.id}`}
+              className="flex flex-col items-end gap-1.5 @min-[520px]/chathdr:flex-row @min-[520px]/chathdr:items-center @min-[520px]/chathdr:gap-1"
+            >
               {selectedContactId ? (
                 <CrmStageControl
                   contactId={selectedContactId}

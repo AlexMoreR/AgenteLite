@@ -247,6 +247,7 @@ async function getAgentConversationList(input: {
         WHERE m."workspaceId" = ${input.workspaceId}
           AND m."conversationId" IN (${Prisma.join(activeAgentConversationIds)})
           AND m."isStatusBroadcast" = false
+          AND (m."rawPayload"->>'source') IS DISTINCT FROM 'activity'
         ORDER BY m."conversationId", m."createdAt" DESC, m."id" DESC
       `
     : Promise.resolve([] as Array<{

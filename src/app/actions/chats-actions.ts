@@ -9,6 +9,7 @@ import { generateAgentReply } from "@/lib/agent-ai";
 import { buildActiveProductContextNote, type ActiveProductContext } from "@/lib/agent-product-flow";
 import { createFollowsFromRulesForSource } from "@/features/seguimientos/services/follows";
 import { getConversationAutomationPaused, setConversationAutomationPaused } from "@/lib/conversation-automation";
+import { recordConversationActivity } from "@/lib/conversation-activity";
 import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
 import { deleteEvolutionMessageForEveryone, sendEvolutionTextMessage } from "@/lib/evolution";
 import { normalizeInternalPath } from "@/lib/app-url";
@@ -916,7 +917,7 @@ export async function assignChatAction(input: {
 
   const conversation = await prisma.conversation.findFirst({
     where: { id: conversationId, workspaceId: membership.workspace.id },
-    select: { id: true, assignedToUserId: true },
+    select: { id: true, assignedToUserId: true, channelId: true, contactId: true },
   });
   if (!conversation) return { error: "Conversacion no encontrada" };
 
@@ -951,6 +952,22 @@ export async function assignChatAction(input: {
     data: { assignedToUserId: targetUserId },
   });
 
+  // Registro de actividad de asignación.
+  const actorName = session.user.name?.trim() || "Alguien";
+  const activityText = !targetUserId
+    ? `${actorName} quitó la asignación`
+    : targetUserId === session.user.id
+      ? `${actorName} se asignó la conversación`
+      : `${actorName} asignó la conversación a ${assignedTo?.name?.trim() || "un colaborador"}`;
+  await recordConversationActivity({
+    workspaceId: membership.workspace.id,
+    conversationId: conversation.id,
+    channelId: conversation.channelId,
+    contactId: conversation.contactId,
+    kind: targetUserId ? "assigned" : "unassigned",
+    text: activityText,
+  });
+
   revalidatePath("/cliente/chats");
   return { ok: true, assignedTo };
 }
@@ -976,7 +993,7 @@ export async function toggleContactTagAction(
 
   const tag = await prisma.tag.findFirst({
     where: { id: tagId, workspaceId: membership.workspace.id },
-    select: { id: true },
+    select: { id: true, name: true },
   });
   if (!tag) return { error: "Etiqueta no encontrada" };
 
@@ -985,6 +1002,7 @@ export async function toggleContactTagAction(
     select: { contactId: true },
   });
 
+  const wasAdded = !existing;
   if (existing) {
     await prisma.contactTag.delete({ where: { contactId_tagId: { contactId, tagId } } });
   } else {
@@ -997,6 +1015,26 @@ export async function toggleContactTagAction(
       contactId,
       sourceType: "TAG",
       sourceId: tagId,
+    });
+  }
+
+  // Registro de actividad en la conversación más reciente del contacto.
+  const recentConversation = await prisma.conversation.findFirst({
+    where: { workspaceId: membership.workspace.id, contactId },
+    orderBy: { lastMessageAt: "desc" },
+    select: { id: true, channelId: true },
+  });
+  if (recentConversation) {
+    const actorName = session.user.name?.trim() || "Alguien";
+    await recordConversationActivity({
+      workspaceId: membership.workspace.id,
+      conversationId: recentConversation.id,
+      channelId: recentConversation.channelId,
+      contactId,
+      kind: wasAdded ? "tag_added" : "tag_removed",
+      text: wasAdded
+        ? `${actorName} agregó la etiqueta "${tag.name}"`
+        : `${actorName} quitó la etiqueta "${tag.name}"`,
     });
   }
 
@@ -1026,7 +1064,7 @@ export async function updateConversationStatusAction(input: {
 
   const conversation = await prisma.conversation.findFirst({
     where: { id: conversationId, workspaceId: membership.workspace.id },
-    select: { id: true, agentId: true },
+    select: { id: true, agentId: true, channelId: true, contactId: true },
   });
 
   if (!conversation) {
@@ -1039,6 +1077,19 @@ export async function updateConversationStatusAction(input: {
       status: input.status,
       closedAt: input.status === "CLOSED" ? new Date() : null,
     },
+  });
+
+  // Registro de actividad: resuelto / reabierto.
+  const actorName = session.user.name?.trim() || "Alguien";
+  await recordConversationActivity({
+    workspaceId: membership.workspace.id,
+    conversationId: conversation.id,
+    channelId: conversation.channelId,
+    contactId: conversation.contactId,
+    kind: input.status === "CLOSED" ? "resolved" : "reopened",
+    text: input.status === "CLOSED"
+      ? `${actorName} resolvió la conversación`
+      : `${actorName} reabrió la conversación`,
   });
 
   revalidatePath("/cliente/chats");

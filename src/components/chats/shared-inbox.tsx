@@ -389,6 +389,26 @@ function formatChatTime(value: Date) {
   return chatTimeFormatter.format(value).replace(/\u00a0/g, " ");
 }
 
+const activityDateTimeFormatter = new Intl.DateTimeFormat("es-CO", {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  timeZone: CHAT_TIME_ZONE,
+});
+
+function formatActivityDate(value: Date) {
+  return activityDateTimeFormatter.format(value).replace(/\u00a0/g, " ");
+}
+
+// Un mensaje SYSTEM marcado como actividad (asignaci\u00f3n, resuelto, etiqueta, etapa\u2026).
+function isActivityMessage(message: SharedInboxMessageItem) {
+  if (message.type !== "SYSTEM") return false;
+  const rp = message.rawPayload;
+  return Boolean(rp && typeof rp === "object" && !Array.isArray(rp) && (rp as { source?: unknown }).source === "activity");
+}
+
 type SharedInboxConversationItemLike = Partial<Omit<SharedInboxConversationItem, "lastMessageAt">> & {
   id?: string;
   key?: string;
@@ -1811,6 +1831,7 @@ const MessageBubble = memo(function MessageBubble({
   const callSummary = getCallMessageSummary(message);
   const CallIcon = callSummary?.icon ?? null;
   const replyPreview = useMemo(() => getMessageReplyPreview(message), [message]);
+  const activity = isActivityMessage(message);
 
   return (
     <div
@@ -1824,6 +1845,22 @@ const MessageBubble = memo(function MessageBubble({
         </div>
       ) : null}
 
+      {activity ? (
+        // Badge de actividad (asignación, resuelto/reabierto, etiqueta, etapa). Tooltip con fecha.
+        <div className="flex justify-center">
+          <TooltipProvider delayDuration={150}>
+            <Tooltip>
+              <TooltipTrigger
+                type="button"
+                className="cursor-default rounded-full border border-border bg-white px-3 py-1 text-[11px] font-medium text-black shadow-sm"
+              >
+                {message.content}
+              </TooltipTrigger>
+              <TooltipContent side="top">{formatActivityDate(message.createdAt)}</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
+      ) : (
       <div className={`flex ${outbound ? "justify-end" : "justify-start"}`}>
         <div
           className={`group/bubble relative max-w-[88%] rounded-[8px] px-[6px] py-[6px] text-[13px] leading-5 shadow-[0_10px_24px_-20px_rgba(15,23,42,0.16)] md:max-w-[72%] md:px-[6px] md:py-[6px] ${
@@ -2163,6 +2200,7 @@ const MessageBubble = memo(function MessageBubble({
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 });
@@ -2607,7 +2645,7 @@ const ConversationPanel = memo(function ConversationPanel({
         <div className="relative z-10 flex min-h-0 h-full w-full flex-1">
         <div className="flex min-h-0 h-full min-w-0 flex-1 flex-col">
           <div className="shrink-0 border-b border-border bg-card px-3 pb-2.5 pt-[calc(env(safe-area-inset-top)+0.625rem)] md:px-[10px] md:py-[10px]">
-            <div className="flex min-w-0 items-center justify-between gap-3">
+            <div className="@container/chathdr flex min-w-0 items-center justify-between gap-3">
               <div className="flex min-w-0 flex-1 items-center gap-3">
                 <Link
                   href={backHref}
