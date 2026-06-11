@@ -869,6 +869,118 @@ export async function deleteEtiquetaAction(tagId: string): Promise<{ error?: str
   return { success: true };
 }
 
+// ---- Respuestas rápidas (plantillas de mensaje compartidas por todo el workspace) ----
+
+export type QuickReplyItem = { id: string; title: string; content: string };
+
+const quickReplySchema = z.object({
+  title: z.string().trim().min(1, "El título es obligatorio").max(80),
+  content: z.string().trim().min(1, "El mensaje es obligatorio").max(2000),
+});
+
+export async function getQuickRepliesAction(): Promise<{ items?: QuickReplyItem[]; error?: string }> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
+    return { error: "No autorizado" };
+  }
+  await requireClientWorkspaceAccess("chats");
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) return { error: "Workspace no encontrado" };
+
+  const rows = await prisma.quickReply.findMany({
+    where: { workspaceId: membership.workspace.id },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, title: true, content: true },
+  });
+
+  return { items: rows };
+}
+
+export async function createQuickReplyAction(
+  _prevState: { error?: string; success?: boolean },
+  formData: FormData,
+): Promise<{ error?: string; success?: boolean }> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
+    return { error: "No autorizado" };
+  }
+  await requireClientWorkspaceAccess("chats");
+
+  const parsed = quickReplySchema.safeParse({
+    title: formData.get("title"),
+    content: formData.get("content"),
+  });
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message || "Datos invalidos" };
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) return { error: "Workspace no encontrado" };
+
+  await prisma.quickReply.create({
+    data: {
+      workspaceId: membership.workspace.id,
+      title: parsed.data.title,
+      content: parsed.data.content,
+    },
+  });
+
+  return { success: true };
+}
+
+export async function updateQuickReplyAction(
+  id: string,
+  formData: FormData,
+): Promise<{ error?: string; success?: boolean }> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
+    return { error: "No autorizado" };
+  }
+  await requireClientWorkspaceAccess("chats");
+
+  const parsed = quickReplySchema.safeParse({
+    title: formData.get("title"),
+    content: formData.get("content"),
+  });
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message || "Datos invalidos" };
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) return { error: "Workspace no encontrado" };
+
+  const existing = await prisma.quickReply.findFirst({
+    where: { id, workspaceId: membership.workspace.id },
+    select: { id: true },
+  });
+  if (!existing) return { error: "Respuesta rápida no encontrada" };
+
+  await prisma.quickReply.update({
+    where: { id },
+    data: { title: parsed.data.title, content: parsed.data.content },
+  });
+
+  return { success: true };
+}
+
+export async function deleteQuickReplyAction(id: string): Promise<{ error?: string; success?: boolean }> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
+    return { error: "No autorizado" };
+  }
+  await requireClientWorkspaceAccess("chats");
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) return { error: "Workspace no encontrado" };
+
+  const existing = await prisma.quickReply.findFirst({
+    where: { id, workspaceId: membership.workspace.id },
+    select: { id: true },
+  });
+  if (!existing) return { error: "Respuesta rápida no encontrada" };
+
+  await prisma.quickReply.delete({ where: { id } });
+
+  return { success: true };
+}
+
 export async function getContactTagIdsAction(contactId: string): Promise<{ tagIds?: string[]; error?: string }> {
   const session = await auth();
   if (!session?.user?.id) return { error: "No autorizado" };

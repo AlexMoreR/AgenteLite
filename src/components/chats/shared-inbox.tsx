@@ -63,6 +63,7 @@ import {
 } from "@/components/chats/chat-history-cache";
 import { EditContactModal } from "@/components/chats/edit-contact-modal";
 import { ChatTagsControl } from "@/components/chats/chat-tags-control";
+import { QuickRepliesDialog } from "@/components/chats/quick-replies-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -2394,6 +2395,7 @@ const ConversationPanel = memo(function ConversationPanel({
   const canLoadOlderMessages = Boolean(renderedConversation?.loadMoreCursor && renderedConversation.hasMoreMessages);
   const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
   const [isAttachMenuOpen, setIsAttachMenuOpen] = useState(false);
+  const [isQuickRepliesOpen, setIsQuickRepliesOpen] = useState(false);
   const [isSuggestingReply, setIsSuggestingReply] = useState(false);
   const [emojiSearchQuery, setEmojiSearchQuery] = useState("");
   const [emojiPickerTab, setEmojiPickerTab] = useState<ComposerEmojiTab>("todos");
@@ -2777,6 +2779,31 @@ const ConversationPanel = memo(function ConversationPanel({
     });
   }, [autoResizeComposer]);
 
+  // Inserta el texto de una respuesta rápida en el cuadro (en la posición del cursor),
+  // sin enviarlo, para que la chica lo revise/edite antes de mandar.
+  const insertQuickReply = useCallback((content: string) => {
+    const textarea = composerTextAreaRef.current;
+    if (!textarea) {
+      return;
+    }
+
+    const currentValue = textarea.value;
+    const fallbackSelection = composerSelectionRef.current;
+    const start = textarea.selectionStart ?? fallbackSelection.start ?? currentValue.length;
+    const end = textarea.selectionEnd ?? fallbackSelection.end ?? currentValue.length;
+    const nextCursor = start + content.length;
+
+    textarea.setRangeText(content, start, end, "end");
+    composerSelectionRef.current = { start: nextCursor, end: nextCursor };
+    setComposerHasText(textarea.value.trim().length > 0);
+    autoResizeComposer(textarea);
+
+    window.requestAnimationFrame(() => {
+      textarea.focus();
+      textarea.setSelectionRange(nextCursor, nextCursor);
+    });
+  }, [autoResizeComposer]);
+
   const handleSuggestReply = useCallback(async () => {
     const conversationId = mediaConfig?.conversationId ?? audioConfig?.conversationId;
     if (!conversationId || isSuggestingReply) {
@@ -3144,6 +3171,18 @@ const ConversationPanel = memo(function ConversationPanel({
                                   variant="ghost"
                                   onClick={() => {
                                     setIsAttachMenuOpen(false);
+                                    setIsQuickRepliesOpen(true);
+                                  }}
+                                  className="flex h-auto w-full items-center justify-start gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-normal text-foreground transition hover:bg-muted focus:outline-none focus-visible:bg-muted"
+                                >
+                                  <MessageSquareText className="size-5 shrink-0 text-[#10b981]" />
+                                  <span>Respuestas rápidas</span>
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  onClick={() => {
+                                    setIsAttachMenuOpen(false);
                                     documentFileInputRef.current?.click();
                                   }}
                                   className="flex h-auto w-full items-center justify-start gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-normal text-foreground transition hover:bg-muted focus:outline-none focus-visible:bg-muted"
@@ -3276,6 +3315,11 @@ const ConversationPanel = memo(function ConversationPanel({
             ) : null}
           </div>
         </div>
+        <QuickRepliesDialog
+          open={isQuickRepliesOpen}
+          onClose={() => setIsQuickRepliesOpen(false)}
+          onSelect={insertQuickReply}
+        />
         {isContactPanelOpen ? (
           <aside className="hidden w-72 shrink-0 flex-col border-l border-border bg-card md:flex lg:w-80">
             <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
