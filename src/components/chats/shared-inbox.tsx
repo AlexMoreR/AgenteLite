@@ -64,6 +64,7 @@ import {
 import { EditContactModal } from "@/components/chats/edit-contact-modal";
 import { ChatTagsControl } from "@/components/chats/chat-tags-control";
 import { QuickRepliesDialog } from "@/components/chats/quick-replies-dialog";
+import { MediaPreviewDialog } from "@/components/chats/media-preview-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -2396,6 +2397,8 @@ const ConversationPanel = memo(function ConversationPanel({
   const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
   const [isAttachMenuOpen, setIsAttachMenuOpen] = useState(false);
   const [isQuickRepliesOpen, setIsQuickRepliesOpen] = useState(false);
+  // Archivos elegidos pendientes de confirmar en la vista previa (con caption) antes de enviar.
+  const [pendingMediaFiles, setPendingMediaFiles] = useState<File[]>([]);
   const [isSuggestingReply, setIsSuggestingReply] = useState(false);
   const [emojiSearchQuery, setEmojiSearchQuery] = useState("");
   const [emojiPickerTab, setEmojiPickerTab] = useState<ComposerEmojiTab>("todos");
@@ -2460,11 +2463,12 @@ const ConversationPanel = memo(function ConversationPanel({
   // Sube y envía UN archivo; devuelve true si se envió. No toca el estado de carga global
   // (eso lo maneja el batch) para poder reutilizarlo al enviar varios en secuencia.
   const sendSingleMediaFile = useCallback(
-    async (file: File): Promise<boolean> => {
+    async (file: File, caption?: string): Promise<boolean> => {
       if (!mediaConfig) {
         return false;
       }
 
+      const trimmedCaption = caption?.trim() || "";
       let optimisticId: string | null = null;
       try {
         const formData = new FormData();
@@ -2483,7 +2487,7 @@ const ConversationPanel = memo(function ConversationPanel({
         optimisticId = `optimistic-media:${data.url}`;
         const optimisticMessage: SharedInboxMessageItem = {
           id: optimisticId,
-          content: null,
+          content: trimmedCaption || null,
           direction: "OUTBOUND",
           createdAt: new Date(),
           authorType: "bot",
@@ -2508,6 +2512,7 @@ const ConversationPanel = memo(function ConversationPanel({
           mediaType: data.mediaType,
           fileName: data.fileName || file.name,
           mimeType: data.mimeType || file.type,
+          caption: trimmedCaption || undefined,
           returnTo: mediaConfig.returnTo,
         });
 
@@ -2534,7 +2539,7 @@ const ConversationPanel = memo(function ConversationPanel({
   // Envía uno o varios archivos en secuencia. No bloquea el composer: cada archivo aparece
   // como burbuja optimista con spinner y se resuelve al llegar el mensaje real.
   const uploadAndSendMediaFiles = useCallback(
-    async (files: File[]) => {
+    async (files: File[], caption?: string) => {
       if (!mediaConfig || files.length === 0) {
         return;
       }
@@ -2542,8 +2547,9 @@ const ConversationPanel = memo(function ConversationPanel({
       setIsSendingMedia(true);
 
       let sentCount = 0;
-      for (const file of files) {
-        const ok = await sendSingleMediaFile(file);
+      for (let index = 0; index < files.length; index += 1) {
+        // El caption (mensaje) va con el primer archivo, como WhatsApp.
+        const ok = await sendSingleMediaFile(files[index], index === 0 ? caption : undefined);
         if (ok) {
           sentCount += 1;
         }
@@ -3128,7 +3134,7 @@ const ConversationPanel = memo(function ConversationPanel({
                                 const files = Array.from(event.currentTarget.files ?? []);
                                 event.currentTarget.value = "";
                                 if (files.length > 0) {
-                                  void uploadAndSendMediaFiles(files);
+                                  setPendingMediaFiles(files);
                                 }
                               }}
                             />
@@ -3142,7 +3148,7 @@ const ConversationPanel = memo(function ConversationPanel({
                                 const files = Array.from(event.currentTarget.files ?? []);
                                 event.currentTarget.value = "";
                                 if (files.length > 0) {
-                                  void uploadAndSendMediaFiles(files);
+                                  setPendingMediaFiles(files);
                                 }
                               }}
                             />
@@ -3320,6 +3326,17 @@ const ConversationPanel = memo(function ConversationPanel({
           onClose={() => setIsQuickRepliesOpen(false)}
           onSelect={insertQuickReply}
         />
+        {pendingMediaFiles.length > 0 ? (
+          <MediaPreviewDialog
+            files={pendingMediaFiles}
+            onCancel={() => setPendingMediaFiles([])}
+            onSend={(caption) => {
+              const files = pendingMediaFiles;
+              setPendingMediaFiles([]);
+              void uploadAndSendMediaFiles(files, caption);
+            }}
+          />
+        ) : null}
         {isContactPanelOpen ? (
           <aside className="hidden w-72 shrink-0 flex-col border-l border-border bg-card md:flex lg:w-80">
             <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">

@@ -1,16 +1,39 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Bot, Plus, Workflow, X } from "lucide-react";
+import { Bot, MoreVertical, Pencil, Plus, Trash2, Workflow, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { AgentV2FlowCanvas } from "./AgentV2FlowCanvas";
+import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  AgentV2FlowCanvas,
+  type AgentV2Product,
+  type AgentV2Flow,
+  type BusinessData,
+} from "./AgentV2FlowCanvas";
+
+export type AgentV2Connection = { id: string; label: string };
 
 type AgentV2 = {
   id: string;
   name: string;
   createdAt: string;
+  connectionId?: string;
+  active: boolean;
 };
 
 const STORAGE_KEY = "agentV2.agents";
@@ -28,10 +51,12 @@ function loadAgents(): AgentV2[] {
     if (!Array.isArray(parsed)) {
       return [];
     }
-    return parsed.filter(
-      (item): item is AgentV2 =>
-        item && typeof item.id === "string" && typeof item.name === "string",
-    );
+    return parsed
+      .filter(
+        (item): item is AgentV2 =>
+          item && typeof item.id === "string" && typeof item.name === "string",
+      )
+      .map((item) => ({ ...item, active: typeof item.active === "boolean" ? item.active : true }));
   } catch {
     return [];
   }
@@ -44,12 +69,55 @@ function persistAgents(agents: AgentV2[]) {
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(agents));
 }
 
-export function AgentV2Workspace() {
+export function AgentV2Workspace({
+  products,
+  flows,
+  business,
+  connections,
+}: {
+  products: AgentV2Product[];
+  flows: AgentV2Flow[];
+  business: BusinessData;
+  connections: AgentV2Connection[];
+}) {
   const [agents, setAgents] = useState<AgentV2[]>([]);
   const [hydrated, setHydrated] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState("");
+  const [connectionId, setConnectionId] = useState("");
+
+  function closeModal() {
+    setModalOpen(false);
+    setEditingId(null);
+    setName("");
+    setConnectionId("");
+  }
+
+  function openEdit(agent: AgentV2) {
+    setEditingId(agent.id);
+    setName(agent.name);
+    setConnectionId(agent.connectionId ?? "");
+    setModalOpen(true);
+  }
+
+  function toggleActive(id: string) {
+    const next = agents.map((agent) =>
+      agent.id === id ? { ...agent, active: !agent.active } : agent,
+    );
+    setAgents(next);
+    persistAgents(next);
+  }
+
+  function deleteAgent(id: string) {
+    const next = agents.filter((agent) => agent.id !== id);
+    setAgents(next);
+    persistAgents(next);
+    if (selectedId === id) {
+      setSelectedId(null);
+    }
+  }
 
   useEffect(() => {
     setAgents(loadAgents());
@@ -61,21 +129,33 @@ export function AgentV2Workspace() {
     [agents, selectedId],
   );
 
-  function handleCreate() {
+  function handleSave() {
     const trimmed = name.trim();
     if (!trimmed) {
+      return;
+    }
+    if (editingId) {
+      const next = agents.map((agent) =>
+        agent.id === editingId
+          ? { ...agent, name: trimmed, connectionId: connectionId || undefined }
+          : agent,
+      );
+      setAgents(next);
+      persistAgents(next);
+      closeModal();
       return;
     }
     const agent: AgentV2 = {
       id: crypto.randomUUID(),
       name: trimmed,
       createdAt: new Date().toISOString(),
+      connectionId: connectionId || undefined,
+      active: true,
     };
     const next = [agent, ...agents];
     setAgents(next);
     persistAgents(next);
-    setName("");
-    setModalOpen(false);
+    closeModal();
     setSelectedId(agent.id);
   }
 
@@ -84,6 +164,9 @@ export function AgentV2Workspace() {
       <AgentV2FlowCanvas
         agentId={selectedAgent.id}
         agentName={selectedAgent.name}
+        products={products}
+        flows={flows}
+        business={business}
         onBack={() => setSelectedId(null)}
       />
     );
@@ -125,24 +208,47 @@ export function AgentV2Workspace() {
           {agents.map((agent) => (
             <Card
               key={agent.id}
-              role="button"
-              tabIndex={0}
-              onClick={() => setSelectedId(agent.id)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  setSelectedId(agent.id);
-                }
-              }}
-              className="cursor-pointer p-4 transition hover:border-primary/40 hover:shadow-sm"
+              className="p-4 transition hover:border-primary/40 hover:shadow-sm"
             >
               <div className="flex items-start gap-3">
-                <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                  <Bot className="h-5 w-5" />
-                </span>
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-foreground">{agent.name}</p>
-                  <p className="text-xs text-muted-foreground">Abrir constructor</p>
+                <button
+                  type="button"
+                  onClick={() => setSelectedId(agent.id)}
+                  className="flex min-w-0 flex-1 items-start gap-3 text-left"
+                >
+                  <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <Bot className="h-5 w-5" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-foreground">{agent.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {agent.active ? "Abrir constructor" : "Desactivado"}
+                    </p>
+                  </div>
+                </button>
+                <div className="flex shrink-0 items-center gap-1">
+                  <Switch
+                    checked={agent.active}
+                    onCheckedChange={() => toggleActive(agent.id)}
+                    aria-label={agent.active ? "Desactivar agente" : "Activar agente"}
+                  />
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button type="button" variant="ghost" size="icon" aria-label="Opciones del agente">
+                        <MoreVertical className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => openEdit(agent)}>
+                        <Pencil className="h-4 w-4" />
+                        Editar
+                      </DropdownMenuItem>
+                      <DropdownMenuItem variant="destructive" onClick={() => deleteAgent(agent.id)}>
+                        <Trash2 className="h-4 w-4" />
+                        Eliminar
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
               </div>
             </Card>
@@ -155,19 +261,16 @@ export function AgentV2Workspace() {
           <Card className="w-full max-w-md p-5">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h2 className="text-base font-semibold text-foreground">Crear agente flow</h2>
+                <h2 className="text-base font-semibold text-foreground">
+                  {editingId ? "Editar agente" : "Crear agente flow"}
+                </h2>
                 <p className="text-sm text-muted-foreground">
-                  Dale un nombre al agente para empezar.
+                  {editingId
+                    ? "Actualiza el nombre y la conexion."
+                    : "Dale un nombre al agente para empezar."}
                 </p>
               </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => {
-                  setModalOpen(false);
-                  setName("");
-                }}
-              >
+              <Button variant="ghost" size="icon" onClick={closeModal}>
                 <X className="h-4 w-4" />
               </Button>
             </div>
@@ -183,24 +286,39 @@ export function AgentV2Workspace() {
                 onKeyDown={(event) => {
                   if (event.key === "Enter") {
                     event.preventDefault();
-                    handleCreate();
+                    handleSave();
                   }
                 }}
                 placeholder="Ej. Asistente de ventas"
               />
             </div>
+            <div className="mt-4 space-y-2">
+              <label className="text-sm font-medium text-foreground">Conexion</label>
+              <Select value={connectionId} onValueChange={(value) => setConnectionId(value ?? "")}>
+                <SelectTrigger className="h-10 w-full">
+                  <SelectValue placeholder="Selecciona una conexion" />
+                </SelectTrigger>
+                <SelectContent className="p-1" alignItemWithTrigger={false} side="bottom">
+                  {connections.length === 0 ? (
+                    <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                      No hay conexiones disponibles
+                    </div>
+                  ) : (
+                    connections.map((connection) => (
+                      <SelectItem key={connection.id} value={connection.id}>
+                        {connection.label}
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
             <div className="mt-5 flex justify-end gap-2">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setModalOpen(false);
-                  setName("");
-                }}
-              >
+              <Button variant="outline" onClick={closeModal}>
                 Cancelar
               </Button>
-              <Button onClick={handleCreate} disabled={!name.trim()}>
-                Crear y abrir flujo
+              <Button onClick={handleSave} disabled={!name.trim()}>
+                {editingId ? "Guardar" : "Crear y abrir flujo"}
               </Button>
             </div>
           </Card>
