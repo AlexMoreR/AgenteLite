@@ -23,6 +23,7 @@ import {
   Users,
   Users2,
   Wallet,
+  Workflow,
   X,
 } from "lucide-react";
 import { adminUpdateUserModuleAccessAction } from "@/app/actions/auth-actions";
@@ -77,6 +78,7 @@ const moduleIconMap = {
   finanzas: Wallet,
   connection: Cable,
   agents: Bot,
+  agents_v2: Workflow,
   client_official_api: MessageSquare,
   client_team: Users,
 } satisfies Record<AdminModuleKey, React.ComponentType<{ className?: string }>>;

@@ -119,6 +119,13 @@ export const adminModuleDefinitions = [
     group: "Cliente",
   },
   {
+    key: "agents_v2",
+    label: "Agente V2",
+    description: "Constructor visual de agentes con flujo (nodos).",
+    path: "/cliente/agente-v2",
+    group: "Cliente",
+  },
+  {
     key: "client_official_api",
     label: "Api oficial (Cliente)",
     description: "Permite ver y operar el modulo Api oficial en el area cliente.",

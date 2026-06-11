@@ -21,6 +21,7 @@ import {
   Users,
   Users2,
   Wallet,
+  Workflow,
 } from "lucide-react"
 
 import { NavChats } from "@/components/nav-chats"
@@ -62,6 +63,7 @@ const moduleIconMap: Record<AdminModuleKey, React.ComponentType> = {
   finanzas: Wallet,
   connection: Cable,
   agents: Bot,
+  agents_v2: Workflow,
   client_official_api: MessageSquare,
   client_team: Users,
 }
