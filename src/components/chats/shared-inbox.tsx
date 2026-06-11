@@ -53,6 +53,7 @@ import {
   Sidebar,
 } from "lucide-react";
 import { ChatScrollAnchor } from "@/components/agents/chat-scroll-anchor";
+import { FaFileAlt, FaFileExcel, FaFilePdf, FaFilePowerpoint, FaFileWord } from "react-icons/fa";
 import { ContactAvatar } from "@/components/chats/contact-avatar";
 import { getContactDetailsAction } from "@/app/actions/chats-actions";
 import {
@@ -1284,6 +1285,74 @@ function extractMediaUrlFromPayload(message: SharedInboxMessageItem, type: "IMAG
   return resolvedUrl;
 }
 
+function formatDocumentSize(bytes?: number | null) {
+  if (typeof bytes !== "number" || !Number.isFinite(bytes) || bytes <= 0) {
+    return null;
+  }
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} kB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function getDocumentTypeLabel(fileName: string, mimeType?: string | null) {
+  const ext = fileName.includes(".") ? fileName.split(".").pop()!.trim().toUpperCase() : "";
+  if (ext && ext.length <= 5) return ext;
+  if (mimeType?.toLowerCase().includes("pdf")) return "PDF";
+  const subtype = mimeType?.split("/")[1]?.trim();
+  if (subtype) return subtype.toUpperCase().slice(0, 5);
+  return "ARCHIVO";
+}
+
+// Ícono coloreado según el tipo de documento (PDF rojo, Word azul, Excel verde, etc.).
+function getDocumentIcon(typeLabel: string) {
+  const type = typeLabel.toUpperCase();
+  if (type === "PDF") return { Icon: FaFilePdf, color: "#e2433a" };
+  if (type === "DOC" || type === "DOCX") return { Icon: FaFileWord, color: "#2b7cd3" };
+  if (type === "XLS" || type === "XLSX" || type === "CSV") return { Icon: FaFileExcel, color: "#1d8f4e" };
+  if (type === "PPT" || type === "PPTX") return { Icon: FaFilePowerpoint, color: "#d24726" };
+  return { Icon: FaFileAlt, color: "#64748b" };
+}
+
+// Extrae nombre / tipo / tamaño del documento desde el mensaje, soportando tanto el envío
+// manual (lo que guarda sendChatMediaReplyAction: fileName/mimeType/fileSize) como el
+// payload de Evolution (entrante: documentMessage.{fileName, mimetype, fileLength}).
+function getDocumentMetaFromMessage(message: SharedInboxMessageItem) {
+  const raw = message.rawPayload;
+
+  const manualName = getNestedString(raw, "fileName");
+  const manualMime = getNestedString(raw, "mimeType");
+  const manualSizeValue = isObjectRecord(raw) ? raw.fileSize : null;
+  const manualSize = typeof manualSizeValue === "number" ? manualSizeValue : null;
+
+  const root = getNestedRecord(raw, "evolution") ?? (isObjectRecord(raw) ? raw : null);
+  const data = getNestedRecord(root, "data");
+  const messageData = getNestedRecord(data, "message") ?? getNestedRecord(root, "message");
+  const captionWrapper = getNestedRecord(messageData, "documentWithCaptionMessage");
+  const captionMessage = getNestedRecord(captionWrapper, "message");
+  const doc =
+    getNestedRecord(messageData, "documentMessage") ??
+    getNestedRecord(captionMessage, "documentMessage");
+  const docName = getNestedString(doc, "fileName") || getNestedString(doc, "title");
+  const docMime = getNestedString(doc, "mimetype");
+  const docLengthRaw = doc?.fileLength;
+  const docSize =
+    typeof docLengthRaw === "number"
+      ? docLengthRaw
+      : typeof docLengthRaw === "string" && /^\d+$/.test(docLengthRaw)
+        ? Number(docLengthRaw)
+        : null;
+
+  const fileName = (manualName || docName || "Documento").trim() || "Documento";
+  const mimeType = manualMime || docMime || null;
+  const size = manualSize ?? docSize ?? null;
+
+  return {
+    fileName,
+    typeLabel: getDocumentTypeLabel(fileName, mimeType),
+    sizeLabel: formatDocumentSize(size),
+  };
+}
+
 function AudioMessageCard({
   mediaUrl,
   content,
@@ -1790,6 +1859,12 @@ const MessageBubble = memo(function MessageBubble({
     () => (message.type === "DOCUMENT" ? extractMediaUrlFromPayload(message, "DOCUMENT") : null),
     [message],
   );
+  const documentMeta = useMemo(
+    () => (message.type === "DOCUMENT" ? getDocumentMetaFromMessage(message) : null),
+    [message],
+  );
+  // Mensaje de archivo aún enviándose (burbuja optimista): muestra spinner en vez de hora.
+  const isPendingMedia = message.id.startsWith("optimistic-media:");
   const isDeleted = Boolean(message.deletedAt);
   const mediaPreviewLabel = getMediaPreviewLabel(message.type);
   const mediaCaption = message.content?.trim() || "";
@@ -2128,13 +2203,31 @@ const MessageBubble = memo(function MessageBubble({
                 href={documentUrl}
                 target="_blank"
                 rel="noreferrer"
-                className={`inline-flex items-center rounded-xl px-3 py-2 text-sm font-medium underline-offset-2 transition hover:underline ${
-                  outbound ? "bg-white/14 text-white" : "bg-muted text-foreground"
+                title={documentMeta?.fileName ?? "Abrir documento"}
+                className={`flex max-w-[min(230px,68vw)] items-center gap-2 rounded-xl p-1.5 pr-3 transition ${
+                  outbound ? "bg-white/14 hover:bg-white/20" : "bg-background hover:bg-muted"
                 }`}
               >
-                Abrir documento
+                {(() => {
+                  const { Icon, color } = getDocumentIcon(documentMeta?.typeLabel ?? "ARCHIVO");
+                  return <Icon className="size-8 shrink-0" style={{ color }} />;
+                })()}
+                <span className="flex min-w-0 flex-col">
+                  <span className={`truncate text-[13px] font-normal leading-tight ${outbound ? "text-white" : "text-foreground"}`}>
+                    {documentMeta?.fileName ?? "Documento"}
+                  </span>
+                  <span className={`truncate text-[11px] leading-tight ${outbound ? "text-white/70" : "text-muted-foreground"}`}>
+                    {documentMeta?.sizeLabel
+                      ? `${documentMeta.typeLabel} • ${documentMeta.sizeLabel}`
+                      : documentMeta?.typeLabel ?? "Documento"}
+                  </span>
+                </span>
               </a>
-              {renderMessageText(message.content)}
+              {/* No repetir el nombre del archivo abajo: WhatsApp manda el nombre como
+                  "caption" cuando no hay mensaje real, y ya se muestra en la tarjeta. */}
+              {message.content?.trim() && message.content.trim() !== (documentMeta?.fileName ?? "").trim()
+                ? renderMessageText(message.content)
+                : null}
             </div>
           ) : mediaPreviewLabel ? (
             <div className="space-y-2">
@@ -2183,6 +2276,9 @@ const MessageBubble = memo(function MessageBubble({
               )
             ) : null}
             {!showInlineImageTimestamp ? <span>{formatChatTime(message.createdAt)}</span> : null}
+            {isPendingMedia ? (
+              <LoaderCircle className="ml-0.5 h-3 w-3 shrink-0 animate-spin" aria-label="Enviando" />
+            ) : null}
             {outbound && message.outboundStatusLabel ? (
               message.outboundStatusLabel === "entregado" ? (
                 <CheckCheck className="ml-1 h-3 w-3 shrink-0" aria-hidden="true" />
@@ -2320,8 +2416,22 @@ const ConversationPanel = memo(function ConversationPanel({
   const mediaFileInputRef = useRef<HTMLInputElement | null>(null);
   const documentFileInputRef = useRef<HTMLInputElement | null>(null);
   const [isSendingMedia, setIsSendingMedia] = useState(false);
-  // Progreso de envío de archivos (1 o varios): alimenta el indicador "Enviando… (2 de 3)".
-  const [mediaSendProgress, setMediaSendProgress] = useState<{ current: number; total: number } | null>(null);
+  // Mensajes optimistas de archivos en envío: el documento/imagen aparece en el chat con un
+  // spinner mientras se envía (estilo WhatsApp), SIN bloquear el composer. Se ocultan solos
+  // cuando llega el mensaje real (se deduplican por mediaUrl en el render).
+  const [optimisticMediaMessages, setOptimisticMediaMessages] = useState<SharedInboxMessageItem[]>([]);
+  // Lista final a renderizar: mensajes reales + optimistas que aún no llegaron (mismo
+  // mediaUrl ⇒ ya está el real, se descarta el optimista para no duplicar).
+  const displayedMessages = useMemo(() => {
+    if (optimisticMediaMessages.length === 0) {
+      return renderedMessages;
+    }
+    const pending = optimisticMediaMessages.filter(
+      (optimistic) =>
+        !renderedMessages.some((real) => Boolean(real.mediaUrl) && real.mediaUrl === optimistic.mediaUrl),
+    );
+    return pending.length === 0 ? renderedMessages : [...renderedMessages, ...pending];
+  }, [renderedMessages, optimisticMediaMessages]);
   const [isContactPanelOpen, setIsContactPanelOpen] = useState(false);
   const [contactCity, setContactCity] = useState("");
 
@@ -2353,6 +2463,7 @@ const ConversationPanel = memo(function ConversationPanel({
         return false;
       }
 
+      let optimisticId: string | null = null;
       try {
         const formData = new FormData();
         formData.append("file", file);
@@ -2365,6 +2476,27 @@ const ConversationPanel = memo(function ConversationPanel({
           toast.error(data?.error || `No se pudo subir "${file.name}".`);
           return false;
         }
+
+        // Burbuja optimista: el archivo aparece en el chat con spinner mientras se envía.
+        optimisticId = `optimistic-media:${data.url}`;
+        const optimisticMessage: SharedInboxMessageItem = {
+          id: optimisticId,
+          content: null,
+          direction: "OUTBOUND",
+          createdAt: new Date(),
+          authorType: "bot",
+          outboundStatusLabel: null,
+          type: data.mediaType,
+          mediaUrl: data.url,
+          rawPayload: {
+            source: "manual",
+            fileName: data.fileName || file.name,
+            mimeType: data.mimeType || file.type,
+            fileSize: file.size,
+          },
+        };
+        setOptimisticMediaMessages((prev) => [...prev, optimisticMessage]);
+        window.requestAnimationFrame(() => onScrollToBottom());
 
         const result = await mediaConfig.sendAction({
           source: mediaConfig.source,
@@ -2381,18 +2513,24 @@ const ConversationPanel = memo(function ConversationPanel({
           return true;
         }
 
+        // Falló el envío: quitar la burbuja optimista.
+        setOptimisticMediaMessages((prev) => prev.filter((message) => message.id !== optimisticId));
         toast.error((result && "error" in result && result.error) || `No se pudo enviar "${file.name}".`);
         return false;
       } catch {
+        if (optimisticId) {
+          const failedId = optimisticId;
+          setOptimisticMediaMessages((prev) => prev.filter((message) => message.id !== failedId));
+        }
         toast.error(`No se pudo enviar "${file.name}".`);
         return false;
       }
     },
-    [mediaConfig],
+    [mediaConfig, onScrollToBottom],
   );
 
-  // Envía uno o varios archivos en secuencia, mostrando progreso. Antes solo se enviaba el
-  // primer archivo seleccionado y sin ningún indicador de carga.
+  // Envía uno o varios archivos en secuencia. No bloquea el composer: cada archivo aparece
+  // como burbuja optimista con spinner y se resuelve al llegar el mensaje real.
   const uploadAndSendMediaFiles = useCallback(
     async (files: File[]) => {
       if (!mediaConfig || files.length === 0) {
@@ -2400,12 +2538,10 @@ const ConversationPanel = memo(function ConversationPanel({
       }
 
       setIsSendingMedia(true);
-      setMediaSendProgress({ current: 1, total: files.length });
 
       let sentCount = 0;
-      for (let index = 0; index < files.length; index += 1) {
-        setMediaSendProgress({ current: index + 1, total: files.length });
-        const ok = await sendSingleMediaFile(files[index]);
+      for (const file of files) {
+        const ok = await sendSingleMediaFile(file);
         if (ok) {
           sentCount += 1;
         }
@@ -2413,11 +2549,9 @@ const ConversationPanel = memo(function ConversationPanel({
 
       if (sentCount > 0) {
         composerRouter.refresh();
-        toast.success(sentCount === 1 ? "Archivo enviado" : `${sentCount} archivos enviados`);
       }
 
       setIsSendingMedia(false);
-      setMediaSendProgress(null);
     },
     [mediaConfig, sendSingleMediaFile, composerRouter],
   );
@@ -2843,11 +2977,11 @@ const ConversationPanel = memo(function ConversationPanel({
                     </div>
                   ) : null}
                   <div className="space-y-2.5 md:space-y-3">
-                    {renderedMessages.map((message, index) => (
+                    {displayedMessages.map((message, index) => (
                       <MessageBubble
                         key={message.id}
                         message={message}
-                        previousMessage={renderedMessages[index - 1]}
+                        previousMessage={displayedMessages[index - 1]}
                         onRetry={
                           message.outboundStatusLabel === "error" ? onRetryFailedMessage : undefined
                         }
@@ -2921,16 +3055,7 @@ const ConversationPanel = memo(function ConversationPanel({
                   ) : null}
 
                   <div className="flex items-end gap-2 md:gap-3">
-                    {isSendingMedia ? (
-                      <div className="flex min-h-[44px] flex-1 items-center gap-2.5 rounded-2xl border border-border bg-muted/80 px-4 text-sm text-foreground md:min-h-[40px]">
-                        <LoaderCircle className="size-4 shrink-0 animate-spin text-[var(--primary)]" />
-                        <span className="font-medium">
-                          {mediaSendProgress && mediaSendProgress.total > 1
-                            ? `Enviando archivos… (${mediaSendProgress.current} de ${mediaSendProgress.total})`
-                            : "Enviando archivo…"}
-                        </span>
-                      </div>
-                    ) : isRecordingAudio ? (
+                    {isRecordingAudio ? (
                       <div className="flex min-h-[44px] flex-1 items-center gap-2 rounded-2xl border border-border bg-muted/80 px-4 text-sm text-foreground md:min-h-[40px]">
                         <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-red-500" />
                         <span className="font-medium">Grabando</span>

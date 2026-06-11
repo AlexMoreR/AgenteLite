@@ -72,12 +72,25 @@ model Workspace {
   follows              Follow[]
   messages             Message[]
   officialApiConfig    OfficialApiClientConfig?
+  quickReplies         QuickReply[]
   Tag                  Tag[]
   channels             WhatsAppChannel[]
   owner                User?                    @relation("WorkspaceOwner", fields: [ownerId], references: [id])
   memberships          WorkspaceMember[]
 
   @@index([ownerId])
+}
+
+model QuickReply {
+  id          String    @id @default(cuid())
+  workspaceId String
+  title       String
+  content     String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
 }
 
 model WorkspaceMember {

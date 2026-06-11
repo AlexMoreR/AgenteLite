@@ -51,6 +51,7 @@ import {
   type NodeProps,
   ReactFlow,
 } from "@xyflow/react";
+import { useSetBreadcrumbLabel } from "@/components/breadcrumb-label-context";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -115,6 +116,7 @@ type FlowNodeData = {
   aiFollowUp?: boolean;
   onToggleReplyEveryMessage?: (value: boolean) => void;
   onToggleAiFollowUp?: (value: boolean) => void;
+  onOpenQuickResponses?: () => void;
 };
 type EdgeAppearance = {
   stroke: string;
@@ -316,6 +318,17 @@ function ChatbotFlowNode({ id, data, selected }: NodeProps<Node<FlowNodeData>>) 
                   />
                 </div>
               </div>
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  data.onOpenQuickResponses?.();
+                }}
+                className="nodrag flex w-full items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-left text-sm font-medium text-foreground transition hover:bg-muted"
+              >
+                <MessageSquarePlus className="h-4 w-4 text-sky-600" />
+                Respuestas rápidas
+              </button>
             </div>
           ) : data.kind === "image" && imageUrl ? (
             <div className="space-y-2">
@@ -1188,6 +1201,8 @@ export function OfficialApiChatbotWorkspace({
   const selectedScenario = scenarios.find((scenario) => scenario.id === selectedScenarioId);
   const quickResponsesScenario = scenarios.find((scenario) => scenario.id === quickResponsesScenarioId) ?? null;
   const hasSelectedFlow = Boolean(selectedScenario);
+  // Muestra el nombre real del flujo en el breadcrumb del header (en vez del id de la URL).
+  useSetBreadcrumbLabel(selectedScenario?.title);
   const nodes = useMemo(
     () => (selectedScenario ? (nodesByScenarioId[selectedScenario.id] ?? []) : []),
     [nodesByScenarioId, selectedScenario],
@@ -1274,6 +1289,7 @@ export function OfficialApiChatbotWorkspace({
           aiFollowUp: node.aiFollowUpEnabled !== false,
           onToggleReplyEveryMessage: setReplyEveryMessageEnabled,
           onToggleAiFollowUp: (value: boolean) => updateNode(node.id, { aiFollowUpEnabled: value }),
+          onOpenQuickResponses: () => openQuickResponsesModal(selectedScenario?.id ?? ""),
         },
       })),
     // eslint-disable-next-line react-hooks/exhaustive-deps

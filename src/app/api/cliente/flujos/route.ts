@@ -47,6 +47,7 @@ const builderSchema = z.object({
         title: z.string().trim().min(1).max(120),
         body: z.string().trim().max(4096),
         meta: z.string().trim().max(2048),
+        aiFollowUpEnabled: z.boolean().optional(),
       }),
     ).min(1),
   ),

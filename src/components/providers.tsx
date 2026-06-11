@@ -3,6 +3,7 @@
 import type { Session } from "next-auth";
 import { SessionProvider } from "next-auth/react";
 import { Toaster } from "sonner";
+import { BreadcrumbLabelProvider } from "@/components/breadcrumb-label-context";
 
 type ProvidersProps = {
   children: React.ReactNode;
@@ -12,7 +13,7 @@ type ProvidersProps = {
 export function Providers({ children, session }: ProvidersProps) {
   return (
     <SessionProvider session={session}>
-      {children}
+      <BreadcrumbLabelProvider>{children}</BreadcrumbLabelProvider>
       <Toaster
         position="top-right"
         closeButton

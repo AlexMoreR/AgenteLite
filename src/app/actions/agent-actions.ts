@@ -3089,10 +3089,13 @@ export async function sendChatMediaReplyAction(input: {
 
   // Enviamos el archivo en base64 para no depender de que la URL sea publica (funciona en local y prod).
   let mediaBase64 = "";
+  let fileSize = 0;
   try {
     const pathname = new URL(parsed.data.mediaUrl).pathname;
     const filePath = path.join(process.cwd(), "public", pathname);
-    mediaBase64 = (await readFile(filePath)).toString("base64");
+    const buffer = await readFile(filePath);
+    mediaBase64 = buffer.toString("base64");
+    fileSize = buffer.length;
   } catch {
     return { error: "No se pudo leer el archivo" };
   }
@@ -3133,6 +3136,9 @@ export async function sendChatMediaReplyAction(input: {
       sentAt: now,
       rawPayload: {
         source: "manual",
+        fileName: parsed.data.fileName,
+        mimeType: parsed.data.mimeType,
+        fileSize,
         evolution: outbound.raw,
       } as never,
     },

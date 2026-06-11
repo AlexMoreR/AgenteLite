@@ -13,6 +13,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
+import { useBreadcrumbLabel } from "@/components/breadcrumb-label-context";
 import { ClientPlanBlockModal } from "@/components/client-plan-block-modal";
 import { ClientPlanWarningBar } from "@/components/client-plan-warning-bar";
 import { Navbar } from "@/components/navbar";
@@ -102,7 +103,30 @@ function formatBreadcrumbLabel(segment: string) {
   return breadcrumbLabels[segment] ?? segment.replace(/-/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+// Detecta segmentos que son ids generados (ej. "workflow-1777415953671-wnbel",
+// cuids/uuids) para no mostrarlos crudos en el breadcrumb.
+function isIdLikeSegment(segment: string) {
+  if (breadcrumbLabels[segment]) {
+    return false;
+  }
+  return /^workflow-/.test(segment) || (/\d/.test(segment) && segment.length >= 12);
+}
+
+// Etiqueta del ultimo segmento: usa el override de la pagina (nombre real) si
+// existe; si el segmento es un id generado, cae al label del segmento padre.
+function resolveLastLabel(segments: string[], overrideLabel: string | null) {
+  const lastSegment = segments[segments.length - 1];
+  if (overrideLabel) {
+    return overrideLabel;
+  }
+  if (isIdLikeSegment(lastSegment) && segments.length >= 2) {
+    return formatBreadcrumbLabel(segments[segments.length - 2]);
+  }
+  return formatBreadcrumbLabel(lastSegment);
+}
+
 function AppBreadcrumb({ pathname }: { pathname: string }) {
+  const overrideLabel = useBreadcrumbLabel();
   const segments = pathname.split("/").filter(Boolean);
 
   if (segments.length === 0) {
@@ -114,7 +138,7 @@ function AppBreadcrumb({ pathname }: { pathname: string }) {
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
-            <BreadcrumbPage>{formatBreadcrumbLabel(segments[segments.length - 1])}</BreadcrumbPage>
+            <BreadcrumbPage>{resolveLastLabel(segments, overrideLabel)}</BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
@@ -126,7 +150,7 @@ function AppBreadcrumb({ pathname }: { pathname: string }) {
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
-            <BreadcrumbPage>{formatBreadcrumbLabel(segments[segments.length - 1])}</BreadcrumbPage>
+            <BreadcrumbPage>{resolveLastLabel(segments, overrideLabel)}</BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
@@ -134,7 +158,6 @@ function AppBreadcrumb({ pathname }: { pathname: string }) {
   }
 
   const firstSegment = segments[0];
-  const lastSegment = segments[segments.length - 1];
 
   return (
     <Breadcrumb>
@@ -146,7 +169,7 @@ function AppBreadcrumb({ pathname }: { pathname: string }) {
         </BreadcrumbItem>
         <BreadcrumbSeparator className="hidden md:block" />
         <BreadcrumbItem>
-          <BreadcrumbPage>{formatBreadcrumbLabel(lastSegment)}</BreadcrumbPage>
+          <BreadcrumbPage>{resolveLastLabel(segments, overrideLabel)}</BreadcrumbPage>
         </BreadcrumbItem>
       </BreadcrumbList>
     </Breadcrumb>

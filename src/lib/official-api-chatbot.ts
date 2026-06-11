@@ -160,6 +160,9 @@ function normalizeNode(node: OfficialApiChatbotBuilderNode) {
     title: node.title.trim() || "Bloque",
     body: node.body.trim(),
     meta: node.meta.trim(),
+    ...(typeof node.aiFollowUpEnabled === "boolean"
+      ? { aiFollowUpEnabled: node.aiFollowUpEnabled }
+      : {}),
   } satisfies OfficialApiChatbotBuilderNode;
 }
 

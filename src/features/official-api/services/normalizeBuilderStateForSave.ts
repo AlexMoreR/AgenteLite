@@ -107,6 +107,9 @@ export function normalizeBuilderNodesForSave(
               title: sanitizeText(node?.title) || "Bloque",
               body: sanitizeText(node?.body),
               meta: sanitizeText(node?.meta),
+              ...(typeof node?.aiFollowUpEnabled === "boolean"
+                ? { aiFollowUpEnabled: node.aiFollowUpEnabled }
+                : {}),
             }))
           : [createFallbackNode(scenarioId, 0)];
 
