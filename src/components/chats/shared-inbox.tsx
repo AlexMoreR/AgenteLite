@@ -46,7 +46,6 @@ import {
   Shapes,
   Smile,
   Sparkles,
-  Tag,
   Trash2,
   UserRound,
   Users,
@@ -62,7 +61,7 @@ import {
   saveConversationToCache,
 } from "@/components/chats/chat-history-cache";
 import { EditContactModal } from "@/components/chats/edit-contact-modal";
-import { EtiquetaModal } from "@/components/chats/etiqueta-modal";
+import { ChatTagsControl } from "@/components/chats/chat-tags-control";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -2240,7 +2239,6 @@ type ConversationPanelProps = {
   onScrollToBottom: () => void;
   onOpenStatusDialog: () => void;
   onEditContact: () => void;
-  onOpenTags: () => void;
   onComposerDraft: (message: string, formData: FormData) => void;
   onRetryFailedMessage?: () => void;
   onReplyToMessage?: (message: SharedInboxMessageItem) => void;
@@ -2261,6 +2259,7 @@ type ConversationPanelProps = {
   headerActions?: ReactNode;
   headerBadge?: ReactNode;
   contactPanelActions?: ReactNode;
+  canDeleteTags: boolean;
 };
 
 const ConversationPanel = memo(function ConversationPanel({
@@ -2277,7 +2276,6 @@ const ConversationPanel = memo(function ConversationPanel({
   onScrollToBottom,
   onOpenStatusDialog,
   onEditContact,
-  onOpenTags,
   onComposerDraft,
   onRetryFailedMessage,
   onReplyToMessage,
@@ -2295,6 +2293,7 @@ const ConversationPanel = memo(function ConversationPanel({
   headerActions,
   headerBadge,
   contactPanelActions,
+  canDeleteTags,
 }: ConversationPanelProps) {
   const canLoadOlderMessages = Boolean(renderedConversation?.loadMoreCursor && renderedConversation.hasMoreMessages);
   const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
@@ -2760,36 +2759,20 @@ const ConversationPanel = memo(function ConversationPanel({
                       >
                         <Pencil className="h-3.5 w-3.5" />
                       </button>
-                      <button
-                        type="button"
-                        onClick={onOpenTags}
-                        className="shrink-0 inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-muted-foreground"
-                        aria-label="Etiquetas"
-                      >
-                        <Tag className="h-3.5 w-3.5" />
-                      </button>
                     </div>
-                    {headerTags.length ? (
-                      <div
-                        className={`flex flex-wrap gap-1.5 transition-opacity duration-200 ease-out ${
-                          hasSettledConversation ? "opacity-100" : "opacity-60"
-                        }`}
-                      >
-                        {headerTags.map((tag) => (
-                          <Badge
-                            key={`${renderedConversation.id}:${tag.label}`}
-                            className="max-w-full px-2.5 py-1 text-[10px] shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
-                            style={{
-                              backgroundColor: tag.color,
-                              color: "#ffffff",
-                            }}
-                            title={tag.label}
-                          >
-                            <span className="truncate">{tag.label}</span>
-                          </Badge>
-                        ))}
-                      </div>
-                    ) : null}
+                    <div
+                      className={`transition-opacity duration-200 ease-out ${
+                        hasSettledConversation ? "opacity-100" : "opacity-60"
+                      }`}
+                    >
+                      <ChatTagsControl
+                        contactId={renderedConversation.contactId}
+                        conversationId={renderedConversation.id}
+                        tags={headerTags}
+                        badgeClassName="shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
+                        canDelete={canDeleteTags}
+                      />
+                    </div>
                   </div>
                 </div>
                   );
@@ -3233,38 +3216,19 @@ const ConversationPanel = memo(function ConversationPanel({
                     <Pencil className="h-3.5 w-3.5" />
                   </Button>
                 ) : null}
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  onClick={onOpenTags}
-                  className="h-8 w-8"
-                  aria-label="Etiquetas"
-                  title="Etiquetas"
-                >
-                  <Tag className="h-3.5 w-3.5" />
-                </Button>
               </div>
 
-              {(renderedConversation.tags?.length ?? 0) > 0 ? (
-                <div className="mt-5 space-y-3">
-                  <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Etiquetas
-                  </h4>
-                  <div className="flex flex-wrap gap-1.5">
-                    {renderedConversation.tags?.map((tag) => (
-                      <Badge
-                        key={`panel:${renderedConversation.id}:${tag.label}`}
-                        className="max-w-full px-2.5 py-1 text-[10px]"
-                        style={{ backgroundColor: tag.color, color: "#ffffff" }}
-                        title={tag.label}
-                      >
-                        <span className="truncate">{tag.label}</span>
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
+              <div className="mt-5 space-y-3">
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Etiquetas
+                </h4>
+                <ChatTagsControl
+                  contactId={renderedConversation.contactId}
+                  conversationId={renderedConversation.id}
+                  tags={renderedConversation.tags ?? []}
+                  canDelete={canDeleteTags}
+                />
+              </div>
 
               {contactPanelActions ? (
                 <div className="mt-5 space-y-3">
@@ -3344,11 +3308,8 @@ export function SharedInbox({
   const [deletedMessageIds, setDeletedMessageIds] = useState<ReadonlySet<string>>(() => new Set());
   const [editContactOpen, setEditContactOpen] = useState(false);
   const handleCloseEditContact = useCallback(() => setEditContactOpen(false), []);
-  const [etiquetaModalOpen, setEtiquetaModalOpen] = useState(false);
-  const handleCloseEtiquetaModal = useCallback(() => setEtiquetaModalOpen(false), []);
   const [statusDialogOpen, setStatusDialogOpen] = useState(false);
   const handleOpenEditContact = useCallback(() => setEditContactOpen(true), []);
-  const handleOpenEtiquetaModal = useCallback(() => setEtiquetaModalOpen(true), []);
   const [, startSelectionTransition] = useTransition();
   const messagesScrollRef = useRef<HTMLDivElement | null>(null);
   const scrollFrameRef = useRef<number | null>(null);
@@ -4941,6 +4902,7 @@ export function SharedInbox({
         // y tras el commit (misma "agent:<id>"), así que el panel se monta UNA sola vez al
         // hacer click y el pin al fondo queda estable.
         key={mobileConversationActive ? (selectedConversationKey || "selected") : "empty"}
+        canDeleteTags={isManager}
         backHref={backHref}
         composer={composer}
         composerHiddenFields={composerHiddenFields}
@@ -4954,7 +4916,6 @@ export function SharedInbox({
         onScrollToBottom={scrollToBottom}
         onOpenStatusDialog={handleOpenStatusDialog}
         onEditContact={handleOpenEditContact}
-        onOpenTags={handleOpenEtiquetaModal}
         onComposerDraft={handleComposerDraft}
         onRetryFailedMessage={handleRetryFailedMessage}
         onReplyToMessage={handleReplyToMessage}
@@ -4983,11 +4944,6 @@ export function SharedInbox({
         contactName={renderedConversation.contactName ?? renderedConversation.label}
       />
     ) : null}
-    <EtiquetaModal
-      open={etiquetaModalOpen}
-      onClose={handleCloseEtiquetaModal}
-      contactId={renderedConversation?.contactId}
-    />
     <Dialog open={statusDialogOpen} onOpenChange={setStatusDialogOpen}>
       <DialogContent className="w-[min(92vw,34rem)] max-w-none overflow-hidden border border-border bg-popover p-0 shadow-[0_30px_80px_-36px_rgba(15,23,42,0.45)]">
         <div className="border-b border-border bg-card px-5 py-4">

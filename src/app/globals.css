@@ -227,6 +227,24 @@ body {
   box-shadow: 0 0 0 3px rgb(37 99 235 / 0.08);
 }
 
+.dark .field-input,
+.dark .field-textarea {
+  border-color: var(--border);
+  background: var(--card);
+  color: var(--foreground);
+}
+
+.dark .field-input::placeholder,
+.dark .field-textarea::placeholder {
+  color: var(--muted-foreground);
+}
+
+.dark .field-input:focus,
+.dark .field-textarea:focus {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 3px rgb(148 163 184 / 0.12);
+}
+
 .app-sonner-toast {
   border: 1px solid var(--line) !important;
   border-radius: 0.875rem !important;
@@ -734,4 +752,34 @@ body {
   html {
     @apply font-sans;
   }
+}
+
+/* Controles de zoom del lienzo de flujos (ReactFlow) acordes al tema */
+.chatbot-flow-canvas .react-flow__controls {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 0.625rem;
+  box-shadow: 0 10px 30px -18px rgba(15, 23, 42, 0.35);
+}
+
+.chatbot-flow-canvas .react-flow__controls-button {
+  width: 28px;
+  height: 28px;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  color: var(--foreground);
+}
+
+.chatbot-flow-canvas .react-flow__controls-button:last-child {
+  border-bottom: none;
+}
+
+.chatbot-flow-canvas .react-flow__controls-button:hover {
+  background: var(--muted);
+}
+
+.chatbot-flow-canvas .react-flow__controls-button svg {
+  fill: currentColor;
+  max-width: 14px;
+  max-height: 14px;
 }

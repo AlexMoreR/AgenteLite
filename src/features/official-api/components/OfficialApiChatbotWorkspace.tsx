@@ -12,8 +12,6 @@ import {
   AudioLines,
   Video,
   File,
-  ChevronLeft,
-  ChevronRight,
   FileText,
   MessageSquarePlus,
   MoreVertical,
@@ -33,29 +31,40 @@ import {
   addEdge,
   Background,
   BackgroundVariant,
+  BaseEdge,
   ConnectionMode,
   Controls,
+  EdgeLabelRenderer,
+  getBezierPath,
   Handle,
   MarkerType,
+  NodeToolbar,
   Position,
   ReactFlowProvider,
   useEdgesState,
   useNodesState,
   type Connection,
   type Edge,
+  type EdgeProps,
   type Node,
   type NodeChange,
   type NodeProps,
   ReactFlow,
 } from "@xyflow/react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import {
   BaseNode,
   BaseNodeContent,
-  BaseNodeFooter,
   BaseNodeHeader,
   BaseNodeHeaderTitle,
 } from "@/components/reactflow/base-node";
@@ -97,7 +106,10 @@ type FlowNodeData = {
   title: string;
   body: string;
   meta: string;
-  orderLabel: string;
+  onDelete?: (nodeId: string) => void;
+  onDuplicate?: (nodeId: string) => void;
+  onUpload?: (nodeId: string, file: File | null) => Promise<void> | void;
+  onClearFile?: (nodeId: string) => void;
 };
 type EdgeAppearance = {
   stroke: string;
@@ -133,7 +145,41 @@ function getWorkflowTypeLabel(flowType?: OfficialApiChatbotScenarioFlowType | nu
   return flowType === "chatbot" ? "CHATBOT" : "IA";
 }
 
-function ChatbotFlowNode({ data, selected }: NodeProps<Node<FlowNodeData>>) {
+const MEDIA_NODE_KINDS = ["document", "audio", "video"] as const;
+
+function isMediaNodeKind(kind: BuilderNode["kind"]): kind is "document" | "audio" | "video" {
+  return (MEDIA_NODE_KINDS as readonly string[]).includes(kind);
+}
+
+function getMediaKindLabel(kind: BuilderNode["kind"]) {
+  if (kind === "document") return "Documento";
+  if (kind === "audio") return "Audio";
+  if (kind === "video") return "Video";
+  return "Archivo";
+}
+
+function getFileNameFromUrl(url: string) {
+  const trimmed = url.trim();
+  if (!trimmed) return "";
+  let last = "";
+  try {
+    const path = new URL(trimmed).pathname;
+    last = decodeURIComponent(path.split("/").filter(Boolean).pop() ?? "");
+  } catch {
+    last = trimmed.split(/[\\/?#]/).filter(Boolean).pop() ?? "";
+  }
+  // Quita el prefijo numerico que agrega la subida (ej. "1781135420296-archivo.pdf").
+  return last.replace(/^\d{6,}-/, "");
+}
+
+function ChatbotFlowNode({ id, data, selected }: NodeProps<Node<FlowNodeData>>) {
+  const isMedia = isMediaNodeKind(data.kind);
+  const canDelete = data.kind !== "trigger";
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const mediaUrl = isMedia ? data.meta.trim() : "";
+  const mediaFileName = mediaUrl ? getFileNameFromUrl(mediaUrl) : "";
+  const mediaCaption = isMedia ? data.body.trim() : "";
   const preview = data.kind === "image"
     ? (data.body.trim() || data.meta.trim() || "Sin contenido aun.")
     : (data.body.trim() || "Sin contenido aun.");
@@ -162,6 +208,36 @@ function ChatbotFlowNode({ data, selected }: NodeProps<Node<FlowNodeData>>) {
 
   return (
     <>
+      {canDelete ? (
+        <NodeToolbar isVisible={selected} position={Position.Top} align="end" offset={8}>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                data.onDuplicate?.(id);
+              }}
+              className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border bg-card text-muted-foreground shadow-sm transition hover:bg-muted hover:text-foreground"
+              aria-label="Duplicar nodo"
+              title="Duplicar nodo"
+            >
+              <Copy className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                data.onDelete?.(id);
+              }}
+              className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border bg-card text-muted-foreground shadow-sm transition hover:bg-muted hover:text-foreground"
+              aria-label="Eliminar nodo"
+              title="Eliminar nodo"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </NodeToolbar>
+      ) : null}
       {data.kind === "trigger" ? null : (
         <Handle
           id="target"
@@ -172,20 +248,22 @@ function ChatbotFlowNode({ data, selected }: NodeProps<Node<FlowNodeData>>) {
       )}
       <BaseNode
         className={cn(
-          "w-[300px] transition-shadow",
+          "w-[330px] transition-shadow",
           selected ? "border-blue-400 shadow-[0_24px_50px_-28px_rgba(37,99,235,0.52)]" : "",
         )}
       >
         <BaseNodeHeader className="items-center justify-start gap-2.5">
-          <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-slate-50">
+          <span className="inline-flex shrink-0 items-center justify-center">
             {headerIcon}
           </span>
-          <BaseNodeHeaderTitle className="truncate">{data.title}</BaseNodeHeaderTitle>
+          <BaseNodeHeaderTitle className="truncate">
+            {isMedia ? getMediaKindLabel(data.kind) : data.title}
+          </BaseNodeHeaderTitle>
         </BaseNodeHeader>
         <BaseNodeContent>
           {data.kind === "image" && imageUrl ? (
             <div className="space-y-2">
-              <div className="overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+              <div className="overflow-hidden rounded-lg border border-border bg-muted">
                 <img
                   src={imageUrl}
                   alt="Vista previa de imagen del nodo"
@@ -193,18 +271,85 @@ function ChatbotFlowNode({ data, selected }: NodeProps<Node<FlowNodeData>>) {
                 />
               </div>
               {imageCaption ? (
-                <p className="line-clamp-3 whitespace-pre-line text-sm leading-5 text-slate-700">{imageCaption}</p>
+                <p className="line-clamp-3 whitespace-pre-line text-sm leading-5 text-foreground">{imageCaption}</p>
+              ) : null}
+            </div>
+          ) : isMedia ? (
+            <div className="space-y-2">
+              {mediaUrl ? (
+                <div className="flex items-center gap-2.5 rounded-lg border border-border bg-muted px-2.5 py-1.5">
+                  {data.kind === "document" ? (
+                    <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-red-600 text-[11px] font-bold tracking-tight text-white shadow-sm">
+                      {(mediaFileName.includes(".") ? mediaFileName.split(".").pop()! : "PDF").slice(0, 4).toUpperCase()}
+                    </span>
+                  ) : (
+                    <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-card shadow-sm">
+                      {headerIcon}
+                    </span>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-foreground">
+                      {mediaFileName || `${getMediaKindLabel(data.kind)} adjunto`}
+                    </p>
+                    <p className="text-xs text-muted-foreground">{getMediaKindLabel(data.kind)}</p>
+                  </div>
+                  {selected ? (
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        data.onClearFile?.(id);
+                      }}
+                      className="nodrag inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-card hover:text-foreground"
+                      aria-label="Quitar archivo"
+                      title="Quitar archivo"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  ) : null}
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  disabled={isUploading}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    fileInputRef.current?.click();
+                  }}
+                  className="nodrag flex w-full items-center gap-3 rounded-lg border border-dashed border-border bg-muted/40 px-3 py-3 text-left transition hover:border-violet-400 hover:bg-violet-50/60 disabled:cursor-not-allowed disabled:opacity-70 dark:hover:bg-violet-950/30"
+                >
+                  <Upload className="h-5 w-5 shrink-0 text-violet-600" />
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium text-foreground">
+                      {isUploading ? "Subiendo..." : `Cargar ${getMediaKindLabel(data.kind).toLowerCase()}`}
+                    </span>
+                    <span className="block text-xs text-muted-foreground">Haz clic para subir el archivo</span>
+                  </span>
+                </button>
+              )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept={isUploadableNodeKind(data.kind) ? getUploadAcceptByKind(data.kind) : undefined}
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.currentTarget.files?.[0] ?? null;
+                  event.currentTarget.value = "";
+                  if (!file) {
+                    return;
+                  }
+                  setIsUploading(true);
+                  void Promise.resolve(data.onUpload?.(id, file)).finally(() => setIsUploading(false));
+                }}
+              />
+              {mediaCaption ? (
+                <p className="line-clamp-3 whitespace-pre-line text-sm leading-5 text-foreground">{mediaCaption}</p>
               ) : null}
             </div>
           ) : (
-            <p className="line-clamp-4 whitespace-pre-line text-sm leading-5 text-slate-700">{preview}</p>
+            <p className="line-clamp-4 whitespace-pre-line text-sm leading-5 text-foreground">{preview}</p>
           )}
         </BaseNodeContent>
-        <BaseNodeFooter>
-          <p className="truncate text-xs text-slate-500">
-            {data.meta.trim() ? `Meta: ${data.meta}` : data.orderLabel}
-          </p>
-        </BaseNodeFooter>
       </BaseNode>
       <Handle
         id="source"
@@ -217,6 +362,60 @@ function ChatbotFlowNode({ data, selected }: NodeProps<Node<FlowNodeData>>) {
 }
 
 const nodeTypes = { chatbotNode: ChatbotFlowNode };
+
+type FlowEdgeData = {
+  onDelete?: (edgeId: string) => void;
+};
+
+function ChatbotFlowEdge({
+  id,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  targetPosition,
+  markerEnd,
+  style,
+  data,
+}: EdgeProps) {
+  const [edgePath, labelX, labelY] = getBezierPath({
+    sourceX,
+    sourceY,
+    sourcePosition,
+    targetX,
+    targetY,
+    targetPosition,
+  });
+  const edgeData = data as FlowEdgeData | undefined;
+
+  return (
+    <>
+      <BaseEdge id={id} path={edgePath} markerEnd={markerEnd} style={style} />
+      <EdgeLabelRenderer>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            edgeData?.onDelete?.(id);
+          }}
+          className="nodrag nopan inline-flex h-5 w-5 items-center justify-center rounded-full border border-blue-300 bg-card text-blue-600 opacity-80 shadow-sm transition hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700 hover:opacity-100 dark:border-blue-800 dark:hover:bg-blue-950/40"
+          style={{
+            position: "absolute",
+            transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+            pointerEvents: "all",
+          }}
+          aria-label="Eliminar conexion"
+          title="Eliminar conexion"
+        >
+          <X className="h-3 w-3" />
+        </button>
+      </EdgeLabelRenderer>
+    </>
+  );
+}
+
+const edgeTypes = { chatbotEdge: ChatbotFlowEdge };
 
 type ChatbotFlowCanvasProps = {
   scenarioKey: string;
@@ -378,6 +577,7 @@ function ChatbotFlowCanvas({
       nodes={canvasNodes}
       edges={previewEdge ? [...canvasEdges, previewEdge] : canvasEdges}
       nodeTypes={nodeTypes}
+      edgeTypes={edgeTypes}
       onNodesChange={(changes) => {
         onCanvasNodesChange(changes);
         onNodesChange(changes);
@@ -444,6 +644,11 @@ function ChatbotFlowCanvas({
       onNodeClick={(event, node: Node) => {
         const target = event.target as HTMLElement | null;
         if (target?.closest(".react-flow__handle")) {
+          return;
+        }
+        // El nodo de documento se gestiona desde el propio nodo (recuadro de carga + toolbar),
+        // sin abrir el modal de edicion. Los demas tipos siguen abriendolo.
+        if ((node.data as FlowNodeData | undefined)?.kind === "document") {
           return;
         }
         onNodeOpen(node.id);
@@ -582,20 +787,6 @@ const blockLibrary = [
     description: "Nombre, ciudad, producto o presupuesto.",
     icon: UserRound,
     style: "bg-emerald-50 text-emerald-700 ring-emerald-200",
-  },
-  {
-    id: "condition",
-    title: "Condicion",
-    description: "Rama por horario o intencion.",
-    icon: Split,
-    style: "bg-amber-50 text-amber-700 ring-amber-200",
-  },
-  {
-    id: "action",
-    title: "Accion",
-    description: "Asignar asesor, etiquetar o cerrar.",
-    icon: Zap,
-    style: "bg-slate-100 text-slate-700 ring-slate-200",
   },
 ] as const;
 
@@ -954,6 +1145,19 @@ export function OfficialApiChatbotWorkspace({
 
     return normalizeScenarioEdges(nodes, edgesByScenarioId[selectedScenario.id]);
   }, [edgesByScenarioId, nodes, selectedScenario]);
+  const deleteEdgeById = useCallback((edgeId: string) => {
+    if (!selectedScenario) {
+      return;
+    }
+
+    setEdgesByScenarioId((current) => {
+      const currentEdges = current[selectedScenario.id] ?? buildSequentialEdges(nodes);
+      return {
+        ...current,
+        [selectedScenario.id]: currentEdges.filter((currentEdge) => currentEdge.id !== edgeId),
+      };
+    });
+  }, [nodes, selectedScenario]);
   const flowNodes = useMemo<Node<FlowNodeData>[]>(
     () =>
       nodes.map((node, index) => ({
@@ -967,9 +1171,13 @@ export function OfficialApiChatbotWorkspace({
           title: getOrderedNodeTitle(node, index),
           body: getNodeBodyForDisplay(node),
           meta: node.meta,
-          orderLabel: `Paso ${index + 1}`,
+          onDelete: handleDeleteNode,
+          onDuplicate: handleDuplicateNode,
+          onUpload: handleNodeFileUpload,
+          onClearFile: handleClearNodeFile,
         },
       })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [nodes, scenarioNodePositions],
   );
   const flowEdges = useMemo<Edge[]>(
@@ -980,12 +1188,14 @@ export function OfficialApiChatbotWorkspace({
         sourceHandle: "source",
         target: edge.target,
         targetHandle: "target",
-        type: "default",
+        type: "chatbotEdge",
         animated: false,
         pathOptions: { curvature: 0.35 },
         markerEnd: { type: MarkerType.ArrowClosed, color: "rgba(37,99,235,0.95)" },
         style: { stroke: "rgba(37,99,235,0.82)", strokeWidth: 2.1, strokeLinecap: "round" },
+        data: { onDelete: deleteEdgeById },
       })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [scenarioEdges],
   );
   const edgeAppearance = useMemo<EdgeAppearance>(
@@ -1577,18 +1787,8 @@ export function OfficialApiChatbotWorkspace({
   }, [connectNodesByIds]);
 
   const handleEdgeClick = useCallback((_event: MouseEvent, edge: Edge) => {
-    if (!selectedScenario) {
-      return;
-    }
-
-    setEdgesByScenarioId((current) => {
-      const currentEdges = current[selectedScenario.id] ?? buildSequentialEdges(nodes);
-      return {
-        ...current,
-        [selectedScenario.id]: currentEdges.filter((currentEdge) => currentEdge.id !== edge.id),
-      };
-    });
-  }, [nodes, selectedScenario]);
+    deleteEdgeById(edge.id);
+  }, [deleteEdgeById]);
 
   function handleDeleteNode(nodeId: string) {
     if (!selectedScenario) {
@@ -1615,6 +1815,52 @@ export function OfficialApiChatbotWorkspace({
 
     setSelectedNodeId(nextNodes[0]?.id ?? "");
     setIsNodeEditorOpen(false);
+  }
+
+  function handleDuplicateNode(nodeId: string) {
+    if (!selectedScenario) {
+      return;
+    }
+
+    const currentNodes = nodesByScenarioId[selectedScenario.id] ?? [];
+    const sourceIndex = currentNodes.findIndex((node) => node.id === nodeId);
+    const sourceNode = currentNodes[sourceIndex];
+    if (!sourceNode || sourceNode.kind === "trigger") {
+      return;
+    }
+
+    const copyNode: BuilderNode = {
+      id: createNodeId(sourceNode.kind),
+      kind: sourceNode.kind,
+      title: sourceNode.title,
+      body: sourceNode.body,
+      meta: sourceNode.meta,
+    };
+
+    const nextNodes = [
+      ...currentNodes.slice(0, sourceIndex + 1),
+      copyNode,
+      ...currentNodes.slice(sourceIndex + 1),
+    ];
+
+    const sourcePosition = getSafePosition(scenarioNodePositions[nodeId], Math.max(0, sourceIndex));
+    const copyPosition: NodePosition = {
+      x: sourcePosition.x + 40,
+      y: sourcePosition.y + 80,
+    };
+
+    setNodesByScenarioId((current) => ({
+      ...current,
+      [selectedScenario.id]: nextNodes,
+    }));
+    setNodePositionsByScenarioId((current) => ({
+      ...current,
+      [selectedScenario.id]: {
+        ...(current[selectedScenario.id] ?? {}),
+        [copyNode.id]: copyPosition,
+      },
+    }));
+    setSelectedNodeId(copyNode.id);
   }
 
   function handleDeleteOutgoingConnection(nodeId: string) {
@@ -1672,6 +1918,54 @@ export function OfficialApiChatbotWorkspace({
       });
     } finally {
       setIsUploadingNodeImage(false);
+    }
+  }
+
+  function handleClearNodeFile(nodeId: string) {
+    updateNode(nodeId, { meta: "" });
+  }
+
+  async function handleNodeFileUpload(nodeId: string, file: File | null) {
+    if (!file || !selectedScenario) {
+      return;
+    }
+
+    const scenarioNodes = nodesByScenarioId[selectedScenario.id] ?? [];
+    const node = scenarioNodes.find((current) => current.id === nodeId);
+    if (!node || !isUploadableNodeKind(node.kind)) {
+      return;
+    }
+
+    const uploadLabel = getUploadLabelByKind(node.kind);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const response = await fetch(uploadEndpoint, {
+        method: "POST",
+        body: formData,
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | { ok?: boolean; url?: string; fileName?: string; error?: string }
+        | null;
+
+      if (!response.ok || !payload?.ok || !payload.url) {
+        throw new Error(payload?.error || `No se pudo subir el ${uploadLabel}.`);
+      }
+
+      const nodeUpdates: Record<string, string> = { meta: payload.url };
+      if (node.kind === "document" && payload.fileName) {
+        nodeUpdates.title = payload.fileName;
+      }
+      updateNode(nodeId, nodeUpdates);
+      toast.success(`${uploadLabel[0].toUpperCase()}${uploadLabel.slice(1)} subido`, {
+        description: "La URL quedo cargada en el nodo.",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : `No se pudo subir el ${uploadLabel}.`;
+      toast.error(`Error al subir ${uploadLabel}`, {
+        description: message,
+      });
     }
   }
 
@@ -1786,47 +2080,28 @@ export function OfficialApiChatbotWorkspace({
   ]);
 
   return (
-    <section className={hasSelectedFlow ? "space-y-4" : "overflow-hidden"}>
-      <Card
-        className={`overflow-hidden border border-[rgba(15,23,42,0.1)] bg-[linear-gradient(180deg,rgba(248,250,252,0.98)_0%,rgba(255,255,255,0.99)_100%)] p-0 shadow-[0_30px_90px_-54px_rgba(15,23,42,0.3)] ${
-          hasSelectedFlow ? "" : "h-[calc(100dvh-12rem)] max-h-[760px]"
-        }`}
-      >
-        <div className={hasWorkflows && !hasSelectedFlow ? "px-5 py-5" : "hidden"}>
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
-                  <Workflow className="h-4.5 w-4.5" />
-                </span>
-                <p className="text-2xl font-semibold tracking-[-0.03em] text-slate-950">Flujos
-                </p>
-              </div>
-            </div>
+    <section className="space-y-4">
+      {hasWorkflows && !hasSelectedFlow ? (
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                size="sm"
-                className="h-9 rounded-lg px-4"
-                onClick={openCreateWorkflowModal}
-              >
-                <Plus className="h-3.5 w-3.5" />
-                Crear
-              </Button>
-              {hasSelectedFlow ? (
-                <Button type="button" size="sm" className="rounded-md" onClick={handleSaveBuilder} disabled={isSaving}>
-                  <Save className="h-3.5 w-3.5" />
-                  {isSaving ? "Guardando..." : "Guardar"}
-                </Button>
-              ) : null}
+              <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <Workflow className="h-5 w-5" />
+              </span>
+              <h1 className="text-2xl font-semibold tracking-tight">Flujos</h1>
             </div>
+            <Button type="button" size="sm" onClick={openCreateWorkflowModal}>
+              <Plus className="h-4 w-4" />
+              Crear
+            </Button>
           </div>
-          <div className="mt-5 space-y-3">
+          <div className="space-y-3">
             {scenarios.map((scenario) => (
-              <div
+              <Card
                 key={scenario.id}
                 role="button"
                 tabIndex={0}
+                size="sm"
                 onClick={() => router.push(`${basePath}/${scenario.id}${routeQuery}`)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") {
@@ -1834,80 +2109,57 @@ export function OfficialApiChatbotWorkspace({
                     router.push(`${basePath}/${scenario.id}${routeQuery}`);
                   }
                 }}
-                className={`flex items-center justify-between rounded-2xl border p-3.5 shadow-[0_10px_22px_-18px_rgba(15,23,42,0.2)] transition ${
-                  selectedScenarioId === scenario.id
-                    ? "border-[color-mix(in_srgb,var(--primary)_26%,white)] bg-[color-mix(in_srgb,var(--primary)_4%,white)]"
-                    : "border-slate-200 bg-white hover:border-slate-300"
-                } cursor-pointer`}
+                className="flex-row items-center justify-between gap-3 px-4 cursor-pointer transition-colors hover:bg-accent/50"
               >
-                <div className="flex min-w-0 items-center gap-3 text-left">
-                  <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--primary)_14%,white)] text-[var(--primary)] ring-1 ring-[color-mix(in_srgb,var(--primary)_28%,white)]">
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
                     <FileText className="h-4 w-4" />
                   </span>
-                  <span className="truncate text-base font-semibold text-slate-800">{scenario.title}</span>
-                  <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-[11px] font-semibold tracking-[0.08em] text-slate-600">
-                    {getWorkflowTypeLabel(scenario.flowType)}
-                  </span>
+                  <span className="truncate font-medium">{scenario.title}</span>
+                  <Badge variant="secondary">{getWorkflowTypeLabel(scenario.flowType)}</Badge>
                 </div>
-                <div className="relative ml-3 flex items-center gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    className="h-9 w-9 rounded-md"
-                    aria-label="Opciones del workflow"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      setOpenMenuScenarioId((current) => (current === scenario.id ? "" : scenario.id));
-                    }}
-                  >
-                    <MoreVertical className="h-4 w-4" />
-                  </Button>
-                  {openMenuScenarioId === scenario.id ? (
-                    <div className="absolute right-0 top-11 z-20 w-48 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-[0_22px_48px_-30px_rgba(15,23,42,0.35)]">
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          openQuickResponsesModal(scenario.id);
-                          return;
-                        }}
-                        className="flex w-full items-center gap-2 whitespace-nowrap px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50"
-                      >
-                        <MessageSquarePlus className="h-4 w-4" />
-                        Respuestas rápidas
-                      </button>
-                      <button
-                        type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            openEditWorkflowIntentModal(scenario);
-                          }}
-                        className="flex w-full items-center gap-2 whitespace-nowrap px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50"
-                      >
-                        <FileText className="h-4 w-4" />
-                        Editar intención
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          handleDeleteRequest(scenario);
-                        }}
-                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-rose-600 transition hover:bg-rose-50"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                        Eliminar
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
-              </div>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      aria-label="Opciones del workflow"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <MoreVertical className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => openQuickResponsesModal(scenario.id)}>
+                      <MessageSquarePlus className="h-4 w-4" />
+                      Respuestas rápidas
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => openEditWorkflowIntentModal(scenario)}>
+                      <FileText className="h-4 w-4" />
+                      Editar intención
+                    </DropdownMenuItem>
+                    <DropdownMenuItem variant="destructive" onClick={() => handleDeleteRequest(scenario)}>
+                      <Trash2 className="h-4 w-4" />
+                      Eliminar
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </Card>
             ))}
           </div>
         </div>
 
-        <div className={hasSelectedFlow || !hasWorkflows ? "grid min-h-[76vh]" : "hidden"}>
+      ) : (
+        <Card
+          className={cn(
+            "overflow-hidden p-0",
+            hasSelectedFlow
+              ? "h-[calc(100dvh-4rem)]"
+              : "h-[calc(100dvh-12rem)] max-h-[760px]",
+          )}
+        >
+        <div className="flex h-full min-h-0">
           <aside className="hidden">
             <div className="space-y-5 p-4">
               <div className="flex items-center justify-between">
@@ -1985,31 +2237,31 @@ export function OfficialApiChatbotWorkspace({
           </aside>
 
           <main
-            className={`relative overflow-hidden ${
+            className={`relative h-full min-h-0 w-full flex-1 overflow-hidden ${
               hasSelectedFlow
-                ? "bg-[radial-gradient(circle_at_top,rgba(203,213,225,0.62),transparent_36%),linear-gradient(180deg,#f8fafc_0%,#eef2f7_100%)]"
-                : "bg-white"
+                ? "bg-[radial-gradient(circle_at_top,rgba(203,213,225,0.62),transparent_36%),linear-gradient(180deg,#f8fafc_0%,#eef2f7_100%)] dark:bg-[radial-gradient(circle_at_top,rgba(30,41,59,0.7),transparent_36%),linear-gradient(180deg,#0f172a_0%,#020617_100%)]"
+                : "bg-white dark:bg-slate-950"
             }`}
           >
             <div
               className={`relative ${
                 hasSelectedFlow
-                  ? "h-[76vh] overflow-hidden"
-                  : "grid min-h-[calc(100dvh-18rem)] place-items-center overflow-hidden"
+                  ? "h-full overflow-hidden"
+                  : "grid h-full min-h-[calc(100dvh-18rem)] place-items-center overflow-hidden"
               }`}
             >
               {selectedScenario ? (
                 <div className="relative h-full w-full overflow-hidden bg-transparent">
                   <div className="pointer-events-none absolute left-4 top-4 z-20 flex items-center gap-2">
-                    <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
+                    <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-xs font-medium text-slate-700 ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700">
                       <Route className="h-3.5 w-3.5 text-sky-600" />
                       {selectedScenario?.title ?? "Flujo"}
                     </span>
-                    <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
+                    <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-xs font-medium text-slate-700 ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700">
                       <Bot className="h-3.5 w-3.5 text-violet-600" />
                       {nodes.length} bloques
                     </span>
-                    <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
+                    <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-xs font-medium text-slate-700 ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700">
                       <Split className="h-3.5 w-3.5 text-blue-600" />
                       {renderEdges.length} conexiones
                     </span>
@@ -2038,59 +2290,25 @@ export function OfficialApiChatbotWorkspace({
                       {isBlockLibraryOpen ? (
                         <div
                           ref={blockLibraryPanelRef}
-                          className="absolute right-0 top-11 z-20 w-64 overflow-hidden rounded-xl border border-slate-200 bg-white py-2 shadow-[0_22px_48px_-30px_rgba(15,23,42,0.35)]"
+                          className="absolute right-0 top-11 z-20 max-h-[70vh] w-64 overflow-y-auto rounded-xl border border-slate-200 bg-white py-2 shadow-[0_22px_48px_-30px_rgba(15,23,42,0.35)] dark:border-slate-700 dark:bg-slate-900"
                         >
-                          <p className="px-3 pb-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                            {blockLibrarySection === "root" ? "Agregar nodo" : "Enviar"}
+                          <p className="px-3 pb-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+                            Agregar nodo
                           </p>
-                          {blockLibrarySection === "send" ? (
-                            <button
-                              type="button"
-                              onClick={() => setBlockLibrarySection("root")}
-                              className="mx-2 mb-1 flex w-[calc(100%-1rem)] items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs font-medium text-slate-600 transition hover:bg-slate-50"
-                            >
-                              <ChevronLeft className="h-3.5 w-3.5" />
-                              Volver
-                            </button>
-                          ) : null}
                           <div className="grid gap-1 px-2">
-                            {(blockLibrarySection === "root"
-                              ? [
-                                  {
-                                    id: "send",
-                                    title: "Enviar",
-                                    description: "Texto, imagen o audio.",
-                                    icon: MessageSquarePlus,
-                                    style: "bg-sky-50 text-sky-700 ring-sky-200",
-                                  },
-                                  ...blockLibrary,
-                                ]
-                              : sendBlockLibrary).map((block) => {
+                            {[...sendBlockLibrary, ...blockLibrary].map((block) => {
                               const Icon = block.icon;
+                              const iconColor = block.style.split(" ").find((token) => token.startsWith("text-")) ?? "text-slate-600";
                               return (
                                 <button
                                   key={block.id}
                                   type="button"
-                                  onClick={() => {
-                                    if (block.id === "send") {
-                                      setBlockLibrarySection("send");
-                                      return;
-                                    }
-                                    addBlock(block.id as BuilderNode["kind"]);
-                                  }}
-                                  className="flex w-full items-start gap-3 rounded-lg px-2 py-2 text-left transition hover:bg-slate-50"
+                                  onClick={() => addBlock(block.id as BuilderNode["kind"])}
+                                  className="flex w-full items-center gap-3 rounded-lg border border-slate-200 px-3 py-2.5 text-left transition hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:hover:border-slate-600 dark:hover:bg-slate-800"
                                 >
-                                  <span className={`mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-lg ring-1 ${block.style}`}>
-                                    <Icon className="h-3.5 w-3.5" />
-                                  </span>
-                                  <span>
-                                    <span className="inline-flex items-center gap-1 text-sm font-semibold text-slate-900">
-                                      {block.title}
-                                      {block.id === "send" ? <ChevronRight className="h-3.5 w-3.5 text-slate-400" /> : null}
-                                    </span>
-                                    {blockLibrarySection === "root" ? (
-                                      <span className="block text-xs leading-5 text-slate-500">{block.description}</span>
-                                    ) : null}
+                                  <Icon className={cn("h-4 w-4 shrink-0", iconColor)} />
+                                  <span className="text-sm text-slate-900 dark:text-slate-100">
+                                    {block.title}
                                   </span>
                                 </button>
                               );
@@ -2178,7 +2396,7 @@ export function OfficialApiChatbotWorkspace({
                         />
                       </label>
                       <label className="block space-y-2">
-                        <span className="text-sm font-medium text-slate-900">Contenido</span>
+                        <span className="text-sm font-medium text-slate-900 dark:text-slate-100">Contenido</span>
                         <textarea
                           value={selectedNode.body}
                           onChange={(event) => updateNode(selectedNode.id, { body: event.target.value })}
@@ -2189,7 +2407,7 @@ export function OfficialApiChatbotWorkspace({
 
                       {selectedNode.kind === "condition" ? (
                         <label className="block space-y-2">
-                          <span className="text-sm font-medium text-slate-900">Meta / keywords</span>
+                          <span className="text-sm font-medium text-slate-900 dark:text-slate-100">Meta / keywords</span>
                           <Input
                             value={selectedNode.meta}
                             onChange={(event) => updateNode(selectedNode.id, { meta: event.target.value })}
@@ -2215,8 +2433,10 @@ export function OfficialApiChatbotWorkspace({
             </div>
           </aside>
         </div>
+        </Card>
+      )}
         {scenarioPendingDelete ? (
-          <div className="absolute inset-0 z-30 flex items-center justify-center bg-slate-950/25 p-6 backdrop-blur-[2px]">
+          <div className="fixed inset-0 z-30 flex items-center justify-center bg-slate-950/25 p-6 backdrop-blur-[2px]">
             <div className="w-full max-w-md overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_30px_80px_-48px_rgba(15,23,42,0.32)]">
               <div className="relative border-b border-slate-200 px-6 py-6 text-center">
                 <button
@@ -2244,7 +2464,7 @@ export function OfficialApiChatbotWorkspace({
           </div>
         ) : null}
         {isCreatingWorkflow ? (
-          <div className="absolute inset-0 z-20 flex items-center justify-center bg-slate-950/20 p-6 backdrop-blur-[2px]">
+          <div className="fixed inset-0 z-20 flex items-center justify-center bg-slate-950/20 p-6 backdrop-blur-[2px]">
             <div className="w-full max-w-md overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_30px_80px_-48px_rgba(15,23,42,0.32)]">
               <div className="relative border-b border-slate-200 px-6 py-7 text-center">
                 <button
@@ -2405,7 +2625,7 @@ export function OfficialApiChatbotWorkspace({
           </div>
         ) : null}
         {isQuickResponsesModalOpen && quickResponsesScenario ? (
-          <div className="absolute inset-0 z-40 flex items-center justify-center bg-slate-950/25 p-6 backdrop-blur-[2px]">
+          <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/25 p-6 backdrop-blur-[2px]">
             <div className="w-full max-w-3xl overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_30px_80px_-48px_rgba(15,23,42,0.32)]">
               <div className="relative border-b border-slate-200 px-6 py-5">
                 <button
@@ -2535,7 +2755,7 @@ export function OfficialApiChatbotWorkspace({
           </div>
         ) : null}
         {isEditingWorkflowIntent ? (
-          <div className="absolute inset-0 z-40 flex items-center justify-center bg-slate-950/25 p-6 backdrop-blur-[2px]">
+          <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/25 p-6 backdrop-blur-[2px]">
             <div className="w-full max-w-xl overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_30px_80px_-48px_rgba(15,23,42,0.32)]">
               <div className="relative border-b border-slate-200 px-6 py-5">
                   <button
@@ -2695,32 +2915,32 @@ export function OfficialApiChatbotWorkspace({
           </div>
         ) : null}
         {isNodeEditorOpen && selectedNode ? (
-          <div className="absolute inset-0 z-40 flex items-center justify-center bg-slate-950/25 p-6 backdrop-blur-[2px]">
-            <div className="w-full max-w-2xl overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_30px_80px_-48px_rgba(15,23,42,0.32)]">
-              <div className="relative border-b border-slate-200 px-6 py-5">
+          <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/25 p-6 backdrop-blur-[2px]">
+            <div className="w-full max-w-2xl overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_30px_80px_-48px_rgba(15,23,42,0.32)] dark:border-slate-700 dark:bg-slate-900">
+              <div className="relative border-b border-slate-200 px-6 py-5 dark:border-slate-700">
                 <button
                   type="button"
                   onClick={() => setIsNodeEditorOpen(false)}
-                  className="absolute right-4 top-4 inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                  className="absolute right-4 top-4 inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-300"
                   aria-label="Cerrar editor del nodo"
                 >
                   <X className="h-4 w-4" />
                 </button>
                 <div className="flex items-center gap-2">
-                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
+                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)] dark:bg-[color-mix(in_srgb,var(--primary)_22%,transparent)]">
                     <Settings2 className="h-4 w-4" />
                   </span>
-                  <p className="text-lg font-semibold text-slate-950">Editar nodo</p>
+                  <p className="text-lg font-semibold text-slate-950 dark:text-slate-50">Editar nodo</p>
                 </div>
               </div>
               <div className="space-y-4 px-6 py-5">
                 {selectedNode.kind === "trigger" ? (
                   <div className="space-y-3">
-                    <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                    <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 dark:border-slate-700 dark:bg-slate-800/50">
                       <div className="flex items-center justify-between gap-3">
                         <div>
-                          <p className="text-sm font-semibold text-slate-900">Modo de respuesta</p>
-                          <p className="mt-1 text-xs leading-5 text-slate-600">
+                          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Modo de respuesta</p>
+                          <p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-400">
                             Define si el flujo responde solo una vez al iniciar o en cada mensaje entrante.
                           </p>
                         </div>
@@ -2730,15 +2950,15 @@ export function OfficialApiChatbotWorkspace({
                           aria-label="Repetir respuesta en cada mensaje"
                         />
                       </div>
-                      <p className="mt-3 text-xs font-medium text-slate-700">
+                      <p className="mt-3 text-xs font-medium text-slate-700 dark:text-slate-300">
                         {replyEveryMessageEnabled ? "Repetir: responde en cada mensaje." : "Unico: responde solo al primer mensaje."}
                       </p>
                     </div>
-                    <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                    <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 dark:border-slate-700 dark:bg-slate-800/50">
                       <div className="flex items-center justify-between gap-3">
                         <div>
-                          <p className="text-sm font-semibold text-slate-900">Respuesta con IA</p>
-                          <p className="mt-1 text-xs leading-5 text-slate-600">
+                          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Respuesta con IA</p>
+                          <p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-400">
                             Después de ejecutar el flujo, la IA genera un mensaje de seguimiento.
                           </p>
                         </div>
@@ -2748,7 +2968,7 @@ export function OfficialApiChatbotWorkspace({
                           aria-label="Respuesta con IA después del flujo"
                         />
                       </div>
-                      <p className="mt-3 text-xs font-medium text-slate-700">
+                      <p className="mt-3 text-xs font-medium text-slate-700 dark:text-slate-300">
                         {selectedNode.aiFollowUpEnabled !== false ? "Activo: la IA responde después del flujo." : "Desactivado: el flujo responde sin IA."}
                       </p>
                     </div>
@@ -2756,7 +2976,7 @@ export function OfficialApiChatbotWorkspace({
                 ) : selectedNode.kind === "image" ? (
                   <>
                     <label className="block space-y-2">
-                      <span className="text-sm font-medium text-slate-900">URL de imagen</span>
+                      <span className="text-sm font-medium text-slate-900 dark:text-slate-100">URL de imagen</span>
                       <Input
                         value={selectedNode.meta}
                         onChange={(event) => updateNode(selectedNode.id, { meta: event.target.value })}
@@ -2767,7 +2987,7 @@ export function OfficialApiChatbotWorkspace({
                           Usa una URL directa de imagen (`.jpg`, `.png`, `.webp`, etc.) para evitar fallos al enviar.
                         </p>
                       ) : (
-                        <p className="text-xs text-slate-500">
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
                           Debe ser enlace directo de imagen publica.
                         </p>
                       )}
@@ -2799,7 +3019,7 @@ export function OfficialApiChatbotWorkspace({
                       ) : null}
                     </div>
                     <label className="block space-y-2">
-                      <span className="text-sm font-medium text-slate-900">Texto (opcional)</span>
+                      <span className="text-sm font-medium text-slate-900 dark:text-slate-100">Texto (opcional)</span>
                       <textarea
                         value={selectedNode.body}
                         onChange={(event) => updateNode(selectedNode.id, { body: event.target.value })}
@@ -2811,7 +3031,7 @@ export function OfficialApiChatbotWorkspace({
                 ) : selectedNode.kind === "audio" ? (
                   <>
                     <label className="block space-y-2">
-                      <span className="text-sm font-medium text-slate-900">URL de audio</span>
+                      <span className="text-sm font-medium text-slate-900 dark:text-slate-100">URL de audio</span>
                       <Input
                         value={selectedNode.meta}
                         onChange={(event) => updateNode(selectedNode.id, { meta: event.target.value })}
@@ -2844,12 +3064,12 @@ export function OfficialApiChatbotWorkspace({
                         <p className="text-xs text-rose-600">{nodeImageUploadError}</p>
                       ) : null}
                     </div>
-                    <p className="text-xs text-slate-500">Usa una URL publica directa del archivo de audio.</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Usa una URL publica directa del archivo de audio.</p>
                   </>
                 ) : selectedNode.kind === "video" ? (
                   <>
                     <label className="block space-y-2">
-                      <span className="text-sm font-medium text-slate-900">URL de video</span>
+                      <span className="text-sm font-medium text-slate-900 dark:text-slate-100">URL de video</span>
                       <Input
                         value={selectedNode.meta}
                         onChange={(event) => updateNode(selectedNode.id, { meta: event.target.value })}
@@ -2882,12 +3102,12 @@ export function OfficialApiChatbotWorkspace({
                         <p className="text-xs text-rose-600">{nodeImageUploadError}</p>
                       ) : null}
                     </div>
-                    <p className="text-xs text-slate-500">Usa una URL publica directa del video.</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Usa una URL publica directa del video.</p>
                   </>
                 ) : selectedNode.kind === "document" ? (
                   <>
                     <label className="block space-y-2">
-                      <span className="text-sm font-medium text-slate-900">URL de documento</span>
+                      <span className="text-sm font-medium text-slate-900 dark:text-slate-100">URL de documento</span>
                       <Input
                         value={selectedNode.meta}
                         onChange={(event) => updateNode(selectedNode.id, { meta: event.target.value })}
@@ -2920,11 +3140,11 @@ export function OfficialApiChatbotWorkspace({
                         <p className="text-xs text-rose-600">{nodeImageUploadError}</p>
                       ) : null}
                     </div>
-                    <p className="text-xs text-slate-500">Usa una URL publica directa (PDF recomendado).</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Usa una URL publica directa (PDF recomendado).</p>
                   </>
                 ) : (
                   <label className="block space-y-2">
-                    <span className="text-sm font-medium text-slate-900">Contenido</span>
+                    <span className="text-sm font-medium text-slate-900 dark:text-slate-100">Contenido</span>
                     <textarea
                       value={selectedNode.body}
                       onChange={(event) => updateNode(selectedNode.id, { body: event.target.value })}
@@ -2935,7 +3155,7 @@ export function OfficialApiChatbotWorkspace({
                 )}
                 {selectedNode.kind === "condition" ? (
                   <label className="block space-y-2">
-                    <span className="text-sm font-medium text-slate-900">Meta / keywords</span>
+                    <span className="text-sm font-medium text-slate-900 dark:text-slate-100">Meta / keywords</span>
                     <Input
                       value={selectedNode.meta}
                       onChange={(event) => updateNode(selectedNode.id, { meta: event.target.value })}
@@ -2943,7 +3163,7 @@ export function OfficialApiChatbotWorkspace({
                   </label>
                 ) : null}
               </div>
-              <div className="flex items-center justify-between border-t border-slate-200 px-6 py-4">
+              <div className="flex items-center justify-between border-t border-slate-200 px-6 py-4 dark:border-slate-700">
                 {selectedNode.kind !== "trigger" ? (
                   <div className="flex items-center gap-2">
                     <Button
@@ -2973,7 +3193,6 @@ export function OfficialApiChatbotWorkspace({
             </div>
           </div>
         ) : null}
-      </Card>
     </section>
   );
 }

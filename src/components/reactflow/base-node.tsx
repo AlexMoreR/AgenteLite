@@ -8,7 +8,7 @@ export function BaseNode({
   return (
     <div
       className={cn(
-        "rounded-2xl border border-slate-200 bg-white shadow-[0_18px_40px_-28px_rgba(15,23,42,0.35)]",
+        "rounded-2xl border border-border bg-card text-card-foreground shadow-[0_18px_40px_-28px_rgba(15,23,42,0.35)]",
         className,
       )}
       {...props}
@@ -22,7 +22,7 @@ export function BaseNodeHeader({
 }: ComponentPropsWithoutRef<"div">) {
   return (
     <div
-      className={cn("flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-3", className)}
+      className={cn("flex items-start justify-between gap-3 border-b border-border px-4 py-3", className)}
       {...props}
     />
   );
@@ -34,7 +34,7 @@ export function BaseNodeHeaderTitle({
 }: ComponentPropsWithoutRef<"h4">) {
   return (
     <h4
-      className={cn("text-sm font-semibold leading-5 text-slate-900", className)}
+      className={cn("text-sm font-semibold leading-5 text-card-foreground", className)}
       {...props}
     />
   );
@@ -58,7 +58,7 @@ export function BaseNodeFooter({
 }: ComponentPropsWithoutRef<"div">) {
   return (
     <div
-      className={cn("border-t border-slate-200 px-4 py-2.5", className)}
+      className={cn("border-t border-border px-4 py-2.5", className)}
       {...props}
     />
   );

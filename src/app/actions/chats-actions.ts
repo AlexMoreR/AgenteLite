@@ -838,6 +838,37 @@ export async function createEtiquetaAction(
   return { success: true };
 }
 
+// Elimina una etiqueta del workspace por completo (no solo del chat). Las asociaciones
+// ContactTag se borran en cascada y las referencias en ContactMatch se ponen en null
+// (definido en el esquema), así que basta borrar la fila Tag.
+export async function deleteEtiquetaAction(tagId: string): Promise<{ error?: string; success?: boolean }> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
+    return { error: "No autorizado" };
+  }
+  await requireClientWorkspaceAccess("chats");
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) return { error: "Workspace no encontrado" };
+
+  // Eliminar una etiqueta es destructivo y afecta a TODO el workspace: solo administradores
+  // (dueño/admin). Empleados y colaboradores solo pueden asignar/quitar etiquetas.
+  const isManager = membership.role === "OWNER" || membership.role === "ADMIN";
+  if (!isManager) {
+    return { error: "Solo un administrador puede eliminar etiquetas" };
+  }
+
+  const tag = await prisma.tag.findFirst({
+    where: { id: tagId, workspaceId: membership.workspace.id },
+    select: { id: true },
+  });
+  if (!tag) return { error: "Etiqueta no encontrada" };
+
+  await prisma.tag.delete({ where: { id: tagId } });
+
+  return { success: true };
+}
+
 export async function getContactTagIdsAction(contactId: string): Promise<{ tagIds?: string[]; error?: string }> {
   const session = await auth();
   if (!session?.user?.id) return { error: "No autorizado" };
