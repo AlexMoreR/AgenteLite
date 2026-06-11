@@ -35,7 +35,7 @@ import {
   ConnectionMode,
   Controls,
   EdgeLabelRenderer,
-  getBezierPath,
+  getSmoothStepPath,
   Handle,
   MarkerType,
   NodeToolbar,
@@ -110,6 +110,11 @@ type FlowNodeData = {
   onDuplicate?: (nodeId: string) => void;
   onUpload?: (nodeId: string, file: File | null) => Promise<void> | void;
   onClearFile?: (nodeId: string) => void;
+  onChangeBody?: (nodeId: string, value: string) => void;
+  replyEveryMessage?: boolean;
+  aiFollowUp?: boolean;
+  onToggleReplyEveryMessage?: (value: boolean) => void;
+  onToggleAiFollowUp?: (value: boolean) => void;
 };
 type EdgeAppearance = {
   stroke: string;
@@ -145,13 +150,14 @@ function getWorkflowTypeLabel(flowType?: OfficialApiChatbotScenarioFlowType | nu
   return flowType === "chatbot" ? "CHATBOT" : "IA";
 }
 
-const MEDIA_NODE_KINDS = ["document", "audio", "video"] as const;
+const MEDIA_NODE_KINDS = ["image", "audio", "video", "document"] as const;
 
-function isMediaNodeKind(kind: BuilderNode["kind"]): kind is "document" | "audio" | "video" {
+function isMediaNodeKind(kind: BuilderNode["kind"]): kind is "image" | "audio" | "video" | "document" {
   return (MEDIA_NODE_KINDS as readonly string[]).includes(kind);
 }
 
 function getMediaKindLabel(kind: BuilderNode["kind"]) {
+  if (kind === "image") return "Imagen";
   if (kind === "document") return "Documento";
   if (kind === "audio") return "Audio";
   if (kind === "video") return "Video";
@@ -177,6 +183,23 @@ function ChatbotFlowNode({ id, data, selected }: NodeProps<Node<FlowNodeData>>) 
   const canDelete = data.kind !== "trigger";
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const isEditingBodyRef = useRef(false);
+  const bodyTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const [bodyDraft, setBodyDraft] = useState(data.body);
+  useEffect(() => {
+    if (!isEditingBodyRef.current) {
+      setBodyDraft(data.body);
+    }
+  }, [data.body]);
+  useEffect(() => {
+    const el = bodyTextareaRef.current;
+    if (el) {
+      el.style.height = "auto";
+      el.style.height = `${el.scrollHeight}px`;
+    }
+  }, [bodyDraft]);
+  const [replyOnce, setReplyOnce] = useState(!data.replyEveryMessage);
+  const [aiFollowUp, setAiFollowUp] = useState(data.aiFollowUp ?? true);
   const mediaUrl = isMedia ? data.meta.trim() : "";
   const mediaFileName = mediaUrl ? getFileNameFromUrl(mediaUrl) : "";
   const mediaCaption = isMedia ? data.body.trim() : "";
@@ -243,7 +266,7 @@ function ChatbotFlowNode({ id, data, selected }: NodeProps<Node<FlowNodeData>>) 
           id="target"
           type="target"
           position={Position.Left}
-          className="!h-3 !w-3 !border-2 !border-white !bg-sky-600"
+          className="!h-4 !w-4 !border-2 !border-white !bg-sky-600"
         />
       )}
       <BaseNode
@@ -261,14 +284,61 @@ function ChatbotFlowNode({ id, data, selected }: NodeProps<Node<FlowNodeData>>) 
           </BaseNodeHeaderTitle>
         </BaseNodeHeader>
         <BaseNodeContent>
-          {data.kind === "image" && imageUrl ? (
+          {data.kind === "trigger" ? (
+            <div className="space-y-3">
+              <div className="space-y-2">
+                <div
+                  className="nodrag flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/40 px-3 py-2"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <span className="text-sm text-foreground">Responder una sola vez</span>
+                  <Switch
+                    checked={replyOnce}
+                    onCheckedChange={(checked) => {
+                      setReplyOnce(checked);
+                      data.onToggleReplyEveryMessage?.(!checked);
+                    }}
+                    aria-label="Responder una sola vez"
+                  />
+                </div>
+                <div
+                  className="nodrag flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/40 px-3 py-2"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <span className="text-sm text-foreground">Responder final con IA</span>
+                  <Switch
+                    checked={aiFollowUp}
+                    onCheckedChange={(checked) => {
+                      setAiFollowUp(checked);
+                      data.onToggleAiFollowUp?.(checked);
+                    }}
+                    aria-label="Responder final con IA"
+                  />
+                </div>
+              </div>
+            </div>
+          ) : data.kind === "image" && imageUrl ? (
             <div className="space-y-2">
-              <div className="overflow-hidden rounded-lg border border-border bg-muted">
+              <div className="relative overflow-hidden rounded-lg border border-border bg-muted">
                 <img
                   src={imageUrl}
                   alt="Vista previa de imagen del nodo"
-                  className="h-36 w-full object-cover"
+                  className="mx-auto block h-auto max-h-[260px] w-auto max-w-full object-contain"
                 />
+                {selected ? (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      data.onClearFile?.(id);
+                    }}
+                    className="nodrag absolute right-2 top-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-black/55 text-white shadow-sm transition hover:bg-black/75"
+                    aria-label="Quitar imagen"
+                    title="Quitar imagen"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                ) : null}
               </div>
               {imageCaption ? (
                 <p className="line-clamp-3 whitespace-pre-line text-sm leading-5 text-foreground">{imageCaption}</p>
@@ -346,6 +416,26 @@ function ChatbotFlowNode({ id, data, selected }: NodeProps<Node<FlowNodeData>>) 
                 <p className="line-clamp-3 whitespace-pre-line text-sm leading-5 text-foreground">{mediaCaption}</p>
               ) : null}
             </div>
+          ) : data.kind === "message" ? (
+            <textarea
+              ref={bodyTextareaRef}
+              value={bodyDraft}
+              rows={3}
+              onFocus={() => {
+                isEditingBodyRef.current = true;
+              }}
+              onBlur={() => {
+                isEditingBodyRef.current = false;
+              }}
+              onChange={(event) => {
+                const value = event.target.value;
+                setBodyDraft(value);
+                data.onChangeBody?.(id, value);
+              }}
+              onClick={(event) => event.stopPropagation()}
+              placeholder="Escribe aqui la respuesta del bot."
+              className="nodrag nowheel block min-h-[64px] w-full resize-none overflow-hidden rounded-lg border border-border bg-background px-3 py-2 text-sm leading-5 text-foreground outline-none transition placeholder:text-muted-foreground focus:border-blue-400 focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-950"
+            />
           ) : (
             <p className="line-clamp-4 whitespace-pre-line text-sm leading-5 text-foreground">{preview}</p>
           )}
@@ -355,7 +445,7 @@ function ChatbotFlowNode({ id, data, selected }: NodeProps<Node<FlowNodeData>>) 
         id="source"
         type="source"
         position={Position.Right}
-        className="!h-3 !w-3 !border-2 !border-white !bg-blue-600"
+        className="!h-4 !w-4 !border-2 !border-white !bg-blue-600"
       />
     </>
   );
@@ -379,13 +469,14 @@ function ChatbotFlowEdge({
   style,
   data,
 }: EdgeProps) {
-  const [edgePath, labelX, labelY] = getBezierPath({
+  const [edgePath, labelX, labelY] = getSmoothStepPath({
     sourceX,
     sourceY,
     sourcePosition,
     targetX,
     targetY,
     targetPosition,
+    borderRadius: 14,
   });
   const edgeData = data as FlowEdgeData | undefined;
 
@@ -482,8 +573,8 @@ function getClosestNodeByProximity(input: {
   const { draggingNode, nodes, edges } = input;
   const draggingNodeId = draggingNode.id;
   const draggingPosition = draggingNode.position;
-  const hasEdge = (sourceId: string, targetId: string) =>
-    edges.some((edge) => edge.source === sourceId && edge.target === targetId);
+  const hasOutgoing = (sourceId: string) => edges.some((edge) => edge.source === sourceId);
+  const hasIncoming = (targetId: string) => edges.some((edge) => edge.target === targetId);
 
   let bestConnection: { sourceId: string; targetId: string } | null = null;
   let bestDistance = Number.POSITIVE_INFINITY;
@@ -497,7 +588,9 @@ function getClosestNodeByProximity(input: {
     const sourceId = shouldFlowFromLeftToRight ? node.id : draggingNodeId;
     const targetId = shouldFlowFromLeftToRight ? draggingNodeId : node.id;
 
-    if (hasEdge(sourceId, targetId)) {
+    // Solo sugerimos la conexion si ambos extremos estan libres: el origen sin salida
+    // y el destino sin entrada. Asi no aparece el preview cuando el nodo ya esta conectado.
+    if (hasOutgoing(sourceId) || hasIncoming(targetId)) {
       continue;
     }
 
@@ -606,7 +699,7 @@ function ChatbotFlowCanvas({
           sourceHandle: "source",
           target: candidate.targetId,
           targetHandle: "target",
-          type: "default",
+          type: "smoothstep",
           animated: false,
           markerEnd: { type: MarkerType.ArrowClosed, color: "rgba(37,99,235,0.45)" },
           style: {
@@ -646,9 +739,10 @@ function ChatbotFlowCanvas({
         if (target?.closest(".react-flow__handle")) {
           return;
         }
-        // El nodo de documento se gestiona desde el propio nodo (recuadro de carga + toolbar),
-        // sin abrir el modal de edicion. Los demas tipos siguen abriendolo.
-        if ((node.data as FlowNodeData | undefined)?.kind === "document") {
+        // Los nodos de medios (imagen, audio, video, documento) y el de mensaje se gestionan
+        // desde el propio nodo, sin abrir el modal. Los demas tipos lo abren.
+        const nodeKind = (node.data as FlowNodeData | undefined)?.kind;
+        if (nodeKind && (isMediaNodeKind(nodeKind) || nodeKind === "message")) {
           return;
         }
         onNodeOpen(node.id);
@@ -1175,6 +1269,11 @@ export function OfficialApiChatbotWorkspace({
           onDuplicate: handleDuplicateNode,
           onUpload: handleNodeFileUpload,
           onClearFile: handleClearNodeFile,
+          onChangeBody: handleChangeNodeBody,
+          replyEveryMessage: replyEveryMessageEnabled,
+          aiFollowUp: node.aiFollowUpEnabled !== false,
+          onToggleReplyEveryMessage: setReplyEveryMessageEnabled,
+          onToggleAiFollowUp: (value: boolean) => updateNode(node.id, { aiFollowUpEnabled: value }),
         },
       })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1796,8 +1895,17 @@ export function OfficialApiChatbotWorkspace({
     }
 
     const currentNodes = nodesByScenarioId[selectedScenario.id] ?? [];
-    if (currentNodes.find((node) => node.id === nodeId)?.kind === "trigger") {
+    const removedNode = currentNodes.find((node) => node.id === nodeId);
+    if (removedNode?.kind === "trigger") {
       return;
+    }
+    if (
+      removedNode &&
+      isMediaNodeKind(removedNode.kind) &&
+      removedNode.meta &&
+      !isMediaUrlReferencedByOthers(removedNode.meta, nodeId)
+    ) {
+      void deleteUploadedMedia(removedNode.meta);
     }
     const nextNodes = currentNodes.filter((node) => node.id !== nodeId);
 
@@ -1921,8 +2029,37 @@ export function OfficialApiChatbotWorkspace({
     }
   }
 
+  function isMediaUrlReferencedByOthers(url: string, excludeNodeId: string) {
+    return Object.values(nodesByScenarioId).some((scenarioNodes) =>
+      (scenarioNodes ?? []).some((node) => node.id !== excludeNodeId && node.meta === url),
+    );
+  }
+
+  async function deleteUploadedMedia(url: string) {
+    if (!url || !url.includes("/uploads/official-api-chatbot/")) {
+      return;
+    }
+    try {
+      await fetch(uploadEndpoint, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+    } catch {
+      // Silencioso: no bloquea el borrado del nodo si falla la limpieza del archivo.
+    }
+  }
+
   function handleClearNodeFile(nodeId: string) {
+    const node = nodes.find((current) => current.id === nodeId);
+    if (node?.meta && !isMediaUrlReferencedByOthers(node.meta, nodeId)) {
+      void deleteUploadedMedia(node.meta);
+    }
     updateNode(nodeId, { meta: "" });
+  }
+
+  function handleChangeNodeBody(nodeId: string, value: string) {
+    updateNode(nodeId, { body: value });
   }
 
   async function handleNodeFileUpload(nodeId: string, file: File | null) {

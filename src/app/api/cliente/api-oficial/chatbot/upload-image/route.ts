@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
@@ -162,4 +162,69 @@ export async function POST(request: Request) {
     url: baseUrl ? `${baseUrl}${relativeUrl}` : relativeUrl,
     relativeUrl,
   });
+}
+
+const UPLOAD_PUBLIC_PREFIX = "/uploads/official-api-chatbot/";
+
+function getManagedFileName(rawUrl: unknown): string | null {
+  if (typeof rawUrl !== "string" || !rawUrl.trim()) {
+    return null;
+  }
+
+  let pathname = rawUrl.trim();
+  try {
+    // Soporta tanto URLs absolutas como rutas relativas.
+    pathname = new URL(rawUrl, "http://local").pathname;
+  } catch {
+    // Si no es una URL valida, intentamos usar el string tal cual.
+  }
+
+  const prefixIndex = pathname.indexOf(UPLOAD_PUBLIC_PREFIX);
+  if (prefixIndex === -1) {
+    return null;
+  }
+
+  // path.basename neutraliza cualquier intento de path traversal.
+  const fileName = path.basename(pathname.slice(prefixIndex + UPLOAD_PUBLIC_PREFIX.length));
+  return fileName && fileName !== "." && fileName !== ".." ? fileName : null;
+}
+
+export async function DELETE(request: Request) {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
+    return NextResponse.json({ ok: false, error: "No autorizado" }, { status: 401 });
+  }
+  const access = await getClientWorkspaceAccessForUser(session.user.id);
+  if (!access || !canAccessClientModule(access, "client_official_api")) {
+    return NextResponse.json({ ok: false, error: "Modulo desactivado para este rol." }, { status: 403 });
+  }
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership?.workspace.id) {
+    return NextResponse.json({ ok: false, error: "Workspace no encontrado" }, { status: 404 });
+  }
+
+  const body = (await request.json().catch(() => null)) as { url?: string } | null;
+  const fileName = getManagedFileName(body?.url);
+  if (!fileName) {
+    // URL externa o invalida: no hay nada que borrar en nuestro disco.
+    return NextResponse.json({ ok: true, deleted: false });
+  }
+
+  const uploadDir = path.join(process.cwd(), "public", "uploads", "official-api-chatbot");
+  const filePath = path.join(uploadDir, fileName);
+  if (!filePath.startsWith(uploadDir + path.sep)) {
+    return NextResponse.json({ ok: false, error: "Ruta no permitida." }, { status: 400 });
+  }
+
+  try {
+    await unlink(filePath);
+    return NextResponse.json({ ok: true, deleted: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === "ENOENT") {
+      // El archivo ya no existe: lo tratamos como exito.
+      return NextResponse.json({ ok: true, deleted: false });
+    }
+    return NextResponse.json({ ok: false, error: "No se pudo eliminar el archivo." }, { status: 500 });
+  }
 }

@@ -1316,7 +1316,7 @@ function ComposerSendButton() {
       variant="ghost"
       size="icon"
       disabled={pending}
-      className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-[var(--primary)] transition hover:bg-background disabled:cursor-not-allowed disabled:opacity-70 md:size-8"
+      className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-[var(--primary)] transition hover:bg-muted-foreground/20 disabled:cursor-not-allowed disabled:opacity-70 md:size-8"
       aria-label={pending ? "Enviando mensaje" : "Enviar mensaje"}
     >
       <SendHorizonal className={`size-6 ${pending ? "animate-pulse" : ""}`} />
@@ -2994,22 +2994,6 @@ const ConversationPanel = memo(function ConversationPanel({
                                 }
                               }}
                             />
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => void handleSuggestReply()}
-                              disabled={isSuggestingReply || isSendingAudio}
-                              aria-label="Respuesta sugerida con IA"
-                              title="Respuesta sugerida con IA"
-                              className="inline-flex size-8 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-background hover:text-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:size-7"
-                            >
-                              {isSuggestingReply ? (
-                                <LoaderCircle className="size-5 animate-spin" />
-                              ) : (
-                                <Sparkles className="size-5" />
-                              )}
-                            </Button>
                             <Popover open={isAttachMenuOpen} onOpenChange={setIsAttachMenuOpen}>
                               <PopoverTrigger asChild>
                                 <Button
@@ -3127,6 +3111,22 @@ const ConversationPanel = memo(function ConversationPanel({
                           onBlur={(event) => syncComposerSelection(event.currentTarget)}
                           className="min-h-[42px] min-w-0 flex-1 resize-none bg-transparent py-2.5 pr-2 text-[14px] text-foreground placeholder:text-muted-foreground outline-none disabled:opacity-70 md:min-h-[38px] md:py-2 md:text-sm"
                         />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => void handleSuggestReply()}
+                          disabled={isSuggestingReply || isSendingAudio}
+                          aria-label="Respuesta sugerida con IA"
+                          title="Respuesta sugerida con IA"
+                          className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-muted-foreground/20 hover:text-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:size-8"
+                        >
+                          {isSuggestingReply ? (
+                            <LoaderCircle className="size-5 animate-spin" />
+                          ) : (
+                            <Sparkles className="size-5" />
+                          )}
+                        </Button>
                         {composerHasText || !audioConfig ? (
                           <ComposerSendButton />
                         ) : (
@@ -3138,7 +3138,7 @@ const ConversationPanel = memo(function ConversationPanel({
                             disabled={isSendingAudio}
                             aria-label="Grabar nota de voz"
                             title="Grabar nota de voz"
-                            className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-background focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:size-8"
+                            className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-muted-foreground/20 focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:size-8"
                           >
                             <Mic className="size-5" />
                           </Button>
