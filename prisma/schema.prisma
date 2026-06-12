@@ -128,6 +128,8 @@ model Agent {
   maxTokens           Int?
   isActive            Boolean                 @default(true)
   status              AgentStatus             @default(DRAFT)
+  agentType           AgentType               @default(V1)
+  graph               Json?
   createdAt           DateTime                @default(now())
   updatedAt           DateTime                @updatedAt
   trainingConfig      Json?
@@ -752,6 +754,11 @@ enum AgentStatus {
   ACTIVE
   PAUSED
   ARCHIVED
+}
+
+enum AgentType {
+  V1
+  V2
 }
 
 enum ChannelProvider {

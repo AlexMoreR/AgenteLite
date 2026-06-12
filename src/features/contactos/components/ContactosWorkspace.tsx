@@ -458,7 +458,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="min-w-44 rounded-2xl">
               <DropdownMenuItem
-                onSelect={() =>
+                onClick={() =>
                   router.push(
                     getContactosHref({
                       searchQuery: data.searchQuery,
@@ -797,7 +797,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
-                          onSelect={() => setDeleteModalOpen(true)}
+                          onClick={() => setDeleteModalOpen(true)}
                           className="gap-2 text-rose-600 focus:text-rose-700"
                         >
                           <Trash2 className="h-4 w-4" />

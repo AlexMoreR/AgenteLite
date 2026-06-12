@@ -14,7 +14,7 @@ export default async function ClienteAgentesPage({ searchParams }: PageProps) {
   const membership = await getPrimaryWorkspaceForUser(access.userId);
   const agents = membership
     ? await prisma.agent.findMany({
-        where: { workspaceId: membership.workspace.id },
+        where: { workspaceId: membership.workspace.id, agentType: "V1" },
         orderBy: { updatedAt: "desc" },
         include: {
           channels: {

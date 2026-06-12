@@ -8,7 +8,7 @@ export default async function ClienteAgenteV2Page() {
   const access = await requireClientWorkspaceAccess("agents_v2");
   const canUseOfficialApi = await canAccessOfficialApiModule(access.userId, access.role);
 
-  const [products, flowItems, workspace, channels] = await Promise.all([
+  const [products, flowItems, workspace, channels, agentRows] = await Promise.all([
     prisma.product.findMany({
       select: { id: true, name: true },
       orderBy: { name: "asc" },
@@ -25,6 +25,17 @@ export default async function ClienteAgenteV2Page() {
       where: { workspaceId: access.workspaceId },
       select: { id: true, name: true, phoneNumber: true, provider: true },
       orderBy: { createdAt: "asc" },
+    }),
+    prisma.agent.findMany({
+      where: { workspaceId: access.workspaceId, agentType: "V2" },
+      orderBy: { updatedAt: "desc" },
+      select: {
+        id: true,
+        name: true,
+        isActive: true,
+        graph: true,
+        channels: { select: { id: true } },
+      },
     }),
   ]);
 
@@ -53,6 +64,14 @@ export default async function ClienteAgenteV2Page() {
     label: [channel.name, channel.phoneNumber].filter(Boolean).join(" · ") || channel.provider,
   }));
 
+  const initialAgents = agentRows.map((agent) => ({
+    id: agent.id,
+    name: agent.name,
+    active: agent.isActive,
+    connectionId: agent.channels[0]?.id,
+    graph: (agent.graph ?? null) as unknown,
+  }));
+
   return (
     <section className="w-full overflow-x-hidden">
       <AgentV2Workspace
@@ -60,6 +79,7 @@ export default async function ClienteAgenteV2Page() {
         flows={flows}
         business={business}
         connections={connections}
+        initialAgents={initialAgents}
       />
     </section>
   );

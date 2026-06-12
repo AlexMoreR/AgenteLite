@@ -55,6 +55,7 @@ import {
 } from "@/components/reactflow/base-node";
 import { Switch } from "@/components/ui/switch";
 import { saveAgentV2BusinessConfigAction } from "@/app/actions/agent-v2-actions";
+import { toast } from "sonner";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select,
@@ -1157,10 +1158,6 @@ type StoredGraph = {
   edges: Array<Pick<Edge, "id" | "source" | "target" | "sourceHandle" | "targetHandle">>;
 };
 
-function graphStorageKey(agentId: string) {
-  return `agentV2.graph.${agentId}`;
-}
-
 function buildDefaultGraph(agentName: string): { nodes: Node[]; edges: Edge[] } {
   return {
     nodes: [
@@ -1203,19 +1200,12 @@ function buildDefaultGraph(agentName: string): { nodes: Node[]; edges: Edge[] } 
   };
 }
 
-function loadGraph(agentId: string, agentName: string): { nodes: Node[]; edges: Edge[] } {
-  if (typeof window === "undefined") {
+function loadGraph(initialGraph: unknown, agentName: string): { nodes: Node[]; edges: Edge[] } {
+  const parsed = initialGraph as StoredGraph | null;
+  if (!parsed || !Array.isArray(parsed.nodes) || parsed.nodes.length === 0) {
     return buildDefaultGraph(agentName);
   }
   try {
-    const raw = window.localStorage.getItem(graphStorageKey(agentId));
-    if (!raw) {
-      return buildDefaultGraph(agentName);
-    }
-    const parsed = JSON.parse(raw) as StoredGraph;
-    if (!Array.isArray(parsed?.nodes) || parsed.nodes.length === 0) {
-      return buildDefaultGraph(agentName);
-    }
     const nodes: Node[] = parsed.nodes.map((node) => ({
       id: node.id,
       type: node.type,
@@ -1285,12 +1275,69 @@ function loadGraph(agentId: string, agentName: string): { nodes: Node[]; edges: 
   }
 }
 
+function serializeGraph(nodes: Node[], edges: Edge[]): StoredGraph {
+  return {
+    nodes: nodes.map((node) => ({
+      id: node.id,
+      type: node.type ?? "entrada",
+      position: node.position,
+      data:
+        node.type === "agent"
+          ? {
+              name: (node.data as AgentData).name,
+              welcome: (node.data as AgentData).welcome,
+              prompt: (node.data as AgentData).prompt,
+              fixedWelcome: (node.data as AgentData).fixedWelcome,
+              consultProducts: (node.data as AgentData).consultProducts,
+              consultFlows: (node.data as AgentData).consultFlows,
+            }
+          : node.type === "producto"
+            ? {
+                productId: (node.data as ProductoData).productId,
+                startOnMatch: (node.data as ProductoData).startOnMatch,
+                matchType: (node.data as ProductoData).matchType,
+                matchKeywords: (node.data as ProductoData).matchKeywords,
+                intent: (node.data as ProductoData).intent,
+                useFunnel: (node.data as ProductoData).useFunnel,
+              }
+            : node.type === "condicion"
+              ? {
+                  rules: (node.data as ConditionData).rules,
+                }
+              : node.type === "texto"
+                ? {
+                    text: (node.data as TextData).text,
+                  }
+                : node.type === "flujo"
+                  ? {
+                      flowId: (node.data as FlujoData).flowId,
+                    }
+                  : {
+                      kind: (node.data as EntradaData).kind,
+                      welcome: (node.data as EntradaData).welcome,
+                      keywords: (node.data as EntradaData).keywords,
+                      useBusiness: (node.data as EntradaData).useBusiness,
+                    },
+    })),
+    edges: edges.map((edge) => ({
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      sourceHandle: edge.sourceHandle,
+      targetHandle: edge.targetHandle,
+    })),
+  };
+}
+
 type AgentV2FlowCanvasProps = {
   agentId: string;
   agentName: string;
   products: AgentV2Product[];
   flows: AgentV2Flow[];
   business: BusinessData;
+  initialGraph: unknown;
+  onSaveGraph: (graph: StoredGraph) => void;
+  onPublish: (graph: StoredGraph) => Promise<{ ok: boolean; error?: string }>;
   onBack: () => void;
 };
 
@@ -1300,9 +1347,13 @@ function FlowCanvasInner({
   products,
   flows,
   business,
+  initialGraph,
+  onSaveGraph,
+  onPublish,
   onBack,
 }: AgentV2FlowCanvasProps) {
-  const initial = useMemo(() => loadGraph(agentId, agentName), [agentId, agentName]);
+  const initial = useMemo(() => loadGraph(initialGraph, agentName), [initialGraph, agentName]);
+  const [isPublishing, startPublish] = useTransition();
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>(initial.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(initial.edges);
   const productCount = useRef(initial.nodes.filter((node) => node.type === "producto").length);
@@ -1585,64 +1636,27 @@ function FlowCanvasInner({
     setNodes((current) => [...current, newNode]);
   }, [setNodes]);
 
-  // Persistencia por agente (sin callbacks).
+  const onSaveGraphRef = useRef(onSaveGraph);
   useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
+    onSaveGraphRef.current = onSaveGraph;
+  }, [onSaveGraph]);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Persistencia en BD (debounced).
+  useEffect(() => {
+    const stored = serializeGraph(nodes, edges);
+    if (saveTimer.current) {
+      clearTimeout(saveTimer.current);
     }
-    const stored: StoredGraph = {
-      nodes: nodes.map((node) => ({
-        id: node.id,
-        type: node.type ?? "entrada",
-        position: node.position,
-        data:
-          node.type === "agent"
-            ? {
-                name: (node.data as AgentData).name,
-                welcome: (node.data as AgentData).welcome,
-                prompt: (node.data as AgentData).prompt,
-                fixedWelcome: (node.data as AgentData).fixedWelcome,
-                consultProducts: (node.data as AgentData).consultProducts,
-                consultFlows: (node.data as AgentData).consultFlows,
-              }
-            : node.type === "producto"
-              ? {
-                  productId: (node.data as ProductoData).productId,
-                  startOnMatch: (node.data as ProductoData).startOnMatch,
-                  matchType: (node.data as ProductoData).matchType,
-                  matchKeywords: (node.data as ProductoData).matchKeywords,
-                  intent: (node.data as ProductoData).intent,
-                  useFunnel: (node.data as ProductoData).useFunnel,
-                }
-              : node.type === "condicion"
-                ? {
-                    rules: (node.data as ConditionData).rules,
-                  }
-                : node.type === "texto"
-                  ? {
-                      text: (node.data as TextData).text,
-                    }
-                  : node.type === "flujo"
-                    ? {
-                        flowId: (node.data as FlujoData).flowId,
-                      }
-                    : {
-                        kind: (node.data as EntradaData).kind,
-                        welcome: (node.data as EntradaData).welcome,
-                        keywords: (node.data as EntradaData).keywords,
-                        useBusiness: (node.data as EntradaData).useBusiness,
-                      },
-      })),
-      edges: edges.map((edge) => ({
-        id: edge.id,
-        source: edge.source,
-        target: edge.target,
-        sourceHandle: edge.sourceHandle,
-        targetHandle: edge.targetHandle,
-      })),
+    saveTimer.current = setTimeout(() => {
+      onSaveGraphRef.current(stored);
+    }, 800);
+    return () => {
+      if (saveTimer.current) {
+        clearTimeout(saveTimer.current);
+      }
     };
-    window.localStorage.setItem(graphStorageKey(agentId), JSON.stringify(stored));
-  }, [agentId, nodes, edges]);
+  }, [nodes, edges]);
 
   return (
     <div className="flex h-[calc(100dvh-4rem)] flex-col overflow-hidden rounded-2xl border border-border bg-card">
@@ -1673,6 +1687,24 @@ function FlowCanvasInner({
           <Button variant="outline" size="sm" onClick={addFlujo}>
             <Workflow className="h-4 w-4" />
             Agregar flujo
+          </Button>
+          <Button
+            size="sm"
+            disabled={isPublishing}
+            onClick={() => {
+              const stored = serializeGraph(nodes, edges);
+              startPublish(async () => {
+                const res = await onPublish(stored);
+                if (res.ok) {
+                  toast.success("Agente publicado");
+                } else {
+                  toast.error(res.error ?? "No se pudo publicar");
+                }
+              });
+            }}
+          >
+            <Rocket className="h-4 w-4" />
+            {isPublishing ? "Publicando..." : "Publicar"}
           </Button>
         </div>
       </div>

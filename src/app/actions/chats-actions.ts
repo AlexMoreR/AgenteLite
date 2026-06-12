@@ -322,41 +322,65 @@ export async function deleteContactAction(formData: FormData): Promise<void> {
     redirect("/cliente/contactos?error=Contacto+no+encontrado");
   }
 
-  await prisma.$transaction(async (tx) => {
-    await tx.message.deleteMany({
-      where: {
-        workspaceId: membership.workspace.id,
-        contactId: contact.id,
-      },
-    });
+  let deleted = false;
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.message.deleteMany({
+        where: {
+          workspaceId: membership.workspace.id,
+          contactId: contact.id,
+        },
+      });
 
-    await tx.contactTag.deleteMany({
-      where: {
-        workspaceId: membership.workspace.id,
-        contactId: contact.id,
-      },
-    });
+      await tx.contactTag.deleteMany({
+        where: {
+          workspaceId: membership.workspace.id,
+          contactId: contact.id,
+        },
+      });
 
-    await tx.contactMatch.deleteMany({
-      where: {
-        workspaceId: membership.workspace.id,
-        contactId: contact.id,
-      },
-    });
+      await tx.contactMatch.deleteMany({
+        where: {
+          workspaceId: membership.workspace.id,
+          contactId: contact.id,
+        },
+      });
 
-    await tx.conversation.deleteMany({
-      where: {
-        workspaceId: membership.workspace.id,
-        contactId: contact.id,
-      },
-    });
+      await tx.follow.deleteMany({
+        where: {
+          workspaceId: membership.workspace.id,
+          contactId: contact.id,
+        },
+      });
 
-    await tx.contact.delete({
-      where: {
-        id: contact.id,
-      },
+      await tx.conversation.deleteMany({
+        where: {
+          workspaceId: membership.workspace.id,
+          contactId: contact.id,
+        },
+      });
+
+      await tx.contact.delete({
+        where: {
+          id: contact.id,
+        },
+      });
     });
-  });
+    deleted = true;
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2003") {
+      console.error(
+        "[deleteContactAction] Falla de clave foranea: queda un registro hijo del contacto sin borrar",
+        { contactId: contact.id, meta: error.meta },
+      );
+    } else {
+      console.error("[deleteContactAction] No se pudo eliminar el contacto", error);
+    }
+  }
+
+  if (!deleted) {
+    redirect("/cliente/contactos?error=No+se+pudo+eliminar+el+contacto");
+  }
 
   revalidatePath("/cliente/contactos");
   revalidatePath("/cliente/chats");

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { Bot, MoreVertical, Pencil, Plus, Trash2, Workflow, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -20,6 +20,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  createAgentV2Action,
+  deleteAgentV2Action,
+  publishAgentV2Action,
+  saveAgentV2GraphAction,
+  toggleAgentV2Action,
+  updateAgentV2Action,
+} from "@/app/actions/agent-v2-actions";
+import {
   AgentV2FlowCanvas,
   type AgentV2Product,
   type AgentV2Flow,
@@ -28,65 +36,34 @@ import {
 
 export type AgentV2Connection = { id: string; label: string };
 
-type AgentV2 = {
+export type AgentV2Item = {
   id: string;
   name: string;
-  createdAt: string;
-  connectionId?: string;
   active: boolean;
+  connectionId?: string;
+  graph: unknown;
 };
-
-const STORAGE_KEY = "agentV2.agents";
-
-function loadAgents(): AgentV2[] {
-  if (typeof window === "undefined") {
-    return [];
-  }
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      return [];
-    }
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-    return parsed
-      .filter(
-        (item): item is AgentV2 =>
-          item && typeof item.id === "string" && typeof item.name === "string",
-      )
-      .map((item) => ({ ...item, active: typeof item.active === "boolean" ? item.active : true }));
-  } catch {
-    return [];
-  }
-}
-
-function persistAgents(agents: AgentV2[]) {
-  if (typeof window === "undefined") {
-    return;
-  }
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(agents));
-}
 
 export function AgentV2Workspace({
   products,
   flows,
   business,
   connections,
+  initialAgents,
 }: {
   products: AgentV2Product[];
   flows: AgentV2Flow[];
   business: BusinessData;
   connections: AgentV2Connection[];
+  initialAgents: AgentV2Item[];
 }) {
-  const [agents, setAgents] = useState<AgentV2[]>([]);
-  const [hydrated, setHydrated] = useState(false);
+  const [agents, setAgents] = useState<AgentV2Item[]>(initialAgents);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [connectionId, setConnectionId] = useState("");
+  const [, startTransition] = useTransition();
 
   function closeModal() {
     setModalOpen(false);
@@ -95,7 +72,7 @@ export function AgentV2Workspace({
     setConnectionId("");
   }
 
-  function openEdit(agent: AgentV2) {
+  function openEdit(agent: AgentV2Item) {
     setEditingId(agent.id);
     setName(agent.name);
     setConnectionId(agent.connectionId ?? "");
@@ -103,26 +80,45 @@ export function AgentV2Workspace({
   }
 
   function toggleActive(id: string) {
-    const next = agents.map((agent) =>
-      agent.id === id ? { ...agent, active: !agent.active } : agent,
+    const agent = agents.find((item) => item.id === id);
+    if (!agent) {
+      return;
+    }
+    const nextActive = !agent.active;
+    setAgents((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, active: nextActive } : item)),
     );
-    setAgents(next);
-    persistAgents(next);
+    startTransition(async () => {
+      await toggleAgentV2Action({ agentId: id, active: nextActive });
+    });
   }
 
   function deleteAgent(id: string) {
-    const next = agents.filter((agent) => agent.id !== id);
-    setAgents(next);
-    persistAgents(next);
+    setAgents((prev) => prev.filter((item) => item.id !== id));
     if (selectedId === id) {
       setSelectedId(null);
     }
+    startTransition(async () => {
+      await deleteAgentV2Action({ agentId: id });
+    });
   }
 
-  useEffect(() => {
-    setAgents(loadAgents());
-    setHydrated(true);
-  }, []);
+  function saveGraph(agentId: string, graph: unknown) {
+    setAgents((prev) => prev.map((item) => (item.id === agentId ? { ...item, graph } : item)));
+    startTransition(async () => {
+      await saveAgentV2GraphAction({ agentId, graph });
+    });
+  }
+
+  async function publishAgent(
+    agentId: string,
+    graph: unknown,
+  ): Promise<{ ok: boolean; error?: string }> {
+    setAgents((prev) => prev.map((item) => (item.id === agentId ? { ...item, graph } : item)));
+    await saveAgentV2GraphAction({ agentId, graph });
+    const res = await publishAgentV2Action({ agentId });
+    return res.ok ? { ok: true } : { ok: false, error: res.error };
+  }
 
   const selectedAgent = useMemo(
     () => agents.find((agent) => agent.id === selectedId) ?? null,
@@ -135,28 +131,33 @@ export function AgentV2Workspace({
       return;
     }
     if (editingId) {
-      const next = agents.map((agent) =>
-        agent.id === editingId
-          ? { ...agent, name: trimmed, connectionId: connectionId || undefined }
-          : agent,
+      const targetId = editingId;
+      const conn = connectionId;
+      setAgents((prev) =>
+        prev.map((item) =>
+          item.id === targetId
+            ? { ...item, name: trimmed, connectionId: conn || undefined }
+            : item,
+        ),
       );
-      setAgents(next);
-      persistAgents(next);
       closeModal();
+      startTransition(async () => {
+        await updateAgentV2Action({ agentId: targetId, name: trimmed, connectionId: conn });
+      });
       return;
     }
-    const agent: AgentV2 = {
-      id: crypto.randomUUID(),
-      name: trimmed,
-      createdAt: new Date().toISOString(),
-      connectionId: connectionId || undefined,
-      active: true,
-    };
-    const next = [agent, ...agents];
-    setAgents(next);
-    persistAgents(next);
+    const conn = connectionId;
     closeModal();
-    setSelectedId(agent.id);
+    startTransition(async () => {
+      const res = await createAgentV2Action({ name: trimmed, connectionId: conn });
+      if (res.ok) {
+        setAgents((prev) => [
+          { id: res.id, name: trimmed, active: true, connectionId: conn || undefined, graph: null },
+          ...prev,
+        ]);
+        setSelectedId(res.id);
+      }
+    });
   }
 
   if (selectedAgent) {
@@ -167,6 +168,9 @@ export function AgentV2Workspace({
         products={products}
         flows={flows}
         business={business}
+        initialGraph={selectedAgent.graph}
+        onSaveGraph={(graph) => saveGraph(selectedAgent.id, graph)}
+        onPublish={(graph) => publishAgent(selectedAgent.id, graph)}
         onBack={() => setSelectedId(null)}
       />
     );
@@ -187,7 +191,7 @@ export function AgentV2Workspace({
         </Button>
       </div>
 
-      {!hydrated ? null : agents.length === 0 ? (
+      {agents.length === 0 ? (
         <Card className="flex flex-col items-center justify-center gap-3 border-dashed py-16 text-center">
           <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
             <Workflow className="h-6 w-6" />
