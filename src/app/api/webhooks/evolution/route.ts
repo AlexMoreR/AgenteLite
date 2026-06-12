@@ -1814,6 +1814,11 @@ export async function POST(request: Request) {
         where: {
           conversationId: conversation.id,
           direction: "OUTBOUND",
+          // Las notas de timeline (auto-asignación, tags, etapas, etc.) se
+          // guardan como OUTBOUND/SYSTEM y NO son respuestas reales del bot.
+          // Si las contáramos, la bienvenida quedaría suprimida en toda
+          // conversación nueva (siempre hay una nota de auto-asignación).
+          type: { not: "SYSTEM" },
         },
         select: { id: true },
       });
