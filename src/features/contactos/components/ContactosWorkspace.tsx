@@ -15,6 +15,7 @@ import {
   Phone,
   Search,
   Trash2,
+  RotateCcw,
   Sparkles,
   Users2,
   Clock3,
@@ -30,7 +31,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { deleteContactAction } from "@/app/actions/chats-actions";
+import { deleteContactAction, resetContactAction } from "@/app/actions/chats-actions";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ContactAvatar } from "@/components/chats/contact-avatar";
 
@@ -362,6 +363,7 @@ function ContactCard({
 export function ContactosWorkspace({ data, activeView }: { data: ContactosData; activeView: "contacto" | "informe" }) {
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [resetModalOpen, setResetModalOpen] = useState(false);
   const router = useRouter();
   const selectedContact = data.selectedContact;
   const pagination = data.pagination;
@@ -797,6 +799,13 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
+                          onClick={() => setResetModalOpen(true)}
+                          className="gap-2 text-amber-600 focus:text-amber-700"
+                        >
+                          <RotateCcw className="h-4 w-4" />
+                          Empezar de 0
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
                           onClick={() => setDeleteModalOpen(true)}
                           className="gap-2 text-rose-600 focus:text-rose-700"
                         >
@@ -1009,6 +1018,51 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
         </div>
         </div>
           ) : null}
+
+      {selectedContact && resetModalOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-[2px]"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Empezar de 0"
+          onClick={() => setResetModalOpen(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-[28px] border border-amber-200 bg-white shadow-[0_28px_90px_-40px_rgba(15,23,42,0.5)]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="border-b border-slate-100 px-5 py-4">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-600">Reiniciar conversación</p>
+              <h3 className="mt-1 text-lg font-semibold tracking-[-0.03em] text-slate-950">Empezar de 0</h3>
+            </div>
+            <form action={resetContactAction} className="space-y-4 px-5 py-5">
+              <input type="hidden" name="contactId" value={selectedContact.id} />
+              <input type="hidden" name="returnTo" value={deleteReturnTo} />
+              <p className="text-sm leading-6 text-slate-600">
+                Se borrarán las conversaciones, mensajes, seguimientos y el estado del agente de{" "}
+                <span className="font-medium text-slate-900">{getContactDisplayName(selectedContact)}</span>. El contacto se
+                conserva (nombre, etiquetas, etapa y notas) y, al volver a escribir, el agente lo saludará con la bienvenida
+                como si fuera la primera vez.
+              </p>
+              <div className="flex flex-wrap justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setResetModalOpen(false)}
+                  className="h-10 rounded-2xl border border-slate-200 px-4 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="h-10 rounded-2xl bg-amber-500 px-4 text-sm font-semibold text-white transition hover:bg-amber-600"
+                >
+                  Empezar de 0
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
 
       {selectedContact && deleteModalOpen ? (
         <div

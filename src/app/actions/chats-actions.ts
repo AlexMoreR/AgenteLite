@@ -33,6 +33,11 @@ const deleteContactSchema = z.object({
   returnTo: z.string().trim().max(500).optional(),
 });
 
+const resetContactSchema = z.object({
+  contactId: z.string().trim().min(1, "Contacto invalido"),
+  returnTo: z.string().trim().max(500).optional(),
+});
+
 type UpdateContactActionState =
   | { error: string; success?: false }
   | {
@@ -388,6 +393,104 @@ export async function deleteContactAction(formData: FormData): Promise<void> {
 
   const safeReturnTo = normalizeInternalPath(parsed.data.returnTo, "/cliente/contactos");
   redirect(`${safeReturnTo}${safeReturnTo.includes("?") ? "&" : "?"}ok=Contacto+eliminado`);
+}
+
+// Reinicia un contacto "desde cero" SIN eliminarlo de la lista: borra todo su
+// historial (conversaciones, mensajes, seguimientos y coincidencias) junto con el
+// estado del agente (producto activo, contexto comercial, automatizacion), pero
+// conserva el contacto, su etapa CRM, notas y etiquetas. Al volver a escribir se
+// crea una conversacion nueva y la bienvenida vuelve a dispararse.
+export async function resetContactAction(formData: FormData): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
+    redirect("/unauthorized");
+  }
+  await requireClientWorkspaceAccess("chats");
+
+  const parsed = resetContactSchema.safeParse({
+    contactId: formData.get("contactId"),
+    returnTo: formData.get("returnTo"),
+  });
+
+  if (!parsed.success) {
+    redirect("/cliente/contactos?error=Contacto+invalido");
+  }
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    redirect("/cliente/contactos?error=Workspace+no+encontrado");
+  }
+
+  const contact = await prisma.contact.findFirst({
+    where: {
+      id: parsed.data.contactId,
+      workspaceId: membership.workspace.id,
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  if (!contact) {
+    redirect("/cliente/contactos?error=Contacto+no+encontrado");
+  }
+
+  let reset = false;
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.message.deleteMany({
+        where: {
+          workspaceId: membership.workspace.id,
+          contactId: contact.id,
+        },
+      });
+
+      await tx.contactMatch.deleteMany({
+        where: {
+          workspaceId: membership.workspace.id,
+          contactId: contact.id,
+        },
+      });
+
+      await tx.follow.deleteMany({
+        where: {
+          workspaceId: membership.workspace.id,
+          contactId: contact.id,
+        },
+      });
+
+      // Al borrar las conversaciones se limpia tambien el estado del agente
+      // (activeProductContext, commercialContext, automationPaused, buffers).
+      // No se toca el contacto, sus etiquetas, etapa CRM ni notas.
+      await tx.conversation.deleteMany({
+        where: {
+          workspaceId: membership.workspace.id,
+          contactId: contact.id,
+        },
+      });
+    });
+    reset = true;
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2003") {
+      console.error(
+        "[resetContactAction] Falla de clave foranea: queda un registro hijo del contacto sin borrar",
+        { contactId: contact.id, meta: error.meta },
+      );
+    } else {
+      console.error("[resetContactAction] No se pudo reiniciar el contacto", error);
+    }
+  }
+
+  if (!reset) {
+    redirect("/cliente/contactos?error=No+se+pudo+reiniciar+el+contacto");
+  }
+
+  revalidatePath("/cliente/contactos");
+  revalidatePath("/cliente/chats");
+  revalidatePath("/cliente/api-oficial/contactos");
+
+  const safeReturnTo = normalizeInternalPath(parsed.data.returnTo, "/cliente/contactos");
+  redirect(`${safeReturnTo}${safeReturnTo.includes("?") ? "&" : "?"}ok=Contacto+reiniciado`);
 }
 
 const sendUnifiedChatReplySchema = z.object({
