@@ -319,13 +319,22 @@ export async function publishAgentV2Action(input: {
   const consultProducts = agentData.consultProducts !== false;
   const consultFlows = agentData.consultFlows !== false;
 
+  // Un nodo Texto es un mensaje literal escrito por el usuario: debe enviarse tal
+  // cual, sin que la IA lo reformule. Anteponemos esta instrucción al compilar el
+  // texto de cada etapa (mismo patrón que ya usa el prompt de apertura del agente).
+  const VERBATIM_PREFIX =
+    "Usa exactamente este mensaje sin modificarlo ni agregar nada más antes ni después:";
   const textForStage = (productNodeId: string, stageKey: string): string => {
     const edge = edges.find((e) => e.source === productNodeId && e.sourceHandle === stageKey);
     if (!edge?.target) {
       return "";
     }
     const target = textNodes.find((node) => node.id === edge.target);
-    return asString(target?.data?.text);
+    const text = asString(target?.data?.text).trim();
+    if (!text) {
+      return "";
+    }
+    return `${VERBATIM_PREFIX}\n${text}`;
   };
 
   const activationForProduct = (
@@ -366,6 +375,106 @@ export async function publishAgentV2Action(input: {
     return { mode: "default", matchType: "exacta", keywords: [] };
   };
 
+  // Mapa de nodos + títulos de flujo, para describir las acciones de las
+  // Condición que cuelgan del embudo de un producto.
+  const nodeById = new Map(nodes.map((node) => [node.id, node] as const));
+  const allFlowItems = await getCreatedFlowItems({ workspaceId, includeOfficialApi: true });
+  const flowTitleById = new Map(allFlowItems.map((flow) => [flow.id, flow.title] as const));
+
+  const describeRuleTrigger = (rule: Record<string, unknown>): string => {
+    const matchType = asString(rule.matchType);
+    if (matchType === "ia") {
+      const intent = asString(rule.intent).trim();
+      return `Si el cliente, por intencion, ${intent || "muestra interes relacionado"}`;
+    }
+    const list = asStringArray(rule.keywords).map((kw) => `«${kw}»`).join(", ") || "(sin palabras)";
+    return matchType === "exacta"
+      ? `Si el mensaje del cliente es EXACTAMENTE alguna de estas palabras: ${list}`
+      : `Si el mensaje del cliente CONTIENE alguna de estas palabras: ${list}`;
+  };
+
+  const describeNodeAction = (targetId: string | undefined): string => {
+    const target = targetId ? nodeById.get(targetId) : undefined;
+    if (!target) {
+      return "continua la conversacion normal con la IA";
+    }
+    if (target.type === "texto") {
+      const text = asString(target.data?.text).trim();
+      return text
+        ? `responde EXACTAMENTE con este mensaje, sin modificarlo ni agregar nada: "${text}"`
+        : "continua la conversacion normal con la IA";
+    }
+    if (target.type === "flujo") {
+      const title = flowTitleById.get(asString(target.data?.flowId));
+      return title
+        ? `ejecuta OBLIGATORIAMENTE el flujo "${title}" llamando a la herramienta consultar_flujos con ese nombre exacto. ` +
+            `NO respondas con texto propio ni con la descripcion/precio del producto: deja que el flujo entregue el contenido (fotos, precio, etc.)`
+        : "ejecuta el flujo configurado llamando a la herramienta consultar_flujos";
+    }
+    if (target.type === "condicion") {
+      return "evalua la siguiente condicion segun sus reglas";
+    }
+    if (target.type === "producto") {
+      return "presenta ese producto";
+    }
+    return "continua la conversacion normal con la IA";
+  };
+
+  // Recorre la cadena hacia adelante desde el producto y compila las reglas de
+  // ramificación de todas las Condición que cuelguen de su embudo. La IA las
+  // sigue como guía fuerte (no es un motor determinístico).
+  const buildBranchingBlock = (productNodeId: string): string | null => {
+    const seenConditions = new Set<string>();
+    const orderedConditions: GraphNode[] = [];
+    const visited = new Set<string>();
+    const queue: string[] = [productNodeId];
+    while (queue.length) {
+      const current = queue.shift() as string;
+      if (visited.has(current)) {
+        continue;
+      }
+      visited.add(current);
+      for (const edge of edges) {
+        if (edge.source !== current || !edge.target || visited.has(edge.target)) {
+          continue;
+        }
+        const target = nodeById.get(edge.target);
+        if (target?.type === "condicion" && !seenConditions.has(target.id)) {
+          seenConditions.add(target.id);
+          orderedConditions.push(target);
+        }
+        queue.push(edge.target);
+      }
+    }
+
+    const lines: string[] = [];
+    for (const cond of orderedConditions) {
+      const rules = Array.isArray(cond.data?.rules)
+        ? (cond.data?.rules as Array<Record<string, unknown>>)
+        : [];
+      for (const rule of rules) {
+        const actionEdge = edges.find(
+          (e) => e.source === cond.id && e.sourceHandle === asString(rule.id),
+        );
+        lines.push(`- ${describeRuleTrigger(rule)} → ${describeNodeAction(actionEdge?.target)}.`);
+      }
+      const elseEdge = edges.find((e) => e.source === cond.id && e.sourceHandle === "else");
+      if (elseEdge?.target) {
+        lines.push(`- Si no coincide con ninguna de las anteriores → ${describeNodeAction(elseEdge.target)}.`);
+      }
+    }
+
+    if (!lines.length) {
+      return null;
+    }
+    return (
+      "REGLAS DE RAMIFICACION (segun lo que responda el cliente, aplica la PRIMERA regla que " +
+      "coincida; si ninguna coincide, sigue la conversacion normal). Estas reglas tienen " +
+      "PRIORIDAD: cuando una regla pida ejecutar un flujo, hazlo con consultar_flujos en lugar " +
+      "de describir el producto con consultar_productos:\n" + lines.join("\n")
+    );
+  };
+
   // 1) Upsert de knowledge products desde los nodos Producto.
   const graphProductIds: string[] = [];
   if (consultProducts) {
@@ -397,6 +506,8 @@ export async function publishAgentV2Action(input: {
             funnelSteps.join("\n")
           : null;
 
+      const branchingBlock = buildBranchingBlock(node.id);
+
       const instructions = [
         `Activacion: ${activation.mode}`,
         activation.mode === "chatbot" ? `Coincidencia: ${activation.matchType}` : null,
@@ -404,6 +515,7 @@ export async function publishAgentV2Action(input: {
           ? `Palabras clave: ${activation.keywords.join(", ")}`
           : null,
         funnelBlock,
+        branchingBlock,
       ]
         .filter(Boolean)
         .join("\n\n");
@@ -444,9 +556,8 @@ export async function publishAgentV2Action(input: {
     : [];
   let knowledgeFlows: AgentKnowledgePromptFlow[] = [];
   if (flowIds.length) {
-    const allFlows = await getCreatedFlowItems({ workspaceId, includeOfficialApi: true });
     const idSet = new Set(flowIds);
-    knowledgeFlows = allFlows
+    knowledgeFlows = allFlowItems
       .filter((flow) => idSet.has(flow.id))
       .map((flow) => ({
         id: flow.id,

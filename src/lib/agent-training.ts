@@ -426,7 +426,8 @@ export function buildAgentSystemPrompt(input: {
         product.funnelFaq?.trim() ? `Embudo - FAQ: ${product.funnelFaq.trim()}` : null,
         product.funnelClosing?.trim() ? `Embudo - Cierre: ${product.funnelClosing.trim()}` : null,
       ].filter(Boolean);
-      if (funnelLines.length > 0) {
+      const hasFunnel = funnelLines.length > 0;
+      if (hasFunnel) {
         summary.push(funnelLines.join(" / "));
       }
       if (product.code?.trim()) {
@@ -435,10 +436,15 @@ export function buildAgentSystemPrompt(input: {
       if (product.slug?.trim()) {
         summary.push(`Slug: ${product.slug.trim()}`);
       }
-      if (product.description?.trim()) {
+      // Si el producto tiene EMBUDO, NO horneamos descripcion ni precio: la IA debe
+      // guiarse por las etapas del embudo (y sus flujos), no responder de memoria con
+      // la ficha del producto. Sin esto, ante un "si" suelto la IA describe el producto
+      // en vez de avanzar la etapa / disparar el flujo. (El precio sigue disponible vía
+      // consultar_productos si el cliente lo pide explicitamente.)
+      if (!hasFunnel && product.description?.trim()) {
         summary.push(`Descripcion: ${product.description.trim()}`);
       }
-      if (product.price?.trim()) {
+      if (!hasFunnel && product.price?.trim()) {
         summary.push(`Precio de referencia: ${product.price.trim()}`);
       }
       if (product.instructions?.trim()) {

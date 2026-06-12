@@ -13,6 +13,7 @@ import {
   ArrowLeft,
   Bot,
   Filter,
+  HelpCircle,
   Megaphone,
   MessageSquare,
   Plus,
@@ -64,6 +65,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 const AGENT_NODE_ID = "agent-root";
 
@@ -1056,7 +1063,22 @@ function TextNode({ id, data, selected }: NodeProps) {
           <span className="inline-flex shrink-0 items-center justify-center">
             <MessageSquare className="h-4 w-4 text-sky-600" />
           </span>
-          <BaseNodeHeaderTitle className="truncate">Texto</BaseNodeHeaderTitle>
+          <BaseNodeHeaderTitle className="shrink-0">Texto</BaseNodeHeaderTitle>
+          <TooltipProvider delayDuration={100}>
+            <Tooltip>
+              <TooltipTrigger
+                type="button"
+                onClick={(event) => event.stopPropagation()}
+                className="nodrag -ml-1 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:text-foreground"
+                aria-label="Cómo se envía este mensaje"
+              >
+                <HelpCircle className="h-3 w-3" />
+              </TooltipTrigger>
+              <TooltipContent side="top" align="end" className="max-w-xs text-left">
+                Usa exactamente este mensaje sin modificarlo ni agregar nada más antes ni después:
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </BaseNodeHeader>
         <BaseNodeContent>
           <textarea

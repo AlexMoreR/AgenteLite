@@ -474,6 +474,190 @@ async function selectFlowByAI(input: {
   return matched?.id ?? null;
 }
 
+// --- Hook determinístico de ramas Condición→Flujo (Agente V2) ---
+// La IA no dispara flujos de forma confiable (prefiere describir el producto con
+// consultar_productos). Por eso, cuando un producto está activo, evaluamos sus
+// ramas que terminan en Flujo directamente en el motor y, si el mensaje del
+// cliente cumple la condición, ejecutamos el flujo SIN pasar por la IA.
+type FlowBranchNode = { id: string; type?: string; data?: Record<string, unknown> };
+type FlowBranchEdge = { source?: string; target?: string; sourceHandle?: string };
+
+function fbStr(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+function fbStrArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
+}
+
+// Respuestas afirmativas comunes: cubren el caso típico ("¿Te comparto fotos?" → "Si")
+// sin depender de una llamada al modelo (que puede fallar/caer al fallback).
+const AFFIRMATIVE_RESPONSES = new Set([
+  "si", "sii", "siii", "sip", "claro", "dale", "ok", "oka", "okey", "okay", "vale",
+  "listo", "sale", "obvio", "quiero", "perfecto", "bueno", "adelante", "va", "simon",
+  "yes", "porfa", "porfavor", "interesa", "muestrame", "muestra", "envia", "enviame",
+]);
+
+function looksAffirmative(normalizedMessage: string): boolean {
+  const msg = normalizedMessage.trim();
+  if (!msg) {
+    return false;
+  }
+  if (AFFIRMATIVE_RESPONSES.has(msg)) {
+    return true;
+  }
+  const firstWord = msg.split(/\s+/)[0] ?? "";
+  return AFFIRMATIVE_RESPONSES.has(firstWord);
+}
+
+const INTENT_STOPWORDS = new Set([
+  "si", "responde", "con", "que", "de", "el", "la", "los", "las", "un", "una",
+  "ver", "quiero", "tienes", "alguna", "sobre", "esta", "cliente", "por", "intencion",
+  "muestra", "interes", "interesado", "todos", "todas", "o", "y", "a",
+]);
+
+function extractIntentKeywords(intent: string): string[] {
+  return normalizeText(intent)
+    .split(/[\s,.;:/]+/)
+    .filter((word) => word.length >= 4 && !INTENT_STOPWORDS.has(word));
+}
+
+async function evaluateIaIntentMatch(input: {
+  intent: string;
+  message: string;
+  model?: string | null;
+}): Promise<boolean> {
+  const intent = input.intent.trim();
+  if (!intent) {
+    return false;
+  }
+  const verdict = await generateAgentReply({
+    model: input.model,
+    rawSystemPrompt: true,
+    systemPrompt:
+      "Eres un clasificador binario. Decide si el mensaje del cliente cumple la condicion dada. " +
+      "Responde UNICAMENTE con la palabra SI o NO, sin nada mas.",
+    history: [],
+    temperature: 0,
+    latestUserMessage:
+      `Condicion: ${intent}\nMensaje del cliente: "${input.message}"\n` +
+      "¿El mensaje cumple la condicion? Responde SI o NO.",
+  });
+  return /^\s*si\b/.test(normalizeText(verdict));
+}
+
+async function resolveFlowBranchForActiveProduct(input: {
+  productNodeId: string;
+  nodes: FlowBranchNode[];
+  edges: FlowBranchEdge[];
+  message: string;
+  normalizedMessage: string;
+  flowTitleById: Map<string, string>;
+  candidateFlowIds: Set<string>;
+  model?: string | null;
+}): Promise<{ flowId: string; flowTitle: string } | null> {
+  const nodeById = new Map(input.nodes.map((n) => [n.id, n] as const));
+  // Condiciones alcanzables hacia adelante desde el producto.
+  const seen = new Set<string>();
+  const conditions: FlowBranchNode[] = [];
+  const visited = new Set<string>();
+  const queue: string[] = [input.productNodeId];
+  while (queue.length) {
+    const current = queue.shift() as string;
+    if (visited.has(current)) {
+      continue;
+    }
+    visited.add(current);
+    for (const edge of input.edges) {
+      if (edge.source !== current || !edge.target || visited.has(edge.target)) {
+        continue;
+      }
+      const target = nodeById.get(edge.target);
+      if (target?.type === "condicion" && !seen.has(target.id)) {
+        seen.add(target.id);
+        conditions.push(target);
+      }
+      queue.push(edge.target);
+    }
+  }
+
+  if (process.env.NODE_ENV !== "production") {
+    console.info("[agent-product-flow] branch-walk-debug", {
+      conditionsFound: conditions.length,
+      candidateFlowIds: Array.from(input.candidateFlowIds),
+    });
+  }
+
+  for (const cond of conditions) {
+    const rules = Array.isArray(cond.data?.rules)
+      ? (cond.data?.rules as Array<Record<string, unknown>>)
+      : [];
+    for (const rule of rules) {
+      const actionEdge = input.edges.find(
+        (e) => e.source === cond.id && e.sourceHandle === fbStr(rule.id),
+      );
+      const targetNode = actionEdge?.target ? nodeById.get(actionEdge.target) : undefined;
+      // Solo nos interesan ramas cuya acción sea ejecutar un Flujo.
+      if (targetNode?.type !== "flujo") {
+        continue;
+      }
+      const flowId = fbStr(targetNode.data?.flowId);
+      if (!flowId || !input.candidateFlowIds.has(flowId)) {
+        if (process.env.NODE_ENV !== "production") {
+          console.info("[agent-product-flow] branch-flow-skipped", {
+            flowId,
+            inCandidates: input.candidateFlowIds.has(flowId),
+          });
+        }
+        continue;
+      }
+
+      const matchType = fbStr(rule.matchType);
+      let matched = false;
+      let evalPath = matchType;
+      if (matchType === "exacta") {
+        matched = fbStrArray(rule.keywords).some((kw) => normalizeText(kw) === input.normalizedMessage);
+      } else if (matchType === "ia") {
+        // Capas: afirmativo directo → palabra del intent → juez LLM (último recurso).
+        const intent = fbStr(rule.intent);
+        if (looksAffirmative(input.normalizedMessage)) {
+          matched = true;
+          evalPath = "ia:affirmative";
+        } else {
+          const intentKeywords = extractIntentKeywords(intent);
+          if (intentKeywords.length && includesAny(input.normalizedMessage, intentKeywords)) {
+            matched = true;
+            evalPath = "ia:keyword";
+          } else {
+            matched = await evaluateIaIntentMatch({ intent, message: input.message, model: input.model });
+            evalPath = "ia:judge";
+          }
+        }
+      } else {
+        matched = includesAny(
+          input.normalizedMessage,
+          fbStrArray(rule.keywords).map((kw) => normalizeText(kw)),
+        );
+      }
+
+      if (process.env.NODE_ENV !== "production") {
+        console.info("[agent-product-flow] branch-rule-eval", {
+          matchType,
+          evalPath,
+          intent: fbStr(rule.intent),
+          keywords: fbStrArray(rule.keywords),
+          flowId,
+          matched,
+        });
+      }
+
+      if (matched) {
+        return { flowId, flowTitle: input.flowTitleById.get(flowId) ?? "" };
+      }
+    }
+  }
+  return null;
+}
+
 export async function resolveAgentProductFlowReply(input: {
   agentId: string;
   workspaceId: string;
@@ -529,6 +713,8 @@ export async function resolveAgentProductFlowReply(input: {
       },
       select: {
         trainingConfig: true,
+        graph: true,
+        model: true,
       },
     }),
     getCreatedFlowItems({
@@ -591,6 +777,69 @@ export async function resolveAgentProductFlowReply(input: {
         : null,
       availableFlowTitles: availableFlowCandidates.map((flow) => flow.title),
     });
+  }
+
+  // HOOK DETERMINÍSTICO de ramas Condición→Flujo: si hay un producto ACTIVO
+  // (contexto de un turno previo) y el cliente cumple la condición de una rama
+  // que termina en Flujo, disparamos ese flujo directo, sin pasar por la IA.
+  const activeProductId =
+    (matchedProduct?.productId ?? input.activeProductContext?.productId)?.trim() || "";
+  if (activeProductId && flowCandidates.length > 0) {
+    const graph = agent.graph as { nodes?: FlowBranchNode[]; edges?: FlowBranchEdge[] } | null;
+    const graphNodes = Array.isArray(graph?.nodes) ? graph.nodes : [];
+    const graphEdges = Array.isArray(graph?.edges) ? graph.edges : [];
+    const productNode = graphNodes.find(
+      (n) => n.type === "producto" && fbStr(n.data?.productId) === activeProductId,
+    );
+    if (process.env.NODE_ENV !== "production") {
+      console.info("[agent-product-flow] branch-hook-debug", {
+        activeProductId,
+        flowCandidates: flowCandidates.length,
+        graphNodeCount: graphNodes.length,
+        productNodesInGraph: graphNodes
+          .filter((n) => n.type === "producto")
+          .map((n) => fbStr(n.data?.productId)),
+        productNodeFound: Boolean(productNode),
+      });
+    }
+    if (productNode) {
+      const flowTitleById = new Map(flowTargets.map((flow) => [flow.id, flow.title] as const));
+      const branch = await resolveFlowBranchForActiveProduct({
+        productNodeId: productNode.id,
+        nodes: graphNodes,
+        edges: graphEdges,
+        message: latestText,
+        normalizedMessage: normalizedLatestText,
+        flowTitleById,
+        candidateFlowIds,
+        model: agent.model,
+      });
+      if (branch) {
+        const reply = await getFlowReply({
+          workspaceId: input.workspaceId,
+          flowId: branch.flowId,
+          includeOfficialApi: input.includeOfficialApi,
+        });
+        if (reply) {
+          if (process.env.NODE_ENV !== "production") {
+            console.info("[agent-product-flow] branch-flow-hit", {
+              agentId: input.agentId,
+              activeProductId,
+              flowTitle: branch.flowTitle,
+              flowId: branch.flowId,
+            });
+          }
+          return {
+            steps: reply.steps,
+            flowTitle: branch.flowTitle || null,
+            productName: input.activeProductContext?.productName ?? null,
+            flowId: branch.flowId,
+            aiFollowUpEnabled: reply.aiFollowUpEnabled,
+            activeProductContext: input.activeProductContext ?? null,
+          };
+        }
+      }
+    }
   }
 
   const matchedFlows = flowCandidates.length > 0
@@ -667,7 +916,13 @@ export async function resolveAgentProductFlowReply(input: {
       : availableFlowCandidates;
 
     const flowTitles = productFlowCandidates.map((flow) => flow.title);
-    const references = extractFlowReferences(instructions, flowTitles);
+    // El bloque "REGLAS DE RAMIFICACION" (compilado desde los nodos Condición de V2)
+    // contiene flujos CONDICIONALES que la IA dispara según la conversación. NUNCA
+    // deben dispararse en el primer turno por la activación chatbot, así que los
+    // excluimos del escaneo de referencias de embudo.
+    const branchingIdx = instructions.indexOf("REGLAS DE RAMIFICACION");
+    const funnelInstructions = branchingIdx >= 0 ? instructions.slice(0, branchingIdx) : instructions;
+    const references = extractFlowReferences(funnelInstructions, flowTitles);
     const flowByNormalizedTitle = new Map(flowTargets.map((flow) => [normalizeText(flow.title), flow]));
     const referencedFlowIds = references
       .map((reference) => flowByNormalizedTitle.get(normalizeText(reference.title))?.id)
