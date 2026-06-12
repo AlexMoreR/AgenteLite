@@ -10,6 +10,7 @@ import {
   createFollow,
   createFollowRule,
   deleteFollowRule,
+  updateFollowRule,
   type FollowActionInput,
 } from "@/features/seguimientos/services/follows";
 
@@ -246,6 +247,103 @@ export async function createFollowRuleAction(
     ruleId: rule.id,
     name: rule.name,
     message: `Regla "${rule.name}" guardada`,
+  };
+}
+
+export async function updateFollowRuleAction(
+  _prevState: CreateFollowRuleActionState,
+  formData: FormData,
+): Promise<CreateFollowRuleActionState> {
+  const session = await auth();
+  if (!session?.user?.id || !isAllowedRole(session.user.role)) {
+    return { error: "No autorizado" };
+  }
+  await requireClientWorkspaceAccess("seguimientos");
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    return { error: "Workspace no encontrado" };
+  }
+
+  const followRuleId = String(formData.get("followRuleId") || "").trim();
+  if (!followRuleId) {
+    return { error: "Regla invalida" };
+  }
+
+  const parsed = createFollowRuleSchema.safeParse({
+    name: formData.get("name"),
+    sourceType: formData.get("sourceType"),
+    sourceId: formData.get("sourceId"),
+    channelId: formData.get("channelId"),
+    timeType: formData.get("timeType"),
+    timeValue: formData.get("timeValue"),
+    messageType: formData.get("messageType"),
+    content: formData.get("content"),
+    mediaUrl: formData.get("mediaUrl"),
+    cancelOnActivity: formData.get("cancelOnActivity") === "on" || formData.get("cancelOnActivity") === "true",
+    isActive: formData.has("isActive")
+      ? formData.get("isActive") === "on" || formData.get("isActive") === "true"
+      : undefined,
+  });
+
+  if (!parsed.success) {
+    return { error: "Revisa los datos de la regla" };
+  }
+
+  if (parsed.data.sourceType === "MANUAL") {
+    return { error: "Una regla no puede tener origen manual" };
+  }
+
+  const parsedActions = normalizeFollowActionsFromFormData(formData);
+  const parsedActionsError = parsedActions?.error;
+  if (parsedActionsError) {
+    return { error: parsedActionsError };
+  }
+
+  const actions = parsedActions?.actions ?? buildFallbackActions(formData);
+  const primaryAction = actions[0];
+  const primaryContent = primaryAction.content?.trim() ?? "";
+  const primaryMediaUrl = primaryAction.mediaUrl?.trim() ?? "";
+
+  if (primaryAction.messageType === "TEXT" && !primaryContent.trim()) {
+    return { error: "Agrega contenido para un mensaje de texto" };
+  }
+
+  if (primaryAction.messageType !== "TEXT" && !primaryMediaUrl.trim()) {
+    return { error: "Sube el archivo de la acción multimedia" };
+  }
+
+  const rule = await updateFollowRule({
+    workspaceId: membership.workspace.id,
+    followRuleId,
+    channelId: parsed.data.channelId || null,
+    name: parsed.data.name,
+    sourceType: parsed.data.sourceType,
+    sourceId: parsed.data.sourceId || null,
+    timeType: parsed.data.timeType,
+    timeValue: parsed.data.timeValue,
+    messageType: primaryAction.messageType,
+    content: primaryAction.content || null,
+    mediaUrl: primaryAction.mediaUrl || null,
+    actions,
+    cancelOnActivity: parsed.data.cancelOnActivity,
+    isActive: parsed.data.isActive,
+  });
+
+  if (!rule) {
+    return { error: "No se pudo actualizar la regla" };
+  }
+
+  revalidatePath("/cliente/seguimientos");
+  revalidatePath("/cliente/contactos");
+  revalidatePath("/cliente/crm");
+  revalidatePath("/cliente/flujos");
+
+  return {
+    success: true,
+    ruleId: rule.id,
+    name: rule.name,
+    message: `Regla "${rule.name}" actualizada`,
   };
 }
 

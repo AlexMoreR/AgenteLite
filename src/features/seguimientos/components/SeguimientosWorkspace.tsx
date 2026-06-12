@@ -12,6 +12,7 @@ import {
   Clock3,
   Phone,
   MoreHorizontal,
+  Pencil,
   Trash2,
   TrendingUp,
   Users2,
@@ -21,9 +22,18 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
+  CardContent,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -34,7 +44,7 @@ import {
   deleteFollowRuleAction,
   type DeleteFollowRuleActionState,
 } from "@/app/actions/follow-actions";
-import { NewFollowDialog } from "./NewFollowDialog";
+import { NewFollowDialog, type EditFollowRule } from "./NewFollowDialog";
 import { Item, ItemContent, ItemDescription, ItemGroup, ItemTitle, ItemMedia } from "@/components/ui/item";
 
 type SelectOption = {
@@ -47,6 +57,7 @@ type SelectOption = {
 type FollowRuleRow = {
   id: string;
   name: string;
+  channelId: string | null;
   sourceType: string;
   sourceId: string | null;
   timeType: string;
@@ -57,6 +68,11 @@ type FollowRuleRow = {
   cancelOnActivity: boolean;
   isActive: boolean;
   createdAt: Date;
+  actions?: Array<{
+    messageType: string;
+    content: string | null;
+    mediaUrl: string | null;
+  }>;
   channel?: {
     id: string;
     name: string;
@@ -134,15 +150,38 @@ function formatDate(value: Date | string | null | undefined) {
   }).format(date);
 }
 
-function sourceLabel(sourceType: string, sourceId: string | null) {
-  if (sourceType === "MANUAL") return "Manual";
-  if (sourceType === "CRM_STAGE") return sourceId || "Etapa CRM";
-  return sourceId || "Sin origen";
+function followStatusLabel(status: string) {
+  if (status === "EXECUTED") return "Enviado";
+  if (status === "PENDING") return "Pendiente";
+  if (status === "CANCELLED") return "Cancelado";
+  return status;
 }
 
 function normalizePhoneHref(phoneNumber: string) {
   const digits = phoneNumber.replace(/\D/g, "");
   return digits ? `tel:+${digits}` : "";
+}
+
+function toEditFollowRule(rule: FollowRuleRow): EditFollowRule {
+  return {
+    id: rule.id,
+    name: rule.name,
+    channelId: rule.channelId,
+    sourceType: rule.sourceType as EditFollowRule["sourceType"],
+    sourceId: rule.sourceId,
+    timeType: rule.timeType as EditFollowRule["timeType"],
+    timeValue: rule.timeValue,
+    messageType: rule.messageType as EditFollowRule["messageType"],
+    content: rule.content,
+    mediaUrl: rule.mediaUrl,
+    cancelOnActivity: rule.cancelOnActivity,
+    isActive: rule.isActive,
+    actions: (rule.actions ?? []).map((action) => ({
+      messageType: action.messageType as EditFollowRule["messageType"],
+      content: action.content,
+      mediaUrl: action.mediaUrl,
+    })),
+  };
 }
 
 export function SeguimientosWorkspace({
@@ -157,6 +196,7 @@ export function SeguimientosWorkspace({
 }: SeguimientosWorkspaceProps) {
   const [pendingDeleteRule, setPendingDeleteRule] =
     useState<PendingDeleteRule>(null);
+  const [editingRule, setEditingRule] = useState<EditFollowRule | null>(null);
   const [deleteActionState, deleteFormAction, deletePending] = useActionState(
     deleteFollowRuleAction,
     { error: "" } as DeleteFollowRuleActionState,
@@ -181,12 +221,19 @@ export function SeguimientosWorkspace({
     }
   }, [deleteActionState]);
 
+  const statCards = [
+    { label: "Total", value: counts.total, icon: Users2 },
+    { label: "En proceso", value: counts.pending, icon: TrendingUp },
+    { label: "Ejecutados", value: counts.executed, icon: CheckCircle2 },
+    { label: "Cancelados", value: counts.cancelled, icon: CircleSlash2 },
+  ];
+
   return (
-    <section className="space-y-5">
+    <section className="space-y-5 p-4 md:p-6">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <BarChart3 className="h-7 w-7 text-[#3b63ff]" />
-          <h1 className="text-2xl font-semibold tracking-[-0.05em] text-slate-950">
+          <BarChart3 className="h-7 w-7 text-primary" />
+          <h1 className="text-2xl font-semibold tracking-tight">
             Seguimientos
           </h1>
         </div>
@@ -200,66 +247,21 @@ export function SeguimientosWorkspace({
       </div>
 
       <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-        <Card className="rounded-[22px] border border-[#c7d8ff] bg-[#f6f9ff] px-4 py-3.5 shadow-[0_10px_26px_-20px_rgba(37,99,235,0.28)]">
-          <div className="flex items-center gap-3">
-            <div className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#d8e3ff] bg-[#edf3ff] text-[#3b63ff]">
-              <Users2 className="h-5 w-5" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-[0.95rem] font-medium text-[#5b74a8]">
-                Total
+        {statCards.map(({ label, value, icon: Icon }) => (
+          <Card key={label} size="sm">
+            <CardContent className="flex items-center gap-3">
+              <div className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <Icon className="h-5 w-5" />
+              </div>
+              <p className="min-w-0 flex-1 truncate text-sm font-medium text-muted-foreground">
+                {label}
               </p>
-            </div>
-            <p className="shrink-0 text-[1.45rem] font-semibold leading-none tracking-[-0.06em] text-[#0f172a]">
-              {String(counts.total)}
-            </p>
-          </div>
-        </Card>
-        <Card className="rounded-[22px] border border-[#c7d8ff] bg-[#f6f9ff] px-4 py-3.5 shadow-[0_10px_26px_-20px_rgba(37,99,235,0.28)]">
-          <div className="flex items-center gap-3">
-            <div className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#d8e3ff] bg-[#edf3ff] text-[#3b63ff]">
-              <TrendingUp className="h-5 w-5" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-[0.95rem] font-medium text-[#5b74a8]">
-                En proceso
+              <p className="shrink-0 text-2xl font-semibold leading-none tracking-tight">
+                {String(value)}
               </p>
-            </div>
-            <p className="shrink-0 text-[1.45rem] font-semibold leading-none tracking-[-0.06em] text-[#0f172a]">
-              {String(counts.pending)}
-            </p>
-          </div>
-        </Card>
-        <Card className="rounded-[22px] border border-[#c7d8ff] bg-[#f6f9ff] px-4 py-3.5 shadow-[0_10px_26px_-20px_rgba(37,99,235,0.28)]">
-          <div className="flex items-center gap-3">
-            <div className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#d8e3ff] bg-[#edf3ff] text-[#3b63ff]">
-              <CheckCircle2 className="h-5 w-5" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-[0.95rem] font-medium text-[#5b74a8]">
-                Ejecutados
-              </p>
-            </div>
-            <p className="shrink-0 text-[1.45rem] font-semibold leading-none tracking-[-0.06em] text-[#0f172a]">
-              {String(counts.executed)}
-            </p>
-          </div>
-        </Card>
-        <Card className="rounded-[22px] border border-[#c7d8ff] bg-[#f6f9ff] px-4 py-3.5 shadow-[0_10px_26px_-20px_rgba(37,99,235,0.28)]">
-          <div className="flex items-center gap-3">
-            <div className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#d8e3ff] bg-[#edf3ff] text-[#3b63ff]">
-              <CircleSlash2 className="h-5 w-5" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-[0.95rem] font-medium text-[#5b74a8]">
-                Cancelados
-              </p>
-            </div>
-            <p className="shrink-0 text-[1.45rem] font-semibold leading-none tracking-[-0.06em] text-[#0f172a]">
-              {String(counts.cancelled)}
-            </p>
-          </div>
-        </Card>
+            </CardContent>
+          </Card>
+        ))}
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
@@ -267,44 +269,36 @@ export function SeguimientosWorkspace({
           <CardHeader>
             <CardTitle>Reglas</CardTitle>
           </CardHeader>
-          <ItemGroup className="gap-3 px-6 pb-6">
+          <ItemGroup className="gap-2.5 px-4 pb-4">
             {rules.length ? (
               rules.map((rule) => (
                 <Item
                   key={rule.id}
                   variant="outline"
-                  className="items-start gap-4 rounded-2xl px-4 py-4"
+                  className="items-start gap-3 px-3.5 py-3"
                 >
                   <ItemMedia
                     variant="icon"
-                    className="mt-0.5 h-10 w-10 rounded-2xl bg-[color-mix(in_srgb,var(--primary)_10%,white)] text-[var(--primary)]"
+                    className="mt-0.5 size-10 rounded-lg bg-primary/10 text-primary"
                   >
-                    <span className="text-[12px] font-semibold">
+                    <span className="text-xs font-semibold">
                       {rule.name.slice(0, 1).toUpperCase()}
                     </span>
                   </ItemMedia>
 
                   <ItemContent className="min-w-0 flex-1">
                     <ItemTitle className="flex flex-wrap items-center gap-2">
-                      <span className="truncate font-semibold text-slate-950">
+                      <span className="truncate font-semibold">
                         {rule.name}
                       </span>
                       <Badge variant={rule.isActive ? "secondary" : "outline"}>
                         {rule.isActive ? "Activa" : "Pausada"}
                       </Badge>
-                      <Badge variant="outline">{rule.sourceType}</Badge>
-                      <Badge variant="outline">{rule.messageType}</Badge>
+                      <Badge variant="outline">
+                        <Clock3 className="h-3 w-3" />
+                        cada {rule.timeValue} {rule.timeType.toLowerCase()}
+                      </Badge>
                     </ItemTitle>
-                    <ItemDescription>
-                      Origen: {sourceLabel(rule.sourceType, rule.sourceId)}
-                    </ItemDescription>
-                    <ItemDescription>
-                      Programacion: cada {rule.timeValue}{" "}
-                      {rule.timeType.toLowerCase()}
-                    </ItemDescription>
-                    <ItemDescription>
-                      Canal: {rule.channel?.name ?? "Canal por defecto"}
-                    </ItemDescription>
                     <ItemDescription>
                       Seguimientos generados: {rule._count?.follows ?? 0}
                     </ItemDescription>
@@ -312,27 +306,32 @@ export function SeguimientosWorkspace({
 
                   <ItemContent className="flex-none items-end gap-2">
                     <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <button
-                          type="button"
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
-                          aria-label={`Acciones de ${rule.name}`}
-                        >
-                          <MoreHorizontal className="h-4 w-4" />
-                        </button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent
-                        align="end"
-                        className="min-w-44 rounded-2xl"
+                      <DropdownMenuTrigger
+                        render={
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={`Acciones de ${rule.name}`}
+                          />
+                        }
                       >
+                        <MoreHorizontal className="h-4 w-4" />
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="min-w-44">
                         <DropdownMenuItem
-                          onSelect={() =>
+                          onClick={() => setEditingRule(toEditFollowRule(rule))}
+                        >
+                          <Pencil className="h-4 w-4" />
+                          Editar regla
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          variant="destructive"
+                          onClick={() =>
                             setPendingDeleteRule({
                               id: rule.id,
                               name: rule.name,
                             })
                           }
-                          className="gap-2 text-rose-600 focus:text-rose-700"
                         >
                           <Trash2 className="h-4 w-4" />
                           Eliminar regla
@@ -343,7 +342,7 @@ export function SeguimientosWorkspace({
                 </Item>
               ))
             ) : (
-              <div className="px-1 py-4 text-sm text-slate-500">
+              <div className="px-1 py-4 text-sm text-muted-foreground">
                 Todavia no hay reglas creadas.
               </div>
             )}
@@ -354,49 +353,38 @@ export function SeguimientosWorkspace({
           <CardHeader>
             <CardTitle>Seguimientos Recientes</CardTitle>
           </CardHeader>
-          <ItemGroup className="gap-3 px-6 pb-6">
+          <ItemGroup className="gap-2.5 px-4 pb-4">
             {follows.length ? (
               follows.map((follow) => (
                 <Item
                   key={follow.id}
                   variant="outline"
-                  className="items-start gap-4 rounded-2xl px-4 py-4"
+                  size="sm"
+                  className="items-center gap-2.5 px-3 py-2"
                 >
                   <ItemMedia
                     variant="icon"
-                    className="mt-0.5 h-10 w-10 rounded-2xl bg-[color-mix(in_srgb,var(--primary)_10%,white)] text-[var(--primary)]"
+                    className="size-9 rounded-lg bg-primary/10 text-primary"
                   >
-                    <span className="text-[12px] font-semibold">
+                    <span className="text-xs font-semibold">
                       {(follow.name ?? follow.followRule?.name ?? "S")
                         .slice(0, 1)
                         .toUpperCase()}
                     </span>
                   </ItemMedia>
 
-                  <ItemContent className="min-w-0 flex-1">
-                    <ItemTitle className="flex flex-wrap items-center gap-2">
-                      <span className="truncate font-semibold text-slate-950">
+                  <ItemContent className="min-w-0 flex-1 gap-0.5">
+                    <ItemTitle>
+                      <span className="truncate font-normal">
                         {follow.name ?? follow.followRule?.name ?? "Sin nombre"}
                       </span>
-                      <Badge className="px-1.5 text-muted-foreground"
-                        variant={
-                          follow.status === "PENDING"
-                            ? "secondary"
-                            : follow.status === "EXECUTED"
-                              ? "outline"
-                              : "outline"
-                        }
-                      >
-                        <IconCircleCheckFilled className="fill-green-500 dark:fill-green-400" />
-                        {follow.status}
-                      </Badge>
                     </ItemTitle>
-                    <div className="inline-flex items-center gap-1.5 truncate text-sm text-slate-600">
-                      <Phone className="h-3.5 w-3.5 shrink-0" />
+                    <div className="inline-flex items-center gap-1.5 truncate text-xs text-muted-foreground">
+                      <Phone className="h-3 w-3 shrink-0" />
                       {contactPhoneById.get(follow.contactId) ? (
                         <a
                           href={normalizePhoneHref(contactPhoneById.get(follow.contactId) || "")}
-                          className="font-medium text-slate-600 no-underline hover:text-slate-700"
+                          className="font-medium no-underline hover:text-foreground"
                         >
                           {contactPhoneById.get(follow.contactId)}
                         </a>
@@ -405,27 +393,37 @@ export function SeguimientosWorkspace({
                       )}
                     </div>
                     {follow.followRule ? (
-                      <ItemDescription className="truncate">
+                      <ItemDescription className="truncate text-xs">
                         Regla: {follow.followRule.name}
                       </ItemDescription>
                     ) : null}
                     {follow.executionError ? (
-                      <ItemDescription className="text-rose-600">
+                      <ItemDescription className="text-destructive">
                         Error: {follow.executionError}
                       </ItemDescription>
                     ) : null}
                   </ItemContent>
 
-                  <ItemContent className="flex-none items-end gap-2 text-right">
-                    <ItemDescription className="inline-flex items-center gap-1.5 text-xs">
-                      <Clock3 className="h-3.5 w-3.5" />
+                  <ItemContent className="flex-none items-end gap-1 text-right">
+                    <Badge
+                      variant={
+                        follow.status === "PENDING" ? "secondary" : "outline"
+                      }
+                    >
+                      {follow.status === "EXECUTED" ? (
+                        <IconCircleCheckFilled className="fill-green-500 dark:fill-green-400" />
+                      ) : null}
+                      {followStatusLabel(follow.status)}
+                    </Badge>
+                    <ItemDescription className="inline-flex items-center gap-1 text-[11px]">
+                      <Clock3 className="h-3 w-3" />
                       {formatDate(follow.executeAt)}
                     </ItemDescription>
                   </ItemContent>
                 </Item>
               ))
             ) : (
-              <div className="px-1 py-4 text-sm text-slate-500">
+              <div className="px-1 py-4 text-sm text-muted-foreground">
                 Todavia no hay seguimientos registrados.
               </div>
             )}
@@ -433,64 +431,66 @@ export function SeguimientosWorkspace({
         </Card>
       </div>
 
-      {pendingDeleteRule ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Eliminar regla"
-          onClick={() => setPendingDeleteRule(null)}
-        >
-          <div
-            className="w-full max-w-md rounded-2xl bg-white shadow-xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="border-b border-slate-100 px-5 py-4">
-              <h3 className="text-base font-semibold text-slate-950">
-                Eliminar regla
-              </h3>
-              <p className="mt-1 text-sm text-slate-600">
-                Vas a eliminar{" "}
-                <span className="font-medium text-slate-900">
-                  {pendingDeleteRule.name}
-                </span>
-                . Esta accion no se puede deshacer.
-              </p>
-            </div>
+      <NewFollowDialog
+        mode="edit"
+        editRule={editingRule}
+        open={editingRule !== null}
+        onOpenChange={(open) => {
+          if (!open) setEditingRule(null);
+        }}
+        workspaceName={workspaceName}
+        channels={channels}
+        contacts={contacts}
+        sourceOptions={sourceOptions}
+        crmStages={crmStages}
+      />
 
-            <form action={deleteFormAction} className="space-y-4 px-5 py-5">
-              <input
-                type="hidden"
-                name="followRuleId"
-                value={pendingDeleteRule.id}
-              />
-              <input
-                type="hidden"
-                name="followRuleName"
-                value={pendingDeleteRule.name}
-              />
+      <Dialog
+        open={pendingDeleteRule !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDeleteRule(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Eliminar regla</DialogTitle>
+            <DialogDescription>
+              Vas a eliminar{" "}
+              <span className="font-medium text-foreground">
+                {pendingDeleteRule?.name}
+              </span>
+              . Esta accion no se puede deshacer.
+            </DialogDescription>
+          </DialogHeader>
 
-              <div className="flex justify-end gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setPendingDeleteRule(null)}
-                  disabled={deletePending}
-                >
-                  Cancelar
-                </Button>
-                <Button
-                  type="submit"
-                  className="bg-rose-600 text-white hover:bg-rose-700"
-                  disabled={deletePending}
-                >
-                  {deletePending ? "Eliminando..." : "Eliminar regla"}
-                </Button>
-              </div>
-            </form>
-          </div>
-        </div>
-      ) : null}
+          <form action={deleteFormAction}>
+            <input
+              type="hidden"
+              name="followRuleId"
+              value={pendingDeleteRule?.id ?? ""}
+            />
+            <input
+              type="hidden"
+              name="followRuleName"
+              value={pendingDeleteRule?.name ?? ""}
+            />
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setPendingDeleteRule(null)}
+                disabled={deletePending}
+              >
+                Cancelar
+              </Button>
+              <Button type="submit" variant="destructive" disabled={deletePending}>
+                {deletePending ? "Eliminando..." : "Eliminar regla"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }

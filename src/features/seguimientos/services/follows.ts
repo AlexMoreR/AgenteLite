@@ -880,6 +880,62 @@ export async function createFollowRule(input: FollowRuleInput) {
   return row ? mapFollowRuleRow(row) : null;
 }
 
+export async function updateFollowRule(
+  input: FollowRuleInput & { followRuleId: string },
+) {
+  const hasActionsColumn = await hasFollowActionsColumn("FollowRule");
+  const now = new Date();
+  const actions = buildPersistedFollowActions(input);
+  const channelId = normalizeText(input.channelId) || null;
+  const sourceId = normalizeText(input.sourceId) || null;
+
+  const [row] = await prisma.$queryRaw<RawFollowRuleRow[]>(Prisma.sql`
+    UPDATE public."FollowRule"
+    SET
+      "channelId" = ${channelId},
+      "name" = ${normalizeText(input.name)},
+      "sourceType" = ${input.sourceType},
+      "sourceId" = ${sourceId},
+      "timeType" = ${input.timeType},
+      "timeValue" = ${normalizePositiveInt(input.timeValue)},
+      "messageType" = ${input.messageType},
+      "content" = ${normalizeText(input.content) || null},
+      "mediaUrl" = ${normalizeText(input.mediaUrl) || null},
+      ${hasActionsColumn ? Prisma.sql`"actions" = ${JSON.stringify(actions)}::jsonb,` : Prisma.empty}
+      "cancelOnActivity" = ${input.cancelOnActivity ?? true},
+      "isActive" = ${input.isActive ?? true},
+      "updatedAt" = ${now}
+    WHERE "id" = ${input.followRuleId}
+      AND "workspaceId" = ${input.workspaceId}
+    RETURNING
+      "id",
+      "workspaceId",
+      "channelId",
+      "name",
+      "sourceType",
+      "sourceId",
+      "timeType",
+      "timeValue",
+      "messageType",
+      "content",
+      "mediaUrl",
+      ${hasActionsColumn ? Prisma.sql`"actions",` : Prisma.sql`NULL::jsonb AS "actions",`}
+      "cancelOnActivity",
+      "provider",
+      "isActive",
+      "createdAt",
+      "updatedAt",
+      NULL::text AS "channel__id",
+      NULL::text AS "channel__name",
+      NULL::text AS "channel__provider",
+      NULL::text AS "channel__status",
+      NULL::text AS "channel__evolutionInstanceName",
+      0::integer AS "followCount"
+  `);
+
+  return row ? mapFollowRuleRow(row) : null;
+}
+
 export async function deleteFollowRule(input: {
   workspaceId: string;
   followRuleId: string;

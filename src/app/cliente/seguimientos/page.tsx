@@ -92,6 +92,7 @@ export default async function SeguimientosPage() {
       rules={overview.rules.map((rule) => ({
         id: rule.id,
         name: rule.name,
+        channelId: rule.channelId,
         sourceType: rule.sourceType,
         sourceId: rule.sourceId,
         timeType: rule.timeType,
@@ -102,6 +103,11 @@ export default async function SeguimientosPage() {
         cancelOnActivity: rule.cancelOnActivity,
         isActive: rule.isActive,
         createdAt: rule.createdAt,
+        actions: rule.actions.map((action) => ({
+          messageType: action.messageType,
+          content: action.content,
+          mediaUrl: action.mediaUrl,
+        })),
         channel: rule.channel
           ? {
               id: rule.channel.id,

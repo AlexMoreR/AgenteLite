@@ -40,6 +40,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import {
   createFollowRuleAction,
+  updateFollowRuleAction,
   type CreateFollowRuleActionState,
 } from "@/app/actions/follow-actions";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
@@ -58,6 +59,27 @@ type SourceGroup = {
 
 type SourceType = "FLOW" | "PRODUCT" | "TAG" | "CRM_STAGE" | "MANUAL";
 type FollowMessageType = "TEXT" | "AUDIO" | "IMAGE" | "VIDEO" | "DOC";
+type FollowTimeType = "MINUTES" | "HOURS" | "DAYS";
+
+export type EditFollowRule = {
+  id: string;
+  name: string;
+  channelId: string | null;
+  sourceType: SourceType;
+  sourceId: string | null;
+  timeType: FollowTimeType;
+  timeValue: number;
+  messageType: FollowMessageType;
+  content: string | null;
+  mediaUrl: string | null;
+  cancelOnActivity: boolean;
+  isActive: boolean;
+  actions: Array<{
+    messageType: FollowMessageType;
+    content: string | null;
+    mediaUrl: string | null;
+  }>;
+};
 
 type MediaUploadResponse = {
   ok?: boolean;
@@ -73,6 +95,10 @@ type NewFollowDialogProps = {
   contacts: SelectOption[];
   sourceOptions: SourceGroup[];
   crmStages: SelectOption[];
+  mode?: "create" | "edit";
+  editRule?: EditFollowRule | null;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 };
 
 function sourceOptionsForType(
@@ -218,8 +244,21 @@ export function NewFollowDialog({
   contacts,
   sourceOptions,
   crmStages,
+  mode = "create",
+  editRule = null,
+  open: openProp,
+  onOpenChange,
 }: NewFollowDialogProps) {
-  const [open, setOpen] = useState(false);
+  const isEdit = mode === "edit";
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = openProp ?? internalOpen;
+  const setOpen = (next: boolean) => {
+    if (onOpenChange) {
+      onOpenChange(next);
+    } else {
+      setInternalOpen(next);
+    }
+  };
   const [step, setStep] = useState<"intro" | "rule">("intro");
   const [ruleName, setRuleName] = useState("");
   const [selectedChannelId, setSelectedChannelId] = useState("");
@@ -227,14 +266,71 @@ export function NewFollowDialog({
   const [ruleSourceValue, setRuleSourceValue] = useState<SelectOption | null>(
     null,
   );
+  const [ruleTimeType, setRuleTimeType] = useState<FollowTimeType>("MINUTES");
+  const [ruleTimeValue, setRuleTimeValue] = useState("1");
+  const [ruleCancelOnActivity, setRuleCancelOnActivity] = useState(true);
+  const [ruleIsActive, setRuleIsActive] = useState(true);
   const [followActions, setFollowActions] = useState<FollowActionDraft[]>(() => [
     createFollowActionDraft(1),
   ]);
   const actionInputRefs = useRef(new Map<string, HTMLInputElement | null>());
   const [actionState, formAction, pending] = useActionState(
-    createFollowRuleAction,
+    isEdit ? updateFollowRuleAction : createFollowRuleAction,
     initialActionState,
   );
+
+  // En modo edición, precargar el formulario con los datos de la regla al abrir.
+  useEffect(() => {
+    if (!open || !isEdit || !editRule) {
+      return;
+    }
+
+    setStep("rule");
+    setRuleName(editRule.name);
+    setSelectedChannelId(editRule.channelId ?? "");
+    setRuleSourceType(editRule.sourceType);
+
+    const options = sourceOptionsForType(
+      editRule.sourceType,
+      sourceOptions,
+      crmStages,
+      contacts,
+    );
+    const matchedSource = editRule.sourceId
+      ? options.find((option) => option.value === editRule.sourceId) ?? {
+          value: editRule.sourceId,
+          label: editRule.sourceId,
+        }
+      : null;
+    setRuleSourceValue(matchedSource);
+    setRuleTimeType(editRule.timeType);
+    setRuleTimeValue(String(editRule.timeValue));
+    setRuleCancelOnActivity(editRule.cancelOnActivity);
+    setRuleIsActive(editRule.isActive);
+
+    const sourceActions = editRule.actions.length
+      ? editRule.actions
+      : [
+          {
+            messageType: editRule.messageType,
+            content: editRule.content,
+            mediaUrl: editRule.mediaUrl,
+          },
+        ];
+    setFollowActions(
+      sourceActions.map((action, index) => {
+        const mediaUrl = action.mediaUrl ?? "";
+        return {
+          ...createFollowActionDraft(index + 1, action.messageType),
+          content: action.content ?? "",
+          mediaUrl,
+          mediaFileName: mediaUrl ? mediaUrl.split("/").pop() ?? "" : "",
+        };
+      }),
+    );
+    // editRule mantiene identidad estable mientras el diálogo está abierto.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, isEdit, editRule]);
 
   const ruleSourceOptions = useMemo(
     () =>
@@ -246,7 +342,11 @@ export function NewFollowDialog({
   const ruleSourcePlaceholderText = sourcePlaceholder(ruleSourceType);
   const ruleSourceEmptyText = sourceEmptyText(ruleSourceType);
   const isManualFollow = ruleSourceType === "MANUAL";
-  const stepTitle = isManualFollow ? "Programar seguimiento" : "Crear regla";
+  const stepTitle = isEdit
+    ? "Editar regla"
+    : isManualFollow
+      ? "Programar seguimiento"
+      : "Crear regla";
 
   const serializedFollowActions = useMemo(
     () => buildSubmitFollowActions(followActions),
@@ -472,11 +572,17 @@ export function NewFollowDialog({
           setSelectedChannelId("");
           setRuleSourceType("MANUAL");
           setRuleSourceValue(null);
+          setRuleTimeType("MINUTES");
+          setRuleTimeValue("1");
+          setRuleCancelOnActivity(true);
+          setRuleIsActive(true);
           resetFollowActions();
         }
       }}
     >
-      <DialogTrigger render={<Button type="button">Nuevo</Button>} />
+      {isEdit ? null : (
+        <DialogTrigger render={<Button type="button">Nuevo</Button>} />
+      )}
 
       <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
         {step === "intro" ? (
@@ -559,6 +665,20 @@ export function NewFollowDialog({
                   name="sourceId"
                   value={ruleSourceValue?.value ?? ""}
                 />
+                {isEdit && editRule ? (
+                  <>
+                    <input
+                      type="hidden"
+                      name="followRuleId"
+                      value={editRule.id}
+                    />
+                    <input
+                      type="hidden"
+                      name="isActive"
+                      value={ruleIsActive ? "true" : "false"}
+                    />
+                  </>
+                ) : null}
 
                 <div className="min-h-0 flex-1 overflow-y-auto p-2">
                   <div className="grid gap-4 sm:grid-cols-2">
@@ -574,7 +694,9 @@ export function NewFollowDialog({
                           setRuleSourceValue(null);
                         }}
                       >
-                        <NativeSelectOption value="MANUAL">Manual</NativeSelectOption>
+                        {isEdit ? null : (
+                          <NativeSelectOption value="MANUAL">Manual</NativeSelectOption>
+                        )}
                         <NativeSelectOption value="FLOW">Flujo</NativeSelectOption>
                         <NativeSelectOption value="PRODUCT">Producto</NativeSelectOption>
                         <NativeSelectOption value="TAG">Tag</NativeSelectOption>
@@ -632,7 +754,14 @@ export function NewFollowDialog({
 
                     <Field>
                       <FieldLabel htmlFor="quick-rule-time-type">Tipo de tiempo</FieldLabel>
-                      <NativeSelect id="quick-rule-time-type" name="timeType">
+                      <NativeSelect
+                        id="quick-rule-time-type"
+                        name="timeType"
+                        value={ruleTimeType}
+                        onChange={(event) =>
+                          setRuleTimeType(event.target.value as FollowTimeType)
+                        }
+                      >
                         <NativeSelectOption value="MINUTES">Minutos</NativeSelectOption>
                         <NativeSelectOption value="HOURS">Horas</NativeSelectOption>
                         <NativeSelectOption value="DAYS">Dias</NativeSelectOption>
@@ -646,7 +775,8 @@ export function NewFollowDialog({
                         name="timeValue"
                         type="number"
                         min={1}
-                        defaultValue={1}
+                        value={ruleTimeValue}
+                        onChange={(event) => setRuleTimeValue(event.target.value)}
                       />
                     </Field>
                   </div>
@@ -898,7 +1028,10 @@ export function NewFollowDialog({
                     <Checkbox
                       id="cancelOnActivity"
                       name="cancelOnActivity"
-                      defaultChecked
+                      checked={ruleCancelOnActivity}
+                      onCheckedChange={(checked) =>
+                        setRuleCancelOnActivity(checked === true)
+                      }
                     />
                     <FieldLabel htmlFor="cancelOnActivity" className="font-normal">
                       Cancelar por actividad
@@ -907,8 +1040,12 @@ export function NewFollowDialog({
                 </div>
 
                 <DialogFooter>
-                  <Button type="button" variant="outline" onClick={() => setStep("intro")}>
-                    Volver
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => (isEdit ? setOpen(false) : setStep("intro"))}
+                  >
+                    {isEdit ? "Cancelar" : "Volver"}
                   </Button>
                   <Button
                     type="submit"
@@ -916,9 +1053,11 @@ export function NewFollowDialog({
                   >
                     {pending
                       ? "Guardando..."
-                      : isManualFollow
-                        ? "Programar seguimiento"
-                        : "Guardar regla"}
+                      : isEdit
+                        ? "Actualizar regla"
+                        : isManualFollow
+                          ? "Programar seguimiento"
+                          : "Guardar regla"}
                   </Button>
                 </DialogFooter>
               </form>
