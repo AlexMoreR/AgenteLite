@@ -518,6 +518,9 @@ export async function publishAgentV2Action(input: {
     customWelcomeMessage: fixedWelcome ? welcomeText : "",
     customRules: compiledRules,
     knowledgeFlowIds: flowIds,
+    // Toggles "Consultar productos/flujos": apagados => el motor no ofrece la tool.
+    enableProductLookup: consultProducts,
+    enableFlowLookup: consultFlows,
   });
 
   const welcomeMessage =

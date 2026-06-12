@@ -544,18 +544,33 @@ export async function resolveAgentProductFlowReply(input: {
   const training = parseAgentTrainingConfig(agent.trainingConfig) ?? defaultAgentTrainingConfig;
   const selectedFlowIds = new Set(training.knowledgeFlowIds);
   const selectedFlows = flowTargets.filter((flow) => selectedFlowIds.has(flow.id));
-  const flowCandidates = selectedFlows.length > 0 ? selectedFlows : flowTargets;
+  // Agente V2: si el toggle "Consultar flujos" está apagado (enableFlowLookup=false),
+  // NO hay candidatos -> el motor no dispara ningún flujo por coincidencia.
+  // Si está activo pero no se seleccionó ninguno, se mantiene el comportamiento V1
+  // ("vacío = todos") para no romper agentes existentes.
+  const flowCandidates =
+    training.enableFlowLookup === false
+      ? []
+      : selectedFlows.length > 0
+        ? selectedFlows
+        : flowTargets;
   const enabledChildFlowIds = new Set(
     input.activeProductContext?.followUpFlowId?.trim()
       ? [input.activeProductContext.followUpFlowId.trim()]
       : [],
   );
-  const matchedProducts = await consultProductsByAgent({
-    agentId: input.agentId,
-    query: latestText,
-    limit: 3,
-  });
-  const matchedProduct = matchedProducts.bestMatch;
+  // Agente V2: si "Consultar productos" está apagado, no consultamos el catálogo
+  // del agente (evita el match de embudo y la llamada/ log innecesarios).
+  const matchedProduct =
+    training.enableProductLookup === false
+      ? null
+      : (
+          await consultProductsByAgent({
+            agentId: input.agentId,
+            query: latestText,
+            limit: 3,
+          })
+        ).bestMatch;
   const candidateFlowIds = new Set(flowCandidates.map((flow) => flow.id));
   const availableFlowCandidates = flowCandidates.filter(
     (flow) => !flow.isChildFlow || enabledChildFlowIds.has(flow.id),

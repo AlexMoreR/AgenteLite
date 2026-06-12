@@ -104,6 +104,10 @@ export type AgentTrainingConfig = {
   forbiddenRules: string[];
   customRules: string;
   knowledgeFlowIds: string[];
+  // Toggles de Agente V2: si están en false, el motor NO ofrece esa tool al modelo.
+  // Ausente/undefined => true (preserva el comportamiento de V1, que siempre las tiene).
+  enableProductLookup: boolean;
+  enableFlowLookup: boolean;
   actions: AgentActionsConfig;
   useCustomPrompt: boolean;
   customSystemPrompt: string;
@@ -178,6 +182,8 @@ export const defaultAgentTrainingConfig: AgentTrainingConfig = {
   forbiddenRules: [...forbiddenRuleOptions.slice(0, 4)],
   customRules: "",
   knowledgeFlowIds: [],
+  enableProductLookup: true,
+  enableFlowLookup: true,
   actions: {
     notify: {
       enabled: false,
@@ -231,7 +237,12 @@ export function getResponseLengthSliderValue(value: ResponseLength) {
   return 50;
 }
 
-export function buildAgentTrainingConfig(input: AgentTrainingConfig): AgentTrainingConfig {
+export function buildAgentTrainingConfig(
+  // Los toggles de tools son opcionales: V1 no los setea y por defecto van en true
+  // (siempre ofrece las tools). Solo Agente V2 los pasa explícitamente.
+  input: Omit<AgentTrainingConfig, "enableProductLookup" | "enableFlowLookup"> &
+    Partial<Pick<AgentTrainingConfig, "enableProductLookup" | "enableFlowLookup">>,
+): AgentTrainingConfig {
   const notify = input.actions.notify;
 
   return {
@@ -242,6 +253,8 @@ export function buildAgentTrainingConfig(input: AgentTrainingConfig): AgentTrain
     customWelcomeMessage: input.customWelcomeMessage.trim(),
     customRules: input.customRules.trim(),
     knowledgeFlowIds: input.knowledgeFlowIds.filter((value, index, array) => Boolean(value) && array.indexOf(value) === index),
+    enableProductLookup: input.enableProductLookup !== false,
+    enableFlowLookup: input.enableFlowLookup !== false,
     actions: {
       notify: {
         enabled: Boolean(notify.enabled),
@@ -642,6 +655,8 @@ export function parseAgentTrainingConfig(value: unknown): AgentTrainingConfig | 
     forbiddenRules,
     customRules: typeof data.customRules === "string" ? data.customRules : "",
     knowledgeFlowIds,
+    enableProductLookup: data.enableProductLookup !== false,
+    enableFlowLookup: data.enableFlowLookup !== false,
     actions: normalizeAgentActionsConfig(data.actions),
     useCustomPrompt: Boolean(data.useCustomPrompt),
     customSystemPrompt: typeof data.customSystemPrompt === "string" ? data.customSystemPrompt : "",

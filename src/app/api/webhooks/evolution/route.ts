@@ -2185,13 +2185,20 @@ export async function POST(request: Request) {
             return result ?? { found: false, matches: [], bestMatch: null, recommendation: "No hay coincidencias suficientes." };
           },
         } satisfies Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
+        // Los toggles "Consultar productos/flujos" (Agente V2) deciden qué tools se
+        // ofrecen. En V1/configs antiguas ambos flags son true => se ofrecen las tres.
+        const agentTools = [
+          NOTIFICAR_ASESOR_TOOL,
+          ...(agentTraining?.enableProductLookup !== false ? [CONSULTAR_PRODUCTOS_TOOL] : []),
+          ...(agentTraining?.enableFlowLookup !== false ? [CONSULTAR_FLUJOS_TOOL] : []),
+        ];
         replyText = await generateAgentReply({
           model: agent.model,
           systemPrompt: effectiveSystemPrompt,
           fallbackMessage: agent.fallbackMessage,
           history: recentMessagesForModel,
           latestUserMessage: aiLatestUserMessageWithImageContext,
-          tools: [NOTIFICAR_ASESOR_TOOL, CONSULTAR_PRODUCTOS_TOOL, CONSULTAR_FLUJOS_TOOL],
+          tools: agentTools,
           toolHandlers,
         });
 
