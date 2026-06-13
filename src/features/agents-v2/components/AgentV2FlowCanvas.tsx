@@ -12,6 +12,7 @@ import {
 import {
   ArrowLeft,
   Bot,
+  Boxes,
   Filter,
   HelpCircle,
   Megaphone,
@@ -1389,6 +1390,7 @@ function FlowCanvasInner({
 }: AgentV2FlowCanvasProps) {
   const initial = useMemo(() => loadGraph(initialGraph, agentName), [initialGraph, agentName]);
   const [isPublishing, startPublish] = useTransition();
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>(initial.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(initial.edges);
   const productCount = useRef(initial.nodes.filter((node) => node.type === "producto").length);
@@ -1710,36 +1712,36 @@ function FlowCanvasInner({
 
   return (
     <div className="flex h-[calc(100dvh-4rem)] flex-col overflow-hidden rounded-2xl border border-border bg-card">
-      <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={onBack}>
+      <div ref={flowWrapperRef} className="relative flex-1 bg-muted/60 dark:bg-muted/30">
+        <div className="absolute left-4 top-4 z-10 flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onBack}
+            className="rounded-full bg-popover shadow-sm"
+          >
             <ArrowLeft className="h-4 w-4" />
             Volver
           </Button>
-          <div className="leading-tight">
-            <p className="text-sm font-semibold text-foreground">{agentName}</p>
-            <p className="text-xs text-muted-foreground">Agente V2 · constructor de flujo</p>
+          <div className="pointer-events-none flex items-center gap-2">
+          <span className="inline-flex items-center gap-2 rounded-full bg-popover px-3 py-1.5 text-xs font-medium text-foreground ring-1 ring-border">
+            <Bot className="h-3.5 w-3.5 text-violet-600" />
+            {agentName}
+          </span>
+          <span className="inline-flex items-center gap-2 rounded-full bg-popover px-3 py-1.5 text-xs font-medium text-foreground ring-1 ring-border">
+            <Boxes className="h-3.5 w-3.5 text-sky-600" />
+            {nodes.length} bloques
+          </span>
+          <span className="inline-flex items-center gap-2 rounded-full bg-popover px-3 py-1.5 text-xs font-medium text-foreground ring-1 ring-border">
+            <Split className="h-3.5 w-3.5 text-blue-600" />
+            {edges.length} conexiones
+          </span>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={addProduct}>
-            <ShoppingBag className="h-4 w-4" />
-            Agregar producto
-          </Button>
-          <Button variant="outline" size="sm" onClick={addCondition}>
-            <Split className="h-4 w-4" />
-            Agregar condicion
-          </Button>
-          <Button variant="outline" size="sm" onClick={addText}>
-            <MessageSquare className="h-4 w-4" />
-            Agregar texto
-          </Button>
-          <Button variant="outline" size="sm" onClick={addFlujo}>
-            <Workflow className="h-4 w-4" />
-            Agregar flujo
-          </Button>
+        <div className="absolute right-4 top-4 z-10 flex items-center gap-2">
           <Button
             size="sm"
+            className="rounded-full shadow-lg"
             disabled={isPublishing}
             onClick={() => {
               const stored = serializeGraph(nodes, edges);
@@ -1756,9 +1758,49 @@ function FlowCanvasInner({
             <Rocket className="h-4 w-4" />
             {isPublishing ? "Publicando..." : "Publicar"}
           </Button>
+          <Popover open={addMenuOpen} onOpenChange={setAddMenuOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                type="button"
+                size="icon"
+                aria-label="Agregar nodo"
+                className="h-9 w-9 rounded-full shadow-lg"
+              >
+                <Plus className="h-4 w-4" strokeWidth={2.5} />
+              </Button>
+            </PopoverTrigger>
+          <PopoverContent
+            align="end"
+            side="bottom"
+            className="nodrag w-56 rounded-xl border border-border bg-popover p-1.5"
+          >
+            <p className="px-2 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Agregar nodo
+            </p>
+            <div className="grid gap-0.5">
+              {[
+                { label: "Producto", icon: ShoppingBag, color: "text-emerald-600", onClick: addProduct },
+                { label: "Condición", icon: Split, color: "text-amber-600", onClick: addCondition },
+                { label: "Texto", icon: MessageSquare, color: "text-sky-600", onClick: addText },
+                { label: "Flujo", icon: Workflow, color: "text-indigo-600", onClick: addFlujo },
+              ].map((option) => (
+                <button
+                  key={option.label}
+                  type="button"
+                  onClick={() => {
+                    option.onClick();
+                    setAddMenuOpen(false);
+                  }}
+                  className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm text-foreground transition hover:bg-muted"
+                >
+                  <option.icon className={`h-4 w-4 shrink-0 ${option.color}`} />
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            </PopoverContent>
+          </Popover>
         </div>
-      </div>
-      <div ref={flowWrapperRef} className="relative flex-1">
         <ReactFlow
           nodes={nodesWithHandlers}
           edges={edgesWithHandlers}
