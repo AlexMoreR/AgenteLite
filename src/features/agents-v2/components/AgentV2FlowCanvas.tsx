@@ -41,6 +41,7 @@ import {
   useEdgesState,
   useNodeConnections,
   useNodesState,
+  useReactFlow,
   type Connection,
   type Edge,
   type EdgeProps,
@@ -1395,6 +1396,25 @@ function FlowCanvasInner({
   const textCount = useRef(initial.nodes.filter((node) => node.type === "texto").length);
   const flujoCount = useRef(initial.nodes.filter((node) => node.type === "flujo").length);
 
+  // Posiciona los nodos nuevos en el centro del viewport actual (no en coordenadas
+  // fijas lejanas), con un pequeño escalonado para que no se apilen exactamente.
+  const flowWrapperRef = useRef<HTMLDivElement>(null);
+  const { screenToFlowPosition } = useReactFlow();
+  const spawnCount = useRef(0);
+  const getSpawnPosition = useCallback(() => {
+    const stagger = (spawnCount.current % 6) * 36;
+    spawnCount.current += 1;
+    const rect = flowWrapperRef.current?.getBoundingClientRect();
+    if (!rect) {
+      return { x: 600 + stagger, y: 200 + stagger };
+    }
+    const center = screenToFlowPosition({
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
+    });
+    return { x: center.x - 150 + stagger, y: center.y - 80 + stagger };
+  }, [screenToFlowPosition]);
+
   const updateNodeData = useCallback(
     (id: string, patch: NodeDataPatch) => {
       setNodes((current) =>
@@ -1585,12 +1605,11 @@ function FlowCanvasInner({
 
   const addProduct = useCallback(() => {
     productCount.current += 1;
-    const index = productCount.current;
     const newId = `producto-${crypto.randomUUID()}`;
     const newNode: Node = {
       id: newId,
       type: "producto",
-      position: { x: 900, y: 60 + (index - 1) * 300 },
+      position: getSpawnPosition(),
       data: {
         productId: "",
         startOnMatch: false,
@@ -1614,16 +1633,15 @@ function FlowCanvasInner({
         current,
       ),
     );
-  }, [setNodes, setEdges]);
+  }, [setNodes, setEdges, getSpawnPosition]);
 
   const addCondition = useCallback(() => {
     conditionCount.current += 1;
-    const index = conditionCount.current;
     const newId = `condicion-${crypto.randomUUID()}`;
     const newNode: Node = {
       id: newId,
       type: "condicion",
-      position: { x: 900, y: 40 + (index - 1) * 340 },
+      position: getSpawnPosition(),
       data: {
         rules: [{ id: `${newId}-r0`, matchType: "contiene", keywords: [], intent: "" }],
       } satisfies ConditionData,
@@ -1642,33 +1660,31 @@ function FlowCanvasInner({
         current,
       ),
     );
-  }, [setNodes, setEdges]);
+  }, [setNodes, setEdges, getSpawnPosition]);
 
   const addText = useCallback(() => {
     textCount.current += 1;
-    const index = textCount.current;
     const newId = `texto-${crypto.randomUUID()}`;
     const newNode: Node = {
       id: newId,
       type: "texto",
-      position: { x: 900, y: 460 + (index - 1) * 300 },
+      position: getSpawnPosition(),
       data: { text: "" } satisfies TextData,
     };
     setNodes((current) => [...current, newNode]);
-  }, [setNodes]);
+  }, [setNodes, getSpawnPosition]);
 
   const addFlujo = useCallback(() => {
     flujoCount.current += 1;
-    const index = flujoCount.current;
     const newId = `flujo-${crypto.randomUUID()}`;
     const newNode: Node = {
       id: newId,
       type: "flujo",
-      position: { x: 1320, y: 60 + (index - 1) * 220 },
+      position: getSpawnPosition(),
       data: { flowId: "" } satisfies FlujoData,
     };
     setNodes((current) => [...current, newNode]);
-  }, [setNodes]);
+  }, [setNodes, getSpawnPosition]);
 
   const onSaveGraphRef = useRef(onSaveGraph);
   useEffect(() => {
@@ -1742,7 +1758,7 @@ function FlowCanvasInner({
           </Button>
         </div>
       </div>
-      <div className="relative flex-1">
+      <div ref={flowWrapperRef} className="relative flex-1">
         <ReactFlow
           nodes={nodesWithHandlers}
           edges={edgesWithHandlers}
