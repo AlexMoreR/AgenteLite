@@ -10,6 +10,8 @@ import {
   CheckCircle2,
   CircleSlash2,
   Clock3,
+  Loader,
+  Send,
   Phone,
   MoreHorizontal,
   Pencil,
@@ -46,6 +48,7 @@ import {
 } from "@/app/actions/follow-actions";
 import { NewFollowDialog, type EditFollowRule } from "./NewFollowDialog";
 import { Item, ItemContent, ItemDescription, ItemGroup, ItemTitle, ItemMedia } from "@/components/ui/item";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 type SelectOption = {
   value: string;
@@ -349,11 +352,11 @@ export function SeguimientosWorkspace({
           </ItemGroup>
         </Card>
 
-        <Card>
+        <Card className="max-h-[32rem]">
           <CardHeader>
             <CardTitle>Seguimientos Recientes</CardTitle>
           </CardHeader>
-          <ItemGroup className="gap-2.5 px-4 pb-4">
+          <ItemGroup className="min-h-0 flex-1 gap-2.5 overflow-y-auto px-4 pb-4">
             {follows.length ? (
               follows.map((follow) => (
                 <Item
@@ -366,11 +369,7 @@ export function SeguimientosWorkspace({
                     variant="icon"
                     className="size-9 rounded-lg bg-primary/10 text-primary"
                   >
-                    <span className="text-xs font-semibold">
-                      {(follow.name ?? follow.followRule?.name ?? "S")
-                        .slice(0, 1)
-                        .toUpperCase()}
-                    </span>
+                    <Send className="h-4 w-4" />
                   </ItemMedia>
 
                   <ItemContent className="min-w-0 flex-1 gap-0.5">
@@ -392,31 +391,55 @@ export function SeguimientosWorkspace({
                         follow.contactId
                       )}
                     </div>
-                    {follow.followRule ? (
-                      <ItemDescription className="truncate text-xs">
-                        Regla: {follow.followRule.name}
-                      </ItemDescription>
-                    ) : null}
-                    {follow.executionError ? (
-                      <ItemDescription className="text-destructive">
-                        Error: {follow.executionError}
-                      </ItemDescription>
-                    ) : null}
                   </ItemContent>
 
                   <ItemContent className="flex-none items-end gap-1 text-right">
-                    <Badge
-                      variant={
-                        follow.status === "PENDING" ? "secondary" : "outline"
-                      }
-                    >
-                      {follow.status === "EXECUTED" ? (
-                        <IconCircleCheckFilled className="fill-green-500 dark:fill-green-400" />
-                      ) : null}
-                      {followStatusLabel(follow.status)}
-                    </Badge>
+                    {follow.executionError ? (
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <Badge
+                              variant={
+                                follow.status === "PENDING" ? "secondary" : "outline"
+                              }
+                              className="cursor-default"
+                            >
+                              {follow.status === "EXECUTED" ? (
+                                <IconCircleCheckFilled className="fill-green-500 dark:fill-green-400" />
+                              ) : null}
+                              {follow.status === "PENDING" ? (
+                                <Loader className="h-3 w-3 animate-spin text-orange-500" />
+                              ) : null}
+                              {follow.status === "CANCELLED" ? (
+                                <CircleSlash2 className="h-3 w-3 text-muted-foreground" />
+                              ) : null}
+                              {followStatusLabel(follow.status)}
+                            </Badge>
+                          }
+                        />
+                        <TooltipContent>
+                          {follow.status === "CANCELLED" ? "Cancelado" : "Error"}: {follow.executionError}
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : (
+                      <Badge
+                        variant={
+                          follow.status === "PENDING" ? "secondary" : "outline"
+                        }
+                      >
+                        {follow.status === "EXECUTED" ? (
+                          <IconCircleCheckFilled className="fill-green-500 dark:fill-green-400" />
+                        ) : null}
+                        {follow.status === "PENDING" ? (
+                          <Loader className="h-3 w-3 animate-spin text-orange-500" />
+                        ) : null}
+                        {follow.status === "CANCELLED" ? (
+                          <CircleSlash2 className="h-3 w-3 text-muted-foreground" />
+                        ) : null}
+                        {followStatusLabel(follow.status)}
+                      </Badge>
+                    )}
                     <ItemDescription className="inline-flex items-center gap-1 text-[11px]">
-                      <Clock3 className="h-3 w-3" />
                       {formatDate(follow.executeAt)}
                     </ItemDescription>
                   </ItemContent>

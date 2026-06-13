@@ -580,13 +580,6 @@ async function resolveFlowBranchForActiveProduct(input: {
     }
   }
 
-  if (process.env.NODE_ENV !== "production") {
-    console.info("[agent-product-flow] branch-walk-debug", {
-      conditionsFound: conditions.length,
-      candidateFlowIds: Array.from(input.candidateFlowIds),
-    });
-  }
-
   for (const cond of conditions) {
     const rules = Array.isArray(cond.data?.rules)
       ? (cond.data?.rules as Array<Record<string, unknown>>)
@@ -602,18 +595,11 @@ async function resolveFlowBranchForActiveProduct(input: {
       }
       const flowId = fbStr(targetNode.data?.flowId);
       if (!flowId || !input.candidateFlowIds.has(flowId)) {
-        if (process.env.NODE_ENV !== "production") {
-          console.info("[agent-product-flow] branch-flow-skipped", {
-            flowId,
-            inCandidates: input.candidateFlowIds.has(flowId),
-          });
-        }
         continue;
       }
 
       const matchType = fbStr(rule.matchType);
       let matched = false;
-      let evalPath = matchType;
       if (matchType === "exacta") {
         matched = fbStrArray(rule.keywords).some((kw) => normalizeText(kw) === input.normalizedMessage);
       } else if (matchType === "ia") {
@@ -621,33 +607,18 @@ async function resolveFlowBranchForActiveProduct(input: {
         const intent = fbStr(rule.intent);
         if (looksAffirmative(input.normalizedMessage)) {
           matched = true;
-          evalPath = "ia:affirmative";
         } else {
           const intentKeywords = extractIntentKeywords(intent);
-          if (intentKeywords.length && includesAny(input.normalizedMessage, intentKeywords)) {
-            matched = true;
-            evalPath = "ia:keyword";
-          } else {
-            matched = await evaluateIaIntentMatch({ intent, message: input.message, model: input.model });
-            evalPath = "ia:judge";
-          }
+          matched =
+            intentKeywords.length > 0 && includesAny(input.normalizedMessage, intentKeywords)
+              ? true
+              : await evaluateIaIntentMatch({ intent, message: input.message, model: input.model });
         }
       } else {
         matched = includesAny(
           input.normalizedMessage,
           fbStrArray(rule.keywords).map((kw) => normalizeText(kw)),
         );
-      }
-
-      if (process.env.NODE_ENV !== "production") {
-        console.info("[agent-product-flow] branch-rule-eval", {
-          matchType,
-          evalPath,
-          intent: fbStr(rule.intent),
-          keywords: fbStrArray(rule.keywords),
-          flowId,
-          matched,
-        });
       }
 
       if (matched) {
@@ -791,17 +762,6 @@ export async function resolveAgentProductFlowReply(input: {
     const productNode = graphNodes.find(
       (n) => n.type === "producto" && fbStr(n.data?.productId) === activeProductId,
     );
-    if (process.env.NODE_ENV !== "production") {
-      console.info("[agent-product-flow] branch-hook-debug", {
-        activeProductId,
-        flowCandidates: flowCandidates.length,
-        graphNodeCount: graphNodes.length,
-        productNodesInGraph: graphNodes
-          .filter((n) => n.type === "producto")
-          .map((n) => fbStr(n.data?.productId)),
-        productNodeFound: Boolean(productNode),
-      });
-    }
     if (productNode) {
       const flowTitleById = new Map(flowTargets.map((flow) => [flow.id, flow.title] as const));
       const branch = await resolveFlowBranchForActiveProduct({

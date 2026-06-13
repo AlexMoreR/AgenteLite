@@ -516,9 +516,15 @@ function ProductoNode({ id, data, selected }: NodeProps) {
               onValueChange={(value) => nodeData.onChange?.(id, { productId: value ?? "" })}
             >
               <SelectTrigger className="h-9 w-full text-xs">
-                <SelectValue placeholder="Selecciona un producto" />
+                <SelectValue placeholder="Selecciona un producto">
+                  {(value) => products.find((p) => p.id === value)?.name ?? "Selecciona un producto"}
+                </SelectValue>
               </SelectTrigger>
-              <SelectContent className="p-1" alignItemWithTrigger={false} side="bottom">
+              <SelectContent
+              className="w-auto min-w-(--anchor-width) max-w-[22rem] p-1"
+              alignItemWithTrigger={false}
+              side="bottom"
+            >
                 {products.length === 0 ? (
                   <div className="px-2 py-1.5 text-xs text-muted-foreground">
                     No hay productos en el catalogo
@@ -665,9 +671,15 @@ function FlujoNode({ id, data, selected }: NodeProps) {
               onValueChange={(value) => nodeData.onChange?.(id, { flowId: value ?? "" })}
             >
               <SelectTrigger className="h-9 w-full text-xs">
-                <SelectValue placeholder="Selecciona un flujo" />
+                <SelectValue placeholder="Selecciona un flujo">
+                  {(value) => flows.find((f) => f.id === value)?.name ?? "Selecciona un flujo"}
+                </SelectValue>
               </SelectTrigger>
-              <SelectContent className="p-1" alignItemWithTrigger={false} side="bottom">
+              <SelectContent
+              className="w-auto min-w-(--anchor-width) max-w-[22rem] p-1"
+              alignItemWithTrigger={false}
+              side="bottom"
+            >
                 {flows.length === 0 ? (
                   <div className="px-2 py-1.5 text-xs text-muted-foreground">
                     No hay flujos creados
