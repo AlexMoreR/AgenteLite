@@ -681,7 +681,7 @@ export function NewFollowDialog({
                 ) : null}
 
                 <div className="min-h-0 flex-1 overflow-y-auto p-2">
-                  <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
                     <Field>
                       <FieldLabel>Origen</FieldLabel>
                       <NativeSelect
@@ -780,11 +780,6 @@ export function NewFollowDialog({
                       />
                     </Field>
                   </div>
-                  
-                  <div className="py-2 text-sm font-medium">Acciones</div>
-                  
-
-                  <FieldLabel className="py-2">Acciones</FieldLabel>
 
                   <input
                     type="hidden"
@@ -799,76 +794,74 @@ export function NewFollowDialog({
                     value={JSON.stringify(serializedFollowActions)}
                   />
 
-                  <div className="grid gap-3">
+                  <div className="mt-4 grid gap-3">
                     {followActions.map((action, index) => {
                       const isTextAction = action.messageType === "TEXT";
                       const isFirstAction = index === 0;
 
                       return (
-                        <Card key={action.id} className="border border-slate-200 shadow-none">
+                        <Card key={action.id} className="border border-slate-200 py-0 shadow-none">
                           <CardContent className="p-3">
-                            <div className="mb-2 flex items-center justify-between gap-2">
-                              <div className="text-sm font-medium">Acción {index + 1}</div>
-                              <div className="flex items-center gap-1">
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="icon-sm"
-                                  onClick={() => moveFollowAction(action.id, -1)}
-                                  disabled={isFirstAction}
-                                  aria-label="Subir acción"
-                                >
-                                  <ArrowUp data-icon="inline-start" />
-                                </Button>
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="icon-sm"
-                                  onClick={() => moveFollowAction(action.id, 1)}
-                                  disabled={index === followActions.length - 1}
-                                  aria-label="Bajar acción"
-                                >
-                                  <ArrowDown data-icon="inline-start" />
-                                </Button>
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="icon-sm"
-                                  onClick={() => removeFollowAction(action.id)}
-                                  disabled={followActions.length === 1}
-                                  aria-label="Eliminar acción"
-                                >
-                                  <Trash2 data-icon="inline-start" />
-                                </Button>
-                              </div>
-                            </div>
-
                             <FieldGroup className="gap-2">
-                              <Field>
-                                <Select
-                                  value={action.messageType}
-                                  onValueChange={(value) => {
-                                    setFollowActionMessageType(
-                                      action.id,
-                                      value as FollowMessageType,
-                                    );
-                                  }}
-                                >
-                                  <SelectTrigger
-                                    id={`quick-rule-message-type-${action.id}`}
-                                    aria-label="Tipo de mensaje"
+                              <div className="flex items-center gap-2">
+                                <Field className="flex-1">
+                                  <Select
+                                    value={action.messageType}
+                                    onValueChange={(value) => {
+                                      setFollowActionMessageType(
+                                        action.id,
+                                        value as FollowMessageType,
+                                      );
+                                    }}
                                   >
-                                    <SelectValue placeholder="Texto" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="TEXT">Texto</SelectItem>
-                                    <SelectItem value="AUDIO">Audio</SelectItem>
-                                    <SelectItem value="IMAGE">Imagen</SelectItem>
-                                    <SelectItem value="VIDEO">Video</SelectItem>
-                                    <SelectItem value="DOC">Documento</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              </Field>
+                                    <SelectTrigger
+                                      id={`quick-rule-message-type-${action.id}`}
+                                      aria-label="Tipo de mensaje"
+                                    >
+                                      <SelectValue placeholder="Texto" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="TEXT">Texto</SelectItem>
+                                      <SelectItem value="AUDIO">Audio</SelectItem>
+                                      <SelectItem value="IMAGE">Imagen</SelectItem>
+                                      <SelectItem value="VIDEO">Video</SelectItem>
+                                      <SelectItem value="DOC">Documento</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </Field>
+                                <div className="flex shrink-0 items-center gap-1">
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon-sm"
+                                    onClick={() => moveFollowAction(action.id, -1)}
+                                    disabled={isFirstAction}
+                                    aria-label="Subir acción"
+                                  >
+                                    <ArrowUp data-icon="inline-start" />
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon-sm"
+                                    onClick={() => moveFollowAction(action.id, 1)}
+                                    disabled={index === followActions.length - 1}
+                                    aria-label="Bajar acción"
+                                  >
+                                    <ArrowDown data-icon="inline-start" />
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon-sm"
+                                    onClick={() => removeFollowAction(action.id)}
+                                    disabled={followActions.length === 1}
+                                    aria-label="Eliminar acción"
+                                  >
+                                    <Trash2 data-icon="inline-start" />
+                                  </Button>
+                                </div>
+                              </div>
 
                               <div
                                 className={
