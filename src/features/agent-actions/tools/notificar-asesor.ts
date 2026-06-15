@@ -15,6 +15,7 @@ export type NotificarAsesorToolInput = z.infer<typeof notificarAsesorToolInputSc
 
 export type NotificarAsesorToolExecution = {
   destinationPhoneNumber: string;
+  destinationPhoneNumbers: string[];
   message: string;
   priority: "baja" | "media" | "alta";
 };
@@ -105,8 +106,17 @@ export function executeNotificarAsesorTool(input: {
     return null;
   }
 
-  const destinationPhoneNumber = normalizePhoneNumber(training.actions.notify.destinationPhoneNumber);
-  if (!destinationPhoneNumber) {
+  // Acepta uno o varios números: el campo legado destinationPhoneNumber (un solo
+  // número, usado por V1) más la lista destinationPhoneNumbers (Agente V2). Se
+  // normaliza cada uno a dígitos y se deduplica.
+  const recipients = [
+    training.actions.notify.destinationPhoneNumber,
+    ...(training.actions.notify.destinationPhoneNumbers ?? []),
+  ]
+    .map((value) => normalizePhoneNumber(value))
+    .filter(Boolean);
+  const destinationPhoneNumbers = Array.from(new Set(recipients));
+  if (destinationPhoneNumbers.length === 0) {
     return null;
   }
 
@@ -119,7 +129,8 @@ export function executeNotificarAsesorTool(input: {
   const latestUserMessage = input.latestUserMessage?.trim() || "";
 
   return {
-    destinationPhoneNumber,
+    destinationPhoneNumber: destinationPhoneNumbers[0],
+    destinationPhoneNumbers,
     priority: parsedToolInput.prioridad ?? "media",
     message: buildNotificarAsesorMessage({
       agentName: input.agentName,
