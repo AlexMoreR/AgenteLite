@@ -115,7 +115,7 @@ type NodeDataPatch = Partial<{
   flowId: string;
   ruleId: string;
   instruction: string;
-  phoneNumber: string;
+  phoneNumbers: string[];
 }>;
 
 export type AgentV2Product = { id: string; name: string };
@@ -1437,7 +1437,7 @@ function TextNode({ id, data, selected }: NodeProps) {
 type NotificarData = {
   onDuplicate?: (id: string) => void;
   instruction: string;
-  phoneNumber: string;
+  phoneNumbers: string[];
   onChange?: (id: string, patch: NodeDataPatch) => void;
   onDelete?: (id: string) => void;
 };
@@ -1486,7 +1486,12 @@ function NotificarNode({ id, data, selected }: NodeProps) {
             <div className="flex items-center gap-1.5">
               <Phone className="h-3.5 w-3.5 shrink-0 text-fuchsia-600" />
               <span className="truncate text-xs text-muted-foreground">
-                {nodeData.phoneNumber?.trim() || "Sin numero"}
+                {(() => {
+                  const nums = (nodeData.phoneNumbers ?? []).map((n) => n.trim()).filter(Boolean);
+                  if (nums.length === 0) return "Sin numero";
+                  if (nums.length === 1) return nums[0];
+                  return `${nums[0]} +${nums.length - 1} más`;
+                })()}
               </span>
             </div>
           </div>
@@ -1535,17 +1540,47 @@ function NotificarEditorDialog({
             />
           </div>
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-foreground">Número a notificar</label>
-            <input
-              type="tel"
-              inputMode="numeric"
-              value={data.phoneNumber}
-              onChange={(event) => onChange({ phoneNumber: event.target.value })}
-              placeholder="Ej: 573001234567"
-              className="block h-9 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-fuchsia-400 focus:ring-2 focus:ring-fuchsia-100 dark:focus:ring-fuchsia-950"
-            />
+            <label className="text-xs font-medium text-foreground">Números a notificar</label>
+            <div className="space-y-2">
+              {((data.phoneNumbers ?? []).length > 0 ? (data.phoneNumbers ?? []) : [""]).map((num, index) => (
+                <div key={index} className="flex items-center gap-2">
+                  <input
+                    type="tel"
+                    inputMode="numeric"
+                    value={num}
+                    onChange={(event) => {
+                      const base = (data.phoneNumbers ?? []).length > 0 ? [...(data.phoneNumbers ?? [])] : [""];
+                      base[index] = event.target.value;
+                      onChange({ phoneNumbers: base });
+                    }}
+                    placeholder="Ej: 573001234567"
+                    className="block h-9 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-fuchsia-400 focus:ring-2 focus:ring-fuchsia-100 dark:focus:ring-fuchsia-950"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const base = (data.phoneNumbers ?? []).length > 0 ? [...(data.phoneNumbers ?? [])] : [""];
+                      onChange({ phoneNumbers: base.filter((_, i) => i !== index) });
+                    }}
+                    className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                    aria-label="Quitar número"
+                    title="Quitar número"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => onChange({ phoneNumbers: [...(data.phoneNumbers ?? []), ""] })}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-border px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-muted"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Agregar número
+            </button>
             <p className="text-[11px] leading-4 text-muted-foreground">
-              Con código de país, sin + ni espacios. Se avisa a este número cuando se cumpla la condición.
+              Con código de país, sin + ni espacios. Se avisa a todos estos números cuando se cumpla la condición.
             </p>
           </div>
         </div>
@@ -1751,7 +1786,11 @@ function loadGraph(initialGraph: unknown, agentName: string): { nodes: Node[]; e
                     : node.type === "notificar"
                       ? ({
                           instruction: node.data.instruction ?? "",
-                          phoneNumber: node.data.phoneNumber ?? "",
+                          phoneNumbers: Array.isArray(node.data.phoneNumbers)
+                            ? node.data.phoneNumbers.filter((value): value is string => typeof value === "string")
+                            : typeof (node.data as { phoneNumber?: unknown }).phoneNumber === "string"
+                              ? [(node.data as { phoneNumber: string }).phoneNumber]
+                              : [],
                         } satisfies NotificarData)
                       : ({
                       kind: (node.data.kind as EntradaKind) ?? "general",
@@ -1816,7 +1855,7 @@ function serializeGraph(nodes: Node[], edges: Edge[]): StoredGraph {
                     : node.type === "notificar"
                       ? {
                           instruction: (node.data as NotificarData).instruction,
-                          phoneNumber: (node.data as NotificarData).phoneNumber,
+                          phoneNumbers: (node.data as NotificarData).phoneNumbers,
                         }
                       : {
                         kind: (node.data as EntradaData).kind,
@@ -2259,7 +2298,7 @@ function FlowCanvasInner({
       id: newId,
       type: "notificar",
       position: getSpawnPosition(),
-      data: { instruction: "", phoneNumber: "" } satisfies NotificarData,
+      data: { instruction: "", phoneNumbers: [] } satisfies NotificarData,
     };
     setNodes((current) => [...current, newNode]);
   }, [setNodes, getSpawnPosition]);
