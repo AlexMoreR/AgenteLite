@@ -2281,6 +2281,7 @@ export async function saveAgentActionsAction(formData: FormData): Promise<void> 
         notify: {
           enabled: parsed.data.notifyEnabled,
           destinationPhoneNumber: parsed.data.notifyPhoneNumber.trim(),
+          destinationPhoneNumbers: currentTraining.actions.notify.destinationPhoneNumbers,
           instruction: parsed.data.notifyInstruction.trim(),
           pauseConversationAfterNotify: parsed.data.notifyPauseConversationAfterNotify,
           autoNotifyOnUnknownProduct: parsed.data.notifyAutoNotifyOnUnknownProduct,
@@ -2341,6 +2342,7 @@ export async function deleteAgentActionsAction(formData: FormData): Promise<void
       notify: {
         enabled: false,
         destinationPhoneNumber: "",
+        destinationPhoneNumbers: [],
         instruction: "",
         pauseConversationAfterNotify: false,
         autoNotifyOnUnknownProduct: false,
