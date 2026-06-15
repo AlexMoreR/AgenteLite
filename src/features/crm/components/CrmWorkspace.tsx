@@ -32,6 +32,38 @@ function MetricCard({
   );
 }
 
+function MetricInline({
+  label,
+  value,
+  icon,
+}: {
+  label: string;
+  value: string;
+  icon: ReactNode;
+}) {
+  return (
+    <div className="flex flex-1 items-center gap-2.5 px-4 py-1">
+      <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+        {icon}
+      </span>
+      <span className="truncate text-sm font-medium text-muted-foreground">{label}</span>
+      <span className="ml-auto shrink-0 text-lg font-semibold leading-none tracking-tight text-foreground">
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function MetricBar({ children }: { children: ReactNode }) {
+  return (
+    <Card className="py-2.5">
+      <div className="flex flex-col divide-y sm:flex-row sm:items-center sm:divide-x sm:divide-y-0">
+        {children}
+      </div>
+    </Card>
+  );
+}
+
 function formatCrmDateTime(value: string) {
   return new Intl.DateTimeFormat("es-CO", {
     dateStyle: "medium",
@@ -114,12 +146,12 @@ export function CrmWorkspace({
 
   return (
     <section className="space-y-3">
-      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="Total" value={String(data.stats.total)} icon={<Users2 className="h-5 w-5" />} />
-        <MetricCard label="En proceso" value={String(activeRecords)} icon={<TrendingUp className="h-5 w-5" />} />
-        <MetricCard label="Ganados" value={String(wonRecords)} icon={<CheckCircle2 className="h-5 w-5" />} />
-        <MetricCard label="Descartados" value={String(lostRecords)} icon={<CircleSlash2 className="h-5 w-5" />} />
-      </div>
+      <MetricBar>
+        <MetricInline label="Total" value={String(data.stats.total)} icon={<Users2 className="h-4 w-4" />} />
+        <MetricInline label="En proceso" value={String(activeRecords)} icon={<TrendingUp className="h-4 w-4" />} />
+        <MetricInline label="Ganados" value={String(wonRecords)} icon={<CheckCircle2 className="h-4 w-4" />} />
+        <MetricInline label="Descartados" value={String(lostRecords)} icon={<CircleSlash2 className="h-4 w-4" />} />
+      </MetricBar>
 
       <Tabs defaultValue={defaultView} className="space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-2">

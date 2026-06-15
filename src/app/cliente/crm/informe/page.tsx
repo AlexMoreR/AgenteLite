@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { CrmReportCards, CrmReportStatsCards, CrmUpdatedAt } from "@/features/crm/components/CrmPagePrimitives";
+import { CrmUpdatedAt } from "@/features/crm/components/CrmPagePrimitives";
+import { CrmInformeView } from "@/features/crm/components/CrmInformeView";
 import { getAuthorizedCrmData } from "../_lib";
 
 export const metadata: Metadata = {
@@ -19,8 +20,7 @@ export default async function ClienteCrmInformePage() {
         <CrmUpdatedAt generatedAt={data.generatedAt} />
       </div>
 
-      <CrmReportStatsCards data={data} />
-      <CrmReportCards data={data} />
+      <CrmInformeView data={data} />
     </section>
   );
 }
