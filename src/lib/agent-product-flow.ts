@@ -802,13 +802,21 @@ export async function resolveAgentProductFlowReply(input: {
     }
   }
 
-  const matchedFlows = flowCandidates.length > 0
+  // El matcher difuso global (bestFlow) SOLO debe disparar flujos por palabra clave
+  // (tipo "chatbot"): son coincidencias exacta/contiene, predecibles. Los flujos
+  // tipo "IA" NO se auto-disparan por similitud de texto —eso produce falsos
+  // positivos como "que" ⊂ "pelu*que*ria" disparando SILLAS DE PELUQUERIA—; se
+  // resuelven por comprensión (la IA con consultar_flujos) o por Condiciones de V2.
+  // OJO: NO filtramos flowCandidates/candidateFlowIds; el hook de ramas Condición→Flujo
+  // sigue viendo TODOS los flujos (incl. los IA cableados, p.ej. "Fotos combo camillas").
+  const keywordFlowCandidates = flowCandidates.filter((flow) => flow.flowType === "chatbot");
+  const matchedFlows = keywordFlowCandidates.length > 0
     ? await consultFlowsByWorkspace({
         workspaceId: input.workspaceId,
         includeOfficialApi: input.includeOfficialApi,
         query: latestText,
         limit: 3,
-        allowedFlowIds: flowCandidates.map((flow) => flow.id),
+        allowedFlowIds: keywordFlowCandidates.map((flow) => flow.id),
         enabledChildFlowIds,
       })
     : null;
