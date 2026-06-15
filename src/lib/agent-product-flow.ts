@@ -603,10 +603,15 @@ async function resolveFlowBranchForActiveProduct(input: {
       if (matchType === "exacta") {
         matched = fbStrArray(rule.keywords).some((kw) => normalizeText(kw) === input.normalizedMessage);
       } else if (matchType === "ia") {
-        // Capas: afirmativo directo → palabra del intent → juez LLM (último recurso).
+        // Un afirmativo suelto ("Si", "Ok", "Dale"...) es CIEGO al contexto: no sabemos
+        // a qué le está diciendo que sí el cliente (puede ser a otro tema que el bot
+        // acaba de ofrecer, p.ej. poltronas). Antes esto disparaba la rama del producto
+        // ACTIVO a ciegas. Ahora un afirmativo suelto NO dispara la rama: esa decisión la
+        // toma el clasificador con HISTORIAL (selectFlowByAI) más abajo. La rama IA solo
+        // coincide con contenido sustantivo (palabra del intent o juez LLM explícito).
         const intent = fbStr(rule.intent);
         if (looksAffirmative(input.normalizedMessage)) {
-          matched = true;
+          matched = false;
         } else {
           const intentKeywords = extractIntentKeywords(intent);
           matched =
@@ -997,6 +1002,49 @@ export async function resolveAgentProductFlowReply(input: {
         aiFollowUpEnabled: reply.aiFollowUpEnabled,
         activeProductContext: null,
       };
+    }
+  }
+
+  // Paso 2: clasificador con IA + HISTORIAL para flujos tipo "IA".
+  // En vez de similitud difusa (apagada para IA) o de un "Si" ciego en el hook de
+  // ramas, un modelo decide —usando lo que el bot acaba de ofrecer (el historial)— si
+  // el mensaje del cliente corresponde a la intención de algún flujo IA, y lo ejecuta.
+  // Si no hay coincidencia clara responde "ninguno" y no dispara nada (sin falsos
+  // positivos). Así un "Si" se resuelve según de qué se estaba hablando.
+  const iaFlowCandidates = availableFlowCandidates.filter((flow) => flow.flowType === "ia");
+  if (iaFlowCandidates.length > 0) {
+    const selectedFlowId = await selectFlowByAI({
+      flows: iaFlowCandidates.map((flow) => ({ id: flow.id, title: flow.title, intent: flow.intent })),
+      latestUserMessage: latestText,
+      history: input.history ?? [],
+    });
+
+    if (selectedFlowId) {
+      const reply = await getFlowReply({
+        workspaceId: input.workspaceId,
+        flowId: selectedFlowId,
+        includeOfficialApi: input.includeOfficialApi,
+      });
+
+      if (reply) {
+        const selectedFlow = flowTargets.find((flow) => flow.id === selectedFlowId);
+        if (process.env.NODE_ENV !== "production") {
+          console.info("[agent-product-flow] ai-flow-classifier-hit", {
+            agentId: input.agentId,
+            flowId: selectedFlowId,
+            flowTitle: selectedFlow?.title ?? null,
+          });
+        }
+
+        return {
+          steps: reply.steps,
+          flowTitle: selectedFlow?.title ?? null,
+          productName: null,
+          flowId: selectedFlowId,
+          aiFollowUpEnabled: reply.aiFollowUpEnabled,
+          activeProductContext: input.activeProductContext ?? null,
+        };
+      }
     }
   }
 
