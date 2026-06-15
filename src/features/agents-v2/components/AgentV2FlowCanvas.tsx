@@ -14,6 +14,7 @@ import {
   Bell,
   Bot,
   Boxes,
+  Copy,
   Filter,
   Headset,
   HelpCircle,
@@ -267,6 +268,55 @@ type AgentData = {
   consultFlows: boolean;
   onChange?: (id: string, patch: NodeDataPatch) => void;
 };
+
+function NodeActionsToolbar({
+  selected,
+  onDuplicate,
+  onDelete,
+  duplicateLabel = "Duplicar nodo",
+  deleteLabel = "Eliminar nodo",
+}: {
+  selected?: boolean;
+  onDuplicate?: () => void;
+  onDelete?: () => void;
+  duplicateLabel?: string;
+  deleteLabel?: string;
+}) {
+  return (
+    <NodeToolbar isVisible={selected} position={Position.Top} align="end" offset={8}>
+      <div className="flex items-center gap-1">
+        {onDuplicate ? (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onDuplicate();
+            }}
+            className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border bg-card text-muted-foreground shadow-sm transition hover:bg-muted hover:text-foreground"
+            aria-label={duplicateLabel}
+            title={duplicateLabel}
+          >
+            <Copy className="h-3.5 w-3.5" />
+          </button>
+        ) : null}
+        {onDelete ? (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onDelete();
+            }}
+            className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border bg-card text-muted-foreground shadow-sm transition hover:bg-muted hover:text-foreground"
+            aria-label={deleteLabel}
+            title={deleteLabel}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        ) : null}
+      </div>
+    </NodeToolbar>
+  );
+}
 
 function EntradaNode({ id, data, selected }: NodeProps) {
   const nodeData = data as EntradaData;
@@ -554,6 +604,7 @@ const PRODUCT_STAGES = [
 ] as const;
 
 type ProductoData = {
+  onDuplicate?: (id: string) => void;
   productId: string;
   startOnMatch: boolean;
   matchType: MatchType;
@@ -574,20 +625,13 @@ function ProductoNode({ id, data, selected }: NodeProps) {
 
   return (
     <>
-      <NodeToolbar isVisible={selected} position={Position.Top} align="end" offset={8}>
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            nodeData.onDelete?.(id);
-          }}
-          className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border bg-card text-muted-foreground shadow-sm transition hover:bg-muted hover:text-foreground"
-          aria-label="Eliminar producto"
-          title="Eliminar producto"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
-      </NodeToolbar>
+      <NodeActionsToolbar
+        selected={selected}
+        onDuplicate={() => nodeData.onDuplicate?.(id)}
+        onDelete={() => nodeData.onDelete?.(id)}
+        duplicateLabel="Duplicar producto"
+        deleteLabel="Eliminar producto"
+      />
 
       <Handle
         id="target"
@@ -782,6 +826,7 @@ function ProductEditorDialog({
 }
 
 type FlujoData = {
+  onDuplicate?: (id: string) => void;
   flowId: string;
   flows?: AgentV2Flow[];
   onChange?: (id: string, patch: NodeDataPatch) => void;
@@ -794,20 +839,13 @@ function FlujoNode({ id, data, selected }: NodeProps) {
 
   return (
     <>
-      <NodeToolbar isVisible={selected} position={Position.Top} align="end" offset={8}>
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            nodeData.onDelete?.(id);
-          }}
-          className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border bg-card text-muted-foreground shadow-sm transition hover:bg-muted hover:text-foreground"
-          aria-label="Eliminar flujo"
-          title="Eliminar flujo"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
-      </NodeToolbar>
+      <NodeActionsToolbar
+        selected={selected}
+        onDuplicate={() => nodeData.onDuplicate?.(id)}
+        onDelete={() => nodeData.onDelete?.(id)}
+        duplicateLabel="Duplicar flujo"
+        deleteLabel="Eliminar flujo"
+      />
 
       <Handle
         id="target"
@@ -866,6 +904,7 @@ function FlujoNode({ id, data, selected }: NodeProps) {
 }
 
 type SeguimientoData = {
+  onDuplicate?: (id: string) => void;
   ruleId: string;
   followRules?: AgentV2FollowRule[];
   onChange?: (id: string, patch: NodeDataPatch) => void;
@@ -878,20 +917,13 @@ function SeguimientoNode({ id, data, selected }: NodeProps) {
 
   return (
     <>
-      <NodeToolbar isVisible={selected} position={Position.Top} align="end" offset={8}>
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            nodeData.onDelete?.(id);
-          }}
-          className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border bg-card text-muted-foreground shadow-sm transition hover:bg-muted hover:text-foreground"
-          aria-label="Eliminar seguimiento"
-          title="Eliminar seguimiento"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
-      </NodeToolbar>
+      <NodeActionsToolbar
+        selected={selected}
+        onDuplicate={() => nodeData.onDuplicate?.(id)}
+        onDelete={() => nodeData.onDelete?.(id)}
+        duplicateLabel="Duplicar seguimiento"
+        deleteLabel="Eliminar seguimiento"
+      />
 
       <Handle
         id="target"
@@ -908,7 +940,6 @@ function SeguimientoNode({ id, data, selected }: NodeProps) {
         </BaseNodeHeader>
         <BaseNodeContent>
           <div className="nodrag space-y-1" onClick={(event) => event.stopPropagation()}>
-            <label className="text-xs font-medium text-foreground">Regla de seguimiento</label>
             <Select
               value={nodeData.ruleId}
               onValueChange={(value) => nodeData.onChange?.(id, { ruleId: value ?? "" })}
@@ -936,9 +967,6 @@ function SeguimientoNode({ id, data, selected }: NodeProps) {
                 )}
               </SelectContent>
             </Select>
-            <p className="pt-1 text-[11px] leading-4 text-muted-foreground">
-              Se agenda cuando el lead llega a esta etapa. Se cancela solo si responde.
-            </p>
           </div>
         </BaseNodeContent>
       </BaseNode>
@@ -954,6 +982,7 @@ type ConditionRule = {
 };
 
 type ConditionData = {
+  onDuplicate?: (id: string) => void;
   rules: ConditionRule[];
   onAddRule?: (
     nodeId: string,
@@ -1144,20 +1173,13 @@ function ConditionNode({ id, data, selected }: NodeProps) {
 
   return (
     <>
-      <NodeToolbar isVisible={selected} position={Position.Top} align="end" offset={8}>
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            nodeData.onDelete?.(id);
-          }}
-          className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border bg-card text-muted-foreground shadow-sm transition hover:bg-muted hover:text-foreground"
-          aria-label="Eliminar condicion"
-          title="Eliminar condicion"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
-      </NodeToolbar>
+      <NodeActionsToolbar
+        selected={selected}
+        onDuplicate={() => nodeData.onDuplicate?.(id)}
+        onDelete={() => nodeData.onDelete?.(id)}
+        duplicateLabel="Duplicar condicion"
+        deleteLabel="Eliminar condicion"
+      />
 
       <Handle
         id="target"
@@ -1335,6 +1357,7 @@ function ConditionEditorDialog({
 }
 
 type TextData = {
+  onDuplicate?: (id: string) => void;
   text: string;
   onChange?: (id: string, patch: NodeDataPatch) => void;
   onDelete?: (id: string) => void;
@@ -1354,20 +1377,13 @@ function TextNode({ id, data, selected }: NodeProps) {
 
   return (
     <>
-      <NodeToolbar isVisible={selected} position={Position.Top} align="end" offset={8}>
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            nodeData.onDelete?.(id);
-          }}
-          className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border bg-card text-muted-foreground shadow-sm transition hover:bg-muted hover:text-foreground"
-          aria-label="Eliminar texto"
-          title="Eliminar texto"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
-      </NodeToolbar>
+      <NodeActionsToolbar
+        selected={selected}
+        onDuplicate={() => nodeData.onDuplicate?.(id)}
+        onDelete={() => nodeData.onDelete?.(id)}
+        duplicateLabel="Duplicar texto"
+        deleteLabel="Eliminar texto"
+      />
 
       <Handle
         id="target"
@@ -1419,6 +1435,7 @@ function TextNode({ id, data, selected }: NodeProps) {
 }
 
 type NotificarData = {
+  onDuplicate?: (id: string) => void;
   instruction: string;
   phoneNumber: string;
   onChange?: (id: string, patch: NodeDataPatch) => void;
@@ -1431,20 +1448,13 @@ function NotificarNode({ id, data, selected }: NodeProps) {
 
   return (
     <>
-      <NodeToolbar isVisible={selected} position={Position.Top} align="end" offset={8}>
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            nodeData.onDelete?.(id);
-          }}
-          className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border bg-card text-muted-foreground shadow-sm transition hover:bg-muted hover:text-foreground"
-          aria-label="Eliminar notificar asesor"
-          title="Eliminar notificar asesor"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
-      </NodeToolbar>
+      <NodeActionsToolbar
+        selected={selected}
+        onDuplicate={() => nodeData.onDuplicate?.(id)}
+        onDelete={() => nodeData.onDelete?.(id)}
+        duplicateLabel="Duplicar notificar asesor"
+        deleteLabel="Eliminar notificar asesor"
+      />
 
       <Handle
         id="target"
@@ -1899,6 +1909,38 @@ function FlowCanvasInner({
     [setNodes, setEdges],
   );
 
+  const duplicateNode = useCallback(
+    (id: string) => {
+      setNodes((current) => {
+        const source = current.find((node) => node.id === id);
+        if (!source) {
+          return current;
+        }
+        // data en el estado no contiene callbacks (se inyectan aparte), así que es
+        // seguro clonarla por JSON. Las reglas de Condicion reciben ids nuevos.
+        const clonedData = JSON.parse(JSON.stringify(source.data ?? {}));
+        if (source.type === "condicion" && Array.isArray(clonedData.rules)) {
+          clonedData.rules = clonedData.rules.map((rule: ConditionRule) => ({
+            ...rule,
+            id: crypto.randomUUID(),
+          }));
+        }
+        const newNode: Node = {
+          ...source,
+          id: `${source.type}-${crypto.randomUUID()}`,
+          position: { x: source.position.x + 40, y: source.position.y + 80 },
+          data: clonedData,
+          selected: true,
+        };
+        return [
+          ...current.map((node) => (node.selected ? { ...node, selected: false } : node)),
+          newNode,
+        ];
+      });
+    },
+    [setNodes],
+  );
+
   const [businessData, setBusinessData] = useState<BusinessData>(business);
   const [, startSaveBusiness] = useTransition();
 
@@ -1987,6 +2029,7 @@ function FlowCanvasInner({
               onChange: updateNodeData,
               onUpdateMatch: updateProductMatch,
               onDelete: deleteEntrada,
+              onDuplicate: duplicateNode,
               products,
             },
           };
@@ -1994,13 +2037,25 @@ function FlowCanvasInner({
         if (node.type === "flujo") {
           return {
             ...node,
-            data: { ...node.data, onChange: updateNodeData, onDelete: deleteEntrada, flows },
+            data: {
+              ...node.data,
+              onChange: updateNodeData,
+              onDelete: deleteEntrada,
+              onDuplicate: duplicateNode,
+              flows,
+            },
           };
         }
         if (node.type === "seguimiento") {
           return {
             ...node,
-            data: { ...node.data, onChange: updateNodeData, onDelete: deleteEntrada, followRules },
+            data: {
+              ...node.data,
+              onChange: updateNodeData,
+              onDelete: deleteEntrada,
+              onDuplicate: duplicateNode,
+              followRules,
+            },
           };
         }
         if (node.type === "entrada") {
@@ -2016,10 +2071,26 @@ function FlowCanvasInner({
           };
         }
         if (node.type === "texto") {
-          return { ...node, data: { ...node.data, onChange: updateNodeData, onDelete: deleteEntrada } };
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              onChange: updateNodeData,
+              onDelete: deleteEntrada,
+              onDuplicate: duplicateNode,
+            },
+          };
         }
         if (node.type === "notificar") {
-          return { ...node, data: { ...node.data, onChange: updateNodeData, onDelete: deleteEntrada } };
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              onChange: updateNodeData,
+              onDelete: deleteEntrada,
+              onDuplicate: duplicateNode,
+            },
+          };
         }
         if (node.type === "condicion") {
           return {
@@ -2030,6 +2101,7 @@ function FlowCanvasInner({
               onUpdateRule: updateRule,
               onDeleteRule: deleteRule,
               onDelete: deleteEntrada,
+              onDuplicate: duplicateNode,
             },
           };
         }
@@ -2048,6 +2120,7 @@ function FlowCanvasInner({
       saveBusiness,
       updateProductMatch,
       deleteEntrada,
+      duplicateNode,
       addRule,
       updateRule,
       deleteRule,
