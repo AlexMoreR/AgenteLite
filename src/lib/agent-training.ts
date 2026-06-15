@@ -116,6 +116,7 @@ export type AgentTrainingConfig = {
 export type AgentNotifyActionConfig = {
   enabled: boolean;
   destinationPhoneNumber: string;
+  destinationPhoneNumbers: string[];
   instruction: string;
   pauseConversationAfterNotify: boolean;
   autoNotifyOnUnknownProduct: boolean;
@@ -188,6 +189,7 @@ export const defaultAgentTrainingConfig: AgentTrainingConfig = {
     notify: {
       enabled: false,
       destinationPhoneNumber: "",
+      destinationPhoneNumbers: [],
       instruction: "",
       pauseConversationAfterNotify: false,
       autoNotifyOnUnknownProduct: false,
@@ -259,6 +261,7 @@ export function buildAgentTrainingConfig(
       notify: {
         enabled: Boolean(notify.enabled),
         destinationPhoneNumber: notify.destinationPhoneNumber.trim(),
+        destinationPhoneNumbers: (notify.destinationPhoneNumbers ?? []).map((value) => value.trim()).filter(Boolean),
         instruction: notify.instruction.trim(),
         pauseConversationAfterNotify: Boolean(notify.pauseConversationAfterNotify),
         autoNotifyOnUnknownProduct: Boolean(notify.autoNotifyOnUnknownProduct),
@@ -683,6 +686,9 @@ function normalizeAgentActionsConfig(value: unknown): AgentActionsConfig {
     notify: {
       enabled: Boolean(notify.enabled),
       destinationPhoneNumber: typeof notify.destinationPhoneNumber === "string" ? notify.destinationPhoneNumber.trim() : "",
+      destinationPhoneNumbers: Array.isArray(notify.destinationPhoneNumbers)
+        ? notify.destinationPhoneNumbers.filter((value): value is string => typeof value === "string").map((value) => value.trim()).filter(Boolean)
+        : [],
       instruction: typeof notify.instruction === "string" ? notify.instruction.trim() : "",
       pauseConversationAfterNotify: Boolean(notify.pauseConversationAfterNotify),
       autoNotifyOnUnknownProduct: Boolean(notify.autoNotifyOnUnknownProduct),
