@@ -2284,15 +2284,31 @@ export function OfficialApiChatbotWorkspace({
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => openQuickResponsesModal(scenario.id)}>
+                    <DropdownMenuItem
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openQuickResponsesModal(scenario.id);
+                      }}
+                    >
                       <MessageSquarePlus className="h-4 w-4" />
                       Respuestas rápidas
                     </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => openEditWorkflowIntentModal(scenario)}>
+                    <DropdownMenuItem
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openEditWorkflowIntentModal(scenario);
+                      }}
+                    >
                       <FileText className="h-4 w-4" />
                       Editar intención
                     </DropdownMenuItem>
-                    <DropdownMenuItem variant="destructive" onClick={() => handleDeleteRequest(scenario)}>
+                    <DropdownMenuItem
+                      variant="destructive"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        handleDeleteRequest(scenario);
+                      }}
+                    >
                       <Trash2 className="h-4 w-4" />
                       Eliminar
                     </DropdownMenuItem>
