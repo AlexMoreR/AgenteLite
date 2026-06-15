@@ -20,6 +20,7 @@ import {
   Megaphone,
   MessageSquare,
   Pencil,
+  Phone,
   Plus,
   Rocket,
   ShoppingBag,
@@ -1426,6 +1427,7 @@ type NotificarData = {
 
 function NotificarNode({ id, data, selected }: NodeProps) {
   const nodeData = data as NotificarData;
+  const [editorOpen, setEditorOpen] = useState(false);
 
   return (
     <>
@@ -1450,7 +1452,13 @@ function NotificarNode({ id, data, selected }: NodeProps) {
         position={Position.Left}
         className="!h-4 !w-4 !border-2 !border-white !bg-fuchsia-600"
       />
-      <BaseNode className={cn("w-[320px] transition-shadow", selected && SELECTED_NODE_CLASS)}>
+      <BaseNode
+        className={cn(
+          "w-[320px] cursor-pointer transition-shadow",
+          selected && SELECTED_NODE_CLASS,
+        )}
+        onClick={() => setEditorOpen(true)}
+      >
         <BaseNodeHeader className="items-center justify-start gap-2.5">
           <span className="inline-flex shrink-0 items-center justify-center">
             <Headset className="h-4 w-4 text-fuchsia-600" />
@@ -1458,34 +1466,85 @@ function NotificarNode({ id, data, selected }: NodeProps) {
           <BaseNodeHeaderTitle className="truncate">Notificar asesor</BaseNodeHeaderTitle>
         </BaseNodeHeader>
         <BaseNodeContent>
-          <div className="nodrag space-y-2.5" onClick={(event) => event.stopPropagation()}>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-foreground">¿Cuándo notificar?</label>
-              <textarea
-                value={nodeData.instruction}
-                onChange={(event) => nodeData.onChange?.(id, { instruction: event.target.value })}
-                placeholder="Ej: cuando el cliente pida hablar con un asesor o quiera cerrar la compra"
-                className="block min-h-[64px] w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm leading-5 text-foreground outline-none transition placeholder:text-muted-foreground focus:border-fuchsia-400 focus:ring-2 focus:ring-fuchsia-100 dark:focus:ring-fuchsia-950"
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-foreground">Número a notificar</label>
-              <input
-                type="tel"
-                inputMode="numeric"
-                value={nodeData.phoneNumber}
-                onChange={(event) => nodeData.onChange?.(id, { phoneNumber: event.target.value })}
-                placeholder="Ej: 573001234567"
-                className="block h-9 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-fuchsia-400 focus:ring-2 focus:ring-fuchsia-100 dark:focus:ring-fuchsia-950"
-              />
-              <p className="pt-0.5 text-[11px] leading-4 text-muted-foreground">
-                Con código de país, sin + ni espacios. Se avisa a este número cuando se cumpla la condición.
+          <div className="space-y-2 rounded-lg border border-border bg-muted/40 px-3 py-2.5">
+            <div className="space-y-0.5">
+              <p className="text-xs font-medium text-foreground">¿Cuándo notificar?</p>
+              <p className="line-clamp-2 text-[11px] leading-4 text-muted-foreground">
+                {nodeData.instruction?.trim() || "Sin condicion definida."}
               </p>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Phone className="h-3.5 w-3.5 shrink-0 text-fuchsia-600" />
+              <span className="truncate text-xs text-muted-foreground">
+                {nodeData.phoneNumber?.trim() || "Sin numero"}
+              </span>
             </div>
           </div>
         </BaseNodeContent>
       </BaseNode>
+
+      <NotificarEditorDialog
+        open={editorOpen}
+        onOpenChange={setEditorOpen}
+        data={nodeData}
+        onChange={(patch) => nodeData.onChange?.(id, patch)}
+      />
     </>
+  );
+}
+
+function NotificarEditorDialog({
+  open,
+  onOpenChange,
+  data,
+  onChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  data: NotificarData;
+  onChange: (patch: NodeDataPatch) => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="nodrag sm:max-w-lg" onClick={(event) => event.stopPropagation()}>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Headset className="h-4 w-4 text-fuchsia-600" />
+            Notificar asesor
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-foreground">¿Cuándo notificar?</label>
+            <textarea
+              value={data.instruction}
+              onChange={(event) => onChange({ instruction: event.target.value })}
+              placeholder="Ej: cuando el cliente pida hablar con un asesor o quiera cerrar la compra"
+              className="block min-h-[96px] w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm leading-5 text-foreground outline-none transition placeholder:text-muted-foreground focus:border-fuchsia-400 focus:ring-2 focus:ring-fuchsia-100 dark:focus:ring-fuchsia-950"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-foreground">Número a notificar</label>
+            <input
+              type="tel"
+              inputMode="numeric"
+              value={data.phoneNumber}
+              onChange={(event) => onChange({ phoneNumber: event.target.value })}
+              placeholder="Ej: 573001234567"
+              className="block h-9 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-fuchsia-400 focus:ring-2 focus:ring-fuchsia-100 dark:focus:ring-fuchsia-950"
+            />
+            <p className="text-[11px] leading-4 text-muted-foreground">
+              Con código de país, sin + ni espacios. Se avisa a este número cuando se cumpla la condición.
+            </p>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline" />}>Cerrar</DialogClose>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
