@@ -325,9 +325,12 @@ export async function publishAgentV2Action(input: {
   // Nodo "Notificar asesor": configura la acción de notificación global del agente
   // (un solo número/instrucción por agente; si hay varios nodos, usamos el primero).
   const notifyNode = nodes.find((node) => node.type === "notificar");
-  const notifyPhone = asString(notifyNode?.data?.phoneNumber).replace(/[^\d]/g, "").trim();
+  const rawNotifyPhones = notifyNode?.data?.phoneNumbers;
+  const notifyPhones = (Array.isArray(rawNotifyPhones) ? rawNotifyPhones : [])
+    .map((value) => asString(value).replace(/[^\d]/g, "").trim())
+    .filter(Boolean);
   const notifyInstruction = asString(notifyNode?.data?.instruction).trim();
-  const notifyEnabled = Boolean(notifyNode) && notifyPhone.length > 0;
+  const notifyEnabled = Boolean(notifyNode) && notifyPhones.length > 0;
 
   const agentData = agentNode?.data ?? {};
   const agentPrompt = asString(agentData.prompt);
@@ -654,7 +657,8 @@ export async function publishAgentV2Action(input: {
     actions: {
       notify: {
         enabled: notifyEnabled,
-        destinationPhoneNumber: notifyPhone,
+        destinationPhoneNumber: notifyPhones[0] ?? "",
+        destinationPhoneNumbers: notifyPhones,
         instruction: notifyInstruction,
         pauseConversationAfterNotify: defaultAgentTrainingConfig.actions.notify.pauseConversationAfterNotify,
         autoNotifyOnUnknownProduct: defaultAgentTrainingConfig.actions.notify.autoNotifyOnUnknownProduct,
