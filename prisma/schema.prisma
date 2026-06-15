@@ -848,6 +848,7 @@ enum FollowSourceType {
   TAG
   CRM_STAGE
   MANUAL
+  AGENT_NODE
 }
 
 enum FollowTimeType {

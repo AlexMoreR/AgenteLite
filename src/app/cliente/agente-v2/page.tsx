@@ -1,5 +1,6 @@
 import { AgentV2Workspace } from "@/features/agents-v2/components/AgentV2Workspace";
 import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowItems";
+import { listFollowRulesByWorkspace } from "@/features/seguimientos/services/follows";
 import { canAccessOfficialApiModule } from "@/lib/admin-module-access";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { prisma } from "@/lib/prisma";
@@ -8,7 +9,7 @@ export default async function ClienteAgenteV2Page() {
   const access = await requireClientWorkspaceAccess("agents_v2");
   const canUseOfficialApi = await canAccessOfficialApiModule(access.userId, access.role);
 
-  const [products, flowItems, workspace, channels, agentRows] = await Promise.all([
+  const [products, flowItems, followRuleRows, workspace, channels, agentRows] = await Promise.all([
     prisma.product.findMany({
       select: { id: true, name: true },
       orderBy: { name: "asc" },
@@ -17,6 +18,7 @@ export default async function ClienteAgenteV2Page() {
       workspaceId: access.workspaceId,
       includeOfficialApi: canUseOfficialApi,
     }),
+    listFollowRulesByWorkspace(access.workspaceId),
     prisma.workspace.findUnique({
       where: { id: access.workspaceId },
       select: { name: true, businessConfig: true },
@@ -40,6 +42,12 @@ export default async function ClienteAgenteV2Page() {
   ]);
 
   const flows = flowItems.map((flow) => ({ id: flow.id, name: flow.title }));
+  // Solo reglas de origen AGENT_NODE: plantillas sin auto-trigger ni contacto,
+  // pensadas para que las dispare un nodo Seguimiento. Las de PRODUCT/FLOW las
+  // dispara el motor solo, así que referenciarlas causaría doble envío.
+  const followRules = followRuleRows
+    .filter((rule) => rule.isActive && rule.sourceType === "AGENT_NODE")
+    .map((rule) => ({ id: rule.id, name: rule.name }));
 
   const cfg =
     workspace?.businessConfig && typeof workspace.businessConfig === "object"
@@ -77,6 +85,7 @@ export default async function ClienteAgenteV2Page() {
       <AgentV2Workspace
         products={products}
         flows={flows}
+        followRules={followRules}
         business={business}
         connections={connections}
         initialAgents={initialAgents}

@@ -57,7 +57,7 @@ type SourceGroup = {
   options: SelectOption[];
 };
 
-type SourceType = "FLOW" | "PRODUCT" | "TAG" | "CRM_STAGE" | "MANUAL";
+type SourceType = "FLOW" | "PRODUCT" | "TAG" | "CRM_STAGE" | "MANUAL" | "AGENT_NODE";
 type FollowMessageType = "TEXT" | "AUDIO" | "IMAGE" | "VIDEO" | "DOC";
 type FollowTimeType = "MINUTES" | "HOURS" | "DAYS";
 
@@ -701,9 +701,19 @@ export function NewFollowDialog({
                         <NativeSelectOption value="PRODUCT">Producto</NativeSelectOption>
                         <NativeSelectOption value="TAG">Tag</NativeSelectOption>
                         <NativeSelectOption value="CRM_STAGE">CRM</NativeSelectOption>
+                        <NativeSelectOption value="AGENT_NODE">Agente V2</NativeSelectOption>
                       </NativeSelect>
                     </Field>
 
+                    {ruleSourceType === "AGENT_NODE" ? (
+                      <Field>
+                        <FieldLabel>Uso</FieldLabel>
+                        <p className="rounded-lg border border-dashed border-border bg-muted/30 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                          Plantilla para nodos de <strong>Agente V2</strong>. No se dispara
+                          sola: la agenda el nodo Seguimiento cuando el lead llega a su etapa.
+                        </p>
+                      </Field>
+                    ) : (
                     <Field>
                       <FieldLabel htmlFor="quick-rule-source-id">
                         {ruleSourceLabelText}
@@ -751,6 +761,7 @@ export function NewFollowDialog({
                         </ComboboxContent>
                       </Combobox>
                     </Field>
+                    )}
 
                     <Field>
                       <FieldLabel htmlFor="quick-rule-time-type">Tipo de tiempo</FieldLabel>

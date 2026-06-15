@@ -16,7 +16,7 @@ import {
 
 const createFollowRuleSchema = z.object({
   name: z.string().trim().min(2, "Agrega un nombre").max(120),
-  sourceType: z.enum(["FLOW", "PRODUCT", "TAG", "CRM_STAGE", "MANUAL"]),
+  sourceType: z.enum(["FLOW", "PRODUCT", "TAG", "CRM_STAGE", "MANUAL", "AGENT_NODE"]),
   sourceId: z.string().trim().max(120).optional().default(""),
   channelId: z.string().trim().max(120).optional().default(""),
   timeType: z.enum(["MINUTES", "HOURS", "DAYS"]),

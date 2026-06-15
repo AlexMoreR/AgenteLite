@@ -10,7 +10,7 @@ import {
 import { prisma } from "@/lib/prisma";
 import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowItems";
 
-export type FollowSourceType = "FLOW" | "PRODUCT" | "TAG" | "CRM_STAGE" | "MANUAL";
+export type FollowSourceType = "FLOW" | "PRODUCT" | "TAG" | "CRM_STAGE" | "MANUAL" | "AGENT_NODE";
 export type FollowTimeType = "MINUTES" | "HOURS" | "DAYS";
 export type FollowMessageType = "TEXT" | "AUDIO" | "IMAGE" | "VIDEO" | "DOC";
 export type FollowStatus = "PENDING" | "EXECUTED" | "CANCELLED";
@@ -1152,6 +1152,53 @@ export async function createFollowsFromRulesForSource(input: {
   return { created: followIds.length, followIds };
 }
 
+// Agenda UNA regla específica (por id) para un contacto, sin importar su sourceType.
+// Lo usan los nodos Seguimiento de Agente V2 (reglas de origen AGENT_NODE). Dedup:
+// no agenda si ya hay un follow PENDING de esa misma regla para ese contacto.
+export async function scheduleFollowRuleForContact(input: {
+  workspaceId: string;
+  contactId: string;
+  ruleId: string;
+  channelId?: string | null;
+}): Promise<{ scheduled: boolean; followId?: string }> {
+  const ruleId = normalizeText(input.ruleId);
+  if (!ruleId) {
+    return { scheduled: false };
+  }
+
+  const rule = (await listFollowRulesByWorkspace(input.workspaceId)).find(
+    (candidate) => candidate.id === ruleId && candidate.isActive,
+  );
+  if (!rule) {
+    return { scheduled: false };
+  }
+
+  const existing = await prisma.follow.findFirst({
+    where: { contactId: input.contactId, followRuleId: rule.id, status: "PENDING" },
+    select: { id: true },
+  });
+  if (existing) {
+    return { scheduled: false };
+  }
+
+  const follow = await createFollow({
+    workspaceId: input.workspaceId,
+    contactId: input.contactId,
+    followRuleId: rule.id,
+    channelId: input.channelId ?? rule.channelId ?? null,
+    timeType: rule.timeType,
+    timeValue: rule.timeValue,
+    messageType: rule.messageType,
+    content: rule.content,
+    mediaUrl: rule.mediaUrl,
+    actions: rule.actions as FollowActionInput[] | undefined,
+    cancelOnActivity: rule.cancelOnActivity,
+    executeAt: resolveExecuteAt(rule.timeType, rule.timeValue),
+  });
+
+  return { scheduled: Boolean(follow), followId: follow?.id };
+}
+
 export async function listFollowsByContact(input: {
   workspaceId: string;
   contactId: string;
@@ -1556,7 +1603,9 @@ export async function resolveFollowSourceLabel(input: {
   const sourceId = normalizeText(input.sourceId);
 
   if (!sourceId) {
-    return input.sourceType === "MANUAL" ? "Manual" : "Sin origen";
+    if (input.sourceType === "MANUAL") return "Manual";
+    if (input.sourceType === "AGENT_NODE") return "Agente V2";
+    return "Sin origen";
   }
 
   if (input.sourceType === "CRM_STAGE") {

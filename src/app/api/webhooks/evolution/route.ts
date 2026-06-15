@@ -16,7 +16,9 @@ import { prisma } from "@/lib/prisma";
 import {
   cancelPendingFollowsByContact,
   createFollowsFromRulesForSource,
+  scheduleFollowRuleForContact,
 } from "@/features/seguimientos/services/follows";
+import { resolveAgentV2StageFollowRuleIds } from "@/lib/agent-v2-stage-follows";
 import { resolveEvolutionQuickResponseFlow } from "@/features/flows/services/resolveEvolutionQuickResponseFlow";
 import {
   extractEvolutionConnectionState,
@@ -1630,6 +1632,7 @@ export async function POST(request: Request) {
         welcomeMessage: true,
         fallbackMessage: true,
         trainingConfig: true,
+        graph: true,
       },
     });
 
@@ -1968,6 +1971,50 @@ export async function POST(request: Request) {
         where: { id: conversation.id },
         data: conversationUpdateData,
       });
+
+      // Agente V2: al llegar el lead a una etapa nueva (con el producto activo),
+      // agenda los nodos Seguimiento anclados a esa etapa. Reglas AGENT_NODE; el
+      // helper deduplica (no re-agenda si ya hay un follow PENDING de esa regla).
+      const stageFollowProductId =
+        hardFlowResolution?.activeProductContext?.productId ??
+        previousActiveProductContext?.productId ??
+        "";
+      const newCommercialStage = commercialConversationContext.currentStage;
+      if (
+        agent.graph &&
+        stageFollowProductId &&
+        newCommercialStage &&
+        newCommercialStage !== previousCommercialStage
+      ) {
+        try {
+          const stageFollowRuleIds = resolveAgentV2StageFollowRuleIds({
+            graph: agent.graph,
+            productId: stageFollowProductId,
+            currentStage: newCommercialStage,
+          });
+          for (const ruleId of stageFollowRuleIds) {
+            await scheduleFollowRuleForContact({
+              workspaceId: channel.workspaceId,
+              contactId: contact.id,
+              ruleId,
+              channelId: channel.id,
+            });
+          }
+          if (stageFollowRuleIds.length) {
+            console.log("[EVOLUTION] agent_v2_stage_follows", {
+              conversationId: conversation.id,
+              productId: stageFollowProductId,
+              stage: newCommercialStage,
+              scheduled: stageFollowRuleIds.length,
+            });
+          }
+        } catch (error) {
+          console.error("[EVOLUTION] agent_v2_stage_follows_error", {
+            conversationId: conversation.id,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
 
       // Los modos default/ia enganchan en dos turnos: el contexto del producto
       // solo se inyecta cuando el producto ya estaba activo. En modo CHATBOT

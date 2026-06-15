@@ -31,6 +31,7 @@ import {
   AgentV2FlowCanvas,
   type AgentV2Product,
   type AgentV2Flow,
+  type AgentV2FollowRule,
   type BusinessData,
 } from "./AgentV2FlowCanvas";
 
@@ -47,12 +48,14 @@ export type AgentV2Item = {
 export function AgentV2Workspace({
   products,
   flows,
+  followRules,
   business,
   connections,
   initialAgents,
 }: {
   products: AgentV2Product[];
   flows: AgentV2Flow[];
+  followRules: AgentV2FollowRule[];
   business: BusinessData;
   connections: AgentV2Connection[];
   initialAgents: AgentV2Item[];
@@ -167,6 +170,7 @@ export function AgentV2Workspace({
         agentName={selectedAgent.name}
         products={products}
         flows={flows}
+        followRules={followRules}
         business={business}
         initialGraph={selectedAgent.graph}
         onSaveGraph={(graph) => saveGraph(selectedAgent.id, graph)}

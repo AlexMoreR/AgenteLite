@@ -11,6 +11,7 @@ import {
 } from "react";
 import {
   ArrowLeft,
+  Bell,
   Bot,
   Boxes,
   Filter,
@@ -96,10 +97,12 @@ type NodeDataPatch = Partial<{
   text: string;
   productId: string;
   flowId: string;
+  ruleId: string;
 }>;
 
 export type AgentV2Product = { id: string; name: string };
 export type AgentV2Flow = { id: string; name: string };
+export type AgentV2FollowRule = { id: string; name: string };
 
 export type BusinessData = {
   name: string;
@@ -708,6 +711,87 @@ function FlujoNode({ id, data, selected }: NodeProps) {
   );
 }
 
+type SeguimientoData = {
+  ruleId: string;
+  followRules?: AgentV2FollowRule[];
+  onChange?: (id: string, patch: NodeDataPatch) => void;
+  onDelete?: (id: string) => void;
+};
+
+function SeguimientoNode({ id, data, selected }: NodeProps) {
+  const nodeData = data as SeguimientoData;
+  const followRules = nodeData.followRules ?? [];
+
+  return (
+    <>
+      <NodeToolbar isVisible={selected} position={Position.Top} align="end" offset={8}>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            nodeData.onDelete?.(id);
+          }}
+          className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border bg-card text-muted-foreground shadow-sm transition hover:bg-muted hover:text-foreground"
+          aria-label="Eliminar seguimiento"
+          title="Eliminar seguimiento"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      </NodeToolbar>
+
+      <Handle
+        id="target"
+        type="target"
+        position={Position.Left}
+        className="!h-4 !w-4 !border-2 !border-white !bg-rose-500"
+      />
+      <BaseNode className="w-[300px]">
+        <BaseNodeHeader className="items-center justify-start gap-2.5">
+          <span className="inline-flex shrink-0 items-center justify-center">
+            <Bell className="h-4 w-4 text-rose-500" />
+          </span>
+          <BaseNodeHeaderTitle className="truncate">Seguimiento</BaseNodeHeaderTitle>
+        </BaseNodeHeader>
+        <BaseNodeContent>
+          <div className="nodrag space-y-1" onClick={(event) => event.stopPropagation()}>
+            <label className="text-xs font-medium text-foreground">Regla de seguimiento</label>
+            <Select
+              value={nodeData.ruleId}
+              onValueChange={(value) => nodeData.onChange?.(id, { ruleId: value ?? "" })}
+            >
+              <SelectTrigger className="h-9 w-full text-xs">
+                <SelectValue placeholder="Selecciona una regla">
+                  {(value) => followRules.find((r) => r.id === value)?.name ?? "Selecciona una regla"}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent
+                className="w-auto min-w-(--anchor-width) max-w-[22rem] p-1"
+                alignItemWithTrigger={false}
+                side="bottom"
+              >
+                {followRules.length === 0 ? (
+                  <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                    No hay reglas de seguimiento. Créalas en el módulo Seguimientos.
+                  </div>
+                ) : (
+                  followRules.map((rule) => (
+                    <SelectItem key={rule.id} value={rule.id} className="text-xs">
+                      {rule.name}
+                    </SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
+            <p className="pt-1 text-[11px] leading-4 text-muted-foreground">
+              Se agenda cuando el lead llega a esta etapa. Se cancela solo si responde.
+            </p>
+          </div>
+        </BaseNodeContent>
+      </BaseNode>
+    </>
+  );
+}
+
 type ConditionRule = {
   id: string;
   matchType: MatchType;
@@ -1122,6 +1206,7 @@ const nodeTypes = {
   condicion: ConditionNode,
   texto: TextNode,
   flujo: FlujoNode,
+  seguimiento: SeguimientoNode,
 };
 
 type FlowEdgeData = {
@@ -1189,7 +1274,8 @@ type StoredGraph = {
       Partial<ProductoData> &
       Partial<ConditionData> &
       Partial<TextData> &
-      Partial<FlujoData>;
+      Partial<FlujoData> &
+      Partial<SeguimientoData>;
   }>;
   edges: Array<Pick<Edge, "id" | "source" | "target" | "sourceHandle" | "targetHandle">>;
 };
@@ -1292,12 +1378,16 @@ function loadGraph(initialGraph: unknown, agentName: string): { nodes: Node[]; e
                   ? ({
                       flowId: node.data.flowId ?? "",
                     } satisfies FlujoData)
-                  : ({
-                    kind: (node.data.kind as EntradaKind) ?? "general",
-                    welcome: node.data.welcome ?? "",
-                    keywords: node.data.keywords ?? "",
-                    useBusiness: node.data.useBusiness ?? false,
-                  } satisfies EntradaData),
+                  : node.type === "seguimiento"
+                    ? ({
+                        ruleId: node.data.ruleId ?? "",
+                      } satisfies SeguimientoData)
+                    : ({
+                      kind: (node.data.kind as EntradaKind) ?? "general",
+                      welcome: node.data.welcome ?? "",
+                      keywords: node.data.keywords ?? "",
+                      useBusiness: node.data.useBusiness ?? false,
+                    } satisfies EntradaData),
       deletable: node.type === "agent" ? false : node.id !== "entry-general",
     }));
     const edges: Edge[] = parsed.edges.map((edge) => ({
@@ -1348,12 +1438,16 @@ function serializeGraph(nodes: Node[], edges: Edge[]): StoredGraph {
                   ? {
                       flowId: (node.data as FlujoData).flowId,
                     }
-                  : {
-                      kind: (node.data as EntradaData).kind,
-                      welcome: (node.data as EntradaData).welcome,
-                      keywords: (node.data as EntradaData).keywords,
-                      useBusiness: (node.data as EntradaData).useBusiness,
-                    },
+                  : node.type === "seguimiento"
+                    ? {
+                        ruleId: (node.data as SeguimientoData).ruleId,
+                      }
+                    : {
+                        kind: (node.data as EntradaData).kind,
+                        welcome: (node.data as EntradaData).welcome,
+                        keywords: (node.data as EntradaData).keywords,
+                        useBusiness: (node.data as EntradaData).useBusiness,
+                      },
     })),
     edges: edges.map((edge) => ({
       id: edge.id,
@@ -1370,6 +1464,7 @@ type AgentV2FlowCanvasProps = {
   agentName: string;
   products: AgentV2Product[];
   flows: AgentV2Flow[];
+  followRules: AgentV2FollowRule[];
   business: BusinessData;
   initialGraph: unknown;
   onSaveGraph: (graph: StoredGraph) => void;
@@ -1382,6 +1477,7 @@ function FlowCanvasInner({
   agentName,
   products,
   flows,
+  followRules,
   business,
   initialGraph,
   onSaveGraph,
@@ -1397,6 +1493,7 @@ function FlowCanvasInner({
   const conditionCount = useRef(initial.nodes.filter((node) => node.type === "condicion").length);
   const textCount = useRef(initial.nodes.filter((node) => node.type === "texto").length);
   const flujoCount = useRef(initial.nodes.filter((node) => node.type === "flujo").length);
+  const seguimientoCount = useRef(initial.nodes.filter((node) => node.type === "seguimiento").length);
 
   // Posiciona los nodos nuevos en el centro del viewport actual (no en coordenadas
   // fijas lejanas), con un pequeño escalonado para que no se apilen exactamente.
@@ -1534,6 +1631,12 @@ function FlowCanvasInner({
             data: { ...node.data, onChange: updateNodeData, onDelete: deleteEntrada, flows },
           };
         }
+        if (node.type === "seguimiento") {
+          return {
+            ...node,
+            data: { ...node.data, onChange: updateNodeData, onDelete: deleteEntrada, followRules },
+          };
+        }
         if (node.type === "entrada") {
           return {
             ...node,
@@ -1570,6 +1673,7 @@ function FlowCanvasInner({
       nodes,
       products,
       flows,
+      followRules,
       businessData,
       updateNodeData,
       saveBusiness,
@@ -1688,6 +1792,18 @@ function FlowCanvasInner({
     setNodes((current) => [...current, newNode]);
   }, [setNodes, getSpawnPosition]);
 
+  const addSeguimiento = useCallback(() => {
+    seguimientoCount.current += 1;
+    const newId = `seguimiento-${crypto.randomUUID()}`;
+    const newNode: Node = {
+      id: newId,
+      type: "seguimiento",
+      position: getSpawnPosition(),
+      data: { ruleId: "" } satisfies SeguimientoData,
+    };
+    setNodes((current) => [...current, newNode]);
+  }, [setNodes, getSpawnPosition]);
+
   const onSaveGraphRef = useRef(onSaveGraph);
   useEffect(() => {
     onSaveGraphRef.current = onSaveGraph;
@@ -1783,6 +1899,7 @@ function FlowCanvasInner({
                 { label: "Condición", icon: Split, color: "text-amber-600", onClick: addCondition },
                 { label: "Texto", icon: MessageSquare, color: "text-sky-600", onClick: addText },
                 { label: "Flujo", icon: Workflow, color: "text-indigo-600", onClick: addFlujo },
+                { label: "Seguimiento", icon: Bell, color: "text-rose-500", onClick: addSeguimiento },
               ].map((option) => (
                 <button
                   key={option.label}
