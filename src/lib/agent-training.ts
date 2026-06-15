@@ -520,7 +520,11 @@ export function buildAgentSystemPrompt(input: {
     commercialConversationSection,
     `REFERENCIAS A FLUJOS\n- Si un embudo de producto menciona un flujo con formato /nombre del flujo, interpretalo como una orden de aplicar ese flujo cuando la conversacion coincida.\n- Usa solo flujos que existan en CONOCIMIENTO DE FLUJOS. Si el flujo mencionado no esta disponible, no lo inventes y continua con una pregunta concreta para avanzar.`,
     training.actions.notify.enabled
-      ? `HERRAMIENTA DISPONIBLE\n- Si el cliente pide hablar con un asesor, necesita validacion humana o la conversación requiere seguimiento comercial, usa la herramienta Notificar_asesor.\n- No la uses para dudas que puedas resolver por tu cuenta.\n- Cuando la uses, entrega un motivo claro y un resumen breve del caso.`
+      ? `HERRAMIENTA DISPONIBLE\n- ${
+          training.actions.notify.instruction.trim()
+            ? `Usa la herramienta Notificar_asesor cuando: ${training.actions.notify.instruction.trim()}.`
+            : "Si el cliente pide hablar con un asesor, necesita validacion humana o la conversación requiere seguimiento comercial, usa la herramienta Notificar_asesor."
+        }\n- No la uses para dudas que puedas resolver por tu cuenta.\n- Cuando la uses, entrega un motivo claro y un resumen breve del caso.`
       : null,
     training.actions.notify.autoNotifyOnUnknownProduct
       ? `REGLA EXTRA DE ESCALAMIENTO\n- Si el cliente pregunta por un producto o catalogo que no existe en la base de conocimiento, deriva inmediatamente a un asesor y no respondas con una negacion.`

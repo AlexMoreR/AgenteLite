@@ -15,6 +15,7 @@ import {
   Bot,
   Boxes,
   Filter,
+  Headset,
   HelpCircle,
   Megaphone,
   MessageSquare,
@@ -83,8 +84,12 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 
 const AGENT_NODE_ID = "agent-root";
+
+const SELECTED_NODE_CLASS =
+  "border-blue-400 shadow-[0_24px_50px_-28px_rgba(37,99,235,0.52)]";
 
 type EntradaKind = "general" | "keyword";
 
@@ -107,6 +112,8 @@ type NodeDataPatch = Partial<{
   productId: string;
   flowId: string;
   ruleId: string;
+  instruction: string;
+  phoneNumber: string;
 }>;
 
 export type AgentV2Product = { id: string; name: string };
@@ -152,63 +159,90 @@ const BUSINESS_FIELDS: { key: keyof BusinessData; label: string; placeholder: st
   { key: "youtube", label: "YouTube", placeholder: "@minegocio" },
 ];
 
-function BusinessPopover({
+function BusinessDialog({
   initial,
   onSubmit,
-  trigger,
+  enabled,
+  onToggle,
+  open,
+  onOpenChange,
 }: {
   initial: BusinessData;
   onSubmit: (business: BusinessData) => void;
-  trigger: ReactNode;
+  enabled: boolean;
+  onToggle: (enabled: boolean) => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
   const [form, setForm] = useState<BusinessData>(initial);
 
+  useEffect(() => {
+    if (open) {
+      setForm(initial);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
   return (
-    <Popover
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (next) {
-          setForm(initial);
-        }
-      }}
-    >
-      <PopoverTrigger asChild>{trigger}</PopoverTrigger>
-      <PopoverContent
-        align="start"
-        side="right"
-        className="nodrag max-h-[440px] w-96 space-y-3 overflow-y-auto rounded-2xl border border-border bg-background p-4 text-foreground"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <p className="text-sm font-semibold text-foreground">Datos del negocio</p>
-        <div className="grid grid-cols-2 gap-2">
-          {BUSINESS_FIELDS.map((field) => (
-            <div key={field.key} className="space-y-1">
-              <label className="text-[11px] font-medium text-foreground">{field.label}</label>
-              <input
-                value={form[field.key]}
-                onChange={(event) =>
-                  setForm((prev) => ({ ...prev, [field.key]: event.target.value }))
-                }
-                placeholder={field.placeholder}
-                className="block w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-foreground outline-none transition placeholder:text-muted-foreground focus:border-blue-400 focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-950"
-              />
-            </div>
-          ))}
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="nodrag sm:max-w-2xl" onClick={(event) => event.stopPropagation()}>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Rocket className="h-4 w-4 text-blue-600" />
+            Datos del negocio
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/40 px-3 py-2">
+          <div className="space-y-0.5">
+            <span className="text-sm font-medium text-foreground">Activar datos del negocio</span>
+            <p className="text-[11px] leading-4 text-muted-foreground">
+              Comparte estos datos con la IA al iniciar la conversacion.
+            </p>
+          </div>
+          <Switch
+            checked={enabled}
+            onCheckedChange={onToggle}
+            aria-label="Activar datos del negocio"
+          />
         </div>
-        <Button
-          size="sm"
-          className="w-full"
-          onClick={() => {
-            onSubmit(form);
-            setOpen(false);
-          }}
-        >
-          Guardar
-        </Button>
-      </PopoverContent>
-    </Popover>
+
+        {enabled ? (
+          <div className="grid max-h-[55vh] grid-cols-2 gap-3 overflow-y-auto pr-1">
+            {BUSINESS_FIELDS.map((field) => (
+              <div key={field.key} className="space-y-1">
+                <label className="text-[11px] font-medium text-foreground">{field.label}</label>
+                <input
+                  value={form[field.key]}
+                  onChange={(event) =>
+                    setForm((prev) => ({ ...prev, [field.key]: event.target.value }))
+                  }
+                  placeholder={field.placeholder}
+                  className="block w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-blue-400 focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-950"
+                />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs leading-5 text-muted-foreground">
+            Activa la opcion para capturar los datos del negocio.
+          </p>
+        )}
+
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline" />}>Cancelar</DialogClose>
+          <Button
+            disabled={!enabled}
+            onClick={() => {
+              onSubmit(form);
+              onOpenChange(false);
+            }}
+          >
+            Guardar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -236,6 +270,7 @@ type AgentData = {
 function EntradaNode({ id, data, selected }: NodeProps) {
   const nodeData = data as EntradaData;
   const isKeyword = nodeData.kind === "keyword";
+  const [businessOpen, setBusinessOpen] = useState(false);
 
   return (
     <>
@@ -256,7 +291,14 @@ function EntradaNode({ id, data, selected }: NodeProps) {
         </NodeToolbar>
       ) : null}
 
-      <BaseNode className="w-[320px]">
+      <BaseNode
+        className={cn(
+          "w-[320px] transition-shadow",
+          selected && SELECTED_NODE_CLASS,
+          !isKeyword && "cursor-pointer",
+        )}
+        onClick={!isKeyword ? () => setBusinessOpen(true) : undefined}
+      >
         <BaseNodeHeader className="items-center justify-start gap-2.5">
           <span className="inline-flex shrink-0 items-center justify-center">
             {isKeyword ? (
@@ -276,35 +318,6 @@ function EntradaNode({ id, data, selected }: NodeProps) {
               : "Lead nuevo sin historial y sin palabra clave."}
           </p>
 
-          {!isKeyword ? (
-            <>
-              <div
-                className="nodrag flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/40 px-3 py-2"
-                onClick={(event) => event.stopPropagation()}
-              >
-                <span className="text-sm text-foreground">Datos del negocio</span>
-                <Switch
-                  checked={nodeData.useBusiness}
-                  onCheckedChange={(checked) => nodeData.onChange?.(id, { useBusiness: checked })}
-                  aria-label="Datos del negocio"
-                />
-              </div>
-              {nodeData.useBusiness ? (
-                <BusinessPopover
-                  initial={nodeData.business ?? EMPTY_BUSINESS}
-                  onSubmit={(business) => nodeData.onSaveBusiness?.(business)}
-                  trigger={
-                    <button
-                      type="button"
-                      className="nodrag flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-border px-3 py-2 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
-                    >
-                      Editar datos del negocio
-                    </button>
-                  }
-                />
-              ) : null}
-            </>
-          ) : null}
 
           {isKeyword ? (
             <div className="space-y-1">
@@ -339,11 +352,22 @@ function EntradaNode({ id, data, selected }: NodeProps) {
           className="!h-4 !w-4 !border-2 !border-white !bg-blue-600"
         />
       </BaseNode>
+
+      {!isKeyword ? (
+        <BusinessDialog
+          open={businessOpen}
+          onOpenChange={setBusinessOpen}
+          enabled={nodeData.useBusiness}
+          onToggle={(checked) => nodeData.onChange?.(id, { useBusiness: checked })}
+          initial={nodeData.business ?? EMPTY_BUSINESS}
+          onSubmit={(business) => nodeData.onSaveBusiness?.(business)}
+        />
+      ) : null}
     </>
   );
 }
 
-function AgentNode({ id, data }: NodeProps) {
+function AgentNode({ id, data, selected }: NodeProps) {
   const nodeData = data as AgentData;
   const [editorOpen, setEditorOpen] = useState(false);
 
@@ -358,7 +382,7 @@ function AgentNode({ id, data }: NodeProps) {
         position={Position.Left}
         className="!h-4 !w-4 !border-2 !border-white !bg-sky-600"
       />
-      <BaseNode className="w-[320px]">
+      <BaseNode className={cn("w-[320px] transition-shadow", selected && SELECTED_NODE_CLASS)}>
         <BaseNodeHeader className="items-center justify-start gap-2.5">
           <span className="inline-flex shrink-0 items-center justify-center">
             <Bot className="h-4 w-4 text-violet-600" />
@@ -408,38 +432,33 @@ function AgentNode({ id, data }: NodeProps) {
 
           <div className="space-y-1.5">
             <p className="text-xs font-medium text-foreground">Herramientas</p>
+            <p className="text-[11px] leading-4 text-muted-foreground">
+              Conecta nodos de Productos o Flujos para que el agente pueda consultarlos.
+            </p>
             <div
-              className="nodrag relative flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/40 px-3 py-2"
+              className="nodrag relative flex items-center gap-2 rounded-lg border border-emerald-600 bg-emerald-600 px-3 py-2"
               onClick={(event) => event.stopPropagation()}
             >
-              <span className="text-sm text-foreground">Consultar productos</span>
-              <Switch
-                checked={nodeData.consultProducts}
-                onCheckedChange={(checked) => nodeData.onChange?.(id, { consultProducts: checked })}
-                aria-label="Consultar productos"
-              />
+              <ShoppingBag className="h-4 w-4 shrink-0 text-white" />
+              <span className="text-sm font-medium text-white">Consultar productos</span>
               <Handle
                 id="tool-products"
                 type="source"
                 position={Position.Right}
-                className="!-right-4 !h-4 !w-4 !border-2 !border-white !bg-emerald-500"
+                className="!-right-4 !h-4 !w-4 !border-2 !border-white !bg-emerald-600"
               />
             </div>
             <div
-              className="nodrag relative flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/40 px-3 py-2"
+              className="nodrag relative flex items-center gap-2 rounded-lg border border-violet-600 bg-violet-600 px-3 py-2"
               onClick={(event) => event.stopPropagation()}
             >
-              <span className="text-sm text-foreground">Consultar flujos</span>
-              <Switch
-                checked={nodeData.consultFlows}
-                onCheckedChange={(checked) => nodeData.onChange?.(id, { consultFlows: checked })}
-                aria-label="Consultar flujos"
-              />
+              <Workflow className="h-4 w-4 shrink-0 text-white" />
+              <span className="text-sm font-medium text-white">Consultar flujos</span>
               <Handle
                 id="tool-flows"
                 type="source"
                 position={Position.Right}
-                className="!-right-4 !h-4 !w-4 !border-2 !border-white !bg-sky-500"
+                className="!-right-4 !h-4 !w-4 !border-2 !border-white !bg-violet-600"
               />
             </div>
           </div>
@@ -549,6 +568,8 @@ type ProductoData = {
 function ProductoNode({ id, data, selected }: NodeProps) {
   const nodeData = data as ProductoData;
   const products = nodeData.products ?? [];
+  const [editorOpen, setEditorOpen] = useState(false);
+  const selectedProduct = products.find((p) => p.id === nodeData.productId);
 
   return (
     <>
@@ -573,7 +594,7 @@ function ProductoNode({ id, data, selected }: NodeProps) {
         position={Position.Left}
         className="!h-4 !w-4 !border-2 !border-white !bg-emerald-600"
       />
-      <BaseNode className="w-[340px]">
+      <BaseNode className={cn("w-[340px] transition-shadow", selected && SELECTED_NODE_CLASS)}>
         <BaseNodeHeader className="items-center justify-start gap-2.5">
           <span className="inline-flex shrink-0 items-center justify-center">
             <ShoppingBag className="h-4 w-4 text-emerald-600" />
@@ -581,93 +602,43 @@ function ProductoNode({ id, data, selected }: NodeProps) {
           <BaseNodeHeaderTitle className="truncate">Producto</BaseNodeHeaderTitle>
         </BaseNodeHeader>
         <BaseNodeContent className="space-y-3">
-          <div className="nodrag space-y-1" onClick={(event) => event.stopPropagation()}>
-            <label className="text-xs font-medium text-foreground">Producto</label>
-            <Select
-              value={nodeData.productId}
-              onValueChange={(value) => nodeData.onChange?.(id, { productId: value ?? "" })}
-            >
-              <SelectTrigger className="h-9 w-full text-xs">
-                <SelectValue placeholder="Selecciona un producto">
-                  {(value) => products.find((p) => p.id === value)?.name ?? "Selecciona un producto"}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent
-              className="w-auto min-w-(--anchor-width) max-w-[22rem] p-1"
-              alignItemWithTrigger={false}
-              side="bottom"
-            >
-                {products.length === 0 ? (
-                  <div className="px-2 py-1.5 text-xs text-muted-foreground">
-                    No hay productos en el catalogo
-                  </div>
-                ) : (
-                  products.map((product) => (
-                    <SelectItem key={product.id} value={product.id} className="text-xs">
-                      {product.name}
-                    </SelectItem>
-                  ))
-                )}
-              </SelectContent>
-            </Select>
-          </div>
-
           <div
-            className="nodrag flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/40 px-3 py-2"
+            className="nodrag space-y-2 rounded-lg border border-border bg-muted/40 px-3 py-2.5"
             onClick={(event) => event.stopPropagation()}
           >
-            <span className="text-sm text-foreground">Iniciar con coincidencia</span>
-            <Switch
-              checked={nodeData.startOnMatch}
-              onCheckedChange={(checked) => nodeData.onChange?.(id, { startOnMatch: checked })}
-              aria-label="Iniciar con coincidencia"
-            />
+            <p className="truncate text-sm font-medium text-foreground">
+              {selectedProduct?.name ?? "Sin producto seleccionado"}
+            </p>
+            <p className="text-[11px] leading-4 text-muted-foreground">
+              {nodeData.startOnMatch
+                ? `Coincidencia: ${MATCH_LABELS[nodeData.matchType]}`
+                : "Inicio por defecto"}
+              {nodeData.useFunnel ? " · Embudo activo" : ""}
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="nodrag w-full gap-2"
+              onClick={(event) => {
+                event.stopPropagation();
+                setEditorOpen(true);
+              }}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              Editar producto
+            </Button>
           </div>
 
-          {nodeData.startOnMatch ? (
-            <RulePopover
-              initialMatchType={nodeData.matchType}
-              initialKeywords={nodeData.matchKeywords}
-              initialIntent={nodeData.intent}
-              submitLabel="Guardar"
-              onSubmit={(matchType, keywords, intent) =>
-                nodeData.onUpdateMatch?.(id, matchType, keywords, intent)
-              }
-              trigger={
-                <button
-                  type="button"
-                  className="nodrag w-full rounded-xl border border-border bg-muted/30 px-3 py-2 text-left transition hover:bg-muted/60"
-                >
-                  <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    Coincidencia
-                  </span>
-                  <p className="break-words text-sm text-foreground">
-                    <span>{MATCH_LABELS[nodeData.matchType]}</span>
-                    {" · "}
-                    {nodeData.matchType === "ia"
-                      ? nodeData.intent.trim()
-                        ? nodeData.intent
-                        : "sin intencion"
-                      : nodeData.matchKeywords.length
-                        ? nodeData.matchKeywords.join(", ")
-                        : "sin palabras"}
-                  </p>
-                </button>
-              }
-            />
-          ) : null}
-
-          <div
-            className="nodrag flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/40 px-3 py-2"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <span className="text-sm text-foreground">Embudo</span>
-            <Switch
-              checked={nodeData.useFunnel}
-              onCheckedChange={(checked) => nodeData.onChange?.(id, { useFunnel: checked })}
-              aria-label="Embudo"
-            />
-          </div>
+          <ProductEditorDialog
+            open={editorOpen}
+            onOpenChange={setEditorOpen}
+            data={nodeData}
+            onChange={(patch) => nodeData.onChange?.(id, patch)}
+            onUpdateMatch={(matchType, keywords, intent) =>
+              nodeData.onUpdateMatch?.(id, matchType, keywords, intent)
+            }
+          />
 
           {nodeData.useFunnel ? (
             <div className="space-y-2">
@@ -691,6 +662,121 @@ function ProductoNode({ id, data, selected }: NodeProps) {
         </BaseNodeContent>
       </BaseNode>
     </>
+  );
+}
+
+function ProductEditorDialog({
+  open,
+  onOpenChange,
+  data,
+  onChange,
+  onUpdateMatch,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  data: ProductoData;
+  onChange: (patch: NodeDataPatch) => void;
+  onUpdateMatch: (matchType: MatchType, keywords: string[], intent: string) => void;
+}) {
+  const products = data.products ?? [];
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="nodrag sm:max-w-lg" onClick={(event) => event.stopPropagation()}>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <ShoppingBag className="h-4 w-4 text-emerald-600" />
+            Editar producto
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-foreground">Producto</label>
+            <Select
+              value={data.productId}
+              onValueChange={(value) => onChange({ productId: value ?? "" })}
+            >
+              <SelectTrigger className="h-9 w-full text-sm">
+                <SelectValue placeholder="Selecciona un producto">
+                  {(value) => products.find((p) => p.id === value)?.name ?? "Selecciona un producto"}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent
+                className="w-auto min-w-(--anchor-width) max-w-[22rem] p-1"
+                alignItemWithTrigger={false}
+                side="bottom"
+              >
+                {products.length === 0 ? (
+                  <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                    No hay productos en el catalogo
+                  </div>
+                ) : (
+                  products.map((product) => (
+                    <SelectItem key={product.id} value={product.id} className="text-sm">
+                      {product.name}
+                    </SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/40 px-3 py-2">
+            <span className="text-sm text-foreground">Iniciar con coincidencia</span>
+            <Switch
+              checked={data.startOnMatch}
+              onCheckedChange={(checked) => onChange({ startOnMatch: checked })}
+              aria-label="Iniciar con coincidencia"
+            />
+          </div>
+
+          {data.startOnMatch ? (
+            <RulePopover
+              initialMatchType={data.matchType}
+              initialKeywords={data.matchKeywords}
+              initialIntent={data.intent}
+              submitLabel="Guardar"
+              onSubmit={onUpdateMatch}
+              trigger={
+                <button
+                  type="button"
+                  className="w-full rounded-xl border border-border bg-muted/30 px-3 py-2 text-left transition hover:bg-muted/60"
+                >
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Coincidencia
+                  </span>
+                  <p className="break-words text-sm text-foreground">
+                    <span>{MATCH_LABELS[data.matchType]}</span>
+                    {" · "}
+                    {data.matchType === "ia"
+                      ? data.intent.trim()
+                        ? data.intent
+                        : "sin intencion"
+                      : data.matchKeywords.length
+                        ? data.matchKeywords.join(", ")
+                        : "sin palabras"}
+                  </p>
+                </button>
+              }
+            />
+          ) : null}
+
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/40 px-3 py-2">
+            <span className="text-sm text-foreground">Embudo</span>
+            <Switch
+              checked={data.useFunnel}
+              onCheckedChange={(checked) => onChange({ useFunnel: checked })}
+              aria-label="Embudo"
+            />
+          </div>
+        </div>
+
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline" />}>Cerrar</DialogClose>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -728,7 +814,7 @@ function FlujoNode({ id, data, selected }: NodeProps) {
         position={Position.Left}
         className="!h-4 !w-4 !border-2 !border-white !bg-indigo-600"
       />
-      <BaseNode className="w-[300px]">
+      <BaseNode className={cn("w-[300px] transition-shadow", selected && SELECTED_NODE_CLASS)}>
         <BaseNodeHeader className="items-center justify-start gap-2.5">
           <span className="inline-flex shrink-0 items-center justify-center">
             <Workflow className="h-4 w-4 text-indigo-600" />
@@ -812,7 +898,7 @@ function SeguimientoNode({ id, data, selected }: NodeProps) {
         position={Position.Left}
         className="!h-4 !w-4 !border-2 !border-white !bg-rose-500"
       />
-      <BaseNode className="w-[300px]">
+      <BaseNode className={cn("w-[300px] transition-shadow", selected && SELECTED_NODE_CLASS)}>
         <BaseNodeHeader className="items-center justify-start gap-2.5">
           <span className="inline-flex shrink-0 items-center justify-center">
             <Bell className="h-4 w-4 text-rose-500" />
@@ -1053,6 +1139,7 @@ function ConditionNode({ id, data, selected }: NodeProps) {
   const rules = nodeData.rules ?? [];
   const elseConnections = useNodeConnections({ id, handleType: "source", handleId: "else" });
   const elseConnected = elseConnections.length > 0;
+  const [editorOpen, setEditorOpen] = useState(false);
 
   return (
     <>
@@ -1077,7 +1164,13 @@ function ConditionNode({ id, data, selected }: NodeProps) {
         position={Position.Left}
         className="!h-4 !w-4 !border-2 !border-white !bg-amber-600"
       />
-      <BaseNode className="w-[340px]">
+      <BaseNode
+        className={cn(
+          "w-[340px] cursor-pointer transition-shadow",
+          selected && SELECTED_NODE_CLASS,
+        )}
+        onClick={() => setEditorOpen(true)}
+      >
         <BaseNodeHeader className="items-center justify-start gap-2.5">
           <span className="inline-flex shrink-0 items-center justify-center">
             <Filter className="h-4 w-4 text-amber-600" />
@@ -1088,8 +1181,86 @@ function ConditionNode({ id, data, selected }: NodeProps) {
           {rules.map((rule, index) => (
             <div
               key={rule.id}
-              className="nodrag relative flex items-stretch gap-1 rounded-xl border border-border bg-muted/30 pr-2"
-              onClick={(event) => event.stopPropagation()}
+              className="relative rounded-xl border border-border bg-muted/30 px-3 py-2.5"
+            >
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                {index === 0 ? "Si" : "O si"}
+              </span>
+              <p className="break-words text-sm text-foreground">
+                <span>{MATCH_LABELS[rule.matchType]}</span>
+                {" · "}
+                {rule.matchType === "ia"
+                  ? rule.intent.trim()
+                    ? rule.intent
+                    : "sin intencion"
+                  : rule.keywords.length
+                    ? rule.keywords.join(", ")
+                    : "sin palabras"}
+              </p>
+              <Handle
+                id={rule.id}
+                type="source"
+                position={Position.Right}
+                className="!-right-4 !h-4 !w-4 !border-2 !border-white !bg-amber-500"
+              />
+            </div>
+          ))}
+
+          <div className="relative rounded-xl border border-border bg-muted/30 px-3 py-2.5">
+            <span className="text-sm text-foreground">No (sin coincidencia)</span>
+            {!elseConnected ? (
+              <p className="text-[11px] leading-4 text-muted-foreground">
+                Por defecto: responde la IA
+              </p>
+            ) : null}
+            <Handle
+              id="else"
+              type="source"
+              position={Position.Right}
+              className="!-right-4 !h-4 !w-4 !border-2 !border-white !bg-slate-400"
+            />
+          </div>
+
+          <ConditionEditorDialog
+            open={editorOpen}
+            onOpenChange={setEditorOpen}
+            id={id}
+            data={nodeData}
+          />
+        </BaseNodeContent>
+      </BaseNode>
+    </>
+  );
+}
+
+function ConditionEditorDialog({
+  open,
+  onOpenChange,
+  id,
+  data,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  id: string;
+  data: ConditionData;
+}) {
+  const rules = data.rules ?? [];
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="nodrag sm:max-w-lg" onClick={(event) => event.stopPropagation()}>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Filter className="h-4 w-4 text-amber-600" />
+            Editar condicion
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-2">
+          {rules.map((rule, index) => (
+            <div
+              key={rule.id}
+              className="relative flex items-stretch gap-1 rounded-xl border border-border bg-muted/30 pr-2"
             >
               <RulePopover
                 initialMatchType={rule.matchType}
@@ -1097,7 +1268,7 @@ function ConditionNode({ id, data, selected }: NodeProps) {
                 initialIntent={rule.intent}
                 submitLabel="Guardar"
                 onSubmit={(matchType, keywords, intent) =>
-                  nodeData.onUpdateRule?.(id, rule.id, { matchType, keywords, intent })
+                  data.onUpdateRule?.(id, rule.id, { matchType, keywords, intent })
                 }
                 trigger={
                   <button
@@ -1107,7 +1278,7 @@ function ConditionNode({ id, data, selected }: NodeProps) {
                     <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                       {index === 0 ? "Si" : "O si"}
                     </span>
-                    <p className="text-sm text-foreground break-words">
+                    <p className="break-words text-sm text-foreground">
                       <span>{MATCH_LABELS[rule.matchType]}</span>
                       {" · "}
                       {rule.matchType === "ia"
@@ -1124,22 +1295,13 @@ function ConditionNode({ id, data, selected }: NodeProps) {
               {rules.length > 1 ? (
                 <button
                   type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    nodeData.onDeleteRule?.(id, rule.id);
-                  }}
+                  onClick={() => data.onDeleteRule?.(id, rule.id)}
                   className="my-auto inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground"
                   aria-label="Eliminar regla"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
               ) : null}
-              <Handle
-                id={rule.id}
-                type="source"
-                position={Position.Right}
-                className="!-right-4 !h-4 !w-4 !border-2 !border-white !bg-amber-500"
-              />
             </div>
           ))}
 
@@ -1149,36 +1311,25 @@ function ConditionNode({ id, data, selected }: NodeProps) {
             initialIntent=""
             submitLabel="Agregar"
             onSubmit={(matchType, keywords, intent) =>
-              nodeData.onAddRule?.(id, { matchType, keywords, intent })
+              data.onAddRule?.(id, { matchType, keywords, intent })
             }
             trigger={
               <button
                 type="button"
-                className="nodrag flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-border px-3 py-2 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-border px-3 py-2 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
               >
                 <Plus className="h-3.5 w-3.5" />
                 Agregar condicion
               </button>
             }
           />
+        </div>
 
-          <div className="relative rounded-xl border border-border bg-muted/30 px-3 py-2.5">
-            <span className="text-sm text-foreground">No (sin coincidencia)</span>
-            {!elseConnected ? (
-              <p className="text-[11px] leading-4 text-muted-foreground">
-                Por defecto: responde la IA
-              </p>
-            ) : null}
-            <Handle
-              id="else"
-              type="source"
-              position={Position.Right}
-              className="!-right-4 !h-4 !w-4 !border-2 !border-white !bg-slate-400"
-            />
-          </div>
-        </BaseNodeContent>
-      </BaseNode>
-    </>
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline" />}>Cerrar</DialogClose>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1223,7 +1374,7 @@ function TextNode({ id, data, selected }: NodeProps) {
         position={Position.Left}
         className="!h-4 !w-4 !border-2 !border-white !bg-sky-600"
       />
-      <BaseNode className="w-[320px]">
+      <BaseNode className={cn("w-[320px] transition-shadow", selected && SELECTED_NODE_CLASS)}>
         <BaseNodeHeader className="items-center justify-start gap-2.5">
           <span className="inline-flex shrink-0 items-center justify-center">
             <MessageSquare className="h-4 w-4 text-sky-600" />
@@ -1266,6 +1417,78 @@ function TextNode({ id, data, selected }: NodeProps) {
   );
 }
 
+type NotificarData = {
+  instruction: string;
+  phoneNumber: string;
+  onChange?: (id: string, patch: NodeDataPatch) => void;
+  onDelete?: (id: string) => void;
+};
+
+function NotificarNode({ id, data, selected }: NodeProps) {
+  const nodeData = data as NotificarData;
+
+  return (
+    <>
+      <NodeToolbar isVisible={selected} position={Position.Top} align="end" offset={8}>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            nodeData.onDelete?.(id);
+          }}
+          className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border bg-card text-muted-foreground shadow-sm transition hover:bg-muted hover:text-foreground"
+          aria-label="Eliminar notificar asesor"
+          title="Eliminar notificar asesor"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      </NodeToolbar>
+
+      <Handle
+        id="target"
+        type="target"
+        position={Position.Left}
+        className="!h-4 !w-4 !border-2 !border-white !bg-fuchsia-600"
+      />
+      <BaseNode className={cn("w-[320px] transition-shadow", selected && SELECTED_NODE_CLASS)}>
+        <BaseNodeHeader className="items-center justify-start gap-2.5">
+          <span className="inline-flex shrink-0 items-center justify-center">
+            <Headset className="h-4 w-4 text-fuchsia-600" />
+          </span>
+          <BaseNodeHeaderTitle className="truncate">Notificar asesor</BaseNodeHeaderTitle>
+        </BaseNodeHeader>
+        <BaseNodeContent>
+          <div className="nodrag space-y-2.5" onClick={(event) => event.stopPropagation()}>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-foreground">¿Cuándo notificar?</label>
+              <textarea
+                value={nodeData.instruction}
+                onChange={(event) => nodeData.onChange?.(id, { instruction: event.target.value })}
+                placeholder="Ej: cuando el cliente pida hablar con un asesor o quiera cerrar la compra"
+                className="block min-h-[64px] w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm leading-5 text-foreground outline-none transition placeholder:text-muted-foreground focus:border-fuchsia-400 focus:ring-2 focus:ring-fuchsia-100 dark:focus:ring-fuchsia-950"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-foreground">Número a notificar</label>
+              <input
+                type="tel"
+                inputMode="numeric"
+                value={nodeData.phoneNumber}
+                onChange={(event) => nodeData.onChange?.(id, { phoneNumber: event.target.value })}
+                placeholder="Ej: 573001234567"
+                className="block h-9 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-fuchsia-400 focus:ring-2 focus:ring-fuchsia-100 dark:focus:ring-fuchsia-950"
+              />
+              <p className="pt-0.5 text-[11px] leading-4 text-muted-foreground">
+                Con código de país, sin + ni espacios. Se avisa a este número cuando se cumpla la condición.
+              </p>
+            </div>
+          </div>
+        </BaseNodeContent>
+      </BaseNode>
+    </>
+  );
+}
+
 const nodeTypes = {
   entrada: EntradaNode,
   agent: AgentNode,
@@ -1274,6 +1497,7 @@ const nodeTypes = {
   texto: TextNode,
   flujo: FlujoNode,
   seguimiento: SeguimientoNode,
+  notificar: NotificarNode,
 };
 
 type FlowEdgeData = {
@@ -1305,7 +1529,12 @@ function AgentEdge({
 
   return (
     <>
-      <BaseEdge id={id} path={edgePath} markerEnd={markerEnd} style={style} />
+      <BaseEdge
+        id={id}
+        path={edgePath}
+        markerEnd={markerEnd}
+        style={{ stroke: "#3b82f6", strokeWidth: 2, ...style }}
+      />
       <EdgeLabelRenderer>
         <button
           type="button"
@@ -1313,7 +1542,7 @@ function AgentEdge({
             event.stopPropagation();
             edgeData?.onDelete?.(id);
           }}
-          className="nodrag nopan inline-flex h-5 w-5 items-center justify-center rounded-full border border-border bg-card text-muted-foreground opacity-80 shadow-sm transition hover:bg-muted hover:text-foreground hover:opacity-100"
+          className="nodrag nopan inline-flex h-5 w-5 items-center justify-center rounded-full border border-blue-500 bg-blue-500 text-white opacity-90 shadow-sm transition hover:bg-blue-600 hover:opacity-100"
           style={{
             position: "absolute",
             transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
@@ -1342,7 +1571,8 @@ type StoredGraph = {
       Partial<ConditionData> &
       Partial<TextData> &
       Partial<FlujoData> &
-      Partial<SeguimientoData>;
+      Partial<SeguimientoData> &
+      Partial<NotificarData>;
   }>;
   edges: Array<Pick<Edge, "id" | "source" | "target" | "sourceHandle" | "targetHandle">>;
 };
@@ -1449,7 +1679,12 @@ function loadGraph(initialGraph: unknown, agentName: string): { nodes: Node[]; e
                     ? ({
                         ruleId: node.data.ruleId ?? "",
                       } satisfies SeguimientoData)
-                    : ({
+                    : node.type === "notificar"
+                      ? ({
+                          instruction: node.data.instruction ?? "",
+                          phoneNumber: node.data.phoneNumber ?? "",
+                        } satisfies NotificarData)
+                      : ({
                       kind: (node.data.kind as EntradaKind) ?? "general",
                       welcome: node.data.welcome ?? "",
                       keywords: node.data.keywords ?? "",
@@ -1509,7 +1744,12 @@ function serializeGraph(nodes: Node[], edges: Edge[]): StoredGraph {
                     ? {
                         ruleId: (node.data as SeguimientoData).ruleId,
                       }
-                    : {
+                    : node.type === "notificar"
+                      ? {
+                          instruction: (node.data as NotificarData).instruction,
+                          phoneNumber: (node.data as NotificarData).phoneNumber,
+                        }
+                      : {
                         kind: (node.data as EntradaData).kind,
                         welcome: (node.data as EntradaData).welcome,
                         keywords: (node.data as EntradaData).keywords,
@@ -1719,6 +1959,9 @@ function FlowCanvasInner({
         if (node.type === "texto") {
           return { ...node, data: { ...node.data, onChange: updateNodeData, onDelete: deleteEntrada } };
         }
+        if (node.type === "notificar") {
+          return { ...node, data: { ...node.data, onChange: updateNodeData, onDelete: deleteEntrada } };
+        }
         if (node.type === "condicion") {
           return {
             ...node,
@@ -1760,7 +2003,14 @@ function FlowCanvasInner({
   );
 
   const edgesWithHandlers = useMemo(
-    () => edges.map((edge) => ({ ...edge, data: { ...edge.data, onDelete: deleteEdge } })),
+    () =>
+      edges.map((edge) => ({
+        ...edge,
+        type: "agentEdge",
+        animated: true,
+        markerEnd: { type: MarkerType.ArrowClosed, color: "#3b82f6" },
+        data: { ...edge.data, onDelete: deleteEdge },
+      })),
     [edges, deleteEdge],
   );
 
@@ -1871,6 +2121,17 @@ function FlowCanvasInner({
     setNodes((current) => [...current, newNode]);
   }, [setNodes, getSpawnPosition]);
 
+  const addNotificar = useCallback(() => {
+    const newId = `notificar-${crypto.randomUUID()}`;
+    const newNode: Node = {
+      id: newId,
+      type: "notificar",
+      position: getSpawnPosition(),
+      data: { instruction: "", phoneNumber: "" } satisfies NotificarData,
+    };
+    setNodes((current) => [...current, newNode]);
+  }, [setNodes, getSpawnPosition]);
+
   const onSaveGraphRef = useRef(onSaveGraph);
   useEffect(() => {
     onSaveGraphRef.current = onSaveGraph;
@@ -1967,6 +2228,7 @@ function FlowCanvasInner({
                 { label: "Texto", icon: MessageSquare, color: "text-sky-600", onClick: addText },
                 { label: "Flujo", icon: Workflow, color: "text-indigo-600", onClick: addFlujo },
                 { label: "Seguimiento", icon: Bell, color: "text-rose-500", onClick: addSeguimiento },
+                { label: "Notificar asesor", icon: Headset, color: "text-fuchsia-600", onClick: addNotificar },
               ].map((option) => (
                 <button
                   key={option.label}
@@ -1993,6 +2255,7 @@ function FlowCanvasInner({
           onConnect={onConnect}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
+          connectionLineStyle={{ stroke: "#3b82f6", strokeWidth: 2 }}
           deleteKeyCode={["Backspace", "Delete"]}
           minZoom={0.05}
           fitView

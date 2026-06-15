@@ -307,10 +307,27 @@ export async function publishAgentV2Action(input: {
   const edges = Array.isArray(graph?.edges) ? graph.edges : [];
 
   const agentNode = nodes.find((node) => node.type === "agent");
-  const productNodes = nodes.filter((node) => node.type === "producto");
-  const flowNodes = nodes.filter((node) => node.type === "flujo");
+  // Solo cuentan los nodos Producto/Flujo realmente conectados al Agente (handles
+  // tool-products / tool-flows). Sin conexión, la herramienta no los considera.
+  const agentToolTargets = new Set(
+    edges
+      .filter((edge) => edge.source === agentNode?.id && Boolean(edge.target))
+      .map((edge) => edge.target),
+  );
+  const productNodes = nodes.filter(
+    (node) => node.type === "producto" && agentToolTargets.has(node.id),
+  );
+  const flowNodes = nodes.filter(
+    (node) => node.type === "flujo" && agentToolTargets.has(node.id),
+  );
   const textNodes = nodes.filter((node) => node.type === "texto");
   const conditionNodes = nodes.filter((node) => node.type === "condicion");
+  // Nodo "Notificar asesor": configura la acción de notificación global del agente
+  // (un solo número/instrucción por agente; si hay varios nodos, usamos el primero).
+  const notifyNode = nodes.find((node) => node.type === "notificar");
+  const notifyPhone = asString(notifyNode?.data?.phoneNumber).replace(/[^\d]/g, "").trim();
+  const notifyInstruction = asString(notifyNode?.data?.instruction).trim();
+  const notifyEnabled = Boolean(notifyNode) && notifyPhone.length > 0;
 
   const agentData = agentNode?.data ?? {};
   const agentPrompt = asString(agentData.prompt);
@@ -632,6 +649,17 @@ export async function publishAgentV2Action(input: {
     // Toggles "Consultar productos/flujos": apagados => el motor no ofrece la tool.
     enableProductLookup: consultProducts,
     enableFlowLookup: consultFlows,
+    // Nodo "Notificar asesor": habilita la herramienta Notificar_asesor con el número
+    // e instrucción configurados. Sin nodo (o sin número) => deshabilitada.
+    actions: {
+      notify: {
+        enabled: notifyEnabled,
+        destinationPhoneNumber: notifyPhone,
+        instruction: notifyInstruction,
+        pauseConversationAfterNotify: defaultAgentTrainingConfig.actions.notify.pauseConversationAfterNotify,
+        autoNotifyOnUnknownProduct: defaultAgentTrainingConfig.actions.notify.autoNotifyOnUnknownProduct,
+      },
+    },
   });
 
   const welcomeMessage =
