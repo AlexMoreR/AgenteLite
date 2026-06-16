@@ -2,6 +2,7 @@
 
 import { useActionState, useCallback, useEffect, useState, useTransition } from "react";
 import { Check, Plus, Trash2, X } from "lucide-react";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { BsFillTagFill } from "react-icons/bs";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -36,6 +37,7 @@ export function ChatTagsControl({
   tags,
   badgeClassName = "",
   canDelete = false,
+  compact = false,
 }: {
   contactId?: string | null;
   conversationId: string;
@@ -43,6 +45,8 @@ export function ChatTagsControl({
   badgeClassName?: string;
   // Solo administradores pueden eliminar etiquetas del workspace (acción destructiva global).
   canDelete?: boolean;
+  // En móvil, colapsa las etiquetas a una sola fila con un chip "+N" para el resto.
+  compact?: boolean;
 }) {
   const [popoverOpen, setPopoverOpen] = useState(false);
   const [etiquetas, setEtiquetas] = useState<EtiquetaItem[]>([]);
@@ -54,6 +58,11 @@ export function ChatTagsControl({
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
   const [state, formAction, isPending] = useActionState(createEtiquetaAction, createInitialState);
   const [busy, startTransition] = useTransition();
+
+  // ── Colapso en una sola fila (solo móvil) ────────────────────────────────
+  // En móvil se muestra SOLO la primera etiqueta y un chip "+N" con el resto.
+  const isMobile = useIsMobile();
+  const collapsed = compact && isMobile;
 
   // Devuelve los datos (no hace setState); los efectos los aplican en el `.then` para no
   // disparar setState síncrono dentro del efecto.
@@ -201,40 +210,39 @@ export function ChatTagsControl({
     [contactId, etiquetas, tags],
   );
 
-  return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      {tags.map((tag) => (
-        <DropdownMenu key={`${conversationId}:${tag.label}`}>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              className="max-w-full focus:outline-none"
-              title={tag.label}
-              aria-label={`Etiqueta ${tag.label}`}
-            >
-              <Badge
-                className={`max-w-full cursor-pointer px-2.5 py-1 text-[10px] transition hover:opacity-90 ${badgeClassName}`}
-                style={{ backgroundColor: tag.color, color: "#ffffff" }}
-              >
-                <span className="truncate">{tag.label}</span>
-              </Badge>
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="min-w-32">
-            <DropdownMenuItem
-              variant="destructive"
-              disabled={!contactId || busy}
-              onClick={() => handleRemoveTag(tag.label)}
-              className="gap-1.5 text-[12px]"
-            >
-              <X className="size-3.5" />
-              Quitar
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ))}
+  const renderTagBadge = (tag: DisplayTag, key: string) => (
+    <DropdownMenu key={key}>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="max-w-full focus:outline-none"
+          title={tag.label}
+          aria-label={`Etiqueta ${tag.label}`}
+        >
+          <Badge
+            className={`max-w-full cursor-pointer px-2.5 py-1 text-[10px] transition hover:opacity-90 ${badgeClassName}`}
+            style={{ backgroundColor: tag.color, color: "#ffffff" }}
+          >
+            <span className="truncate">{tag.label}</span>
+          </Badge>
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="min-w-32">
+        <DropdownMenuItem
+          variant="destructive"
+          disabled={!contactId || busy}
+          onClick={() => handleRemoveTag(tag.label)}
+          className="gap-1.5 text-[12px]"
+        >
+          <X className="size-3.5" />
+          Quitar
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 
-      <Popover
+  const addTagButton = (
+    <Popover
         open={popoverOpen}
         onOpenChange={(open) => {
           setPopoverOpen(open);
@@ -398,6 +406,51 @@ export function ChatTagsControl({
           )}
         </PopoverContent>
       </Popover>
+  );
+
+  if (collapsed) {
+    const firstTag = tags[0];
+    const hiddenTags = tags.slice(1);
+    return (
+      <div className="flex w-full min-w-0 items-center gap-1.5 overflow-hidden">
+        {firstTag ? (
+          <div className="flex min-w-0 flex-1">{renderTagBadge(firstTag, `${conversationId}:${firstTag.label}`)}</div>
+        ) : null}
+
+        {hiddenTags.length > 0 ? (
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className="inline-flex h-6 shrink-0 items-center justify-center rounded-full border border-border bg-card px-2 text-[10px] font-semibold text-muted-foreground transition hover:border-[var(--primary)] hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50"
+                aria-label={`Ver ${hiddenTags.length} etiqueta${hiddenTags.length > 1 ? "s" : ""} más`}
+                title="Ver más etiquetas"
+              >
+                +{hiddenTags.length}
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="start"
+              side="bottom"
+              sideOffset={8}
+              className="w-60 rounded-2xl border border-border bg-popover p-2.5 shadow-[0_24px_60px_-24px_rgba(15,23,42,0.35)]"
+            >
+              <div className="flex flex-wrap gap-1.5">
+                {hiddenTags.map((tag) => renderTagBadge(tag, `overflow:${conversationId}:${tag.label}`))}
+              </div>
+            </PopoverContent>
+          </Popover>
+        ) : null}
+
+        {addTagButton}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {tags.map((tag) => renderTagBadge(tag, `${conversationId}:${tag.label}`))}
+      {addTagButton}
     </div>
   );
 }

@@ -3,15 +3,13 @@ import { after } from "next/server";
 import { sendUnifiedChatReplyAction, toggleConversationAutomationAction } from "@/app/actions/chats-actions";
 import { sendChatAudioReplyAction, sendChatMediaReplyAction } from "@/app/actions/agent-actions";
 import { AssignChatControl } from "@/components/chats/assign-chat-control";
-import { CrmStageControl } from "@/components/chats/crm-stage-control";
+import { ChatHeaderActions } from "@/components/chats/chat-header-actions";
 import type { CrmStage } from "@/features/crm/types";
 import { ChatsAutoRefresh } from "@/components/agents/chats-auto-refresh";
 import { ChatsRealtimeSync } from "@/components/chats/chats-realtime-sync";
 import { ChatIncomingNotifier } from "@/components/chats/chat-incoming-notifier";
-import { ResolveChatControl } from "@/components/chats/resolve-chat-control";
 import { loadAgentConversationDetail } from "@/lib/chat-message-loader";
 import { SharedInbox } from "@/components/chats/shared-inbox";
-import { FormActionSwitch } from "@/components/ui/form-action-switch";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { dedupeAndSortConversationListRows } from "@/lib/chat-conversation-list";
 import { fetchEvolutionProfilePictureUrl } from "@/lib/evolution";
@@ -961,31 +959,16 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         headerBadge={null}
         headerActions={
           selectedUnified?.source === "agent" && selectedConversation ? (
-            <div
-              key={`header-actions:${selectedConversation.id}`}
-              className="flex flex-col items-end gap-1.5 @min-[520px]/chathdr:flex-row @min-[520px]/chathdr:items-center @min-[520px]/chathdr:gap-1"
-            >
-              {selectedContactId ? (
-                <CrmStageControl
-                  contactId={selectedContactId}
-                  stage={selectedContactCrmStage as CrmStage}
-                />
-              ) : null}
-              <FormActionSwitch
-                action={toggleConversationAutomationAction}
-                checked={!selectedConversation.automationPaused}
-                ariaLabel={selectedConversation.automationPaused ? "Reactivar IA" : "Pausar IA"}
-                hiddenFields={[
-                  { name: "conversationId", value: selectedConversation.id },
-                  { name: "returnTo", value: selectedChatHref },
-                ]}
-              />
-              <ResolveChatControl
-                key={`resolve:${selectedConversation.id}:${selectedAgentConversation?.status ?? "OPEN"}`}
-                conversationId={selectedConversation.id}
-                status={selectedAgentConversation?.status ?? "OPEN"}
-              />
-            </div>
+            <ChatHeaderActions
+              key={`header-actions:${selectedConversation.id}:${selectedAgentConversation?.status ?? "OPEN"}`}
+              contactId={selectedContactId ?? null}
+              stage={selectedContactCrmStage as CrmStage}
+              conversationId={selectedConversation.id}
+              automationPaused={Boolean(selectedConversation.automationPaused)}
+              status={selectedAgentConversation?.status ?? "OPEN"}
+              returnTo={selectedChatHref}
+              toggleAutomationAction={toggleConversationAutomationAction}
+            />
           ) : null
         }
         contactPanelActions={

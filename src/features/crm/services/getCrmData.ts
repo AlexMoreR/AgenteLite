@@ -4,7 +4,10 @@ import { groupCrmRecordsByStage, sortCrmRecords } from "../domain/crm-config";
 import type { CrmData, CrmRecord } from "../types";
 
 type GetCrmDataInput = {
-  userId: string;
+  // El workspace ya resuelto y autorizado por la capa de acceso (filtra isActive).
+  // Antes esto re-resolvia el workspace por su cuenta y podia diferir del resto de la app.
+  workspaceId: string;
+  workspaceName: string;
 };
 
 function getContactDisplayName(contact: { name: string | null; phoneNumber: string }) {
@@ -122,27 +125,10 @@ function getContactCollapsedState(metadata: unknown) {
   return value === true;
 }
 
-export async function getCrmData({ userId }: GetCrmDataInput): Promise<CrmData | null> {
-  const membership = await prisma.workspaceMember.findFirst({
-    where: { userId },
-    orderBy: { createdAt: "asc" },
-    select: {
-      workspace: {
-        select: {
-          id: true,
-          name: true,
-        },
-      },
-    },
-  });
-
-  if (!membership) {
-    return null;
-  }
-
+export async function getCrmData({ workspaceId, workspaceName }: GetCrmDataInput): Promise<CrmData | null> {
   const rawContacts = await prisma.contact.findMany({
     where: {
-      workspaceId: membership.workspace.id,
+      workspaceId,
     },
     orderBy: [{ updatedAt: "desc" }],
     select: {
@@ -204,7 +190,7 @@ export async function getCrmData({ userId }: GetCrmDataInput): Promise<CrmData |
   const lost = sortedRecords.filter((record) => record.status === "PERDIDO").length;
 
   return {
-    workspaceName: membership.workspace.name,
+    workspaceName,
     records: sortedRecords,
     columns,
     stats: {
@@ -217,27 +203,10 @@ export async function getCrmData({ userId }: GetCrmDataInput): Promise<CrmData |
   };
 }
 
-export async function getCrmKanbanData({ userId }: GetCrmDataInput): Promise<CrmData | null> {
-  const membership = await prisma.workspaceMember.findFirst({
-    where: { userId },
-    orderBy: { createdAt: "asc" },
-    select: {
-      workspace: {
-        select: {
-          id: true,
-          name: true,
-        },
-      },
-    },
-  });
-
-  if (!membership) {
-    return null;
-  }
-
+export async function getCrmKanbanData({ workspaceId, workspaceName }: GetCrmDataInput): Promise<CrmData | null> {
   const rawContacts = await prisma.contact.findMany({
     where: {
-      workspaceId: membership.workspace.id,
+      workspaceId,
     },
     orderBy: [{ updatedAt: "desc" }],
     select: {
@@ -298,7 +267,7 @@ export async function getCrmKanbanData({ userId }: GetCrmDataInput): Promise<Crm
   const lost = sortedRecords.filter((record) => record.status === "PERDIDO").length;
 
   return {
-    workspaceName: membership.workspace.name,
+    workspaceName,
     records: sortedRecords,
     columns,
     stats: {

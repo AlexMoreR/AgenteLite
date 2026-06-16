@@ -1,4 +1,5 @@
 export { ConnectionsWorkspaceV2 as ConnectionsWorkspace } from "./components/ConnectionsWorkspaceV2";
+export { ConnectionsTabsShell } from "./components/ConnectionsTabsShell";
 export { WhatsAppBusinessWorkspace } from "./components/WhatsAppBusinessWorkspace";
 export { WhatsAppBusinessConnectionWorkspace } from "./components/WhatsAppBusinessConnectionWorkspace";
 export { getConnectionsOverview } from "./services/getConnectionsOverview";

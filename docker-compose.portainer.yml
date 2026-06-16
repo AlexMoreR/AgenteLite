@@ -87,6 +87,52 @@ services:
       restart_policy:
         condition: on-failure
 
+  aizenbot_daily_report_cron:
+    image: curlimages/curl:8.11.1
+    environment:
+      DAILY_REPORT_CRON_SECRET: "${DAILY_REPORT_CRON_SECRET}"
+      FOLLOW_CRON_SECRET: "${FOLLOW_CRON_SECRET}"
+    command:
+      - sh
+      - -lc
+      - |
+        while true; do
+          SECRET="$$DAILY_REPORT_CRON_SECRET"
+          if [ -z "$SECRET" ]; then
+            SECRET="$$FOLLOW_CRON_SECRET"
+          fi
+          if [ -n "$SECRET" ]; then
+            echo "[daily-report-cron] calling /api/cron/daily-report with secret"
+            curl -sS -X POST \
+              -H "x-daily-report-secret: $SECRET" \
+              -o /tmp/daily-report.body \
+              -w "[daily-report-cron] http_status=%{http_code}\n" \
+              https://app.aizenbot.com/api/cron/daily-report || true
+          else
+            echo "[daily-report-cron] calling /api/cron/daily-report without secret"
+            curl -sS -X POST \
+              -o /tmp/daily-report.body \
+              -w "[daily-report-cron] http_status=%{http_code}\n" \
+              https://app.aizenbot.com/api/cron/daily-report || true
+          fi
+          if [ -f /tmp/daily-report.body ]; then
+            echo "[daily-report-cron] body:"
+            cat /tmp/daily-report.body
+            rm -f /tmp/daily-report.body
+          fi
+          sleep 60
+        done
+    networks:
+      - minha_rede
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+
 networks:
   minha_rede:
     external: true

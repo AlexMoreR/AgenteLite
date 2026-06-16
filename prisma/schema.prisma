@@ -58,12 +58,15 @@ model Workspace {
   planStartedAt        DateTime?
   planExpiresAt        DateTime?
   businessConfig       Json?
+  dailyReportEnabled    Boolean                 @default(false)
+  dailyReportRecipients String[]                @default([])
   agents               Agent[]
   agentCopilotMessages AgentCopilotMessage[]
   contacts             Contact[]
   ContactTag           ContactTag[]
   contactMatches       ContactMatch[]
   conversations        Conversation[]
+  dailyReports         DailyReport[]
   financeAgentConfig   FinanceAgentConfig?
   financeChatMessages  FinanceChatMessage[]
   financeGoogleSheet   FinanceGoogleSheet?
@@ -842,6 +845,35 @@ enum CrmStage {
   NEGOCIACION
   GANADO
   PERDIDO
+}
+
+enum ReportSentiment {
+  SAD
+  NEUTRAL
+  HAPPY
+}
+
+model DailyReport {
+  id            String          @id @default(cuid())
+  workspaceId   String
+  reportDate    DateTime
+  shareToken    String          @unique
+  inboundCount  Int             @default(0)
+  outboundCount Int             @default(0)
+  newContacts   Int             @default(0)
+  wonCount      Int             @default(0)
+  lostCount     Int             @default(0)
+  wonAmount     Decimal         @default(0) @db.Decimal(12, 2)
+  lostAmount    Decimal         @default(0) @db.Decimal(12, 2)
+  sentiment     ReportSentiment @default(NEUTRAL)
+  aiSummary     String?
+  rows          Json
+  deliveredTo   Json?
+  createdAt     DateTime        @default(now())
+  workspace     Workspace       @relation(fields: [workspaceId], references: [id])
+
+  @@unique([workspaceId, reportDate])
+  @@index([workspaceId, createdAt])
 }
 
 enum FollowSourceType {

@@ -1,6 +1,12 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { ConnectionsWorkspace, getConnectionsOverview, getWhatsAppBusinessConnections } from "@/features/conexion";
+import {
+  ConnectionsTabsShell,
+  ConnectionsWorkspace,
+  getConnectionsOverview,
+  getWhatsAppBusinessConnections,
+} from "@/features/conexion";
+import { DailyReportPanel, getDailyReports } from "@/features/reportes";
 import { getAdminModuleAccess } from "@/lib/admin-module-access";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { prisma } from "@/lib/prisma";
@@ -25,10 +31,15 @@ export default async function ClienteConexionPage({ searchParams }: PageProps) {
     redirect("/cliente?error=Debes+crear+tu+negocio+primero");
   }
 
-  const [overview, connections, moduleAccess, params] = await Promise.all([
+  const [overview, connections, moduleAccess, dailyReports, reportConfig, params] = await Promise.all([
     getConnectionsOverview(membership.workspace.id),
     getWhatsAppBusinessConnections(membership.workspace.id),
     getAdminModuleAccess(access.userId, access.role),
+    getDailyReports(membership.workspace.id),
+    prisma.workspace.findUnique({
+      where: { id: membership.workspace.id },
+      select: { dailyReportEnabled: true, dailyReportRecipients: true },
+    }),
     searchParams,
   ]);
   const canSeeOfficialApiModule = access.role === "ADMIN" || moduleAccess.client_official_api;
@@ -50,13 +61,24 @@ export default async function ClienteConexionPage({ searchParams }: PageProps) {
     : null;
 
   return (
-    <ConnectionsWorkspace
-      officialApiEnabled={overview.officialApiEnabled}
-      canSeeOfficialApiModule={canSeeOfficialApiModule}
-      okMessage={okMessage}
-      errorMessage={errorMessage}
-      targetAgent={targetAgent}
-      items={connections.items}
+    <ConnectionsTabsShell
+      conexiones={
+        <ConnectionsWorkspace
+          officialApiEnabled={overview.officialApiEnabled}
+          canSeeOfficialApiModule={canSeeOfficialApiModule}
+          okMessage={okMessage}
+          errorMessage={errorMessage}
+          targetAgent={targetAgent}
+          items={connections.items}
+        />
+      }
+      reporte={
+        <DailyReportPanel
+          enabled={reportConfig?.dailyReportEnabled ?? false}
+          recipients={reportConfig?.dailyReportRecipients ?? []}
+          reports={dailyReports}
+        />
+      }
     />
   );
 }

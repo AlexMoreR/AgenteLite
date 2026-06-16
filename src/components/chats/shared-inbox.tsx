@@ -2938,6 +2938,7 @@ const ConversationPanel = memo(function ConversationPanel({
                         tags={headerTags}
                         badgeClassName="shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
                         canDelete={canDeleteTags}
+                        compact
                       />
                     </div>
                   </div>

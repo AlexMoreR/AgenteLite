@@ -5,7 +5,10 @@ import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 export async function getAuthorizedCrmData() {
   const access = await requireClientWorkspaceAccess("crm");
 
-  const data = await getCrmData({ userId: access.userId });
+  const data = await getCrmData({
+    workspaceId: access.workspaceId,
+    workspaceName: access.workspaceName,
+  });
 
   if (!data) {
     redirect("/cliente");
@@ -17,7 +20,10 @@ export async function getAuthorizedCrmData() {
 export async function getAuthorizedCrmKanbanData() {
   const access = await requireClientWorkspaceAccess("crm");
 
-  const data = await getCrmKanbanData({ userId: access.userId });
+  const data = await getCrmKanbanData({
+    workspaceId: access.workspaceId,
+    workspaceName: access.workspaceName,
+  });
 
   if (!data) {
     redirect("/cliente");
