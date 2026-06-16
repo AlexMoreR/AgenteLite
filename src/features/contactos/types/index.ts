@@ -32,6 +32,7 @@ export type ContactosContact = {
   email: string | null;
   notes: string | null;
   avatarUrl: string | null;
+  excludedFromCrm: boolean;
   tags: Array<{
     label: string;
     color: string;

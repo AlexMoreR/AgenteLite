@@ -150,6 +150,7 @@ function buildContactSelect(agentId: string) {
     email: true,
     notes: true,
     avatarUrl: true,
+    excludedFromCrm: true,
     createdAt: true,
     updatedAt: true,
     ContactTag: {
@@ -511,6 +512,7 @@ export async function getContactosData({
       email: contact.email,
       notes: contact.notes,
       avatarUrl: contact.avatarUrl,
+      excludedFromCrm: contact.excludedFromCrm,
       tags: getContactTags(contact.ContactTag.map((item) => item.Tag)),
       createdAt: contact.createdAt.toISOString(),
       updatedAt: contact.updatedAt.toISOString(),
@@ -618,6 +620,7 @@ export async function getContactosData({
         email: selectedContactFromQuery.email,
         notes: selectedContactFromQuery.notes,
         avatarUrl: selectedContactFromQuery.avatarUrl,
+        excludedFromCrm: selectedContactFromQuery.excludedFromCrm,
         tags: getContactTags(selectedContactFromQuery.ContactTag.map((item) => item.Tag)),
         createdAt: selectedContactFromQuery.createdAt.toISOString(),
         updatedAt: selectedContactFromQuery.updatedAt.toISOString(),

@@ -395,6 +395,45 @@ export async function deleteContactAction(formData: FormData): Promise<void> {
   redirect(`${safeReturnTo}${safeReturnTo.includes("?") ? "&" : "?"}ok=Contacto+eliminado`);
 }
 
+// Oculta (o vuelve a mostrar) un contacto del CRM sin borrarlo. Los contactos
+// ocultos no aparecen en Registro, Kanban, stats ni Informe del CRM.
+export async function toggleContactCrmHiddenAction(
+  contactId: string,
+  hidden: boolean,
+): Promise<{ ok: true; excludedFromCrm: boolean } | { error: string }> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
+    return { error: "No autorizado" };
+  }
+  await requireClientWorkspaceAccess("contacts");
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    return { error: "Workspace no encontrado" };
+  }
+
+  const contact = await prisma.contact.findFirst({
+    where: { id: contactId, workspaceId: membership.workspace.id },
+    select: { id: true },
+  });
+
+  if (!contact) {
+    return { error: "Contacto no encontrado" };
+  }
+
+  await prisma.contact.update({
+    where: { id: contact.id },
+    data: { excludedFromCrm: hidden },
+  });
+
+  revalidatePath("/cliente/crm/registro");
+  revalidatePath("/cliente/crm/kanban");
+  revalidatePath("/cliente/crm/informe");
+  revalidatePath("/cliente/contactos");
+
+  return { ok: true, excludedFromCrm: hidden };
+}
+
 // Reinicia un contacto "desde cero" SIN eliminarlo de la lista: borra todo su
 // historial (conversaciones, mensajes, seguimientos y coincidencias) junto con el
 // estado del agente (producto activo, contexto comercial, automatizacion), pero

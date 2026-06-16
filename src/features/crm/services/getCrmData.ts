@@ -129,6 +129,8 @@ export async function getCrmData({ workspaceId, workspaceName }: GetCrmDataInput
   const rawContacts = await prisma.contact.findMany({
     where: {
       workspaceId,
+      // Los contactos marcados como ocultos (proveedores, personales, etc.) no entran al CRM.
+      excludedFromCrm: false,
     },
     orderBy: [{ updatedAt: "desc" }],
     select: {
@@ -207,6 +209,8 @@ export async function getCrmKanbanData({ workspaceId, workspaceName }: GetCrmDat
   const rawContacts = await prisma.contact.findMany({
     where: {
       workspaceId,
+      // Los contactos marcados como ocultos (proveedores, personales, etc.) no entran al CRM.
+      excludedFromCrm: false,
     },
     orderBy: [{ updatedAt: "desc" }],
     select: {

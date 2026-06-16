@@ -1,13 +1,15 @@
 ﻿"use client";
 
 import Link from "next/link";
-import { useState, type ReactNode } from "react";
+import { useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowRight,
   BarChart3,
   Copy,
   Download,
+  Eye,
+  EyeOff,
   Mail,
   MoreVertical,
   MessageCircle,
@@ -31,7 +33,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { deleteContactAction, resetContactAction } from "@/app/actions/chats-actions";
+import { deleteContactAction, resetContactAction, toggleContactCrmHiddenAction } from "@/app/actions/chats-actions";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ContactAvatar } from "@/components/chats/contact-avatar";
 
@@ -364,6 +366,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [resetModalOpen, setResetModalOpen] = useState(false);
+  const [crmHiddenPending, startCrmHiddenTransition] = useTransition();
   const router = useRouter();
   const selectedContact = data.selectedContact;
   const pagination = data.pagination;
@@ -372,6 +375,17 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
     await navigator.clipboard.writeText(value);
     setCopiedField(field);
     window.setTimeout(() => setCopiedField((current) => (current === field ? null : current)), 1200);
+  }
+
+  function handleToggleCrmHidden(contactId: string, nextHidden: boolean) {
+    startCrmHiddenTransition(async () => {
+      const result = await toggleContactCrmHiddenAction(contactId, nextHidden);
+      if ("error" in result) {
+        console.error("[ContactosWorkspace] toggle_crm_hidden_failed", result.error);
+        return;
+      }
+      router.refresh();
+    });
   }
 
   const selectedConversation = selectedContact?.recentConversations[0] ?? null;
@@ -798,6 +812,23 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                           </a>
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          onClick={() => handleToggleCrmHidden(selectedContact.id, !selectedContact.excludedFromCrm)}
+                          disabled={crmHiddenPending}
+                          className="gap-2"
+                        >
+                          {selectedContact.excludedFromCrm ? (
+                            <>
+                              <Eye className="h-4 w-4" />
+                              Mostrar en CRM
+                            </>
+                          ) : (
+                            <>
+                              <EyeOff className="h-4 w-4" />
+                              Ocultar del CRM
+                            </>
+                          )}
+                        </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={() => setResetModalOpen(true)}
                           className="gap-2 text-amber-600 focus:text-amber-700"
