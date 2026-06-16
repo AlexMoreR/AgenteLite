@@ -2364,18 +2364,40 @@ export async function POST(request: Request) {
             // presence is best-effort
           }
 
-          let welcomeApplied = false;
+          // La bienvenida (solo en el primer contacto) se envía como SU PROPIO mensaje
+          // ANTES del flujo. Antes se anteponía al primer paso de TEXTO del flujo, lo que
+          // la dejaba al final y desordenada cuando el flujo manda media (PDF/foto) antes
+          // del texto. Ahora cualquier flujo se entrega ordenado: bienvenida → pasos del
+          // flujo en su orden exacto.
+          if (!existingOutbound && agent.welcomeMessage?.trim()) {
+            const welcomeText = agent.welcomeMessage.trim();
+            const welcomeOutbound = await sendEvolutionTextMessageWithReconnect({
+              instanceName: channel.evolutionInstanceName,
+              phoneNumber,
+              text: welcomeText,
+              delayMs: 0,
+            });
+            await persistEvolutionMessage({
+              data: {
+                workspaceId: channel.workspaceId,
+                conversationId: conversation.id,
+                channelId: channel.id,
+                contactId: contact.id,
+                agentId: agent.id,
+                externalId: welcomeOutbound.externalId,
+                direction: "OUTBOUND",
+                type: "TEXT",
+                status: "SENT",
+                content: welcomeText,
+                sentAt: new Date(),
+                rawPayload: welcomeOutbound.raw as never,
+              },
+            });
+          }
+
           for (const step of orderedFlowSteps) {
             if (step.kind === "text") {
-              let content = step.content;
-              if (!welcomeApplied) {
-                content = composeAgentWelcomeReply({
-                  welcomeMessage: agent.welcomeMessage,
-                  reply: content,
-                  hasConversationHistory: Boolean(existingOutbound),
-                });
-                welcomeApplied = true;
-              }
+              const content = step.content;
               const outbound = await sendEvolutionTextMessageWithReconnect({
                 instanceName: channel.evolutionInstanceName,
                 phoneNumber,
