@@ -1,17 +1,18 @@
 export function buildNotifyHumanMessage(input: {
-  agentName: string;
   customerLabel: string;
   customerPhoneNumber: string;
-  latestUserMessage: string;
+  description: string;
 }) {
-  const latestMessage = input.latestUserMessage.trim().slice(0, 240);
+  const description = input.description.trim().slice(0, 600) || "Sin descripción";
+  const phone = input.customerPhoneNumber.replace(/[^\d]/g, "").trim();
 
   return [
-    "Solicitud de atencion humana",
-    `Agente: ${input.agentName.trim() || "Agente"}`,
-    `Cliente: ${input.customerLabel.trim() || "Cliente"}`,
-    `Telefono: ${input.customerPhoneNumber.trim() || "No disponible"}`,
-    `Mensaje: ${latestMessage || "Sin mensaje"}`,
+    "✅ *Tienes Nueva Solicitud*:",
+    "",
+    `👤 *Nombre*: ${input.customerLabel.trim() || "Cliente"}`,
+    "📝 *Descripción*:",
+    description,
+    "",
+    `👉 +${phone || "Sin número"}`,
   ].join("\n");
 }
-

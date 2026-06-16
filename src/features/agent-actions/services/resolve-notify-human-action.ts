@@ -43,10 +43,9 @@ export function resolveNotifyHumanAction(input: {
   return {
     destinationPhoneNumber,
     message: buildNotifyHumanMessage({
-      agentName: input.agentName,
       customerLabel,
       customerPhoneNumber: input.customerPhoneNumber,
-      latestUserMessage: input.latestUserMessage?.trim() || "",
+      description: input.latestUserMessage?.trim() || "",
     }),
   };
 }

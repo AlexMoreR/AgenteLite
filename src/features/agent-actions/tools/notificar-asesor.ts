@@ -64,24 +64,15 @@ export function buildNotificarAsesorMessage(input: {
   latestUserMessage: string;
   toolInput: NotificarAsesorToolInput;
 }) {
-  const priority = input.toolInput.prioridad ?? "media";
+  // La "Descripción" del aviso = el motivo que define la IA (+ el resumen si lo da).
   const summary = input.toolInput.resumen_cliente?.trim() || "";
-  const latestMessage = input.toolInput.ultimo_mensaje?.trim() || input.latestUserMessage.trim();
-  const baseMessage = buildNotifyHumanMessage({
-    agentName: input.agentName,
+  const description = [input.toolInput.motivo.trim(), summary].filter(Boolean).join("\n");
+
+  return buildNotifyHumanMessage({
     customerLabel: input.customerLabel,
     customerPhoneNumber: input.customerPhoneNumber,
-    latestUserMessage: latestMessage,
+    description,
   });
-
-  return [
-    baseMessage,
-    `Prioridad: ${priority}`,
-    `Motivo: ${input.toolInput.motivo.trim()}`,
-    summary ? `Resumen: ${summary}` : null,
-  ]
-    .filter((line): line is string => Boolean(line))
-    .join("\n");
 }
 
 export function parseNotificarAsesorToolInput(value: unknown) {
