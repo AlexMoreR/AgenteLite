@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { after } from "next/server";
 import { NextResponse } from "next/server";
 import { analyzeImageForAgent, generateAgentReply, transcribeAudioForAgent } from "@/lib/agent-ai";
+import { summarizeContactHistory } from "@/lib/contact-summary";
 import {
   buildActiveProductContextNote,
   resolveAgentProductFlowReply,
@@ -2701,6 +2702,20 @@ export async function POST(request: Request) {
       }
     } else {
       // noop: auto-reply intentionally skipped
+    }
+
+    // Resumen IA del historial del cliente para el CRM (best-effort, no bloquea la respuesta).
+    try {
+      await summarizeContactHistory({
+        workspaceId: channel.workspaceId,
+        contactId: contact.id,
+      });
+    } catch (summaryError) {
+      console.error("[EVOLUTION] contact_summary_failed", {
+        conversationId: conversation.id,
+        contactId: contact.id,
+        error: summaryError instanceof Error ? summaryError.message : String(summaryError),
+      });
     }
   } else {
     // noop: channel without agent

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Bar, BarChart, Cell, LabelList, Pie, PieChart, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, Cell, Label, LabelList, Pie, PieChart, XAxis, YAxis } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   ChartContainer,
@@ -102,6 +102,67 @@ export function CrmOriginChart({
         <p className="mt-2 text-center text-[13px] text-muted-foreground">
           Total <span className="font-semibold text-foreground">{total}</span> registros
         </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+export function CrmTodayChart({
+  total,
+  nuevos,
+  ganados,
+  descartados,
+}: {
+  total: number;
+  nuevos: number;
+  ganados: number;
+  descartados: number;
+}) {
+  const enProceso = Math.max(0, total - nuevos - ganados - descartados);
+
+  const data = [
+    { label: "Nuevos", value: nuevos, fill: "#f59e0b" },
+    { label: "En proceso", value: enProceso, fill: "#2563eb" },
+    { label: "Ganados", value: ganados, fill: "#10b981" },
+    { label: "Descartados", value: descartados, fill: "#ef4444" },
+  ];
+
+  const config: ChartConfig = data.reduce<ChartConfig>((acc, row) => {
+    acc[row.label] = { label: row.label, color: row.fill };
+    return acc;
+  }, {});
+
+  return (
+    <Card size="sm">
+      <CardHeader>
+        <CardTitle>Actividad de hoy</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <ChartContainer config={config} className="mx-auto aspect-square h-[240px]">
+          <PieChart>
+            <ChartTooltip cursor={false} content={<ChartTooltipContent nameKey="label" hideLabel />} />
+            <Pie data={data} dataKey="value" nameKey="label" innerRadius={60} strokeWidth={4}>
+              {data.map((entry) => (
+                <Cell key={entry.label} fill={entry.fill} />
+              ))}
+              <Label
+                content={({ viewBox }) => {
+                  if (viewBox && "cx" in viewBox && "cy" in viewBox) {
+                    return (
+                      <text x={viewBox.cx} y={viewBox.cy} textAnchor="middle" dominantBaseline="middle">
+                        <tspan x={viewBox.cx} y={viewBox.cy} className="fill-foreground text-3xl font-bold">
+                          {total}
+                        </tspan>
+                      </text>
+                    );
+                  }
+                  return null;
+                }}
+              />
+            </Pie>
+            <ChartLegend content={<ChartLegendContent nameKey="label" />} className="flex-wrap gap-2" />
+          </PieChart>
+        </ChartContainer>
       </CardContent>
     </Card>
   );

@@ -6,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { CRM_STAGE_ORDER, getCrmStageLabel } from "../domain/crm-config";
 import type { CrmData, CrmRecord } from "../types";
 import { CrmReportCards, CrmReportStatsCards } from "./CrmPagePrimitives";
+import { CrmTodayChart } from "./CrmReportCharts";
 
 type DateRange = "1" | "7" | "15" | "30" | "__all__";
 
@@ -18,6 +19,41 @@ const DATE_RANGE_LABELS: Record<DateRange, string> = {
 };
 
 const DATE_RANGE_ORDER: DateRange[] = ["1", "7", "15", "30", "__all__"];
+
+function getBogotaDay(iso: string) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Bogota",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(iso));
+}
+
+function CrmTodayCard({ data }: { data: CrmData }) {
+  const today = React.useMemo(() => {
+    const todayKey = getBogotaDay(data.generatedAt);
+    const todayRecords = data.records.filter((record) => getBogotaDay(record.date) === todayKey);
+
+    const countByStage = (status: CrmRecord["status"]) =>
+      todayRecords.filter((record) => record.status === status).length;
+
+    return {
+      total: todayRecords.length,
+      nuevos: countByStage("NUEVO"),
+      ganados: countByStage("GANADO"),
+      descartados: countByStage("PERDIDO"),
+    };
+  }, [data]);
+
+  return (
+    <CrmTodayChart
+      total={today.total}
+      nuevos={today.nuevos}
+      ganados={today.ganados}
+      descartados={today.descartados}
+    />
+  );
+}
 
 export function CrmInformeView({ data }: { data: CrmData }) {
   const [dateRange, setDateRange] = React.useState<DateRange>("1");
@@ -85,6 +121,8 @@ export function CrmInformeView({ data }: { data: CrmData }) {
       </div>
 
       <CrmReportCards data={filteredData} />
+
+      <CrmTodayCard data={data} />
     </div>
   );
 }

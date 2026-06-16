@@ -20,22 +20,49 @@ function getContactLastActivity(contact: {
   return latestConversation?.lastMessageAt ?? latestConversation?.updatedAt ?? contact.updatedAt;
 }
 
+const CRM_DETAIL_MAX_LENGTH = 300;
+
+function truncateDetail(text: string) {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (normalized.length <= CRM_DETAIL_MAX_LENGTH) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, CRM_DETAIL_MAX_LENGTH - 1).trimEnd()}…`;
+}
+
 function getContactDetail(contact: {
+  aiSummary: string | null;
   notes: string | null;
   conversations: Array<{
     messages: Array<{
       content: string | null;
+      direction: "INBOUND" | "OUTBOUND";
+      type: string;
     }>;
   }>;
 }) {
-  const note = contact.notes?.trim();
-  if (note) {
-    return note;
+  // Prioridad: resumen IA del historial (generado en el webhook) -> nota manual -> transcript -> fallback.
+  const aiSummary = contact.aiSummary?.trim();
+  if (aiSummary) {
+    return truncateDetail(aiSummary);
   }
 
-  const lastMessage = contact.conversations[0]?.messages[0]?.content?.trim();
-  if (lastMessage) {
-    return lastMessage;
+  const note = contact.notes?.trim();
+  if (note) {
+    return truncateDetail(note);
+  }
+
+  // Respaldo para contactos sin resumen IA todavia: transcript de los ultimos mensajes.
+  // Vienen en orden descendente (mas reciente primero); se invierten a orden cronologico.
+  const summary = (contact.conversations[0]?.messages ?? [])
+    .filter((message) => message.type !== "SYSTEM" && message.content?.trim())
+    .reverse()
+    .map((message) => `${message.direction === "INBOUND" ? "Cliente" : "Bot"}: ${message.content!.trim()}`)
+    .join(" · ");
+
+  if (summary) {
+    return truncateDetail(summary);
   }
 
   return "Sin detalle registrado";
@@ -123,6 +150,7 @@ export async function getCrmData({ userId }: GetCrmDataInput): Promise<CrmData |
       name: true,
       phoneNumber: true,
       notes: true,
+      aiSummary: true,
       metadata: true,
       crmStage: true,
       createdAt: true,
@@ -145,9 +173,11 @@ export async function getCrmData({ userId }: GetCrmDataInput): Promise<CrmData |
           updatedAt: true,
           messages: {
             orderBy: { createdAt: "desc" },
-            take: 1,
+            take: 40,
             select: {
               content: true,
+              direction: true,
+              type: true,
             },
           },
         },
@@ -215,6 +245,7 @@ export async function getCrmKanbanData({ userId }: GetCrmDataInput): Promise<Crm
       name: true,
       phoneNumber: true,
       notes: true,
+      aiSummary: true,
       metadata: true,
       crmStage: true,
       updatedAt: true,
@@ -236,9 +267,11 @@ export async function getCrmKanbanData({ userId }: GetCrmDataInput): Promise<Crm
           updatedAt: true,
           messages: {
             orderBy: { createdAt: "desc" },
-            take: 1,
+            take: 40,
             select: {
               content: true,
+              direction: true,
+              type: true,
             },
           },
         },
