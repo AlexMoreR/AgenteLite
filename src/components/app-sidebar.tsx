@@ -75,6 +75,7 @@ type AppSidebarProps = React.ComponentProps<typeof Sidebar> & {
     name?: string | null
     email?: string | null
     image?: string | null
+    role?: string | null
   }
   currentConnectionKey?: string
   chatSidebarItems?: Array<{
@@ -106,6 +107,7 @@ export function AppSidebar({
   const remainingModules = visibleModulesWithoutChats.filter(
     (module) => module.key !== "products" && module.key !== "categories" && module.key !== "suppliers" && module.key !== "contacts",
   )
+  const businessHref = user?.role === "CLIENTE" || user?.role === "ADMIN" ? "/cliente/negocio" : null
 
   return (
     <Sidebar collapsible="icon" {...props}>
@@ -195,6 +197,7 @@ export function AppSidebar({
             email: user?.email ?? "usuario@example.com",
             avatar: user?.image ?? "/avatars/shadcn.jpg",
           }}
+          businessHref={businessHref}
         />
       </SidebarFooter>
       <SidebarRail />

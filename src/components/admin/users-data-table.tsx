@@ -28,8 +28,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -361,16 +359,14 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
                           <MoreHorizontal className="ml-1 h-4 w-4 text-slate-500" />
                         </Button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-44 rounded-xl">
-                        <DropdownMenuLabel>Acciones</DropdownMenuLabel>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onSelect={() => setActiveUserId(user.id)}>
+                      <DropdownMenuContent align="end" className="w-64 rounded-xl">
+                        <DropdownMenuItem onClick={() => setActiveUserId(user.id)}>
                           Ver y editar
                         </DropdownMenuItem>
                         {user.role === "CLIENTE" || user.role === "ADMIN" ? (
                           <DropdownMenuItem asChild>
                             <Link href={`/admin/configuracion/usuarios/${user.id}/api-oficial`}>
-                              Configurar api oficial WhatsApp
+                              Configurar API oficial WhatsApp
                             </Link>
                           </DropdownMenuItem>
                         ) : null}

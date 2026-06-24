@@ -249,6 +249,7 @@ export function AppShell({
             name: user.name,
             email: user.email,
             image: user.image,
+            role: user.role,
           }}
           currentConnectionKey={currentConnectionKey}
           chatSidebarItems={chatSidebarItems}

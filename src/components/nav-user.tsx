@@ -22,16 +22,18 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar"
-import { ChevronsUpDownIcon, LogOutIcon, Settings2, UserCircle2 } from "lucide-react"
+import { Building2, ChevronsUpDownIcon, LogOutIcon, Settings2, UserCircle2 } from "lucide-react"
 
 export function NavUser({
   user,
+  businessHref,
 }: {
   user: {
     name: string
     email: string
     avatar: string
   }
+  businessHref?: string | null
 }) {
   const { isMobile } = useSidebar()
   return (
@@ -80,6 +82,14 @@ export function NavUser({
                 Perfil
               </Link>
             </DropdownMenuItem>
+            {businessHref ? (
+              <DropdownMenuItem asChild>
+                <Link href={businessHref} className="flex items-center gap-2">
+                  <Building2 className="h-4 w-4 text-slate-500" />
+                  Mi Empresa
+                </Link>
+              </DropdownMenuItem>
+            ) : null}
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild>
               <Link href="/admin/configuracion" className="flex items-center gap-2">

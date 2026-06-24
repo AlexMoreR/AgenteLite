@@ -34,6 +34,7 @@ import {
   extractEvolutionMediaUrl,
   extractEvolutionPairingCode,
   extractEvolutionPhoneNumber,
+  extractEvolutionPushName,
   extractEvolutionQrCode,
   extractEvolutionRemoteJid,
   extractEvolutionContactSyncPhones,
@@ -937,6 +938,9 @@ export async function POST(request: Request) {
   let phoneNumber = normalizePhoneFromJid(remoteJid);
   const callDirection = isCallEvent ? extractEvolutionCallDirection(payload) : null;
   const fromMe = extractEvolutionFromMe(payload);
+  // Nombre de perfil de WhatsApp del remitente. Solo para mensajes ENTRANTES: en los
+  // salientes (fromMe) el pushName es el del negocio, no el del cliente.
+  const contactPushName = !fromMe ? (extractEvolutionPushName(payload)?.trim() || "") : "";
   const direction = (callDirection ?? (fromMe ? "OUTBOUND" : "INBOUND")) as Prisma.MessageUncheckedCreateInput["direction"];
   const callStatus = isCallEvent ? extractEvolutionCallStatus(payload) : null;
   const messageText = isCallEvent
@@ -1114,6 +1118,21 @@ export async function POST(request: Request) {
         },
         select: { id: true, name: true, phoneNumber: true },
       });
+    }
+  }
+
+  // Usa el nombre de perfil de WhatsApp (pushName) como nombre del contacto/lead cuando
+  // todavía no tiene uno (contactos nuevos, o creados antes sin nombre). No sobrescribe
+  // un nombre ya definido, ni usa el pushName si coincide con el propio número.
+  if (contact && contactPushName && !contact.name?.trim() && contactPushName !== phoneNumber) {
+    try {
+      await prisma.contact.update({
+        where: { id: contact.id },
+        data: { name: contactPushName },
+      });
+      contact = { ...contact, name: contactPushName };
+    } catch {
+      // best-effort: no debe bloquear el procesamiento del mensaje
     }
   }
 
