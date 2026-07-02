@@ -18,6 +18,7 @@ import {
 import { adminUpdateOfficialApiConfigAction } from "@/app/actions/auth-actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 
 const OFFICIAL_API_WEBHOOK_PATH = "/api/webhooks/meta/official-api";
 const COEXISTENCE_RECONNECT_DOC_URL =
@@ -255,6 +256,11 @@ type FormState = {
   registrationPin: string;
 };
 
+type EmbeddedSignupImportResult = {
+  ok: boolean;
+  message: string;
+} | null;
+
 function getInitialFormState(workspace: OfficialApiConfigWizardProps["workspace"]): FormState {
   return {
     accessToken: workspace?.officialApiConfig?.accessToken ?? "",
@@ -363,8 +369,13 @@ export function OfficialApiConfigWizard({
   const [testRecipient, setTestRecipient] = React.useState("");
   const [testMessage, setTestMessage] = React.useState(DEFAULT_TEST_MESSAGE);
   const [callbackUrl, setCallbackUrl] = React.useState("");
+  const [embeddedSignupCode, setEmbeddedSignupCode] = React.useState("");
+  const [embeddedSignupSessionResponse, setEmbeddedSignupSessionResponse] = React.useState("");
+  const [providerAppId, setProviderAppId] = React.useState("");
+  const [providerAppSecret, setProviderAppSecret] = React.useState("");
   const [isTestingMessage, setIsTestingMessage] = React.useState(false);
   const [isRegisteringPhone, setIsRegisteringPhone] = React.useState(false);
+  const [isImportingEmbeddedSignup, setIsImportingEmbeddedSignup] = React.useState(false);
   const [hasHydratedDraft, setHasHydratedDraft] = React.useState(false);
   const [webhookStatus, setWebhookStatus] = React.useState<WebhookStatusSnapshot>(
     workspace?.officialApiConfig
@@ -385,6 +396,8 @@ export function OfficialApiConfigWizard({
     ok: boolean;
     message: string;
   } | null>(null);
+  const [embeddedSignupImportResult, setEmbeddedSignupImportResult] =
+    React.useState<EmbeddedSignupImportResult>(null);
   const draftStorageKey = workspace
     ? `${OFFICIAL_API_WIZARD_DRAFT_KEY}:${user.id}:${workspace.id}`
     : `${OFFICIAL_API_WIZARD_DRAFT_KEY}:${user.id}:no-workspace`;
@@ -479,6 +492,10 @@ export function OfficialApiConfigWizard({
             testRecipient?: string;
             testMessage?: string;
             setupMode?: SetupMode;
+            embeddedSignupCode?: string;
+            embeddedSignupSessionResponse?: string;
+            providerAppId?: string;
+            providerAppSecret?: string;
           };
 
           if (parsed.form) {
@@ -505,6 +522,30 @@ export function OfficialApiConfigWizard({
             setSetupMode("coexistence");
           }
 
+          if (typeof parsed.embeddedSignupCode === "string") {
+            setEmbeddedSignupCode(parsed.embeddedSignupCode);
+          } else {
+            setEmbeddedSignupCode("");
+          }
+
+          if (typeof parsed.embeddedSignupSessionResponse === "string") {
+            setEmbeddedSignupSessionResponse(parsed.embeddedSignupSessionResponse);
+          } else {
+            setEmbeddedSignupSessionResponse("");
+          }
+
+          if (typeof parsed.providerAppId === "string") {
+            setProviderAppId(parsed.providerAppId);
+          } else {
+            setProviderAppId("");
+          }
+
+          if (typeof parsed.providerAppSecret === "string") {
+            setProviderAppSecret(parsed.providerAppSecret);
+          } else {
+            setProviderAppSecret("");
+          }
+
           if (typeof parsed.currentStep === "number") {
             nextStep = clampStepIndex(
               Math.max(
@@ -516,8 +557,18 @@ export function OfficialApiConfigWizard({
             nextStep = getSavedProgressStep(nextForm, workspace?.officialApiConfig ?? null);
           }
         }
+        if (!raw) {
+          setEmbeddedSignupCode("");
+          setEmbeddedSignupSessionResponse("");
+          setProviderAppId("");
+          setProviderAppSecret("");
+        }
       } catch {
         // Ignore malformed drafts and keep current server-loaded values.
+        setEmbeddedSignupCode("");
+        setEmbeddedSignupSessionResponse("");
+        setProviderAppId("");
+        setProviderAppSecret("");
       }
     }
 
@@ -527,6 +578,7 @@ export function OfficialApiConfigWizard({
     setTestMessage(nextMessage);
     setTestMessageResult(null);
     setRegisterPhoneResult(null);
+    setEmbeddedSignupImportResult(null);
     setHasHydratedDraft(true);
   }, [draftStorageKey, user.id, workspace]);
 
@@ -543,9 +595,26 @@ export function OfficialApiConfigWizard({
         form,
         testRecipient,
         testMessage,
+        embeddedSignupCode,
+        embeddedSignupSessionResponse,
+        providerAppId,
+        providerAppSecret,
       }),
     );
-  }, [currentStep, draftStorageKey, form, hasHydratedDraft, setupMode, testMessage, testRecipient, workspace]);
+  }, [
+    currentStep,
+    draftStorageKey,
+    embeddedSignupCode,
+    embeddedSignupSessionResponse,
+    form,
+    hasHydratedDraft,
+    providerAppId,
+    providerAppSecret,
+    setupMode,
+    testMessage,
+    testRecipient,
+    workspace,
+  ]);
 
   React.useEffect(() => {
     if (
@@ -689,6 +758,73 @@ export function OfficialApiConfigWizard({
 
   const previousStep = () => {
     setCurrentStep((value) => Math.max(0, value - 1));
+  };
+
+  const handleImportEmbeddedSignup = async () => {
+    if (!workspace) {
+      return;
+    }
+
+    setIsImportingEmbeddedSignup(true);
+    setEmbeddedSignupImportResult(null);
+
+    try {
+      const response = await fetch("/api/admin/official-api/import-embedded-signup", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          workspaceId: workspace.id,
+          code: embeddedSignupCode,
+          sessionResponse: embeddedSignupSessionResponse,
+          accessToken: form.accessToken,
+          appId: providerAppId,
+          appSecret: providerAppSecret || form.appSecret,
+        }),
+      });
+
+      const payload = (await response.json().catch(() => null)) as
+        | {
+            ok?: boolean;
+            accessToken?: string;
+            phoneNumberId?: string;
+            wabaId?: string;
+            businessId?: string | null;
+            tokenSource?: "existing" | "code";
+            error?: string;
+          }
+        | null;
+
+      if (!response.ok || !payload?.ok) {
+        throw new Error(payload?.error || "No se pudo importar el Embedded Signup.");
+      }
+
+      setForm((current) => ({
+        ...current,
+        accessToken: payload.accessToken ?? current.accessToken,
+        phoneNumberId: payload.phoneNumberId ?? current.phoneNumberId,
+        wabaId: payload.wabaId ?? current.wabaId,
+      }));
+
+      setEmbeddedSignupImportResult({
+        ok: true,
+        message:
+          payload.tokenSource === "code"
+            ? `Importacion completada. AgenteLite lleno access token, phone number id y WABA id desde Meta${payload.businessId ? ` para el negocio ${payload.businessId}` : ""}.`
+            : `Importacion completada. AgenteLite lleno phone number id y WABA id desde la respuesta de Meta${payload.businessId ? ` para el negocio ${payload.businessId}` : ""}.`,
+      });
+    } catch (error) {
+      setEmbeddedSignupImportResult({
+        ok: false,
+        message:
+          error instanceof Error
+            ? error.message
+            : "No se pudo importar el Embedded Signup.",
+      });
+    } finally {
+      setIsImportingEmbeddedSignup(false);
+    }
   };
 
   const handleSendTestMessage = async () => {
@@ -1108,6 +1244,98 @@ export function OfficialApiConfigWizard({
 
             {currentStep === 2 ? (
               <div className="space-y-4">
+                <div className="rounded-[1rem] border border-[color:color-mix(in_srgb,var(--primary)_18%,white)] bg-[color:color-mix(in_srgb,var(--primary)_5%,white)] p-5">
+                  <div className="flex flex-col gap-2">
+                    <p className="text-base font-semibold text-slate-900">Importar desde Embedded Signup</p>
+                    <p className="text-sm leading-6 text-slate-700">
+                      Si ya completaste el popup de Meta, pega aqui el code y la respuesta de la sesion para llenar automaticamente el Access Token, el Phone Number ID y el WABA ID.
+                    </p>
+                    <p className="text-xs leading-5 text-slate-600">
+                      Si el code ya expiro, igual puedes usar esta seccion pegando tu token del sistema en el campo manual de abajo y la respuesta JSON de Meta para completar solo los IDs.
+                    </p>
+                  </div>
+
+                  <div className="mt-4 grid gap-4">
+                    <label className="block space-y-1.5">
+                      <span className="text-sm font-medium text-slate-700">Code de registro insertado</span>
+                      <Textarea
+                        rows={3}
+                        value={embeddedSignupCode}
+                        onChange={(event) => setEmbeddedSignupCode(event.target.value)}
+                        className="rounded-xl bg-white"
+                        placeholder="AQJ9..."
+                      />
+                    </label>
+
+                    <label className="block space-y-1.5">
+                      <span className="text-sm font-medium text-slate-700">Respuesta de registro de la sesion</span>
+                      <Textarea
+                        rows={10}
+                        value={embeddedSignupSessionResponse}
+                        onChange={(event) => setEmbeddedSignupSessionResponse(event.target.value)}
+                        className="rounded-xl bg-white font-mono text-xs"
+                        placeholder='[{"data":{"phone_number_id":"...","waba_id":"...","business_id":"..."},"type":"WA_EMBEDDED_SIGNUP","event":"FINISH"}]'
+                      />
+                    </label>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <label className="block space-y-1.5">
+                        <span className="text-sm font-medium text-slate-700">App ID del proveedor (opcional)</span>
+                        <Input
+                          value={providerAppId}
+                          onChange={(event) => setProviderAppId(event.target.value)}
+                          className="h-11 rounded-xl bg-white"
+                          placeholder="1096639035350984"
+                        />
+                      </label>
+
+                      <label className="block space-y-1.5">
+                        <span className="text-sm font-medium text-slate-700">App Secret del proveedor (opcional)</span>
+                        <Input
+                          type="password"
+                          value={providerAppSecret}
+                          onChange={(event) => setProviderAppSecret(event.target.value)}
+                          className="h-11 rounded-xl bg-white"
+                          placeholder="Solo si no esta configurado en el servidor"
+                        />
+                      </label>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-3">
+                      <Button
+                        type="button"
+                        className="h-11 rounded-xl px-4"
+                        onClick={handleImportEmbeddedSignup}
+                        disabled={isImportingEmbeddedSignup || !embeddedSignupSessionResponse.trim()}
+                      >
+                        {isImportingEmbeddedSignup ? "Importando..." : "Importar desde Meta"}
+                      </Button>
+                      <span className="text-xs leading-5 text-slate-600">
+                        El App Secret del paso final tambien se usara como respaldo si no llenas el campo opcional.
+                      </span>
+                    </div>
+
+                    {embeddedSignupImportResult ? (
+                      <div
+                        className={`rounded-[1.25rem] border p-4 text-sm ${
+                          embeddedSignupImportResult.ok
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                            : "border-rose-200 bg-rose-50 text-rose-800"
+                        }`}
+                      >
+                        <div className="flex items-start gap-3">
+                          {embeddedSignupImportResult.ok ? (
+                            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                          ) : (
+                            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                          )}
+                          <span>{embeddedSignupImportResult.message}</span>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+
                 <div className="rounded-[1rem] border border-slate-200 bg-slate-50 p-5">
                   <p className="text-base font-semibold text-slate-900">
                     {metaChecklistSections[2]?.heading}
