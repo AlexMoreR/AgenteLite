@@ -13,6 +13,8 @@ const EVOLUTION_WEBHOOK_BASE_URL_SETTING_KEY = "evolutionWebhookBaseUrl";
 const EVOLUTION_WEBHOOK_SECRET_SETTING_KEY = "evolutionWebhookSecret";
 const OFFICIAL_API_PROVIDER_VERIFY_TOKEN_SETTING_KEY = "officialApiProviderVerifyToken";
 const OFFICIAL_API_PROVIDER_APP_SECRET_SETTING_KEY = "officialApiProviderAppSecret";
+const OFFICIAL_API_PROVIDER_APP_ID_SETTING_KEY = "officialApiProviderAppId";
+const OFFICIAL_API_PROVIDER_CONFIG_ID_SETTING_KEY = "officialApiProviderConfigId";
 const DEFAULT_SYSTEM_PRIMARY_COLOR = "#6d28d9";
 const DEFAULT_EVOLUTION_INSTANCE_PREFIX = "agente-lite";
 
@@ -54,6 +56,14 @@ function getOfficialApiProviderVerifyTokenFromEnv() {
 
 function getOfficialApiProviderAppSecretFromEnv() {
   return process.env.OFFICIAL_API_PROVIDER_APP_SECRET?.trim() ?? "";
+}
+
+function getOfficialApiProviderAppIdFromEnv() {
+  return process.env.OFFICIAL_API_PROVIDER_APP_ID?.trim() ?? "";
+}
+
+function getOfficialApiProviderConfigIdFromEnv() {
+  return process.env.OFFICIAL_API_PROVIDER_CONFIG_ID?.trim() ?? "";
 }
 
 async function ensureAppSettingTable(): Promise<void> {
@@ -186,6 +196,8 @@ export type EvolutionSettings = {
 };
 
 export type OfficialApiProviderSettings = {
+  appId: string;
+  configId: string;
   verifyToken: string;
   appSecret: string;
 };
@@ -227,12 +239,16 @@ export async function setEvolutionSettings(settings: EvolutionSettings): Promise
 }
 
 export const getOfficialApiProviderSettings = cache(async (): Promise<OfficialApiProviderSettings> => {
-  const [verifyToken, appSecret] = await Promise.all([
+  const [appId, configId, verifyToken, appSecret] = await Promise.all([
+    getSettingValue(OFFICIAL_API_PROVIDER_APP_ID_SETTING_KEY),
+    getSettingValue(OFFICIAL_API_PROVIDER_CONFIG_ID_SETTING_KEY),
     getSettingValue(OFFICIAL_API_PROVIDER_VERIFY_TOKEN_SETTING_KEY),
     getSettingValue(OFFICIAL_API_PROVIDER_APP_SECRET_SETTING_KEY),
   ]);
 
   return {
+    appId: getOfficialApiProviderAppIdFromEnv() || appId?.trim() || "",
+    configId: getOfficialApiProviderConfigIdFromEnv() || configId?.trim() || "",
     verifyToken: getOfficialApiProviderVerifyTokenFromEnv() || verifyToken?.trim() || "",
     appSecret: getOfficialApiProviderAppSecretFromEnv() || appSecret?.trim() || "",
   };
@@ -240,6 +256,8 @@ export const getOfficialApiProviderSettings = cache(async (): Promise<OfficialAp
 
 export async function setOfficialApiProviderSettings(settings: OfficialApiProviderSettings): Promise<void> {
   await Promise.all([
+    setSettingValue(OFFICIAL_API_PROVIDER_APP_ID_SETTING_KEY, settings.appId.trim()),
+    setSettingValue(OFFICIAL_API_PROVIDER_CONFIG_ID_SETTING_KEY, settings.configId.trim()),
     setSettingValue(OFFICIAL_API_PROVIDER_VERIFY_TOKEN_SETTING_KEY, settings.verifyToken.trim()),
     setSettingValue(OFFICIAL_API_PROVIDER_APP_SECRET_SETTING_KEY, settings.appSecret.trim()),
   ]);

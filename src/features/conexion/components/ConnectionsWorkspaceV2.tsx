@@ -29,6 +29,9 @@ import { NewConnectionChannelModal } from "./NewConnectionChannelModal";
 
 type ConnectionsWorkspaceProps = {
   officialApiEnabled: boolean;
+  officialApiEmbeddedSignupReady: boolean;
+  officialApiProviderAppId: string;
+  officialApiProviderConfigId: string;
   canSeeOfficialApiModule: boolean;
   okMessage?: string;
   errorMessage?: string;
@@ -56,6 +59,9 @@ type ConnectionsWorkspaceProps = {
 
 export function ConnectionsWorkspaceV2({
   officialApiEnabled,
+  officialApiEmbeddedSignupReady,
+  officialApiProviderAppId,
+  officialApiProviderConfigId,
   canSeeOfficialApiModule,
   okMessage,
   errorMessage,
@@ -83,6 +89,9 @@ export function ConnectionsWorkspaceV2({
         <NewConnectionChannelModal
           canSeeOfficialApiModule={canSeeOfficialApiModule}
           officialApiEnabled={officialApiEnabled}
+          officialApiEmbeddedSignupReady={officialApiEmbeddedSignupReady}
+          officialApiProviderAppId={officialApiProviderAppId}
+          officialApiProviderConfigId={officialApiProviderConfigId}
           targetAgent={targetAgent}
         />
       </div>

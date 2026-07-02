@@ -10,6 +10,7 @@ import { DailyReportPanel, getDailyReports } from "@/features/reportes";
 import { getAdminModuleAccess } from "@/lib/admin-module-access";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { prisma } from "@/lib/prisma";
+import { getOfficialApiProviderSettings } from "@/lib/system-settings";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
 export const metadata: Metadata = {
@@ -31,7 +32,7 @@ export default async function ClienteConexionPage({ searchParams }: PageProps) {
     redirect("/cliente?error=Debes+crear+tu+negocio+primero");
   }
 
-  const [overview, connections, moduleAccess, dailyReports, reportConfig, params] = await Promise.all([
+  const [overview, connections, moduleAccess, dailyReports, reportConfig, providerSettings, params] = await Promise.all([
     getConnectionsOverview(membership.workspace.id),
     getWhatsAppBusinessConnections(membership.workspace.id),
     getAdminModuleAccess(access.userId, access.role),
@@ -40,9 +41,13 @@ export default async function ClienteConexionPage({ searchParams }: PageProps) {
       where: { id: membership.workspace.id },
       select: { dailyReportEnabled: true, dailyReportRecipients: true },
     }),
+    getOfficialApiProviderSettings(),
     searchParams,
   ]);
   const canSeeOfficialApiModule = access.role === "ADMIN" || moduleAccess.client_official_api;
+  const officialApiEmbeddedSignupReady = Boolean(
+    providerSettings.appId.trim() && providerSettings.configId.trim(),
+  );
   const okMessage = typeof params.ok === "string" ? params.ok : "";
   const errorMessage = typeof params.error === "string" ? params.error : "";
   const targetAgentId = typeof params.agentId === "string" ? params.agentId : "";
@@ -65,6 +70,9 @@ export default async function ClienteConexionPage({ searchParams }: PageProps) {
       conexiones={
         <ConnectionsWorkspace
           officialApiEnabled={overview.officialApiEnabled}
+          officialApiEmbeddedSignupReady={officialApiEmbeddedSignupReady}
+          officialApiProviderAppId={providerSettings.appId}
+          officialApiProviderConfigId={providerSettings.configId}
           canSeeOfficialApiModule={canSeeOfficialApiModule}
           okMessage={okMessage}
           errorMessage={errorMessage}

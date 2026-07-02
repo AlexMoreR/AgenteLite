@@ -1,15 +1,46 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { MessageCirclePlus, X } from "lucide-react";
+import { CheckCircle2, Loader2, MessageCirclePlus, X } from "lucide-react";
 import { createConnectionChannelAction } from "@/app/actions/connection-actions";
 
-type ConnectionProvider = "EVOLUTION" | "OFFICIAL_API";
+type ConnectionProvider = "EVOLUTION" | "OFFICIAL_API" | "OFFICIAL_API_COEXISTENCE";
+
+declare global {
+  interface Window {
+    FB?: {
+      init: (params: Record<string, unknown>) => void;
+      login: (
+        callback: (response: {
+          status?: string;
+          authResponse?: {
+            code?: string;
+          };
+        }) => void,
+        options?: Record<string, unknown>,
+      ) => void;
+    };
+    fbAsyncInit?: () => void;
+  }
+}
+
+type EmbeddedSignupFinishPayload = {
+  data?: {
+    phone_number_id?: string;
+    waba_id?: string;
+    business_id?: string;
+  };
+  type?: string;
+  event?: string;
+};
 
 type NewConnectionChannelModalProps = {
   canSeeOfficialApiModule: boolean;
   officialApiEnabled: boolean;
+  officialApiEmbeddedSignupReady: boolean;
+  officialApiProviderAppId: string;
+  officialApiProviderConfigId: string;
   targetAgent?: {
     id: string;
     name: string;
@@ -19,10 +50,22 @@ type NewConnectionChannelModalProps = {
 export function NewConnectionChannelModal({
   canSeeOfficialApiModule,
   officialApiEnabled,
+  officialApiEmbeddedSignupReady,
+  officialApiProviderAppId,
+  officialApiProviderConfigId,
   targetAgent,
 }: NewConnectionChannelModalProps) {
   const [open, setOpen] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<ConnectionProvider | null>(null);
+  const [channelName, setChannelName] = useState("");
+  const [coexistenceResult, setCoexistenceResult] = useState<{
+    ok: boolean;
+    message: string;
+  } | null>(null);
+  const [isLaunchingCoexistence, setIsLaunchingCoexistence] = useState(false);
+  const metaCodeRef = useRef<string>("");
+  const sessionResponseRef = useRef<string>("");
+  const sdkReadyRef = useRef(false);
 
   useEffect(() => {
     if (!open) return;
@@ -41,6 +84,216 @@ export function NewConnectionChannelModal({
   const closeModal = () => {
     setOpen(false);
     setSelectedProvider(null);
+    setChannelName("");
+    setCoexistenceResult(null);
+    setIsLaunchingCoexistence(false);
+    metaCodeRef.current = "";
+    sessionResponseRef.current = "";
+  };
+
+  useEffect(() => {
+    if (!open || selectedProvider !== "OFFICIAL_API_COEXISTENCE" || !officialApiProviderAppId.trim()) {
+      return;
+    }
+
+    if (sdkReadyRef.current && window.FB) {
+      return;
+    }
+
+    let cancelled = false;
+    const existingScript = document.getElementById("facebook-jssdk");
+
+    window.fbAsyncInit = () => {
+      if (cancelled || !window.FB) {
+        return;
+      }
+
+      window.FB.init({
+        appId: officialApiProviderAppId,
+        autoLogAppEvents: true,
+        xfbml: false,
+        version: "v25.0",
+      });
+
+      sdkReadyRef.current = true;
+    };
+
+    if (!existingScript) {
+      const script = document.createElement("script");
+      script.id = "facebook-jssdk";
+      script.async = true;
+      script.defer = true;
+      script.crossOrigin = "anonymous";
+      script.src = "https://connect.facebook.net/en_US/sdk.js";
+      document.body.appendChild(script);
+    } else if (window.FB && !sdkReadyRef.current) {
+      window.fbAsyncInit?.();
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [officialApiProviderAppId, open, selectedProvider]);
+
+  useEffect(() => {
+    if (!open || selectedProvider !== "OFFICIAL_API_COEXISTENCE") {
+      return;
+    }
+
+    const onMessage = (event: MessageEvent) => {
+      if (!event.origin.includes("facebook.com")) {
+        return;
+      }
+
+      let payload: unknown = event.data;
+
+      if (typeof payload === "string") {
+        try {
+          payload = JSON.parse(payload) as EmbeddedSignupFinishPayload;
+        } catch {
+          return;
+        }
+      }
+
+      if (!payload || typeof payload !== "object") {
+        return;
+      }
+
+      const message = payload as EmbeddedSignupFinishPayload;
+      if (message.type !== "WA_EMBEDDED_SIGNUP" || message.event !== "FINISH") {
+        return;
+      }
+
+      sessionResponseRef.current = JSON.stringify([message]);
+    };
+
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [open, selectedProvider]);
+
+  const handleLaunchCoexistence = async () => {
+    if (!channelName.trim()) {
+      setCoexistenceResult({
+        ok: false,
+        message: "Escribe primero el nombre del canal.",
+      });
+      return;
+    }
+
+    if (!officialApiProviderAppId.trim() || !officialApiProviderConfigId.trim()) {
+      setCoexistenceResult({
+        ok: false,
+        message: "Falta configurar app_id o config_id del Embedded Signup en el servidor.",
+      });
+      return;
+    }
+
+    if (!window.FB || !sdkReadyRef.current) {
+      setCoexistenceResult({
+        ok: false,
+        message: "El SDK de Meta todavia no esta listo. Espera unos segundos e intentalo otra vez.",
+      });
+      return;
+    }
+
+    setIsLaunchingCoexistence(true);
+    setCoexistenceResult(null);
+    metaCodeRef.current = "";
+    sessionResponseRef.current = "";
+
+    try {
+      const code = await new Promise<string>((resolve, reject) => {
+        window.FB?.login(
+          (response) => {
+            const embeddedSignupCode = response.authResponse?.code?.trim();
+
+            if (!embeddedSignupCode) {
+              reject(new Error("Meta no devolvio un code valido al finalizar el onboarding."));
+              return;
+            }
+
+            resolve(embeddedSignupCode);
+          },
+          {
+            config_id: officialApiProviderConfigId,
+            response_type: "code",
+            override_default_response_type: true,
+            extras: {
+              sessionInfoVersion: "3",
+              featureType: "whatsapp_business_app_onboarding",
+              version: "v4",
+            },
+          },
+        );
+      });
+
+      metaCodeRef.current = code;
+
+      const waitedSessionResponse = await new Promise<string>((resolve, reject) => {
+        const startedAt = Date.now();
+        const intervalId = window.setInterval(() => {
+          if (sessionResponseRef.current.trim()) {
+            window.clearInterval(intervalId);
+            resolve(sessionResponseRef.current.trim());
+            return;
+          }
+
+          if (Date.now() - startedAt > 15000) {
+            window.clearInterval(intervalId);
+            reject(new Error("Meta no envio la respuesta de sesion del onboarding. Intenta nuevamente."));
+          }
+        }, 250);
+      });
+
+      const response = await fetch("/api/cliente/conexion/official-api/coexistence", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: channelName,
+          code,
+          sessionResponse: waitedSessionResponse,
+          agentId: targetAgent?.id,
+        }),
+      });
+
+      const payload = (await response.json().catch(() => null)) as
+        | {
+            ok?: boolean;
+            channelId?: string;
+            error?: string;
+          }
+        | null;
+
+      if (!response.ok || !payload?.ok || !payload.channelId) {
+        throw new Error(payload?.error || "No se pudo crear la conexion oficial en coexistencia.");
+      }
+
+      setCoexistenceResult({
+        ok: true,
+        message: "Coexistencia oficial creada. Vamos a recargar la pagina para mostrar el nuevo canal.",
+      });
+
+      window.setTimeout(() => {
+        const params = new URLSearchParams();
+        params.set("ok", targetAgent ? "Canal+oficial+coexistente+creado+y+vinculado" : "Canal+oficial+coexistente+creado");
+        if (targetAgent?.id) {
+          params.set("agentId", targetAgent.id);
+        }
+        window.location.href = `/cliente/conexion?${params.toString()}`;
+      }, 800);
+    } catch (error) {
+      setCoexistenceResult({
+        ok: false,
+        message:
+          error instanceof Error
+            ? error.message
+            : "No se pudo completar el onboarding de coexistencia.",
+      });
+    } finally {
+      setIsLaunchingCoexistence(false);
+    }
   };
 
   return (
@@ -75,6 +328,8 @@ export function NewConnectionChannelModal({
                 <p className="max-w-2xl text-sm leading-6 text-slate-600">
                   {selectedProvider === "EVOLUTION"
                     ? "Escribe el nombre del canal. Al crear, se generara QR para conectar tu linea de whatsapp."
+                    : selectedProvider === "OFFICIAL_API_COEXISTENCE"
+                      ? "Escribe el nombre del canal y continua con Meta para conectar una linea existente de WhatsApp Business App por coexistencia oficial."
                     : selectedProvider === "OFFICIAL_API"
                       ? "Escribe el nombre del canal oficial. Si el administrador ya activo la API oficial, el canal se crea de inmediato."
                       : "Selecciona el proveedor del canal que quieres crear."}
@@ -95,6 +350,74 @@ export function NewConnectionChannelModal({
             </div>
 
             {selectedProvider ? (
+              selectedProvider === "OFFICIAL_API_COEXISTENCE" ? (
+                <div className="mt-6 space-y-4">
+                  <div className="space-y-2">
+                    <label htmlFor="coexistence-channel-name" className="text-sm font-medium text-slate-700">
+                      Nombre del canal
+                    </label>
+                    <input
+                      id="coexistence-channel-name"
+                      name="name"
+                      type="text"
+                      required
+                      autoFocus
+                      value={channelName}
+                      onChange={(event) => setChannelName(event.target.value)}
+                      placeholder="Ej. WhatsApp administrativa coexistencia"
+                      className="h-12 w-full rounded-2xl border border-[rgba(148,163,184,0.18)] bg-white px-4 text-sm text-slate-900 outline-none transition focus:border-[var(--primary)] focus:ring-4 focus:ring-[color:color-mix(in_srgb,var(--primary)_12%,white)]"
+                    />
+                  </div>
+
+                  <div className="rounded-[24px] border border-[var(--line)] bg-slate-50 px-4 py-4 text-sm leading-6 text-slate-600">
+                    Este flujo abrira el onboarding oficial de Meta para conectar una linea existente de WhatsApp Business App mediante coexistencia.
+                  </div>
+
+                  {coexistenceResult ? (
+                    <div
+                      className={`rounded-[24px] border px-4 py-4 text-sm ${
+                        coexistenceResult.ok
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                          : "border-rose-200 bg-rose-50 text-rose-800"
+                      }`}
+                    >
+                      <div className="flex items-start gap-3">
+                        {coexistenceResult.ok ? (
+                          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                        ) : (
+                          <X className="mt-0.5 h-4 w-4 shrink-0" />
+                        )}
+                        <span>{coexistenceResult.message}</span>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div className="flex flex-wrap justify-end gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedProvider(null)}
+                      className="inline-flex h-11 items-center justify-center rounded-2xl border border-[rgba(148,163,184,0.18)] px-4 text-sm font-medium text-slate-700 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+                    >
+                      Volver
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleLaunchCoexistence}
+                      disabled={isLaunchingCoexistence || !channelName.trim()}
+                      className="inline-flex h-11 items-center justify-center rounded-2xl bg-[var(--primary)] px-5 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)] disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                      {isLaunchingCoexistence ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Conectando con Meta...
+                        </>
+                      ) : (
+                        "Continuar con Meta"
+                      )}
+                    </button>
+                  </div>
+                </div>
+              ) : (
               <form action={createConnectionChannelAction} className="mt-6 space-y-4">
                 <input type="hidden" name="provider" value={selectedProvider} />
                 {targetAgent ? <input type="hidden" name="agentId" value={targetAgent.id} /> : null}
@@ -130,6 +453,7 @@ export function NewConnectionChannelModal({
                   </button>
                 </div>
               </form>
+              )
             ) : (
               <div className="mt-6 grid gap-4 md:grid-cols-2">
                 <ChannelOptionCard
@@ -147,6 +471,15 @@ export function NewConnectionChannelModal({
                   icon={<WhatsAppGlyph className="h-8 w-8" />}
                   disabled={!canSeeOfficialApiModule || !officialApiEnabled}
                   onSelect={() => setSelectedProvider("OFFICIAL_API")}
+                />
+
+                <ChannelOptionCard
+                  title="API oficial coexistencia"
+                  description="Abre el onboarding oficial de Meta para conectar una linea existente de WhatsApp Business App."
+                  cta={canSeeOfficialApiModule && officialApiEmbeddedSignupReady ? "Continuar con Meta" : "Pendiente de configurar"}
+                  icon={<WhatsAppGlyph className="h-8 w-8" />}
+                  disabled={!canSeeOfficialApiModule || !officialApiEmbeddedSignupReady}
+                  onSelect={() => setSelectedProvider("OFFICIAL_API_COEXISTENCE")}
                 />
               </div>
             )}
