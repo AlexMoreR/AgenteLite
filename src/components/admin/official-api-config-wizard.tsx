@@ -20,6 +20,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 const OFFICIAL_API_WEBHOOK_PATH = "/api/webhooks/meta/official-api";
+const COEXISTENCE_RECONNECT_DOC_URL =
+  "https://developers.facebook.com/documentation/business-messaging/whatsapp/embedded-signup/reconnect-offboarded-coexistence-clients/";
 
 type OfficialApiWorkspaceConfig = {
   accessToken: string | null;
@@ -101,7 +103,7 @@ const metaChecklistSections = [
     heading: "Pedir datos al cliente",
     items: [
       "Acceso al Business Manager de Meta.",
-      "Numero telefonico que no este usado en WhatsApp Business App.",
+      "Definir si el piloto se hara con numero nuevo o con un numero ya usado en WhatsApp Business App.",
       "Correo administrador.",
       "Nombre de empresa.",
       "Logo y descripcion del negocio.",
@@ -120,7 +122,7 @@ const metaChecklistSections = [
       "Crear nueva cuenta de WhatsApp Business.",
       "Guardar el WABA ID. En Meta tambien puede aparecer como Identificador.",
       "Ir a la pestana Numeros de telefono.",
-      "Seleccionar si el numero sera nuevo o existente.",
+      "Seleccionar si el numero sera nuevo o si se conectara la app existente (coexistencia).",
       "Ingresar el numero de WhatsApp.",
       "Verificar con SMS o llamada.",
     ],
@@ -161,6 +163,40 @@ const webhookSaveSteps = [
 
 const OFFICIAL_API_WIZARD_DRAFT_KEY = "official-api-config-wizard:v1";
 const DEFAULT_TEST_MESSAGE = "Hola, esta es una prueba desde la API oficial de WhatsApp.";
+
+type SetupMode = "coexistence" | "new_number";
+
+const setupModeCopy: Record<
+  SetupMode,
+  {
+    label: string;
+    badge: string;
+    description: string;
+    step2Note: string;
+    step4Note: string;
+  }
+> = {
+  coexistence: {
+    label: "Coexistencia",
+    badge: "Piloto recomendado",
+    description:
+      "Usa un numero que ya esta activo en WhatsApp Business App y conectalo a Cloud API para probar AgenteLite sin apagar la operacion humana.",
+    step2Note:
+      "En Meta busca el flujo para conectar la app existente del negocio. Ese numero puede seguir vivo en la app mientras validamos el companion oficial dentro de AgenteLite.",
+    step4Note:
+      "Antes de probar, envia primero un mensaje real desde el numero destino al numero oficial. En coexistencia queremos validar entrada por webhook, respuesta por Cloud API y que la app siga operativa.",
+  },
+  new_number: {
+    label: "Numero nuevo API",
+    badge: "Flujo clasico",
+    description:
+      "Registra un numero dedicado a Cloud API. Es el camino mas limpio si no necesitas mantener la app de WhatsApp Business en paralelo.",
+    step2Note:
+      "Usa este flujo solo si el numero no va a convivir con la app actual. Sirve para una linea separada o para aislar una prueba tecnica limpia.",
+    step4Note:
+      "Antes de probar, envia primero un mensaje real desde el numero destino al numero oficial. Luego valida registro, prueba de envio y webhook.",
+  },
+};
 
 function renderChecklistItem(item: string | { text: string; href: string }) {
   if (typeof item === "string") {
@@ -322,6 +358,7 @@ export function OfficialApiConfigWizard({
   previewChatsHref,
 }: OfficialApiConfigWizardProps) {
   const [currentStep, setCurrentStep] = React.useState(0);
+  const [setupMode, setSetupMode] = React.useState<SetupMode>("coexistence");
   const [form, setForm] = React.useState<FormState>(() => getInitialFormState(workspace));
   const [testRecipient, setTestRecipient] = React.useState("");
   const [testMessage, setTestMessage] = React.useState(DEFAULT_TEST_MESSAGE);
@@ -441,6 +478,7 @@ export function OfficialApiConfigWizard({
             form?: Partial<FormState>;
             testRecipient?: string;
             testMessage?: string;
+            setupMode?: SetupMode;
           };
 
           if (parsed.form) {
@@ -459,6 +497,12 @@ export function OfficialApiConfigWizard({
 
           if (typeof parsed.testMessage === "string" && parsed.testMessage.trim()) {
             nextMessage = parsed.testMessage;
+          }
+
+          if (parsed.setupMode === "coexistence" || parsed.setupMode === "new_number") {
+            setSetupMode(parsed.setupMode);
+          } else {
+            setSetupMode("coexistence");
           }
 
           if (typeof parsed.currentStep === "number") {
@@ -495,12 +539,13 @@ export function OfficialApiConfigWizard({
       draftStorageKey,
       JSON.stringify({
         currentStep,
+        setupMode,
         form,
         testRecipient,
         testMessage,
       }),
     );
-  }, [currentStep, draftStorageKey, form, hasHydratedDraft, testMessage, testRecipient, workspace]);
+  }, [currentStep, draftStorageKey, form, hasHydratedDraft, setupMode, testMessage, testRecipient, workspace]);
 
   React.useEffect(() => {
     if (
@@ -947,12 +992,71 @@ export function OfficialApiConfigWizard({
           <div className="p-6">
             {currentStep === 0 ? (
               <div className="space-y-4">
+                <div className="rounded-[1rem] border border-[color:color-mix(in_srgb,var(--primary)_20%,white)] bg-[color:color-mix(in_srgb,var(--primary)_6%,white)] p-5">
+                  <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                    <div className="space-y-2">
+                      <p className="text-base font-semibold text-slate-900">Modo del piloto</p>
+                      <p className="max-w-3xl text-sm leading-6 text-slate-700">
+                        Para esta primera prueba te conviene coexistencia: mantenemos la app de WhatsApp Business operando y validamos la capa oficial dentro de AgenteLite.
+                      </p>
+                    </div>
+                    <div className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-700">
+                      {setupModeCopy[setupMode].badge}
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    {(["coexistence", "new_number"] as const).map((mode) => {
+                      const isActive = setupMode === mode;
+                      return (
+                        <button
+                          key={mode}
+                          type="button"
+                          onClick={() => setSetupMode(mode)}
+                          className={`rounded-[1rem] border px-4 py-4 text-left transition ${
+                            isActive
+                              ? "border-[var(--primary)] bg-white shadow-[0_14px_30px_-24px_rgba(37,99,235,0.35)]"
+                              : "border-slate-200 bg-white/70 hover:border-slate-300"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="text-sm font-semibold text-slate-900">{setupModeCopy[mode].label}</p>
+                            {isActive ? <CheckCircle2 className="h-4 w-4 text-[var(--primary)]" /> : null}
+                          </div>
+                          <p className="mt-2 text-sm leading-6 text-slate-600">{setupModeCopy[mode].description}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
                 {renderChecklistSection(metaChecklistSections[0])}
               </div>
             ) : null}
 
             {currentStep === 1 ? (
               <div className="space-y-4">
+                <div className="rounded-[1rem] border border-sky-200 bg-sky-50 p-4 text-sm leading-6 text-sky-900">
+                  <p className="font-semibold text-sky-950">
+                    {setupMode === "coexistence" ? "Ruta de coexistencia" : "Ruta de numero nuevo"}
+                  </p>
+                  <p className="mt-1">{setupModeCopy[setupMode].step2Note}</p>
+                  {setupMode === "coexistence" ? (
+                    <p className="mt-2">
+                      Si despues el negocio cambia de dispositivo o vuelve a registrar la app, Meta puede desconectar el companion de Cloud API y tocaria reconectarlo. Guia oficial:{" "}
+                      <Link
+                        href={COEXISTENCE_RECONNECT_DOC_URL}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-medium underline underline-offset-4"
+                      >
+                        reconnect offboarded coexistence clients
+                      </Link>
+                      .
+                    </p>
+                  ) : null}
+                </div>
+
                 <div className="rounded-[1rem] border border-slate-200 bg-slate-50 p-5">
                   <p className="text-base font-semibold text-slate-900">
                     {metaChecklistSections[1]?.heading}
@@ -1039,6 +1143,16 @@ export function OfficialApiConfigWizard({
 
             {currentStep === 3 ? (
               <div className="grid gap-5">
+                <div className="rounded-[1rem] border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
+                  <p className="font-semibold text-amber-950">Que validamos en esta prueba</p>
+                  <p className="mt-1">{setupModeCopy[setupMode].step4Note}</p>
+                  {setupMode === "coexistence" ? (
+                    <p className="mt-2">
+                      La ventana de 24 horas aplica a Cloud API. Los mensajes enviados manualmente desde la app de WhatsApp Business no siguen esa misma restriccion.
+                    </p>
+                  ) : null}
+                </div>
+
                 <div className="rounded-[1rem] border border-slate-200 bg-slate-50 p-5">
                   <p className="text-base font-semibold text-slate-900">
                     {metaChecklistSections[3]?.heading}
@@ -1077,9 +1191,15 @@ export function OfficialApiConfigWizard({
                                   !form.phoneNumberId.trim()
                                 }
                               >
-                                {isRegisteringPhone ? "Registrando..." : "Registrar"}
+                                {isRegisteringPhone ? "Registrando..." : "Registrar numero"}
                               </Button>
                             </div>
+
+                            {setupMode === "coexistence" ? (
+                              <p className="rounded-[1rem] border border-slate-200 bg-white px-4 py-3 text-xs leading-5 text-slate-600">
+                                En coexistencia este paso sirve para confirmar que el numero ya quedo operativo para Cloud API. Si Meta ya lo deja listo durante el onboarding, puede que no haga falta repetirlo.
+                              </p>
+                            ) : null}
 
                             {registerPhoneResult ? (
                               <div
@@ -1165,6 +1285,13 @@ export function OfficialApiConfigWizard({
 
             {currentStep === 4 ? (
               <div className="space-y-4">
+                <div className="rounded-[1rem] border border-slate-200 bg-white p-4 text-sm leading-6 text-slate-700">
+                  <p className="font-semibold text-slate-900">Cierre del piloto</p>
+                  <p className="mt-1">
+                    Guarda la configuracion cuando ya tengas estos cuatro puntos: webhook verificado, app suscrita al WABA, prueba de envio correcta y primer mensaje entrante visible dentro del modulo oficial.
+                  </p>
+                </div>
+
                 <div className="grid gap-5">
                   <div className="rounded-[1rem] border border-slate-200 bg-slate-50 p-5">
                     <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">

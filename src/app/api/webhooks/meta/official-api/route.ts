@@ -18,6 +18,7 @@ import { resolveAgentKnowledgeBaseReply } from "@/lib/agent-knowledge-media";
 import { recordContactMatch } from "@/lib/contact-matches";
 import { prisma } from "@/lib/prisma";
 import { ensureOfficialApiConfigTable } from "@/lib/official-api-config";
+import { getOfficialApiProviderSettings } from "@/lib/system-settings";
 import { buildHandoffMessage, parseAgentTrainingConfig } from "@/lib/agent-training";
 import {
   resolveNotifyHumanAction,
@@ -95,6 +96,22 @@ async function findConfigByVerifyToken(verifyToken: string) {
     const rows = await query();
     return rows[0] ?? null;
   }
+}
+
+async function isProviderVerifyToken(verifyToken: string) {
+  const settings = await getOfficialApiProviderSettings();
+  const expectedToken = settings.verifyToken.trim();
+
+  if (!expectedToken) {
+    return false;
+  }
+
+  return safeCompare(verifyToken, expectedToken);
+}
+
+async function getProviderAppSecret() {
+  const settings = await getOfficialApiProviderSettings();
+  return settings.appSecret.trim();
 }
 
 async function markWebhookVerified(configId: string) {
@@ -547,11 +564,13 @@ export async function GET(request: Request) {
 
   const matchingConfig = await findConfigByVerifyToken(verifyToken);
 
-  if (!matchingConfig) {
+  if (!matchingConfig && !(await isProviderVerifyToken(verifyToken))) {
     return NextResponse.json({ ok: false, error: "Verify token invalido." }, { status: 403 });
   }
 
-  await markWebhookVerified(matchingConfig.id);
+  if (matchingConfig) {
+    await markWebhookVerified(matchingConfig.id);
+  }
 
   return new NextResponse(challenge, {
     status: 200,
@@ -582,21 +601,23 @@ export async function POST(request: Request) {
   }
 
   const config = await findConfigByWebhookTarget({ phoneNumberId, wabaId });
-
-  if (!config) {
-    return NextResponse.json({ ok: true, matched: false }, { status: 200 });
-  }
-
   const signature = request.headers.get("x-hub-signature-256")?.trim() || "";
-  if (config.appSecret?.trim()) {
+  const providerAppSecret = await getProviderAppSecret();
+  const expectedAppSecret = config?.appSecret?.trim() || providerAppSecret;
+
+  if (expectedAppSecret) {
     if (!signature) {
       return NextResponse.json({ ok: false, error: "Missing webhook signature." }, { status: 401 });
     }
 
-    const expectedSignature = buildExpectedSignature(rawBody, config.appSecret.trim());
+    const expectedSignature = buildExpectedSignature(rawBody, expectedAppSecret);
     if (!safeCompare(signature, expectedSignature)) {
       return NextResponse.json({ ok: false, error: "Invalid webhook signature." }, { status: 401 });
     }
+  }
+
+  if (!config) {
+    return NextResponse.json({ ok: true, matched: false }, { status: 200 });
   }
 
   const deliveryId = extractDeliveryId(payload);
