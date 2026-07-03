@@ -48,16 +48,23 @@ function Button({
   asChild,
   children,
   render,
+  nativeButton,
   ...props
 }: ButtonPrimitive.Props & VariantProps<typeof buttonVariants> & { asChild?: boolean }) {
   // Compatibilidad estilo Radix: `asChild` se traduce al `render` de Base UI.
   const childRender = asChild && React.isValidElement(children) ? children : render
+
+  // Al renderizar via `render`/`asChild` el elemento suele NO ser un <button> (p.ej. un <a>
+  // de <Link>). Base UI asume `nativeButton` true por defecto y avisa; bajamos el default a
+  // false cuando hay render, dejando que se pueda forzar explicitamente.
+  const resolvedNativeButton = childRender ? nativeButton ?? false : nativeButton
 
   return (
     <ButtonPrimitive
       data-slot="button"
       className={cn(buttonVariants({ variant, size, className }))}
       render={childRender}
+      nativeButton={resolvedNativeButton}
       {...props}
     >
       {childRender === children ? undefined : children}
