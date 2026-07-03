@@ -4,6 +4,14 @@ import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { CheckCircle2, Loader2, MessageCirclePlus, X } from "lucide-react";
 import { createConnectionChannelAction } from "@/app/actions/connection-actions";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 
 type ConnectionProvider = "EVOLUTION" | "OFFICIAL_API" | "OFFICIAL_API_COEXISTENCE";
 
@@ -79,20 +87,6 @@ export function NewConnectionChannelModal({
   const metaCodeRef = useRef<string>("");
   const sessionResponseRef = useRef<string>("");
   const sdkReadyRef = useRef(false);
-
-  useEffect(() => {
-    if (!open) return;
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setOpen(false);
-        setSelectedProvider(null);
-      }
-    };
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [open]);
 
   const closeModal = () => {
     setOpen(false);
@@ -460,59 +454,64 @@ export function NewConnectionChannelModal({
   };
 
   return (
-    <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-4 text-sm font-medium text-white shadow-[0_16px_30px_-18px_rgba(37,99,235,0.45)] transition hover:translate-y-[-1px] hover:bg-[var(--primary-strong)]"
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) {
+          closeModal();
+          return;
+        }
+
+        setOpen(true);
+      }}
+    >
+      <DialogTrigger
+        render={
+          <button
+            type="button"
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-4 text-sm font-medium text-white shadow-[0_16px_30px_-18px_rgba(37,99,235,0.45)] transition hover:translate-y-[-1px] hover:bg-[var(--primary-strong)]"
+          />
+        }
       >
         <MessageCirclePlus className="h-4 w-4" />
         Nuevo canal
-      </button>
+      </DialogTrigger>
 
-      {open ? (
-        <div
-          className="fixed inset-0 z-[120] flex items-center justify-center bg-[#02081799] p-4 backdrop-blur-sm"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Nuevo canal"
-          onClick={closeModal}
-        >
-          <div
-            className="w-full max-w-2xl rounded-[2rem] border border-[rgba(148,163,184,0.16)] bg-white p-6 shadow-[0_32px_80px_-32px_rgba(15,23,42,0.45)]"
-            onClick={(event) => event.stopPropagation()}
+      <DialogContent
+        showCloseButton={false}
+        className="w-full max-w-2xl rounded-[2rem] border border-[rgba(148,163,184,0.16)] bg-white p-6 text-left shadow-[0_32px_80px_-32px_rgba(15,23,42,0.45)] sm:max-w-2xl"
+      >
+        <DialogHeader className="flex-row items-start justify-between gap-4 space-y-0">
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Nuevo canal</p>
+            <DialogTitle className="text-2xl font-semibold tracking-[-0.05em] text-slate-950">
+              {selectedProvider ? "Ponle un nombre a tu canal" : "Elige el tipo de conexion"}
+            </DialogTitle>
+            <DialogDescription className="max-w-2xl text-sm leading-6 text-slate-600">
+              {selectedProvider === "EVOLUTION"
+                ? "Escribe el nombre del canal. Al crear, se generara QR para conectar tu linea de whatsapp."
+                : selectedProvider === "OFFICIAL_API_COEXISTENCE"
+                  ? "Escribe el nombre del canal y continua con Meta para conectar una linea existente de WhatsApp Business App por coexistencia oficial."
+                  : selectedProvider === "OFFICIAL_API"
+                    ? "Configura el canal oficial en este mismo modal con los datos de Meta, sin pasar por administracion."
+                    : "Selecciona el proveedor del canal que quieres crear."}
+            </DialogDescription>
+            {targetAgent ? (
+              <p className="text-sm font-medium text-[var(--primary)]">Se vinculara a {targetAgent.name}.</p>
+            ) : null}
+          </div>
+
+          <button
+            type="button"
+            onClick={closeModal}
+            className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-[rgba(148,163,184,0.18)] text-slate-500 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+            aria-label="Cerrar modal"
           >
-            <div className="flex items-start justify-between gap-4">
-              <div className="space-y-2">
-                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Nuevo canal</p>
-                <h2 className="text-2xl font-semibold tracking-[-0.05em] text-slate-950">
-                  {selectedProvider ? "Ponle un nombre a tu canal" : "Elige el tipo de conexion"}
-                </h2>
-                <p className="max-w-2xl text-sm leading-6 text-slate-600">
-                  {selectedProvider === "EVOLUTION"
-                    ? "Escribe el nombre del canal. Al crear, se generara QR para conectar tu linea de whatsapp."
-                    : selectedProvider === "OFFICIAL_API_COEXISTENCE"
-                      ? "Escribe el nombre del canal y continua con Meta para conectar una linea existente de WhatsApp Business App por coexistencia oficial."
-                    : selectedProvider === "OFFICIAL_API"
-                      ? "Escribe el nombre del canal oficial. Si el administrador ya activo la API oficial, el canal se crea de inmediato."
-                      : "Selecciona el proveedor del canal que quieres crear."}
-                </p>
-                {targetAgent ? (
-                  <p className="text-sm font-medium text-[var(--primary)]">Se vinculara a {targetAgent.name}.</p>
-                ) : null}
-              </div>
+            <X className="h-4 w-4" />
+          </button>
+        </DialogHeader>
 
-              <button
-                type="button"
-                onClick={closeModal}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-[rgba(148,163,184,0.18)] text-slate-500 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
-                aria-label="Cerrar modal"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            {selectedProvider ? (
+        {selectedProvider ? (
               selectedProvider === "OFFICIAL_API_COEXISTENCE" ? (
                 <div className="mt-6 space-y-4">
                   <div className="space-y-2">
@@ -817,39 +816,37 @@ export function NewConnectionChannelModal({
                 </div>
               </form>
               )
-            ) : (
-              <div className="mt-6 grid gap-4 md:grid-cols-2">
-                <ChannelOptionCard
-                  title="WhatsApp QR Code"
-                  description="Conecta numeros de WhatsApp Business por QR o codigo con Evolution."
-                  cta="Empezar ahora"
-                  icon={<WhatsAppGlyph className="h-8 w-8" />}
-                  onSelect={() => setSelectedProvider("EVOLUTION")}
-                />
+        ) : (
+          <div className="mt-6 grid gap-4 md:grid-cols-2">
+            <ChannelOptionCard
+              title="WhatsApp QR Code"
+              description="Conecta numeros de WhatsApp Business por QR o codigo con Evolution."
+              cta="Empezar ahora"
+              icon={<WhatsAppGlyph className="h-8 w-8" />}
+              onSelect={() => setSelectedProvider("EVOLUTION")}
+            />
 
-                <ChannelOptionCard
-                  title="WhatsApp API (Meta)"
-                  description="Configura y activa la API oficial del workspace en un solo modal, sin pasar por administracion."
-                  cta={canSeeOfficialApiModule ? "Configurar y crear" : "Desactivado"}
-                  icon={<WhatsAppGlyph className="h-8 w-8" />}
-                  disabled={!canSeeOfficialApiModule}
-                  onSelect={() => setSelectedProvider("OFFICIAL_API")}
-                />
+            <ChannelOptionCard
+              title="WhatsApp API (Meta)"
+              description="Configura y activa la API oficial del workspace en un solo modal, sin pasar por administracion."
+              cta={canSeeOfficialApiModule ? "Configurar y crear" : "Desactivado"}
+              icon={<WhatsAppGlyph className="h-8 w-8" />}
+              disabled={!canSeeOfficialApiModule}
+              onSelect={() => setSelectedProvider("OFFICIAL_API")}
+            />
 
-                <ChannelOptionCard
-                  title="API oficial coexistencia"
-                  description="Abre el onboarding oficial de Meta para conectar una linea existente de WhatsApp Business App."
-                  cta={canSeeOfficialApiModule && officialApiEmbeddedSignupReady ? "Continuar con Meta" : "Pendiente de configurar"}
-                  icon={<WhatsAppGlyph className="h-8 w-8" />}
-                  disabled={!canSeeOfficialApiModule || !officialApiEmbeddedSignupReady}
-                  onSelect={() => setSelectedProvider("OFFICIAL_API_COEXISTENCE")}
-                />
-              </div>
-            )}
+            <ChannelOptionCard
+              title="API oficial coexistencia"
+              description="Abre el onboarding oficial de Meta para conectar una linea existente de WhatsApp Business App."
+              cta={canSeeOfficialApiModule && officialApiEmbeddedSignupReady ? "Continuar con Meta" : "Pendiente de configurar"}
+              icon={<WhatsAppGlyph className="h-8 w-8" />}
+              disabled={!canSeeOfficialApiModule || !officialApiEmbeddedSignupReady}
+              onSelect={() => setSelectedProvider("OFFICIAL_API_COEXISTENCE")}
+            />
           </div>
-        </div>
-      ) : null}
-    </>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
