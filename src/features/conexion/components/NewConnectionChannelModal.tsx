@@ -4,14 +4,22 @@ import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { CheckCircle2, Loader2, MessageCirclePlus, X } from "lucide-react";
 import { createConnectionChannelAction } from "@/app/actions/connection-actions";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 
 type ConnectionProvider = "EVOLUTION" | "OFFICIAL_API" | "OFFICIAL_API_COEXISTENCE";
 
@@ -84,6 +92,7 @@ export function NewConnectionChannelModal({
   const [isLaunchingCoexistence, setIsLaunchingCoexistence] = useState(false);
   const [isSavingOfficialApi, setIsSavingOfficialApi] = useState(false);
   const [isImportingOfficialApi, setIsImportingOfficialApi] = useState(false);
+  const [showEmbeddedImport, setShowEmbeddedImport] = useState(false);
   const metaCodeRef = useRef<string>("");
   const sessionResponseRef = useRef<string>("");
   const sdkReadyRef = useRef(false);
@@ -97,6 +106,7 @@ export function NewConnectionChannelModal({
     setIsLaunchingCoexistence(false);
     setIsSavingOfficialApi(false);
     setIsImportingOfficialApi(false);
+    setShowEmbeddedImport(false);
     setOfficialApiForm({
       embeddedCode: "",
       sessionResponse: "",
@@ -456,39 +466,30 @@ export function NewConnectionChannelModal({
   const footerActions = selectedProvider ? (
     selectedProvider === "OFFICIAL_API_COEXISTENCE" ? (
       <>
-        <button
-          type="button"
-          onClick={() => setSelectedProvider(null)}
-          className="inline-flex h-11 items-center justify-center rounded-2xl border border-[rgba(148,163,184,0.18)] px-4 text-sm font-medium text-slate-700 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
-        >
+        <Button type="button" variant="outline" onClick={() => setSelectedProvider(null)}>
           Volver
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           onClick={handleLaunchCoexistence}
           disabled={isLaunchingCoexistence || !channelName.trim()}
-          className="inline-flex h-11 items-center justify-center rounded-2xl bg-[var(--primary)] px-5 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)] disabled:cursor-not-allowed disabled:opacity-70"
         >
           {isLaunchingCoexistence ? (
             <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <Loader2 className="animate-spin" />
               Conectando con Meta...
             </>
           ) : (
             "Continuar con Meta"
           )}
-        </button>
+        </Button>
       </>
     ) : selectedProvider === "OFFICIAL_API" ? (
       <>
-        <button
-          type="button"
-          onClick={() => setSelectedProvider(null)}
-          className="inline-flex h-11 items-center justify-center rounded-2xl border border-[rgba(148,163,184,0.18)] px-4 text-sm font-medium text-slate-700 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
-        >
+        <Button type="button" variant="outline" onClick={() => setSelectedProvider(null)}>
           Volver
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           onClick={handleCreateOfficialApiChannel}
           disabled={
@@ -498,44 +499,31 @@ export function NewConnectionChannelModal({
             !officialApiForm.phoneNumberId.trim() ||
             !officialApiForm.wabaId.trim()
           }
-          className="inline-flex h-11 items-center justify-center rounded-2xl bg-[var(--primary)] px-5 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)] disabled:cursor-not-allowed disabled:opacity-70"
         >
           {isSavingOfficialApi ? (
             <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <Loader2 className="animate-spin" />
               Guardando API oficial...
             </>
           ) : (
             "Guardar y crear canal"
           )}
-        </button>
+        </Button>
       </>
     ) : (
       <>
-        <button
-          type="button"
-          onClick={() => setSelectedProvider(null)}
-          className="inline-flex h-11 items-center justify-center rounded-2xl border border-[rgba(148,163,184,0.18)] px-4 text-sm font-medium text-slate-700 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
-        >
+        <Button type="button" variant="outline" onClick={() => setSelectedProvider(null)}>
           Volver
-        </button>
-        <button
-          type="submit"
-          form="new-connection-channel-form"
-          className="inline-flex h-11 items-center justify-center rounded-2xl bg-[var(--primary)] px-5 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
-        >
+        </Button>
+        <Button type="submit" form="new-connection-channel-form">
           Crear canal
-        </button>
+        </Button>
       </>
     )
   ) : (
-    <button
-      type="button"
-      onClick={closeModal}
-      className="inline-flex h-11 items-center justify-center rounded-2xl border border-[rgba(148,163,184,0.18)] px-4 text-sm font-medium text-slate-700 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
-    >
+    <Button type="button" variant="outline" onClick={closeModal}>
       Cerrar
-    </button>
+    </Button>
   );
 
   return (
@@ -552,293 +540,204 @@ export function NewConnectionChannelModal({
     >
       <DialogTrigger
         render={
-          <button
-            type="button"
-            className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-4 text-sm font-medium text-white shadow-[0_16px_30px_-18px_rgba(37,99,235,0.45)] transition hover:translate-y-[-1px] hover:bg-[var(--primary-strong)]"
-          />
+          <Button type="button">
+            <MessageCirclePlus />
+            Nuevo canal
+          </Button>
         }
-      >
-        <MessageCirclePlus className="h-4 w-4" />
-        Nuevo canal
-      </DialogTrigger>
+      />
 
-      <DialogContent
-        showCloseButton={false}
-        className="flex max-h-[90vh] w-full max-w-2xl flex-col gap-0 overflow-hidden rounded-[2rem] border border-[rgba(148,163,184,0.16)] bg-white p-0 text-left shadow-[0_32px_80px_-32px_rgba(15,23,42,0.45)] sm:max-w-2xl"
-      >
-        <DialogHeader className="flex-row items-start justify-between gap-4 space-y-0 border-b border-[rgba(148,163,184,0.14)] bg-white px-6 py-5">
-          <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Nuevo canal</p>
-            <DialogTitle className="text-2xl font-semibold tracking-[-0.05em] text-slate-950">
-              {selectedProvider ? "Ponle un nombre a tu canal" : "Elige el tipo de conexion"}
-            </DialogTitle>
-            <DialogDescription className="max-w-2xl text-sm leading-6 text-slate-600">
-              {selectedProvider === "EVOLUTION"
-                ? "Escribe el nombre del canal. Al crear, se generara QR para conectar tu linea de whatsapp."
-                : selectedProvider === "OFFICIAL_API_COEXISTENCE"
-                  ? "Escribe el nombre del canal y continua con Meta para conectar una linea existente de WhatsApp Business App por coexistencia oficial."
-                  : selectedProvider === "OFFICIAL_API"
-                    ? "Configura el canal oficial en este mismo modal con los datos de Meta, sin pasar por administracion."
-                    : "Selecciona el proveedor del canal que quieres crear."}
-            </DialogDescription>
-            {targetAgent ? (
-              <p className="text-sm font-medium text-[var(--primary)]">Se vinculara a {targetAgent.name}.</p>
-            ) : null}
-          </div>
-
-          <button
-            type="button"
-            onClick={closeModal}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-[rgba(148,163,184,0.18)] text-slate-500 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
-            aria-label="Cerrar modal"
-          >
-            <X className="h-4 w-4" />
-          </button>
+      <DialogContent className="flex max-h-[90vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
+        <DialogHeader className="shrink-0 border-b px-6 py-4">
+          <DialogTitle>{selectedProvider ? "Ponle un nombre a tu canal" : "Nuevo canal"}</DialogTitle>
+          <DialogDescription className="sr-only">
+            {selectedProvider ? "Ponle un nombre a tu canal" : "Elige el tipo de conexion"}
+          </DialogDescription>
+          {targetAgent ? (
+            <p className="text-sm font-medium text-primary">Se vinculara a {targetAgent.name}.</p>
+          ) : null}
         </DialogHeader>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
+        <div className="min-w-0 flex-1 overflow-y-auto p-6">
         {selectedProvider ? (
-              selectedProvider === "OFFICIAL_API_COEXISTENCE" ? (
-                <div className="space-y-4">
+          selectedProvider === "OFFICIAL_API_COEXISTENCE" ? (
+            <div className="min-w-0 space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="coexistence-channel-name">Nombre del canal</Label>
+                <Input
+                  id="coexistence-channel-name"
+                  name="name"
+                  type="text"
+                  required
+                  autoFocus
+                  value={channelName}
+                  onChange={(event) => setChannelName(event.target.value)}
+                  placeholder="Ej. WhatsApp administrativa coexistencia"
+                />
+              </div>
+
+              <p className="rounded-lg border bg-muted/50 p-4 text-sm text-muted-foreground">
+                Este flujo abrira el onboarding oficial de Meta para conectar una linea existente de WhatsApp Business App mediante coexistencia.
+              </p>
+
+              {coexistenceResult ? <ResultBanner result={coexistenceResult} /> : null}
+            </div>
+          ) : selectedProvider === "OFFICIAL_API" ? (
+            <div className="min-w-0 space-y-5">
+              <div className="space-y-2">
+                <Label htmlFor="official-api-channel-name">Nombre del canal</Label>
+                <Input
+                  id="official-api-channel-name"
+                  name="name"
+                  type="text"
+                  required
+                  autoFocus
+                  value={channelName}
+                  onChange={(event) => setChannelName(event.target.value)}
+                  placeholder="Ej. WhatsApp oficial principal"
+                />
+              </div>
+
+              <div className="flex items-center gap-3">
+                <Checkbox
+                  id="toggle-embedded-import"
+                  checked={showEmbeddedImport}
+                  onCheckedChange={(checked) => setShowEmbeddedImport(checked === true)}
+                />
+                <Label htmlFor="toggle-embedded-import">Importar desde Embedded Signup</Label>
+              </div>
+
+              {showEmbeddedImport ? (
+              <Card className="min-w-0">
+                <CardContent className="min-w-0 space-y-4">
                   <div className="space-y-2">
-                    <label htmlFor="coexistence-channel-name" className="text-sm font-medium text-slate-700">
-                      Nombre del canal
-                    </label>
-                    <input
-                      id="coexistence-channel-name"
-                      name="name"
-                      type="text"
-                      required
-                      autoFocus
-                      value={channelName}
-                      onChange={(event) => setChannelName(event.target.value)}
-                      placeholder="Ej. WhatsApp administrativa coexistencia"
-                      className="h-12 w-full rounded-2xl border border-[rgba(148,163,184,0.18)] bg-white px-4 text-sm text-slate-900 outline-none transition focus:border-[var(--primary)] focus:ring-4 focus:ring-[color:color-mix(in_srgb,var(--primary)_12%,white)]"
+                    <Label htmlFor="official-api-embedded-code">Code de registro insertado</Label>
+                    <Textarea
+                      id="official-api-embedded-code"
+                      className="min-w-0 [field-sizing:fixed]"
+                      value={officialApiForm.embeddedCode}
+                      onChange={(event) => updateOfficialApiField("embeddedCode", event.target.value)}
+                      placeholder="AQJ..."
                     />
                   </div>
 
-                  <div className="rounded-[24px] border border-[var(--line)] bg-slate-50 px-4 py-4 text-sm leading-6 text-slate-600">
-                    Este flujo abrira el onboarding oficial de Meta para conectar una linea existente de WhatsApp Business App mediante coexistencia.
-                  </div>
-
-                  {coexistenceResult ? (
-                    <div
-                      className={`rounded-[24px] border px-4 py-4 text-sm ${
-                        coexistenceResult.ok
-                          ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                          : "border-rose-200 bg-rose-50 text-rose-800"
-                      }`}
-                    >
-                      <div className="flex items-start gap-3">
-                        {coexistenceResult.ok ? (
-                          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-                        ) : (
-                          <X className="mt-0.5 h-4 w-4 shrink-0" />
-                        )}
-                        <span>{coexistenceResult.message}</span>
-                      </div>
-                    </div>
-                  ) : null}
-
-                </div>
-              ) : selectedProvider === "OFFICIAL_API" ? (
-                <div className="space-y-5">
                   <div className="space-y-2">
-                    <label htmlFor="official-api-channel-name" className="text-sm font-medium text-slate-700">
-                      Nombre del canal
-                    </label>
-                    <input
-                      id="official-api-channel-name"
-                      name="name"
-                      type="text"
-                      required
-                      autoFocus
-                      value={channelName}
-                      onChange={(event) => setChannelName(event.target.value)}
-                      placeholder="Ej. WhatsApp oficial principal"
-                      className="h-12 w-full rounded-2xl border border-[rgba(148,163,184,0.18)] bg-white px-4 text-sm text-slate-900 outline-none transition focus:border-[var(--primary)] focus:ring-4 focus:ring-[color:color-mix(in_srgb,var(--primary)_12%,white)]"
+                    <Label htmlFor="official-api-session-response">Respuesta de registro de la sesion</Label>
+                    <Textarea
+                      id="official-api-session-response"
+                      className="min-w-0 [field-sizing:fixed]"
+                      value={officialApiForm.sessionResponse}
+                      onChange={(event) => updateOfficialApiField("sessionResponse", event.target.value)}
+                      placeholder='[{"data":{"phone_number_id":"...","waba_id":"...","business_id":"..."},"type":"WA_EMBEDDED_SIGNUP","event":"FINISH"}]'
                     />
-                  </div>
-
-                  <div className="rounded-[24px] border border-[var(--line)] bg-slate-50 px-4 py-4 text-sm leading-6 text-slate-600">
-                    Completa aqui mismo la configuracion de Meta para dejar activa la API oficial en el workspace y crear el canal sin pasar por administracion.
-                  </div>
-
-                  <div className="rounded-[24px] border border-[rgba(148,163,184,0.18)] bg-white p-4">
-                    <div className="space-y-1">
-                      <h3 className="text-sm font-semibold text-slate-900">Importar desde Embedded Signup</h3>
-                      <p className="text-sm leading-6 text-slate-600">
-                        Si Meta ya te devolvio el code y la respuesta de sesion, pegalos aqui y llenamos el token y los IDs automaticamente.
-                      </p>
-                    </div>
-
-                    <div className="mt-4 grid gap-4">
-                      <div className="space-y-2">
-                        <label htmlFor="official-api-embedded-code" className="text-sm font-medium text-slate-700">
-                          Code de registro insertado
-                        </label>
-                        <textarea
-                          id="official-api-embedded-code"
-                          value={officialApiForm.embeddedCode}
-                          onChange={(event) => updateOfficialApiField("embeddedCode", event.target.value)}
-                          placeholder="AQJ..."
-                          className="min-h-[92px] w-full rounded-2xl border border-[rgba(148,163,184,0.18)] bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-[var(--primary)] focus:ring-4 focus:ring-[color:color-mix(in_srgb,var(--primary)_12%,white)]"
-                        />
-                      </div>
-
-                      <div className="space-y-2">
-                        <label htmlFor="official-api-session-response" className="text-sm font-medium text-slate-700">
-                          Respuesta de registro de la sesion
-                        </label>
-                        <textarea
-                          id="official-api-session-response"
-                          value={officialApiForm.sessionResponse}
-                          onChange={(event) => updateOfficialApiField("sessionResponse", event.target.value)}
-                          placeholder='[{"data":{"phone_number_id":"...","waba_id":"...","business_id":"..."},"type":"WA_EMBEDDED_SIGNUP","event":"FINISH"}]'
-                          className="min-h-[120px] w-full rounded-2xl border border-[rgba(148,163,184,0.18)] bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-[var(--primary)] focus:ring-4 focus:ring-[color:color-mix(in_srgb,var(--primary)_12%,white)]"
-                        />
-                      </div>
-
-                      <div className="grid gap-4 md:grid-cols-2">
-                        <div className="space-y-2">
-                          <label htmlFor="official-api-provider-app-id" className="text-sm font-medium text-slate-700">
-                            App ID del proveedor (opcional)
-                          </label>
-                          <input
-                            id="official-api-provider-app-id"
-                            type="text"
-                            value={officialApiForm.appId}
-                            onChange={(event) => updateOfficialApiField("appId", event.target.value)}
-                            placeholder="1096639035350984"
-                            className="h-12 w-full rounded-2xl border border-[rgba(148,163,184,0.18)] bg-white px-4 text-sm text-slate-900 outline-none transition focus:border-[var(--primary)] focus:ring-4 focus:ring-[color:color-mix(in_srgb,var(--primary)_12%,white)]"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <label htmlFor="official-api-provider-app-secret" className="text-sm font-medium text-slate-700">
-                            App Secret del proveedor (opcional)
-                          </label>
-                          <input
-                            id="official-api-provider-app-secret"
-                            type="password"
-                            value={officialApiForm.appSecret}
-                            onChange={(event) => updateOfficialApiField("appSecret", event.target.value)}
-                            placeholder="Se usa solo si vas a cambiar el code por token"
-                            className="h-12 w-full rounded-2xl border border-[rgba(148,163,184,0.18)] bg-white px-4 text-sm text-slate-900 outline-none transition focus:border-[var(--primary)] focus:ring-4 focus:ring-[color:color-mix(in_srgb,var(--primary)_12%,white)]"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="flex justify-end">
-                        <button
-                          type="button"
-                          onClick={handleImportOfficialApiFromMeta}
-                          disabled={isImportingOfficialApi || !officialApiForm.sessionResponse.trim()}
-                          className="inline-flex h-11 items-center justify-center rounded-2xl border border-[rgba(148,163,184,0.18)] px-4 text-sm font-medium text-slate-700 transition hover:border-[var(--primary)] hover:text-[var(--primary)] disabled:cursor-not-allowed disabled:opacity-70"
-                        >
-                          {isImportingOfficialApi ? (
-                            <>
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                              Importando...
-                            </>
-                          ) : (
-                            "Importar desde Meta"
-                          )}
-                        </button>
-                      </div>
-                    </div>
                   </div>
 
                   <div className="grid gap-4 md:grid-cols-2">
-                    <div className="space-y-2 md:col-span-2">
-                      <label htmlFor="official-api-access-token" className="text-sm font-medium text-slate-700">
-                        Access token de Meta
-                      </label>
-                      <textarea
-                        id="official-api-access-token"
-                        value={officialApiForm.accessToken}
-                        onChange={(event) => updateOfficialApiField("accessToken", event.target.value)}
-                        placeholder="EAAP..."
-                        className="min-h-[110px] w-full rounded-2xl border border-[rgba(148,163,184,0.18)] bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-[var(--primary)] focus:ring-4 focus:ring-[color:color-mix(in_srgb,var(--primary)_12%,white)]"
+                    <div className="space-y-2">
+                      <Label htmlFor="official-api-provider-app-id">App ID del proveedor (opcional)</Label>
+                      <Input
+                        id="official-api-provider-app-id"
+                        type="text"
+                        value={officialApiForm.appId}
+                        onChange={(event) => updateOfficialApiField("appId", event.target.value)}
+                        placeholder="1096639035350984"
                       />
                     </div>
-
                     <div className="space-y-2">
-                      <label htmlFor="official-api-phone-number-id" className="text-sm font-medium text-slate-700">
-                        Phone Number ID
-                      </label>
-                      <input
-                        id="official-api-phone-number-id"
-                        type="text"
-                        value={officialApiForm.phoneNumberId}
-                        onChange={(event) => updateOfficialApiField("phoneNumberId", event.target.value)}
-                        placeholder="1230794916781773"
-                        className="h-12 w-full rounded-2xl border border-[rgba(148,163,184,0.18)] bg-white px-4 text-sm text-slate-900 outline-none transition focus:border-[var(--primary)] focus:ring-4 focus:ring-[color:color-mix(in_srgb,var(--primary)_12%,white)]"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <label htmlFor="official-api-waba-id" className="text-sm font-medium text-slate-700">
-                        WABA ID
-                      </label>
-                      <input
-                        id="official-api-waba-id"
-                        type="text"
-                        value={officialApiForm.wabaId}
-                        onChange={(event) => updateOfficialApiField("wabaId", event.target.value)}
-                        placeholder="1040209858511004"
-                        className="h-12 w-full rounded-2xl border border-[rgba(148,163,184,0.18)] bg-white px-4 text-sm text-slate-900 outline-none transition focus:border-[var(--primary)] focus:ring-4 focus:ring-[color:color-mix(in_srgb,var(--primary)_12%,white)]"
+                      <Label htmlFor="official-api-provider-app-secret">App Secret del proveedor (opcional)</Label>
+                      <Input
+                        id="official-api-provider-app-secret"
+                        type="password"
+                        value={officialApiForm.appSecret}
+                        onChange={(event) => updateOfficialApiField("appSecret", event.target.value)}
+                        placeholder="Se usa solo si vas a cambiar el code por token"
                       />
                     </div>
                   </div>
 
-                  {officialApiResult ? (
-                    <div
-                      className={`rounded-[24px] border px-4 py-4 text-sm ${
-                        officialApiResult.ok
-                          ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                          : "border-rose-200 bg-rose-50 text-rose-800"
-                      }`}
+                  <div className="flex justify-end">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleImportOfficialApiFromMeta}
+                      disabled={isImportingOfficialApi || !officialApiForm.sessionResponse.trim()}
                     >
-                      <div className="flex items-start gap-3">
-                        {officialApiResult.ok ? (
-                          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-                        ) : (
-                          <X className="mt-0.5 h-4 w-4 shrink-0" />
-                        )}
-                        <span>{officialApiResult.message}</span>
-                      </div>
-                    </div>
-                  ) : null}
+                      {isImportingOfficialApi ? (
+                        <>
+                          <Loader2 className="animate-spin" />
+                          Importando...
+                        </>
+                      ) : (
+                        "Importar desde Meta"
+                      )}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+              ) : null}
 
-                </div>
-              ) : (
-              <form id="new-connection-channel-form" action={createConnectionChannelAction} className="space-y-4">
-                <input type="hidden" name="provider" value={selectedProvider} />
-                {targetAgent ? <input type="hidden" name="agentId" value={targetAgent.id} /> : null}
-
-                <div className="space-y-2">
-                  <label htmlFor="channel-name" className="text-sm font-medium text-slate-700">
-                    Nombre del canal
-                  </label>
-                  <input
-                    id="channel-name"
-                    name="name"
-                    type="text"
-                    required
-                    autoFocus
-                    placeholder={selectedProvider === "EVOLUTION" ? "Ej. WhatsApp ventas principal" : "Ej. WhatsApp oficial tienda"}
-                    className="h-12 w-full rounded-2xl border border-[rgba(148,163,184,0.18)] bg-white px-4 text-sm text-slate-900 outline-none transition focus:border-[var(--primary)] focus:ring-4 focus:ring-[color:color-mix(in_srgb,var(--primary)_12%,white)]"
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2 md:col-span-2">
+                  <Label htmlFor="official-api-access-token">Access token de Meta</Label>
+                  <Textarea
+                    id="official-api-access-token"
+                    className="min-w-0 [field-sizing:fixed]"
+                    value={officialApiForm.accessToken}
+                    onChange={(event) => updateOfficialApiField("accessToken", event.target.value)}
+                    placeholder="EAAP..."
                   />
                 </div>
-              </form>
-              )
+
+                <div className="space-y-2">
+                  <Label htmlFor="official-api-phone-number-id">Phone Number ID</Label>
+                  <Input
+                    id="official-api-phone-number-id"
+                    type="text"
+                    value={officialApiForm.phoneNumberId}
+                    onChange={(event) => updateOfficialApiField("phoneNumberId", event.target.value)}
+                    placeholder="1230794916781773"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="official-api-waba-id">WABA ID</Label>
+                  <Input
+                    id="official-api-waba-id"
+                    type="text"
+                    value={officialApiForm.wabaId}
+                    onChange={(event) => updateOfficialApiField("wabaId", event.target.value)}
+                    placeholder="1040209858511004"
+                  />
+                </div>
+              </div>
+
+              {officialApiResult ? <ResultBanner result={officialApiResult} /> : null}
+            </div>
+          ) : (
+            <form id="new-connection-channel-form" action={createConnectionChannelAction} className="min-w-0 space-y-4">
+              <input type="hidden" name="provider" value={selectedProvider} />
+              {targetAgent ? <input type="hidden" name="agentId" value={targetAgent.id} /> : null}
+
+              <div className="space-y-2">
+                <Label htmlFor="channel-name">Nombre del canal</Label>
+                <Input
+                  id="channel-name"
+                  name="name"
+                  type="text"
+                  required
+                  autoFocus
+                  placeholder={selectedProvider === "EVOLUTION" ? "Ej. WhatsApp ventas principal" : "Ej. WhatsApp oficial tienda"}
+                />
+              </div>
+            </form>
+          )
         ) : (
           <div className="grid gap-3 md:grid-cols-2">
             <ChannelOptionCard
               title="WhatsApp QR Code"
               description=""
               cta="Empezar ahora"
-              icon={<WhatsAppGlyph className="h-8 w-8" />}
+              icon={<WhatsAppGlyph className="size-8" />}
               onSelect={() => setSelectedProvider("EVOLUTION")}
             />
 
@@ -846,27 +745,48 @@ export function NewConnectionChannelModal({
               title="WhatsApp API (Meta)"
               description=""
               cta={canSeeOfficialApiModule ? "Configurar y crear" : "Desactivado"}
-              icon={<WhatsAppGlyph className="h-8 w-8" />}
+              icon={<WhatsAppGlyph className="size-8" />}
               disabled={!canSeeOfficialApiModule}
               onSelect={() => setSelectedProvider("OFFICIAL_API")}
             />
 
             <ChannelOptionCard
               title="API oficial coexistencia"
-              description="Abre el onboarding oficial de Meta para conectar una linea existente de WhatsApp Business App."
+              description=""
               cta={canSeeOfficialApiModule && officialApiEmbeddedSignupReady ? "Continuar con Meta" : "Pendiente de configurar"}
-              icon={<WhatsAppGlyph className="h-8 w-8" />}
+              icon={<WhatsAppGlyph className="size-8" />}
               disabled={!canSeeOfficialApiModule || !officialApiEmbeddedSignupReady}
               onSelect={() => setSelectedProvider("OFFICIAL_API_COEXISTENCE")}
             />
           </div>
         )}
         </div>
-        <div className="flex flex-wrap justify-end gap-3 border-t border-[rgba(148,163,184,0.14)] bg-white px-6 py-4">
+
+        <DialogFooter className="mx-0 mb-0 shrink-0 rounded-none border-t bg-muted/50 px-6 py-4">
           {footerActions}
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function ResultBanner({ result }: { result: { ok: boolean; message: string } }) {
+  return (
+    <div
+      className={cn(
+        "flex items-start gap-3 rounded-lg border p-4 text-sm",
+        result.ok
+          ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+          : "border-destructive/30 bg-destructive/10 text-destructive",
+      )}
+    >
+      {result.ok ? (
+        <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
+      ) : (
+        <X className="mt-0.5 size-4 shrink-0" />
+      )}
+      <span>{result.message}</span>
+    </div>
   );
 }
 
@@ -886,51 +806,34 @@ function ChannelOptionCard({
   onSelect: () => void;
 }) {
   return (
-    <button
-      type="button"
+    <Card
+      role="button"
+      tabIndex={disabled ? -1 : 0}
+      aria-disabled={disabled}
       onClick={disabled ? undefined : onSelect}
-      disabled={disabled}
-        className={`group relative overflow-hidden rounded-[26px] border p-4 text-left transition ${
-        disabled
-          ? "cursor-not-allowed border-[rgba(148,163,184,0.16)] bg-slate-50/80 opacity-80"
-          : "border-[var(--line)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.95))] shadow-[0_24px_54px_-42px_rgba(15,23,42,0.14)] hover:-translate-y-0.5 hover:shadow-[0_28px_60px_-42px_rgba(15,23,42,0.18)]"
-      }`}
+      onKeyDown={(event) => {
+        if (disabled) return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onSelect();
+        }
+      }}
+      className={cn(
+        "transition-colors",
+        disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-muted/50",
+      )}
     >
-      <ChannelOptionContent title={title} description={description} cta={cta} icon={icon} disabled={disabled} />
-    </button>
-  );
-}
-
-function ChannelOptionContent({
-  title,
-  description,
-  cta,
-  icon,
-  disabled = false,
-}: {
-  title: string;
-  description: string;
-  cta: string;
-  icon: ReactNode;
-  disabled?: boolean;
-}) {
-  return (
-    <>
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(37,99,235,0.06),transparent_24%),radial-gradient(circle_at_bottom_left,rgba(14,165,233,0.05),transparent_28%)]" />
-
-        <div className="relative flex h-full flex-col items-center gap-3 text-center">
-          <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,#22c55e_14%,white)] text-[#16a34a]">
-            {icon}
-          </div>
-
-          <div className="space-y-1.5">
-            <h3 className="text-[1.02rem] font-semibold tracking-[-0.04em] text-slate-950">{title}</h3>
-            <p className="text-sm leading-5 text-slate-600">{description}</p>
-          </div>
-
-          <div className={`mt-auto text-sm font-medium ${disabled ? "text-slate-500" : "text-[var(--primary)]"}`}>{cta}</div>
+      <CardContent className="flex flex-col items-center gap-3 text-center">
+        <div className="text-[#16a34a]">{icon}</div>
+        <div className="space-y-1">
+          <h3 className="font-heading text-base font-medium">{title}</h3>
+          {description ? <p className="text-sm text-muted-foreground">{description}</p> : null}
         </div>
-    </>
+        <span className={cn("text-sm font-medium", disabled ? "text-muted-foreground" : "text-primary")}>
+          {cta}
+        </span>
+      </CardContent>
+    </Card>
   );
 }
 
