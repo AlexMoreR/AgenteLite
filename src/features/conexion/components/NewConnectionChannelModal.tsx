@@ -844,7 +844,7 @@ export function NewConnectionChannelModal({
 
             <ChannelOptionCard
               title="WhatsApp API (Meta)"
-              description="Configura y activa la API oficial del workspace en un solo modal, sin pasar por administracion."
+              description=""
               cta={canSeeOfficialApiModule ? "Configurar y crear" : "Desactivado"}
               icon={<WhatsAppGlyph className="h-8 w-8" />}
               disabled={!canSeeOfficialApiModule}
