@@ -3,10 +3,41 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
+import { getMetaGraphErrorMessage, type MetaGraphErrorPayload } from "@/lib/official-api-graph";
 import { upsertOfficialApiConfigByWorkspaceId } from "@/lib/official-api-config";
 import { subscribeOfficialApiAppToWaba } from "@/lib/official-api-subscription";
 import { prisma } from "@/lib/prisma";
 import { getOfficialApiProviderSettings } from "@/lib/system-settings";
+
+async function fetchOfficialApiDisplayNumber(phoneNumberId: string, accessToken: string) {
+  const response = await fetch(
+    `https://graph.facebook.com/v23.0/${encodeURIComponent(phoneNumberId)}?fields=display_phone_number`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+      cache: "no-store",
+    },
+  );
+
+  const payload = (await response.json().catch(() => null)) as
+    | ({ display_phone_number?: string } & MetaGraphErrorPayload)
+    | null;
+
+  if (!response.ok) {
+    return {
+      ok: false as const,
+      error: getMetaGraphErrorMessage(payload, "No se pudo validar el Phone Number ID en Meta."),
+    };
+  }
+
+  // Meta devuelve el numero formateado ("+57 305 712 7409"); lo normalizamos a solo digitos
+  // para que coincida con el formato del resto de canales.
+  const normalized = payload?.display_phone_number?.replace(/\D/g, "") ?? "";
+
+  return { ok: true as const, phoneNumber: normalized };
+}
 
 const setupOfficialApiSchema = z.object({
   channelId: z.string().trim().min(1, "Canal invalido."),
@@ -84,6 +115,15 @@ export async function POST(request: Request) {
     );
   }
 
+  const displayNumber = await fetchOfficialApiDisplayNumber(
+    parsed.data.phoneNumberId,
+    parsed.data.accessToken,
+  );
+
+  if (!displayNumber.ok) {
+    return NextResponse.json({ ok: false, error: displayNumber.error }, { status: 400 });
+  }
+
   const baseMetadata =
     channel.metadata && typeof channel.metadata === "object" && !Array.isArray(channel.metadata)
       ? (channel.metadata as Record<string, unknown>)
@@ -93,7 +133,7 @@ export async function POST(request: Request) {
     where: { id: channel.id },
     data: {
       evolutionInstanceName: `official-${parsed.data.phoneNumberId}-${randomUUID()}`,
-      phoneNumber: channel.phoneNumber || parsed.data.phoneNumberId,
+      phoneNumber: displayNumber.phoneNumber || channel.phoneNumber || parsed.data.phoneNumberId,
       status: "CONNECTED",
       metadata: {
         ...baseMetadata,
