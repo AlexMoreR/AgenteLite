@@ -836,7 +836,7 @@ export function NewConnectionChannelModal({
           <div className="grid gap-3 md:grid-cols-2">
             <ChannelOptionCard
               title="WhatsApp QR Code"
-              description="Conecta numeros de WhatsApp Business por QR o codigo con Evolution."
+              description=""
               cta="Empezar ahora"
               icon={<WhatsAppGlyph className="h-8 w-8" />}
               onSelect={() => setSelectedProvider("EVOLUTION")}
