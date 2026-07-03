@@ -78,20 +78,20 @@ function HeaderLabel({
   return (
     <button
       type="button"
-      className="inline-flex items-center gap-2 text-[15px] font-normal text-slate-600 transition hover:text-slate-900"
+      className="inline-flex items-center gap-2 text-[15px] font-normal text-muted-foreground transition hover:text-foreground"
       onClick={onClick}
       aria-label={`Ordenar por ${String(children)}`}
     >
-      <span className="text-slate-500">{icon}</span>
+      <span className="text-muted-foreground">{icon}</span>
       {children}
       {active ? (
         direction === "asc" ? (
-          <ArrowUp className="h-3.5 w-3.5 text-slate-700" />
+          <ArrowUp className="h-3.5 w-3.5 text-foreground" />
         ) : (
-          <ArrowDown className="h-3.5 w-3.5 text-slate-700" />
+          <ArrowDown className="h-3.5 w-3.5 text-foreground" />
         )
       ) : (
-        <ArrowUpDown className="h-3.5 w-3.5 text-slate-500" />
+        <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground" />
       )}
     </button>
   );
@@ -227,7 +227,7 @@ export function ProductsDataTable({ products, currency, onOpenProduct }: Product
     <div className="space-y-3">
       <div className="flex w-full flex-col gap-2 lg:flex-row lg:items-center">
         <div className="relative w-full flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
@@ -238,7 +238,7 @@ export function ProductsDataTable({ products, currency, onOpenProduct }: Product
             <button
               type="button"
               onClick={() => setQuery("")}
-              className="absolute right-2 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+              className="absolute right-2 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-muted-foreground"
               aria-label="Limpiar busqueda"
             >
               <X className="h-3.5 w-3.5" />
@@ -249,7 +249,7 @@ export function ProductsDataTable({ products, currency, onOpenProduct }: Product
           <select
             value={categoryFilter}
             onChange={(event) => setCategoryFilter(event.target.value)}
-            className="h-9 w-full rounded-lg border border-[var(--line)] bg-white px-2.5 text-sm text-slate-700 outline-none transition focus:border-[var(--line-strong)] sm:min-w-40 sm:w-auto"
+            className="h-9 w-full rounded-lg border border-border bg-card px-2.5 text-sm text-foreground outline-none transition focus:border-ring sm:min-w-40 sm:w-auto"
             aria-label="Filtrar por categoria"
           >
             <option value="__all__">Categorias</option>
@@ -277,14 +277,14 @@ export function ProductsDataTable({ products, currency, onOpenProduct }: Product
 
       <div className="space-y-2 md:hidden">
         {pagedProducts.length === 0 ? (
-          <div className="rounded-xl border border-[var(--line)] bg-white px-3 py-6 text-center text-sm text-slate-500">
+          <div className="rounded-xl border border-border bg-card px-3 py-6 text-center text-sm text-muted-foreground">
             No hay productos para el filtro actual.
           </div>
         ) : (
           pagedProducts.map((product) => (
             <article
               key={product.id}
-              className="rounded-xl border border-[var(--line)] bg-white p-3"
+              className="rounded-xl border border-border bg-card p-3"
             >
               <form data-delete-product-id={product.id} action={adminDeleteProductAction}>
                 <input type="hidden" name="productId" value={product.id} />
@@ -298,15 +298,15 @@ export function ProductsDataTable({ products, currency, onOpenProduct }: Product
                   <img
                     src={product.thumbnailUrl}
                     alt={product.name}
-                    className="h-12 w-12 rounded-md border border-[var(--line)] object-cover"
+                    className="h-12 w-12 rounded-md border border-border object-cover"
                   />
                   <div className="min-w-0">
-                    <p className="line-clamp-2 break-words text-sm font-semibold text-slate-900">{product.name}</p>
+                    <p className="line-clamp-2 break-words text-sm font-semibold text-foreground">{product.name}</p>
                     <div className="mt-0.5 flex flex-wrap items-center gap-2">
-                      <span className="inline-flex rounded-md border border-[var(--line)] bg-slate-50 px-2 py-0.5 text-[11px] text-slate-700">
+                      <span className="inline-flex rounded-md border border-border bg-muted px-2 py-0.5 text-[11px] text-foreground">
                         {product.categoryName ?? "Sin categoria"}
                       </span>
-                      <span className="text-[11px] leading-none font-semibold text-slate-700">
+                      <span className="text-[11px] leading-none font-semibold text-foreground">
                         {formatMoney(product.baseCost, currency)}
                       </span>
                     </div>
@@ -332,7 +332,7 @@ export function ProductsDataTable({ products, currency, onOpenProduct }: Product
                     type="button"
                     variant="outline"
                     size="icon"
-                    className="h-8 w-8 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+                    className="h-8 w-8 border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive"
                     onClick={() => setPendingDelete({ id: product.id, name: product.name })}
                     aria-label={`Eliminar ${product.name}`}
                   >
@@ -345,10 +345,10 @@ export function ProductsDataTable({ products, currency, onOpenProduct }: Product
         )}
       </div>
 
-      <div className="hidden overflow-hidden rounded-xl border border-[var(--line)] bg-white md:block">
+      <div className="hidden overflow-hidden rounded-xl border border-border bg-card md:block">
         <Table className="min-w-[980px]">
           <TableHeader>
-            <TableRow className="bg-slate-50/70 hover:bg-slate-50/70">
+            <TableRow className="bg-muted/70 hover:bg-muted/70">
               <TableHead className="normal-case tracking-normal">
                 <HeaderLabel
                   active={sortKey === "producto"}
@@ -414,7 +414,7 @@ export function ProductsDataTable({ products, currency, onOpenProduct }: Product
           <TableBody>
             {pagedProducts.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="py-9 text-center text-slate-500">
+                <TableCell colSpan={6} className="py-9 text-center text-muted-foreground">
                   No hay productos para el filtro actual.
                 </TableCell>
               </TableRow>
@@ -424,38 +424,38 @@ export function ProductsDataTable({ products, currency, onOpenProduct }: Product
                   <TableCell>
                     <Link
                       href={`/admin/productos/${product.id}`}
-                      className="group -m-1 flex items-center gap-2.5 rounded-md p-1 transition hover:bg-slate-50"
+                      className="group -m-1 flex items-center gap-2.5 rounded-md p-1 transition hover:bg-muted"
                       onClick={(event) => handleOpenProduct(event, product.id)}
                     >
                       <img
                         src={product.thumbnailUrl}
                         alt={product.name}
-                        className="h-10 w-10 rounded-md border border-[var(--line)] object-cover"
+                        className="h-10 w-10 rounded-md border border-border object-cover"
                       />
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-slate-900 group-hover:text-slate-700">
+                        <p className="truncate text-sm font-medium text-foreground group-hover:text-foreground">
                           {product.name}
                         </p>
-                        <p className="truncate text-xs text-slate-500">
+                        <p className="truncate text-xs text-muted-foreground">
                           {product.code ? `Codigo: ${product.code}` : "Sin codigo"}
                         </p>
                       </div>
                     </Link>
                   </TableCell>
-                  <TableCell className="text-sm text-slate-600">
-                    <span className="inline-flex rounded-md border border-[var(--line)] bg-slate-50 px-2 py-1 text-xs">
+                  <TableCell className="text-sm text-muted-foreground">
+                    <span className="inline-flex rounded-md border border-border bg-muted px-2 py-1 text-xs">
                       {product.categoryName ?? "Sin categoria"}
                     </span>
                   </TableCell>
-                  <TableCell className="text-sm text-slate-600">
-                    <span className="inline-flex rounded-md border border-[var(--line)] bg-slate-50 px-2 py-1 text-xs">
+                  <TableCell className="text-sm text-muted-foreground">
+                    <span className="inline-flex rounded-md border border-border bg-muted px-2 py-1 text-xs">
                       {product.supplierName ?? "Sin proveedor"}
                     </span>
                   </TableCell>
-                  <TableCell className="text-sm font-medium text-slate-700">
+                  <TableCell className="text-sm font-medium text-foreground">
                     {formatMoney(product.baseCost, currency)}
                   </TableCell>
-                  <TableCell className="text-sm font-semibold text-slate-800">
+                  <TableCell className="text-sm font-semibold text-foreground">
                     {formatMoney(product.price, currency)}
                   </TableCell>
                   <TableCell>
@@ -463,20 +463,20 @@ export function ProductsDataTable({ products, currency, onOpenProduct }: Product
                       <input type="hidden" name="productId" value={product.id} />
                     </form>
                     <div className="flex items-center gap-1">
-                      <Button asChild type="button" variant="ghost" size="icon" className="h-8 w-8 border border-transparent hover:border-[var(--line)]">
+                      <Button asChild type="button" variant="ghost" size="icon" className="h-8 w-8 border border-transparent hover:border-border">
                         <Link
                           href={`/admin/productos/${product.id}`}
                           aria-label={`Editar ${product.name}`}
                           onClick={(event) => handleOpenProduct(event, product.id)}
                         >
-                          <Edit3 className="h-4 w-4 text-slate-600" />
+                          <Edit3 className="h-4 w-4 text-muted-foreground" />
                         </Link>
                       </Button>
                       <Button
                         type="button"
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8 border border-transparent text-red-600 hover:border-red-100 hover:bg-red-50 hover:text-red-700"
+                        className="h-8 w-8 border border-transparent text-destructive hover:border-destructive/30 hover:bg-destructive/10 hover:text-destructive"
                         onClick={() => setPendingDelete({ id: product.id, name: product.name })}
                         aria-label={`Eliminar ${product.name}`}
                       >
@@ -492,7 +492,7 @@ export function ProductsDataTable({ products, currency, onOpenProduct }: Product
       </div>
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-muted-foreground">
           Mostrando {rangeStart}-{rangeEnd} de {filteredProducts.length}
         </p>
         <div className="flex items-center gap-2 self-end sm:self-auto">
@@ -505,7 +505,7 @@ export function ProductsDataTable({ products, currency, onOpenProduct }: Product
           >
             Anterior
           </Button>
-          <span className="text-xs text-slate-600">
+          <span className="text-xs text-muted-foreground">
             Pagina {page} de {totalPages}
           </span>
           <Button
@@ -522,7 +522,7 @@ export function ProductsDataTable({ products, currency, onOpenProduct }: Product
 
       {pendingDelete ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-[#11182752] px-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
           role="dialog"
           aria-modal="true"
           aria-label="Confirmar eliminacion"
@@ -533,9 +533,9 @@ export function ProductsDataTable({ products, currency, onOpenProduct }: Product
             onClick={(event) => event.stopPropagation()}
           >
             <div className="space-y-1">
-              <h3 className="text-base font-semibold text-slate-900">Eliminar producto</h3>
-              <p className="text-sm text-slate-600">
-                Se eliminara <span className="font-medium text-slate-800">{pendingDelete.name}</span>. Esta accion no se puede deshacer.
+              <h3 className="text-base font-semibold text-foreground">Eliminar producto</h3>
+              <p className="text-sm text-muted-foreground">
+                Se eliminara <span className="font-medium text-foreground">{pendingDelete.name}</span>. Esta accion no se puede deshacer.
               </p>
             </div>
             <div className="mt-5 flex items-center justify-end gap-2">
@@ -550,7 +550,7 @@ export function ProductsDataTable({ products, currency, onOpenProduct }: Product
               <Button
                 type="button"
                 size="sm"
-                className="bg-red-600 text-white hover:bg-red-700"
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                 onClick={confirmDelete}
               >
                 Eliminar

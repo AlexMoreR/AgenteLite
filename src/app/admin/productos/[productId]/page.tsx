@@ -53,11 +53,11 @@ export default async function AdminProductoDetallePage({ params, searchParams }:
     <section className="w-full space-y-5">
       <div className="flex flex-wrap items-start gap-3">
         <div>
-          <h1 className="inline-flex items-center gap-1 text-lg font-semibold tracking-tight text-slate-900 md:text-xl">
-            <PackageSearch className="h-4 w-4 text-slate-500" />
+          <h1 className="inline-flex items-center gap-1 text-lg font-semibold tracking-tight text-foreground md:text-xl">
+            <PackageSearch className="h-4 w-4 text-muted-foreground" />
             <span>{product.name}</span>
           </h1>
-          <p className="mt-0.5 text-[13px] leading-5 text-slate-600">
+          <p className="mt-0.5 text-[13px] leading-5 text-muted-foreground">
             Visualiza y ajusta costo, sugerencia y precio final con el mismo flujo del formulario de creacion.
           </p>
         </div>

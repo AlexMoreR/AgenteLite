@@ -85,18 +85,18 @@ export function ProductsWorkspace({
     <>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
-          <h1 className="inline-flex items-center gap-1 text-lg font-semibold tracking-tight text-slate-900 md:text-xl">
-            <Package className="h-4 w-4 text-slate-500" />
+          <h1 className="inline-flex items-center gap-1 text-lg font-semibold tracking-tight text-foreground md:text-xl">
+            <Package className="h-4 w-4 text-muted-foreground" />
             <span>Productos</span>
           </h1>
-          <p className="mt-1 text-xs text-slate-600">Gestion de productos.</p>
+          <p className="mt-1 text-xs text-muted-foreground">Gestion de productos.</p>
         </div>
         <div className="flex w-full items-center gap-2 sm:w-auto">
           <ProductImportExportControls />
           <button
             type="button"
             onClick={openNewModal}
-            className="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)] sm:flex-none"
+            className="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 sm:flex-none"
           >
             <Plus className="h-4 w-4" />
             Nuevo producto
@@ -112,22 +112,22 @@ export function ProductsWorkspace({
 
       {modal === "new" ? (
         <div
-          className="fixed inset-0 z-50 flex items-stretch justify-center bg-[#11182770] p-0 sm:items-start sm:p-4 md:p-6"
+          className="fixed inset-0 z-50 flex items-stretch justify-center bg-black/50 p-0 sm:items-start sm:p-4 md:p-6"
           role="dialog"
           aria-modal="true"
           aria-label="Nuevo producto"
           onClick={closeModal}
         >
           <div
-            className="h-full w-full max-w-6xl overflow-y-auto overflow-x-hidden rounded-none border border-[var(--line)] bg-white p-3 sm:max-h-[92vh] sm:rounded-xl sm:p-4 md:p-5"
+            className="h-full w-full max-w-6xl overflow-y-auto overflow-x-hidden rounded-none border bg-card p-3 sm:max-h-[92vh] sm:rounded-xl sm:p-4 md:p-5"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-slate-900">Nuevo producto</h2>
+              <h2 className="text-lg font-semibold text-foreground">Nuevo producto</h2>
               <button
                 type="button"
                 onClick={closeModal}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--line)] text-slate-600 transition hover:bg-slate-50"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border text-muted-foreground transition hover:bg-muted"
                 aria-label="Cerrar"
               >
                 <X className="h-4 w-4" />
@@ -140,22 +140,22 @@ export function ProductsWorkspace({
 
       {modal === "edit" && activeProduct ? (
         <div
-          className="fixed inset-0 z-50 flex items-stretch justify-center bg-[#11182770] p-0 sm:items-start sm:p-4 md:p-6"
+          className="fixed inset-0 z-50 flex items-stretch justify-center bg-black/50 p-0 sm:items-start sm:p-4 md:p-6"
           role="dialog"
           aria-modal="true"
           aria-label={`Editar ${activeProduct.name}`}
           onClick={closeModal}
         >
           <div
-            className="h-full w-full max-w-6xl overflow-y-auto overflow-x-hidden rounded-none border border-[var(--line)] bg-white p-3 sm:max-h-[92vh] sm:rounded-xl sm:p-4 md:p-5"
+            className="h-full w-full max-w-6xl overflow-y-auto overflow-x-hidden rounded-none border bg-card p-3 sm:max-h-[92vh] sm:rounded-xl sm:p-4 md:p-5"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-slate-900">{activeProduct.name}</h2>
+              <h2 className="text-lg font-semibold text-foreground">{activeProduct.name}</h2>
               <button
                 type="button"
                 onClick={closeModal}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--line)] text-slate-600 transition hover:bg-slate-50"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border text-muted-foreground transition hover:bg-muted"
                 aria-label="Cerrar"
               >
                 <X className="h-4 w-4" />

@@ -89,28 +89,28 @@ export function ProfileForm({
     <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
       <Card className="space-y-5 p-5">
         <div className="flex items-center gap-3">
-          <Avatar className="h-14 w-14 rounded-xl border border-[var(--line)]">
+          <Avatar className="h-14 w-14 rounded-xl border border-border">
             <AvatarImage src={defaultImage} alt={defaultName || email} />
-            <AvatarFallback className="rounded-xl bg-slate-800 text-sm">
+            <AvatarFallback className="rounded-xl bg-secondary text-secondary-foreground text-sm">
               {initials}
             </AvatarFallback>
           </Avatar>
           <div className="min-w-0">
-            <p className="truncate text-base font-semibold text-slate-900">
+            <p className="truncate text-base font-semibold text-foreground">
               {defaultName || "Usuario"}
             </p>
-            <p className="truncate text-xs text-slate-600">{email}</p>
+            <p className="truncate text-xs text-muted-foreground">{email}</p>
           </div>
         </div>
 
-        <div className="space-y-3 border-t border-[var(--line)] pt-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Cuenta</p>
-          <div className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
-            <Mail className="h-4 w-4 text-slate-500" />
+        <div className="space-y-3 border-t border-border pt-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Cuenta</p>
+          <div className="flex items-center gap-2 rounded-lg bg-muted px-3 py-2 text-sm text-foreground">
+            <Mail className="h-4 w-4 text-muted-foreground" />
             <span className="truncate">{email}</span>
           </div>
-          <div className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
-            <ShieldCheck className="h-4 w-4 text-slate-500" />
+          <div className="flex items-center gap-2 rounded-lg bg-muted px-3 py-2 text-sm text-foreground">
+            <ShieldCheck className="h-4 w-4 text-muted-foreground" />
             <span>Rol: {role}</span>
           </div>
         </div>
@@ -118,8 +118,8 @@ export function ProfileForm({
 
       <div className="space-y-4">
         <Card className="space-y-4 p-5">
-          <div className="inline-flex items-center gap-2 text-sm font-semibold text-slate-900">
-            <UserPen className="h-4 w-4 text-slate-500" />
+          <div className="inline-flex items-center gap-2 text-sm font-semibold text-foreground">
+            <UserPen className="h-4 w-4 text-muted-foreground" />
             Informacion personal
           </div>
           <form action={profileAction} className="grid gap-3">
@@ -145,11 +145,11 @@ export function ProfileForm({
         </Card>
 
         <Card className="space-y-4 p-5">
-          <div className="inline-flex items-center gap-2 text-sm font-semibold text-slate-900">
-            <KeyRound className="h-4 w-4 text-slate-500" />
+          <div className="inline-flex items-center gap-2 text-sm font-semibold text-foreground">
+            <KeyRound className="h-4 w-4 text-muted-foreground" />
             Seguridad
           </div>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-muted-foreground">
             Gestiona tu acceso desde una ventana separada para mantener esta informacion protegida.
           </p>
           <div className="pt-1">
@@ -166,7 +166,7 @@ export function ProfileForm({
 
       {isPasswordModalOpen ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 px-4 py-6 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-4 py-6 backdrop-blur-sm"
           onClick={() => setIsPasswordModalOpen(false)}
         >
           <Card
@@ -175,11 +175,11 @@ export function ProfileForm({
           >
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="inline-flex items-center gap-2 text-sm font-semibold text-slate-900">
-                  <KeyRound className="h-4 w-4 text-slate-500" />
+                <div className="inline-flex items-center gap-2 text-sm font-semibold text-foreground">
+                  <KeyRound className="h-4 w-4 text-muted-foreground" />
                   Cambiar contrasena
                 </div>
-                <p className="mt-1 text-sm text-slate-600">
+                <p className="mt-1 text-sm text-muted-foreground">
                   Ingresa tu contrasena actual y define una nueva clave.
                 </p>
               </div>
@@ -190,7 +190,7 @@ export function ProfileForm({
                 className="h-8 w-8 rounded-full"
                 onClick={() => setIsPasswordModalOpen(false)}
               >
-                <X className="h-4 w-4 text-slate-500" />
+                <X className="h-4 w-4 text-muted-foreground" />
               </Button>
             </div>
 
@@ -227,11 +227,11 @@ export function ProfileForm({
               </div>
             </form>
 
-            <div className="space-y-3 rounded-xl border border-dashed border-[var(--line)] bg-slate-50/80 p-4">
+            <div className="space-y-3 rounded-xl border border-dashed border-border bg-muted/80 p-4">
               <div className="space-y-1">
-                <p className="text-sm font-medium text-slate-900">Perdi la contrasena</p>
-                <p className="text-sm text-slate-600">
-                  Te enviamos un enlace a <span className="font-medium text-slate-900">{email}</span>{" "}
+                <p className="text-sm font-medium text-foreground">Perdi la contrasena</p>
+                <p className="text-sm text-muted-foreground">
+                  Te enviamos un enlace a <span className="font-medium text-foreground">{email}</span>{" "}
                   para que crees una nueva.
                 </p>
               </div>

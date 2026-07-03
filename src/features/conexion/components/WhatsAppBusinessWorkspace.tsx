@@ -29,9 +29,9 @@ export function WhatsAppBusinessWorkspace({ summary, items }: WhatsAppBusinessWo
   return (
     <section className="app-page space-y-5">
       <div className="space-y-2">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Conexion</p>
-        <h1 className="text-2xl font-semibold tracking-[-0.05em] text-slate-950">WhatsApp Business</h1>
-        <p className="max-w-3xl text-sm leading-6 text-slate-600">
+        <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Conexion</p>
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">WhatsApp Business</h1>
+        <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
           Aqui administras los canales de WhatsApp que se crean dentro del modulo de conexion.
         </p>
       </div>
@@ -53,33 +53,33 @@ export function WhatsAppBusinessWorkspace({ summary, items }: WhatsAppBusinessWo
               <Link
                 key={item.id}
                 href={`/cliente/conexion/whatsapp-business/${item.id}`}
-                className="group rounded-[24px] border border-[rgba(148,163,184,0.14)] bg-white p-5 shadow-[0_20px_60px_-48px_rgba(15,23,42,0.18)] transition hover:-translate-y-0.5 hover:shadow-[0_24px_60px_-44px_rgba(15,23,42,0.22)]"
+                className="group rounded-2xl border bg-card p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
               >
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                   <div className="space-y-3">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h2 className="text-lg font-semibold tracking-[-0.04em] text-slate-950">{item.name}</h2>
+                      <h2 className="text-lg font-semibold tracking-tight text-foreground">{item.name}</h2>
                       <StatusPill
                         label={item.channelStatusLabel}
                         tone={isConnected ? "success" : isPending ? "warning" : "neutral"}
                       />
                     </div>
 
-                    <div className="flex flex-wrap gap-2 text-sm text-slate-600">
+                    <div className="flex flex-wrap gap-2 text-sm text-muted-foreground">
                       {item.linkedAgentName ? (
-                        <span className="rounded-full bg-slate-50 px-3 py-1">
+                        <span className="rounded-full bg-muted px-3 py-1">
                           Agente: {item.linkedAgentName} ({item.linkedAgentStatus})
                         </span>
                       ) : null}
                       {item.phoneNumber ? (
-                        <span className="rounded-full bg-slate-50 px-3 py-1">Numero: {item.phoneNumber}</span>
+                        <span className="rounded-full bg-muted px-3 py-1">Numero: {item.phoneNumber}</span>
                       ) : null}
-                      <span className="rounded-full bg-slate-50 px-3 py-1">{item.conversationsCount} conversaciones</span>
-                      <span className="rounded-full bg-slate-50 px-3 py-1">{item.messagesCount} mensajes</span>
+                      <span className="rounded-full bg-muted px-3 py-1">{item.conversationsCount} conversaciones</span>
+                      <span className="rounded-full bg-muted px-3 py-1">{item.messagesCount} mensajes</span>
                     </div>
                   </div>
 
-                  <div className="inline-flex items-center gap-2 text-sm font-medium text-[var(--primary)]">
+                  <div className="inline-flex items-center gap-2 text-sm font-medium text-primary">
                     Abrir conexion
                     <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
                   </div>
@@ -88,7 +88,7 @@ export function WhatsAppBusinessWorkspace({ summary, items }: WhatsAppBusinessWo
             );
           })
         ) : (
-          <div className="rounded-[24px] border border-dashed border-[rgba(148,163,184,0.3)] bg-white px-5 py-8 text-sm text-slate-600">
+          <div className="rounded-2xl border border-dashed bg-card px-5 py-8 text-sm text-muted-foreground">
             Aun no hay canales creados. Usa el boton de nuevo canal para crear una conexion.
           </div>
         )}
@@ -99,12 +99,12 @@ export function WhatsAppBusinessWorkspace({ summary, items }: WhatsAppBusinessWo
 
 function SummaryCard({ label, value, icon }: { label: string; value: string; icon: ReactNode }) {
   return (
-    <div className="rounded-[22px] border border-[rgba(148,163,184,0.14)] bg-white p-4 shadow-[0_16px_40px_-38px_rgba(15,23,42,0.24)]">
-      <div className="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_10%,white)] text-[var(--primary)]">
+    <div className="rounded-2xl border bg-card p-4 shadow-sm">
+      <div className="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-primary/10 text-primary">
         {icon}
       </div>
-      <p className="mt-4 text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">{label}</p>
-      <p className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-slate-950">{value}</p>
+      <p className="mt-4 text-xs font-medium uppercase tracking-widest text-muted-foreground">{label}</p>
+      <p className="mt-2 text-2xl font-semibold tracking-tight text-foreground">{value}</p>
     </div>
   );
 }
@@ -112,13 +112,13 @@ function SummaryCard({ label, value, icon }: { label: string; value: string; ico
 function StatusPill({ label, tone }: { label: string; tone: "success" | "warning" | "neutral" }) {
   const className =
     tone === "success"
-      ? "border-[rgba(22,163,74,0.14)] bg-[color-mix(in_srgb,#16a34a_8%,white)] text-[#15803d]"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
       : tone === "warning"
-        ? "border-[rgba(217,119,6,0.16)] bg-[color-mix(in_srgb,#f59e0b_10%,white)] text-[#b45309]"
-        : "border-[rgba(148,163,184,0.16)] bg-slate-50 text-slate-600";
+        ? "border-amber-200 bg-amber-50 text-amber-700"
+        : "border-border bg-muted text-muted-foreground";
 
   return (
-    <span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${className}`}>
+    <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold uppercase tracking-widest ${className}`}>
       {label}
     </span>
   );

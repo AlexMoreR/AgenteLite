@@ -89,10 +89,10 @@ function StepDot({ active, done }: { active: boolean; done: boolean }) {
     <span
       className={`h-2 rounded-full transition-all ${
         active
-          ? "w-10 bg-[var(--primary)] shadow-[0_10px_18px_-12px_color-mix(in_srgb,var(--primary)_70%,black)]"
+          ? "w-10 bg-primary shadow-sm"
           : done
-            ? "w-4 bg-[color-mix(in_srgb,var(--primary)_40%,white)]"
-            : "w-4 bg-slate-200"
+            ? "w-4 bg-primary/40"
+            : "w-4 bg-muted"
       }`}
     />
   );
@@ -208,7 +208,7 @@ export function AdsGeneratorForm({ pending, initialValues, onSubmit }: AdsGenera
           onSubmit(input);
         }}
       >
-      <div className="border-b border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfbfd_100%)] px-5 py-5 md:px-8 md:py-4">
+      <div className="border-b border-border bg-card px-5 py-5 md:px-8 md:py-4">
         <div className="space-y-2 text-center">
           <div className="flex flex-wrap justify-center gap-2">
             {steps.map((item, index) => (
@@ -216,16 +216,16 @@ export function AdsGeneratorForm({ pending, initialValues, onSubmit }: AdsGenera
             ))}
           </div>
           <div className="space-y-2">
-            <h2 className="text-[1.8rem] font-semibold tracking-[-0.06em] text-slate-950 md:text-[2rem]">
+            <h2 className="text-[1.8rem] font-semibold tracking-tight text-foreground md:text-[2rem]">
               {pending ? "Generando la propuesta base" : steps[activeStep].title}
             </h2>
-            <p className="mx-auto max-w-[62ch] text-sm leading-6 text-slate-600">
+            <p className="mx-auto max-w-[62ch] text-sm leading-6 text-muted-foreground">
               {pending
                 ? "Estamos organizando la informacion del producto para dejar una base lista para adaptar en Meta Ads Manager."
                 : steps[activeStep].subtitle}
             </p>
             {defaultImageUrl && !pending ? (
-              <p className="text-xs leading-5 text-[var(--primary)]">
+              <p className="text-xs leading-5 text-primary">
                 Detectamos un creativo precargado desde el flujo anterior.
               </p>
             ) : null}
@@ -233,13 +233,13 @@ export function AdsGeneratorForm({ pending, initialValues, onSubmit }: AdsGenera
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto bg-[#f1f3f5] px-5 py-6 md:px-8 md:py-4">
+      <div className="flex-1 overflow-y-auto bg-muted px-5 py-6 md:px-8 md:py-4">
         <div className="mx-auto w-full max-w-[760px] space-y-5">
           <div className={step === 0 ? "block" : "hidden"}>
-            <div className="rounded-[30px] border border-[rgba(148,163,184,0.14)] bg-white p-5 shadow-[0_18px_38px_-30px_rgba(15,23,42,0.14)] sm:p-6">
+            <div className="rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-6">
             <div className="grid gap-4 md:grid-cols-2">
               <label className="space-y-1.5">
-                <span className="text-sm font-medium text-slate-700">Nombre del producto</span>
+                <span className="text-sm font-medium text-foreground">Nombre del producto</span>
                 <Input
                   name="productName"
                   placeholder="Ej. Serum facial antioxidante"
@@ -249,12 +249,12 @@ export function AdsGeneratorForm({ pending, initialValues, onSubmit }: AdsGenera
               </label>
 
               <label className="space-y-1.5">
-                <span className="text-sm font-medium text-slate-700">Marca</span>
+                <span className="text-sm font-medium text-foreground">Marca</span>
                 <Input name="brandName" placeholder="Ej. Aura Skin" defaultValue={initialValues?.brandName ?? ""} />
               </label>
 
               <label className="space-y-1.5 md:col-span-2">
-                <span className="text-sm font-medium text-slate-700">Descripcion</span>
+                <span className="text-sm font-medium text-foreground">Descripcion</span>
                 <textarea
                   name="productDescription"
                   rows={4}
@@ -267,7 +267,7 @@ export function AdsGeneratorForm({ pending, initialValues, onSubmit }: AdsGenera
               </label>
 
               <label className="space-y-1.5">
-                <span className="text-sm font-medium text-slate-700">Precio</span>
+                <span className="text-sm font-medium text-foreground">Precio</span>
                 <Input
                   name="price"
                   type="number"
@@ -279,7 +279,7 @@ export function AdsGeneratorForm({ pending, initialValues, onSubmit }: AdsGenera
               </label>
 
               <label className="space-y-1.5">
-                <span className="text-sm font-medium text-slate-700">Moneda</span>
+                <span className="text-sm font-medium text-foreground">Moneda</span>
                 <Input name="currency" defaultValue={initialValues?.currency ?? "COP"} placeholder="COP" />
               </label>
 
@@ -287,7 +287,7 @@ export function AdsGeneratorForm({ pending, initialValues, onSubmit }: AdsGenera
                 <button
                   type="button"
                   onClick={() => setShowProductAdvanced((current) => !current)}
-                  className="inline-flex items-center gap-2 text-sm font-medium text-[var(--primary)]"
+                  className="inline-flex items-center gap-2 text-sm font-medium text-primary"
                 >
                   {showProductAdvanced ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                   {showProductAdvanced ? "Ocultar detalles avanzados" : "Mostrar detalles avanzados"}
@@ -296,21 +296,21 @@ export function AdsGeneratorForm({ pending, initialValues, onSubmit }: AdsGenera
 
               <div className={`${showProductAdvanced ? "grid" : "hidden"} gap-4 md:col-span-2 md:grid-cols-2`}>
                 <label className="space-y-1.5">
-                  <span className="text-sm font-medium text-slate-700">Categoria</span>
+                  <span className="text-sm font-medium text-foreground">Categoria</span>
                   <Input
                     name="categoryName"
                     placeholder="Ej. Belleza"
                     defaultValue={initialValues?.categoryName ?? ""}
                   />
                   {initialValues?.categoryName ? (
-                    <p className="text-xs leading-5 text-slate-500">
+                    <p className="text-xs leading-5 text-muted-foreground">
                       Precargado desde el contexto del negocio.
                     </p>
                   ) : null}
                 </label>
 
                 <label className="space-y-1.5">
-                  <span className="text-sm font-medium text-slate-700">Landing page</span>
+                  <span className="text-sm font-medium text-foreground">Landing page</span>
                   <Input
                     name="landingPageUrl"
                     type="url"
@@ -318,7 +318,7 @@ export function AdsGeneratorForm({ pending, initialValues, onSubmit }: AdsGenera
                     defaultValue={initialValues?.landingPageUrl ?? ""}
                   />
                   {initialValues?.landingPageUrl ? (
-                    <p className="text-xs leading-5 text-slate-500">
+                    <p className="text-xs leading-5 text-muted-foreground">
                       Tomada de la web configurada en tu negocio.
                     </p>
                   ) : null}
@@ -329,11 +329,11 @@ export function AdsGeneratorForm({ pending, initialValues, onSubmit }: AdsGenera
           </div>
 
           <div className={step === 1 ? "block" : "hidden"}>
-            <div className="rounded-[30px] border border-[rgba(148,163,184,0.14)] bg-white p-5 shadow-[0_18px_38px_-30px_rgba(15,23,42,0.14)] sm:p-6">
+            <div className="rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-6">
               <div className="space-y-4">
-                <div className="rounded-[24px] border border-[var(--line)] bg-slate-50 p-4">
-                  <p className="text-sm font-semibold text-slate-900">La IA armara esta parte por ti</p>
-                  <p className="mt-1 text-sm leading-6 text-slate-600">
+                <div className="rounded-2xl border border-border bg-muted p-4">
+                  <p className="text-sm font-semibold text-foreground">La IA armara esta parte por ti</p>
+                  <p className="mt-1 text-sm leading-6 text-muted-foreground">
                     Usaremos el contexto del negocio, la descripcion del producto y la imagen para proponer audiencia, beneficios, necesidad y CTA.
                   </p>
                 </div>
@@ -341,17 +341,17 @@ export function AdsGeneratorForm({ pending, initialValues, onSubmit }: AdsGenera
                 <button
                   type="button"
                   onClick={() => setShowStrategyAdvanced((current) => !current)}
-                  className="inline-flex items-center gap-2 text-sm font-medium text-[var(--primary)]"
+                  className="inline-flex items-center gap-2 text-sm font-medium text-primary"
                 >
                   {showStrategyAdvanced ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                   {showStrategyAdvanced ? "Ocultar ajustes avanzados" : "Mostrar ajustes avanzados"}
                 </button>
 
                 <div className={`${showStrategyAdvanced ? "space-y-5" : "hidden"}`}>
-                  <div className="rounded-[30px] border border-[rgba(148,163,184,0.14)] bg-white p-5 shadow-[0_18px_38px_-30px_rgba(15,23,42,0.14)] sm:p-6">
+                  <div className="rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-6">
                   <div className="grid gap-4 md:grid-cols-2">
                     <label className="space-y-1.5">
-                      <span className="text-sm font-medium text-slate-700">Objetivo</span>
+                      <span className="text-sm font-medium text-foreground">Objetivo</span>
                       <select name="objective" className="field-select" defaultValue={defaultObjective}>
                         {objectiveOptions.map((option) => (
                           <option key={option.value} value={option.value}>
@@ -362,7 +362,7 @@ export function AdsGeneratorForm({ pending, initialValues, onSubmit }: AdsGenera
                     </label>
 
                     <label className="space-y-1.5">
-                      <span className="text-sm font-medium text-slate-700">Tono</span>
+                      <span className="text-sm font-medium text-foreground">Tono</span>
                       <select name="tone" className="field-select" defaultValue={defaultTone}>
                         {toneOptions.map((option) => (
                           <option key={option.value} value={option.value}>
@@ -373,7 +373,7 @@ export function AdsGeneratorForm({ pending, initialValues, onSubmit }: AdsGenera
                     </label>
 
                     <label className="space-y-1.5 md:col-span-2">
-                      <span className="text-sm font-medium text-slate-700">Audiencia</span>
+                      <span className="text-sm font-medium text-foreground">Audiencia</span>
                       <textarea
                         name="audienceSummary"
                         rows={3}
@@ -382,7 +382,7 @@ export function AdsGeneratorForm({ pending, initialValues, onSubmit }: AdsGenera
                         defaultValue={initialValues?.audienceSummary ?? ""}
                       />
                       {initialValues?.audienceSummary ? (
-                        <p className="text-xs leading-5 text-slate-500">
+                        <p className="text-xs leading-5 text-muted-foreground">
                           Base sugerida desde el contexto comercial.
                         </p>
                       ) : null}
@@ -390,10 +390,10 @@ export function AdsGeneratorForm({ pending, initialValues, onSubmit }: AdsGenera
                   </div>
                   </div>
 
-                  <div className="rounded-[30px] border border-[rgba(148,163,184,0.14)] bg-white p-5 shadow-[0_18px_38px_-30px_rgba(15,23,42,0.14)] sm:p-6">
+                  <div className="rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-6">
                     <div className="grid gap-4">
                       <label className="space-y-1.5">
-                        <span className="text-sm font-medium text-slate-700">Beneficios clave</span>
+                        <span className="text-sm font-medium text-foreground">Beneficios clave</span>
                         <textarea
                           name="keyBenefits"
                           rows={4}
@@ -401,13 +401,13 @@ export function AdsGeneratorForm({ pending, initialValues, onSubmit }: AdsGenera
                           placeholder="Beneficios clave del producto o servicio."
                           defaultValue={defaultKeyBenefits}
                         />
-                        <p className="text-xs leading-5 text-slate-500">
+                        <p className="text-xs leading-5 text-muted-foreground">
                           Dejamos una base sugerida para que solo la ajustes si hace falta.
                         </p>
                       </label>
 
                       <label className="space-y-1.5">
-                        <span className="text-sm font-medium text-slate-700">Que necesidad ayuda a resolver</span>
+                        <span className="text-sm font-medium text-foreground">Que necesidad ayuda a resolver</span>
                         <textarea
                           name="painPoints"
                           rows={3}
@@ -415,20 +415,20 @@ export function AdsGeneratorForm({ pending, initialValues, onSubmit }: AdsGenera
                           placeholder="Ej. Ahorrar tiempo, verse mejor, vender mas, sentirse mas comodo."
                           defaultValue={defaultPainPoints}
                         />
-                        <p className="text-xs leading-5 text-slate-500">
+                        <p className="text-xs leading-5 text-muted-foreground">
                           Dejamos una sugerencia base para que la ajustes solo si quieres.
                         </p>
                       </label>
 
                       <label className="space-y-1.5 md:max-w-sm">
-                        <span className="text-sm font-medium text-slate-700">Call to action</span>
+                        <span className="text-sm font-medium text-foreground">Call to action</span>
                         <Input
                           name="callToAction"
                           defaultValue={initialValues?.callToAction ?? "Compra ahora"}
                           placeholder="Compra ahora"
                         />
                         {initialValues?.callToAction ? (
-                          <p className="text-xs leading-5 text-slate-500">
+                          <p className="text-xs leading-5 text-muted-foreground">
                             CTA sugerido desde tu contexto del negocio.
                           </p>
                         ) : null}
@@ -441,11 +441,11 @@ export function AdsGeneratorForm({ pending, initialValues, onSubmit }: AdsGenera
           </div>
 
           <div className={step === 2 ? "block" : "hidden"}>
-            <div className="rounded-[30px] border border-[rgba(148,163,184,0.14)] bg-white p-5 shadow-[0_18px_38px_-30px_rgba(15,23,42,0.14)] sm:p-6">
+            <div className="rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-6">
               <div className="space-y-3">
                 <div className="space-y-1.5">
-                  <span className="text-sm font-medium text-slate-700">Apoyo visual</span>
-                  <p className="text-xs leading-5 text-slate-500">
+                  <span className="text-sm font-medium text-foreground">Apoyo visual</span>
+                  <p className="text-xs leading-5 text-muted-foreground">
                     El anuncio puede salir sin imagen por ahora. Si quieres apoyarte en un recurso visual,
                     usa un creativo ya generado o entra al modulo Creativos.
                   </p>
@@ -453,7 +453,7 @@ export function AdsGeneratorForm({ pending, initialValues, onSubmit }: AdsGenera
 
                 {hasExistingCreative ? (
                   <div className="grid gap-3 lg:grid-cols-[1.05fr_0.95fr]">
-                    <label className="flex cursor-pointer items-start gap-3 rounded-[24px] border border-[var(--line)] bg-slate-50 p-4">
+                    <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-border bg-muted p-4">
                       <input
                         type="radio"
                         name="imageMode"
@@ -462,14 +462,14 @@ export function AdsGeneratorForm({ pending, initialValues, onSubmit }: AdsGenera
                         className="mt-1"
                       />
                       <div className="space-y-1">
-                        <p className="text-sm font-semibold text-slate-900">Usar creativo existente</p>
-                        <p className="text-xs leading-5 text-slate-500">
+                        <p className="text-sm font-semibold text-foreground">Usar creativo existente</p>
+                        <p className="text-xs leading-5 text-muted-foreground">
                           Aprovecha la imagen que ya viene precargada desde el flujo anterior.
                         </p>
                       </div>
                     </label>
 
-                    <label className="flex cursor-pointer items-start gap-3 rounded-[24px] border border-[var(--line)] bg-white p-4">
+                    <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-border bg-card p-4">
                       <input
                         type="radio"
                         name="imageMode"
@@ -477,18 +477,18 @@ export function AdsGeneratorForm({ pending, initialValues, onSubmit }: AdsGenera
                         className="mt-1"
                       />
                       <div className="space-y-1">
-                        <p className="text-sm font-semibold text-slate-900">Seguir sin imagen por ahora</p>
-                        <p className="text-xs leading-5 text-slate-500">
+                        <p className="text-sm font-semibold text-foreground">Seguir sin imagen por ahora</p>
+                        <p className="text-xs leading-5 text-muted-foreground">
                           Genera primero la estrategia y el copy; luego puedes volver por el creativo.
                         </p>
                       </div>
                     </label>
 
-                    <div className="rounded-[24px] border border-[var(--line)] bg-[linear-gradient(180deg,#ffffff,#f8fbff)] p-4 lg:col-span-2">
+                    <div className="rounded-2xl border border-border bg-card p-4 lg:col-span-2">
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div className="space-y-1">
-                          <p className="text-sm font-semibold text-slate-900">Creative detectado</p>
-                          <p className="text-xs leading-5 text-slate-500">
+                          <p className="text-sm font-semibold text-foreground">Creative detectado</p>
+                          <p className="text-xs leading-5 text-muted-foreground">
                             Si prefieres otro recurso visual, vuelve a Creativos y genera una nueva opcion.
                           </p>
                         </div>
@@ -502,12 +502,12 @@ export function AdsGeneratorForm({ pending, initialValues, onSubmit }: AdsGenera
                     </div>
                   </div>
                 ) : (
-                  <div className="rounded-[24px] border border-[var(--line)] bg-[linear-gradient(180deg,#ffffff,#f8fbff)] p-4">
+                  <div className="rounded-2xl border border-border bg-card p-4">
                     <input type="hidden" name="imageMode" value="none" />
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className="space-y-1">
-                        <p className="text-sm font-semibold text-slate-900">Sin creativo conectado</p>
-                        <p className="text-xs leading-5 text-slate-500">
+                        <p className="text-sm font-semibold text-foreground">Sin creativo conectado</p>
+                        <p className="text-xs leading-5 text-muted-foreground">
                           Puedes continuar sin imagen o entrar a Creativos si quieres reforzar el anuncio con una pieza visual.
                         </p>
                       </div>
@@ -526,7 +526,7 @@ export function AdsGeneratorForm({ pending, initialValues, onSubmit }: AdsGenera
         </div>
       </div>
 
-      <div className="border-t border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfbfd_100%)] px-5 py-4 md:px-8">
+      <div className="border-t border-border bg-card px-5 py-4 md:px-8">
         <div className="mx-auto flex w-full max-w-[760px] flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
           <Button
             type="button"

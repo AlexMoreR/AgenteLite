@@ -106,7 +106,7 @@ export function AssignChatControl({ conversationId, assignee }: AssignChatContro
       </button>
 
       {open ? (
-        <div className="absolute right-0 z-50 mt-1 w-60 overflow-hidden rounded-xl border border-border bg-popover shadow-[0_18px_50px_-24px_rgba(15,23,42,0.35)]">
+        <div className="absolute right-0 z-50 mt-1 w-60 overflow-hidden rounded-xl border border-border bg-popover shadow-lg">
           <div className="border-b border-border px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
             Asignar chat
           </div>
@@ -114,7 +114,7 @@ export function AssignChatControl({ conversationId, assignee }: AssignChatContro
           {loading ? (
             <div className="px-3 py-3 text-[12px] text-muted-foreground">Cargando equipo…</div>
           ) : error ? (
-            <div className="px-3 py-3 text-[12px] text-red-500">{error}</div>
+            <div className="px-3 py-3 text-[12px] text-destructive">{error}</div>
           ) : (
             <div className="max-h-72 overflow-y-auto py-1">
               {/* Tomar / soltar rápido para no-managers */}

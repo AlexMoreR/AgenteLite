@@ -371,18 +371,18 @@ export function QuotesWorkspace({ quotes, clients, products, currency }: QuotesW
     <>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="inline-flex items-center gap-1 text-lg font-semibold tracking-tight text-slate-900 md:text-xl">
-            <FileText className="h-4 w-4 text-slate-500" />
+          <h1 className="inline-flex items-center gap-1 text-lg font-semibold tracking-tight text-foreground md:text-xl">
+            <FileText className="h-4 w-4 text-muted-foreground" />
             <span>Cotizaciones</span>
           </h1>
-          <p className="mt-1 text-xs text-slate-600">
+          <p className="mt-1 text-xs text-muted-foreground">
             Crea cotizaciones con cliente, productos y link compartible.
           </p>
         </div>
         <button
           type="button"
           onClick={openQuoteModal}
-          className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
+          className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"
         >
           <Plus className="h-4 w-4" />
           Nueva cotizacion
@@ -393,27 +393,27 @@ export function QuotesWorkspace({ quotes, clients, products, currency }: QuotesW
 
       {openModal ? (
         <div
-          className="fixed inset-0 z-50 flex items-stretch justify-center bg-[#11182770] p-0 sm:items-start sm:p-4 md:p-6"
+          className="fixed inset-0 z-50 flex items-stretch justify-center bg-black/50 p-0 sm:items-start sm:p-4 md:p-6"
           role="dialog"
           aria-modal="true"
           aria-label="Nueva cotizacion"
           onClick={() => setOpenModal(false)}
         >
           <div
-            className="h-full w-full max-w-6xl overflow-y-auto overflow-x-hidden rounded-none border border-[var(--line)] bg-white p-3 sm:max-h-[92vh] sm:rounded-xl sm:p-4 md:p-5"
+            className="h-full w-full max-w-6xl overflow-y-auto overflow-x-hidden rounded-none border border-border bg-card p-3 sm:max-h-[92vh] sm:rounded-xl sm:p-4 md:p-5"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="mb-4 flex items-center justify-between">
               <div>
-                <h2 className="inline-flex items-center gap-2 text-lg font-semibold text-slate-900">
-                  <FileText className="h-4 w-4 text-slate-500" />
+                <h2 className="inline-flex items-center gap-2 text-lg font-semibold text-foreground">
+                  <FileText className="h-4 w-4 text-muted-foreground" />
                   <span>Nueva cotizacion</span>
                 </h2>
               </div>
               <button
                 type="button"
                 onClick={() => setOpenModal(false)}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--line)] text-slate-600 transition hover:bg-slate-50"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border text-muted-foreground transition hover:bg-muted"
                 aria-label="Cerrar"
               >
                 <X className="h-4 w-4" />
@@ -445,56 +445,56 @@ export function QuotesWorkspace({ quotes, clients, products, currency }: QuotesW
 
               <div>
                 <div className="grid gap-1.5 md:grid-cols-3">
-                  <div className={`rounded-lg border p-2 transition ${step >= 1 ? "border-[var(--primary)]/30 bg-[var(--primary)]/5" : "border-slate-200 bg-white"}`}>
+                  <div className={`rounded-lg border p-2 transition ${step >= 1 ? "border-primary/30 bg-primary/5" : "border-border bg-card"}`}>
                     <div className="flex items-center gap-2">
-                      <div className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border ${step === 1 ? "border-[var(--primary)] bg-[var(--primary)] text-white" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>
+                      <div className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border ${step === 1 ? "border-primary bg-primary text-primary-foreground" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>
                         <UserRound className="h-3.5 w-3.5" />
                       </div>
                       <div>
-                        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Paso 1</p>
-                        <p className="text-xs font-semibold text-slate-900">Cliente</p>
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Paso 1</p>
+                        <p className="text-xs font-semibold text-foreground">Cliente</p>
                       </div>
                     </div>
                   </div>
 
-                  <div className={`rounded-lg border p-2 transition ${step >= 2 ? "border-[var(--primary)]/30 bg-[var(--primary)]/5" : "border-slate-200 bg-white"}`}>
+                  <div className={`rounded-lg border p-2 transition ${step >= 2 ? "border-primary/30 bg-primary/5" : "border-border bg-card"}`}>
                     <div className="flex items-center gap-2">
-                      <div className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border ${step === 2 ? "border-[var(--primary)] bg-[var(--primary)] text-white" : step > 2 ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-white text-slate-500"}`}>
+                      <div className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border ${step === 2 ? "border-primary bg-primary text-primary-foreground" : step > 2 ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-border bg-card text-muted-foreground"}`}>
                         <Boxes className="h-3.5 w-3.5" />
                       </div>
                       <div>
-                        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Paso 2</p>
-                        <p className="text-xs font-semibold text-slate-900">Productos</p>
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Paso 2</p>
+                        <p className="text-xs font-semibold text-foreground">Productos</p>
                       </div>
                     </div>
                   </div>
 
-                  <div className={`rounded-lg border p-2 transition ${step >= 3 ? "border-[var(--primary)]/30 bg-[var(--primary)]/5" : "border-slate-200 bg-white"}`}>
+                  <div className={`rounded-lg border p-2 transition ${step >= 3 ? "border-primary/30 bg-primary/5" : "border-border bg-card"}`}>
                     <div className="flex items-center gap-2">
-                      <div className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border ${step === 3 ? "border-[var(--primary)] bg-[var(--primary)] text-white" : "border-slate-200 bg-white text-slate-500"}`}>
+                      <div className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border ${step === 3 ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-muted-foreground"}`}>
                         <Link2 className="h-3.5 w-3.5" />
                       </div>
                       <div>
-                        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Paso 3</p>
-                        <p className="text-xs font-semibold text-slate-900">Generar</p>
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Paso 3</p>
+                        <p className="text-xs font-semibold text-foreground">Generar</p>
                       </div>
                     </div>
                   </div>
                 </div>
 
-                <div className="mt-2 h-1 overflow-hidden rounded-full bg-slate-200">
+                <div className="mt-2 h-1 overflow-hidden rounded-full bg-muted">
                   <div
-                    className={`h-full rounded-full bg-[var(--primary)] transition-all duration-300 ${step === 1 ? "w-1/3" : step === 2 ? "w-2/3" : "w-full"}`}
+                    className={`h-full rounded-full bg-primary transition-all duration-300 ${step === 1 ? "w-1/3" : step === 2 ? "w-2/3" : "w-full"}`}
                   />
                 </div>
               </div>
 
               {step === 1 ? (
-                <div className="space-y-4 rounded-xl border border-[var(--line)] p-3">
+                <div className="space-y-4 rounded-xl border border-border p-3">
                   <div className="space-y-3">
                     <div className="grid gap-3 md:grid-cols-2">
                       <label className="relative block space-y-1.5">
-                        <span className="text-sm font-medium text-slate-700">Nombre y apellido</span>
+                        <span className="text-sm font-medium text-foreground">Nombre y apellido</span>
                         <Input
                           value={clientName}
                           onChange={(event) => handleClientInputChange(setClientName, event.target.value)}
@@ -506,8 +506,8 @@ export function QuotesWorkspace({ quotes, clients, products, currency }: QuotesW
                         />
 
                         {showClientResults ? (
-                          <div className="absolute left-0 right-0 top-full z-30 mt-1.5 overflow-hidden rounded-lg border border-[var(--line)] bg-white shadow-lg">
-                            <p className="px-3 py-2 text-xs text-slate-500">Clientes</p>
+                          <div className="absolute left-0 right-0 top-full z-30 mt-1.5 overflow-hidden rounded-lg border border-border bg-card shadow-lg">
+                            <p className="px-3 py-2 text-xs text-muted-foreground">Clientes</p>
                             <div className="max-h-52 overflow-y-auto p-1.5">
                               {filteredClients.length > 0 ? (
                                 filteredClients.map((client) => (
@@ -516,24 +516,24 @@ export function QuotesWorkspace({ quotes, clients, products, currency }: QuotesW
                                     type="button"
                                     onMouseDown={(event) => event.preventDefault()}
                                     onClick={() => applyClientSelection(client)}
-                                    className="flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left text-sm transition hover:bg-slate-100"
+                                    className="flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left text-sm transition hover:bg-muted"
                                   >
-                                    <span className="inline-flex items-center gap-2 text-slate-800">
-                                      <UserRound className="h-3.5 w-3.5 text-slate-500" />
+                                    <span className="inline-flex items-center gap-2 text-foreground">
+                                      <UserRound className="h-3.5 w-3.5 text-muted-foreground" />
                                       {getClientDisplayName(client)}
                                     </span>
-                                    <span className="text-xs text-slate-500">{client.phone || "Sin telefono"}</span>
+                                    <span className="text-xs text-muted-foreground">{client.phone || "Sin telefono"}</span>
                                   </button>
                                 ))
                               ) : (
-                                <p className="px-2.5 py-2 text-xs text-slate-500">Sin resultados. Completa los campos para crear cliente.</p>
+                                <p className="px-2.5 py-2 text-xs text-muted-foreground">Sin resultados. Completa los campos para crear cliente.</p>
                               )}
                             </div>
                           </div>
                         ) : null}
                       </label>
                       <label className="block space-y-1.5">
-                        <span className="text-sm font-medium text-slate-700">Nit o cedula</span>
+                        <span className="text-sm font-medium text-foreground">Nit o cedula</span>
                         <Input
                           value={clientDocument}
                           onChange={(event) => handleClientInputChange(setClientDocument, event.target.value)}
@@ -544,7 +544,7 @@ export function QuotesWorkspace({ quotes, clients, products, currency }: QuotesW
 
                     <div className="grid gap-3 md:grid-cols-2">
                       <label className="block space-y-1.5">
-                        <span className="text-sm font-medium text-slate-700">Correo Electronico</span>
+                        <span className="text-sm font-medium text-foreground">Correo Electronico</span>
                         <Input
                           type="email"
                           value={clientEmail}
@@ -553,7 +553,7 @@ export function QuotesWorkspace({ quotes, clients, products, currency }: QuotesW
                         />
                       </label>
                       <label className="block space-y-1.5">
-                        <span className="text-sm font-medium text-slate-700">Telefono</span>
+                        <span className="text-sm font-medium text-foreground">Telefono</span>
                         <Input
                           value={clientPhone}
                           onChange={(event) => handleClientInputChange(setClientPhone, event.target.value)}
@@ -564,7 +564,7 @@ export function QuotesWorkspace({ quotes, clients, products, currency }: QuotesW
 
                     <div className="grid gap-3 md:grid-cols-2">
                       <label className="block space-y-1.5">
-                        <span className="text-sm font-medium text-slate-700">Direccion</span>
+                        <span className="text-sm font-medium text-foreground">Direccion</span>
                         <Input
                           value={clientAddress}
                           onChange={(event) => handleClientInputChange(setClientAddress, event.target.value)}
@@ -572,7 +572,7 @@ export function QuotesWorkspace({ quotes, clients, products, currency }: QuotesW
                         />
                       </label>
                       <label className="block space-y-1.5">
-                        <span className="text-sm font-medium text-slate-700">Barrio</span>
+                        <span className="text-sm font-medium text-foreground">Barrio</span>
                         <Input
                           value={clientNeighborhood}
                           onChange={(event) => handleClientInputChange(setClientNeighborhood, event.target.value)}
@@ -580,7 +580,7 @@ export function QuotesWorkspace({ quotes, clients, products, currency }: QuotesW
                         />
                       </label>
                       <label className="block space-y-1.5">
-                        <span className="text-sm font-medium text-slate-700">Departamento</span>
+                        <span className="text-sm font-medium text-foreground">Departamento</span>
                         <Input
                           value={clientDepartment}
                           onChange={(event) => handleClientInputChange(setClientDepartment, event.target.value)}
@@ -588,7 +588,7 @@ export function QuotesWorkspace({ quotes, clients, products, currency }: QuotesW
                         />
                       </label>
                       <label className="block space-y-1.5">
-                        <span className="text-sm font-medium text-slate-700">Ciudad</span>
+                        <span className="text-sm font-medium text-foreground">Ciudad</span>
                         <Input
                           value={clientCity}
                           onChange={(event) => handleClientInputChange(setClientCity, event.target.value)}
@@ -598,22 +598,22 @@ export function QuotesWorkspace({ quotes, clients, products, currency }: QuotesW
                     </div>
                   </div>
 
-                  {clientFormError ? <p className="text-xs font-medium text-red-600">{clientFormError}</p> : null}
+                  {clientFormError ? <p className="text-xs font-medium text-destructive">{clientFormError}</p> : null}
 
                   <button
                     type="button"
                     onClick={goToProductsStep}
                     disabled={!isClientResolved || isResolvingClient}
-                    className="inline-flex h-10 w-full items-center justify-center rounded-lg bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)] disabled:cursor-not-allowed disabled:opacity-60"
+                    className="inline-flex h-10 w-full items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {isResolvingClient ? "Guardando cliente..." : "Siguiente"}
                   </button>
                 </div>
               ) : step === 2 ? (
                 <div className="space-y-4">
-                  <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                  <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
                     <table className="w-full text-sm">
-                      <thead className="bg-slate-50/80 text-xs uppercase tracking-wide text-slate-500">
+                      <thead className="bg-muted/80 text-xs uppercase tracking-wide text-muted-foreground">
                         <tr>
                           <th className="px-3 py-2 text-left">Imagen</th>
                           <th className="px-3 py-2 text-left">Codigo</th>
@@ -629,16 +629,16 @@ export function QuotesWorkspace({ quotes, clients, products, currency }: QuotesW
                       <tbody>
                         {linesWithMeta.length === 0 ? (
                           <tr>
-                              <td colSpan={9} className="px-3 py-8 text-center text-sm text-slate-500">
+                              <td colSpan={9} className="px-3 py-8 text-center text-sm text-muted-foreground">
                               <div className="flex flex-col items-center gap-3">
-                                <div className="rounded-full border border-slate-200 bg-slate-50 p-2">
-                                  <Boxes className="h-4 w-4 text-slate-500" />
+                                <div className="rounded-full border border-border bg-muted p-2">
+                                  <Boxes className="h-4 w-4 text-muted-foreground" />
                                 </div>
                                 <p>No hay productos agregados.</p>
                                 <button
                                   type="button"
                                   onClick={openAddProductModal}
-                                  className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-[var(--primary)] px-4 text-sm font-semibold text-white transition hover:bg-[var(--primary-strong)]"
+                                  className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90"
                                 >
                                   <Plus className="h-4 w-4" />
                                   Agregar producto
@@ -648,36 +648,36 @@ export function QuotesWorkspace({ quotes, clients, products, currency }: QuotesW
                           </tr>
                         ) : (
                           linesWithMeta.map(({ line, product, lineTotal }) => (
-                            <tr key={line.uid} className="border-t border-slate-200 bg-white transition hover:bg-slate-50/50">
+                            <tr key={line.uid} className="border-t border-border bg-card transition hover:bg-muted/50">
                               <td className="px-3 py-2">
                                 {product?.thumbnailUrl ? (
                                   <img
                                     src={product.thumbnailUrl}
                                     alt={product.name}
-                                    className="h-11 w-11 rounded-md border border-slate-200 object-cover"
+                                    className="h-11 w-11 rounded-md border border-border object-cover"
                                   />
                                 ) : (
-                                  <div className="flex h-11 w-11 items-center justify-center rounded-md border border-slate-200 bg-slate-50 text-[10px] text-slate-500">
+                                  <div className="flex h-11 w-11 items-center justify-center rounded-md border border-border bg-muted text-[10px] text-muted-foreground">
                                     Sin img
                                   </div>
                                 )}
                               </td>
-                              <td className="px-3 py-2 text-slate-700">{product?.code || "-"}</td>
-                              <td className="px-3 py-2 text-slate-900">{product?.name || "Producto"}</td>
-                              <td className="px-3 py-2 text-slate-700">{line.description || "-"}</td>
-                              <td className="px-3 py-2 text-slate-700">{line.quantity}</td>
-                              <td className="px-3 py-2 text-slate-700">{line.color || "-"}</td>
-                              <td className="px-3 py-2 text-slate-700">
+                              <td className="px-3 py-2 text-foreground">{product?.code || "-"}</td>
+                              <td className="px-3 py-2 text-foreground">{product?.name || "Producto"}</td>
+                              <td className="px-3 py-2 text-foreground">{line.description || "-"}</td>
+                              <td className="px-3 py-2 text-foreground">{line.quantity}</td>
+                              <td className="px-3 py-2 text-foreground">{line.color || "-"}</td>
+                              <td className="px-3 py-2 text-foreground">
                                 {line.unitPrice.toLocaleString("es-CO", { style: "currency", currency })}
                               </td>
-                              <td className="px-3 py-2 font-semibold text-slate-900">
+                              <td className="px-3 py-2 font-semibold text-foreground">
                                 {lineTotal.toLocaleString("es-CO", { style: "currency", currency })}
                               </td>
                               <td className="px-3 py-2">
                                 <button
                                   type="button"
                                   onClick={() => removeLine(line.uid)}
-                                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-red-200 text-red-600 transition hover:bg-red-50"
+                                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-destructive/30 text-destructive transition hover:bg-destructive/10"
                                   aria-label="Quitar producto"
                                 >
                                   <Trash2 className="h-4 w-4" />
@@ -695,7 +695,7 @@ export function QuotesWorkspace({ quotes, clients, products, currency }: QuotesW
                       <button
                         type="button"
                         onClick={openAddProductModal}
-                        className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-[var(--primary)] px-4 text-sm font-semibold text-white transition hover:bg-[var(--primary-strong)]"
+                        className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90"
                       >
                         <Plus className="h-4 w-4" />
                         Agregar producto
@@ -703,10 +703,10 @@ export function QuotesWorkspace({ quotes, clients, products, currency }: QuotesW
                     </div>
                   ) : null}
 
-                  <div className="grid gap-2 rounded-xl border border-slate-200 bg-gradient-to-r from-slate-50 to-white p-3 sm:grid-cols-2 lg:grid-cols-4">
-                    <div className="rounded-lg border border-slate-200 bg-white/80 px-3 py-2">
-                      <span className="text-sm font-medium text-slate-700">Subtotal</span>
-                      <p className="mt-1 text-lg font-medium text-slate-700">
+                  <div className="grid gap-2 rounded-xl border bg-muted p-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <div className="rounded-lg border border-border bg-card/80 px-3 py-2">
+                      <span className="text-sm font-medium text-foreground">Subtotal</span>
+                      <p className="mt-1 text-lg font-medium text-foreground">
                         {quoteSubtotal.toLocaleString("es-CO", {
                           style: "currency",
                           currency,
@@ -714,9 +714,9 @@ export function QuotesWorkspace({ quotes, clients, products, currency }: QuotesW
                         })}
                       </p>
                     </div>
-                    <div className="rounded-lg border border-slate-200 bg-white/80 px-3 py-2">
-                      <span className="text-sm font-medium text-slate-700">Descuento</span>
-                      <p className="mt-1 text-lg font-medium text-slate-700">
+                    <div className="rounded-lg border border-border bg-card/80 px-3 py-2">
+                      <span className="text-sm font-medium text-foreground">Descuento</span>
+                      <p className="mt-1 text-lg font-medium text-foreground">
                         {quoteDiscountTotal.toLocaleString("es-CO", {
                           style: "currency",
                           currency,
@@ -724,9 +724,9 @@ export function QuotesWorkspace({ quotes, clients, products, currency }: QuotesW
                         })}
                       </p>
                     </div>
-                    <div className="rounded-lg border border-slate-200 bg-white/80 px-3 py-2">
-                      <span className="text-sm font-medium text-slate-700">Valor adicional</span>
-                      <p className="mt-1 text-lg font-medium text-slate-700">
+                    <div className="rounded-lg border border-border bg-card/80 px-3 py-2">
+                      <span className="text-sm font-medium text-foreground">Valor adicional</span>
+                      <p className="mt-1 text-lg font-medium text-foreground">
                         {quoteAdditionalCostTotal.toLocaleString("es-CO", {
                           style: "currency",
                           currency,
@@ -734,9 +734,9 @@ export function QuotesWorkspace({ quotes, clients, products, currency }: QuotesW
                         })}
                       </p>
                     </div>
-                    <div className="rounded-lg border border-slate-200 bg-white/80 px-3 py-2">
-                      <span className="text-sm font-medium text-slate-700">Total</span>
-                      <p className="mt-1 text-lg font-bold text-slate-900">
+                    <div className="rounded-lg border border-border bg-card/80 px-3 py-2">
+                      <span className="text-sm font-medium text-foreground">Total</span>
+                      <p className="mt-1 text-lg font-bold text-foreground">
                         {quoteTotal.toLocaleString("es-CO", {
                           style: "currency",
                           currency,
@@ -750,7 +750,7 @@ export function QuotesWorkspace({ quotes, clients, products, currency }: QuotesW
                     <button
                       type="button"
                       onClick={() => setStep(1)}
-                      className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                      className="inline-flex h-10 items-center justify-center rounded-xl border border-border bg-card px-4 text-sm font-medium text-foreground transition hover:bg-muted"
                     >
                       Atras
                     </button>
@@ -760,7 +760,7 @@ export function QuotesWorkspace({ quotes, clients, products, currency }: QuotesW
                          setIsManualQuoteSubmit(false);
                          setStep(3);
                        }}
-                        className="inline-flex h-10 w-full items-center justify-center rounded-xl bg-[var(--primary)] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[var(--primary-strong)] sm:w-auto"
+                        className="inline-flex h-10 w-full items-center justify-center rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90 sm:w-auto"
                         disabled={lines.length === 0}
                       >
                        Siguiente
@@ -769,50 +769,50 @@ export function QuotesWorkspace({ quotes, clients, products, currency }: QuotesW
                 </div>
               ) : (
                 <div className="space-y-3">
-                  <div className="rounded-xl border border-[var(--line)] bg-white p-3">
-                    <p className="text-sm font-semibold text-slate-900">Datos del cliente</p>
+                  <div className="rounded-xl border border-border bg-card p-3">
+                    <p className="text-sm font-semibold text-foreground">Datos del cliente</p>
                     <div className="mt-2 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
                       <div>
-                        <p className="text-xs text-slate-500">Nombre</p>
-                        <p className="font-medium text-slate-900">{clientId ? selectedClient?.name ?? clientName : clientName}</p>
+                        <p className="text-xs text-muted-foreground">Nombre</p>
+                        <p className="font-medium text-foreground">{clientId ? selectedClient?.name ?? clientName : clientName}</p>
                       </div>
                       <div>
-                        <p className="text-xs text-slate-500">NIT</p>
-                        <p className="font-medium text-slate-900">{clientDocument || "-"}</p>
+                        <p className="text-xs text-muted-foreground">NIT</p>
+                        <p className="font-medium text-foreground">{clientDocument || "-"}</p>
                       </div>
                       <div>
-                        <p className="text-xs text-slate-500">Correo</p>
-                        <p className="font-medium text-slate-900">{clientEmail || "-"}</p>
+                        <p className="text-xs text-muted-foreground">Correo</p>
+                        <p className="font-medium text-foreground">{clientEmail || "-"}</p>
                       </div>
                       <div>
-                        <p className="text-xs text-slate-500">Telefono</p>
-                        <p className="font-medium text-slate-900">{clientPhone || "-"}</p>
+                        <p className="text-xs text-muted-foreground">Telefono</p>
+                        <p className="font-medium text-foreground">{clientPhone || "-"}</p>
                       </div>
                       <div>
-                        <p className="text-xs text-slate-500">Direccion</p>
-                        <p className="font-medium text-slate-900">{clientAddress || "-"}</p>
+                        <p className="text-xs text-muted-foreground">Direccion</p>
+                        <p className="font-medium text-foreground">{clientAddress || "-"}</p>
                       </div>
                       <div>
-                        <p className="text-xs text-slate-500">Barrio</p>
-                        <p className="font-medium text-slate-900">{clientNeighborhood || "-"}</p>
+                        <p className="text-xs text-muted-foreground">Barrio</p>
+                        <p className="font-medium text-foreground">{clientNeighborhood || "-"}</p>
                       </div>
                       <div>
-                        <p className="text-xs text-slate-500">Departamento</p>
-                        <p className="font-medium text-slate-900">{clientDepartment || "-"}</p>
+                        <p className="text-xs text-muted-foreground">Departamento</p>
+                        <p className="font-medium text-foreground">{clientDepartment || "-"}</p>
                       </div>
                       <div>
-                        <p className="text-xs text-slate-500">Ciudad</p>
-                        <p className="font-medium text-slate-900">{clientCity || "-"}</p>
+                        <p className="text-xs text-muted-foreground">Ciudad</p>
+                        <p className="font-medium text-foreground">{clientCity || "-"}</p>
                       </div>
                     </div>
                   </div>
 
-                  <div className="overflow-hidden rounded-xl border border-[var(--line)] bg-white">
-                    <div className="border-b border-[var(--line)] bg-slate-50 px-3 py-2">
-                      <p className="text-sm font-semibold text-slate-900">Productos</p>
+                  <div className="overflow-hidden rounded-xl border border-border bg-card">
+                    <div className="border-b border-border bg-muted px-3 py-2">
+                      <p className="text-sm font-semibold text-foreground">Productos</p>
                     </div>
                     <table className="w-full text-sm">
-                      <thead className="bg-white text-xs uppercase tracking-wide text-slate-500">
+                      <thead className="bg-card text-xs uppercase tracking-wide text-muted-foreground">
                         <tr>
                           <th className="px-3 py-2 text-left">Imagen</th>
                           <th className="px-3 py-2 text-left">Codigo</th>
@@ -826,29 +826,29 @@ export function QuotesWorkspace({ quotes, clients, products, currency }: QuotesW
                       </thead>
                       <tbody>
                         {linesWithMeta.map(({ line, product, lineTotal }) => (
-                          <tr key={line.uid} className="border-t border-[var(--line)]">
+                          <tr key={line.uid} className="border-t border-border">
                             <td className="px-3 py-2">
                               {product?.thumbnailUrl ? (
                                 <img
                                   src={product.thumbnailUrl}
                                   alt={product.name}
-                                  className="h-10 w-10 rounded-md border border-[var(--line)] object-cover"
+                                  className="h-10 w-10 rounded-md border border-border object-cover"
                                 />
                               ) : (
-                                <div className="flex h-10 w-10 items-center justify-center rounded-md border border-[var(--line)] bg-slate-50 text-[10px] text-slate-500">
+                                <div className="flex h-10 w-10 items-center justify-center rounded-md border border-border bg-muted text-[10px] text-muted-foreground">
                                   Sin img
                                 </div>
                               )}
                             </td>
-                            <td className="px-3 py-2 text-slate-700">{product?.code || "-"}</td>
-                            <td className="px-3 py-2 text-slate-900">{product?.name || "Producto"}</td>
-                            <td className="px-3 py-2 text-slate-700">{line.description || "-"}</td>
-                            <td className="px-3 py-2 text-slate-700">{line.quantity}</td>
-                            <td className="px-3 py-2 text-slate-700">{line.color || "-"}</td>
-                            <td className="px-3 py-2 text-slate-700">
+                            <td className="px-3 py-2 text-foreground">{product?.code || "-"}</td>
+                            <td className="px-3 py-2 text-foreground">{product?.name || "Producto"}</td>
+                            <td className="px-3 py-2 text-foreground">{line.description || "-"}</td>
+                            <td className="px-3 py-2 text-foreground">{line.quantity}</td>
+                            <td className="px-3 py-2 text-foreground">{line.color || "-"}</td>
+                            <td className="px-3 py-2 text-foreground">
                               {line.unitPrice.toLocaleString("es-CO", { style: "currency", currency })}
                             </td>
-                            <td className="px-3 py-2 font-semibold text-slate-900">
+                            <td className="px-3 py-2 font-semibold text-foreground">
                               {lineTotal.toLocaleString("es-CO", { style: "currency", currency })}
                             </td>
                           </tr>
@@ -857,10 +857,10 @@ export function QuotesWorkspace({ quotes, clients, products, currency }: QuotesW
                     </table>
                   </div>
 
-                  <div className="grid gap-2 rounded-lg border border-[var(--line)] bg-slate-50 p-3 sm:grid-cols-2 lg:grid-cols-4">
-                    <div className="rounded-lg border border-[var(--line)] bg-white px-3 py-2">
-                      <span className="text-sm font-medium text-slate-700">Subtotal</span>
-                      <p className="mt-1 text-lg font-medium text-slate-700">
+                  <div className="grid gap-2 rounded-lg border border-border bg-muted p-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <div className="rounded-lg border border-border bg-card px-3 py-2">
+                      <span className="text-sm font-medium text-foreground">Subtotal</span>
+                      <p className="mt-1 text-lg font-medium text-foreground">
                         {quoteSubtotal.toLocaleString("es-CO", {
                           style: "currency",
                           currency,
@@ -868,9 +868,9 @@ export function QuotesWorkspace({ quotes, clients, products, currency }: QuotesW
                         })}
                       </p>
                     </div>
-                    <div className="rounded-lg border border-[var(--line)] bg-white px-3 py-2">
-                      <span className="text-sm font-medium text-slate-700">Descuento</span>
-                      <p className="mt-1 text-lg font-medium text-slate-700">
+                    <div className="rounded-lg border border-border bg-card px-3 py-2">
+                      <span className="text-sm font-medium text-foreground">Descuento</span>
+                      <p className="mt-1 text-lg font-medium text-foreground">
                         {quoteDiscountTotal.toLocaleString("es-CO", {
                           style: "currency",
                           currency,
@@ -878,9 +878,9 @@ export function QuotesWorkspace({ quotes, clients, products, currency }: QuotesW
                         })}
                       </p>
                     </div>
-                    <div className="rounded-lg border border-[var(--line)] bg-white px-3 py-2">
-                      <span className="text-sm font-medium text-slate-700">Valor adicional</span>
-                      <p className="mt-1 text-lg font-medium text-slate-700">
+                    <div className="rounded-lg border border-border bg-card px-3 py-2">
+                      <span className="text-sm font-medium text-foreground">Valor adicional</span>
+                      <p className="mt-1 text-lg font-medium text-foreground">
                         {quoteAdditionalCostTotal.toLocaleString("es-CO", {
                           style: "currency",
                           currency,
@@ -888,9 +888,9 @@ export function QuotesWorkspace({ quotes, clients, products, currency }: QuotesW
                         })}
                       </p>
                     </div>
-                    <div className="rounded-lg border border-[var(--line)] bg-white px-3 py-2">
-                      <span className="text-sm font-medium text-slate-700">Total</span>
-                      <p className="mt-1 text-lg font-bold text-slate-900">
+                    <div className="rounded-lg border border-border bg-card px-3 py-2">
+                      <span className="text-sm font-medium text-foreground">Total</span>
+                      <p className="mt-1 text-lg font-bold text-foreground">
                         {quoteTotal.toLocaleString("es-CO", {
                           style: "currency",
                           currency,
@@ -904,7 +904,7 @@ export function QuotesWorkspace({ quotes, clients, products, currency }: QuotesW
                     <button
                       type="button"
                       onClick={() => setStep(2)}
-                      className="inline-flex h-10 items-center justify-center rounded-lg border border-[var(--line)] bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                      className="inline-flex h-10 items-center justify-center rounded-lg border border-border bg-card px-4 text-sm font-medium text-foreground transition hover:bg-muted"
                     >
                       Atras
                     </button>
@@ -914,7 +914,7 @@ export function QuotesWorkspace({ quotes, clients, products, currency }: QuotesW
                         setIsManualQuoteSubmit(true);
                         event.currentTarget.form?.requestSubmit();
                       }}
-                      className="inline-flex h-10 w-full items-center justify-center rounded-lg bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)] sm:w-auto"
+                      className="inline-flex h-10 w-full items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 sm:w-auto"
                       disabled={!isClientResolved || lines.length === 0}
                     >
                       Generar cotizacion
@@ -929,39 +929,39 @@ export function QuotesWorkspace({ quotes, clients, products, currency }: QuotesW
 
       {openProductModal ? (
         <div
-          className="fixed inset-0 z-[70] flex items-center justify-center bg-[#11182770] p-3 backdrop-blur-[1px]"
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-3 backdrop-blur-sm"
           role="dialog"
           aria-modal="true"
           aria-label="Agregar producto"
           onClick={() => setOpenProductModal(false)}
         >
           <div
-            className="w-full max-w-3xl rounded-2xl border border-slate-200 bg-white p-4 shadow-xl"
+            className="w-full max-w-3xl rounded-2xl border border-border bg-card p-4 shadow-xl"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="mb-3 flex items-center justify-between">
               <div>
-                <h3 className="inline-flex items-center gap-2 text-base font-semibold text-slate-900">
-                  <Boxes className="h-4 w-4 text-slate-500" />
+                <h3 className="inline-flex items-center gap-2 text-base font-semibold text-foreground">
+                  <Boxes className="h-4 w-4 text-muted-foreground" />
                   <span>Agregar producto</span>
                 </h3>
-                <p className="mt-0.5 text-xs text-slate-500">Selecciona un item, ajusta precio y agrega descripcion.</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">Selecciona un item, ajusta precio y agrega descripcion.</p>
               </div>
               <button
                 type="button"
                 onClick={() => setOpenProductModal(false)}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-muted"
                 aria-label="Cerrar modal de producto"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
-            <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3 md:grid-cols-2">
+            <div className="grid gap-3 rounded-xl border border-border bg-muted/70 p-3 md:grid-cols-2">
               <label className="relative space-y-1.5">
-                <span className="text-sm font-medium text-slate-700">Codigo</span>
+                <span className="text-sm font-medium text-foreground">Codigo</span>
                 <div className="relative">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     value={productLookup}
                     onChange={(event) => {
@@ -978,8 +978,8 @@ export function QuotesWorkspace({ quotes, clients, products, currency }: QuotesW
                 </div>
 
                 {showProductResults ? (
-                  <div className="absolute left-0 right-0 top-full z-20 mt-1.5 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg">
-                    <p className="px-3 py-2 text-xs text-slate-500">Productos</p>
+                  <div className="absolute left-0 right-0 top-full z-20 mt-1.5 overflow-hidden rounded-lg border border-border bg-card shadow-lg">
+                    <p className="px-3 py-2 text-xs text-muted-foreground">Productos</p>
                     <div className="max-h-52 overflow-y-auto p-1.5">
                       {filteredProducts.length > 0 ? (
                         filteredProducts.map((product) => (
@@ -988,14 +988,14 @@ export function QuotesWorkspace({ quotes, clients, products, currency }: QuotesW
                             type="button"
                             onMouseDown={(event) => event.preventDefault()}
                             onClick={() => applyProductSelection(product)}
-                            className="flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left text-sm transition hover:bg-slate-100"
+                            className="flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left text-sm transition hover:bg-muted"
                           >
-                            <span className="font-medium text-slate-800">{product.code || "Sin codigo"}</span>
-                            <span className="truncate pl-2 text-xs text-slate-500">{product.name}</span>
+                            <span className="font-medium text-foreground">{product.code || "Sin codigo"}</span>
+                            <span className="truncate pl-2 text-xs text-muted-foreground">{product.name}</span>
                           </button>
                         ))
                       ) : (
-                        <p className="px-2.5 py-2 text-xs text-slate-500">Sin coincidencias</p>
+                        <p className="px-2.5 py-2 text-xs text-muted-foreground">Sin coincidencias</p>
                       )}
                     </div>
                   </div>
@@ -1003,12 +1003,12 @@ export function QuotesWorkspace({ quotes, clients, products, currency }: QuotesW
               </label>
 
               <label className="space-y-1.5">
-                <span className="text-sm font-medium text-slate-700">Producto</span>
+                <span className="text-sm font-medium text-foreground">Producto</span>
                 <Input value={draftProduct?.name || ""} readOnly placeholder="Selecciona codigo" />
               </label>
 
               <label className="space-y-1.5">
-                <span className="text-sm font-medium text-slate-700">Cantidad</span>
+                <span className="text-sm font-medium text-foreground">Cantidad</span>
                 <Input
                   type="number"
                   min={1}
@@ -1018,12 +1018,12 @@ export function QuotesWorkspace({ quotes, clients, products, currency }: QuotesW
               </label>
 
               <label className="space-y-1.5">
-                <span className="text-sm font-medium text-slate-700">Color</span>
+                <span className="text-sm font-medium text-foreground">Color</span>
                 <Input value={draftColor} onChange={(event) => setDraftColor(event.target.value)} placeholder="Color" />
               </label>
 
               <label className="space-y-1.5">
-                <span className="text-sm font-medium text-slate-700">Precio</span>
+                <span className="text-sm font-medium text-foreground">Precio</span>
                 <Input
                   type="number"
                   min={0}
@@ -1034,7 +1034,7 @@ export function QuotesWorkspace({ quotes, clients, products, currency }: QuotesW
               </label>
 
               <label className="space-y-1.5">
-                <span className="text-sm font-medium text-slate-700">Costo adicional</span>
+                <span className="text-sm font-medium text-foreground">Costo adicional</span>
                 <Input
                   type="number"
                   min={0}
@@ -1045,7 +1045,7 @@ export function QuotesWorkspace({ quotes, clients, products, currency }: QuotesW
               </label>
 
               <label className="space-y-1.5">
-                <span className="text-sm font-medium text-slate-700">Descuento</span>
+                <span className="text-sm font-medium text-foreground">Descuento</span>
                 <Input
                   type="number"
                   min={0}
@@ -1056,32 +1056,32 @@ export function QuotesWorkspace({ quotes, clients, products, currency }: QuotesW
               </label>
 
               <label className="space-y-1.5">
-                <span className="text-sm font-medium text-slate-700">Total</span>
+                <span className="text-sm font-medium text-foreground">Total</span>
                 <Input value={draftLineTotal.toLocaleString("es-CO", { style: "currency", currency })} readOnly />
               </label>
 
-              <div className="grid gap-3 rounded-xl border border-slate-200 bg-white p-3 md:col-span-2 md:grid-cols-[7.5rem_minmax(0,1fr)] md:items-start">
+              <div className="grid gap-3 rounded-xl border border-border bg-card p-3 md:col-span-2 md:grid-cols-[7.5rem_minmax(0,1fr)] md:items-start">
                 <div className="flex items-start justify-start">
                   {draftProduct?.thumbnailUrl ? (
                     <img
                       src={draftProduct.thumbnailUrl}
                       alt={draftProduct.name}
-                      className="h-28 w-28 rounded-lg border border-slate-200 object-cover"
+                      className="h-28 w-28 rounded-lg border border-border object-cover"
                     />
                   ) : (
-                    <div className="flex h-28 w-28 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-[11px] text-slate-500">
+                    <div className="flex h-28 w-28 items-center justify-center rounded-lg border border-border bg-muted text-[11px] text-muted-foreground">
                       Sin imagen
                     </div>
                   )}
                 </div>
 
                 <label className="space-y-1.5">
-                  <span className="text-sm font-medium text-slate-700">Descripcion</span>
+                  <span className="text-sm font-medium text-foreground">Descripcion</span>
                   <textarea
                     value={draftDescription}
                     onChange={(event) => setDraftDescription(event.target.value)}
                     rows={3}
-                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-[var(--line-strong)]"
+                    className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none transition focus:border-ring"
                     placeholder="Descripcion del item"
                   />
                 </label>
@@ -1089,7 +1089,7 @@ export function QuotesWorkspace({ quotes, clients, products, currency }: QuotesW
             </div>
 
             {productFormError ? (
-              <p className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
+              <p className="mt-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs font-medium text-destructive">
                 {productFormError}
               </p>
             ) : null}
@@ -1098,14 +1098,14 @@ export function QuotesWorkspace({ quotes, clients, products, currency }: QuotesW
               <button
                 type="button"
                 onClick={() => setOpenProductModal(false)}
-                className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                className="inline-flex h-10 items-center justify-center rounded-xl border border-border bg-card px-4 text-sm font-medium text-foreground transition hover:bg-muted"
               >
                 Cancelar
               </button>
               <button
                 type="button"
                 onClick={addDraftProduct}
-                className="inline-flex h-10 items-center justify-center rounded-xl bg-[var(--primary)] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[var(--primary-strong)]"
+                className="inline-flex h-10 items-center justify-center rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90"
               >
                 Agregar producto
               </button>

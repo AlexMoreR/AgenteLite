@@ -7,7 +7,7 @@ export default function CrmLoading() {
         {Array.from({ length: 4 }).map((_, index) => (
           <div
             key={index}
-            className="flex h-[76px] items-center gap-3 rounded-[22px] border border-border bg-card px-4 py-3.5"
+            className="flex h-[76px] items-center gap-3 rounded-2xl border border-border bg-card px-4 py-3.5"
           >
             <Skeleton className="size-9 rounded-full" />
             <div className="min-w-0 flex-1 space-y-2">
@@ -19,7 +19,7 @@ export default function CrmLoading() {
         ))}
       </div>
 
-      <div className="flex flex-col gap-2 rounded-[22px] border border-border bg-card p-4">
+      <div className="flex flex-col gap-2 rounded-2xl border border-border bg-card p-4">
         <Skeleton className="h-5 w-40" />
         <Skeleton className="h-4 w-48" />
 

@@ -7,11 +7,11 @@ type OfficialApiClientSummaryProps = {
 
 export function OfficialApiClientSummary({ summary }: OfficialApiClientSummaryProps) {
   return (
-    <div className="rounded-[1.25rem] border border-[var(--line)] p-5">
+    <div className="rounded-xl border border-border p-5">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-sm font-semibold text-slate-900">Api oficial</p>
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="text-sm font-semibold text-foreground">Api oficial</p>
+          <p className="mt-1 text-xs text-muted-foreground">
             Base estructural de WhatsApp Cloud API por cliente.
           </p>
         </div>
@@ -28,33 +28,33 @@ export function OfficialApiClientSummary({ summary }: OfficialApiClientSummaryPr
       </div>
 
       <div className="mt-4 grid gap-3 md:grid-cols-2">
-        <div className="rounded-[1rem] border border-slate-200 bg-slate-50 p-4">
+        <div className="rounded-xl border border-border bg-muted p-4">
           <div className="flex items-center gap-2">
-            <Link2 className="h-4 w-4 text-slate-500" />
-            <p className="text-sm font-medium text-slate-900">Workspace del cliente</p>
+            <Link2 className="h-4 w-4 text-muted-foreground" />
+            <p className="text-sm font-medium text-foreground">Workspace del cliente</p>
           </div>
-          <p className="mt-2 text-sm text-slate-600">
+          <p className="mt-2 text-sm text-muted-foreground">
             {summary.hasWorkspace ? summary.workspaceName : "Este usuario aun no tiene negocio principal."}
           </p>
         </div>
 
-        <div className="rounded-[1rem] border border-slate-200 bg-slate-50 p-4">
+        <div className="rounded-xl border border-border bg-muted p-4">
           <div className="flex items-center gap-2">
-            <KeyRound className="h-4 w-4 text-slate-500" />
-            <p className="text-sm font-medium text-slate-900">Campos previstos</p>
+            <KeyRound className="h-4 w-4 text-muted-foreground" />
+            <p className="text-sm font-medium text-foreground">Campos previstos</p>
           </div>
           <div className="mt-2 flex flex-wrap gap-2">
             {summary.configuredFields.length > 0 ? (
               summary.configuredFields.map((field) => (
                 <span
                   key={field}
-                  className="inline-flex rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700"
+                  className="inline-flex rounded-full border border-border bg-card px-2.5 py-1 text-xs font-medium text-foreground"
                 >
                   {field}
                 </span>
               ))
             ) : (
-              <span className="text-sm text-slate-500">
+              <span className="text-sm text-muted-foreground">
                 access_token, phone_number_id y waba_id se conectaran en la siguiente fase.
               </span>
             )}
@@ -62,7 +62,7 @@ export function OfficialApiClientSummary({ summary }: OfficialApiClientSummaryPr
         </div>
       </div>
 
-      <p className="mt-4 text-xs leading-5 text-slate-500">
+      <p className="mt-4 text-xs leading-5 text-muted-foreground">
         En la Fase 2 este bloque tendra el formulario para guardar credenciales reales desde administracion de usuarios.
       </p>
     </div>

@@ -62,11 +62,11 @@ export default async function DailyReportPublicPage({ params }: PageProps) {
   ];
 
   return (
-    <main className="min-h-screen bg-slate-50 py-8 px-4">
+    <main className="min-h-screen bg-muted py-8 px-4">
       <div className="mx-auto w-full max-w-5xl space-y-6">
-        <header className="rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
-          <p className="text-sm font-medium uppercase tracking-wide text-slate-500">Reporte del día</p>
-          <h1 className="mt-1 text-xl font-semibold capitalize text-slate-900">{dateLabel}</h1>
+        <header className="rounded-2xl border bg-card p-6 text-center shadow-sm">
+          <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Reporte del día</p>
+          <h1 className="mt-1 text-xl font-semibold capitalize text-foreground">{dateLabel}</h1>
           <div className="mt-4 flex flex-col items-center gap-2">
             <span className="text-6xl" role="img" aria-label={sentiment.label}>
               {sentiment.face}
@@ -74,7 +74,7 @@ export default async function DailyReportPublicPage({ params }: PageProps) {
             <span className={`text-lg font-semibold ${sentiment.tone}`}>{sentiment.label}</span>
           </div>
           {report.aiSummary ? (
-            <p className="mx-auto mt-4 max-w-xl text-sm leading-relaxed text-slate-600">{report.aiSummary}</p>
+            <p className="mx-auto mt-4 max-w-xl text-sm leading-relaxed text-muted-foreground">{report.aiSummary}</p>
           ) : null}
         </header>
 
@@ -82,26 +82,26 @@ export default async function DailyReportPublicPage({ params }: PageProps) {
           {metrics.map((m) => {
             const Icon = m.icon;
             return (
-              <div key={m.label} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+              <div key={m.label} className="rounded-lg border bg-card p-3 shadow-sm">
                 <div className="flex items-center gap-2">
                   <Icon className={`size-4 ${m.tone}`} />
-                  <p className="text-xl font-semibold text-slate-900">{m.value}</p>
+                  <p className="text-xl font-semibold text-foreground">{m.value}</p>
                 </div>
-                <p className="mt-1 text-[11px] text-slate-500">{m.label}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{m.label}</p>
               </div>
             );
           })}
         </section>
 
-        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="mb-4 text-base font-semibold text-slate-900">Detalle de contactos</h2>
+        <section className="rounded-2xl border bg-card p-6 shadow-sm">
+          <h2 className="mb-4 text-base font-semibold text-foreground">Detalle de contactos</h2>
           {rows.length === 0 ? (
-            <p className="text-sm text-slate-500">No hubo contactos con actividad registrada hoy.</p>
+            <p className="text-sm text-muted-foreground">No hubo contactos con actividad registrada hoy.</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead>
-                  <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
+                  <tr className="border-b text-xs uppercase tracking-wide text-muted-foreground">
                     <th className="py-2 pr-3 font-medium">Número</th>
                     <th className="py-2 pr-3 font-medium">Etiquetas</th>
                     <th className="py-2 pr-3 font-medium">Resumen</th>
@@ -110,20 +110,20 @@ export default async function DailyReportPublicPage({ params }: PageProps) {
                 </thead>
                 <tbody>
                   {rows.map((row, index) => (
-                    <tr key={`${row.phone}-${index}`} className="border-b border-slate-100 align-top">
-                      <td className="py-2 pr-3 whitespace-nowrap text-slate-800">
+                    <tr key={`${row.phone}-${index}`} className="border-b align-top">
+                      <td className="py-2 pr-3 whitespace-nowrap text-foreground">
                         <div className="font-medium">{row.name}</div>
-                        <div className="text-xs text-slate-500">{row.phone}</div>
+                        <div className="text-xs text-muted-foreground">{row.phone}</div>
                       </td>
                       <td className="py-2 pr-3">
                         <div className="flex flex-wrap gap-1">
                           {row.tags.length === 0 ? (
-                            <span className="text-xs text-slate-400">—</span>
+                            <span className="text-xs text-muted-foreground">—</span>
                           ) : (
                             row.tags.map((tag) => (
                               <span
                                 key={tag.name}
-                                className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600"
+                                className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground"
                               >
                                 {tag.name}
                               </span>
@@ -131,11 +131,11 @@ export default async function DailyReportPublicPage({ params }: PageProps) {
                           )}
                         </div>
                       </td>
-                      <td className="py-2 pr-3 text-xs text-slate-600">{row.summary || "—"}</td>
+                      <td className="py-2 pr-3 text-xs text-muted-foreground">{row.summary || "—"}</td>
                       <td className="py-2">
                         <span
                           className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
-                            STAGE_TONE[row.stage] ?? "bg-slate-100 text-slate-600"
+                            STAGE_TONE[row.stage] ?? "bg-muted text-muted-foreground"
                           }`}
                         >
                           {stageLabel(row.stage)}
@@ -149,7 +149,7 @@ export default async function DailyReportPublicPage({ params }: PageProps) {
           )}
         </section>
 
-        <footer className="pb-6 text-center text-xs text-slate-400">
+        <footer className="pb-6 text-center text-xs text-muted-foreground">
           Generado automáticamente · {report.createdAt.toLocaleString("es-CO", { timeZone: "America/Bogota" })}
         </footer>
       </div>

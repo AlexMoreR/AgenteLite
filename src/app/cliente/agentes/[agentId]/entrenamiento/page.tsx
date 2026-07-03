@@ -45,8 +45,8 @@ function SectionHeader({
 }) {
   return (
     <div className="flex items-center gap-2">
-      <span className="h-4 w-1 rounded-full bg-[var(--primary)]" />
-      <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+      <span className="h-4 w-1 rounded-full bg-primary" />
+      <span className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
         {title}
       </span>
       {helpText ? (
@@ -68,9 +68,9 @@ function ToggleField({
   helpText: string;
 }) {
   return (
-    <label className="group flex min-h-14 cursor-pointer items-center justify-between gap-3 rounded-[18px] border border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcfd_100%)] px-3.5 py-3 transition-[border-color,box-shadow,transform] duration-200 ease-out hover:border-[color-mix(in_srgb,var(--primary)_34%,white)] hover:shadow-[0_18px_32px_-28px_rgba(15,23,42,0.26)] active:scale-[0.997]">
+    <label className="group flex min-h-14 cursor-pointer items-center justify-between gap-3 rounded-xl border border-border bg-card px-3.5 py-3 transition duration-200 ease-out hover:border-primary/40 hover:shadow-md active:scale-[0.997]">
       <span className="min-w-0 space-y-0.5">
-        <span className="inline-flex items-center gap-1.5 text-[13px] font-semibold leading-5 text-slate-900">
+        <span className="inline-flex items-center gap-1.5 text-[13px] font-semibold leading-5 text-foreground">
           <span>{title}</span>
           <TrainingHelpPopover title={title} description={helpText} />
         </span>
@@ -80,7 +80,7 @@ function ToggleField({
           name={name}
           defaultChecked={defaultChecked}
           aria-label={title}
-          className="h-6 w-11 bg-slate-200 data-[state=checked]:bg-[var(--primary)] data-[state=checked]:shadow-[0_8px_18px_-14px_color-mix(in_srgb,var(--primary)_88%,black)]"
+          className="h-6 w-11 bg-muted data-[state=checked]:bg-primary data-[state=checked]:shadow-sm"
         />
       </span>
     </label>
@@ -150,7 +150,7 @@ export default async function AgentTrainingPage({ params }: PageProps) {
       <AgentTrainingAutosaveForm agentId={agent.id} className="space-y-4">
         <input type="hidden" name="postCreateAction" value="probar" />
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1.18fr)_minmax(340px,0.82fr)]">
-          <Card className="border border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcfd_100%)] p-4 shadow-[0_20px_44px_-38px_rgba(15,23,42,0.18)] sm:p-5 xl:col-span-2">
+          <Card className="border border-border bg-card p-4 shadow-sm sm:p-5 xl:col-span-2">
             <div className="space-y-2">
                 <BusinessNameHeader
                   agentId={agent.id}
@@ -176,7 +176,7 @@ export default async function AgentTrainingPage({ params }: PageProps) {
 
               <Accordion defaultValue={["shipping"]} keepMounted className="">
                 <AccordionItem value="shipping">
-                  <AccordionTrigger className="py-2 text-[14px] font-semibold text-slate-900 hover:no-underline">
+                  <AccordionTrigger className="py-2 text-[14px] font-semibold text-foreground hover:no-underline">
                     ✨ Etapa 1: Presentación
                   </AccordionTrigger>
                   <AccordionContent className="pb-2">
@@ -212,13 +212,13 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                   </AccordionContent>
                 </AccordionItem>
                 <AccordionItem value="context">
-                  <AccordionTrigger className="py-2 text-[14px] font-semibold text-slate-900 hover:no-underline">
+                  <AccordionTrigger className="py-2 text-[14px] font-semibold text-foreground hover:no-underline">
                     🧠 Etapa 2: Contexto
                   </AccordionTrigger>
                   <AccordionContent className="pb-4">
                     <div className="space-y-3.5 pt-2">
                       <label className="space-y-2">
-                        <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-slate-700">
+                        <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-foreground">
                           <span>Instrucción</span>
                           <TrainingHelpPopover
                             title="Instrucción"
@@ -231,12 +231,12 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                           defaultValue={instruction}
                           maxLength={100000}
                           placeholder="Ej. Antes de hablar de precio, pide el codigo o referencia del producto que le gusto."
-                          className="flex min-h-[110px] w-full rounded-[20px] border border-[rgba(148,163,184,0.14)] bg-white px-3.5 py-3 text-[13px] leading-6 text-slate-800 shadow-[0_18px_32px_-34px_rgba(15,23,42,0.18)] outline-none transition placeholder:text-slate-400 focus:border-[var(--primary)]"
+                          className="flex min-h-[110px] w-full rounded-xl border border-input bg-background px-3.5 py-3 text-[13px] leading-6 text-foreground shadow-sm outline-none transition placeholder:text-muted-foreground focus:border-primary"
                         />
                       </label>
 
                       <label className="space-y-2">
-                        <span className="inline-flex items-center gap-1.5 text-[13px]  text-slate-700">
+                        <span className="inline-flex items-center gap-1.5 text-[13px]  text-foreground">
                           <span>
                             Que vendes y como lo explicarias en WhatsApp
                           </span>
@@ -247,7 +247,7 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                           defaultValue={businessDescription}
                           placeholder="Escribe como se lo explicarias a un cliente por WhatsApp: que vendes, para quien y por que deberia interesarle."
                           minLength={12}
-                          className="flex min-h-[138px] w-full rounded-[20px] border border-[rgba(148,163,184,0.14)] bg-white px-3.5 py-3 text-[13px] leading-6 text-slate-800 shadow-[0_18px_32px_-34px_rgba(15,23,42,0.18)] outline-none transition placeholder:text-slate-400 focus:border-[var(--primary)]"
+                          className="flex min-h-[138px] w-full rounded-xl border border-input bg-background px-3.5 py-3 text-[13px] leading-6 text-foreground shadow-sm outline-none transition placeholder:text-muted-foreground focus:border-primary"
                           required
                         />
                       </label>
@@ -256,7 +256,7 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                   </AccordionContent>
                 </AccordionItem>
                 <AccordionItem value="personality">
-                  <AccordionTrigger className="py-2 text-[14px] font-semibold text-slate-900 hover:no-underline">
+                  <AccordionTrigger className="py-2 text-[14px] font-semibold text-foreground hover:no-underline">
                     🎭 Etapa 3: Personalidad
                   </AccordionTrigger>
                   <AccordionContent className="pb-4">
@@ -267,7 +267,7 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                         showHeader={false}
                       />
                       <fieldset className="space-y-2.5">
-                        <legend className="inline-flex items-center gap-1.5 py-2 text-[13px] font-medium text-slate-700">
+                        <legend className="inline-flex items-center gap-1.5 py-2 text-[13px] font-medium text-foreground">
                           <FieldLabel
                             htmlFor="input-field-username"
                             className="text-[13px] px-2 pb-2"
@@ -287,7 +287,7 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                                 )}
                                 className="peer sr-only"
                               />
-                              <span className="inline-flex min-h-9 items-center justify-center rounded-full border border-[rgba(148,163,184,0.14)] bg-white px-3 py-1.5 text-[12px] font-medium text-slate-700 shadow-[0_10px_18px_-26px_rgba(15,23,42,0.22)] transition hover:border-[color-mix(in_srgb,var(--primary)_30%,white)] peer-checked:border-[color-mix(in_srgb,var(--primary)_88%,white)] peer-checked:bg-[color-mix(in_srgb,var(--primary)_8%,white)] peer-checked:text-[var(--primary)]">
+                              <span className="inline-flex min-h-9 items-center justify-center rounded-full border border-border bg-card px-3 py-1.5 text-[12px] font-medium text-foreground shadow-sm transition hover:border-primary/40 peer-checked:border-primary peer-checked:bg-primary/10 peer-checked:text-primary">
                                 {option}
                               </span>
                             </label>
@@ -298,7 +298,7 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                       defaultValue={training.responseLength}
                       helpText="Controla si el agente respondera corto y directo o con mas contexto cuando explique y venda."
                     />
-                    <Card className="border border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcfd_100%)] p-4 shadow-[0_20px_44px_-38px_rgba(15,23,42,0.18)] sm:p-5">
+                    <Card className="border border-border bg-card p-4 shadow-sm sm:p-5">
                       <div className="space-y-3.5">
                         <SectionHeader
                           title="Estilo y cierre"
@@ -360,24 +360,24 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                 </AccordionContent>
               </AccordionItem>
               <AccordionItem value="rules">
-                <AccordionTrigger className="py-2 text-[14px] font-semibold text-slate-900 hover:no-underline">
+                <AccordionTrigger className="py-2 text-[14px] font-semibold text-foreground hover:no-underline">
                   🛡️ Etapa 4: Regla
                 </AccordionTrigger>
                 <AccordionContent className="pb-4">
-                  <Card className="border border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcfd_100%)] p-4 shadow-[0_20px_44px_-38px_rgba(15,23,42,0.18)] sm:p-5">
+                  <Card className="border border-border bg-card p-4 shadow-sm sm:p-5">
                     <div className="space-y-3.5">
                       <div className="flex items-center justify-between gap-3">
                         <SectionHeader
                           title="Reglas importantes"
                           helpText="Estas reglas protegen al negocio para que el agente no invente informacion ni haga promesas incorrectas."
                         />
-                        <Shield className="h-4.5 w-4.5 shrink-0 text-[var(--primary)]" />
+                        <Shield className="h-4.5 w-4.5 shrink-0 text-primary" />
                       </div>
                       <div className="grid gap-2.5">
                         {forbiddenRuleOptions.map((rule) => (
                           <label
                             key={rule}
-                            className="flex items-center gap-2.5 rounded-[16px] border border-[rgba(148,163,184,0.12)] bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] px-3.5 py-2.5 transition hover:border-[color-mix(in_srgb,var(--primary)_28%,white)]"
+                            className="flex items-center gap-2.5 rounded-xl border border-border bg-card px-3.5 py-2.5 transition hover:border-primary/40"
                           >
                             <input
                               type="checkbox"
@@ -386,16 +386,16 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                               defaultChecked={training.forbiddenRules.includes(
                                 rule,
                               )}
-                              className="h-4 w-4 rounded border-slate-300 text-[var(--primary)] focus:ring-[var(--primary)]"
+                              className="h-4 w-4 rounded border-input text-primary focus:ring-primary"
                             />
-                            <span className="text-[13px] leading-5 text-slate-700">
+                            <span className="text-[13px] leading-5 text-foreground">
                               {rule}
                             </span>
                           </label>
                         ))}
                       </div>
                       <label className="space-y-1.5">
-                        <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-slate-700">
+                        <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-foreground">
                           <span>Otras reglas especificas del negocio</span>
                           <TrainingHelpPopover
                             title="Otras reglas del negocio"
@@ -407,7 +407,7 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                           rows={4}
                           defaultValue={training.customRules}
                           maxLength={10000}
-                          className="flex w-full rounded-[20px] border border-[rgba(148,163,184,0.16)] bg-white px-3.5 py-3 text-[13px] leading-6 text-slate-800 outline-none transition focus:border-[var(--primary)]"
+                          className="flex w-full rounded-xl border border-input bg-background px-3.5 py-3 text-[13px] leading-6 text-foreground outline-none transition focus:border-primary"
                         />
                       </label>
                     </div>
@@ -421,7 +421,7 @@ export default async function AgentTrainingPage({ params }: PageProps) {
         <div className="flex justify-end">
           <button
             type="submit"
-            className="inline-flex h-11 items-center justify-center rounded-[16px] bg-[var(--primary)] px-5 text-[13px] font-semibold text-white shadow-[0_18px_32px_-20px_color-mix(in_srgb,var(--primary)_58%,black)] transition hover:bg-[var(--primary-strong)]"
+            className="inline-flex h-11 items-center justify-center rounded-xl bg-primary px-5 text-[13px] font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90"
           >
             Guardar entrenamiento
           </button>

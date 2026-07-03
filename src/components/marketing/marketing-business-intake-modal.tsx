@@ -46,10 +46,10 @@ function StageDot({ active, done }: { active: boolean; done: boolean }) {
     <span
       className={`h-2 rounded-full transition-all ${
         active
-          ? "w-10 bg-[var(--primary)] shadow-[0_10px_18px_-12px_color-mix(in_srgb,var(--primary)_70%,black)]"
+          ? "w-10 bg-primary shadow-sm"
           : done
-            ? "w-4 bg-[color-mix(in_srgb,var(--primary)_40%,white)]"
-            : "w-4 bg-slate-200"
+            ? "w-4 bg-primary/40"
+            : "w-4 bg-muted"
       }`}
     />
   );
@@ -327,13 +327,13 @@ export function MarketingBusinessIntakeModal({ context }: MarketingBusinessIntak
       {canPortal && open
         ? createPortal(
             <div
-              className="fixed inset-0 z-50 flex items-stretch justify-center bg-[#0f172a80] p-0 md:p-6"
+              className="fixed inset-0 z-50 flex items-stretch justify-center bg-black/50 p-0 md:p-6"
               role="dialog"
               aria-modal="true"
               aria-label="Completar contexto del negocio"
             >
-              <div className="flex h-full w-full max-w-[1040px] flex-col overflow-hidden rounded-none border border-[rgba(148,163,184,0.18)] bg-[linear-gradient(180deg,#fdfdfd_0%,#ffffff_100%)] md:max-h-[92vh] md:rounded-[32px] md:shadow-[0_42px_110px_-52px_rgba(15,23,42,0.5)]">
-                <div className="border-b border-[rgba(148,163,184,0.14)] bg-[linear-gradient(180deg,#ffffff_0%,#fbfbfd_100%)] px-5 py-5 md:px-8 md:py-4">
+              <div className="flex h-full w-full max-w-[1040px] flex-col overflow-hidden rounded-none border border-border bg-card md:max-h-[92vh] md:rounded-2xl md:shadow-lg">
+                <div className="border-b border-border bg-card px-5 py-5 md:px-8 md:py-4">
                   <div className="relative flex items-start justify-center gap-4">
                     <div className="space-y-2 text-center">
                       <div className="flex flex-wrap justify-center gap-2">
@@ -342,13 +342,13 @@ export function MarketingBusinessIntakeModal({ context }: MarketingBusinessIntak
                         ))}
                       </div>
                       <div className="space-y-2">
-                        <h2 className="text-[1.8rem] font-semibold tracking-[-0.06em] text-slate-950 md:text-[2rem]">
+                        <h2 className="text-3xl font-semibold tracking-tight text-foreground md:text-4xl">
                           {stage === "basics" && "Cuéntale a la IA sobre tu negocio"}
                           {stage === "customer" && "Ahora cuéntanos del cliente"}
                           {stage === "scanning" && "Buscando tu negocio"}
                           {stage === "summary" && "Esto entendió la IA"}
                         </h2>
-                        <p className="text-sm leading-6 text-slate-600">
+                        <p className="text-sm leading-6 text-muted-foreground">
                           {stage === "basics" &&
                             "Solo responde lo básico. La IA organizará internamente la información para marketing."}
                           {stage === "customer" &&
@@ -364,7 +364,7 @@ export function MarketingBusinessIntakeModal({ context }: MarketingBusinessIntak
                     <button
                       type="button"
                       onClick={closeModal}
-                      className="absolute right-0 top-0 inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[rgba(148,163,184,0.16)] bg-white text-slate-600 transition hover:bg-slate-50"
+                      className="absolute right-0 top-0 inline-flex h-10 w-10 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground transition hover:bg-muted"
                       aria-label="Cerrar"
                     >
                       <X className="h-4 w-4" />
@@ -403,38 +403,38 @@ export function MarketingBusinessIntakeModal({ context }: MarketingBusinessIntak
                     className={
                       stage === "scanning"
                         ? "flex flex-1 items-center justify-center overflow-hidden px-5 py-8 md:px-8 md:py-10"
-                        : "flex-1 overflow-y-auto bg-[#f1f3f5] px-5 py-6 md:px-8 md:py-4"
+                        : "flex-1 overflow-y-auto bg-muted px-5 py-6 md:px-8 md:py-4"
                     }
                   >
                     {stage === "basics" ? (
                       <div className="mx-auto w-full max-w-[760px]">
-                        <div className="rounded-[30px] border border-[rgba(148,163,184,0.14)] bg-white p-5 shadow-[0_18px_38px_-30px_rgba(15,23,42,0.14)] md:p-6">
+                        <div className="rounded-2xl border border-border bg-card p-5 shadow-sm md:p-6">
                           <div className="grid gap-5 md:grid-cols-2">
                             <label className="block space-y-2.5">
-                              <span className="text-sm font-semibold text-slate-950">¿Cómo se llama tu negocio?</span>
+                              <span className="text-sm font-semibold text-foreground">¿Cómo se llama tu negocio?</span>
                               <Input
                                 value={businessName}
                                 onChange={(event) => setBusinessName(event.target.value)}
                                 placeholder="Ej. Magilus"
-                                className="h-14 rounded-[22px] bg-white px-5"
+                                className="h-14 rounded-2xl bg-background px-5"
                               />
                             </label>
 
                             <label className="block space-y-2.5 md:col-span-2">
-                              <span className="text-sm font-semibold text-slate-950">
+                              <span className="text-sm font-semibold text-foreground">
                                 ¿Qué vendes o qué servicio ofreces?
                               </span>
-                              <div className="overflow-hidden rounded-[24px] border border-[var(--line)] bg-white px-5 py-3 shadow-[0_20px_42px_-34px_rgba(15,23,42,0.14)]">
+                              <div className="overflow-hidden rounded-2xl border border-border bg-card px-5 py-3 shadow-sm">
                                 <textarea
                                   value={whatSells}
                                   onChange={(event) => setWhatSells(event.target.value)}
                                   rows={4}
-                                  className="flex min-h-[72px] w-full resize-none bg-white py-1 text-[15px] leading-7 text-slate-800 outline-none placeholder:text-slate-400"
+                                  className="flex min-h-[72px] w-full resize-none bg-card py-1 text-sm leading-7 text-foreground outline-none placeholder:text-muted-foreground"
                                   placeholder="Ej. Vendemos mobiliario premium para barberías y salones."
                                 />
                               </div>
                               <div className="flex flex-wrap items-center justify-between gap-3">
-                                <p className="text-xs leading-5 text-slate-500">
+                                <p className="text-xs leading-5 text-muted-foreground">
                                   Puedes escribirlo simple. La IA te ayuda a dejarlo mas claro.
                                 </p>
                                 <Button
@@ -461,23 +461,23 @@ export function MarketingBusinessIntakeModal({ context }: MarketingBusinessIntak
 
                     {stage === "customer" ? (
                       <div className="mx-auto w-full max-w-[760px] space-y-4">
-                        <div className="rounded-[30px] border border-[rgba(148,163,184,0.14)] bg-white p-5 shadow-[0_18px_38px_-30px_rgba(15,23,42,0.14)] md:p-6">
+                        <div className="rounded-2xl border border-border bg-card p-5 shadow-sm md:p-6">
                           <div className="grid gap-5 md:grid-cols-2">
                             <label className="block space-y-2.5 md:col-span-2">
-                              <span className="text-sm font-semibold text-slate-950">
+                              <span className="text-sm font-semibold text-foreground">
                                 ¿A qué tipo de cliente le vendes?
                               </span>
-                              <div className="overflow-hidden rounded-[24px] border border-[var(--line)] bg-white px-5 py-3 shadow-[0_20px_42px_-34px_rgba(15,23,42,0.14)]">
+                              <div className="overflow-hidden rounded-2xl border border-border bg-card px-5 py-3 shadow-sm">
                                 <textarea
                                   value={idealCustomer}
                                   onChange={(event) => setIdealCustomer(event.target.value)}
                                   rows={3}
-                                  className="flex min-h-[64px] w-full resize-none bg-white py-1 text-[15px] leading-7 text-slate-800 outline-none placeholder:text-slate-400"
+                                  className="flex min-h-[64px] w-full resize-none bg-card py-1 text-sm leading-7 text-foreground outline-none placeholder:text-muted-foreground"
                                   placeholder="Ej. Dueños de barberías, salones y negocios que quieren verse más profesionales."
                                 />
                               </div>
                               <div className="flex flex-wrap items-center justify-between gap-3">
-                                <p className="text-xs leading-5 text-slate-500">
+                                <p className="text-xs leading-5 text-muted-foreground">
                                   La IA usa lo que vendes para dejar este perfil de cliente más claro.
                                 </p>
                                 <Button
@@ -499,20 +499,20 @@ export function MarketingBusinessIntakeModal({ context }: MarketingBusinessIntak
                             </label>
 
                             <label className="block space-y-2.5 md:col-span-2">
-                              <span className="text-sm font-semibold text-slate-950">
+                              <span className="text-sm font-semibold text-foreground">
                                 ¿Qué problema le ayudas a resolver?
                               </span>
-                              <div className="overflow-hidden rounded-[24px] border border-[var(--line)] bg-white px-5 py-3 shadow-[0_20px_42px_-34px_rgba(15,23,42,0.14)]">
+                              <div className="overflow-hidden rounded-2xl border border-border bg-card px-5 py-3 shadow-sm">
                                 <textarea
                                   value={painPoints}
                                   onChange={(event) => setPainPoints(event.target.value)}
                                   rows={3}
-                                  className="flex min-h-[64px] w-full resize-none bg-white py-1 text-[15px] leading-7 text-slate-800 outline-none placeholder:text-slate-400"
+                                  className="flex min-h-[64px] w-full resize-none bg-card py-1 text-sm leading-7 text-foreground outline-none placeholder:text-muted-foreground"
                                   placeholder="Ej. Les ayudamos a montar un espacio funcional, atractivo y listo para vender mejor."
                                 />
                               </div>
                               <div className="flex flex-wrap items-center justify-between gap-3">
-                                <p className="text-xs leading-5 text-slate-500">
+                                <p className="text-xs leading-5 text-muted-foreground">
                                   La IA usa lo que vendes y tu cliente ideal para mejorar este problema principal.
                                 </p>
                                 <Button
@@ -534,19 +534,19 @@ export function MarketingBusinessIntakeModal({ context }: MarketingBusinessIntak
                             </label>
 
                             <label className="block space-y-2.5 md:col-span-2">
-                              <span className="text-sm font-semibold text-slate-950">
+                              <span className="text-sm font-semibold text-foreground">
                                 ¿Qué quieres que haga la persona interesada?
                               </span>
                               <Input
                                 value={primaryCallToAction}
                                 onChange={(event) => setPrimaryCallToAction(event.target.value)}
                                 placeholder="Ej. Escribirme por WhatsApp"
-                                className="h-14 rounded-[22px] bg-white px-5"
+                                className="h-14 rounded-2xl bg-background px-5"
                               />
                             </label>
 
                             <label className="block space-y-2.5">
-                              <span className="text-sm font-semibold text-slate-950">Página web (opcional)</span>
+                              <span className="text-sm font-semibold text-foreground">Página web (opcional)</span>
                               <Input
                                 value={websiteUrl}
                                 onChange={(event) => setWebsiteUrl(event.target.value)}
@@ -555,12 +555,12 @@ export function MarketingBusinessIntakeModal({ context }: MarketingBusinessIntak
                                 autoComplete="off"
                                 autoCapitalize="none"
                                 spellCheck={false}
-                                className="h-14 rounded-[22px] bg-white px-5"
+                                className="h-14 rounded-2xl bg-background px-5"
                               />
                             </label>
 
                             <label className="block space-y-2.5">
-                              <span className="text-sm font-semibold text-slate-950">Instagram (opcional)</span>
+                              <span className="text-sm font-semibold text-foreground">Instagram (opcional)</span>
                               <Input
                                 value={instagramUrl}
                                 onChange={(event) => setInstagramUrl(event.target.value)}
@@ -569,12 +569,12 @@ export function MarketingBusinessIntakeModal({ context }: MarketingBusinessIntak
                                 autoComplete="off"
                                 autoCapitalize="none"
                                 spellCheck={false}
-                                className="h-14 rounded-[22px] bg-white px-5"
+                                className="h-14 rounded-2xl bg-background px-5"
                               />
                             </label>
 
                             <label className="block space-y-2.5 md:col-span-2">
-                              <span className="text-sm font-semibold text-slate-950">Facebook (opcional)</span>
+                              <span className="text-sm font-semibold text-foreground">Facebook (opcional)</span>
                               <Input
                                 value={facebookUrl}
                                 onChange={(event) => setFacebookUrl(event.target.value)}
@@ -583,7 +583,7 @@ export function MarketingBusinessIntakeModal({ context }: MarketingBusinessIntak
                                 autoComplete="off"
                                 autoCapitalize="none"
                                 spellCheck={false}
-                                className="h-14 rounded-[22px] bg-white px-5"
+                                className="h-14 rounded-2xl bg-background px-5"
                               />
                             </label>
                           </div>
@@ -593,19 +593,19 @@ export function MarketingBusinessIntakeModal({ context }: MarketingBusinessIntak
                     {stage === "scanning" ? (
                       <div className="mx-auto flex w-full max-w-[480px] flex-col items-center justify-center text-center">
                         <div className="relative flex h-28 w-28 items-center justify-center">
-                          <div className="absolute inset-0 animate-pulse rounded-full bg-[color-mix(in_srgb,var(--primary)_10%,white)]" />
-                          <div className="absolute inset-[10px] rounded-full border border-[color-mix(in_srgb,var(--primary)_20%,white)]" />
-                          <LoaderCircle className="absolute h-24 w-24 animate-spin text-[color-mix(in_srgb,var(--primary)_42%,white)]" />
-                          <div className="relative inline-flex h-16 w-16 items-center justify-center rounded-[24px] bg-[color-mix(in_srgb,var(--primary)_14%,white)] text-[var(--primary)] shadow-[0_18px_40px_-24px_color-mix(in_srgb,var(--primary)_45%,black)]">
+                          <div className="absolute inset-0 animate-pulse rounded-full bg-primary/10" />
+                          <div className="absolute inset-[10px] rounded-full border border-primary/20" />
+                          <LoaderCircle className="absolute h-24 w-24 animate-spin text-primary/40" />
+                          <div className="relative inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 text-primary shadow-lg">
                             <Search className="h-8 w-8" />
                           </div>
                         </div>
 
                         <div className="mt-7 space-y-3">
-                          <h3 className="text-[2rem] font-semibold tracking-[-0.06em] text-slate-950">
+                          <h3 className="text-3xl font-semibold tracking-tight text-foreground">
                             Buscando tu negocio
                           </h3>
-                          <p className="text-base leading-7 text-slate-600">
+                          <p className="text-base leading-7 text-muted-foreground">
                             Estamos revisando lo que escribiste y los links públicos para armar una base comercial útil.
                           </p>
                         </div>
@@ -614,22 +614,22 @@ export function MarketingBusinessIntakeModal({ context }: MarketingBusinessIntak
 
                     {stage === "summary" && scanResult?.ok ? (
                       <div className="mx-auto w-full max-w-[860px] space-y-5">
-                        <div className="rounded-[30px] border border-[rgba(148,163,184,0.14)] bg-white p-6 shadow-[0_18px_38px_-30px_rgba(15,23,42,0.14)]">
+                        <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
                           <div className="flex items-start gap-4">
-                            <span className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-[18px] bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
+                            <span className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
                               <Bot className="h-5 w-5" />
                             </span>
                             <div className="space-y-3">
-                              <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
+                              <p className="text-sm font-semibold uppercase tracking-widest text-muted-foreground">
                                 Resumen del negocio
                               </p>
-                              <p className="text-[1.05rem] leading-7 text-slate-800">{scanResult.summary}</p>
+                              <p className="text-base leading-7 text-foreground">{scanResult.summary}</p>
                             </div>
                           </div>
                         </div>
 
                         <div className="grid gap-4 lg:grid-cols-2">
-                          <SummarySectionCard title="Información confirmada por el cliente" icon={<Store className="h-4.5 w-4.5 text-[var(--primary)]" />}>
+                          <SummarySectionCard title="Información confirmada por el cliente" icon={<Store className="h-4.5 w-4.5 text-primary" />}>
                             <SummaryBlock title="Nombre del negocio" value={scanResult.clientInputs.businessName} />
                             <SummaryBlock title="Oferta" value={scanResult.clientInputs.offer} />
                             <SummaryBlock title="Cliente objetivo" value={scanResult.clientInputs.idealCustomer} />
@@ -638,7 +638,7 @@ export function MarketingBusinessIntakeModal({ context }: MarketingBusinessIntak
                             <SummaryListBlock title="Enlaces compartidos" values={scanResult.clientInputs.sharedLinks} />
                           </SummarySectionCard>
 
-                          <SummarySectionCard title="Hallazgos públicos" icon={<Globe className="h-4.5 w-4.5 text-[var(--primary)]" />}>
+                          <SummarySectionCard title="Hallazgos públicos" icon={<Globe className="h-4.5 w-4.5 text-primary" />}>
                             <SummaryBlock
                               title="Sitio web encontrado"
                               value={scanResult.publicFindings.websiteFound || "No se confirmó un sitio web público."}
@@ -659,7 +659,7 @@ export function MarketingBusinessIntakeModal({ context }: MarketingBusinessIntak
                           </SummarySectionCard>
                         </div>
 
-                        <SummarySectionCard title="Base estratégica para marketing" icon={<Target className="h-4.5 w-4.5 text-[var(--primary)]" />}>
+                        <SummarySectionCard title="Base estratégica para marketing" icon={<Target className="h-4.5 w-4.5 text-primary" />}>
                           <div className="grid gap-3 lg:grid-cols-2">
                             <SummaryBlock title="Cliente ideal" value={scanResult.strategicBase.idealCustomer} />
                             <SummaryBlock title="Problema principal" value={scanResult.strategicBase.mainProblem} />
@@ -685,12 +685,12 @@ export function MarketingBusinessIntakeModal({ context }: MarketingBusinessIntak
                           </div>
                         </SummarySectionCard>
 
-                        <SummarySectionCard title="Fuentes revisadas" icon={<Bot className="h-4.5 w-4.5 text-[var(--primary)]" />}>
+                        <SummarySectionCard title="Fuentes revisadas" icon={<Bot className="h-4.5 w-4.5 text-primary" />}>
                           <SummaryListBlock title="URLs revisadas" values={scanResult.sources} />
                         </SummarySectionCard>
 
                         {scanResult.missing.length > 0 ? (
-                          <SummarySectionCard title="Información que todavía conviene afinar" icon={<Search className="h-4.5 w-4.5 text-[var(--primary)]" />}>
+                          <SummarySectionCard title="Información que todavía conviene afinar" icon={<Search className="h-4.5 w-4.5 text-primary" />}>
                             <div className="space-y-3">
                               {scanResult.missing.map((item) => (
                                 <SummaryBlock key={item.id} title={item.title} value={item.prompt} />
@@ -703,12 +703,12 @@ export function MarketingBusinessIntakeModal({ context }: MarketingBusinessIntak
                   </div>
 
                   {error ? (
-                    <div className="border-t border-red-100 bg-red-50 px-5 py-3 text-sm text-red-600 md:px-8">
+                    <div className="border-t border-destructive/30 bg-destructive/10 px-5 py-3 text-sm text-destructive md:px-8">
                       {error}
                     </div>
                   ) : null}
 
-                  <div className="flex items-center justify-between border-t border-[rgba(148,163,184,0.14)] bg-[rgba(255,255,255,0.9)] px-5 py-4 backdrop-blur md:px-8">
+                  <div className="flex items-center justify-between border-t border-border bg-card/90 px-5 py-4 backdrop-blur md:px-8">
                     <Button
                       type="button"
                       variant="outline"
@@ -765,19 +765,19 @@ export function MarketingBusinessIntakeModal({ context }: MarketingBusinessIntak
 
 function SummaryBlock({ title, value }: { title: string; value: string }) {
   return (
-    <div className="rounded-[18px] border border-[var(--line)] bg-slate-50 px-4 py-3">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">{title}</p>
-      <p className="mt-1 text-sm leading-6 text-slate-700">{value}</p>
+    <div className="rounded-xl border border-border bg-muted px-4 py-3">
+      <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">{title}</p>
+      <p className="mt-1 text-sm leading-6 text-foreground">{value}</p>
     </div>
   );
 }
 
 function SummaryListBlock({ title, values }: { title: string; values: string[] }) {
   return (
-    <div className="rounded-[18px] border border-[var(--line)] bg-slate-50 px-4 py-3">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">{title}</p>
+    <div className="rounded-xl border border-border bg-muted px-4 py-3">
+      <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">{title}</p>
       {values.length > 0 ? (
-        <div className="mt-2 space-y-1.5 text-sm leading-6 text-slate-700">
+        <div className="mt-2 space-y-1.5 text-sm leading-6 text-foreground">
           {values.map((value) => (
             <p key={value} className="break-words">
               {value}
@@ -785,7 +785,7 @@ function SummaryListBlock({ title, values }: { title: string; values: string[] }
           ))}
         </div>
       ) : (
-        <p className="mt-1 text-sm leading-6 text-slate-500">No hay suficiente información confirmada todavía.</p>
+        <p className="mt-1 text-sm leading-6 text-muted-foreground">No hay suficiente información confirmada todavía.</p>
       )}
     </div>
   );
@@ -801,10 +801,10 @@ function SummarySectionCard({
   children: ReactNode;
 }) {
   return (
-    <div className="rounded-[28px] border border-[rgba(148,163,184,0.14)] bg-white p-5 shadow-[0_18px_38px_-30px_rgba(15,23,42,0.14)]">
+    <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
       <div className="mb-4 flex items-center gap-2">
         {icon}
-        <p className="text-sm font-semibold text-slate-950">{title}</p>
+        <p className="text-sm font-semibold text-foreground">{title}</p>
       </div>
       <div className="space-y-3">{children}</div>
     </div>

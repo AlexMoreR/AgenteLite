@@ -274,7 +274,7 @@ function ChatbotFlowNode({ id, data, selected }: NodeProps<Node<FlowNodeData>>) 
       <BaseNode
         className={cn(
           "w-[330px] transition-shadow",
-          selected ? "border-blue-400 shadow-[0_24px_50px_-28px_rgba(37,99,235,0.52)]" : "",
+          selected ? "border-blue-400 shadow-lg" : "",
         )}
       >
         <BaseNodeHeader className="items-center justify-start gap-2.5">
@@ -362,7 +362,7 @@ function ChatbotFlowNode({ id, data, selected }: NodeProps<Node<FlowNodeData>>) 
               {mediaUrl ? (
                 <div className="flex items-center gap-2.5 rounded-lg border border-border bg-muted px-2.5 py-1.5">
                   {data.kind === "document" ? (
-                    <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-red-600 text-[11px] font-bold tracking-tight text-white shadow-sm">
+                    <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-red-600 text-xs font-bold tracking-tight text-white shadow-sm">
                       {(mediaFileName.includes(".") ? mediaFileName.split(".").pop()! : "PDF").slice(0, 4).toUpperCase()}
                     </span>
                   ) : (
@@ -447,7 +447,7 @@ function ChatbotFlowNode({ id, data, selected }: NodeProps<Node<FlowNodeData>>) 
               }}
               onClick={(event) => event.stopPropagation()}
               placeholder="Escribe aqui la respuesta del bot."
-              className="nodrag nowheel block min-h-[64px] w-full resize-none overflow-hidden rounded-lg border border-border bg-background px-3 py-2 text-sm leading-5 text-foreground outline-none transition placeholder:text-muted-foreground focus:border-blue-400 focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-950"
+              className="nodrag nowheel block min-h-16 w-full resize-none overflow-hidden rounded-lg border border-border bg-background px-3 py-2 text-sm leading-5 text-foreground outline-none transition placeholder:text-muted-foreground focus:border-blue-400 focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-950"
             />
           ) : (
             <p className="line-clamp-4 whitespace-pre-line text-sm leading-5 text-foreground">{preview}</p>
@@ -2376,7 +2376,7 @@ export function OfficialApiChatbotWorkspace({
                           }
                           addBlock(block.id as BuilderNode["kind"]);
                         }}
-                        className="rounded-[24px] border border-slate-200 bg-white p-4 text-left shadow-[0_14px_34px_-28px_rgba(15,23,42,0.24)] transition hover:border-slate-300"
+                        className="rounded-2xl border border-border bg-card p-4 text-left shadow-sm transition hover:border-input"
                       >
                         <span className={`inline-flex h-9 w-9 items-center justify-center rounded-2xl ring-1 ${block.style}`}>
                           <Icon className="h-4 w-4" />
@@ -2388,12 +2388,12 @@ export function OfficialApiChatbotWorkspace({
                   })}
                 </div>
               ) : (
-                <div className="rounded-[22px] border border-dashed border-slate-300 bg-white/80 px-4 py-3 text-sm leading-6 text-slate-500">
+                <div className="rounded-2xl border border-dashed border-border bg-card/80 px-4 py-3 text-sm leading-6 text-muted-foreground">
                   Haz clic en <span className="font-semibold text-slate-700">+</span> para abrir la libreria de bloques.
                 </div>
               )}
 
-              <div className="rounded-[24px] border border-amber-200 bg-amber-50 p-4">
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
                 <div className="flex items-center gap-2 text-sm font-semibold text-amber-900">
                   <Clock3 className="h-4 w-4" />
                   Regla oficial
@@ -2408,8 +2408,8 @@ export function OfficialApiChatbotWorkspace({
           <main
             className={`relative h-full min-h-0 w-full flex-1 overflow-hidden ${
               hasSelectedFlow
-                ? "bg-[radial-gradient(circle_at_top,rgba(203,213,225,0.62),transparent_36%),linear-gradient(180deg,#f8fafc_0%,#eef2f7_100%)] dark:bg-[radial-gradient(circle_at_top,rgba(30,41,59,0.7),transparent_36%),linear-gradient(180deg,#0f172a_0%,#020617_100%)]"
-                : "bg-white dark:bg-slate-950"
+                ? "bg-muted"
+                : "bg-background"
             }`}
           >
             <div
@@ -2422,15 +2422,15 @@ export function OfficialApiChatbotWorkspace({
               {selectedScenario ? (
                 <div className="relative h-full w-full overflow-hidden bg-transparent">
                   <div className="pointer-events-none absolute left-4 top-4 z-20 flex items-center gap-2">
-                    <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-xs font-medium text-slate-700 ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700">
+                    <span className="inline-flex items-center gap-2 rounded-full bg-card px-3 py-1.5 text-xs font-medium text-foreground ring-1 ring-border">
                       <Route className="h-3.5 w-3.5 text-sky-600" />
                       {selectedScenario?.title ?? "Flujo"}
                     </span>
-                    <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-xs font-medium text-slate-700 ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700">
+                    <span className="inline-flex items-center gap-2 rounded-full bg-card px-3 py-1.5 text-xs font-medium text-foreground ring-1 ring-border">
                       <Bot className="h-3.5 w-3.5 text-violet-600" />
                       {nodes.length} bloques
                     </span>
-                    <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-xs font-medium text-slate-700 ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700">
+                    <span className="inline-flex items-center gap-2 rounded-full bg-card px-3 py-1.5 text-xs font-medium text-foreground ring-1 ring-border">
                       <Split className="h-3.5 w-3.5 text-blue-600" />
                       {renderEdges.length} conexiones
                     </span>
@@ -2452,16 +2452,16 @@ export function OfficialApiChatbotWorkspace({
                             return next;
                           });
                         }}
-                        className="h-11 w-11 rounded-full border border-blue-600 bg-blue-600 p-0 text-white shadow-[0_16px_28px_-20px_rgba(37,99,235,0.7)] hover:bg-blue-700"
+                        className="h-11 w-11 rounded-full border border-blue-600 bg-blue-600 p-0 text-white shadow-lg hover:bg-blue-700"
                       >
                           <Plus className="h-5 w-5 font-bold" strokeWidth={3.2} />
                         </Button>
                       {isBlockLibraryOpen ? (
                         <div
                           ref={blockLibraryPanelRef}
-                          className="absolute right-0 top-11 z-20 max-h-[70vh] w-64 overflow-y-auto rounded-xl border border-slate-200 bg-white py-2 shadow-[0_22px_48px_-30px_rgba(15,23,42,0.35)] dark:border-slate-700 dark:bg-slate-900"
+                          className="absolute right-0 top-11 z-20 max-h-[70vh] w-64 overflow-y-auto rounded-xl border border-border bg-card py-2 shadow-lg"
                         >
-                          <p className="px-3 pb-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+                          <p className="px-3 pb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
                             Agregar nodo
                           </p>
                           <div className="grid gap-1 px-2">
@@ -2473,7 +2473,7 @@ export function OfficialApiChatbotWorkspace({
                                   key={block.id}
                                   type="button"
                                   onClick={() => addBlock(block.id as BuilderNode["kind"])}
-                                  className="flex w-full items-center gap-3 rounded-lg border border-slate-200 px-3 py-2.5 text-left transition hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:hover:border-slate-600 dark:hover:bg-slate-800"
+                                  className="flex w-full items-center gap-3 rounded-lg border border-border px-3 py-2.5 text-left transition hover:border-input hover:bg-muted"
                                 >
                                   <Icon className={cn("h-4 w-4 shrink-0", iconColor)} />
                                   <span className="text-sm text-slate-900 dark:text-slate-100">
@@ -2502,10 +2502,10 @@ export function OfficialApiChatbotWorkspace({
                   </ReactFlowProvider>
                 </div>
               ) : hasWorkflows ? (
-                <div className="flex w-full items-center justify-center bg-white px-6 py-8 sm:px-10">
+                <div className="flex w-full items-center justify-center bg-background px-6 py-8 sm:px-10">
                   <div className="flex w-full max-w-lg flex-col items-center text-center">
                     <div className="flex items-center justify-center">
-                      <Inbox className="h-10 w-10 text-[var(--primary)]" />
+                      <Inbox className="h-10 w-10 text-primary" />
                     </div>
 
                     <h4 className="mt-6 font-semibold text-slate-950">
@@ -2517,10 +2517,10 @@ export function OfficialApiChatbotWorkspace({
                   </div>
                 </div>
               ) : (
-                <div className="flex w-full items-center justify-center bg-white px-6 py-8 sm:px-10">
+                <div className="flex w-full items-center justify-center bg-background px-6 py-8 sm:px-10">
                   <div className="flex w-full max-w-lg flex-col items-center text-center">
                     <div className="flex items-center justify-center">
-                      <Inbox className="h-10 w-10 text-[var(--primary)]" />
+                      <Inbox className="h-10 w-10 text-primary" />
                     </div>
 
                     <h4 className="mt-6 font-semibold text-slate-950">
@@ -2529,7 +2529,7 @@ export function OfficialApiChatbotWorkspace({
 
                     <Button
                       type="button"
-                      className="mt-6 h-10 rounded-xl  px-5 text-sm  text-white hover:bg-[color-mix(in_srgb,var(--primary)_88%,black)]"
+                      className="mt-6 h-10 rounded-xl px-5 text-sm text-primary-foreground hover:bg-primary/90"
                       onClick={openCreateWorkflowModal}
                     >
                       Crear
@@ -2542,7 +2542,7 @@ export function OfficialApiChatbotWorkspace({
 
           <aside className="hidden">
             <div className="space-y-5 p-4">
-              <div className="rounded-[26px] border border-slate-200 bg-slate-50/70 p-4">
+              <div className="rounded-2xl border border-border bg-muted/70 p-4">
                 <p className="text-sm font-semibold text-slate-900">Inspector del flujo</p>
                 <p className="mt-1 text-sm leading-6 text-slate-600">
                   Edita el flujo y los nodos seleccionados antes de guardar.
@@ -2552,9 +2552,9 @@ export function OfficialApiChatbotWorkspace({
               {selectedNode ? (
                 <>
                   {selectedScenario ? (
-                    <div className="space-y-3 rounded-[26px] border border-slate-200 bg-white p-4">
+                    <div className="space-y-3 rounded-2xl border border-border bg-card p-4">
                       <p className="text-sm font-semibold text-slate-900">Flujo seleccionado</p>
-                      <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
+                      <div className="inline-flex items-center gap-2 rounded-full border border-border bg-muted px-3 py-1 text-xs font-semibold text-foreground">
                         Tipo: {getWorkflowTypeLabel(selectedScenario.flowType)}
                       </div>
                       <label className="block space-y-2">
@@ -2645,7 +2645,7 @@ export function OfficialApiChatbotWorkspace({
                   <X className="h-4 w-4" />
                 </button>
                 <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--primary)_10%,white)]">
-                  <Inbox className="h-6 w-6 text-[var(--primary)]" />
+                  <Inbox className="h-6 w-6 text-primary" />
                 </div>
                 <p className="mt-4 text-xl font-semibold text-slate-950">Crear flujo</p>
               </div>

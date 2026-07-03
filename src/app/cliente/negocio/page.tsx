@@ -26,8 +26,8 @@ type PageProps = {
 function SectionHeader({ title }: { title: string }) {
   return (
     <div className="flex items-center gap-2">
-      <span className="h-4 w-1 rounded-full bg-[var(--primary)]" />
-      <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">{title}</span>
+      <span className="h-4 w-1 rounded-full bg-primary" />
+      <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">{title}</span>
     </div>
   );
 }

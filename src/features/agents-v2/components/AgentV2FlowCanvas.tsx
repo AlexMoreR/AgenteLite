@@ -91,7 +91,7 @@ import { cn } from "@/lib/utils";
 const AGENT_NODE_ID = "agent-root";
 
 const SELECTED_NODE_CLASS =
-  "border-blue-400 shadow-[0_24px_50px_-28px_rgba(37,99,235,0.52)]";
+  "border-blue-400 shadow-lg";
 
 type EntradaKind = "general" | "keyword";
 

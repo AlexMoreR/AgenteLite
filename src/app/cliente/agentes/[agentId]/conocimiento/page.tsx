@@ -201,7 +201,7 @@ export default async function AgentKnowledgePage({ params, searchParams }: PageP
           <div className="min-w-0">
             <div className="inline-flex items-center gap-3">
               <BookOpenText className="h-6 w-6 text-primary" />
-              <h1 className="text-[18px] font-semibold tracking-[-0.04em] text-foreground">Conocimiento</h1>
+              <h1 className="text-[18px] font-semibold tracking-tight text-foreground">Conocimiento</h1>
             </div>
             <p className="max-w-3xl text-sm text-muted-foreground">Selecciona los productos y flujos que este agente puede usar como contexto.</p>
           </div>
@@ -260,7 +260,7 @@ export default async function AgentKnowledgePage({ params, searchParams }: PageP
                   {products.map((product) => (
                     <div
                       key={product.id}
-                      className="flex items-center gap-3 rounded-[12px] border border-border bg-card px-3 py-2.5 transition hover:border-primary/40"
+                      className="flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-2.5 transition hover:border-primary/40"
                     >
                       <div className="flex min-w-0 flex-1 items-center gap-3">
                         <KnowledgeSelectionCheckbox
@@ -328,7 +328,7 @@ export default async function AgentKnowledgePage({ params, searchParams }: PageP
                   {flowTargets.map((flow) => (
                     <div
                       key={flow.id}
-                      className="flex items-start gap-3 rounded-[12px] border border-border bg-card px-4 py-3 transition hover:border-primary/40"
+                      className="flex items-start gap-3 rounded-lg border border-border bg-card px-4 py-3 transition hover:border-primary/40"
                     >
                       <div className="flex min-w-0 flex-1 items-start gap-3">
                         <KnowledgeSelectionCheckbox
@@ -381,7 +381,7 @@ export default async function AgentKnowledgePage({ params, searchParams }: PageP
             <div className="flex flex-col gap-3 border-t border-border pt-4 sm:flex-row">
               <button
                 type="submit"
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-primary px-4 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"
               >
                 <Zap className="h-4 w-4" />
                 Guardar conocimiento

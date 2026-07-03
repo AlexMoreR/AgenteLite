@@ -38,11 +38,11 @@ export default async function AdminConfiguracionWhatsAppPage({ searchParams }: P
       />
 
       <div>
-        <h1 className="inline-flex items-center gap-1 text-lg font-semibold tracking-tight text-slate-900 md:text-xl">
-          <MessageSquareMore className="h-4 w-4 text-slate-500" />
+        <h1 className="inline-flex items-center gap-1 text-lg font-semibold tracking-tight text-foreground md:text-xl">
+          <MessageSquareMore className="h-4 w-4 text-muted-foreground" />
           <span>Configuracion WhatsApp</span>
         </h1>
-        <p className="mt-1 text-xs text-slate-600">
+        <p className="mt-1 text-xs text-muted-foreground">
           Esta conexion global de Evolution API sera usada por la aplicacion para crear y operar instancias de WhatsApp.
         </p>
       </div>
@@ -50,7 +50,7 @@ export default async function AdminConfiguracionWhatsAppPage({ searchParams }: P
       <Card className="space-y-4">
         <form action={adminUpdateEvolutionSettingsAction} className="grid gap-4">
           <label className="space-y-1.5">
-            <span className="text-sm font-medium text-slate-700">URL base de Evolution API</span>
+            <span className="text-sm font-medium text-foreground">URL base de Evolution API</span>
             <Input
               name="apiBaseUrl"
               type="url"
@@ -62,7 +62,7 @@ export default async function AdminConfiguracionWhatsAppPage({ searchParams }: P
           </label>
 
           <label className="space-y-1.5">
-            <span className="text-sm font-medium text-slate-700">Token global</span>
+            <span className="text-sm font-medium text-foreground">Token global</span>
             <Input
               name="apiToken"
               defaultValue={settings.apiToken}
@@ -73,7 +73,7 @@ export default async function AdminConfiguracionWhatsAppPage({ searchParams }: P
           </label>
 
           <label className="space-y-1.5">
-            <span className="text-sm font-medium text-slate-700">Prefijo de instancias</span>
+            <span className="text-sm font-medium text-foreground">Prefijo de instancias</span>
             <Input
               name="instancePrefix"
               defaultValue={settings.instancePrefix}
@@ -81,17 +81,17 @@ export default async function AdminConfiguracionWhatsAppPage({ searchParams }: P
               className="h-11"
               required
             />
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-muted-foreground">
               Se usara para generar nombres de instancia por cliente o agente.
             </p>
           </label>
 
-          <div className="rounded-2xl border border-[rgba(148,163,184,0.14)] bg-slate-50 px-4 py-4">
-            <p className="text-sm font-medium text-slate-700">Webhook de Evolution</p>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
+          <div className="rounded-2xl border border-border bg-muted px-4 py-4">
+            <p className="text-sm font-medium text-foreground">Webhook de Evolution</p>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
               La URL del webhook ahora se completa automaticamente desde las variables de entorno del backend.
             </p>
-            <p className="mt-3 rounded-xl bg-white px-3 py-2 text-xs text-slate-500">
+            <p className="mt-3 rounded-xl bg-card px-3 py-2 text-xs text-muted-foreground">
               URL efectiva: {settings.webhookBaseUrl || "No configurada por entorno"}
             </p>
           </div>
@@ -99,7 +99,7 @@ export default async function AdminConfiguracionWhatsAppPage({ searchParams }: P
           <div className="flex justify-end">
             <button
               type="submit"
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"
             >
               <Save className="h-4 w-4" />
               Guardar configuracion

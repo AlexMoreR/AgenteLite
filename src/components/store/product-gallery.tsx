@@ -16,8 +16,8 @@ export function ProductGallery({ name, images }: ProductGalleryProps) {
 
   if (gallery.length === 0) {
     return (
-      <div className="overflow-hidden rounded-2xl border border-[var(--line)] bg-white">
-        <div className="grid h-[280px] place-items-center text-sm text-slate-500 md:h-[460px]">
+      <div className="overflow-hidden rounded-2xl border border-border bg-card">
+        <div className="grid h-[280px] place-items-center text-sm text-muted-foreground md:h-[460px]">
           Sin imagen disponible
         </div>
       </div>
@@ -27,7 +27,7 @@ export function ProductGallery({ name, images }: ProductGalleryProps) {
   const mainImage = gallery[Math.min(activeIndex, gallery.length - 1)];
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-[var(--line)] bg-white">
+    <div className="overflow-hidden rounded-2xl border border-border bg-card">
       <div className="relative">
         <img
           src={mainImage}
@@ -38,8 +38,8 @@ export function ProductGallery({ name, images }: ProductGalleryProps) {
       </div>
 
       {gallery.length > 1 ? (
-        <div className="space-y-2 border-t border-[var(--line)] p-3">
-          <p className="text-xs font-medium text-slate-500">
+        <div className="space-y-2 border-t border-border p-3">
+          <p className="text-xs font-medium text-muted-foreground">
             Galeria ({gallery.length} imagenes)
           </p>
           <div className="grid grid-cols-5 gap-2 sm:grid-cols-6 md:grid-cols-7">
@@ -53,7 +53,7 @@ export function ProductGallery({ name, images }: ProductGalleryProps) {
                 className={`relative aspect-square overflow-hidden rounded-md border transition ${
                   active
                     ? "border-violet-700 ring-2 ring-violet-300/60"
-                    : "border-[var(--line)] hover:border-violet-300"
+                    : "border-border hover:border-violet-300"
                 }`}
                 aria-label={`Ver imagen ${index + 1}`}
               >

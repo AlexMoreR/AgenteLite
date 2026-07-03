@@ -59,7 +59,7 @@ export function ChannelCollaboratorsForm({
         <p className="text-xs text-muted-foreground">Añade o quita personas del equipo que atienden este canal.</p>
       </div>
 
-      <div className="min-h-[44px] rounded-lg border border-input p-2">
+      <div className="min-h-11 rounded-lg border border-input p-2">
         {selected.length ? (
           <div className="flex flex-wrap gap-1.5">
             {selected.map((id) => {

@@ -262,7 +262,7 @@ export function EvolutionChatSyncDialog({ channelId }: EvolutionChatSyncDialogPr
                     <Users className="h-5 w-5" />
                   </div>
                   <div className="space-y-1">
-                    <p className="text-base font-semibold tracking-[-0.03em] text-foreground">Listo para comparar</p>
+                    <p className="text-base font-semibold tracking-tight text-foreground">Listo para comparar</p>
                   </div>
                   <div className="flex flex-wrap items-center justify-center gap-3">
                     <Button
@@ -284,7 +284,7 @@ export function EvolutionChatSyncDialog({ channelId }: EvolutionChatSyncDialogPr
 
                   <div className="flex w-full items-center gap-3">
                     <Separator className="flex-1" />
-                    <span className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">o por numero</span>
+                    <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">o por numero</span>
                     <Separator className="flex-1" />
                   </div>
 
@@ -413,14 +413,14 @@ export function EvolutionChatSyncDialog({ channelId }: EvolutionChatSyncDialogPr
                                 className={`flex max-w-[88%] ${isOutbound ? "justify-end" : "justify-start"}`}
                               >
                                 <div className={`rounded-2xl border px-4 py-3 shadow-sm ${bubbleClasses}`}>
-                                  <div className={`mb-1 flex items-center justify-between gap-3 text-[11px] uppercase tracking-[0.14em] ${labelClasses}`}>
+                                  <div className={`mb-1 flex items-center justify-between gap-3 text-xs uppercase tracking-widest ${labelClasses}`}>
                                     <span>{message.direction === "OUTBOUND" ? "Nosotros" : "Cliente"}</span>
                                     <span>{message.type}</span>
                                   </div>
                                   <p className="whitespace-pre-wrap text-sm leading-6">
                                     {message.content?.trim() || (message.mediaUrl ? "Archivo o medio adjunto" : "Sin contenido visible")}
                                   </p>
-                                  <p className={`mt-2 text-[11px] ${isOutbound ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
+                                  <p className={`mt-2 text-xs ${isOutbound ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
                                     {new Date(message.createdAt).toLocaleString("es-CO", {
                                       dateStyle: "medium",
                                       timeStyle: "short",

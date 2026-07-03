@@ -118,16 +118,16 @@ export function EtiquetaModal({ open, onClose, contactId }: Props) {
       onClick={onClose}
     >
       <div
-        className="flex w-full max-w-xs flex-col rounded-2xl bg-white shadow-xl"
+        className="flex w-full max-w-xs flex-col rounded-2xl bg-card shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="relative flex items-center justify-center border-b border-slate-100 px-5 py-4">
-          <h2 className="text-sm font-semibold text-slate-900">Etiquetas</h2>
+        <div className="relative flex items-center justify-center border-b border-border px-5 py-4">
+          <h2 className="text-sm font-semibold text-foreground">Etiquetas</h2>
           <button
             type="button"
             onClick={onClose}
-            className="absolute right-5 inline-flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+            className="absolute right-5 inline-flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
           >
             <X className="h-4 w-4" />
           </button>
@@ -136,7 +136,7 @@ export function EtiquetaModal({ open, onClose, contactId }: Props) {
         {/* Lista */}
         <div className="min-h-0 max-h-64 overflow-y-auto px-3 py-2">
           {etiquetas.length === 0 ? (
-            <p className="py-4 text-center text-xs text-slate-400">Sin etiquetas aún</p>
+            <p className="py-4 text-center text-xs text-muted-foreground">Sin etiquetas aún</p>
           ) : (
             <ul className="space-y-0.5">
               {etiquetas.map((tag) => {
@@ -147,15 +147,15 @@ export function EtiquetaModal({ open, onClose, contactId }: Props) {
                       type="button"
                       onClick={() => handleToggle(tag.id)}
                       disabled={!contactId || toggling}
-                      className="flex w-full items-center gap-2.5 rounded-xl px-2 py-2 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="flex w-full items-center gap-2.5 rounded-xl px-2 py-2 transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       <BsFillTagFill
                         className="h-3.5 w-3.5 shrink-0"
                         style={{ color: tag.color }}
                       />
-                      <span className="flex-1 text-left text-[13px] text-slate-700">{tag.name}</span>
+                      <span className="flex-1 text-left text-[13px] text-foreground">{tag.name}</span>
                       {isAssigned ? (
-                        <Check className="h-3.5 w-3.5 shrink-0 text-[var(--primary)]" />
+                        <Check className="h-3.5 w-3.5 shrink-0 text-primary" />
                       ) : null}
                     </button>
                   </li>
@@ -167,7 +167,7 @@ export function EtiquetaModal({ open, onClose, contactId }: Props) {
 
         {/* Formulario de creación */}
         {showForm ? (
-          <div className="border-t border-slate-100 px-4 pb-4 pt-3">
+          <div className="border-t border-border px-4 pb-4 pt-3">
             <form
               action={(fd) => {
                 fd.set("color", selectedColor);
@@ -176,18 +176,18 @@ export function EtiquetaModal({ open, onClose, contactId }: Props) {
               className="space-y-3"
             >
               <div className="space-y-1.5">
-                <label className="text-[11px] font-medium uppercase tracking-wide text-slate-400">
+                <label className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                   Nombre
                 </label>
                 <input
                   name="name"
                   autoFocus
                   placeholder="Nombre de la etiqueta"
-                  className="h-9 w-full rounded-[12px] border border-slate-200 bg-white px-3 text-[13px] text-slate-800 outline-none transition focus:border-[var(--primary)]"
+                  className="h-9 w-full rounded-lg border border-border bg-background px-3 text-[13px] text-foreground outline-none transition focus:border-primary"
                 />
               </div>
               <div className="space-y-1.5">
-                <label className="text-[11px] font-medium uppercase tracking-wide text-slate-400">
+                <label className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                   Color
                 </label>
                 <div className="flex flex-wrap gap-2">
@@ -208,20 +208,20 @@ export function EtiquetaModal({ open, onClose, contactId }: Props) {
                 </div>
               </div>
               {state.error ? (
-                <p className="text-xs text-rose-500">{state.error}</p>
+                <p className="text-xs text-destructive">{state.error}</p>
               ) : null}
               <div className="flex gap-2 pt-1">
                 <button
                   type="button"
                   onClick={() => setShowForm(false)}
-                  className="h-8 flex-1 rounded-[10px] border border-slate-200 text-[12px] text-slate-600 hover:bg-slate-50"
+                  className="h-8 flex-1 rounded-md border border-border text-[12px] text-muted-foreground hover:bg-muted"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={isPending}
-                  className="h-8 flex-1 rounded-[10px] bg-[var(--primary)] text-[12px] font-semibold text-white disabled:opacity-60"
+                  className="h-8 flex-1 rounded-md bg-primary text-[12px] font-semibold text-white disabled:opacity-60"
                 >
                   {isPending ? "Guardando..." : "Guardar"}
                 </button>
@@ -229,13 +229,13 @@ export function EtiquetaModal({ open, onClose, contactId }: Props) {
             </form>
           </div>
         ) : (
-          <div className="border-t border-slate-100 p-3">
+          <div className="border-t border-border p-3">
             <button
               type="button"
               onClick={() => setShowForm(true)}
-              className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-[13px] font-medium text-slate-600 transition hover:bg-slate-50"
+              className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-[13px] font-medium text-muted-foreground transition hover:bg-muted"
             >
-              <Plus className="h-4 w-4 text-slate-400" />
+              <Plus className="h-4 w-4 text-muted-foreground" />
               Crear etiqueta
             </button>
           </div>

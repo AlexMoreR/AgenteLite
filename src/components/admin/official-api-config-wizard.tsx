@@ -211,7 +211,7 @@ function renderChecklistItem(item: string | { text: string; href: string }) {
         href={item.href}
         target="_blank"
         rel="noreferrer"
-        className="font-medium text-[var(--primary)] underline underline-offset-4"
+        className="font-medium text-primary underline underline-offset-4"
       >
         {item.href.replace(/^https?:\/\//, "").replace(/\/$/, "")}
       </Link>
@@ -226,15 +226,15 @@ function renderChecklistSection(section?: (typeof metaChecklistSections)[number]
   }
 
   return (
-    <div className="rounded-[1rem] border border-slate-200 bg-slate-50 p-5">
-      <p className="text-base font-semibold text-slate-900">{section.heading}</p>
+    <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+      <p className="text-base font-semibold text-foreground">{section.heading}</p>
       <div className="mt-4 grid gap-2.5">
         {section.items.map((item, index) => (
           <div
             key={typeof item === "string" ? item : item.text}
-            className="flex items-start gap-3 text-sm leading-6 text-slate-700"
+            className="flex items-start gap-3 text-sm leading-6 text-foreground"
           >
-            <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-900 text-[10px] font-semibold text-white">
+            <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-foreground text-[10px] font-semibold text-background">
               {index + 1}
             </span>
             <span>{renderChecklistItem(item)}</span>
@@ -971,31 +971,31 @@ export function OfficialApiConfigWizard({
       <div
         className={
           isModal
-            ? "fixed inset-0 z-50 flex items-center justify-center bg-[#11182752] px-4 py-6 backdrop-blur-[2px]"
+            ? "fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6 backdrop-blur-[2px]"
             : "w-full"
         }
         onClick={isModal ? onClose : undefined}
       >
         <div
-          className={`saas-card w-full overflow-hidden rounded-[1.6rem] p-0 ${
-            isModal ? "max-w-2xl shadow-[0_24px_80px_-40px_rgba(15,23,42,0.28)]" : ""
+          className={`saas-card w-full overflow-hidden rounded-2xl p-0 ${
+            isModal ? "max-w-2xl shadow-lg" : ""
           }`}
           onClick={(event) => event.stopPropagation()}
         >
-          <div className="border-b border-[var(--line)] bg-[linear-gradient(180deg,#f8fafc_0%,#ffffff_100%)] px-6 py-5">
+          <div className="border-b border-border bg-muted px-6 py-5">
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-1">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                   Configuracion por cliente
                 </p>
-                <h2 className="text-xl font-semibold tracking-tight text-slate-900 md:text-2xl">
+                <h2 className="text-xl font-semibold tracking-tight text-foreground md:text-2xl">
                   Configurar api oficial WhatsApp
                 </h2>
               </div>
               {backHref && !isModal ? (
                 <Link
                   href={backHref}
-                  className="rounded-full border border-[var(--line)] p-2 text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
+                  className="rounded-full border border-border p-2 text-muted-foreground transition hover:bg-slate-50 hover:text-foreground"
                   aria-label="Volver"
                 >
                   <ArrowLeft className="h-4 w-4" />
@@ -1004,7 +1004,7 @@ export function OfficialApiConfigWizard({
                 <button
                   type="button"
                   onClick={onClose}
-                  className="rounded-full border border-[var(--line)] p-2 text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
+                  className="rounded-full border border-border p-2 text-muted-foreground transition hover:bg-slate-50 hover:text-foreground"
                   aria-label="Cerrar"
                 >
                   <X className="h-4 w-4" />
@@ -1014,7 +1014,7 @@ export function OfficialApiConfigWizard({
           </div>
 
           <div className="p-6">
-            <div className="rounded-[1.25rem] border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
               Este cliente aun no tiene un negocio principal creado. Primero debe existir el workspace del cliente para configurar la API oficial.
             </div>
           </div>
@@ -1027,24 +1027,24 @@ export function OfficialApiConfigWizard({
     <div
       className={
         isModal
-          ? "fixed inset-0 z-50 flex items-center justify-center bg-[#11182752] px-4 py-6 backdrop-blur-[2px]"
+          ? "fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6 backdrop-blur-[2px]"
           : "w-full"
       }
       onClick={isModal ? onClose : undefined}
     >
         <div
-          className={`saas-card w-full overflow-hidden rounded-[1.8rem] p-0 ${
-            isModal ? "max-w-6xl shadow-[0_24px_80px_-40px_rgba(15,23,42,0.28)]" : ""
+          className={`saas-card w-full overflow-hidden rounded-2xl p-0 ${
+            isModal ? "max-w-6xl shadow-lg" : ""
           }`}
           onClick={(event) => event.stopPropagation()}
         >
-          <div className="border-b border-[var(--line)] bg-[linear-gradient(180deg,#f8fafc_0%,#ffffff_100%)] px-6 py-5">
+          <div className="border-b border-border bg-muted px-6 py-5">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
               <div className="shrink-0">
                 {backHref && !isModal ? (
                   <Link
                     href={backHref}
-                    className="rounded-full border border-[var(--line)] p-2 text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
+                    className="rounded-full border border-border p-2 text-muted-foreground transition hover:bg-slate-50 hover:text-foreground"
                     aria-label="Volver"
                   >
                     <ArrowLeft className="h-4 w-4" />
@@ -1053,7 +1053,7 @@ export function OfficialApiConfigWizard({
                   <button
                     type="button"
                     onClick={onClose}
-                    className="rounded-full border border-[var(--line)] p-2 text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
+                    className="rounded-full border border-border p-2 text-muted-foreground transition hover:bg-slate-50 hover:text-foreground"
                     aria-label="Cerrar"
                   >
                     <X className="h-4 w-4" />
@@ -1071,29 +1071,29 @@ export function OfficialApiConfigWizard({
                     return (
                       <div
                         key={step.key}
-                        className={`rounded-[1.15rem] border px-4 py-3 transition ${
+                        className={`rounded-xl border px-4 py-3 transition ${
                           isActive
-                            ? "border-[var(--primary)] bg-[color-mix(in_srgb,var(--primary)_8%,white)]"
+                            ? "border-primary bg-primary/10"
                             : isDone
                               ? "border-emerald-200 bg-emerald-50"
-                              : "border-[var(--line)] bg-white"
+                              : "border-border bg-white"
                         }`}
                       >
                         <div className="flex items-center gap-2">
                           <span
                             className={`inline-flex h-8 w-8 items-center justify-center rounded-full ${
                               isActive
-                                ? "bg-[var(--primary)] text-white"
+                                ? "bg-primary text-primary-foreground"
                                 : isDone
                                   ? "bg-emerald-600 text-white"
-                                  : "bg-slate-100 text-slate-500"
+                                  : "bg-slate-100 text-muted-foreground"
                             }`}
                           >
                             <Icon className="h-4 w-4" />
                           </span>
                           <div className="min-w-0">
-                            <p className="text-sm font-semibold text-slate-900">{step.title}</p>
-                            <p className="truncate text-[11px] text-slate-500">{step.description}</p>
+                            <p className="text-sm font-semibold text-foreground">{step.title}</p>
+                            <p className="truncate text-[11px] text-muted-foreground">{step.description}</p>
                           </div>
                         </div>
                       </div>
@@ -1128,11 +1128,11 @@ export function OfficialApiConfigWizard({
           <div className="p-6">
             {currentStep === 0 ? (
               <div className="space-y-4">
-                <div className="rounded-[1rem] border border-[color:color-mix(in_srgb,var(--primary)_20%,white)] bg-[color:color-mix(in_srgb,var(--primary)_6%,white)] p-5">
+                <div className="rounded-xl border border-primary/20 bg-primary/5 p-5">
                   <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                     <div className="space-y-2">
-                      <p className="text-base font-semibold text-slate-900">Modo del piloto</p>
-                      <p className="max-w-3xl text-sm leading-6 text-slate-700">
+                      <p className="text-base font-semibold text-foreground">Modo del piloto</p>
+                      <p className="max-w-3xl text-sm leading-6 text-foreground">
                         Para esta primera prueba te conviene coexistencia: mantenemos la app de WhatsApp Business operando y validamos la capa oficial dentro de AgenteLite.
                       </p>
                     </div>
@@ -1149,17 +1149,17 @@ export function OfficialApiConfigWizard({
                           key={mode}
                           type="button"
                           onClick={() => setSetupMode(mode)}
-                          className={`rounded-[1rem] border px-4 py-4 text-left transition ${
+                          className={`rounded-xl border px-4 py-4 text-left transition ${
                             isActive
-                              ? "border-[var(--primary)] bg-white shadow-[0_14px_30px_-24px_rgba(37,99,235,0.35)]"
+                              ? "border-primary bg-card shadow-sm"
                               : "border-slate-200 bg-white/70 hover:border-slate-300"
                           }`}
                         >
                           <div className="flex items-center justify-between gap-3">
-                            <p className="text-sm font-semibold text-slate-900">{setupModeCopy[mode].label}</p>
-                            {isActive ? <CheckCircle2 className="h-4 w-4 text-[var(--primary)]" /> : null}
+                            <p className="text-sm font-semibold text-foreground">{setupModeCopy[mode].label}</p>
+                            {isActive ? <CheckCircle2 className="h-4 w-4 text-primary" /> : null}
                           </div>
-                          <p className="mt-2 text-sm leading-6 text-slate-600">{setupModeCopy[mode].description}</p>
+                          <p className="mt-2 text-sm leading-6 text-muted-foreground">{setupModeCopy[mode].description}</p>
                         </button>
                       );
                     })}
@@ -1172,7 +1172,7 @@ export function OfficialApiConfigWizard({
 
             {currentStep === 1 ? (
               <div className="space-y-4">
-                <div className="rounded-[1rem] border border-sky-200 bg-sky-50 p-4 text-sm leading-6 text-sky-900">
+                <div className="rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm leading-6 text-sky-900">
                   <p className="font-semibold text-sky-950">
                     {setupMode === "coexistence" ? "Ruta de coexistencia" : "Ruta de numero nuevo"}
                   </p>
@@ -1193,8 +1193,8 @@ export function OfficialApiConfigWizard({
                   ) : null}
                 </div>
 
-                <div className="rounded-[1rem] border border-slate-200 bg-slate-50 p-5">
-                  <p className="text-base font-semibold text-slate-900">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+                  <p className="text-base font-semibold text-foreground">
                     {metaChecklistSections[1]?.heading}
                   </p>
 
@@ -1202,8 +1202,8 @@ export function OfficialApiConfigWizard({
                     {metaChecklistSections[1]?.items.map((item, index) => (
                       <div key={typeof item === "string" ? item : item.text} className="space-y-3">
                         {index !== 3 ? (
-                          <div className="flex items-start gap-3 text-sm leading-6 text-slate-700">
-                            <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-900 text-[10px] font-semibold text-white">
+                          <div className="flex items-start gap-3 text-sm leading-6 text-foreground">
+                            <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-foreground text-[10px] font-semibold text-background">
                               {index < 3 ? index + 1 : index}
                             </span>
                             <span>{renderChecklistItem(item)}</span>
@@ -1244,20 +1244,20 @@ export function OfficialApiConfigWizard({
 
             {currentStep === 2 ? (
               <div className="space-y-4">
-                <div className="rounded-[1rem] border border-[color:color-mix(in_srgb,var(--primary)_18%,white)] bg-[color:color-mix(in_srgb,var(--primary)_5%,white)] p-5">
+                <div className="rounded-xl border border-primary/20 bg-primary/5 p-5">
                   <div className="flex flex-col gap-2">
-                    <p className="text-base font-semibold text-slate-900">Importar desde Embedded Signup</p>
-                    <p className="text-sm leading-6 text-slate-700">
+                    <p className="text-base font-semibold text-foreground">Importar desde Embedded Signup</p>
+                    <p className="text-sm leading-6 text-foreground">
                       Si ya completaste el popup de Meta, pega aqui el code y la respuesta de la sesion para llenar automaticamente el Access Token, el Phone Number ID y el WABA ID.
                     </p>
-                    <p className="text-xs leading-5 text-slate-600">
+                    <p className="text-xs leading-5 text-muted-foreground">
                       Si el code ya expiro, igual puedes usar esta seccion pegando tu token del sistema en el campo manual de abajo y la respuesta JSON de Meta para completar solo los IDs.
                     </p>
                   </div>
 
                   <div className="mt-4 grid gap-4">
                     <label className="block space-y-1.5">
-                      <span className="text-sm font-medium text-slate-700">Code de registro insertado</span>
+                      <span className="text-sm font-medium text-foreground">Code de registro insertado</span>
                       <Textarea
                         rows={3}
                         value={embeddedSignupCode}
@@ -1268,7 +1268,7 @@ export function OfficialApiConfigWizard({
                     </label>
 
                     <label className="block space-y-1.5">
-                      <span className="text-sm font-medium text-slate-700">Respuesta de registro de la sesion</span>
+                      <span className="text-sm font-medium text-foreground">Respuesta de registro de la sesion</span>
                       <Textarea
                         rows={10}
                         value={embeddedSignupSessionResponse}
@@ -1280,7 +1280,7 @@ export function OfficialApiConfigWizard({
 
                     <div className="grid gap-4 md:grid-cols-2">
                       <label className="block space-y-1.5">
-                        <span className="text-sm font-medium text-slate-700">App ID del proveedor (opcional)</span>
+                        <span className="text-sm font-medium text-foreground">App ID del proveedor (opcional)</span>
                         <Input
                           value={providerAppId}
                           onChange={(event) => setProviderAppId(event.target.value)}
@@ -1290,7 +1290,7 @@ export function OfficialApiConfigWizard({
                       </label>
 
                       <label className="block space-y-1.5">
-                        <span className="text-sm font-medium text-slate-700">App Secret del proveedor (opcional)</span>
+                        <span className="text-sm font-medium text-foreground">App Secret del proveedor (opcional)</span>
                         <Input
                           type="password"
                           value={providerAppSecret}
@@ -1310,14 +1310,14 @@ export function OfficialApiConfigWizard({
                       >
                         {isImportingEmbeddedSignup ? "Importando..." : "Importar desde Meta"}
                       </Button>
-                      <span className="text-xs leading-5 text-slate-600">
+                      <span className="text-xs leading-5 text-muted-foreground">
                         El App Secret del paso final tambien se usara como respaldo si no llenas el campo opcional.
                       </span>
                     </div>
 
                     {embeddedSignupImportResult ? (
                       <div
-                        className={`rounded-[1.25rem] border p-4 text-sm ${
+                        className={`rounded-xl border p-4 text-sm ${
                           embeddedSignupImportResult.ok
                             ? "border-emerald-200 bg-emerald-50 text-emerald-800"
                             : "border-rose-200 bg-rose-50 text-rose-800"
@@ -1336,16 +1336,16 @@ export function OfficialApiConfigWizard({
                   </div>
                 </div>
 
-                <div className="rounded-[1rem] border border-slate-200 bg-slate-50 p-5">
-                  <p className="text-base font-semibold text-slate-900">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+                  <p className="text-base font-semibold text-foreground">
                     {metaChecklistSections[2]?.heading}
                   </p>
 
                   <div className="mt-4 grid gap-2.5">
                     {metaChecklistSections[2]?.items.map((item, index) => (
                       <div key={typeof item === "string" ? item : item.text} className="space-y-3">
-                        <div className="flex items-start gap-3 text-sm leading-6 text-slate-700">
-                          <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-900 text-[10px] font-semibold text-white">
+                        <div className="flex items-start gap-3 text-sm leading-6 text-foreground">
+                          <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-foreground text-[10px] font-semibold text-background">
                             {index + 1}
                           </span>
                           <span>{renderChecklistItem(item)}</span>
@@ -1357,7 +1357,7 @@ export function OfficialApiConfigWizard({
                               rows={3}
                               value={form.accessToken}
                               onChange={updateField("accessToken")}
-                              className="w-full rounded-[20px] border border-[var(--line)] bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-[var(--primary)]"
+                              className="w-full rounded-xl border border-border bg-white px-4 py-3 text-sm text-foreground outline-none transition focus:border-primary"
                               placeholder="EAAG..."
                             />
                           </div>
@@ -1371,7 +1371,7 @@ export function OfficialApiConfigWizard({
 
             {currentStep === 3 ? (
               <div className="grid gap-5">
-                <div className="rounded-[1rem] border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
                   <p className="font-semibold text-amber-950">Que validamos en esta prueba</p>
                   <p className="mt-1">{setupModeCopy[setupMode].step4Note}</p>
                   {setupMode === "coexistence" ? (
@@ -1381,16 +1381,16 @@ export function OfficialApiConfigWizard({
                   ) : null}
                 </div>
 
-                <div className="rounded-[1rem] border border-slate-200 bg-slate-50 p-5">
-                  <p className="text-base font-semibold text-slate-900">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+                  <p className="text-base font-semibold text-foreground">
                     {metaChecklistSections[3]?.heading}
                   </p>
 
                   <div className="mt-4 grid gap-2.5">
                     {metaChecklistSections[3]?.items.map((item, index) => (
                       <div key={`${index}-${item}`} className="space-y-3">
-                        <div className="flex items-start gap-3 text-sm leading-6 text-slate-700">
-                          <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-900 text-[10px] font-semibold text-white">
+                        <div className="flex items-start gap-3 text-sm leading-6 text-foreground">
+                          <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-foreground text-[10px] font-semibold text-background">
                             {index + 1}
                           </span>
                           <span>{renderChecklistItem(item)}</span>
@@ -1400,7 +1400,7 @@ export function OfficialApiConfigWizard({
                           <div className="ml-8 grid gap-4">
                             <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
                               <label className="block space-y-1.5">
-                                <span className="text-sm font-medium text-slate-700">Numero para prueba</span>
+                                <span className="text-sm font-medium text-foreground">Numero para prueba</span>
                                 <Input
                                   value={testRecipient}
                                   onChange={(event) => setTestRecipient(event.target.value)}
@@ -1424,14 +1424,14 @@ export function OfficialApiConfigWizard({
                             </div>
 
                             {setupMode === "coexistence" ? (
-                              <p className="rounded-[1rem] border border-slate-200 bg-white px-4 py-3 text-xs leading-5 text-slate-600">
+                              <p className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs leading-5 text-muted-foreground">
                                 En coexistencia este paso sirve para confirmar que el numero ya quedo operativo para Cloud API. Si Meta ya lo deja listo durante el onboarding, puede que no haga falta repetirlo.
                               </p>
                             ) : null}
 
                             {registerPhoneResult ? (
                               <div
-                                className={`rounded-[1.25rem] border p-4 text-sm ${
+                                className={`rounded-xl border p-4 text-sm ${
                                   registerPhoneResult.ok
                                     ? "border-emerald-200 bg-emerald-50 text-emerald-800"
                                     : "border-rose-200 bg-rose-50 text-rose-800"
@@ -1450,7 +1450,7 @@ export function OfficialApiConfigWizard({
 
                             <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
                               <label className="block space-y-1.5">
-                                <span className="text-sm font-medium text-slate-700">Mensaje de prueba</span>
+                                <span className="text-sm font-medium text-foreground">Mensaje de prueba</span>
                                 <Input
                                   value={testMessage}
                                   onChange={(event) => setTestMessage(event.target.value)}
@@ -1484,7 +1484,7 @@ export function OfficialApiConfigWizard({
 
                             {testMessageResult ? (
                               <div
-                                className={`rounded-[1.25rem] border p-4 text-sm ${
+                                className={`rounded-xl border p-4 text-sm ${
                                   testMessageResult.ok
                                     ? "border-emerald-200 bg-emerald-50 text-emerald-800"
                                     : "border-rose-200 bg-rose-50 text-rose-800"
@@ -1513,17 +1513,17 @@ export function OfficialApiConfigWizard({
 
             {currentStep === 4 ? (
               <div className="space-y-4">
-                <div className="rounded-[1rem] border border-slate-200 bg-white p-4 text-sm leading-6 text-slate-700">
-                  <p className="font-semibold text-slate-900">Cierre del piloto</p>
+                <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm leading-6 text-foreground">
+                  <p className="font-semibold text-foreground">Cierre del piloto</p>
                   <p className="mt-1">
                     Guarda la configuracion cuando ya tengas estos cuatro puntos: webhook verificado, app suscrita al WABA, prueba de envio correcta y primer mensaje entrante visible dentro del modulo oficial.
                   </p>
                 </div>
 
                 <div className="grid gap-5">
-                  <div className="rounded-[1rem] border border-slate-200 bg-slate-50 p-5">
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
                     <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                      <p className="text-base font-semibold text-slate-900">Webhook y guardar</p>
+                      <p className="text-base font-semibold text-foreground">Webhook y guardar</p>
                       {effectiveOfficialApiConfig?.lastValidatedAt ? (
                         <div className="inline-flex w-full items-start gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900 md:w-auto md:max-w-[32rem]">
                           <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
@@ -1537,8 +1537,8 @@ export function OfficialApiConfigWizard({
                     <div className="mt-4 grid gap-2.5">
                       {webhookSaveSteps.map((item, index) => (
                         <div key={item} className="space-y-3">
-                          <div className="flex items-start gap-3 text-sm leading-6 text-slate-700">
-                            <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-900 text-[10px] font-semibold text-white">
+                          <div className="flex items-start gap-3 text-sm leading-6 text-foreground">
+                            <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-foreground text-[10px] font-semibold text-background">
                               {index + 1}
                             </span>
                             <span>{item}</span>
@@ -1580,14 +1580,14 @@ export function OfficialApiConfigWizard({
                           ) : null}
 
                           {index === 2 ? (
-                            <div className="ml-8 rounded-[1rem] border border-[var(--line)] bg-white p-4">
+                            <div className="ml-8 rounded-xl border border-border bg-white p-4">
                               <div className="grid gap-3 text-sm md:grid-cols-[auto_minmax(0,1fr)] md:items-start">
                                 <Button
                                   type="button"
                                   variant={subscriptionStatus?.subscribed ? "outline" : "default"}
                                   className={`h-10 rounded-xl px-4 ${
                                     subscriptionStatus?.subscribed
-                                      ? "border-[var(--primary)] bg-[var(--primary)] text-white hover:bg-[color-mix(in_srgb,var(--primary)_88%,black)]"
+                                      ? "border-primary bg-primary text-primary-foreground hover:bg-primary/90"
                                       : ""
                                   }`}
                                   onClick={handleSubscribeApp}
@@ -1604,17 +1604,17 @@ export function OfficialApiConfigWizard({
                                       : "Suscribir app al WABA"}
                                 </Button>
 
-                                <div className="rounded-[1rem] border border-slate-200 bg-slate-50 p-4 text-slate-700">
+                                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-foreground">
                                   <div className="flex items-start gap-3">
                                     {subscriptionStatus?.subscribed ? (
                                       <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
                                     ) : subscriptionStatus?.error ? (
                                       <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
                                     ) : (
-                                      <Webhook className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" />
+                                      <Webhook className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                                     )}
                                     <div className="space-y-1">
-                                      <p className="font-medium text-slate-900">
+                                      <p className="font-medium text-foreground">
                                         {isLoadingSubscriptionStatus
                                           ? "Consultando suscripcion actual..."
                                           : subscriptionStatus?.subscribed
@@ -1622,13 +1622,13 @@ export function OfficialApiConfigWizard({
                                             : "La suscripcion confirmada."}
                                       </p>
                                       {subscriptionStatus?.appId ? (
-                                        <p className="text-slate-600">App ID detectado en Meta: {subscriptionStatus.appId}</p>
+                                        <p className="text-muted-foreground">App ID detectado en Meta: {subscriptionStatus.appId}</p>
                                       ) : null}
                                       {subscriptionStatus?.error ? (
                                         <p className="text-rose-700">{subscriptionStatus.error}</p>
                                       ) : null}
                                       {!subscriptionStatus?.subscribed && !subscriptionStatus?.error ? (
-                                        <p className="text-slate-600">
+                                        <p className="text-muted-foreground">
                                           Si los mensajes reales no llegan, revisa esta suscripcion.
                                         </p>
                                       ) : null}
@@ -1663,7 +1663,7 @@ export function OfficialApiConfigWizard({
             ) : null}
           </div>
 
-          <div className="flex flex-col gap-3 border-t border-[var(--line)] bg-white px-6 py-5 md:flex-row md:items-center md:justify-between">
+          <div className="flex flex-col gap-3 border-t border-border bg-white px-6 py-5 md:flex-row md:items-center md:justify-between">
             <Button
               type="button"
               variant="outline"

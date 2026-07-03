@@ -34,10 +34,10 @@ export function AuthShell({
   const compactVariant = !centerContent && !showIntro && !showMetrics && !showShowcase;
 
   return (
-    <section className="relative min-h-screen overflow-hidden bg-[#07111f] px-4 py-8 text-[#f3f7fb] md:px-8 md:py-10">
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-[30rem] bg-[radial-gradient(circle_at_top_left,_rgba(46,211,183,0.2),_transparent_36%),radial-gradient(circle_at_top_right,_rgba(64,132,255,0.18),_transparent_30%),linear-gradient(180deg,_rgba(6,12,24,0.2),_rgba(6,12,24,0))]" />
+    <section className="relative min-h-screen overflow-hidden bg-black px-4 py-8 text-white md:px-8 md:py-10">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-[30rem]" />
       {showAccentGlow ? (
-        <div className="pointer-events-none absolute right-[-10%] top-28 h-72 w-72 rounded-full bg-[#2ed3b7]/10 blur-3xl" />
+        <div className="pointer-events-none absolute right-[-10%] top-28 h-72 w-72 rounded-full bg-primary/10 blur-3xl" />
       ) : null}
 
       <div
@@ -68,11 +68,11 @@ export function AuthShell({
 
           {showIntro ? (
             <div className="space-y-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#8deedc]">{eyebrow}</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary">{eyebrow}</p>
               <h1 className="max-w-lg text-4xl font-semibold tracking-[-0.05em] text-white md:text-5xl lg:text-[3.4rem]">
                 {title}
               </h1>
-              <p className="max-w-md text-sm leading-7 text-[#b8c6d9] md:text-base">{description}</p>
+              <p className="max-w-md text-sm leading-7 text-white/70 md:text-base">{description}</p>
             </div>
           ) : null}
 
@@ -81,21 +81,21 @@ export function AuthShell({
               {authMetrics.map((item) => (
                 <div
                   key={item.label}
-                  className="rounded-[1.4rem] border border-white/10 bg-white/[0.045] px-5 py-4 backdrop-blur-sm"
+                  className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4 backdrop-blur-sm"
                 >
                   <p className="text-2xl font-semibold tracking-[-0.04em] text-white">{item.value}</p>
-                  <p className="mt-1 text-sm text-[#9fb0c5]">{item.label}</p>
+                  <p className="mt-1 text-sm text-white/70">{item.label}</p>
                 </div>
               ))}
             </div>
           ) : null}
 
           {showShowcase ? (
-            <div className="max-w-xl overflow-hidden rounded-[2rem] border border-white/10 bg-[#0c1828] p-5 shadow-[0_30px_80px_-45px_rgba(0,0,0,0.9)]">
-              <div className="rounded-[1.4rem] border border-white/8 bg-[#0f2034] p-4">
+            <div className="max-w-xl overflow-hidden rounded-2xl border border-white/10 bg-white/5 p-5 shadow-lg">
+              <div className="rounded-2xl border border-white/8 bg-white/5 p-4">
                 <div className="flex items-center justify-between gap-4 border-b border-white/8 pb-4">
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#7ee8d5]">
+                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary">
                       Control Center
                     </p>
                   </div>
@@ -103,45 +103,45 @@ export function AuthShell({
 
                 <div className="grid gap-3 py-4">
                   <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="rounded-[1.2rem] border border-white/8 bg-[#0a1422] p-4">
+                    <div className="rounded-xl border border-white/8 bg-white/5 p-4">
                       <div className="flex items-center gap-3">
-                        <div className="rounded-2xl bg-[#14344a] p-2.5 text-[#91f2e3]">
+                        <div className="rounded-2xl bg-primary/20 p-2.5 text-primary">
                           <QrCode className="h-4 w-4" />
                         </div>
                         <div>
                           <p className="text-sm font-medium text-white">Canal listo</p>
-                          <p className="text-xs text-[#91a5bc]">Conexion activa</p>
+                          <p className="text-xs text-white/70">Conexion activa</p>
                         </div>
                       </div>
                     </div>
 
-                    <div className="rounded-[1.2rem] border border-white/8 bg-[#0a1422] p-4">
+                    <div className="rounded-xl border border-white/8 bg-white/5 p-4">
                       <div className="flex items-center gap-3">
-                        <div className="rounded-2xl bg-[#1f304e] p-2.5 text-[#9cc8ff]">
+                        <div className="rounded-2xl bg-sky-500/20 p-2.5 text-sky-300">
                           <Gauge className="h-4 w-4" />
                         </div>
                         <div>
                           <p className="text-sm font-medium text-white">IA en marcha</p>
-                          <p className="text-xs text-[#91a5bc]">Lista para vender</p>
+                          <p className="text-xs text-white/70">Lista para vender</p>
                         </div>
                       </div>
                     </div>
                   </div>
 
-                  <div className="rounded-[1.4rem] border border-white/8 bg-[#08111c] p-4">
+                  <div className="rounded-2xl border border-white/8 bg-white/5 p-4">
                     <div className="flex items-center gap-3">
-                      <div className="rounded-2xl bg-[#0f2f30] p-2.5 text-[#95f4e6]">
+                      <div className="rounded-2xl bg-primary/20 p-2.5 text-primary">
                         <Bot className="h-4 w-4" />
                       </div>
-                      <div className="rounded-[1.1rem] border border-white/8 bg-white/6 px-4 py-3 text-sm text-[#dce7f5]">
+                      <div className="rounded-xl border border-white/8 bg-white/6 px-4 py-3 text-sm text-white/80">
                         <p>Cliente entra. Todo sigue igual.</p>
                       </div>
                     </div>
                     <div className="mt-3 flex items-center justify-end gap-3">
-                      <div className="rounded-[1.1rem] bg-[#2ed3b7] px-4 py-3 text-sm font-medium text-[#06202a]">
+                      <div className="rounded-xl bg-primary px-4 py-3 text-sm font-medium text-primary-foreground">
                         <p>Tu panel responde.</p>
                       </div>
-                      <div className="rounded-2xl bg-[#102941] p-2.5 text-[#8feedd]">
+                      <div className="rounded-2xl bg-primary/20 p-2.5 text-primary">
                         <MessagesSquare className="h-4 w-4" />
                       </div>
                     </div>

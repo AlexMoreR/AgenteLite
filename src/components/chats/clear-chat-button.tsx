@@ -29,7 +29,7 @@ export function ClearChatButton({ conversationId, returnTo }: ClearChatButtonPro
       <button
         type="button"
         onClick={handleClick}
-        className="shrink-0 inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-400 transition hover:bg-red-50 hover:text-red-500"
+        className="shrink-0 inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive"
         aria-label="Limpiar chat"
         title="Limpiar chat"
       >

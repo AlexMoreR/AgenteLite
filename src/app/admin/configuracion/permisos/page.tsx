@@ -50,10 +50,10 @@ export default async function AdminConfiguracionPermisosPage({ searchParams }: P
       />
 
       <div>
-        <h1 className="text-lg font-semibold tracking-tight text-slate-900 md:text-xl">
+        <h1 className="text-lg font-semibold tracking-tight text-foreground md:text-xl">
           Control de modulos
         </h1>
-        <p className="mt-1 text-xs text-slate-600">
+        <p className="mt-1 text-xs text-muted-foreground">
           Oculta y restringe modulos administrativos por usuario.
         </p>
       </div>

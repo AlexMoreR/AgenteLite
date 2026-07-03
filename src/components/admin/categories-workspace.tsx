@@ -77,16 +77,16 @@ export function CategoriesWorkspace({ categories }: CategoriesWorkspaceProps) {
     <>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="inline-flex items-center gap-1 text-lg font-semibold tracking-tight text-slate-900 md:text-xl">
-            <Tag className="h-4 w-4 text-slate-500" />
+          <h1 className="inline-flex items-center gap-1 text-lg font-semibold tracking-tight text-foreground md:text-xl">
+            <Tag className="h-4 w-4 text-muted-foreground" />
             <span>Categorias</span>
           </h1>
-          <p className="mt-1 text-xs text-slate-600">Gestiona categorias del catalogo.</p>
+          <p className="mt-1 text-xs text-muted-foreground">Gestiona categorias del catalogo.</p>
         </div>
         <button
           type="button"
           onClick={openNewModal}
-          className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
+          className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"
         >
           <Plus className="h-4 w-4" />
           Nueva categoria
@@ -97,7 +97,7 @@ export function CategoriesWorkspace({ categories }: CategoriesWorkspaceProps) {
 
       {modal === "new" ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-[#11182752] px-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
           role="dialog"
           aria-modal="true"
           aria-label="Nueva categoria"
@@ -108,11 +108,11 @@ export function CategoriesWorkspace({ categories }: CategoriesWorkspaceProps) {
             onClick={(event) => event.stopPropagation()}
           >
             <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-slate-900">Nueva categoria</h2>
+              <h2 className="text-lg font-semibold text-foreground">Nueva categoria</h2>
               <button
                 type="button"
                 onClick={closeModal}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--line)] text-slate-600 transition hover:bg-slate-50"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border text-muted-foreground transition hover:bg-muted"
                 aria-label="Cerrar"
               >
                 <X className="h-4 w-4" />
@@ -122,15 +122,15 @@ export function CategoriesWorkspace({ categories }: CategoriesWorkspaceProps) {
             <form action={adminCreateCategoryAction} encType="multipart/form-data" className="space-y-3">
               <input type="hidden" name="returnTo" value="/admin/categorias" />
               <label className="block space-y-1.5">
-                <span className="text-sm font-medium text-slate-700">Nombre</span>
+                <span className="text-sm font-medium text-foreground">Nombre</span>
                 <Input name="name" placeholder="Ej. Camillas" required />
               </label>
               <label className="block space-y-1.5">
-                <span className="text-sm font-medium text-slate-700">Logo (opcional)</span>
+                <span className="text-sm font-medium text-foreground">Logo (opcional)</span>
                 <Input name="logo" type="file" accept="image/*" onChange={handleLogoChange} />
               </label>
               {previewUrl ? (
-                <div className="overflow-hidden rounded-lg border border-[var(--line)] bg-slate-50">
+                <div className="overflow-hidden rounded-lg border bg-muted">
                   <div className="relative aspect-[4/3] w-full">
                     <Image src={previewUrl} alt="Vista previa del logo" fill className="object-contain p-3" unoptimized />
                   </div>
@@ -138,7 +138,7 @@ export function CategoriesWorkspace({ categories }: CategoriesWorkspaceProps) {
               ) : null}
               <button
                 type="submit"
-                className="inline-flex h-10 w-full items-center justify-center rounded-lg bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
+                className="inline-flex h-10 w-full items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"
               >
                 Guardar categoria
               </button>
@@ -149,7 +149,7 @@ export function CategoriesWorkspace({ categories }: CategoriesWorkspaceProps) {
 
       {modal === "edit" && activeCategory ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-[#11182752] px-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
           role="dialog"
           aria-modal="true"
           aria-label={`Editar ${activeCategory.name}`}
@@ -160,11 +160,11 @@ export function CategoriesWorkspace({ categories }: CategoriesWorkspaceProps) {
             onClick={(event) => event.stopPropagation()}
           >
             <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-slate-900">Editar categoria</h2>
+              <h2 className="text-lg font-semibold text-foreground">Editar categoria</h2>
               <button
                 type="button"
                 onClick={closeModal}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--line)] text-slate-600 transition hover:bg-slate-50"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border text-muted-foreground transition hover:bg-muted"
                 aria-label="Cerrar"
               >
                 <X className="h-4 w-4" />
@@ -175,21 +175,21 @@ export function CategoriesWorkspace({ categories }: CategoriesWorkspaceProps) {
               <input type="hidden" name="returnTo" value="/admin/categorias" />
               <input type="hidden" name="categoryId" value={activeCategory.id} />
               <label className="block space-y-1.5">
-                <span className="text-sm font-medium text-slate-700">Nombre</span>
+                <span className="text-sm font-medium text-foreground">Nombre</span>
                 <Input name="name" defaultValue={activeCategory.name} required />
               </label>
               <label className="block space-y-1.5">
-                <span className="text-sm font-medium text-slate-700">Logo (opcional)</span>
+                <span className="text-sm font-medium text-foreground">Logo (opcional)</span>
                 <Input name="logo" type="file" accept="image/*" onChange={handleLogoChange} />
               </label>
               {previewUrl ? (
-                <div className="overflow-hidden rounded-lg border border-[var(--line)] bg-slate-50">
+                <div className="overflow-hidden rounded-lg border bg-muted">
                   <div className="relative aspect-[4/3] w-full">
                     <Image src={previewUrl} alt="Vista previa del logo" fill className="object-contain p-3" unoptimized />
                   </div>
                 </div>
               ) : activeCategory.logoUrl ? (
-                <div className="overflow-hidden rounded-lg border border-[var(--line)] bg-slate-50">
+                <div className="overflow-hidden rounded-lg border bg-muted">
                   <div className="relative aspect-[4/3] w-full">
                     <Image src={activeCategory.logoUrl} alt={`Logo actual de ${activeCategory.name}`} fill className="object-contain p-3" unoptimized />
                   </div>
@@ -197,7 +197,7 @@ export function CategoriesWorkspace({ categories }: CategoriesWorkspaceProps) {
               ) : null}
               <button
                 type="submit"
-                className="inline-flex h-10 w-full items-center justify-center rounded-lg bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
+                className="inline-flex h-10 w-full items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"
               >
                 Guardar cambios
               </button>

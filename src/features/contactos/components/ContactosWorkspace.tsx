@@ -236,13 +236,13 @@ function ContactMetric({
   icon: ReactNode;
 }) {
   return (
-    <div className="rounded-[24px] border border-[var(--line)] bg-white p-4 shadow-[0_16px_34px_-28px_rgba(15,23,42,0.16)]">
+    <div className="rounded-2xl border border-border bg-card p-4 shadow-[0_16px_34px_-28px_rgba(15,23,42,0.16)]">
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-1">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">{label}</p>
-          <p className="text-[1.35rem] font-semibold leading-none tracking-[-0.05em] text-slate-950">{value}</p>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
+          <p className="text-[1.35rem] font-semibold leading-none tracking-[-0.05em] text-foreground">{value}</p>
         </div>
-        <div className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_10%,white)] text-[var(--primary)]">
+        <div className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
           {icon}
         </div>
       </div>
@@ -268,31 +268,31 @@ function ContactCard({
     <Link
       href={href}
       className={cn(
-        "group block rounded-[20px] border px-3.5 py-3 transition",
+        "group block rounded-xl border px-3.5 py-3 transition",
         isSelected
-          ? "border-[color:color-mix(in_srgb,var(--primary)_20%,white)] bg-[color:color-mix(in_srgb,var(--primary)_4%,white)] shadow-[0_14px_28px_-24px_rgba(37,99,235,0.24)]"
-          : "border-[var(--line)] bg-white shadow-[0_14px_28px_-24px_rgba(15,23,42,0.12)] hover:-translate-y-0.5 hover:shadow-[0_18px_32px_-26px_rgba(15,23,42,0.16)]",
+          ? "border-primary/30 bg-primary/5 shadow-[0_14px_28px_-24px_rgba(37,99,235,0.24)]"
+          : "border-border bg-card shadow-[0_14px_28px_-24px_rgba(15,23,42,0.12)] hover:-translate-y-0.5 hover:shadow-[0_18px_32px_-26px_rgba(15,23,42,0.16)]",
       )}
     >
       <div className="flex items-start gap-2.5">
         <ContactAvatar
           avatarUrl={contact.avatarUrl}
           label={name}
-          className="h-11 w-11 shrink-0 rounded-xl border border-[rgba(148,163,184,0.12)] bg-slate-100 text-slate-500"
-          fallbackClassName="rounded-xl bg-slate-100 text-slate-500"
+          className="h-11 w-11 shrink-0 rounded-xl border border-border bg-muted text-muted-foreground"
+          fallbackClassName="rounded-xl bg-muted text-muted-foreground"
         />
 
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <h3 className="truncate text-[14px] font-semibold leading-4 text-slate-950">{name}</h3>
+              <h3 className="truncate text-[14px] font-semibold leading-4 text-foreground">{name}</h3>
             </div>
 
-            <ArrowRight className="mt-0.5 h-3.5 w-3.5 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-[var(--primary)]" />
+            <ArrowRight className="mt-0.5 h-3.5 w-3.5 text-muted-foreground transition group-hover:translate-x-0.5 group-hover:text-primary" />
           </div>
 
           <div className="flex flex-wrap gap-1">
-            <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] text-slate-600">
+            <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">
               <MessagesSquare className="h-3 w-3" />
               {contact.totalConversations} chats
             </span>
@@ -303,7 +303,7 @@ function ContactCard({
               </span>
             ) : null}
             {lastConversation ? (
-              <span className="inline-flex items-center gap-1 rounded-full border border-[color:color-mix(in_srgb,var(--primary)_16%,white)] bg-white px-2 py-0.5 text-[10px] text-[var(--primary)]">
+              <span className="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-card px-2 py-0.5 text-[10px] text-primary">
                 <Clock3 className="h-3 w-3" />
                 {formatRelative(lastConversation.lastMessageAt || lastConversation.updatedAt)}
               </span>
@@ -316,21 +316,21 @@ function ContactCard({
 
           {activeProductName ? (
             <div className="flex flex-wrap gap-1">
-              <span className="inline-flex items-center gap-1 rounded-full border border-[color:color-mix(in_srgb,var(--primary)_16%,white)] bg-[color:color-mix(in_srgb,var(--primary)_6%,white)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--primary)]">
-                <span className="h-1 w-1 rounded-full bg-[var(--primary)]" />
+              <span className="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-primary">
+                <span className="h-1 w-1 rounded-full bg-primary" />
                 Activo
               </span>
-              <span className="inline-flex max-w-full items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-700">
+              <span className="inline-flex max-w-full items-center rounded-full border border-border bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-foreground">
                 <span className="truncate">{activeProductName}</span>
               </span>
             </div>
           ) : latestMatchName ? (
             <div className="flex flex-wrap gap-1.5">
-              <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-700">
+              <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-foreground">
                 <span className="h-1 w-1 rounded-full bg-slate-400" />
                 Historial
               </span>
-              <span className="inline-flex max-w-full items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-600">
+              <span className="inline-flex max-w-full items-center rounded-full border border-border bg-card px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
                 <span className="truncate">{latestMatchName}</span>
               </span>
             </div>
@@ -340,17 +340,17 @@ function ContactCard({
             <div className="flex flex-wrap items-center gap-1.5">
               <Badge
                 variant="outline"
-                className="h-auto border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-700"
+                className="h-auto border-border bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-foreground"
               >
                 {contact.latestMatch.matchType === "FLOW" ? "Flujo" : "Producto"}
               </Badge>
               <Badge
                 variant="outline"
-                className="h-auto border-[color:color-mix(in_srgb,var(--primary)_16%,white)] bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--primary)]"
+                className="h-auto border-primary/20 bg-card px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-primary"
               >
                 {contact.latestMatch.targetName}
               </Badge>
-              <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-500">
+              <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
                 {getMatchSourceLabel(contact.latestMatch.sourceType)}
               </span>
             </div>
@@ -456,8 +456,8 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
       <div className="space-y-1">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex items-center gap-2 max-md:pl-10">
-            <Users2 className="h-5 w-5 shrink-0 text-[var(--primary)]" />
-            <h1 className="truncate text-[22px] font-semibold tracking-[-0.05em] text-slate-950 md:text-2xl">
+            <Users2 className="h-5 w-5 shrink-0 text-primary" />
+            <h1 className="truncate text-[22px] font-semibold tracking-[-0.05em] text-foreground md:text-2xl">
               Contactos
             </h1>
           </div>
@@ -466,7 +466,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
-                className="relative z-20 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-[rgba(148,163,184,0.18)] bg-white text-slate-600 transition hover:bg-slate-50 hover:text-[var(--primary)]"
+                className="relative z-20 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground transition hover:bg-muted hover:text-primary"
                 aria-label="Más opciones de contactos"
               >
                 <MoreVertical className="h-4 w-4" />
@@ -494,11 +494,11 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-        <p className="max-w-3xl text-sm text-slate-600">
+        <p className="max-w-3xl text-sm text-muted-foreground">
           Organiza los contactos.
         </p>
         {data.agentFilterName ? (
-          <p className="text-xs font-medium text-slate-500">Filtrado por {data.agentFilterName}</p>
+          <p className="text-xs font-medium text-muted-foreground">Filtrado por {data.agentFilterName}</p>
         ) : null}
 
       </div>
@@ -523,11 +523,11 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
             />
           </div>
 
-          <div className="rounded-[28px] border border-[var(--line)] bg-white p-4 shadow-[0_16px_34px_-28px_rgba(15,23,42,0.16)] sm:p-5">
+          <div className="rounded-2xl border border-border bg-card p-4 shadow-[0_16px_34px_-28px_rgba(15,23,42,0.16)] sm:p-5">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center gap-3">
-                  <h2 className="text-lg font-semibold tracking-[-0.04em] text-slate-950">Tráfico de creación</h2>
+                  <h2 className="text-lg font-semibold tracking-[-0.04em] text-foreground">Tráfico de creación</h2>
                   <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                     En vivo
@@ -540,14 +540,14 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                   value={String(data.reportRangeDays)}
                   onValueChange={(value) => handleReportRangeChange(value)}
                 >
-                  <SelectTrigger className="h-11 min-w-[180px] rounded-2xl border-slate-200 bg-slate-50 px-4 text-sm font-medium text-slate-700 shadow-none transition hover:border-[color:color-mix(in_srgb,var(--primary)_18%,white)] hover:text-[var(--primary)] data-[state=open]:border-[var(--primary)] data-[state=open]:bg-white data-[state=open]:shadow-sm">
+                  <SelectTrigger className="h-11 min-w-[180px] rounded-2xl border-border bg-muted px-4 text-sm font-medium text-foreground shadow-none transition hover:border-primary/20 hover:text-primary data-[state=open]:border-primary data-[state=open]:bg-card data-[state=open]:shadow-sm">
                     <SelectValue placeholder="Últimos 7 días" />
                   </SelectTrigger>
                   <SelectContent
                     align="start"
                     sideOffset={8}
                     alignItemWithTrigger={false}
-                    className="min-w-[180px] rounded-2xl border border-slate-200 bg-white p-1 shadow-[0_18px_48px_-24px_rgba(15,23,42,0.24)]"
+                    className="min-w-[180px] rounded-2xl border border-border bg-card p-1 shadow-[0_18px_48px_-24px_rgba(15,23,42,0.24)]"
                   >
                     <SelectItem key={7} value="7">
                       Últimos 7 días
@@ -563,7 +563,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                 <Button
                   type="button"
                   variant="outline"
-                  className="h-11 rounded-2xl border-slate-200 bg-slate-50 px-4 text-sm font-medium text-slate-700 shadow-none hover:border-[color:color-mix(in_srgb,var(--primary)_18%,white)] hover:bg-slate-50 hover:text-[var(--primary)]"
+                  className="h-11 rounded-2xl border-border bg-muted px-4 text-sm font-medium text-foreground shadow-none hover:border-primary/20 hover:bg-muted hover:text-primary"
                 >
                   All inboxes
                 </Button>
@@ -571,7 +571,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                   type="button"
                   variant="outline"
                   onClick={handleDownloadReport}
-                  className="h-11 rounded-2xl border-slate-200 bg-slate-50 px-4 text-sm font-medium text-slate-700 shadow-none transition hover:border-[color:color-mix(in_srgb,var(--primary)_18%,white)] hover:bg-slate-50 hover:text-[var(--primary)]"
+                  className="h-11 rounded-2xl border-border bg-muted px-4 text-sm font-medium text-foreground shadow-none transition hover:border-primary/20 hover:bg-muted hover:text-primary"
                 >
                   <Download className="h-4 w-4" />
                   Descargar reporte
@@ -579,7 +579,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
               </div>
             </div>
 
-            <div className="mt-5 overflow-hidden rounded-[24px] border border-slate-100">
+            <div className="mt-5 overflow-hidden rounded-2xl border border-border">
               <div className="overflow-x-auto">
                 <div className="min-w-[980px] p-4">
                   <div className="grid grid-cols-[112px_repeat(24,minmax(0,1fr))_72px] gap-1.5">
@@ -587,18 +587,18 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                     {Array.from({ length: 24 }, (_, hour) => (
                       <div
                         key={hour}
-                        className="pb-2 text-center text-[10px] font-medium tracking-[0.12em] text-slate-400"
+                        className="pb-2 text-center text-[10px] font-medium tracking-[0.12em] text-muted-foreground"
                       >
                         {hour % 3 === 0 ? formatHeatmapHourLabel(hour) : ""}
                       </div>
                     ))}
-                    <div className="pb-2 text-center text-[10px] font-medium tracking-[0.12em] text-slate-400">Total</div>
+                    <div className="pb-2 text-center text-[10px] font-medium tracking-[0.12em] text-muted-foreground">Total</div>
 
                     {heatmapDays.map((day) => (
                       <div key={day.dayKey} className="contents">
                         <div className="flex min-h-10 flex-col justify-center pr-3">
-                          <p className="truncate text-sm font-semibold text-slate-900">{day.dayLabel}</p>
-                          <p className="text-xs text-slate-500">{day.dateLabel}</p>
+                          <p className="truncate text-sm font-semibold text-foreground">{day.dayLabel}</p>
+                          <p className="text-xs text-muted-foreground">{day.dateLabel}</p>
                         </div>
                         {day.hours.map((hour) => (
                           <div
@@ -612,7 +612,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                           />
                         ))}
                         <div className="flex items-center justify-end pr-1">
-                          <span className="inline-flex min-w-12 justify-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700">
+                          <span className="inline-flex min-w-12 justify-center rounded-full border border-border bg-muted px-2.5 py-1 text-xs font-semibold text-foreground">
                             {day.total}
                           </span>
                         </div>
@@ -647,19 +647,19 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
 
       {activeView === "contacto" ? (
         <div className="grid gap-4 xl:grid-cols-[380px_minmax(0,1fr)]">
-        <div className="flex h-full flex-col rounded-[28px] border border-[var(--line)] bg-white shadow-[0_24px_54px_-42px_rgba(15,23,42,0.14)]">
-          <div className="border-b border-slate-100 p-4 sm:p-5">
+        <div className="flex h-full flex-col rounded-2xl border border-border bg-card shadow-[0_24px_54px_-42px_rgba(15,23,42,0.14)]">
+          <div className="border-b border-border p-4 sm:p-5">
             <form method="get" className="space-y-3">
               {data.agentFilterId ? <input type="hidden" name="agentId" value={data.agentFilterId} /> : null}
               <input type="hidden" name="range" value={String(data.reportRangeDays)} />
               <input type="hidden" name="view" value={activeView} />
-              <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5">
-                <Search className="h-4 w-4 shrink-0 text-slate-400" />
+              <div className="flex items-center gap-2 rounded-2xl border border-border bg-muted px-3 py-2.5">
+                <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
                 <input
                   name="q"
                   defaultValue={data.searchQuery}
                   placeholder="Nombre, telefono, email o nota"
-                  className="w-full bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
+                  className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
                 />
               </div>
             </form>
@@ -683,14 +683,14 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                 />
               ))
             ) : (
-              <div className="rounded-[24px] border border-dashed border-slate-200 bg-slate-50 px-5 py-10 text-center">
+              <div className="rounded-2xl border border-dashed border-border bg-muted px-5 py-10 text-center">
                 <div className="mx-auto flex max-w-sm flex-col items-center gap-3">
-                  <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-slate-500 shadow-sm">
+                  <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-card text-muted-foreground shadow-sm">
                     <Users2 className="h-5 w-5" />
                   </span>
                   <div className="space-y-1">
-                    <h3 className="text-base font-semibold text-slate-950">No hay contactos para mostrar</h3>
-                    <p className="text-sm leading-6 text-slate-600">
+                    <h3 className="text-base font-semibold text-foreground">No hay contactos para mostrar</h3>
+                    <p className="text-sm leading-6 text-muted-foreground">
                       Prueba quitando el filtro o revisa si ya llegaron conversaciones a tu bandeja.
                     </p>
                   </div>
@@ -699,8 +699,8 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
             )}
           </div>
 
-          <div className="mt-auto flex flex-col gap-2 border-t border-slate-100 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-            <p className="text-xs text-slate-500">
+          <div className="mt-auto flex flex-col gap-2 border-t border-border px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+            <p className="text-xs text-muted-foreground">
               Mostrando {pagination.rangeStart}-{pagination.rangeEnd} de {pagination.total}
             </p>
             <div className="flex items-center gap-2 self-end sm:self-auto">
@@ -713,7 +713,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
               >
                 Anterior
               </Button>
-              <span className="text-xs text-slate-600">
+              <span className="text-xs text-muted-foreground">
                 Pagina {pagination.page} de {pagination.totalPages}
               </span>
               <Button
@@ -729,22 +729,22 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
           </div>
         </div>
 
-        <div className="rounded-[28px] border border-[var(--line)] bg-white shadow-[0_24px_54px_-42px_rgba(15,23,42,0.14)]">
+        <div className="rounded-2xl border border-border bg-card shadow-[0_24px_54px_-42px_rgba(15,23,42,0.14)]">
           {selectedContact ? (
             <div className="flex h-full flex-col">
-              <div className="border-b border-slate-100 p-3.5 sm:p-4">
+              <div className="border-b border-border p-3.5 sm:p-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div className="flex min-w-0 items-start gap-2.5">
                     <ContactAvatar
                       avatarUrl={selectedContact.avatarUrl}
                       label={getContactDisplayName(selectedContact)}
-                      className="h-12 w-12 shrink-0 rounded-[20px] border border-[rgba(148,163,184,0.12)] bg-slate-100 text-slate-500"
-                      fallbackClassName="rounded-[20px] bg-slate-100 text-slate-500"
+                      className="h-12 w-12 shrink-0 rounded-xl border border-border bg-muted text-muted-foreground"
+                      fallbackClassName="rounded-xl bg-muted text-muted-foreground"
                     />
 
                     <div className="min-w-0 space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h2 className="text-[1.05rem] font-semibold tracking-[-0.02em] text-slate-950">
+                        <h2 className="text-[1.05rem] font-semibold tracking-[-0.02em] text-foreground">
                           {getContactDisplayName(selectedContact)}
                         </h2>
                         {selectedConversation?.automationPaused ? (
@@ -753,8 +753,8 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                           </span>
                         ) : null}
                       </div>
-                      <p className="text-sm leading-5 tracking-[-0.015em] text-slate-500">{selectedContact.phoneNumber}</p>
-                      {selectedContact.email ? <p className="text-sm leading-5 tracking-[-0.015em] text-slate-500">{selectedContact.email}</p> : null}
+                      <p className="text-sm leading-5 tracking-[-0.015em] text-muted-foreground">{selectedContact.phoneNumber}</p>
+                      {selectedContact.email ? <p className="text-sm leading-5 tracking-[-0.015em] text-muted-foreground">{selectedContact.email}</p> : null}
                       {selectedContact.tags.length ? (
                         <div className="flex flex-wrap gap-1 pt-0.5">
                           {selectedContact.tags.map((tag) => (
@@ -776,14 +776,14 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                     <button
                       type="button"
                       onClick={() => void copyToClipboard(selectedContact.phoneNumber, "phone")}
-                      className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+                      className="inline-flex items-center gap-2 rounded-2xl border border-border bg-card px-3.5 py-2 text-sm font-medium text-muted-foreground transition hover:bg-muted"
                     >
                       <Copy className="h-4 w-4" />
                       {copiedField === "phone" ? "Copiado" : "Copiar"}
                     </button>
                     <Link
                       href={selectedHref}
-                      className="inline-flex items-center gap-2 rounded-2xl bg-[var(--primary)] px-3.5 py-2 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
+                      className="inline-flex items-center gap-2 rounded-2xl bg-primary px-3.5 py-2 text-sm font-medium text-white transition hover:bg-primary/90"
                     >
                       Abrir chat
                       <MessageCircle className="h-4 w-4" />
@@ -792,7 +792,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                       <DropdownMenuTrigger asChild>
                         <button
                           type="button"
-                          className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
+                          className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-border bg-card text-muted-foreground transition hover:bg-muted hover:text-foreground"
                           aria-label="Acciones del contacto"
                         >
                           <MoreVertical className="h-4 w-4" />
@@ -850,30 +850,30 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
               </div>
 
               <div className="grid gap-4 p-4 sm:grid-cols-2 sm:p-5">
-                <div className="rounded-[24px] border border-slate-100 bg-slate-50 p-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Resumen</p>
-                  <div className="mt-3 space-y-2 text-sm text-slate-600">
+                <div className="rounded-2xl border border-border bg-muted p-4">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Resumen</p>
+                  <div className="mt-3 space-y-2 text-sm text-muted-foreground">
                     <p>
-                      <span className="font-medium text-slate-900">{selectedContact.totalConversations}</span> conversaciones
+                      <span className="font-medium text-foreground">{selectedContact.totalConversations}</span> conversaciones
                     </p>
                     <p>
-                      <span className="font-medium text-slate-900">{selectedContact.totalMessages}</span> mensajes relacionados
+                      <span className="font-medium text-foreground">{selectedContact.totalMessages}</span> mensajes relacionados
                     </p>
                     <p>Creado: {formatDateLabel(selectedContact.createdAt)}</p>
                     <p>Ultima actividad: {formatDateLabel(selectedContact.lastActivityAt)}</p>
                   </div>
 
                   {getCurrentProductName(selectedContact) ? (
-                    <div className="mt-4 rounded-[20px] border border-[color:color-mix(in_srgb,var(--primary)_14%,white)] bg-white p-3">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Producto activo</p>
+                    <div className="mt-4 rounded-xl border border-primary/20 bg-card p-3">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Producto activo</p>
                       <div className="mt-2 flex flex-wrap items-center gap-2">
                         <Badge
                           variant="outline"
-                          className="h-auto border-[color:color-mix(in_srgb,var(--primary)_16%,white)] bg-[color:color-mix(in_srgb,var(--primary)_6%,white)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--primary)]"
+                          className="h-auto border-primary/20 bg-primary/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-primary"
                         >
                           {getCurrentProductName(selectedContact)}
                         </Badge>
-                        <span className="text-xs text-slate-500">
+                        <span className="text-xs text-muted-foreground">
                           Lo que está activo ahora en la conversación
                         </span>
                       </div>
@@ -881,16 +881,16 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                   ) : null}
 
                 {selectedContact.latestMatch ? (
-                  <div className="mt-4 rounded-[20px] border border-slate-200 bg-white p-3">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Ultimo match</p>
+                  <div className="mt-4 rounded-xl border border-border bg-card p-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Ultimo match</p>
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       <Badge
                           variant="outline"
-                          className="h-auto border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-700"
+                          className="h-auto border-border bg-muted px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-foreground"
                         >
                           {selectedContact.latestMatch.targetName}
                         </Badge>
-                        <span className="text-xs text-slate-500">
+                        <span className="text-xs text-muted-foreground">
                           {getMatchSourceLabel(selectedContact.latestMatch.sourceType)} ·{" "}
                           {formatDateLabel(selectedContact.latestMatch.detectedAt)}
                         </span>
@@ -899,23 +899,23 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                   ) : null}
 
                   {selectedContact.matchHistory.length > 0 ? (
-                    <div className="mt-3 rounded-[20px] border border-slate-200 bg-white p-3">
+                    <div className="mt-3 rounded-xl border border-border bg-card p-3">
                       <div className="flex items-center justify-between gap-2">
-                        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Historial de matches</p>
-                        <span className="text-[11px] text-slate-500">{selectedContact.matchHistory.length}</span>
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Historial de matches</p>
+                        <span className="text-[11px] text-muted-foreground">{selectedContact.matchHistory.length}</span>
                       </div>
                       <div className="mt-3 space-y-2">
                         {selectedContact.matchHistory.map((match) => (
-                          <div key={match.id} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2">
+                          <div key={match.id} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-border bg-muted px-3 py-2">
                             <div className="min-w-0">
-                              <p className="truncate text-sm font-medium text-slate-950">{match.targetName}</p>
-                              <p className="text-[11px] text-slate-500">
+                              <p className="truncate text-sm font-medium text-foreground">{match.targetName}</p>
+                              <p className="text-[11px] text-muted-foreground">
                                 {getMatchSourceLabel(match.sourceType)} · {formatDateLabel(match.detectedAt)}
                               </p>
                             </div>
                             <Badge
                               variant="outline"
-                              className="h-auto border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-700"
+                              className="h-auto border-border bg-card px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-foreground"
                             >
                               {match.matchType === "FLOW" ? "Flujo" : "Producto"}
                             </Badge>
@@ -926,43 +926,43 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                   ) : null}
                 </div>
 
-                <div className="rounded-[24px] border border-slate-100 bg-slate-50 p-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Acciones rapidas</p>
+                <div className="rounded-2xl border border-border bg-muted p-4">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Acciones rapidas</p>
                   <div className="mt-3 space-y-2">
                     <button
                       type="button"
                       onClick={() => void copyToClipboard(selectedContact.phoneNumber, "phone")}
-                      className="flex w-full items-center justify-between rounded-2xl border border-white bg-white px-3 py-2.5 text-sm text-slate-600 shadow-sm transition hover:border-[color:color-mix(in_srgb,var(--primary)_16%,white)]"
+                      className="flex w-full items-center justify-between rounded-2xl border border-border bg-card px-3 py-2.5 text-sm text-muted-foreground shadow-sm transition hover:border-primary/20"
                     >
                       <span className="inline-flex items-center gap-2">
-                        <Phone className="h-4 w-4 text-slate-400" />
+                        <Phone className="h-4 w-4 text-muted-foreground" />
                         {selectedContact.phoneNumber}
                       </span>
-                      <Copy className="h-4 w-4 text-slate-400" />
+                      <Copy className="h-4 w-4 text-muted-foreground" />
                     </button>
 
                     {selectedContact.email ? (
                       <button
                         type="button"
                         onClick={() => void copyToClipboard(selectedContact.email || "", "email")}
-                        className="flex w-full items-center justify-between rounded-2xl border border-white bg-white px-3 py-2.5 text-sm text-slate-600 shadow-sm transition hover:border-[color:color-mix(in_srgb,var(--primary)_16%,white)]"
+                        className="flex w-full items-center justify-between rounded-2xl border border-border bg-card px-3 py-2.5 text-sm text-muted-foreground shadow-sm transition hover:border-primary/20"
                       >
                         <span className="inline-flex items-center gap-2">
-                          <Mail className="h-4 w-4 text-slate-400" />
+                          <Mail className="h-4 w-4 text-muted-foreground" />
                           {selectedContact.email}
                         </span>
-                        <Copy className="h-4 w-4 text-slate-400" />
+                        <Copy className="h-4 w-4 text-muted-foreground" />
                       </button>
                     ) : null}
                   </div>
                 </div>
               </div>
 
-              <div className="grid gap-4 border-t border-slate-100 p-4 sm:p-5">
-                <div className="rounded-[24px] border border-slate-100 bg-white p-4">
+              <div className="grid gap-4 border-t border-border p-4 sm:p-5">
+                <div className="rounded-2xl border border-border bg-card p-4">
                   <div className="flex items-center justify-between gap-3">
-                    <h3 className="text-sm font-semibold text-slate-950">Conversaciones recientes</h3>
-                    <span className="text-[11px] text-slate-500">{selectedContact.recentConversations.length} hilos</span>
+                    <h3 className="text-sm font-semibold text-foreground">Conversaciones recientes</h3>
+                    <span className="text-[11px] text-muted-foreground">{selectedContact.recentConversations.length} hilos</span>
                   </div>
 
                   <div className="mt-3 space-y-3">
@@ -970,34 +970,34 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                       selectedContact.recentConversations.map((conversation) => (
                         <div
                           key={conversation.id}
-                          className="rounded-[20px] border border-slate-100 bg-slate-50 p-4"
+                          className="rounded-xl border border-border bg-muted p-4"
                         >
                           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                             <div className="min-w-0 space-y-1">
-                              <p className="text-sm font-medium text-slate-950">
+                              <p className="text-sm font-medium text-foreground">
                                 {conversation.agent?.name ?? "Chat sin agente asignado"}
                               </p>
-                              <p className="text-xs text-slate-500">
+                              <p className="text-xs text-muted-foreground">
                                 {conversation.channel?.name ?? "Canal"} · {conversation.status}
                               </p>
                             </div>
-                            <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] text-slate-500">
+                            <span className="rounded-full border border-border bg-card px-2.5 py-1 text-[11px] text-muted-foreground">
                               {formatDateLabel(conversation.lastMessageAt || conversation.updatedAt)}
                             </span>
                           </div>
 
                           {conversation.lastMessage?.content ? (
-                            <p className="mt-3 line-clamp-2 text-sm leading-6 text-slate-600">
+                            <p className="mt-3 line-clamp-2 text-sm leading-6 text-muted-foreground">
                               {conversation.lastMessage.content}
                             </p>
                           ) : (
-                            <p className="mt-3 text-sm text-slate-500">Sin mensaje visible en este hilo.</p>
+                            <p className="mt-3 text-sm text-muted-foreground">Sin mensaje visible en este hilo.</p>
                           )}
 
                           <div className="mt-3 flex flex-wrap items-center gap-2">
                             <Link
                               href={`/cliente/chats?chatKey=agent:${conversation.id}`}
-                              className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-[11px] font-medium text-[var(--primary)] ring-1 ring-[color:color-mix(in_srgb,var(--primary)_14%,white)] transition hover:bg-[color:color-mix(in_srgb,var(--primary)_5%,white)]"
+                              className="inline-flex items-center gap-2 rounded-full bg-card px-3 py-1.5 text-[11px] font-medium text-primary ring-1 ring-primary/20 transition hover:bg-primary/5"
                             >
                               Abrir conversacion
                               <ArrowRight className="h-3.5 w-3.5" />
@@ -1011,9 +1011,9 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                         </div>
                       ))
                     ) : (
-                      <div className="rounded-[20px] border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center">
-                        <p className="text-sm font-medium text-slate-950">Todavia no hay conversaciones</p>
-                        <p className="mt-1 text-sm leading-6 text-slate-500">
+                      <div className="rounded-xl border border-dashed border-border bg-muted px-4 py-8 text-center">
+                        <p className="text-sm font-medium text-foreground">Todavia no hay conversaciones</p>
+                        <p className="mt-1 text-sm leading-6 text-muted-foreground">
                           Este contacto todavia no ha entrado al flujo de chats.
                         </p>
                       </div>
@@ -1022,9 +1022,9 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                 </div>
 
                 {selectedContact.notes ? (
-                  <div className="rounded-[24px] border border-slate-100 bg-[linear-gradient(180deg,#ffffff_0%,#fbfcfe_100%)] p-4">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Notas</p>
-                    <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-600">
+                  <div className="rounded-2xl border border-border bg-[linear-gradient(180deg,#ffffff_0%,#fbfcfe_100%)] p-4">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Notas</p>
+                    <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">
                       {selectedContact.notes}
                     </p>
                   </div>
@@ -1034,12 +1034,12 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
           ) : (
             <div className="flex min-h-[36rem] items-center justify-center p-6 text-center">
               <div className="mx-auto flex max-w-sm flex-col items-center gap-3">
-                <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-50 text-slate-500">
+                <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-muted text-muted-foreground">
                   <Users2 className="h-5 w-5" />
                 </span>
                 <div className="space-y-1">
-                  <h3 className="text-base font-semibold text-slate-950">Selecciona un contacto</h3>
-                  <p className="text-sm leading-6 text-slate-600">
+                  <h3 className="text-base font-semibold text-foreground">Selecciona un contacto</h3>
+                  <p className="text-sm leading-6 text-muted-foreground">
                     Aqui veras su informacion, las conversaciones recientes y el acceso directo al chat.
                   </p>
                 </div>
@@ -1052,26 +1052,26 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
 
       {selectedContact && resetModalOpen ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-[2px]"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/45 p-4 backdrop-blur-sm"
           role="dialog"
           aria-modal="true"
           aria-label="Empezar de 0"
           onClick={() => setResetModalOpen(false)}
         >
           <div
-            className="w-full max-w-md rounded-[28px] border border-amber-200 bg-white shadow-[0_28px_90px_-40px_rgba(15,23,42,0.5)]"
+            className="w-full max-w-md rounded-2xl border border-amber-200 bg-card shadow-[0_28px_90px_-40px_rgba(15,23,42,0.5)]"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="border-b border-slate-100 px-5 py-4">
+            <div className="border-b border-border px-5 py-4">
               <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-600">Reiniciar conversación</p>
-              <h3 className="mt-1 text-lg font-semibold tracking-[-0.03em] text-slate-950">Empezar de 0</h3>
+              <h3 className="mt-1 text-lg font-semibold tracking-[-0.03em] text-foreground">Empezar de 0</h3>
             </div>
             <form action={resetContactAction} className="space-y-4 px-5 py-5">
               <input type="hidden" name="contactId" value={selectedContact.id} />
               <input type="hidden" name="returnTo" value={deleteReturnTo} />
-              <p className="text-sm leading-6 text-slate-600">
+              <p className="text-sm leading-6 text-muted-foreground">
                 Se borrarán las conversaciones, mensajes, seguimientos y el estado del agente de{" "}
-                <span className="font-medium text-slate-900">{getContactDisplayName(selectedContact)}</span>. El contacto se
+                <span className="font-medium text-foreground">{getContactDisplayName(selectedContact)}</span>. El contacto se
                 conserva (nombre, etiquetas, etapa y notas) y, al volver a escribir, el agente lo saludará con la bienvenida
                 como si fuera la primera vez.
               </p>
@@ -1079,7 +1079,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                 <button
                   type="button"
                   onClick={() => setResetModalOpen(false)}
-                  className="h-10 rounded-2xl border border-slate-200 px-4 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+                  className="h-10 rounded-2xl border border-border px-4 text-sm font-medium text-muted-foreground transition hover:bg-muted"
                 >
                   Cancelar
                 </button>
@@ -1097,25 +1097,25 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
 
       {selectedContact && deleteModalOpen ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-[2px]"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/45 p-4 backdrop-blur-sm"
           role="dialog"
           aria-modal="true"
           aria-label="Eliminar contacto"
           onClick={() => setDeleteModalOpen(false)}
         >
           <div
-            className="w-full max-w-md rounded-[28px] border border-rose-200 bg-white shadow-[0_28px_90px_-40px_rgba(15,23,42,0.5)]"
+            className="w-full max-w-md rounded-2xl border border-rose-200 bg-card shadow-[0_28px_90px_-40px_rgba(15,23,42,0.5)]"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="border-b border-slate-100 px-5 py-4">
+            <div className="border-b border-border px-5 py-4">
               <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-rose-600">Accion irreversible</p>
-              <h3 className="mt-1 text-lg font-semibold tracking-[-0.03em] text-slate-950">Eliminar contacto</h3>
+              <h3 className="mt-1 text-lg font-semibold tracking-[-0.03em] text-foreground">Eliminar contacto</h3>
             </div>
             <form action={deleteContactAction} className="space-y-4 px-5 py-5">
               <input type="hidden" name="contactId" value={selectedContact.id} />
               <input type="hidden" name="returnTo" value={deleteReturnTo} />
-              <p className="text-sm leading-6 text-slate-600">
-                Se eliminará <span className="font-medium text-slate-900">{getContactDisplayName(selectedContact)}</span>
+              <p className="text-sm leading-6 text-muted-foreground">
+                Se eliminará <span className="font-medium text-foreground">{getContactDisplayName(selectedContact)}</span>
                 y todo su historial: conversaciones, mensajes, etiquetas y registros asociados a este contacto dentro del
                 workspace.
               </p>
@@ -1123,7 +1123,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                 <button
                   type="button"
                   onClick={() => setDeleteModalOpen(false)}
-                  className="h-10 rounded-2xl border border-slate-200 px-4 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+                  className="h-10 rounded-2xl border border-border px-4 text-sm font-medium text-muted-foreground transition hover:bg-muted"
                 >
                   Cancelar
                 </button>

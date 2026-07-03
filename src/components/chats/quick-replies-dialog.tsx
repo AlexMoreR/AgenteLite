@@ -91,7 +91,7 @@ export function QuickRepliesDialog({ open, onClose, onSelect }: Props) {
         }
       }}
     >
-      <DialogContent className="w-[min(94vw,30rem)] max-w-none gap-0 overflow-hidden border border-border bg-popover p-0 shadow-[0_30px_80px_-36px_rgba(15,23,42,0.45)]">
+      <DialogContent className="w-[min(94vw,30rem)] max-w-none gap-0 overflow-hidden border border-border bg-popover p-0 shadow-lg">
         <DialogHeader className="border-b border-border px-5 py-4 text-left">
           <DialogTitle className="text-sm">Respuestas rápidas</DialogTitle>
           <DialogDescription className="text-xs">
@@ -171,7 +171,7 @@ export function QuickRepliesDialog({ open, onClose, onSelect }: Props) {
                   setFormError(null);
                   setMode("form");
                 }}
-                className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--primary)] px-3 py-2.5 text-[13px] font-semibold text-white transition hover:opacity-90"
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-3 py-2.5 text-[13px] font-semibold text-white transition hover:opacity-90"
               >
                 <Plus className="h-4 w-4" />
                 Crear respuesta rápida
@@ -188,7 +188,7 @@ export function QuickRepliesDialog({ open, onClose, onSelect }: Props) {
                 defaultValue={editing?.title ?? ""}
                 placeholder="Ej. Saludo inicial"
                 maxLength={80}
-                className="h-9 w-full rounded-[12px] border border-border bg-background px-3 text-[13px] text-foreground outline-none transition focus:border-[var(--primary)]"
+                className="h-9 w-full rounded-lg border border-border bg-background px-3 text-[13px] text-foreground outline-none transition focus:border-primary"
               />
             </div>
             <div className="space-y-1.5">
@@ -199,10 +199,10 @@ export function QuickRepliesDialog({ open, onClose, onSelect }: Props) {
                 defaultValue={editing?.content ?? ""}
                 placeholder="Escribe el mensaje que se insertará en el chat…"
                 maxLength={2000}
-                className="w-full resize-none rounded-[12px] border border-border bg-background px-3 py-2 text-[13px] leading-snug text-foreground outline-none transition focus:border-[var(--primary)]"
+                className="w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-[13px] leading-snug text-foreground outline-none transition focus:border-primary"
               />
             </div>
-            {formError ? <p className="text-xs text-rose-500">{formError}</p> : null}
+            {formError ? <p className="text-xs text-destructive">{formError}</p> : null}
             <div className="flex gap-2 pt-1">
               <button
                 type="button"
@@ -211,14 +211,14 @@ export function QuickRepliesDialog({ open, onClose, onSelect }: Props) {
                   setEditing(null);
                   setFormError(null);
                 }}
-                className="h-9 flex-1 rounded-[10px] border border-border text-[13px] text-muted-foreground transition hover:bg-muted"
+                className="h-9 flex-1 rounded-md border border-border text-[13px] text-muted-foreground transition hover:bg-muted"
               >
                 Cancelar
               </button>
               <button
                 type="submit"
                 disabled={busy}
-                className="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-[10px] bg-[var(--primary)] text-[13px] font-semibold text-white transition hover:opacity-90 disabled:opacity-60"
+                className="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-md bg-primary text-[13px] font-semibold text-white transition hover:opacity-90 disabled:opacity-60"
               >
                 {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
                 {editing ? "Guardar cambios" : "Crear"}

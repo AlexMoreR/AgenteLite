@@ -132,7 +132,7 @@ export function AppSidebar({
 
   return (
     <aside
-      className={`${mobileConversationActive ? "hidden md:flex" : "flex"} chat-inbox-sidebar min-h-0 flex-1 overflow-hidden border border-border bg-card p-0 shadow-none md:h-full md:shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)]`}
+      className={`${mobileConversationActive ? "hidden md:flex" : "flex"} chat-inbox-sidebar min-h-0 flex-1 overflow-hidden border border-border bg-card p-0 shadow-none md:h-full md:shadow-lg`}
     >
       <div className="flex min-h-0 w-full flex-col">
         <div className="relative z-30 shrink-0 border-b border-border bg-card px-3 py-2 backdrop-blur-sm md:px-3 md:py-2">
@@ -188,7 +188,7 @@ export function AppSidebar({
               </button>
 
               {filterMenuOpen ? (
-                <div className="absolute right-0 z-50 mt-2 w-64 rounded-xl border border-border bg-popover p-3 shadow-[0_18px_50px_-24px_rgba(15,23,42,0.35)]">
+                <div className="absolute right-0 z-50 mt-2 w-64 rounded-xl border border-border bg-popover p-3 shadow-lg">
                   <p className="mb-2 text-[13px] font-semibold text-foreground">Filtrar conversaciones</p>
 
                   <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Estado</p>

@@ -45,17 +45,17 @@ function PromptModal({
       }}
     >
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
-      <div className="relative w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-[0_32px_64px_-24px_rgba(15,23,42,0.28)]">
-        <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
-          <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-900">
-            <BookOpen className="h-4 w-4 text-[var(--primary)]" />
+      <div className="relative w-full max-w-3xl overflow-hidden rounded-2xl bg-background shadow-lg">
+        <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-4">
+          <span className="inline-flex items-center gap-2 text-sm font-semibold text-foreground">
+            <BookOpen className="h-4 w-4 text-primary" />
             Prompt actual
           </span>
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={copyPrompt}
-              className="inline-flex h-7 items-center gap-1.5 rounded-[12px] border border-[rgba(148,163,184,0.2)] bg-white px-3 text-[12px] font-medium text-slate-600 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+              className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-border bg-background px-3 text-xs font-medium text-muted-foreground transition hover:border-primary hover:text-primary"
             >
               <Copy className="h-3.5 w-3.5" />
               {copied ? "Copiado" : "Copiar prompt"}
@@ -63,7 +63,7 @@ function PromptModal({
             <button
               type="button"
               onClick={onClose}
-              className="flex h-7 w-7 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+              className="flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground"
             >
               <X className="h-4 w-4" />
             </button>
@@ -71,7 +71,7 @@ function PromptModal({
         </div>
 
         <div className="space-y-4 px-5 py-5">
-          <pre className="max-h-[70vh] overflow-auto whitespace-pre-wrap rounded-[16px] border border-[rgba(148,163,184,0.12)] bg-slate-50 px-3.5 py-3 font-mono text-[11px] leading-5 text-slate-700">
+          <pre className="max-h-[70vh] overflow-auto whitespace-pre-wrap rounded-xl border border-border bg-muted px-3.5 py-3 font-mono text-xs leading-5 text-foreground">
             {prompt || "(prompt vacio — configura el entrenamiento primero)"}
           </pre>
         </div>
@@ -90,7 +90,7 @@ function Field({ label, icon, value, onChange, placeholder }: {
 }) {
   return (
     <div className="space-y-1">
-      <label className="flex items-center gap-1.5 text-[12px] font-medium text-slate-500">
+      <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
         {icon}
         {label}
       </label>
@@ -99,7 +99,7 @@ function Field({ label, icon, value, onChange, placeholder }: {
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="field-select h-9 w-full rounded-[14px] border-[rgba(148,163,184,0.14)] bg-white text-[13px] shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_8px_18px_-20px_rgba(15,23,42,0.2)] focus:border-[var(--primary)]"
+        className="field-select h-9 w-full rounded-lg border-border bg-background text-[13px] focus:border-primary"
       />
     </div>
   );
@@ -175,14 +175,14 @@ function BusinessModal({ data, onSave, onClose }: {
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
-      <div className="relative w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-[0_32px_64px_-24px_rgba(15,23,42,0.28)]">
+      <div className="relative w-full max-w-lg overflow-hidden rounded-2xl bg-background shadow-lg">
 
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-          <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-900">
-            <Building2 className="h-4 w-4 text-[var(--primary)]" />
+        <div className="flex items-center justify-between border-b border-border px-5 py-4">
+          <span className="inline-flex items-center gap-2 text-sm font-semibold text-foreground">
+            <Building2 className="h-4 w-4 text-primary" />
             Datos del negocio
           </span>
-          <button type="button" onClick={onClose} className="flex h-7 w-7 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-600">
+          <button type="button" onClick={onClose} className="flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -192,30 +192,30 @@ function BusinessModal({ data, onSave, onClose }: {
           {/* Nombre */}
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <label className="block text-[13px] font-medium text-slate-700">Nombre del negocio</label>
+              <label className="block text-[13px] font-medium text-foreground">Nombre del negocio</label>
               <input
                 data-business-name-input="true"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleSave(); } if (e.key === "Escape" && !isSaving) onClose(); }}
                 placeholder="Ej. Aizen Store"
-                className="field-select h-11 w-full rounded-[16px] border-[rgba(148,163,184,0.14)] bg-white text-[13px] shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_12px_22px_-28px_rgba(15,23,42,0.28)] focus:border-[var(--primary)]"
+                className="field-select h-11 w-full rounded-xl border-border bg-background text-[13px] focus:border-primary"
               />
             </div>
             <div className="space-y-1.5">
-              <label className="block text-[13px] font-medium text-slate-700">Sector/Rubro</label>
+              <label className="block text-[13px] font-medium text-foreground">Sector/Rubro</label>
               <input
                 value={sectorRubro}
                 onChange={(e) => setSectorRubro(e.target.value)}
                 placeholder="Ej. Automatizaciones y Marketing con IA"
-                className="field-select h-11 w-full rounded-[16px] border-[rgba(148,163,184,0.14)] bg-white text-[13px] shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_12px_22px_-28px_rgba(15,23,42,0.28)] focus:border-[var(--primary)]"
+                className="field-select h-11 w-full rounded-xl border-border bg-background text-[13px] focus:border-primary"
               />
             </div>
           </div>
 
           {/* Contacto y ubicacion */}
           <div className="space-y-3">
-            <span className="block text-[13px] font-medium text-slate-700">Contacto y ubicacion</span>
+            <span className="block text-[13px] font-medium text-foreground">Contacto y ubicacion</span>
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="Ubicacion / Direccion" icon={<MapPin className="h-3.5 w-3.5" />} value={location} onChange={setLocation} placeholder="Ej. Calle 10 #45-20, Bogota" />
               <Field label="Sitio web" icon={<Globe className="h-3.5 w-3.5" />} value={website} onChange={setWebsite} placeholder="Ej. www.minegocio.com" />
@@ -226,7 +226,7 @@ function BusinessModal({ data, onSave, onClose }: {
 
           {/* Redes sociales */}
           <div className="space-y-3">
-            <span className="block text-[13px] font-medium text-slate-700">Redes sociales</span>
+            <span className="block text-[13px] font-medium text-foreground">Redes sociales</span>
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="Instagram" icon={<Instagram className="h-3.5 w-3.5" />} value={instagram} onChange={setInstagram} placeholder="@minegocio" />
               <Field label="Facebook" icon={<svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/></svg>} value={facebook} onChange={setFacebook} placeholder="@minegocio" />
@@ -237,24 +237,24 @@ function BusinessModal({ data, onSave, onClose }: {
 
           {/* Notas adicionales */}
           <div className="space-y-1.5">
-            <label className="block text-[13px] font-medium text-slate-700">Notas Adicionales</label>
+            <label className="block text-[13px] font-medium text-foreground">Notas Adicionales</label>
             <textarea
               value={summary}
               onChange={(e) => setSummary(e.target.value)}
               rows={4}
               maxLength={10000}
               placeholder="Escribe notas extra, aclaraciones o detalles importantes del negocio."
-              className="flex w-full min-h-[120px] resize-y rounded-[16px] border border-[rgba(148,163,184,0.14)] bg-white px-3.5 py-3 text-[13px] leading-6 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-[var(--primary)]"
+              className="flex w-full min-h-30 resize-y rounded-xl border border-border bg-background px-3.5 py-3 text-[13px] leading-6 text-foreground outline-none transition placeholder:text-muted-foreground focus:border-primary"
             />
           </div>
         </div>
 
-        <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">
-          {error ? <p className="mr-auto max-w-[55%] text-[12px] text-rose-600">{error}</p> : null}
-          <button type="button" disabled={isSaving} onClick={onClose} className="inline-flex h-9 items-center justify-center rounded-xl border border-slate-200 px-4 text-[13px] font-medium text-slate-600 transition hover:bg-slate-50 disabled:opacity-50">
+        <div className="flex justify-end gap-2 border-t border-border px-5 py-4">
+          {error ? <p className="mr-auto max-w-[55%] text-xs text-destructive">{error}</p> : null}
+          <button type="button" disabled={isSaving} onClick={onClose} className="inline-flex h-9 items-center justify-center rounded-xl border border-border px-4 text-[13px] font-medium text-muted-foreground transition hover:bg-muted disabled:opacity-50">
             Cancelar
           </button>
-          <button type="button" onClick={handleSave} disabled={isSaving || name.trim().length < 2} className="inline-flex h-9 items-center justify-center rounded-xl bg-[var(--primary)] px-4 text-[13px] font-medium text-white transition hover:bg-[var(--primary-strong)] disabled:opacity-50">
+          <button type="button" onClick={handleSave} disabled={isSaving || name.trim().length < 2} className="inline-flex h-9 items-center justify-center rounded-xl bg-primary px-4 text-[13px] font-medium text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50">
             {isSaving ? "Guardando..." : "Guardar"}
           </button>
         </div>
@@ -359,25 +359,25 @@ export function BusinessNameHeader({
       <input type="hidden" name="facebook" value={fb} />
       <input type="hidden" name="tiktok" value={tt} />
       <input type="hidden" name="youtube" value={yt} />
-      <div className="overflow-hidden rounded-[20px] border border-[rgba(148,163,184,0.14)]">
-        <div className="flex items-center justify-between gap-3 bg-[var(--primary)] px-4 py-3.5">
+      <div className="overflow-hidden rounded-xl border border-border">
+        <div className="flex items-center justify-between gap-3 bg-primary px-4 py-3.5">
           <div className="flex min-w-0 flex-1 items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/20 text-sm font-bold text-white">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/20 text-sm font-bold text-primary-foreground">
               {initials}
             </div>
-            
-            <span className="truncate text-sm font-semibold text-white">{name}</span>
+
+            <span className="truncate text-sm font-semibold text-primary-foreground">{name}</span>
             <button
               type="button"
               onClick={() => setModalOpen(true)}
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/20 text-white transition hover:bg-white/30"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/20 text-primary-foreground transition hover:bg-white/30"
             >
               <Pencil className="h-3.5 w-3.5" />
             </button>
             <button
               type="button"
               onClick={() => setPromptOpen(true)}
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/20 text-white transition hover:bg-white/30"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/20 text-primary-foreground transition hover:bg-white/30"
               aria-label="Ver prompt actual"
               title="Ver prompt actual"
             >
@@ -387,7 +387,7 @@ export function BusinessNameHeader({
 
           <Link
             href={`/cliente/agentes/${agentId}/probar`}
-            className="shrink-0 inline-flex h-9 items-center justify-center gap-2 rounded-xl bg-white px-3.5 text-sm font-medium text-[var(--primary)] transition hover:bg-white/90"
+            className="shrink-0 inline-flex h-9 items-center justify-center gap-2 rounded-xl bg-background px-3.5 text-sm font-medium text-primary transition hover:bg-background/90"
           >
             <PlayCircle className="h-4 w-4" />
             Probar agente

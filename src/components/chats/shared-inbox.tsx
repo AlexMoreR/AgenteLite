@@ -1387,7 +1387,7 @@ function ComposerSendButton() {
       variant="ghost"
       size="icon"
       disabled={pending}
-      className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-[var(--primary)] transition hover:bg-muted-foreground/20 disabled:cursor-not-allowed disabled:opacity-70 md:size-8"
+      className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-primary transition hover:bg-muted-foreground/20 disabled:cursor-not-allowed disabled:opacity-70 md:size-8"
       aria-label={pending ? "Enviando mensaje" : "Enviar mensaje"}
     >
       <SendHorizonal className={`size-6 ${pending ? "animate-pulse" : ""}`} />
@@ -1461,7 +1461,7 @@ function ComposerEmojiPicker({
             value={query}
             onChange={(event) => onQueryChange(event.target.value)}
             placeholder="Buscar emoticones"
-            className="h-9 w-full rounded-2xl border border-border bg-muted pl-9 pr-10 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-[var(--primary)] focus:bg-background focus:ring-2 focus:ring-ring/50"
+            className="h-9 w-full rounded-2xl border border-border bg-muted pl-9 pr-10 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-primary focus:bg-background focus:ring-2 focus:ring-ring/50"
           />
           {query ? (
             <button
@@ -1782,7 +1782,7 @@ function MessageActionsMenu({
           aria-label="Opciones del mensaje"
           className={`absolute right-0.5 top-0.5 z-10 inline-flex size-6 items-center justify-center rounded-full opacity-0 shadow-sm transition group-hover/bubble:opacity-100 focus-visible:opacity-100 data-[popup-open]:opacity-100 ${
             outbound
-              ? "bg-[var(--primary)] text-white hover:brightness-110"
+              ? "bg-primary text-white hover:brightness-110"
               : "bg-card text-muted-foreground hover:bg-muted"
           }`}
         >
@@ -1937,7 +1937,7 @@ const MessageBubble = memo(function MessageBubble({
             <Tooltip>
               <TooltipTrigger
                 type="button"
-                className="cursor-default rounded-full border border-border bg-white px-3 py-1 text-[11px] font-medium text-black shadow-sm"
+                className="cursor-default rounded-full border border-border bg-card px-3 py-1 text-[11px] font-medium text-card-foreground shadow-sm"
               >
                 {message.content}
               </TooltipTrigger>
@@ -1948,9 +1948,9 @@ const MessageBubble = memo(function MessageBubble({
       ) : (
       <div className={`flex ${outbound ? "justify-end" : "justify-start"}`}>
         <div
-          className={`group/bubble relative max-w-[88%] rounded-[8px] px-[6px] py-[6px] text-[13px] leading-5 shadow-[0_10px_24px_-20px_rgba(15,23,42,0.16)] md:max-w-[72%] md:px-[6px] md:py-[6px] ${
+          className={`group/bubble relative max-w-[88%] rounded-md px-[6px] py-[6px] text-[13px] leading-5 shadow-sm md:max-w-[72%] md:px-[6px] md:py-[6px] ${
             outbound
-              ? "bg-[var(--primary)] text-white"
+              ? "bg-primary text-white"
               : "border border-border bg-card text-foreground"
           }`}
         >
@@ -1960,11 +1960,11 @@ const MessageBubble = memo(function MessageBubble({
           {replyPreview ? (
             <div
               className={`mb-1 rounded-md border-l-2 px-2 py-1 text-[11px] ${
-                outbound ? "border-white/60 bg-white/15" : "border-[var(--primary)] bg-muted"
+                outbound ? "border-white/60 bg-white/15" : "border-primary bg-muted"
               }`}
             >
               {replyPreview.author ? (
-                <p className={`font-semibold ${outbound ? "text-white" : "text-[var(--primary)]"}`}>
+                <p className={`font-semibold ${outbound ? "text-white" : "text-primary"}`}>
                   {replyPreview.author}
                 </p>
               ) : null}
@@ -1980,7 +1980,7 @@ const MessageBubble = memo(function MessageBubble({
                   outbound ? "bg-white/14 text-white" : "bg-muted text-foreground"
                 }`}
               >
-                {CallIcon ? <CallIcon className={`h-4 w-4 ${outbound ? "text-white/85" : "text-[var(--primary)]"}`} /> : null}
+                {CallIcon ? <CallIcon className={`h-4 w-4 ${outbound ? "text-white/85" : "text-primary"}`} /> : null}
                 <span>Llamada {callSummary.directionLabel}</span>
                 {callSummary.statusText ? (
                   <span className={`font-normal ${outbound ? "text-white/75" : "text-muted-foreground"}`}>
@@ -2151,7 +2151,7 @@ const MessageBubble = memo(function MessageBubble({
                         <img
                           src={imagePreviewUrl}
                           alt={message.content?.trim() || "Imagen del chat"}
-                          className="max-h-[calc(100dvh-1.5rem)] max-w-[calc(100dvw-1.5rem)] select-none object-contain shadow-[0_24px_80px_-24px_rgba(0,0,0,0.65)]"
+                          className="max-h-[calc(100dvh-1.5rem)] max-w-[calc(100dvw-1.5rem)] select-none object-contain shadow-lg"
                           draggable={false}
                         />
                       </div>
@@ -2256,7 +2256,7 @@ const MessageBubble = memo(function MessageBubble({
           <div className={`mt-0.5 flex items-center justify-end gap-1 text-[10px] ${outbound ? "text-white/80" : "text-muted-foreground"}`}>
             {isDeleted ? (
               <Badge className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-normal tracking-[0.08em] shadow-none ${
-                outbound ? "bg-white/14 text-white/80" : "bg-rose-50 text-rose-600"
+                outbound ? "bg-white/14 text-white/80" : "bg-destructive/10 text-destructive"
               }`}>
                 <Trash2 className="h-2.5 w-2.5" />
                 Eliminado
@@ -2846,7 +2846,7 @@ const ConversationPanel = memo(function ConversationPanel({
 
   return (
     <Card
-      className={`${selectedConversationId ? "flex md:flex" : "!hidden md:!flex"} chat-inbox-panel relative min-h-0 flex-1 overflow-hidden rounded-none border border-border bg-transparent p-0 shadow-none md:h-full md:shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)]`}
+      className={`${selectedConversationId ? "flex md:flex" : "!hidden md:!flex"} chat-inbox-panel relative min-h-0 flex-1 overflow-hidden rounded-none border border-border bg-transparent p-0 shadow-none md:h-full md:shadow-lg`}
     >
       <div aria-hidden="true" className="pointer-events-none absolute inset-0" style={CHAT_MESSAGES_BACKGROUND_BASE_STYLE} />
       <div aria-hidden="true" className="pointer-events-none absolute inset-0 opacity-[0.08] dark:opacity-[0.14] dark:invert" style={CHAT_MESSAGES_BACKGROUND_OVERLAY_STYLE} />
@@ -2877,9 +2877,9 @@ const ConversationPanel = memo(function ConversationPanel({
                       <TooltipTrigger
                         type="button"
                         onClick={onOpenStatusDialog}
-                        className={`group relative shrink-0 rounded-[22px] p-[2px] transition focus:outline-none focus:ring-2 focus:ring-ring/50 ${
+                        className={`group relative shrink-0 rounded-2xl p-[2px] transition focus:outline-none focus:ring-2 focus:ring-ring/50 ${
                           hasStatusMessages
-                            ? "bg-gradient-to-br from-emerald-400 via-lime-300 to-cyan-400 shadow-[0_14px_28px_-18px_rgba(16,185,129,0.55)]"
+                            ? "bg-gradient-to-br from-emerald-400 via-lime-300 to-cyan-400 shadow-lg"
                             : "bg-transparent"
                         }`}
                         aria-label={hasStatusMessages ? "Abrir estados de WhatsApp" : "Abrir detalles del contacto"}
@@ -2889,15 +2889,15 @@ const ConversationPanel = memo(function ConversationPanel({
                           <ContactAvatar
                             avatarUrl={renderedConversation.avatarUrl}
                             label={renderedConversation.label}
-                            className={`h-10 w-10 rounded-[18px] border border-border bg-muted text-muted-foreground transition ${
+                            className={`h-10 w-10 rounded-xl border border-border bg-muted text-muted-foreground transition ${
                               hasStatusMessages ? "ring-2 ring-white" : ""
                             }`}
-                            fallbackClassName="rounded-[18px] bg-muted text-muted-foreground"
+                            fallbackClassName="rounded-xl bg-muted text-muted-foreground"
                           />
                           {hasStatusMessages ? (
                             <span
                               aria-hidden="true"
-                              className="absolute -right-0.5 -top-0.5 h-3.5 w-3.5 rounded-full border-2 border-background bg-emerald-500 shadow-[0_4px_10px_-4px_rgba(16,185,129,0.75)]"
+                              className="absolute -right-0.5 -top-0.5 h-3.5 w-3.5 rounded-full border-2 border-background bg-emerald-500 shadow-sm"
                             />
                           ) : null}
                         </span>
@@ -2936,7 +2936,7 @@ const ConversationPanel = memo(function ConversationPanel({
                         contactId={renderedConversation.contactId}
                         conversationId={renderedConversation.id}
                         tags={headerTags}
-                        badgeClassName="shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
+                        badgeClassName="shadow-sm"
                         canDelete={canDeleteTags}
                         compact
                       />
@@ -3033,7 +3033,7 @@ const ConversationPanel = memo(function ConversationPanel({
                 <button
                   type="button"
                   onClick={onScrollToBottom}
-                  className="absolute bottom-4 right-4 z-10 flex cursor-pointer items-center gap-1.5 rounded-full bg-slate-900/90 px-3 py-1.5 text-xs font-semibold text-white shadow-lg backdrop-blur-sm transition hover:bg-slate-900"
+                  className="absolute bottom-4 right-4 z-10 flex cursor-pointer items-center gap-1.5 rounded-full bg-foreground/90 px-3 py-1.5 text-xs font-semibold text-background shadow-lg backdrop-blur-sm transition hover:bg-foreground"
                 >
                   <ChevronUp className="h-3.5 w-3.5" />
                   {unreadCount}
@@ -3068,9 +3068,9 @@ const ConversationPanel = memo(function ConversationPanel({
                   ))}
 
                   {replyTarget ? (
-                    <div className="mb-1.5 flex items-center gap-2 rounded-xl border-l-4 border-[var(--primary)] bg-muted/70 px-3 py-1.5">
+                    <div className="mb-1.5 flex items-center gap-2 rounded-xl border-l-4 border-primary bg-muted/70 px-3 py-1.5">
                       <div className="min-w-0 flex-1">
-                        <p className="text-[11px] font-semibold text-[var(--primary)]">
+                        <p className="text-[11px] font-semibold text-primary">
                           {replyTarget.direction === "OUTBOUND" ? "Tú" : "Cliente"}
                         </p>
                         <p className="truncate text-[12px] text-muted-foreground">
@@ -3115,14 +3115,14 @@ const ConversationPanel = memo(function ConversationPanel({
                             onClick={stopAndSendAudio}
                             aria-label="Enviar nota de voz"
                             title="Enviar"
-                            className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-[var(--primary)] transition hover:bg-background focus:outline-none focus:ring-2 focus:ring-ring/50 md:size-8"
+                            className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-primary transition hover:bg-background focus:outline-none focus:ring-2 focus:ring-ring/50 md:size-8"
                           >
                             <SendHorizonal className="size-6" />
                           </Button>
                         </div>
                       </div>
                     ) : (
-                      <div className="flex min-h-[44px] min-w-0 flex-1 items-center gap-0.5 rounded-2xl border border-border bg-background px-1.5 transition focus-within:border-[var(--primary)] focus-within:bg-background focus-within:ring-2 focus-within:ring-ring/50 md:min-h-[40px]">
+                      <div className="flex min-h-[44px] min-w-0 flex-1 items-center gap-0.5 rounded-2xl border border-border bg-background px-1.5 transition focus-within:border-primary focus-within:bg-background focus-within:ring-2 focus-within:ring-ring/50 md:min-h-[40px]">
                         {mediaConfig ? (
                           <>
                             <input
@@ -3171,7 +3171,7 @@ const ConversationPanel = memo(function ConversationPanel({
                                 align="start"
                                 side="top"
                                 sideOffset={12}
-                                className="w-[min(80vw,16rem)] rounded-2xl border border-border bg-popover p-1.5 shadow-[0_24px_60px_-24px_rgba(15,23,42,0.35)]"
+                                className="w-[min(80vw,16rem)] rounded-2xl border border-border bg-popover p-1.5 shadow-lg"
                               >
                                 <Button
                                   type="button"
@@ -3182,7 +3182,7 @@ const ConversationPanel = memo(function ConversationPanel({
                                   }}
                                   className="flex h-auto w-full items-center justify-start gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-normal text-foreground transition hover:bg-muted focus:outline-none focus-visible:bg-muted"
                                 >
-                                  <MessageSquareText className="size-5 shrink-0 text-[#10b981]" />
+                                  <MessageSquareText className="size-5 shrink-0 text-emerald-500" />
                                   <span>Respuestas rápidas</span>
                                 </Button>
                                 <Button
@@ -3194,7 +3194,7 @@ const ConversationPanel = memo(function ConversationPanel({
                                   }}
                                   className="flex h-auto w-full items-center justify-start gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-normal text-foreground transition hover:bg-muted focus:outline-none focus-visible:bg-muted"
                                 >
-                                  <FileText className="size-5 shrink-0 text-[#7c5cff]" />
+                                  <FileText className="size-5 shrink-0 text-violet-500" />
                                   <span>Documento</span>
                                 </Button>
                                 <Button
@@ -3206,7 +3206,7 @@ const ConversationPanel = memo(function ConversationPanel({
                                   }}
                                   className="flex h-auto w-full items-center justify-start gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-normal text-foreground transition hover:bg-muted focus:outline-none focus-visible:bg-muted"
                                 >
-                                  <ImageIcon className="size-5 shrink-0 text-[#2f9bff]" />
+                                  <ImageIcon className="size-5 shrink-0 text-sky-500" />
                                   <span>Fotos y videos</span>
                                 </Button>
                                 {audioConfig ? (
@@ -3220,7 +3220,7 @@ const ConversationPanel = memo(function ConversationPanel({
                                     }}
                                     className="flex h-auto w-full items-center justify-start gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-normal text-foreground transition hover:bg-muted focus:outline-none focus-visible:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
                                   >
-                                    <Headphones className="size-5 shrink-0 text-[#ff7a59]" />
+                                    <Headphones className="size-5 shrink-0 text-orange-400" />
                                     <span>Audio</span>
                                   </Button>
                                 ) : null}
@@ -3254,7 +3254,7 @@ const ConversationPanel = memo(function ConversationPanel({
                             align="start"
                             side="top"
                             sideOffset={12}
-                            className="w-[min(90vw,26rem)] rounded-[26px] border border-border bg-popover p-3.5 shadow-[0_24px_60px_-24px_rgba(15,23,42,0.35)]"
+                            className="w-[min(90vw,26rem)] rounded-2xl border border-border bg-popover p-3.5 shadow-lg"
                           >
                             <ComposerEmojiPicker
                               query={emojiSearchQuery}
@@ -3290,7 +3290,7 @@ const ConversationPanel = memo(function ConversationPanel({
                           disabled={isSuggestingReply || isSendingAudio}
                           aria-label="Respuesta sugerida con IA"
                           title="Respuesta sugerida con IA"
-                          className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-muted-foreground/20 hover:text-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:size-8"
+                          className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-muted-foreground/20 hover:text-primary focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:size-8"
                         >
                           {isSuggestingReply ? (
                             <LoaderCircle className="size-5 animate-spin" />
@@ -4997,7 +4997,7 @@ export function SharedInbox({
       }`}
     >
       {hasSidebar ? (
-        <div className="hidden chat-inbox-sidebar min-h-0 overflow-hidden rounded-xl border border-[rgba(255,255,255,0.08)] bg-[#171717] p-0 text-white shadow-[0_28px_70px_-42px_rgba(15,23,42,0.42)] md:flex md:h-full">
+        <div className="hidden chat-inbox-sidebar min-h-0 overflow-hidden rounded-xl border border-white/10 bg-black p-0 text-white shadow-lg md:flex md:h-full">
           <div className="flex min-h-0 w-full flex-col">
             <div className="border-b border-white/8 px-4 py-4">
               <div className="flex items-center gap-3">
@@ -5132,7 +5132,7 @@ export function SharedInbox({
       />
     ) : null}
     <Dialog open={statusDialogOpen} onOpenChange={setStatusDialogOpen}>
-      <DialogContent className="w-[min(92vw,34rem)] max-w-none overflow-hidden border border-border bg-popover p-0 shadow-[0_30px_80px_-36px_rgba(15,23,42,0.45)]">
+      <DialogContent className="w-[min(92vw,34rem)] max-w-none overflow-hidden border border-border bg-popover p-0 shadow-lg">
         <div className="border-b border-border bg-card px-5 py-4">
           <DialogHeader className="text-left">
             <DialogTitle>Estados de WhatsApp</DialogTitle>
@@ -5184,7 +5184,7 @@ export function SharedInbox({
             })
           ) : (
             <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-border bg-muted/70 px-6 py-10 text-center">
-              <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-card text-muted-foreground shadow-[0_8px_24px_-18px_rgba(15,23,42,0.35)]">
+              <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-card text-muted-foreground shadow-sm">
                 <MessageCircle className="h-5 w-5" />
               </span>
               <div className="space-y-1">

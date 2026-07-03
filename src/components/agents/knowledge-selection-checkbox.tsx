@@ -33,10 +33,10 @@ export function KnowledgeSelectionCheckbox({
       />
       <span
         aria-hidden="true"
-        className={`inline-flex h-5 w-5 items-center justify-center rounded-[6px] border transition peer-focus-visible:ring-4 peer-focus-visible:ring-[color-mix(in_srgb,var(--primary)_18%,white)] ${
+        className={`inline-flex h-5 w-5 items-center justify-center rounded-md border transition peer-focus-visible:ring-4 peer-focus-visible:ring-ring/50 ${
           checked
-            ? "border-[var(--primary)] bg-[var(--primary)] text-white"
-            : "border-slate-300 bg-white text-transparent hover:border-[var(--primary)]"
+            ? "border-primary bg-primary text-primary-foreground"
+            : "border-input bg-background text-transparent hover:border-primary"
         }`}
       >
         <Check className="h-3.5 w-3.5 stroke-[3]" />

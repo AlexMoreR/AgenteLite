@@ -235,13 +235,13 @@ export function EditQuoteWorkspace({ quote, clients, products, currency }: EditQ
   return (
     <section className="w-full space-y-4">
       <div>
-        <h1 className="inline-flex items-center gap-2 text-xl font-semibold text-slate-900">
-          <FileText className="h-4 w-4 text-slate-500" />
+        <h1 className="inline-flex items-center gap-2 text-xl font-semibold text-foreground">
+          <FileText className="h-4 w-4 text-muted-foreground" />
           Editar cotizacion {quote.code}
         </h1>
       </div>
 
-      <form action={adminUpdateQuoteFullAction} className="space-y-4 rounded-xl border border-[var(--line)] bg-white p-4">
+      <form action={adminUpdateQuoteFullAction} className="space-y-4 rounded-xl border border-border bg-card p-4">
         <input type="hidden" name="quoteId" value={quote.id} />
         <input type="hidden" name="returnTo" value={`/admin/cotizaciones/${quote.id}`} />
         <input type="hidden" name="clientId" value={clientId} />
@@ -259,21 +259,21 @@ export function EditQuoteWorkspace({ quote, clients, products, currency }: EditQ
         <input type="hidden" name="notes" value={notes} />
 
         <div className="grid gap-1.5 md:grid-cols-3">
-          <button type="button" onClick={() => setStep(1)} className={`rounded-lg border p-2 text-left ${step === 1 ? "border-[var(--primary)]/40 bg-[var(--primary)]/5" : "border-slate-200"}`}>
-            <span className="inline-flex items-center gap-2 text-xs font-semibold text-slate-800"><UserRound className="h-3.5 w-3.5" />Cliente</span>
+          <button type="button" onClick={() => setStep(1)} className={`rounded-lg border p-2 text-left ${step === 1 ? "border-primary/40 bg-primary/5" : "border-border"}`}>
+            <span className="inline-flex items-center gap-2 text-xs font-semibold text-foreground"><UserRound className="h-3.5 w-3.5" />Cliente</span>
           </button>
-          <button type="button" onClick={() => setStep(2)} className={`rounded-lg border p-2 text-left ${step === 2 ? "border-[var(--primary)]/40 bg-[var(--primary)]/5" : "border-slate-200"}`}>
-            <span className="inline-flex items-center gap-2 text-xs font-semibold text-slate-800"><Boxes className="h-3.5 w-3.5" />Productos</span>
+          <button type="button" onClick={() => setStep(2)} className={`rounded-lg border p-2 text-left ${step === 2 ? "border-primary/40 bg-primary/5" : "border-border"}`}>
+            <span className="inline-flex items-center gap-2 text-xs font-semibold text-foreground"><Boxes className="h-3.5 w-3.5" />Productos</span>
           </button>
-          <button type="button" onClick={() => setStep(3)} className={`rounded-lg border p-2 text-left ${step === 3 ? "border-[var(--primary)]/40 bg-[var(--primary)]/5" : "border-slate-200"}`}>
-            <span className="inline-flex items-center gap-2 text-xs font-semibold text-slate-800"><FileText className="h-3.5 w-3.5" />Finalizar</span>
+          <button type="button" onClick={() => setStep(3)} className={`rounded-lg border p-2 text-left ${step === 3 ? "border-primary/40 bg-primary/5" : "border-border"}`}>
+            <span className="inline-flex items-center gap-2 text-xs font-semibold text-foreground"><FileText className="h-3.5 w-3.5" />Finalizar</span>
           </button>
         </div>
 
         {step === 1 ? (
-          <div className="space-y-3 rounded-xl border border-[var(--line)] p-3">
+          <div className="space-y-3 rounded-xl border border-border p-3">
             <label className="space-y-1.5 block">
-              <span className="text-sm font-medium text-slate-700">Cliente existente</span>
+              <span className="text-sm font-medium text-foreground">Cliente existente</span>
               <select className="field-select" value={clientId} onChange={(event) => onSelectClient(event.target.value)}>
                 <option value="">Seleccionar cliente</option>
                 {clientOptions.map((client) => (
@@ -284,19 +284,19 @@ export function EditQuoteWorkspace({ quote, clients, products, currency }: EditQ
               </select>
             </label>
             <div className="grid gap-3 md:grid-cols-2">
-              <label className="space-y-1.5 block"><span className="text-sm font-medium text-slate-700">Nombre</span><Input value={clientName} onChange={(e) => setClientName(e.target.value)} /></label>
-              <label className="space-y-1.5 block"><span className="text-sm font-medium text-slate-700">NIT / C.C</span><Input value={clientDocument} onChange={(e) => setClientDocument(e.target.value)} /></label>
-              <label className="space-y-1.5 block"><span className="text-sm font-medium text-slate-700">Correo</span><Input value={clientEmail} onChange={(e) => setClientEmail(e.target.value)} /></label>
-              <label className="space-y-1.5 block"><span className="text-sm font-medium text-slate-700">Telefono</span><Input value={clientPhone} onChange={(e) => setClientPhone(e.target.value)} /></label>
+              <label className="space-y-1.5 block"><span className="text-sm font-medium text-foreground">Nombre</span><Input value={clientName} onChange={(e) => setClientName(e.target.value)} /></label>
+              <label className="space-y-1.5 block"><span className="text-sm font-medium text-foreground">NIT / C.C</span><Input value={clientDocument} onChange={(e) => setClientDocument(e.target.value)} /></label>
+              <label className="space-y-1.5 block"><span className="text-sm font-medium text-foreground">Correo</span><Input value={clientEmail} onChange={(e) => setClientEmail(e.target.value)} /></label>
+              <label className="space-y-1.5 block"><span className="text-sm font-medium text-foreground">Telefono</span><Input value={clientPhone} onChange={(e) => setClientPhone(e.target.value)} /></label>
             </div>
           </div>
         ) : null}
 
         {step === 2 ? (
-          <div className="space-y-3 rounded-xl border border-[var(--line)] p-3">
+          <div className="space-y-3 rounded-xl border border-border p-3">
               <div className="grid gap-3 md:grid-cols-3">
                 <label className="space-y-1.5 block md:col-span-2">
-                  <span className="text-sm font-medium text-slate-700">Producto</span>
+                  <span className="text-sm font-medium text-foreground">Producto</span>
                   <select className="field-select" value={draftProductId} onChange={(e) => {
                   setDraftProductId(e.target.value);
                   const product = products.find((p) => p.id === e.target.value);
@@ -308,26 +308,26 @@ export function EditQuoteWorkspace({ quote, clients, products, currency }: EditQ
                   ))}
                 </select>
               </label>
-              <label className="space-y-1.5 block"><span className="text-sm font-medium text-slate-700">Cantidad</span><Input type="number" min={1} value={draftQuantity} onChange={(e) => setDraftQuantity(e.target.value)} /></label>
+              <label className="space-y-1.5 block"><span className="text-sm font-medium text-foreground">Cantidad</span><Input type="number" min={1} value={draftQuantity} onChange={(e) => setDraftQuantity(e.target.value)} /></label>
             </div>
             <div className="grid gap-3 md:grid-cols-4">
-              <label className="space-y-1.5 block"><span className="text-sm font-medium text-slate-700">Color</span><Input value={draftColor} onChange={(e) => setDraftColor(e.target.value)} placeholder="Color" /></label>
-              <label className="space-y-1.5 block"><span className="text-sm font-medium text-slate-700">Precio</span><Input type="number" min={0} step="0.01" value={draftUnitPrice} onChange={(e) => setDraftUnitPrice(e.target.value)} /></label>
-              <label className="space-y-1.5 block"><span className="text-sm font-medium text-slate-700">Costo adicional</span><Input type="number" min={0} step="0.01" value={draftAdditionalCost} onChange={(e) => setDraftAdditionalCost(e.target.value)} /></label>
-              <label className="space-y-1.5 block"><span className="text-sm font-medium text-slate-700">Descuento</span><Input type="number" min={0} step="0.01" value={draftDiscount} onChange={(e) => setDraftDiscount(e.target.value)} /></label>
+              <label className="space-y-1.5 block"><span className="text-sm font-medium text-foreground">Color</span><Input value={draftColor} onChange={(e) => setDraftColor(e.target.value)} placeholder="Color" /></label>
+              <label className="space-y-1.5 block"><span className="text-sm font-medium text-foreground">Precio</span><Input type="number" min={0} step="0.01" value={draftUnitPrice} onChange={(e) => setDraftUnitPrice(e.target.value)} /></label>
+              <label className="space-y-1.5 block"><span className="text-sm font-medium text-foreground">Costo adicional</span><Input type="number" min={0} step="0.01" value={draftAdditionalCost} onChange={(e) => setDraftAdditionalCost(e.target.value)} /></label>
+              <label className="space-y-1.5 block"><span className="text-sm font-medium text-foreground">Descuento</span><Input type="number" min={0} step="0.01" value={draftDiscount} onChange={(e) => setDraftDiscount(e.target.value)} /></label>
               </div>
             <label className="space-y-1.5 block">
-              <span className="text-sm font-medium text-slate-700">Descripcion</span>
+              <span className="text-sm font-medium text-foreground">Descripcion</span>
               <Input value={draftDescription} onChange={(e) => setDraftDescription(e.target.value)} />
             </label>
-            <button type="button" onClick={addDraftProduct} className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 text-sm font-medium text-white">
+            <button type="button" onClick={addDraftProduct} className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground">
               <Plus className="h-4 w-4" />Agregar producto
             </button>
-            {productFormError ? <p className="text-xs font-medium text-red-600">{productFormError}</p> : null}
+            {productFormError ? <p className="text-xs font-medium text-destructive">{productFormError}</p> : null}
 
-            <div className="overflow-hidden rounded-xl border border-[var(--line)]">
+            <div className="overflow-hidden rounded-xl border border-border">
               <table className="w-full text-sm">
-                <thead className="bg-slate-50/70 text-xs uppercase tracking-wide text-slate-500">
+                <thead className="bg-muted/70 text-xs uppercase tracking-wide text-muted-foreground">
                   <tr>
                     <th className="px-3 py-2 text-left">Producto</th>
                     <th className="px-3 py-2 text-left">Descripcion</th>
@@ -340,15 +340,15 @@ export function EditQuoteWorkspace({ quote, clients, products, currency }: EditQ
                 </thead>
                 <tbody>
                   {linesWithMeta.map(({ line, product, lineTotal }) => (
-                    <tr key={line.uid} className="border-t border-[var(--line)]">
-                      <td className="px-3 py-2 text-slate-900">{product?.name || "Producto"}</td>
-                      <td className="px-3 py-2 text-slate-700">{line.description || "-"}</td>
-                      <td className="px-3 py-2 text-slate-700">{line.quantity}</td>
-                      <td className="px-3 py-2 text-slate-700">{line.color || "-"}</td>
-                      <td className="px-3 py-2 text-slate-700">{line.unitPrice.toLocaleString("es-CO", { style: "currency", currency })}</td>
-                      <td className="px-3 py-2 font-semibold text-slate-900">{lineTotal.toLocaleString("es-CO", { style: "currency", currency })}</td>
+                    <tr key={line.uid} className="border-t border-border">
+                      <td className="px-3 py-2 text-foreground">{product?.name || "Producto"}</td>
+                      <td className="px-3 py-2 text-foreground">{line.description || "-"}</td>
+                      <td className="px-3 py-2 text-foreground">{line.quantity}</td>
+                      <td className="px-3 py-2 text-foreground">{line.color || "-"}</td>
+                      <td className="px-3 py-2 text-foreground">{line.unitPrice.toLocaleString("es-CO", { style: "currency", currency })}</td>
+                      <td className="px-3 py-2 font-semibold text-foreground">{lineTotal.toLocaleString("es-CO", { style: "currency", currency })}</td>
                       <td className="px-3 py-2">
-                        <button type="button" onClick={() => setLines((current) => current.filter((item) => item.uid !== line.uid))} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-red-200 text-red-600 hover:bg-red-50">
+                        <button type="button" onClick={() => setLines((current) => current.filter((item) => item.uid !== line.uid))} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-destructive/30 text-destructive hover:bg-destructive/10">
                           <Trash2 className="h-4 w-4" />
                         </button>
                       </td>
@@ -361,10 +361,10 @@ export function EditQuoteWorkspace({ quote, clients, products, currency }: EditQ
         ) : null}
 
         {step === 3 ? (
-          <div className="space-y-3 rounded-xl border border-[var(--line)] p-3">
+          <div className="space-y-3 rounded-xl border border-border p-3">
             <div className="grid gap-3 md:grid-cols-3">
               <label className="space-y-1.5 block">
-                <span className="text-sm font-medium text-slate-700">Estado</span>
+                <span className="text-sm font-medium text-foreground">Estado</span>
                 <select className="field-select" value={status} onChange={(e) => setStatus(e.target.value as EditQuoteData["status"])}>
                   <option value="DRAFT">Borrador</option>
                   <option value="SENT">Enviada</option>
@@ -374,51 +374,51 @@ export function EditQuoteWorkspace({ quote, clients, products, currency }: EditQ
                 </select>
               </label>
               <label className="space-y-1.5 block">
-                <span className="text-sm font-medium text-slate-700">Valida hasta</span>
+                <span className="text-sm font-medium text-foreground">Valida hasta</span>
                 <Input type="date" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} />
               </label>
               <label className="space-y-1.5 block">
-                <span className="text-sm font-medium text-slate-700">Total</span>
+                <span className="text-sm font-medium text-foreground">Total</span>
                 <Input value={quoteTotal.toLocaleString("es-CO", { style: "currency", currency })} readOnly />
               </label>
             </div>
-            <div className="grid gap-2 rounded-lg border border-[var(--line)] bg-slate-50 p-3 sm:grid-cols-2 xl:grid-cols-4">
-              <div className="rounded-lg border border-[var(--line)] bg-white px-3 py-2">
-                <span className="text-sm font-medium text-slate-700">Subtotal</span>
-                <p className="mt-1 text-lg font-medium text-slate-700">
+            <div className="grid gap-2 rounded-lg border border-border bg-muted p-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-lg border border-border bg-card px-3 py-2">
+                <span className="text-sm font-medium text-foreground">Subtotal</span>
+                <p className="mt-1 text-lg font-medium text-foreground">
                   {quoteSubtotal.toLocaleString("es-CO", { style: "currency", currency })}
                 </p>
               </div>
-              <div className="rounded-lg border border-[var(--line)] bg-white px-3 py-2">
-                <span className="text-sm font-medium text-slate-700">Descuento</span>
-                <p className="mt-1 text-lg font-medium text-slate-700">
+              <div className="rounded-lg border border-border bg-card px-3 py-2">
+                <span className="text-sm font-medium text-foreground">Descuento</span>
+                <p className="mt-1 text-lg font-medium text-foreground">
                   {quoteDiscountTotal.toLocaleString("es-CO", { style: "currency", currency })}
                 </p>
               </div>
-              <div className="rounded-lg border border-[var(--line)] bg-white px-3 py-2">
-                <span className="text-sm font-medium text-slate-700">Valor adicional</span>
-                <p className="mt-1 text-lg font-medium text-slate-700">
+              <div className="rounded-lg border border-border bg-card px-3 py-2">
+                <span className="text-sm font-medium text-foreground">Valor adicional</span>
+                <p className="mt-1 text-lg font-medium text-foreground">
                   {quoteAdditionalCostTotal.toLocaleString("es-CO", { style: "currency", currency })}
                 </p>
               </div>
-              <div className="rounded-lg border border-[var(--line)] bg-white px-3 py-2">
-                <span className="text-sm font-medium text-slate-700">Total</span>
-                <p className="mt-1 text-lg font-bold text-slate-900">
+              <div className="rounded-lg border border-border bg-card px-3 py-2">
+                <span className="text-sm font-medium text-foreground">Total</span>
+                <p className="mt-1 text-lg font-bold text-foreground">
                   {quoteTotal.toLocaleString("es-CO", { style: "currency", currency })}
                 </p>
               </div>
             </div>
             <label className="space-y-1.5 block">
-              <span className="text-sm font-medium text-slate-700">Notas</span>
+              <span className="text-sm font-medium text-foreground">Notas</span>
               <textarea
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 rows={4}
-                className="w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-[var(--line-strong)]"
+                className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none transition focus:border-ring"
               />
             </label>
             <div className="flex justify-end">
-              <button type="submit" className="inline-flex h-10 items-center justify-center rounded-lg bg-[var(--primary)] px-4 text-sm font-medium text-white hover:bg-[var(--primary-strong)]">
+              <button type="submit" className="inline-flex h-10 items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90">
                 Guardar cambios
               </button>
             </div>

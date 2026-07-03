@@ -64,7 +64,7 @@ export function MediaPreviewDialog({ files, onCancel, onSend }: Props) {
     >
       <DialogContent
         showCloseButton
-        className="flex max-h-[88vh] w-[min(94vw,30rem)] max-w-none flex-col gap-0 overflow-hidden border border-border bg-popover p-0 shadow-[0_30px_80px_-36px_rgba(15,23,42,0.45)]"
+        className="flex max-h-[88vh] w-[min(94vw,30rem)] max-w-none flex-col gap-0 overflow-hidden border border-border bg-popover p-0 shadow-lg"
       >
         <DialogTitle className="border-b border-border px-5 py-3 text-sm">
           {files.length > 1 ? `Enviar ${files.length} archivos` : "Enviar archivo"}
@@ -84,7 +84,7 @@ export function MediaPreviewDialog({ files, onCancel, onSend }: Props) {
               </div>
             ) : (
               <div className="flex w-full items-center gap-3 rounded-xl border border-border bg-background p-3">
-                <FileText className="size-9 shrink-0 text-[#e2433a]" />
+                <FileText className="size-9 shrink-0 text-red-500" />
                 <div className="min-w-0">
                   <p className="truncate text-[13px] font-medium text-foreground">{active?.file.name}</p>
                   <p className="text-[11px] text-muted-foreground">{formatSize(active?.file.size ?? 0)}</p>
@@ -102,7 +102,7 @@ export function MediaPreviewDialog({ files, onCancel, onSend }: Props) {
                   type="button"
                   onClick={() => setActiveIndex(index)}
                   className={`flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-lg border transition ${
-                    index === activeIndex ? "border-[var(--primary)] ring-1 ring-[var(--primary)]" : "border-border opacity-70 hover:opacity-100"
+                    index === activeIndex ? "border-primary ring-1 ring-primary" : "border-border opacity-70 hover:opacity-100"
                   }`}
                   title={preview.file.name}
                 >
@@ -126,12 +126,12 @@ export function MediaPreviewDialog({ files, onCancel, onSend }: Props) {
               onChange={(event) => setCaption(event.target.value)}
               onKeyDown={handleCaptionKeyDown}
               placeholder="Añadir un mensaje… (opcional)"
-              className="max-h-28 min-h-[42px] flex-1 resize-none rounded-2xl border border-border bg-background px-3 py-2.5 text-[14px] text-foreground outline-none transition focus:border-[var(--primary)]"
+              className="max-h-28 min-h-[42px] flex-1 resize-none rounded-2xl border border-border bg-background px-3 py-2.5 text-[14px] text-foreground outline-none transition focus:border-primary"
             />
             <button
               type="button"
               onClick={handleSend}
-              className="inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-[var(--primary)] text-white transition hover:opacity-90"
+              className="inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-primary text-white transition hover:opacity-90"
               aria-label="Enviar"
               title="Enviar"
             >

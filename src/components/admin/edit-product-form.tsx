@@ -163,26 +163,26 @@ export function EditProductForm({
       <div className="grid gap-4 xl:grid-cols-[19rem_minmax(0,1fr)] xl:gap-8">
         <aside className="space-y-4 xl:sticky xl:top-8 xl:h-fit xl:space-y-5">
           <div className="space-y-4">
-            <div className="overflow-hidden rounded-xl border border-[var(--line)] bg-white">
-                <div className="relative flex h-52 items-center justify-center bg-slate-100">
+            <div className="overflow-hidden rounded-xl border border-border bg-card">
+                <div className="relative flex h-52 items-center justify-center bg-muted">
                   {previewImageUrl ? (
                     <img src={previewImageUrl} alt="Vista previa" className="h-full w-full object-contain" />
                   ) : (
-                    <p className="text-xs text-slate-500">Sin imagen principal</p>
+                    <p className="text-xs text-muted-foreground">Sin imagen principal</p>
                   )}
-                <span className="absolute right-2 top-2 rounded-full border border-[var(--line)] bg-white/95 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                <span className="absolute right-2 top-2 rounded-full border border-border bg-white/95 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                   {code.trim() || "SKU"}
                 </span>
               </div>
-              <div className="space-y-1.5 border-t border-[var(--line)] bg-white p-3">
-                <p className="text-sm font-semibold text-slate-900">{name.trim() || "Producto sin nombre"}</p>
+              <div className="space-y-1.5 border-t border-border bg-card p-3">
+                <p className="text-sm font-semibold text-foreground">{name.trim() || "Producto sin nombre"}</p>
                 {description.trim() ? (
-                  <p className="line-clamp-2 text-xs text-slate-500">{description.trim()}</p>
+                  <p className="line-clamp-2 text-xs text-muted-foreground">{description.trim()}</p>
                 ) : (
-                  <p className="text-xs text-slate-400">Agrega descripcion para completar la ficha.</p>
+                  <p className="text-xs text-muted-foreground">Agrega descripcion para completar la ficha.</p>
                 )}
-                <p className="text-lg font-semibold tracking-tight text-slate-900">{pricing.retail}</p>
-                <p className="text-xs text-slate-600">
+                <p className="text-lg font-semibold tracking-tight text-foreground">{pricing.retail}</p>
+                <p className="text-xs text-muted-foreground">
                   Mayorista: {pricing.wholesale} (min {minWholesaleQty || "1"} uds)
                 </p>
               </div>
@@ -197,14 +197,14 @@ export function EditProductForm({
           <input type="hidden" name="productId" value={initialData.id} />
           <input type="hidden" name="existingImages" value={existingImageUrls.join("\n")} />
 
-          <section className="space-y-4 rounded-xl border border-[var(--line)] bg-white p-4 shadow-[0_18px_40px_-32px_rgba(15,23,42,0.35)] sm:p-5">
+          <section className="space-y-4 rounded-xl border border-border bg-card p-4 shadow-sm sm:p-5">
             <div className="grid gap-4 md:grid-cols-2">
               <label className="space-y-1.5 md:col-span-2">
-                <span className="text-sm font-medium text-slate-700">📦 Nombre</span>
+                <span className="text-sm font-medium text-foreground">📦 Nombre</span>
                 <Input name="name" required value={name} onChange={(e) => setName(e.target.value)} />
               </label>
               <label className="block space-y-1.5 md:col-span-2">
-                <span className="text-sm font-medium text-slate-700">📝 Descripcion</span>
+                <span className="text-sm font-medium text-foreground">📝 Descripcion</span>
                 <Input
                   name="description"
                   placeholder="Descripcion del producto"
@@ -213,12 +213,12 @@ export function EditProductForm({
                 />
               </label>
               <div className="block space-y-1.5 md:col-span-2">
-                <span className="text-sm font-medium text-slate-700">🖼️ Multimedia</span>
+                <span className="text-sm font-medium text-foreground">🖼️ Multimedia</span>
                 <div
                   className={`space-y-3 rounded-xl border border-dashed p-4 transition ${
                     dragActive
-                      ? "border-slate-400 bg-slate-100/80"
-                      : "border-[var(--line-strong)] bg-slate-50/60"
+                      ? "border-border bg-muted/80"
+                      : "border-border bg-muted/60"
                   }`}
                   onDragOver={(e) => {
                     e.preventDefault();
@@ -258,7 +258,7 @@ export function EditProductForm({
                   <div className="flex justify-end">
                     <button
                       type="button"
-                      className="inline-flex h-8 items-center gap-1 rounded-lg border border-[var(--line)] bg-white px-3 text-xs font-medium text-slate-700 transition hover:bg-slate-50"
+                      className="inline-flex h-8 items-center gap-1 rounded-lg border border-border bg-card px-3 text-xs font-medium text-foreground transition hover:bg-muted"
                       onClick={() => fileInputRef.current?.click()}
                     >
                       ➕ Agregar imagenes
@@ -269,7 +269,7 @@ export function EditProductForm({
                       {allImageUrls.map((url, index) => (
                         <div
                           key={`${url}-${index}`}
-                          className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-[var(--line)] bg-slate-100"
+                          className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-border bg-muted"
                         >
                           <img src={url} alt={`Imagen ${index + 1}`} className="h-full w-full object-cover" />
                           <button
@@ -287,7 +287,7 @@ export function EditProductForm({
                       ))}
                     </div>
                   ) : (
-                    <p className="text-xs text-red-600">
+                    <p className="text-xs text-destructive">
                       Debes mantener al menos una imagen para guardar el producto.
                     </p>
                   )}
@@ -296,13 +296,13 @@ export function EditProductForm({
             </div>
           </section>
 
-          <section className="space-y-4 rounded-xl border border-[var(--line)] bg-white p-4 shadow-[0_18px_40px_-32px_rgba(15,23,42,0.35)] sm:p-5">
-            <div className="space-y-1 border-b border-[var(--line)] pb-3">
-              <h2 className="text-sm font-semibold text-slate-900">Precios</h2>
+          <section className="space-y-4 rounded-xl border border-border bg-card p-4 shadow-sm sm:p-5">
+            <div className="space-y-1 border-b border-border pb-3">
+              <h2 className="text-sm font-semibold text-foreground">Precios</h2>
             </div>
             <div className="grid gap-4 md:grid-cols-12">
               <label className="space-y-1.5 md:col-span-2">
-                <span className="text-sm font-medium text-slate-700">📈 % Detal</span>
+                <span className="text-sm font-medium text-foreground">📈 % Detal</span>
                 <Input
                   name="retailMarginPct"
                   type="number"
@@ -314,7 +314,7 @@ export function EditProductForm({
                 />
               </label>
               <label className="space-y-1.5 md:col-span-4">
-                <span className="text-sm font-medium text-slate-700">💸 Costo compra ({currency})</span>
+                <span className="text-sm font-medium text-foreground">💸 Costo compra ({currency})</span>
                 <Input
                   name="baseCost"
                   type="number"
@@ -326,7 +326,7 @@ export function EditProductForm({
                 />
               </label>
               <label className="space-y-1.5 md:col-span-6">
-                <span className="text-sm font-medium text-slate-700">🏷️ Precio final</span>
+                <span className="text-sm font-medium text-foreground">🏷️ Precio final</span>
                 <Input
                   name="retailPrice"
                   type="number"
@@ -341,24 +341,24 @@ export function EditProductForm({
                 />
               </label>
               <label className="space-y-1.5 md:col-span-6">
-                <span className="text-sm font-medium text-slate-700">💡 Precio sugerido</span>
+                <span className="text-sm font-medium text-foreground">💡 Precio sugerido</span>
                 <Input
                   value={pricing.suggestedRetailLabel}
                   readOnly
-                  className="bg-slate-100 text-slate-600"
+                  className="bg-muted text-muted-foreground"
                 />
               </label>
               <label className="space-y-1.5 md:col-span-6">
-                <span className="text-sm font-medium text-slate-700">💰 Ganancia</span>
+                <span className="text-sm font-medium text-foreground">💰 Ganancia</span>
                 <Input
                   value={pricing.profitLabel}
                   readOnly
-                  className="bg-slate-100 text-slate-600"
+                  className="bg-muted text-muted-foreground"
                 />
               </label>
-              <div className="md:col-span-12 border-t border-[var(--line)] pt-1" />
+              <div className="md:col-span-12 border-t border-border pt-1" />
               <label className="space-y-1.5 md:col-span-2">
-                <span className="text-sm font-medium text-slate-700">📦 % Mayor</span>
+                <span className="text-sm font-medium text-foreground">📦 % Mayor</span>
                 <Input
                   name="wholesaleMarginPct"
                   type="number"
@@ -370,11 +370,11 @@ export function EditProductForm({
                 />
               </label>
               <label className="space-y-1.5 md:col-span-4">
-                <span className="text-sm font-medium text-slate-700">💸 Costo compra ({currency})</span>
-                <Input value={baseCost} readOnly className="bg-slate-100 text-slate-600" />
+                <span className="text-sm font-medium text-foreground">💸 Costo compra ({currency})</span>
+                <Input value={baseCost} readOnly className="bg-muted text-muted-foreground" />
               </label>
               <label className="space-y-1.5 md:col-span-6">
-                <span className="text-sm font-medium text-slate-700">🏷️ Precio final</span>
+                <span className="text-sm font-medium text-foreground">🏷️ Precio final</span>
                 <Input
                   name="wholesalePrice"
                   type="number"
@@ -389,15 +389,15 @@ export function EditProductForm({
                 />
               </label>
               <label className="space-y-1.5 md:col-span-6">
-                <span className="text-sm font-medium text-slate-700">💡 Precio sugerido</span>
-                <Input value={pricing.suggestedWholesaleLabel} readOnly className="bg-slate-100 text-slate-600" />
+                <span className="text-sm font-medium text-foreground">💡 Precio sugerido</span>
+                <Input value={pricing.suggestedWholesaleLabel} readOnly className="bg-muted text-muted-foreground" />
               </label>
               <label className="space-y-1.5 md:col-span-6">
-                <span className="text-sm font-medium text-slate-700">💰 Ganancia</span>
-                <Input value={pricing.wholesaleProfitLabel} readOnly className="bg-slate-100 text-slate-600" />
+                <span className="text-sm font-medium text-foreground">💰 Ganancia</span>
+                <Input value={pricing.wholesaleProfitLabel} readOnly className="bg-muted text-muted-foreground" />
               </label>
               <label className="space-y-1.5 md:col-span-12">
-                <span className="text-sm font-medium text-slate-700">🔢 Min. unidades mayor</span>
+                <span className="text-sm font-medium text-foreground">🔢 Min. unidades mayor</span>
                 <Input
                   name="minWholesaleQty"
                   type="number"
@@ -411,17 +411,17 @@ export function EditProductForm({
             </div>
           </section>
 
-          <section className="space-y-4 rounded-xl border border-[var(--line)] bg-white p-4 shadow-[0_18px_40px_-32px_rgba(15,23,42,0.35)] sm:p-5">
-            <div className="space-y-1 border-b border-[var(--line)] pb-3">
-              <h2 className="text-sm font-semibold text-slate-900">Inventario</h2>
+          <section className="space-y-4 rounded-xl border border-border bg-card p-4 shadow-sm sm:p-5">
+            <div className="space-y-1 border-b border-border pb-3">
+              <h2 className="text-sm font-semibold text-foreground">Inventario</h2>
             </div>
             <div className="grid gap-4 md:grid-cols-2">
               <label className="space-y-1.5">
-                <span className="text-sm font-medium text-slate-700">🔤 Codigo</span>
+                <span className="text-sm font-medium text-foreground">🔤 Codigo</span>
                 <Input name="code" placeholder="Ej. CAM-001" value={code} onChange={(e) => setCode(e.target.value)} />
               </label>
               <label className="space-y-1.5">
-                <span className="text-sm font-medium text-slate-700">🏷️ Categoria</span>
+                <span className="text-sm font-medium text-foreground">🏷️ Categoria</span>
                 <select name="categoryId" className="field-select" defaultValue={initialData.categoryId ?? ""}>
                   <option value="">Sin categoria</option>
                   {categories.map((category) => (
@@ -432,7 +432,7 @@ export function EditProductForm({
                 </select>
               </label>
               <label className="space-y-1.5 md:col-span-2">
-                <span className="text-sm font-medium text-slate-700">🚚 Proveedor principal</span>
+                <span className="text-sm font-medium text-foreground">🚚 Proveedor principal</span>
                 <select name="supplierId" className="field-select" defaultValue={initialData.supplierId ?? ""}>
                   <option value="">Sin proveedor</option>
                   {suppliers.map((supplier) => (
@@ -445,17 +445,17 @@ export function EditProductForm({
             </div>
           </section>
 
-            <div className="mt-1 flex flex-wrap items-center gap-3 border-t border-[var(--line)] pt-5">
+            <div className="mt-1 flex flex-wrap items-center gap-3 border-t border-border pt-5">
               <Link
                 href="/admin/productos/new"
-                className="inline-flex h-10 items-center justify-center rounded-lg border border-[var(--line)] bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                className="inline-flex h-10 items-center justify-center rounded-lg border border-border bg-card px-4 text-sm font-medium text-foreground transition hover:bg-muted"
               >
                 Crear nuevo producto
               </Link>
               <div className="ml-auto flex flex-wrap items-center justify-end gap-3">
                 <button
                   type="submit"
-                  className="inline-flex h-10 items-center justify-center rounded-lg bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
+                  className="inline-flex h-10 items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"
                   disabled={allImageUrls.length === 0}
                 >
                   Guardar cambios

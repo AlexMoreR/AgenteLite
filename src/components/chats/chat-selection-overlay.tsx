@@ -21,8 +21,8 @@ export function ChatSelectionOverlay({ selectedConversationId }: ChatSelectionOv
 
   return (
     <div className="pointer-events-none absolute left-1/2 top-3 z-30 w-[min(92%,18rem)] -translate-x-1/2">
-      <div className="inline-flex w-full items-center justify-center rounded-full border border-[rgba(148,163,184,0.16)] bg-white/95 px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.12em] text-slate-500 shadow-[0_10px_28px_-22px_rgba(15,23,42,0.25)] backdrop-blur">
-        <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin text-[var(--primary)]" />
+      <div className="inline-flex w-full items-center justify-center rounded-full border border-border bg-card/95 px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground shadow-sm backdrop-blur">
+        <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin text-primary" />
         Historial
       </div>
     </div>

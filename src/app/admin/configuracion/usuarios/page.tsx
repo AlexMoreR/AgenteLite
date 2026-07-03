@@ -93,11 +93,11 @@ export default async function AdminConfiguracionUsuariosPage({ searchParams }: P
 
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h1 className="inline-flex items-center gap-1 text-lg font-semibold tracking-tight text-slate-900 md:text-xl">
-            <Users className="h-4 w-4 text-slate-500" />
+          <h1 className="inline-flex items-center gap-1 text-lg font-semibold tracking-tight text-foreground md:text-xl">
+            <Users className="h-4 w-4 text-muted-foreground" />
             <span>Usuarios</span>
           </h1>
-          <p className="mt-1 text-xs text-slate-600">
+          <p className="mt-1 text-xs text-muted-foreground">
             Administra acceso, suscripcion y estado operativo de cada cuenta.
           </p>
         </div>

@@ -60,20 +60,20 @@ function HeaderLabel({
   return (
     <button
       type="button"
-      className="inline-flex items-center gap-2 text-[15px] font-normal text-slate-600 transition hover:text-slate-900"
+      className="inline-flex items-center gap-2 text-[15px] font-normal text-muted-foreground transition hover:text-foreground"
       onClick={onClick}
       aria-label={`Ordenar por ${String(children)}`}
     >
-      <span className="text-slate-500">{icon}</span>
+      <span className="text-muted-foreground">{icon}</span>
       {children}
       {active ? (
         direction === "asc" ? (
-          <ArrowUp className="h-3.5 w-3.5 text-slate-700" />
+          <ArrowUp className="h-3.5 w-3.5 text-foreground" />
         ) : (
-          <ArrowDown className="h-3.5 w-3.5 text-slate-700" />
+          <ArrowDown className="h-3.5 w-3.5 text-foreground" />
         )
       ) : (
-        <ArrowUpDown className="h-3.5 w-3.5 text-slate-500" />
+        <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground" />
       )}
     </button>
   );
@@ -164,7 +164,7 @@ export function SuppliersDataTable({ suppliers, onEditSupplier }: SuppliersDataT
     <div className="space-y-3">
       <div className="flex w-full flex-col gap-2 lg:flex-row lg:items-center">
         <div className="relative w-full flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
@@ -175,7 +175,7 @@ export function SuppliersDataTable({ suppliers, onEditSupplier }: SuppliersDataT
             <button
               type="button"
               onClick={() => setQuery("")}
-              className="absolute right-2 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+              className="absolute right-2 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-muted-foreground"
               aria-label="Limpiar busqueda"
             >
               <X className="h-3.5 w-3.5" />
@@ -198,27 +198,27 @@ export function SuppliersDataTable({ suppliers, onEditSupplier }: SuppliersDataT
 
       <div className="space-y-2 md:hidden">
         {pagedSuppliers.length === 0 ? (
-          <div className="rounded-xl border border-[var(--line)] bg-white px-3 py-6 text-center text-sm text-slate-500">
+          <div className="rounded-xl border border-border bg-card px-3 py-6 text-center text-sm text-muted-foreground">
             No hay proveedores para el filtro actual.
           </div>
         ) : (
           pagedSuppliers.map((supplier) => (
-            <article key={supplier.id} className="rounded-xl border border-[var(--line)] bg-white p-3">
+            <article key={supplier.id} className="rounded-xl border border-border bg-card p-3">
               <form data-delete-supplier-id={supplier.id} action={adminDeleteSupplierAction}>
                 <input type="hidden" name="supplierId" value={supplier.id} />
               </form>
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 space-y-2">
                   <div className="flex items-center gap-2">
-                    <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-700">
+                    <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-muted text-foreground">
                       <Truck className="h-4 w-4" />
                     </span>
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-slate-900">{supplier.name}</p>
-                      <p className="text-xs text-slate-500">{supplier.productsCount} producto(s)</p>
+                      <p className="truncate text-sm font-semibold text-foreground">{supplier.name}</p>
+                      <p className="text-xs text-muted-foreground">{supplier.productsCount} producto(s)</p>
                     </div>
                   </div>
-                  <div className="space-y-1 text-xs text-slate-600">
+                  <div className="space-y-1 text-xs text-muted-foreground">
                     <p>{supplier.email ?? "Sin correo"}</p>
                     <p>{supplier.phone ?? "Sin telefono"}</p>
                   </div>
@@ -238,7 +238,7 @@ export function SuppliersDataTable({ suppliers, onEditSupplier }: SuppliersDataT
                     type="button"
                     variant="outline"
                     size="icon"
-                    className="h-8 w-8 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+                    className="h-8 w-8 border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive"
                     onClick={() => setPendingDelete({ id: supplier.id, name: supplier.name })}
                     aria-label={`Eliminar ${supplier.name}`}
                   >
@@ -251,10 +251,10 @@ export function SuppliersDataTable({ suppliers, onEditSupplier }: SuppliersDataT
         )}
       </div>
 
-      <div className="hidden overflow-hidden rounded-xl border border-[var(--line)] bg-white md:block">
+      <div className="hidden overflow-hidden rounded-xl border border-border bg-card md:block">
         <Table className="min-w-[880px]">
           <TableHeader>
-            <TableRow className="bg-slate-50/70 hover:bg-slate-50/70">
+            <TableRow className="bg-muted/70 hover:bg-muted/70">
               <TableHead className="normal-case tracking-normal">
                 <HeaderLabel
                   active={sortKey === "proveedor"}
@@ -310,7 +310,7 @@ export function SuppliersDataTable({ suppliers, onEditSupplier }: SuppliersDataT
           <TableBody>
             {pagedSuppliers.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="py-9 text-center text-slate-500">
+                <TableCell colSpan={5} className="py-9 text-center text-muted-foreground">
                   No hay proveedores para el filtro actual.
                 </TableCell>
               </TableRow>
@@ -319,21 +319,21 @@ export function SuppliersDataTable({ suppliers, onEditSupplier }: SuppliersDataT
                 <TableRow key={supplier.id}>
                   <TableCell>
                     <div className="flex items-center gap-2.5">
-                      <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--line)] bg-slate-50 text-slate-700">
+                      <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-border bg-muted text-foreground">
                         <Truck className="h-4 w-4" />
                       </span>
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-slate-900">{supplier.name}</p>
+                        <p className="truncate text-sm font-medium text-foreground">{supplier.name}</p>
                       </div>
                     </div>
                   </TableCell>
-                  <TableCell className="text-sm text-slate-600">
+                  <TableCell className="text-sm text-muted-foreground">
                     {supplier.email ?? "Sin correo"}
                   </TableCell>
-                  <TableCell className="text-sm text-slate-600">
+                  <TableCell className="text-sm text-muted-foreground">
                     {supplier.phone ?? "Sin telefono"}
                   </TableCell>
-                  <TableCell className="text-sm font-medium text-slate-700">
+                  <TableCell className="text-sm font-medium text-foreground">
                     {supplier.productsCount}
                   </TableCell>
                   <TableCell>
@@ -345,17 +345,17 @@ export function SuppliersDataTable({ suppliers, onEditSupplier }: SuppliersDataT
                         type="button"
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8 border border-transparent hover:border-[var(--line)]"
+                        className="h-8 w-8 border border-transparent hover:border-border"
                         onClick={() => onEditSupplier?.(supplier.id)}
                         aria-label={`Editar ${supplier.name}`}
                       >
-                        <Edit3 className="h-4 w-4 text-slate-600" />
+                        <Edit3 className="h-4 w-4 text-muted-foreground" />
                       </Button>
                       <Button
                         type="button"
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8 border border-transparent text-red-600 hover:border-red-100 hover:bg-red-50 hover:text-red-700"
+                        className="h-8 w-8 border border-transparent text-destructive hover:border-destructive/30 hover:bg-destructive/10 hover:text-destructive"
                         onClick={() => setPendingDelete({ id: supplier.id, name: supplier.name })}
                         aria-label={`Eliminar ${supplier.name}`}
                       >
@@ -371,7 +371,7 @@ export function SuppliersDataTable({ suppliers, onEditSupplier }: SuppliersDataT
       </div>
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-muted-foreground">
           Mostrando {rangeStart}-{rangeEnd} de {filteredSuppliers.length}
         </p>
         <div className="flex items-center gap-2 self-end sm:self-auto">
@@ -384,7 +384,7 @@ export function SuppliersDataTable({ suppliers, onEditSupplier }: SuppliersDataT
           >
             Anterior
           </Button>
-          <span className="text-xs text-slate-600">
+          <span className="text-xs text-muted-foreground">
             Pagina {page} de {totalPages}
           </span>
           <Button
@@ -401,7 +401,7 @@ export function SuppliersDataTable({ suppliers, onEditSupplier }: SuppliersDataT
 
       {pendingDelete ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-[#11182752] px-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4"
           role="dialog"
           aria-modal="true"
           aria-label="Confirmar eliminacion"
@@ -412,9 +412,9 @@ export function SuppliersDataTable({ suppliers, onEditSupplier }: SuppliersDataT
             onClick={(event) => event.stopPropagation()}
           >
             <div className="space-y-1">
-              <h3 className="text-base font-semibold text-slate-900">Eliminar proveedor</h3>
-              <p className="text-sm text-slate-600">
-                Se eliminara <span className="font-medium text-slate-800">{pendingDelete.name}</span>. Esta accion no se puede deshacer.
+              <h3 className="text-base font-semibold text-foreground">Eliminar proveedor</h3>
+              <p className="text-sm text-muted-foreground">
+                Se eliminara <span className="font-medium text-foreground">{pendingDelete.name}</span>. Esta accion no se puede deshacer.
               </p>
             </div>
             <div className="mt-5 flex items-center justify-end gap-2">
@@ -429,7 +429,7 @@ export function SuppliersDataTable({ suppliers, onEditSupplier }: SuppliersDataT
               <Button
                 type="button"
                 size="sm"
-                className="bg-red-600 text-white hover:bg-red-700"
+                className="bg-destructive text-white hover:bg-destructive/90"
                 onClick={confirmDelete}
               >
                 Eliminar

@@ -37,14 +37,14 @@ export default async function ClientFlowsPage({ searchParams }: PageProps) {
           <div className="min-w-0 flex-1">
             <div className="inline-flex items-center gap-3">
               <Workflow className="h-6 w-6 text-sky-600" />
-              <h1 className="text-2xl font-semibold tracking-[-0.05em] text-slate-950">Flujos</h1>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">Flujos</h1>
             </div>
-            <p className="max-w-3xl text-sm leading-6 text-slate-600">
+            <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
               Crea y administra tus flujos y automatizaciones.
             </p>
           </div>
 
-          <div className="rounded-[28px] border border-dashed border-[rgba(148,163,184,0.32)] bg-white px-6 py-10 text-sm leading-6 text-slate-600">
+          <div className="rounded-2xl border border-dashed border-border bg-card px-6 py-10 text-sm leading-6 text-muted-foreground">
             Aun no hay una fuente disponible para construir flujos. Conecta primero la API oficial o crea un canal no oficial con Evolution.
           </div>
         </section>

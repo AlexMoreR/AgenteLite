@@ -48,11 +48,11 @@ export default async function AdminConfiguracionNegocioPage({ searchParams }: Pa
       />
 
       <div>
-        <h1 className="inline-flex items-center gap-1 text-lg font-semibold tracking-tight text-slate-900 md:text-xl">
-          <Settings className="h-4 w-4 text-slate-500" />
+        <h1 className="inline-flex items-center gap-1 text-lg font-semibold tracking-tight text-foreground md:text-xl">
+          <Settings className="h-4 w-4 text-muted-foreground" />
           <span>Configuracion negocio</span>
         </h1>
-        <p className="mt-1 text-xs text-slate-600">
+        <p className="mt-1 text-xs text-muted-foreground">
           Ajusta moneda activa, identidad visual y parametros generales del sistema.
         </p>
       </div>
@@ -60,7 +60,7 @@ export default async function AdminConfiguracionNegocioPage({ searchParams }: Pa
       <Card className="space-y-3">
         <form action={adminUpdateBrandNameAction} className="flex flex-wrap items-end gap-2">
           <label className="min-w-64 flex-1 space-y-1.5">
-            <span className="text-sm font-medium text-slate-700">Nombre de la marca</span>
+            <span className="text-sm font-medium text-foreground">Nombre de la marca</span>
             <Input
               name="brandName"
               defaultValue={systemBrandName}
@@ -72,7 +72,7 @@ export default async function AdminConfiguracionNegocioPage({ searchParams }: Pa
           <button
             type="submit"
             aria-label="Guardar marca"
-            className="inline-flex h-11 items-center justify-center rounded-lg bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
+            className="inline-flex h-11 items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"
           >
             <Save className="h-4 w-4" />
           </button>
@@ -80,7 +80,7 @@ export default async function AdminConfiguracionNegocioPage({ searchParams }: Pa
 
         <form action={adminUpdateCurrencyAction} className="flex flex-wrap items-end gap-2">
           <label className="min-w-64 flex-1 space-y-1.5">
-            <span className="text-sm font-medium text-slate-700">Moneda activa</span>
+            <span className="text-sm font-medium text-foreground">Moneda activa</span>
             <select name="currency" defaultValue={systemCurrency} className="field-select" required>
               {SUPPORTED_CURRENCIES.map((currency) => (
                 <option key={currency.code} value={currency.code}>
@@ -92,7 +92,7 @@ export default async function AdminConfiguracionNegocioPage({ searchParams }: Pa
           <button
             type="submit"
             aria-label="Guardar moneda"
-            className="inline-flex h-11 items-center justify-center rounded-lg bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
+            className="inline-flex h-11 items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"
           >
             <Save className="h-4 w-4" />
           </button>
@@ -100,26 +100,26 @@ export default async function AdminConfiguracionNegocioPage({ searchParams }: Pa
 
         <form action={adminUpdatePrimaryColorAction} className="flex flex-wrap items-end gap-2">
           <label className="min-w-64 flex-1 space-y-1.5">
-            <span className="text-sm font-medium text-slate-700">Color primario</span>
+            <span className="text-sm font-medium text-foreground">Color primario</span>
             <div className="flex items-center gap-2">
               <Input
                 name="primaryColor"
                 type="color"
                 defaultValue={systemPrimaryColor}
-                className="h-11 w-16 rounded-lg border border-[var(--line)] bg-white p-1"
+                className="h-11 w-16 rounded-lg border border-input bg-background p-1"
                 required
               />
               <Input
                 value={systemPrimaryColor}
                 readOnly
-                className="h-11 flex-1 bg-slate-50 text-xs text-slate-600"
+                className="h-11 flex-1 bg-muted text-xs text-muted-foreground"
               />
             </div>
           </label>
           <button
             type="submit"
             aria-label="Guardar color"
-            className="inline-flex h-11 items-center justify-center rounded-lg bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
+            className="inline-flex h-11 items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"
           >
             <Save className="h-4 w-4" />
           </button>

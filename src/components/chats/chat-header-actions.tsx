@@ -69,7 +69,7 @@ export function ChatHeaderActions({
         align="end"
         side="bottom"
         sideOffset={8}
-        className="w-64 rounded-2xl border border-border bg-popover p-2 shadow-[0_24px_60px_-24px_rgba(15,23,42,0.35)]"
+        className="w-64 rounded-2xl border border-border bg-popover p-2 shadow-lg"
       >
         <div className="space-y-0.5">
           {contactId ? (

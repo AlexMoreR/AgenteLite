@@ -25,14 +25,14 @@ export function CreateUserModal() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
+        className="rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"
       >
         Crear usuario
       </button>
 
       {open && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-[#11182752] px-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
           role="dialog"
           aria-modal="true"
           aria-label="Crear usuario"
@@ -44,12 +44,12 @@ export function CreateUserModal() {
           >
             <div className="mb-4 flex items-start justify-between gap-3">
               <div>
-                <h2 className="text-lg font-semibold text-slate-900">Crear usuario</h2>
+                <h2 className="text-lg font-semibold text-foreground">Crear usuario</h2>
               </div>
               <button
                 type="button"
                 onClick={() => setOpen(false)}
-                className="rounded-lg border border-[var(--line)] px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                className="rounded-lg border border-border px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted"
               >
                 Cerrar
               </button>
@@ -57,19 +57,19 @@ export function CreateUserModal() {
 
             <form action={adminCreateUserAction} className="space-y-3">
               <label className="block space-y-1.5">
-                <span className="text-sm font-medium text-slate-700">Nombre</span>
+                <span className="text-sm font-medium text-foreground">Nombre</span>
                 <Input type="text" name="name" placeholder="Nombre completo" required />
               </label>
               <label className="block space-y-1.5">
-                <span className="text-sm font-medium text-slate-700">Correo</span>
+                <span className="text-sm font-medium text-foreground">Correo</span>
                 <Input type="email" name="email" placeholder="correo@empresa.com" required />
               </label>
               <label className="block space-y-1.5">
-                <span className="text-sm font-medium text-slate-700">Contrasena</span>
+                <span className="text-sm font-medium text-foreground">Contrasena</span>
                 <Input type="password" name="password" placeholder="Minimo 8 caracteres" required />
               </label>
               <label className="block space-y-1.5">
-                <span className="text-sm font-medium text-slate-700">Rol</span>
+                <span className="text-sm font-medium text-foreground">Rol</span>
                 <select
                   name="role"
                   defaultValue="CLIENTE"
@@ -82,7 +82,7 @@ export function CreateUserModal() {
               </label>
               <button
                 type="submit"
-                className="inline-flex h-10 w-full items-center justify-center rounded-lg bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
+                className="inline-flex h-10 w-full items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"
               >
                 Guardar usuario
               </button>

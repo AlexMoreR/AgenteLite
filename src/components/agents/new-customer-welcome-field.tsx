@@ -57,7 +57,7 @@ export function NewCustomerWelcomeField({
             value={message}
             onChange={(event) => setMessage(event.target.value)}
             placeholder={buildDefaultNewCustomerWelcomeMessage(businessName)}
-            className="flex min-h-[80px] w-full rounded-[20px] border border-[rgba(148,163,184,0.14)] bg-white px-3.5 py-3 text-[13px] leading-4 text-slate-800 shadow-[0_18px_32px_-34px_rgba(15,23,42,0.18)] outline-none transition placeholder:text-slate-400 focus:border-[var(--primary)]"
+            className="flex min-h-20 w-full rounded-xl border border-border bg-background px-3.5 py-3 text-[13px] leading-4 text-foreground outline-none transition placeholder:text-muted-foreground focus:border-primary"
           />
         </label>
       ) : (

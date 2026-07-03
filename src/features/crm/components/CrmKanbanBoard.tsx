@@ -52,7 +52,7 @@ function KanbanCard({
 }) {
   return (
     <Card
-      className={`relative rounded-[8px] border border-[var(--line)] p-1.5 shadow-[0_14px_30px_-24px_rgba(15,23,42,0.14)] transition hover:-translate-y-0.5 hover:shadow-[0_18px_34px_-26px_rgba(15,23,42,0.16)] ${
+      className={`relative rounded-md border border-border p-1.5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${
         isDragging ? "cursor-grabbing opacity-60" : "cursor-grab"
       }`}
     >
@@ -62,7 +62,7 @@ function KanbanCard({
             <div className={isCollapsed ? "space-y-0.5" : "space-y-1"}>
               <div className="flex items-start justify-between gap-1.5 pr-6">
                 <div className="min-w-0">
-                  <p className="truncate text-[13px] font-semibold leading-4 text-slate-950">{record.name}</p>
+                  <p className="truncate text-sm font-semibold leading-4 text-foreground">{record.name}</p>
                 </div>
               </div>
 
@@ -72,7 +72,7 @@ function KanbanCard({
                     {record.tags.map((tag) => (
                       <span
                         key={`${record.id}:${tag.label}`}
-                        className="inline-flex max-w-full items-center rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-white shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
+                        className="inline-flex max-w-full items-center rounded-full px-2 py-0.5 text-xs font-semibold uppercase tracking-widest text-white shadow-sm"
                         style={getTagStyle(tag.color)}
                       >
                         {tag.label}
@@ -81,19 +81,19 @@ function KanbanCard({
                   </div>
 
                   <div className="flex items-center justify-between gap-2 pt-0">
-                    <span className="text-xs text-slate-500">{formatCrmDate(record.date)}</span>
+                    <span className="text-xs text-muted-foreground">{formatCrmDate(record.date)}</span>
                   </div>
                 </>
               ) : null}
             </div>
           </div>
         </HoverCardTrigger>
-        <HoverCardContent className="w-72 border border-[var(--line)] bg-white p-3 shadow-[0_16px_34px_-28px_rgba(15,23,42,0.2)]">
+        <HoverCardContent className="w-72 border border-border bg-card p-3 shadow-lg">
           <div className="space-y-2">
-            <p className="truncate text-[13px] font-semibold text-slate-950">{record.name}</p>
-            <p className="text-[12px] text-slate-500">{record.number}</p>
-            <p className="whitespace-pre-wrap text-[12px] leading-5 text-slate-700">{record.detail}</p>
-            <p className="text-[12px] text-slate-500">{formatCrmDateTime(record.date)}</p>
+            <p className="truncate text-sm font-semibold text-foreground">{record.name}</p>
+            <p className="text-xs text-muted-foreground">{record.number}</p>
+            <p className="whitespace-pre-wrap text-xs leading-5 text-foreground">{record.detail}</p>
+            <p className="text-xs text-muted-foreground">{formatCrmDateTime(record.date)}</p>
           </div>
         </HoverCardContent>
       </HoverCard>
@@ -101,7 +101,7 @@ function KanbanCard({
         type="button"
         variant="ghost"
         size="icon-xs"
-        className="absolute right-1 top-1 h-5 w-5 rounded-full border border-[var(--line)] bg-white/90 text-slate-500 shadow-none hover:bg-white"
+        className="absolute right-1 top-1 h-5 w-5 rounded-full border border-border bg-card/90 text-muted-foreground shadow-none hover:bg-card"
         onClick={(event) => {
           event.stopPropagation();
           onToggleCollapse(record.id);
@@ -227,17 +227,17 @@ export function CrmKanbanBoard({ columns }: { columns: CrmColumn[] }) {
                   void handleDrop(recordId, column.stage);
                 }
               }}
-              className={`rounded-[4px] border ${meta.borderClassName} ${meta.backgroundClassName} p-2 transition ${
-                isDropTarget ? "ring-2 ring-offset-2 ring-offset-white" : ""
+              className={`rounded border ${meta.borderClassName} ${meta.backgroundClassName} p-2 transition ${
+                isDropTarget ? "ring-2 ring-offset-2 ring-offset-background" : ""
               }`}
             >
               <div className="flex items-center justify-between gap-2">
                 <div>
-                  <h3 className="text-sm font-semibold text-slate-950">{column.title}</h3>
+                  <h3 className="text-sm font-semibold text-foreground">{column.title}</h3>
                 </div>
                 <Badge
                   variant="outline"
-                  className={`h-auto rounded-full border px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] ${meta.borderClassName} bg-white ${meta.accentClassName}`}
+                  className={`h-auto rounded-full border px-1.5 py-0.5 text-xs font-semibold uppercase tracking-widest ${meta.borderClassName} bg-card ${meta.accentClassName}`}
                 >
                   {column.records.length}
                 </Badge>
@@ -266,7 +266,7 @@ export function CrmKanbanBoard({ columns }: { columns: CrmColumn[] }) {
                     />
                   ))
                 ) : (
-                <div className="rounded-[12px] border border-dashed border-slate-200 bg-white/70 px-4 py-8 text-center text-sm text-slate-500">
+                <div className="rounded-lg border border-dashed border-border bg-card/70 px-4 py-8 text-center text-sm text-muted-foreground">
                     Sin registros en esta columna.
                   </div>
                 )}

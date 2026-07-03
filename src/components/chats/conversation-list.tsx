@@ -196,7 +196,7 @@ function ConversationTagsRow({
         {tags.slice(0, visibleCount).map((tag) => (
           <Badge
             key={`${conversationId}:${tag.label}`}
-            className="shrink-0 max-w-[140px] px-2.5 py-1 text-[10px] shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
+            className="shrink-0 max-w-[140px] px-2.5 py-1 text-[10px] shadow-sm"
             style={{
               ...getConversationTagBadgeStyle(tag.color),
               color: "#ffffff",
@@ -256,12 +256,12 @@ const ConversationListItem = memo(function ConversationListItem({
       className={`group relative grid w-full grid-cols-[40px_minmax(0,1fr)] items-start gap-2 overflow-hidden px-3 py-2.5 transition-[background-color,box-shadow,transform] duration-200 md:grid-cols-[40px_minmax(0,1fr)] md:px-3 md:py-3 ${
         isSelected
           ? "bg-primary/10"
-          : "hover:bg-muted/50 hover:shadow-[inset_0_0_0_1px_rgba(16,185,129,0.08)]"
+          : "hover:bg-muted/50"
         }`}
     >
       <span
         className={`absolute inset-y-3 left-0 w-1 rounded-r-full ${
-          isSelected ? "bg-[var(--primary)]" : "bg-transparent group-hover:bg-emerald-400/70"
+          isSelected ? "bg-primary" : "bg-transparent group-hover:bg-emerald-400/70"
         }`}
       />
 
@@ -274,7 +274,7 @@ const ConversationListItem = memo(function ConversationListItem({
         />
 
         {incomingCountLabel ? (
-          <span className="absolute -top-1 -right-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#2563eb] px-1 shadow-[0_1px_4px_rgba(15,23,42,0.18)]">
+          <span className="absolute -top-1 -right-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-600 px-1 shadow-sm">
             <span className="text-[10px] font-semibold leading-none text-white">
               {incomingCountLabel}
             </span>
@@ -282,7 +282,7 @@ const ConversationListItem = memo(function ConversationListItem({
         ) : null}
 
         {conversation.channelType ? (
-          <span className="absolute -bottom-1 -right-1 inline-flex h-[18px] w-[18px] items-center justify-center rounded-full bg-[#25D366] text-white shadow-[0_1px_4px_rgba(15,23,42,0.18)]">
+          <span className="absolute -bottom-1 -right-1 inline-flex h-[18px] w-[18px] items-center justify-center rounded-full bg-green-500 text-white shadow-sm">
             {renderChannelBadgeIcon(conversation.channelType)}
           </span>
         ) : null}

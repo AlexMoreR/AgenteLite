@@ -79,7 +79,7 @@ function HeaderLabel({
   return (
     <button
       type="button"
-      className="inline-flex items-center gap-2 text-[13px] font-normal text-muted-foreground transition hover:text-foreground"
+      className="inline-flex items-center gap-2 text-sm font-normal text-muted-foreground transition hover:text-foreground"
       onClick={onClick}
       aria-label={`Ordenar por ${String(children)}`}
     >
@@ -388,12 +388,12 @@ export function CrmRegistroTable({
                   <article key={record.id} className="rounded-xl border border-border bg-card p-3">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="truncate text-[13px] font-semibold text-foreground">{record.name}</p>
-                        <p className="mt-0.5 text-[13px] text-muted-foreground">{record.number}</p>
+                        <p className="truncate text-sm font-semibold text-foreground">{record.name}</p>
+                        <p className="mt-0.5 text-sm text-muted-foreground">{record.number}</p>
                         <div className="mt-1">
                           <Badge
                             variant="outline"
-                            className={`h-auto rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${originMeta.borderClassName} ${originMeta.backgroundClassName} ${originMeta.accentClassName}`}
+                            className={`h-auto rounded-full border px-2 py-0.5 text-xs font-semibold uppercase tracking-widest ${originMeta.borderClassName} ${originMeta.backgroundClassName} ${originMeta.accentClassName}`}
                           >
                             {originMeta.label}
                           </Badge>
@@ -401,7 +401,7 @@ export function CrmRegistroTable({
                       </div>
                   <Badge
                     variant="outline"
-                    className={`h-auto rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${meta.borderClassName} ${meta.backgroundClassName} ${meta.accentClassName}`}
+                    className={`h-auto rounded-full border px-2 py-0.5 text-xs font-semibold uppercase tracking-widest ${meta.borderClassName} ${meta.backgroundClassName} ${meta.accentClassName}`}
                   >
                     {meta.label}
                   </Badge>
@@ -411,7 +411,7 @@ export function CrmRegistroTable({
                   {record.tags.map((tag) => (
                     <Badge
                       key={`${record.id}:${tag.label}`}
-                      className="shrink-0 max-w-[140px] px-2.5 py-1 text-[10px] shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
+                      className="shrink-0 max-w-[140px] px-2.5 py-1 text-xs shadow-sm"
                       style={{ ...getTagStyle(tag.color), color: "#ffffff" }}
                       title={tag.label}
                     >
@@ -420,10 +420,10 @@ export function CrmRegistroTable({
                   ))}
                 </div>
 
-                <p className="mt-3 truncate text-[13px] leading-6 text-muted-foreground">{record.detail}</p>
+                <p className="mt-3 truncate text-sm leading-6 text-muted-foreground">{record.detail}</p>
 
                 <div className="mt-3 flex items-center justify-between gap-2">
-                    <span className="text-[13px] text-muted-foreground">{formatCrmDateShort(record.date)}</span>
+                    <span className="text-sm text-muted-foreground">{formatCrmDateShort(record.date)}</span>
                   <div className="flex items-center gap-1">
                     <Button
                       type="button"
@@ -487,19 +487,19 @@ export function CrmRegistroTable({
                 </HeaderLabel>
               </TableHead>
               <TableHead className="px-2 py-1 normal-case tracking-normal">
-                <span className="inline-flex items-center gap-2 text-[13px] font-normal text-muted-foreground">
+                <span className="inline-flex items-center gap-2 text-sm font-normal text-muted-foreground">
                   <Globe2 className="h-3.5 w-3.5 text-muted-foreground" />
                   Origen
                 </span>
               </TableHead>
               <TableHead className="px-2 py-1 normal-case tracking-normal">
-                <span className="inline-flex items-center gap-2 text-[13px] font-normal text-muted-foreground">
+                <span className="inline-flex items-center gap-2 text-sm font-normal text-muted-foreground">
                   <Tag className="h-3.5 w-3.5 text-muted-foreground" />
                   Etiquetas
                 </span>
               </TableHead>
               <TableHead className="px-2 py-1 normal-case tracking-normal">
-                <span className="inline-flex items-center gap-2 text-[13px] font-normal text-muted-foreground">
+                <span className="inline-flex items-center gap-2 text-sm font-normal text-muted-foreground">
                   <FileText className="h-3.5 w-3.5 text-muted-foreground" />
                   Detalle
                 </span>
@@ -533,25 +533,25 @@ export function CrmRegistroTable({
 
                 return (
                   <TableRow key={record.id}>
-                    <TableCell className="px-1.5 py-0.5 text-[13px] text-muted-foreground">
+                    <TableCell className="px-1.5 py-0.5 text-sm text-muted-foreground">
                       <HoverCard>
                         <HoverCardTrigger className="inline-flex cursor-help items-center">
                           {formatCrmDateShort(record.date)}
                         </HoverCardTrigger>
                         <HoverCardContent
-                          className="w-fit border border-border bg-card p-3 text-[13px] leading-6 text-foreground shadow-[0_16px_34px_-28px_rgba(15,23,42,0.2)]"
+                          className="w-fit border border-border bg-card p-3 text-sm leading-6 text-foreground shadow-lg"
                           style={{ width: "fit-content" }}
                         >
-                          <p className="whitespace-pre-wrap text-[13px]">{formatCrmDate(record.date)}</p>
+                          <p className="whitespace-pre-wrap text-sm">{formatCrmDate(record.date)}</p>
                         </HoverCardContent>
                       </HoverCard>
                     </TableCell>
-                    <TableCell className="px-1.5 py-0.5 text-[13px] font-medium text-foreground">{record.number}</TableCell>
-                    <TableCell className="px-1.5 py-0.5 text-[13px] text-foreground">{record.name}</TableCell>
+                    <TableCell className="px-1.5 py-0.5 text-sm font-medium text-foreground">{record.number}</TableCell>
+                    <TableCell className="px-1.5 py-0.5 text-sm text-foreground">{record.name}</TableCell>
                     <TableCell className="px-1.5 py-0.5">
                       <Badge
                         variant="outline"
-                        className={`h-auto rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${originMeta.borderClassName} ${originMeta.backgroundClassName} ${originMeta.accentClassName}`}
+                        className={`h-auto rounded-full border px-2 py-0.5 text-xs font-semibold uppercase tracking-widest ${originMeta.borderClassName} ${originMeta.backgroundClassName} ${originMeta.accentClassName}`}
                       >
                         {originMeta.label}
                       </Badge>
@@ -561,7 +561,7 @@ export function CrmRegistroTable({
                         {record.tags.map((tag) => (
                           <Badge
                             key={`${record.id}:${tag.label}`}
-                            className="shrink-0 max-w-[140px] px-2.5 py-1 text-[10px] shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
+                            className="shrink-0 max-w-[140px] px-2.5 py-1 text-xs shadow-sm"
                             style={{ ...getTagStyle(tag.color), color: "#ffffff" }}
                             title={tag.label}
                           >
@@ -570,14 +570,14 @@ export function CrmRegistroTable({
                         ))}
                       </div>
                     </TableCell>
-                    <TableCell className="max-w-[18rem] px-1.5 py-0.5 text-[13px] leading-5 text-muted-foreground">
+                    <TableCell className="max-w-[18rem] px-1.5 py-0.5 text-sm leading-5 text-muted-foreground">
                       <HoverCard>
                         <HoverCardTrigger className="block w-full cursor-help truncate text-left">
                           {record.detail}
                         </HoverCardTrigger>
-                        <HoverCardContent className="max-w-md border border-border bg-card p-3 text-[12px] leading-6 text-foreground shadow-[0_16px_34px_-28px_rgba(15,23,42,0.2)]">
-                          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Detalle completo</p>
-                          <p className="mt-2 whitespace-pre-wrap text-[13px]">{record.detail}</p>
+                        <HoverCardContent className="max-w-md border border-border bg-card p-3 text-xs leading-6 text-foreground shadow-lg">
+                          <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Detalle completo</p>
+                          <p className="mt-2 whitespace-pre-wrap text-sm">{record.detail}</p>
                         </HoverCardContent>
                       </HoverCard>
                     </TableCell>
@@ -590,7 +590,7 @@ export function CrmRegistroTable({
                         <SelectTrigger
                           size="sm"
                           aria-label={`Cambiar estado de ${record.name}`}
-                          className={`h-8 min-w-28 rounded-sm border px-2.5 py-1 text-[10px] font-semibold tracking-[0.08em] ${meta.borderClassName} ${meta.backgroundClassName} ${meta.accentClassName}`}
+                          className={`h-8 min-w-28 rounded-sm border px-2.5 py-1 text-xs font-semibold tracking-widest ${meta.borderClassName} ${meta.backgroundClassName} ${meta.accentClassName}`}
                         >
                           <SelectValue placeholder={meta.label} />
                         </SelectTrigger>
@@ -646,7 +646,7 @@ export function CrmRegistroTable({
       </div>
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-[13px] text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
           Mostrando {rangeStart}-{rangeEnd} de {filteredRecords.length}
         </p>
         <div className="flex items-center gap-2 self-end sm:self-auto">
@@ -659,7 +659,7 @@ export function CrmRegistroTable({
           >
             Anterior
           </Button>
-          <span className="text-[13px] text-muted-foreground">
+          <span className="text-sm text-muted-foreground">
             Pagina {page} de {totalPages}
           </span>
           <Button

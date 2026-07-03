@@ -107,14 +107,14 @@ export function ModuleAccessWorkspace({ roles, modules }: ModuleAccessWorkspaceP
             const RoleIcon = roleIconMap[roleItem.role];
 
             return (
-              <Card key={roleItem.role} className="space-y-4 border border-[var(--line)]">
+              <Card key={roleItem.role} className="space-y-4 border border-border">
                 <div className="flex items-start gap-3">
-                  <div className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
+                  <div className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
                     <RoleIcon className="h-5 w-5" />
                   </div>
                   <div className="space-y-1">
-                    <h3 className="text-base font-semibold text-slate-900">{roleLabel[roleItem.role]}</h3>
-                    <p className="text-xs text-slate-500">
+                    <h3 className="text-base font-semibold text-foreground">{roleLabel[roleItem.role]}</h3>
+                    <p className="text-xs text-muted-foreground">
                       {roleItem.modules.length} modulo{roleItem.modules.length === 1 ? "" : "s"} activo{roleItem.modules.length === 1 ? "" : "s"}
                     </p>
                   </div>
@@ -127,7 +127,7 @@ export function ModuleAccessWorkspace({ roles, modules }: ModuleAccessWorkspaceP
                     return moduleItem ? (
                       <span
                         key={moduleItem.key}
-                        className="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-700"
+                        className="inline-flex items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-[11px] font-medium text-foreground"
                       >
                         {ModuleIcon ? <ModuleIcon className="h-3.5 w-3.5" /> : null}
                         {moduleItem.label}
@@ -151,7 +151,7 @@ export function ModuleAccessWorkspace({ roles, modules }: ModuleAccessWorkspaceP
 
       {currentRole ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-[#11182752] px-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
           role="dialog"
           aria-modal="true"
           aria-label={`Permisos del rol ${roleLabel[currentRole.role]}`}
@@ -163,13 +163,13 @@ export function ModuleAccessWorkspace({ roles, modules }: ModuleAccessWorkspaceP
           >
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h2 className="inline-flex items-center gap-2 text-lg font-semibold text-slate-900">
-                  <LockKeyhole className="h-4 w-4 text-slate-500" />
+                <h2 className="inline-flex items-center gap-2 text-lg font-semibold text-foreground">
+                  <LockKeyhole className="h-4 w-4 text-muted-foreground" />
                   Control de modulos por rol
                 </h2>
-                <p className="mt-1 text-sm text-slate-600">
+                <p className="mt-1 text-sm text-muted-foreground">
                   Define que modulos puede ver y abrir el rol{" "}
-                  <span className="font-medium text-slate-800">{roleLabel[currentRole.role]}</span>.
+                  <span className="font-medium text-foreground">{roleLabel[currentRole.role]}</span>.
                 </p>
               </div>
               <Button
@@ -179,7 +179,7 @@ export function ModuleAccessWorkspace({ roles, modules }: ModuleAccessWorkspaceP
                 className="h-8 w-8 rounded-full"
                 onClick={() => setActiveRole(null)}
               >
-                <X className="h-4 w-4 text-slate-500" />
+                <X className="h-4 w-4 text-muted-foreground" />
               </Button>
             </div>
 
@@ -197,7 +197,7 @@ export function ModuleAccessWorkspace({ roles, modules }: ModuleAccessWorkspaceP
 
               {groupedModules.map(([group, groupModules]) => (
                 <div key={group} className="space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{group}</p>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{group}</p>
                   <div className="grid gap-x-10 gap-y-0 md:grid-cols-2">
                     {groupModules.map((moduleItem) => {
                       const ModuleIcon = moduleIconMap[moduleItem.key];
@@ -218,11 +218,11 @@ export function ModuleAccessWorkspace({ roles, modules }: ModuleAccessWorkspaceP
                             value={moduleItem.key}
                             defaultChecked={isChecked}
                             disabled={isDisabled}
-                            className="mt-1 h-4 w-4 rounded border-[var(--line)] text-[var(--primary)]"
+                            className="mt-1 h-4 w-4 rounded border-border text-primary"
                           />
                           <span className="min-w-0">
-                            <span className="flex items-center gap-1.5 text-sm font-medium text-slate-900">
-                              <ModuleIcon className="h-4 w-4 text-slate-500" />
+                            <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+                              <ModuleIcon className="h-4 w-4 text-muted-foreground" />
                               {moduleItem.label}
                             </span>
                           </span>

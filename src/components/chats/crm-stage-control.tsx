@@ -19,7 +19,7 @@ const STAGE_DOT_CLASS: Record<CrmStage, string> = {
   PROPUESTA: "bg-amber-500",
   NEGOCIACION: "bg-rose-500",
   GANADO: "bg-emerald-500",
-  PERDIDO: "bg-slate-400",
+  PERDIDO: "bg-muted-foreground",
 };
 
 // Color de relleno del botón por etapa.
@@ -29,7 +29,7 @@ const STAGE_BUTTON_CLASS: Record<CrmStage, string> = {
   PROPUESTA: "bg-amber-500 hover:bg-amber-600",
   NEGOCIACION: "bg-rose-500 hover:bg-rose-600",
   GANADO: "bg-emerald-500 hover:bg-emerald-600",
-  PERDIDO: "bg-slate-400 hover:bg-slate-500",
+  PERDIDO: "bg-muted-foreground hover:bg-muted-foreground/90",
 };
 
 export function CrmStageControl({ contactId, stage }: CrmStageControlProps) {
@@ -100,7 +100,7 @@ export function CrmStageControl({ contactId, stage }: CrmStageControlProps) {
       </button>
 
       {open ? (
-        <div className="absolute right-0 z-50 mt-1 w-56 overflow-hidden rounded-xl border border-border bg-popover shadow-[0_18px_50px_-24px_rgba(15,23,42,0.35)]">
+        <div className="absolute right-0 z-50 mt-1 w-56 overflow-hidden rounded-xl border border-border bg-popover shadow-lg">
           <div className="flex items-center gap-1.5 border-b border-border px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
             <Target className="h-3.5 w-3.5" />
             Etapa del CRM

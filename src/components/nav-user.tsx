@@ -78,14 +78,14 @@ export function NavUser({
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild>
               <Link href="/profile" className="flex items-center gap-2">
-                <UserCircle2 className="h-4 w-4 text-slate-500" />
+                <UserCircle2 className="h-4 w-4 text-muted-foreground" />
                 Perfil
               </Link>
             </DropdownMenuItem>
             {businessHref ? (
               <DropdownMenuItem asChild>
                 <Link href={businessHref} className="flex items-center gap-2">
-                  <Building2 className="h-4 w-4 text-slate-500" />
+                  <Building2 className="h-4 w-4 text-muted-foreground" />
                   Mi Empresa
                 </Link>
               </DropdownMenuItem>
@@ -93,13 +93,13 @@ export function NavUser({
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild>
               <Link href="/admin/configuracion" className="flex items-center gap-2">
-                <Settings2 className="h-4 w-4 text-slate-500" />
+                <Settings2 className="h-4 w-4 text-muted-foreground" />
                 Configuracion
               </Link>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => signOut({ callbackUrl: "/login" })} className="flex items-center gap-2">
-              <LogOutIcon className="h-4 w-4 text-slate-500" />
+              <LogOutIcon className="h-4 w-4 text-muted-foreground" />
               Cerrar sesion
             </DropdownMenuItem>
           </DropdownMenuContent>

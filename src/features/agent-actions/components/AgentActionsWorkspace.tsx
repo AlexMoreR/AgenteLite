@@ -89,35 +89,35 @@ export function AgentActionsWorkspace({ agentId, training }: AgentActionsWorkspa
 
   return (
     <>
-      <Card className="border border-[rgba(148,163,184,0.14)] bg-white p-4 shadow-[0_8px_24px_rgba(15,23,42,0.04)] sm:p-5 lg:p-6">
+      <Card className="border border-border bg-card p-4 shadow-sm sm:p-5 lg:p-6">
         <div className="space-y-5">
           <div className="min-w-0 -mt-1">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="inline-flex items-center gap-3">
-                <BellRing className="h-6 w-6 text-[var(--primary)]" />
-                <h1 className="text-[18px] font-semibold tracking-[-0.04em] text-slate-950">Acciones</h1>
+                <BellRing className="h-6 w-6 text-primary" />
+                <h1 className="text-[18px] font-semibold tracking-tight text-foreground">Acciones</h1>
               </div>
               <Button
                 type="button"
                 variant="outline"
                 onClick={() => openModal("create")}
-                className="h-10 rounded-xl border-[rgba(148,163,184,0.18)] bg-white px-4 text-sm font-medium text-slate-700 shadow-[0_8px_24px_rgba(15,23,42,0.03)] hover:border-[var(--primary)] hover:text-[var(--primary)]"
+                className="h-10 rounded-xl border-border bg-card px-4 text-sm font-medium text-foreground shadow-sm hover:border-primary hover:text-primary"
               >
                 <Zap className="h-4 w-4" />
                 Agregar accion
               </Button>
             </div>
-            <p className="max-w-3xl text-sm text-slate-600">
+            <p className="max-w-3xl text-sm text-muted-foreground">
               Gestiona acciones automáticas que se ejecutan cuando el cliente expresa una intención concreta.
             </p>
           </div>
 
-          <div className="overflow-hidden rounded-[20px] border border-[rgba(148,163,184,0.14)] bg-white">
+          <div className="overflow-hidden rounded-xl border border-border bg-card">
             {hasExistingAction ? (
               <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-slate-200">
-                  <thead className="bg-white">
-                    <tr className="text-left text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
+                <table className="min-w-full divide-y divide-border">
+                  <thead className="bg-card">
+                    <tr className="text-left text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
                       <th className="px-4 py-3">Función</th>
                       <th className="px-4 py-3">Instrucción</th>
                       <th className="px-4 py-3">Destino</th>
@@ -125,28 +125,28 @@ export function AgentActionsWorkspace({ agentId, training }: AgentActionsWorkspa
                       <th className="px-4 py-3">Acciones</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 bg-white">
+                  <tbody className="divide-y divide-border bg-card">
                     <tr className="align-top">
                       <td className="px-4 py-4">
-                        <div className="text-sm font-semibold text-slate-900">Notificar</div>
+                        <div className="text-sm font-semibold text-foreground">Notificar</div>
                       </td>
                       <td className="px-4 py-4">
-                        <p className="max-w-xl text-sm leading-6 text-slate-600">
+                        <p className="max-w-xl text-sm leading-6 text-muted-foreground">
                           {notifyAction.instruction.trim() || "Sin instrucción"}
                         </p>
                       </td>
                       <td className="px-4 py-4">
-                        <p className="text-sm leading-6 text-slate-600">
+                        <p className="text-sm leading-6 text-muted-foreground">
                           {notifyAction.destinationPhoneNumber.trim() || "Sin número"}
                         </p>
                       </td>
                       <td className="px-4 py-4">
                         <div className="space-y-2">
-                          <span className="inline-flex items-center gap-1.5 rounded-full bg-[color-mix(in_srgb,var(--primary)_10%,white)] px-3 py-1 text-xs font-medium text-[var(--primary)]">
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
                             <Sparkles className="h-3.5 w-3.5" />
                             {notifyAction.enabled ? "Activa" : "Inactiva"}
                           </span>
-                          <p className="text-xs leading-5 text-slate-500">
+                          <p className="text-xs leading-5 text-muted-foreground">
                             {notifyAction.pauseConversationAfterNotify
                               ? "Apaga la automatizacion tras notificar."
                               : "La conversacion sigue activa tras notificar."}
@@ -158,7 +158,7 @@ export function AgentActionsWorkspace({ agentId, training }: AgentActionsWorkspa
                           <DropdownMenuTrigger asChild>
                             <button
                               type="button"
-                              className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+                              className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground transition hover:border-primary hover:text-primary"
                               aria-label="Abrir acciones"
                             >
                               <EllipsisVertical className="h-4 w-4" />
@@ -173,7 +173,7 @@ export function AgentActionsWorkspace({ agentId, training }: AgentActionsWorkspa
                               Editar
                             </DropdownMenuItem>
                             <DropdownMenuItem
-                              className="cursor-pointer gap-2 text-rose-700 focus:text-rose-700"
+                              className="cursor-pointer gap-2 text-destructive focus:text-destructive"
                               onSelect={(event) => {
                                 event.preventDefault();
                                 if (!window.confirm("¿Quieres eliminar esta accion?")) {
@@ -195,8 +195,8 @@ export function AgentActionsWorkspace({ agentId, training }: AgentActionsWorkspa
               </div>
             ) : (
               <div className="px-4 py-10 text-center">
-                <p className="text-sm font-medium text-slate-900">Todavia no hay acciones creadas</p>
-                <p className="mt-2 text-sm leading-6 text-slate-500">
+                <p className="text-sm font-medium text-foreground">Todavia no hay acciones creadas</p>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
                   Usa el boton de arriba para crear la primera accion de este agente.
                 </p>
               </div>
@@ -216,7 +216,7 @@ export function AgentActionsWorkspace({ agentId, training }: AgentActionsWorkspa
       {portalTarget && open
         ? createPortal(
             <div
-              className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4"
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
               role="dialog"
               aria-modal="true"
               aria-labelledby={titleId}
@@ -226,20 +226,20 @@ export function AgentActionsWorkspace({ agentId, training }: AgentActionsWorkspa
                 }
               }}
             >
-              <div className="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-[24px] bg-white shadow-[0_32px_90px_-42px_rgba(15,23,42,0.55)]">
-                <div className="flex items-start justify-between gap-4 border-b border-slate-200/80 px-5 py-4">
+              <div className="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-card shadow-lg">
+                <div className="flex items-start justify-between gap-4 border-b border-border/80 px-5 py-4">
                   <div className="min-w-0">
-                    <p className="text-xs font-medium uppercase tracking-[0.08em] text-[var(--primary)]">
+                    <p className="text-xs font-medium uppercase tracking-[0.08em] text-primary">
                       {mode === "edit" ? "Editar acción" : "Nueva acción"}
                     </p>
-                    <h2 id={titleId} className="mt-1 text-lg font-semibold tracking-[-0.03em] text-slate-950">
+                    <h2 id={titleId} className="mt-1 text-lg font-semibold tracking-[-0.03em] text-foreground">
                       {mode === "edit" ? "Editar accion" : "Crear accion"}
                     </h2>
                   </div>
                   <button
                     type="button"
                     onClick={() => setOpen(false)}
-                    className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+                    className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground transition hover:border-primary hover:text-primary"
                     aria-label="Cerrar"
                   >
                     <X className="h-4 w-4" />
@@ -262,8 +262,8 @@ export function AgentActionsWorkspace({ agentId, training }: AgentActionsWorkspa
 
                   <div className="space-y-4">
                     <label className="block space-y-2">
-                      <span className="text-sm font-semibold text-slate-900">Instrucción</span>
-                      <p className="text-sm leading-6 text-slate-500">
+                      <span className="text-sm font-semibold text-foreground">Instrucción</span>
+                      <p className="text-sm leading-6 text-muted-foreground">
                         Describe la intención que disparará la acción. Ejemplo: cuando pidan hablar con una persona.
                       </p>
                       <textarea
@@ -272,17 +272,17 @@ export function AgentActionsWorkspace({ agentId, training }: AgentActionsWorkspa
                         onChange={(event) => setInstruction(event.target.value)}
                         rows={5}
                         placeholder="Escribe la intención que debe detectar el agente"
-                        className="min-h-36 w-full resize-y rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm leading-6 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-[var(--primary)] focus:ring-4 focus:ring-[color-mix(in_srgb,var(--primary)_12%,white)]"
+                        className="min-h-36 w-full resize-y rounded-2xl border border-border bg-card px-4 py-3 text-sm leading-6 text-foreground outline-none transition placeholder:text-muted-foreground focus:border-primary focus:ring-4 focus:ring-ring/50"
                         required={actionType === "notify"}
                       />
                     </label>
 
                     <label className="block space-y-2">
-                      <span className="text-sm font-semibold text-slate-900">Función</span>
+                      <span className="text-sm font-semibold text-foreground">Función</span>
                       <select
                         value={actionType}
                         onChange={(event) => setActionType(event.target.value as ActionType)}
-                        className="field-select h-11 w-full rounded-[16px] border-[rgba(148,163,184,0.14)] bg-slate-50 text-[13px] focus:border-[var(--primary)]"
+                        className="field-select h-11 w-full rounded-xl border-border bg-muted text-[13px] focus:border-primary"
                       >
                         <option value="notify">Notificar</option>
                       </select>
@@ -290,9 +290,9 @@ export function AgentActionsWorkspace({ agentId, training }: AgentActionsWorkspa
 
                     {actionType === "notify" ? (
                       <label className="block space-y-2">
-                        <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-900">
+                        <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-foreground">
                           Numero de celular
-                          <PhoneCall className="h-3.5 w-3.5 text-slate-400" />
+                          <PhoneCall className="h-3.5 w-3.5 text-muted-foreground" />
                         </span>
                         <input
                           name="notifyPhoneNumber"
@@ -300,20 +300,20 @@ export function AgentActionsWorkspace({ agentId, training }: AgentActionsWorkspa
                           value={phoneNumber}
                           onChange={(event) => setPhoneNumber(event.target.value)}
                           placeholder="Ej. 573001112233"
-                          className="field-select h-11 rounded-[16px] border-[rgba(148,163,184,0.14)] bg-slate-50 text-[13px] focus:border-[var(--primary)]"
+                          className="field-select h-11 rounded-xl border-border bg-muted text-[13px] focus:border-primary"
                           required={actionType === "notify"}
                         />
-                        <p className="text-xs leading-5 text-slate-500">
+                        <p className="text-xs leading-5 text-muted-foreground">
                           Recibe la alerta por WhatsApp en este número cuando se detecte la intención.
                         </p>
                       </label>
                     ) : null}
 
-                    <label className="flex items-center justify-between gap-4 rounded-[18px] border border-[rgba(148,163,184,0.14)] bg-slate-50/80 px-4 py-3.5">
+                    <label className="flex items-center justify-between gap-4 rounded-xl border border-border bg-muted/80 px-4 py-3.5">
                       <div className="space-y-1">
-                        <span className="block text-sm font-semibold text-slate-900">Apagar agente despues de notificar</span>
-                        <span className="block text-xs leading-5 text-slate-500">
-                          Pausa la automatizacion de la conversacion cuando se ejecute <span className="font-medium text-slate-700">Notificar_asesor</span>.
+                        <span className="block text-sm font-semibold text-foreground">Apagar agente despues de notificar</span>
+                        <span className="block text-xs leading-5 text-muted-foreground">
+                          Pausa la automatizacion de la conversacion cuando se ejecute <span className="font-medium text-foreground">Notificar_asesor</span>.
                         </span>
                       </div>
                       <Switch
@@ -323,10 +323,10 @@ export function AgentActionsWorkspace({ agentId, training }: AgentActionsWorkspa
                       />
                     </label>
 
-                    <label className="flex items-center justify-between gap-4 rounded-[18px] border border-[rgba(148,163,184,0.14)] bg-slate-50/80 px-4 py-3.5">
+                    <label className="flex items-center justify-between gap-4 rounded-xl border border-border bg-muted/80 px-4 py-3.5">
                       <div className="space-y-1">
-                        <span className="block text-sm font-semibold text-slate-900">Notificar si no conoce el producto</span>
-                        <span className="block text-xs leading-5 text-slate-500">
+                        <span className="block text-sm font-semibold text-foreground">Notificar si no conoce el producto</span>
+                        <span className="block text-xs leading-5 text-muted-foreground">
                           Cuando el cliente pida un producto o catálogo que no esté en conocimiento, el sistema avisa al asesor automáticamente.
                         </span>
                       </div>
@@ -342,13 +342,13 @@ export function AgentActionsWorkspace({ agentId, training }: AgentActionsWorkspa
                     <button
                       type="button"
                       onClick={() => setOpen(false)}
-                      className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition hover:border-slate-300"
+                      className="inline-flex h-10 items-center justify-center rounded-xl border border-border bg-card px-4 text-sm font-medium text-foreground transition hover:border-input"
                     >
                       Cancelar
                     </button>
                     <button
                       type="submit"
-                      className="inline-flex h-10 items-center justify-center rounded-xl bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
+                      className="inline-flex h-10 items-center justify-center rounded-xl bg-primary px-4 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"
                     >
                       {mode === "edit" ? "Guardar cambios" : "Guardar la accion"}
                     </button>

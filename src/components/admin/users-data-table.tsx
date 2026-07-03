@@ -175,7 +175,7 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
   const roleBadgeClass: Record<Role, string> = {
     ADMIN: "bg-blue-50 text-blue-700 ring-blue-200",
     EMPLEADO: "bg-emerald-50 text-emerald-700 ring-emerald-200",
-    CLIENTE: "bg-slate-100 text-slate-700 ring-slate-200",
+    CLIENTE: "bg-muted text-foreground ring-border",
   };
 
   const roleOptions: Array<{ value: Role; label: string }> = [
@@ -238,15 +238,15 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3 border-b border-[var(--line)] pb-4 md:flex-row md:items-center md:justify-between">
+      <div className="flex flex-col gap-3 border-b border-border pb-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <p className="text-sm font-semibold text-slate-900">Directorio de usuarios</p>
-          <p className="text-xs text-slate-500">
+          <p className="text-sm font-semibold text-foreground">Directorio de usuarios</p>
+          <p className="text-xs text-muted-foreground">
             {filteredUsers.length} usuario{filteredUsers.length === 1 ? "" : "s"} en la vista actual
           </p>
         </div>
         <div className="relative w-full md:max-w-sm">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
@@ -257,7 +257,7 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
             <button
               type="button"
               onClick={() => setQuery("")}
-              className="absolute right-2 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+              className="absolute right-2 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-muted-foreground"
               aria-label="Limpiar busqueda"
             >
               <X className="h-3.5 w-3.5" />
@@ -279,7 +279,7 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
         <TableBody>
           {pagedUsers.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={5} className="py-8 text-center text-slate-500">
+              <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
                 No hay resultados para el filtro actual.
               </TableCell>
             </TableRow>
@@ -292,16 +292,16 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
                 <TableRow key={user.id}>
                   <TableCell>
                     <div className="flex items-center gap-3">
-                      <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-xs font-semibold text-slate-700">
+                      <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-muted text-xs font-semibold text-foreground">
                         {(user.name?.charAt(0) || user.email.charAt(0)).toUpperCase()}
                       </span>
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-slate-900">{user.name || "Sin nombre"}</p>
-                        <p className="truncate text-xs text-slate-500">{user.email}</p>
+                        <p className="truncate text-sm font-medium text-foreground">{user.name || "Sin nombre"}</p>
+                        <p className="truncate text-xs text-muted-foreground">{user.email}</p>
                       </div>
                     </div>
                   </TableCell>
-                  <TableCell className="text-sm text-slate-600">
+                  <TableCell className="text-sm text-muted-foreground">
                     {new Intl.DateTimeFormat("es-CO", { dateStyle: "medium" }).format(user.createdAt)}
                   </TableCell>
                   <TableCell>
@@ -317,14 +317,14 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
                           {planDisplay.label}
                         </span>
                       ) : (
-                        <span className="text-sm text-slate-500">{planDisplay.label}</span>
+                        <span className="text-sm text-muted-foreground">{planDisplay.label}</span>
                       )}
                       <div className="text-sm">
                         <p
                           className={
                             planDisplay.kind === "assigned" && user.isPlanExpired
                               ? "font-medium text-rose-600"
-                              : "text-slate-700"
+                              : "text-foreground"
                           }
                         >
                           {planDisplay.expiresLabel}
@@ -333,7 +333,7 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
                           className={`text-xs ${
                             planDisplay.kind === "assigned" && user.isPlanExpired
                               ? "text-rose-500"
-                              : "text-slate-500"
+                              : "text-muted-foreground"
                           }`}
                         >
                           {planDisplay.statusLabel}
@@ -356,7 +356,7 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
                           className="h-8 rounded-full px-3"
                         >
                           Gestionar
-                          <MoreHorizontal className="ml-1 h-4 w-4 text-slate-500" />
+                          <MoreHorizontal className="ml-1 h-4 w-4 text-muted-foreground" />
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-64 rounded-xl">
@@ -381,7 +381,7 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
       </Table>
 
       <div className="flex items-center justify-between gap-3">
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-muted-foreground">
           Mostrando {rangeStart}-{rangeEnd} de {filteredUsers.length}
         </p>
         <div className="flex items-center gap-2">
@@ -394,7 +394,7 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
           >
             Anterior
           </Button>
-          <span className="text-xs text-slate-600">
+          <span className="text-xs text-muted-foreground">
             Pagina {page} de {totalPages}
           </span>
           <Button
@@ -411,14 +411,14 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
 
       {activeUser ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 py-6 backdrop-blur-sm"
           onClick={() => setActiveUserId(null)}
         >
           <Card
-            className="w-full max-w-3xl overflow-hidden p-0 shadow-[0_24px_80px_-40px_rgba(15,23,42,0.32)]"
+            className="w-full max-w-3xl overflow-hidden p-0 shadow-lg"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="flex flex-col gap-5 border-b border-border bg-gradient-to-b from-slate-50 to-white px-6 py-5">
+            <div className="flex flex-col gap-5 border-b border-border bg-muted px-6 py-5">
               <div className="flex items-start justify-between gap-4">
                 <div className="flex flex-col gap-1">
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
@@ -444,7 +444,7 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
               <div className="grid gap-2 md:grid-cols-3">
                 <Card className="border-border px-3 py-3 shadow-none">
                   <div className="flex items-center gap-2.5">
-                    <div className="flex size-9 items-center justify-center rounded-xl bg-slate-900 text-white">
+                    <div className="flex size-9 items-center justify-center rounded-xl bg-foreground text-background">
                       <UserRound />
                     </div>
                     <div className="flex flex-col gap-0.5">
@@ -460,7 +460,7 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
 
                 <Card className="border-border px-3 py-3 shadow-none">
                   <div className="flex items-center gap-2.5">
-                    <div className="flex size-9 items-center justify-center rounded-xl bg-slate-900 text-white">
+                    <div className="flex size-9 items-center justify-center rounded-xl bg-foreground text-background">
                       <Shield />
                     </div>
                     <div className="flex flex-col gap-0.5">
@@ -482,7 +482,7 @@ export function UsersDataTable({ users }: UsersDataTableProps) {
 
                 <Card className="border-border px-3 py-3 shadow-none">
                   <div className="flex items-center gap-2.5">
-                    <div className="flex size-9 items-center justify-center rounded-xl bg-slate-900 text-white">
+                    <div className="flex size-9 items-center justify-center rounded-xl bg-foreground text-background">
                       <CalendarClock />
                     </div>
                     <div className="flex flex-col gap-0.5">

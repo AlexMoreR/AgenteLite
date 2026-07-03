@@ -137,21 +137,21 @@ export default async function HomePage() {
   const brandName = await getSystemBrandName();
 
   return (
-    <div className="relative overflow-hidden bg-[#07111f] text-[#f3f7fb]">
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-[42rem] bg-[radial-gradient(circle_at_top_left,_rgba(46,211,183,0.2),_transparent_38%),radial-gradient(circle_at_top_right,_rgba(64,132,255,0.26),_transparent_34%),linear-gradient(180deg,_rgba(6,12,24,0.2),_rgba(6,12,24,0))]" />
-      <div className="pointer-events-none absolute inset-x-0 top-32 mx-auto h-[30rem] max-w-6xl rounded-full bg-[radial-gradient(circle,_rgba(32,89,145,0.18),_transparent_58%)] blur-3xl" />
+    <div className="relative overflow-hidden bg-slate-950 text-slate-100">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-[42rem] bg-gradient-to-b from-teal-500/10 to-transparent" />
+      <div className="pointer-events-none absolute inset-x-0 top-32 mx-auto h-[30rem] max-w-6xl rounded-full bg-sky-500/10 blur-3xl" />
 
       <section className="relative">
         <div className="mx-auto grid max-w-7xl gap-14 px-4 pb-18 pt-12 md:px-8 md:pb-24 md:pt-20 lg:grid-cols-[minmax(0,1.1fr)_30rem] lg:items-center">
           <div className="space-y-8">
             <div className="space-y-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#8deedc]">
+              <p className="text-xs font-semibold uppercase tracking-widest text-teal-300">
                 Agente de IA para WhatsApp
               </p>
-              <h1 className="max-w-4xl text-3xl font-semibold tracking-[-0.05em] text-white md:text-4xl lg:text-5xl">
+              <h1 className="max-w-4xl text-3xl font-semibold tracking-tight text-white md:text-4xl lg:text-5xl">
                 Tu negocio no descansa. Tu vendedor IA tampoco.
               </h1>
-              <p className="max-w-2xl text-sm leading-7 text-[#b8c6d9] md:text-base">
+              <p className="max-w-2xl text-sm leading-7 text-slate-300 md:text-base">
                 Vuelve tu vida mas facil con un vendedor IA 24/7 para tu negocio.
               </p>
             </div>
@@ -159,7 +159,7 @@ export default async function HomePage() {
             <div className="flex flex-col gap-3 sm:flex-row">
               <Link
                 href="/register"
-                className="inline-flex h-13 items-center justify-center gap-2 rounded-full bg-[#2ed3b7] px-6 text-sm font-semibold text-[#04131d] transition hover:bg-[#58e4cc]"
+                className="inline-flex h-13 items-center justify-center gap-2 rounded-full bg-teal-400 px-6 text-sm font-semibold text-slate-950 transition hover:bg-teal-300"
               >
                 Comienza gratis
                 <ArrowRight className="h-4 w-4" />
@@ -176,7 +176,7 @@ export default async function HomePage() {
               {heroSignals.map((item) => (
                 <span
                   key={item}
-                  className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-medium text-[#cfe0ef]"
+                  className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-medium text-slate-200"
                 >
                   {item}
                 </span>
@@ -187,74 +187,74 @@ export default async function HomePage() {
               {heroStats.map((item) => (
                 <div
                   key={item.label}
-                  className="rounded-[1.6rem] border border-white/10 bg-white/[0.045] px-5 py-4 backdrop-blur-sm"
+                  className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4 backdrop-blur-sm"
                 >
-                  <p className="text-2xl font-semibold tracking-[-0.04em] text-white">{item.value}</p>
-                  <p className="mt-1 text-sm text-[#9fb0c5]">{item.label}</p>
+                  <p className="text-2xl font-semibold tracking-tight text-white">{item.value}</p>
+                  <p className="mt-1 text-sm text-slate-400">{item.label}</p>
                 </div>
               ))}
             </div>
           </div>
 
           <div className="relative">
-            <div className="absolute -inset-3 rounded-[2rem] border border-[#2ed3b7]/20 bg-[#2ed3b7]/8 blur-2xl" />
-            <div className="relative overflow-hidden rounded-[2rem] border border-white/10 bg-[#0c1828] p-5 shadow-[0_30px_80px_-45px_rgba(0,0,0,0.9)]">
-              <div className="rounded-[1.4rem] border border-white/8 bg-[#0f2034] p-4">
+            <div className="absolute -inset-3 rounded-2xl border border-teal-400/20 bg-teal-400/10 blur-2xl" />
+            <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-slate-900 p-5 shadow-2xl">
+              <div className="rounded-2xl border border-white/8 bg-slate-900 p-4">
                 <div className="flex items-center justify-between border-b border-white/8 pb-4">
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#7ee8d5]">Control Center</p>
-                    <h2 className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-white">
+                    <p className="text-xs font-semibold uppercase tracking-widest text-teal-300">Control Center</p>
+                    <h2 className="mt-2 text-2xl font-semibold tracking-tight text-white">
                       Tu canal comercial, activo en tiempo real.
                     </h2>
                   </div>
-                  <div className="rounded-2xl border border-[#2ed3b7]/25 bg-[#0c2c31] px-3 py-2 text-right">
-                    <p className="text-[11px] uppercase tracking-[0.2em] text-[#89efdf]">Status</p>
+                  <div className="rounded-2xl border border-teal-400/25 bg-teal-950 px-3 py-2 text-right">
+                    <p className="text-xs uppercase tracking-widest text-teal-200">Status</p>
                     <p className="text-sm font-semibold text-white">Activo</p>
                   </div>
                 </div>
 
                 <div className="grid gap-3 py-4">
                   <div className="grid gap-3 md:grid-cols-2">
-                    <div className="rounded-[1.2rem] border border-white/8 bg-[#0a1422] p-4">
+                    <div className="rounded-2xl border border-white/8 bg-slate-950 p-4">
                       <div className="flex items-center gap-3">
-                        <div className="rounded-2xl bg-[#14344a] p-2.5 text-[#91f2e3]">
+                        <div className="rounded-2xl bg-slate-800 p-2.5 text-teal-200">
                           <QrCode className="h-4 w-4" />
                         </div>
                         <div>
                           <p className="text-sm font-medium text-white">Canal listo para recibir leads</p>
-                          <p className="text-xs text-[#91a5bc]">Conexion activa</p>
+                          <p className="text-xs text-slate-400">Conexion activa</p>
                         </div>
                       </div>
                     </div>
 
-                    <div className="rounded-[1.2rem] border border-white/8 bg-[#0a1422] p-4">
+                    <div className="rounded-2xl border border-white/8 bg-slate-950 p-4">
                       <div className="flex items-center gap-3">
-                        <div className="rounded-2xl bg-[#1f304e] p-2.5 text-[#9cc8ff]">
+                        <div className="rounded-2xl bg-slate-800 p-2.5 text-sky-200">
                           <Gauge className="h-4 w-4" />
                         </div>
                         <div>
                           <p className="text-sm font-medium text-white">IA con guion de ventas</p>
-                          <p className="text-xs text-[#91a5bc]">Responde, filtra y deriva</p>
+                          <p className="text-xs text-slate-400">Responde, filtra y deriva</p>
                         </div>
                       </div>
                     </div>
                   </div>
 
-                  <div className="rounded-[1.4rem] border border-white/8 bg-[#08111c] p-4">
+                  <div className="rounded-2xl border border-white/8 bg-slate-950 p-4">
                     <div className="flex items-center justify-between gap-4">
                       <div>
-                        <p className="text-xs uppercase tracking-[0.18em] text-[#92a6ba]">Conversacion activa</p>
+                        <p className="text-xs uppercase tracking-widest text-slate-400">Conversacion activa</p>
                         <p className="mt-2 text-lg font-semibold text-white">Lead preguntando por planes</p>
                       </div>
-                      <div className="rounded-full border border-[#2ed3b7]/30 bg-[#0f2e2f] px-3 py-1 text-xs font-medium text-[#95f4e6]">
+                      <div className="rounded-full border border-teal-400/30 bg-teal-950 px-3 py-1 text-xs font-medium text-teal-200">
                         IA + humano
                       </div>
                     </div>
                     <div className="mt-4 space-y-3">
-                      <div className="max-w-[85%] rounded-[1.1rem] border border-white/8 bg-white/6 px-4 py-3 text-sm text-[#dce7f5]">
+                      <div className="max-w-[85%] rounded-2xl border border-white/8 bg-white/6 px-4 py-3 text-sm text-slate-200">
                         Hola, quiero responder clientes por WhatsApp sin perder oportunidades.
                       </div>
-                      <div className="ml-auto max-w-[85%] rounded-[1.1rem] bg-[#2ed3b7] px-4 py-3 text-sm font-medium text-[#06202a]">
+                      <div className="ml-auto max-w-[85%] rounded-2xl bg-teal-400 px-4 py-3 text-sm font-medium text-slate-950">
                         Perfecto. La IA puede responder al instante y pasar a tu equipo solo los leads mas valiosos.
                       </div>
                     </div>
@@ -268,10 +268,10 @@ export default async function HomePage() {
 
       <section className="relative pb-6">
         <div className="mx-auto max-w-7xl px-4 md:px-8">
-          <div className="flex flex-wrap items-center gap-3 rounded-[1.4rem] border border-white/8 bg-white/[0.035] px-4 py-4 text-sm text-[#b9c8d8]">
-            <span className="text-xs font-semibold uppercase tracking-[0.22em] text-[#88eddc]">Ideal para</span>
+          <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-white/8 bg-white/5 px-4 py-4 text-sm text-slate-300">
+            <span className="text-xs font-semibold uppercase tracking-widest text-teal-300">Ideal para</span>
             {proofStrip.map((item) => (
-              <span key={item} className="rounded-full border border-white/8 bg-white/[0.03] px-3 py-1.5">
+              <span key={item} className="rounded-full border border-white/8 bg-white/5 px-3 py-1.5">
                 {item}
               </span>
             ))}
@@ -279,11 +279,11 @@ export default async function HomePage() {
         </div>
       </section>
 
-      <section id="beneficios" className="relative border-y border-white/7 bg-[#091524]/82">
+      <section id="beneficios" className="relative border-y border-white/7 bg-slate-900/80">
         <div className="mx-auto max-w-7xl px-4 py-16 md:px-8 md:py-20">
           <div className="max-w-2xl">
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#8deedc]">Por que este sistema</p>
-            <h2 className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-white md:text-4xl">
+            <p className="text-xs font-semibold uppercase tracking-widest text-teal-300">Por que este sistema</p>
+            <h2 className="mt-3 text-3xl font-semibold tracking-tight text-white md:text-4xl">
               No es solo automatizacion. Es mas ventas con control.
             </h2>
           </div>
@@ -295,13 +295,13 @@ export default async function HomePage() {
               return (
                 <article
                   key={item.title}
-                  className="rounded-[1.7rem] border border-white/8 bg-white/[0.045] p-6 backdrop-blur-sm"
+                  className="rounded-2xl border border-white/8 bg-white/5 p-6 backdrop-blur-sm"
                 >
-                  <div className="inline-flex rounded-2xl border border-white/8 bg-[#0f2338] p-3 text-[#8feedd]">
+                  <div className="inline-flex rounded-2xl border border-white/8 bg-slate-800 p-3 text-teal-300">
                     <Icon className="h-5 w-5" />
                   </div>
-                  <h3 className="mt-5 text-xl font-semibold tracking-[-0.03em] text-white">{item.title}</h3>
-                  <p className="mt-3 text-sm leading-7 text-[#9fb1c7]">{item.description}</p>
+                  <h3 className="mt-5 text-xl font-semibold tracking-tight text-white">{item.title}</h3>
+                  <p className="mt-3 text-sm leading-7 text-slate-400">{item.description}</p>
                 </article>
               );
             })}
@@ -309,14 +309,14 @@ export default async function HomePage() {
         </div>
       </section>
 
-      <section id="precios" className="relative border-y border-white/7 bg-[#08101b]">
+      <section id="precios" className="relative border-y border-white/7 bg-slate-950">
         <div className="mx-auto max-w-7xl px-4 py-16 md:px-8 md:py-20">
           <div className="max-w-2xl">
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#8deedc]">Precios</p>
-            <h2 className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-white md:text-4xl">
+            <p className="text-xs font-semibold uppercase tracking-widest text-teal-300">Precios</p>
+            <h2 className="mt-3 text-3xl font-semibold tracking-tight text-white md:text-4xl">
               Elige el plan para tu etapa comercial.
             </h2>
-            <p className="mt-4 text-sm leading-7 text-[#9fb1c7]">
+            <p className="mt-4 text-sm leading-7 text-slate-400">
               Empieza rapido, escala cuando lo necesites y habla con ventas si manejas varios clientes.
             </p>
           </div>
@@ -327,28 +327,28 @@ export default async function HomePage() {
                 key={plan.name}
                 className={
                   plan.highlight
-                    ? "rounded-[1.8rem] border border-[#2ed3b7]/40 bg-[linear-gradient(180deg,#12303a_0%,#0d1b29_100%)] p-6 shadow-[0_24px_60px_-38px_rgba(46,211,183,0.45)]"
-                    : "rounded-[1.8rem] border border-white/8 bg-white/[0.04] p-6"
+                    ? "rounded-2xl border border-teal-400/40 bg-gradient-to-b from-teal-950 to-slate-950 p-6 shadow-2xl"
+                    : "rounded-2xl border border-white/8 bg-white/5 p-6"
                 }
               >
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#8deedc]">
+                    <p className="text-xs font-semibold uppercase tracking-widest text-teal-300">
                       {plan.tier}
                     </p>
-                    <h3 className="text-2xl font-semibold tracking-[-0.04em] text-white">{plan.name}</h3>
-                    <p className="mt-2 text-sm leading-7 text-[#9fb1c7]">{plan.description}</p>
+                    <h3 className="text-2xl font-semibold tracking-tight text-white">{plan.name}</h3>
+                    <p className="mt-2 text-sm leading-7 text-slate-400">{plan.description}</p>
                   </div>
                   {plan.highlight ? (
-                    <span className="rounded-full border border-[#2ed3b7]/30 bg-[#0f2f30] px-3 py-1 text-xs font-semibold text-[#92f3e4]">
+                    <span className="rounded-full border border-teal-400/30 bg-teal-950 px-3 py-1 text-xs font-semibold text-teal-200">
                       Mas elegido
                     </span>
                   ) : null}
                 </div>
 
                 <div className="mt-6 flex items-end gap-1">
-                  <span className="text-4xl font-semibold tracking-[-0.05em] text-white">{plan.price}</span>
-                  {plan.cadence ? <span className="pb-1 text-sm text-[#91a5bc]">{plan.cadence}</span> : null}
+                  <span className="text-4xl font-semibold tracking-tight text-white">{plan.price}</span>
+                  {plan.cadence ? <span className="pb-1 text-sm text-slate-400">{plan.cadence}</span> : null}
                 </div>
 
                 <div className="mt-6">
@@ -358,7 +358,7 @@ export default async function HomePage() {
                     rel={plan.href ? "noopener noreferrer" : undefined}
                     className={
                       plan.highlight
-                        ? "inline-flex h-11 w-full items-center justify-center rounded-full bg-[#2ed3b7] px-5 text-sm font-semibold text-[#04131d] transition hover:bg-[#58e4cc]"
+                        ? "inline-flex h-11 w-full items-center justify-center rounded-full bg-teal-400 px-5 text-sm font-semibold text-slate-950 transition hover:bg-teal-300"
                         : "inline-flex h-11 w-full items-center justify-center rounded-full border border-white/12 bg-white/6 px-5 text-sm font-semibold text-white transition hover:bg-white/10"
                     }
                   >
@@ -368,8 +368,8 @@ export default async function HomePage() {
 
                 <div className="mt-6 space-y-3">
                   {plan.features.map((feature) => (
-                    <div key={feature} className="flex items-center gap-3 text-sm text-[#d7e3f0]">
-                      <CheckCircle2 className="h-4 w-4 shrink-0 text-[#72e7d1]" />
+                    <div key={feature} className="flex items-center gap-3 text-sm text-slate-200">
+                      <CheckCircle2 className="h-4 w-4 shrink-0 text-teal-300" />
                       <span>{feature}</span>
                     </div>
                   ))}
@@ -384,11 +384,11 @@ export default async function HomePage() {
         <div className="mx-auto max-w-7xl px-4 py-16 md:px-8 md:py-20">
           <div className="grid gap-10 lg:grid-cols-[22rem_minmax(0,1fr)] lg:items-start">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#8deedc]">Activacion</p>
-              <h2 className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-white md:text-4xl">
+              <p className="text-xs font-semibold uppercase tracking-widest text-teal-300">Activacion</p>
+              <h2 className="mt-3 text-3xl font-semibold tracking-tight text-white md:text-4xl">
                 Empieza rapido y activa tu agente.
               </h2>
-              <p className="mt-4 text-sm leading-7 text-[#9fb1c7]">
+              <p className="mt-4 text-sm leading-7 text-slate-400">
                 Configura, conecta y empieza a responder sin procesos pesados.
               </p>
             </div>
@@ -397,17 +397,17 @@ export default async function HomePage() {
               {steps.map((step, index) => (
                 <article
                   key={step.title}
-                  className="grid gap-4 rounded-[1.7rem] border border-white/8 bg-[#0a1422]/90 p-5 md:grid-cols-[5.5rem_minmax(0,1fr)] md:items-start"
+                  className="grid gap-4 rounded-2xl border border-white/8 bg-slate-950/90 p-5 md:grid-cols-[5.5rem_minmax(0,1fr)] md:items-start"
                 >
                   <div className="flex items-center gap-3 md:block">
-                    <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-[#2ed3b7]/24 bg-[#0c2a2e] text-lg font-semibold text-[#92f3e4]">
+                    <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-teal-400/24 bg-teal-950 text-lg font-semibold text-teal-200">
                       0{index + 1}
                     </div>
-                    <div className="mt-3 h-px flex-1 bg-gradient-to-r from-[#2ed3b7]/30 to-transparent md:h-16 md:w-px md:translate-x-6" />
+                    <div className="mt-3 h-px flex-1 bg-gradient-to-r from-teal-400/30 to-transparent md:h-16 md:w-px md:translate-x-6" />
                   </div>
                   <div>
-                    <h3 className="text-xl font-semibold tracking-[-0.03em] text-white">{step.title}</h3>
-                    <p className="mt-3 text-sm leading-7 text-[#9fb1c7]">{step.description}</p>
+                    <h3 className="text-xl font-semibold tracking-tight text-white">{step.title}</h3>
+                    <p className="mt-3 text-sm leading-7 text-slate-400">{step.description}</p>
                   </div>
                 </article>
               ))}
@@ -422,56 +422,56 @@ export default async function HomePage() {
             {testimonials.map((item) => (
               <article
                 key={`${item.author}-${item.company}`}
-                className="rounded-[1.7rem] border border-white/8 bg-white/[0.04] p-6"
+                className="rounded-2xl border border-white/8 bg-white/5 p-6"
               >
                 <p className="text-lg leading-8 text-white">&quot;{item.quote}&quot;</p>
-                <p className="mt-5 text-sm font-semibold text-[#dbe7f4]">{item.author}</p>
-                <p className="mt-1 text-sm text-[#8fa4ba]">{item.company}</p>
+                <p className="mt-5 text-sm font-semibold text-slate-200">{item.author}</p>
+                <p className="mt-1 text-sm text-slate-400">{item.company}</p>
               </article>
             ))}
           </div>
         </div>
       </section>
 
-      <section className="relative border-y border-white/7 bg-[#08111b]">
+      <section className="relative border-y border-white/7 bg-slate-950">
         <div className="mx-auto grid max-w-7xl gap-6 px-4 py-16 md:px-8 md:py-20 lg:grid-cols-[minmax(0,1fr)_24rem]">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#8deedc]">Capacidades</p>
-            <h2 className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-white md:text-4xl">
+            <p className="text-xs font-semibold uppercase tracking-widest text-teal-300">Capacidades</p>
+            <h2 className="mt-3 text-3xl font-semibold tracking-tight text-white md:text-4xl">
               Hecho para responder, vender y escalar.
             </h2>
             <div className="mt-8 grid gap-3 sm:grid-cols-2">
               {featureGrid.map((item) => (
                 <div
                   key={item}
-                  className="flex items-center gap-3 rounded-[1.1rem] border border-white/8 bg-white/[0.04] px-4 py-3 text-sm text-[#d8e4f1]"
+                  className="flex items-center gap-3 rounded-2xl border border-white/8 bg-white/5 px-4 py-3 text-sm text-slate-200"
                 >
-                  <CheckCircle2 className="h-4 w-4 shrink-0 text-[#72e7d1]" />
+                  <CheckCircle2 className="h-4 w-4 shrink-0 text-teal-300" />
                   <span>{item}</span>
                 </div>
               ))}
             </div>
           </div>
 
-          <aside className="rounded-[1.8rem] border border-white/8 bg-[linear-gradient(180deg,#0f1f31_0%,#0a1524_100%)] p-6">
-            <div className="inline-flex rounded-2xl border border-white/8 bg-[#11283c] p-3 text-[#9cefe1]">
+          <aside className="rounded-2xl border border-white/8 bg-gradient-to-b from-slate-900 to-slate-950 p-6">
+            <div className="inline-flex rounded-2xl border border-white/8 bg-slate-800 p-3 text-teal-200">
               <ShieldCheck className="h-5 w-5" />
             </div>
-            <h3 className="mt-5 text-2xl font-semibold tracking-[-0.04em] text-white">Listo para crecer contigo.</h3>
-            <p className="mt-4 text-sm leading-7 text-[#9fb1c7]">
+            <h3 className="mt-5 text-2xl font-semibold tracking-tight text-white">Listo para crecer contigo.</h3>
+            <p className="mt-4 text-sm leading-7 text-slate-400">
               Manten equipos, clientes y conversaciones bajo control mientras tu operacion gana volumen.
             </p>
 
             <div className="mt-6 space-y-3">
-              <div className="rounded-[1.1rem] border border-white/8 bg-white/[0.045] px-4 py-3">
-                <p className="text-xs uppercase tracking-[0.18em] text-[#90a4bb]">Disponibilidad</p>
+              <div className="rounded-2xl border border-white/8 bg-white/5 px-4 py-3">
+                <p className="text-xs uppercase tracking-widest text-slate-400">Disponibilidad</p>
                 <p className="mt-2 flex items-center gap-2 text-sm font-medium text-white">
-                  <Clock3 className="h-4 w-4 text-[#88eddc]" />
+                  <Clock3 className="h-4 w-4 text-teal-300" />
                   Atencion continua con apoyo humano
                 </p>
               </div>
-              <div className="rounded-[1.1rem] border border-white/8 bg-white/[0.045] px-4 py-3">
-                <p className="text-xs uppercase tracking-[0.18em] text-[#90a4bb]">Operacion</p>
+              <div className="rounded-2xl border border-white/8 bg-white/5 px-4 py-3">
+                <p className="text-xs uppercase tracking-widest text-slate-400">Operacion</p>
                 <p className="mt-2 text-sm font-medium text-white">Mensajes y agentes en un mismo panel</p>
               </div>
             </div>
@@ -481,14 +481,14 @@ export default async function HomePage() {
 
       <section className="relative">
         <div className="mx-auto max-w-6xl px-4 py-16 md:px-8 md:py-20">
-          <div className="overflow-hidden rounded-[2rem] border border-white/10 bg-[linear-gradient(135deg,#12263f_0%,#0a1220_55%,#0d2b32_100%)] px-6 py-8 md:px-10 md:py-10">
+          <div className="overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-slate-900 via-slate-950 to-teal-950 px-6 py-8 md:px-10 md:py-10">
             <div className="flex flex-col gap-8 md:flex-row md:items-center md:justify-between">
               <div className="max-w-2xl">
-                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#8cefdc]">Lanzamiento</p>
-                <h2 className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-white md:text-4xl">
+                <p className="text-xs font-semibold uppercase tracking-widest text-teal-300">Lanzamiento</p>
+                <h2 className="mt-3 text-3xl font-semibold tracking-tight text-white md:text-4xl">
                   Activa hoy tu agente de ventas por WhatsApp.
                 </h2>
-                <p className="mt-4 text-sm leading-7 text-[#b7c5d8]">
+                <p className="mt-4 text-sm leading-7 text-slate-300">
                   Convierte cada conversacion en una oportunidad atendida a tiempo.
                 </p>
               </div>
@@ -496,7 +496,7 @@ export default async function HomePage() {
               <div className="flex flex-col gap-3 sm:flex-row">
                 <Link
                   href="/register"
-                  className="inline-flex h-12 items-center justify-center gap-2 rounded-full bg-white px-6 text-sm font-semibold text-[#08111b] transition hover:bg-[#dff8f2]"
+                  className="inline-flex h-12 items-center justify-center gap-2 rounded-full bg-white px-6 text-sm font-semibold text-slate-950 transition hover:bg-teal-50"
                 >
                   Crear cuenta
                 </Link>

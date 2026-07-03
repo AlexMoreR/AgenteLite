@@ -256,7 +256,7 @@ export function ChatTagsControl({
         <PopoverTrigger asChild>
           <button
             type="button"
-            className="inline-flex h-6 items-center justify-center gap-1 rounded-full border border-dashed border-border bg-card px-2 text-[10px] font-medium text-muted-foreground transition hover:border-[var(--primary)] hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50"
+            className="inline-flex h-6 items-center justify-center gap-1 rounded-full border border-dashed border-border bg-card px-2 text-[10px] font-medium text-muted-foreground transition hover:border-primary hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50"
             aria-label="Agregar etiqueta"
             title="Agregar etiqueta"
           >
@@ -267,7 +267,7 @@ export function ChatTagsControl({
           align="start"
           side="bottom"
           sideOffset={8}
-          className="w-64 rounded-2xl border border-border bg-popover p-0 shadow-[0_24px_60px_-24px_rgba(15,23,42,0.35)]"
+          className="w-64 rounded-2xl border border-border bg-popover p-0 shadow-lg"
         >
           <div className="flex items-center justify-between border-b border-border px-3.5 py-2.5">
             <h3 className="text-[13px] font-semibold text-foreground">Etiquetas</h3>
@@ -301,7 +301,7 @@ export function ChatTagsControl({
                       >
                         <BsFillTagFill className="h-3.5 w-3.5 shrink-0" style={{ color: tag.color }} />
                         <span className="flex-1 truncate text-left text-[13px] text-foreground">{tag.name}</span>
-                        {isAssigned ? <Check className="h-3.5 w-3.5 shrink-0 text-[var(--primary)]" /> : null}
+                        {isAssigned ? <Check className="h-3.5 w-3.5 shrink-0 text-primary" /> : null}
                       </button>
                       {canDelete ? (
                         isConfirming ? (
@@ -355,7 +355,7 @@ export function ChatTagsControl({
                   name="name"
                   autoFocus
                   placeholder="Nombre de la etiqueta"
-                  className="h-9 w-full rounded-[12px] border border-border bg-background px-3 text-[13px] text-foreground outline-none transition focus:border-[var(--primary)]"
+                  className="h-9 w-full rounded-lg border border-border bg-background px-3 text-[13px] text-foreground outline-none transition focus:border-primary"
                 />
                 <div className="flex flex-wrap gap-2">
                   {PRESET_COLORS.map((color) => (
@@ -373,19 +373,19 @@ export function ChatTagsControl({
                     />
                   ))}
                 </div>
-                {state.error ? <p className="text-xs text-rose-500">{state.error}</p> : null}
+                {state.error ? <p className="text-xs text-destructive">{state.error}</p> : null}
                 <div className="flex gap-2 pt-0.5">
                   <button
                     type="button"
                     onClick={() => setShowForm(false)}
-                    className="h-8 flex-1 rounded-[10px] border border-border text-[12px] text-muted-foreground transition hover:bg-muted"
+                    className="h-8 flex-1 rounded-md border border-border text-[12px] text-muted-foreground transition hover:bg-muted"
                   >
                     Cancelar
                   </button>
                   <button
                     type="submit"
                     disabled={isPending}
-                    className="h-8 flex-1 rounded-[10px] bg-[var(--primary)] text-[12px] font-semibold text-white disabled:opacity-60"
+                    className="h-8 flex-1 rounded-md bg-primary text-[12px] font-semibold text-white disabled:opacity-60"
                   >
                     {isPending ? "Guardando…" : "Guardar"}
                   </button>
@@ -422,7 +422,7 @@ export function ChatTagsControl({
             <PopoverTrigger asChild>
               <button
                 type="button"
-                className="inline-flex h-6 shrink-0 items-center justify-center rounded-full border border-border bg-card px-2 text-[10px] font-semibold text-muted-foreground transition hover:border-[var(--primary)] hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50"
+                className="inline-flex h-6 shrink-0 items-center justify-center rounded-full border border-border bg-card px-2 text-[10px] font-semibold text-muted-foreground transition hover:border-primary hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50"
                 aria-label={`Ver ${hiddenTags.length} etiqueta${hiddenTags.length > 1 ? "s" : ""} más`}
                 title="Ver más etiquetas"
               >
@@ -433,7 +433,7 @@ export function ChatTagsControl({
               align="start"
               side="bottom"
               sideOffset={8}
-              className="w-60 rounded-2xl border border-border bg-popover p-2.5 shadow-[0_24px_60px_-24px_rgba(15,23,42,0.35)]"
+              className="w-60 rounded-2xl border border-border bg-popover p-2.5 shadow-lg"
             >
               <div className="flex flex-wrap gap-1.5">
                 {hiddenTags.map((tag) => renderTagBadge(tag, `overflow:${conversationId}:${tag.label}`))}

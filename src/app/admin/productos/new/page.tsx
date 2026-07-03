@@ -25,11 +25,11 @@ export default async function AdminNuevoProductoPage() {
     <section className="w-full space-y-5">
       <div className="flex flex-wrap items-start gap-3">
         <div>
-          <h1 className="inline-flex items-center gap-1 text-lg font-semibold tracking-tight text-slate-900 md:text-xl">
-            <PackagePlus className="h-4 w-4 text-slate-500" />
+          <h1 className="inline-flex items-center gap-1 text-lg font-semibold tracking-tight text-foreground md:text-xl">
+            <PackagePlus className="h-4 w-4 text-muted-foreground" />
             <span>Nuevo producto</span>
           </h1>
-          <p className="mt-0.5 text-[13px] leading-5 text-slate-600">
+          <p className="mt-0.5 text-[13px] leading-5 text-muted-foreground">
             Define costo, porcentaje y precio final comercial antes de guardar el producto.
           </p>
         </div>

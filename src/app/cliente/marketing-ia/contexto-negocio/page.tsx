@@ -42,23 +42,23 @@ export default async function MarketingBusinessContextPage({ searchParams }: Pag
   const progressToneClasses =
     robot.tone === "ready"
       ? {
-          card: "border-emerald-100 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(240,253,244,0.96))] shadow-[0_16px_30px_-24px_rgba(5,150,105,0.2)]",
-          robot: "border-emerald-100 bg-[linear-gradient(180deg,#f7fffb,#ecfdf5)] text-emerald-500",
+          card: "border-emerald-100 bg-emerald-50 shadow-sm",
+          robot: "border-emerald-100 bg-emerald-50 text-emerald-500",
           eyebrow: "text-emerald-500",
           value: "text-emerald-700",
           label: "text-emerald-600",
         }
       : robot.tone === "mid"
         ? {
-            card: "border-amber-100 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(255,251,235,0.96))] shadow-[0_16px_30px_-24px_rgba(217,119,6,0.18)]",
-            robot: "border-amber-100 bg-[linear-gradient(180deg,#fffdf7,#fffbeb)] text-amber-500",
+            card: "border-amber-100 bg-amber-50 shadow-sm",
+            robot: "border-amber-100 bg-amber-50 text-amber-500",
             eyebrow: "text-amber-500",
             value: "text-amber-700",
             label: "text-amber-600",
           }
         : {
-            card: "border-red-100 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(255,244,244,0.96))] shadow-[0_16px_30px_-24px_rgba(127,29,29,0.18)]",
-            robot: "border-red-100 bg-[linear-gradient(180deg,#fff8f8,#fff0f0)] text-red-500",
+            card: "border-red-100 bg-red-50 shadow-sm",
+            robot: "border-red-100 bg-red-50 text-red-500",
             eyebrow: "text-red-400",
             value: "text-red-700",
             label: "text-red-500",
@@ -108,15 +108,15 @@ export default async function MarketingBusinessContextPage({ searchParams }: Pag
         errorTitle="No pudimos guardar la informacion"
       />
 
-      <div className="relative overflow-hidden rounded-[28px] border border-[var(--line)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(240,247,255,0.94))] p-6 shadow-[0_24px_54px_-40px_rgba(15,23,42,0.14)] sm:p-7">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(37,99,235,0.12),transparent_30%)]" />
+      <div className="relative overflow-hidden rounded-2xl border bg-card p-6 shadow-sm sm:p-7">
+        <div className="pointer-events-none absolute inset-0" />
         <div className="relative flex flex-wrap items-start justify-between gap-5">
           <div className="space-y-4">
             <div className="flex items-center gap-3">
-              <div className="inline-flex h-11 w-11 items-center justify-center rounded-[16px] bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
+              <div className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
                 <Building2 className="h-4.5 w-4.5" />
               </div>
-              <h1 className="text-[1.2rem] font-semibold tracking-[-0.04em] text-slate-950 sm:text-[1.45rem]">
+              <h1 className="text-[1.2rem] font-semibold tracking-tight text-foreground sm:text-[1.45rem]">
                 Contexto del negocio
               </h1>
             </div>
@@ -133,16 +133,16 @@ export default async function MarketingBusinessContextPage({ searchParams }: Pag
             </div>
           </div>
 
-          <div className={`rounded-[24px] p-4 ${progressToneClasses.card}`}>
+          <div className={`rounded-2xl p-4 ${progressToneClasses.card}`}>
             <div className="flex items-center gap-3">
-              <div className={`flex h-20 w-20 items-center justify-center rounded-[18px] border text-[2.4rem] leading-none ${progressToneClasses.robot}`}>
+              <div className={`flex h-20 w-20 items-center justify-center rounded-xl border text-[2.4rem] leading-none ${progressToneClasses.robot}`}>
                 {robot.lines.map((line) => (
                   <div key={line}>{line}</div>
                 ))}
               </div>
               <div>
-                <p className={`text-[11px] font-semibold uppercase tracking-[0.16em] ${progressToneClasses.eyebrow}`}>Progreso</p>
-                <p className={`text-2xl font-semibold tracking-[-0.04em] ${progressToneClasses.value}`}>{completion}%</p>
+                <p className={`text-xs font-semibold uppercase tracking-widest ${progressToneClasses.eyebrow}`}>Progreso</p>
+                <p className={`text-2xl font-semibold tracking-tight ${progressToneClasses.value}`}>{completion}%</p>
                 <p className={`text-sm ${progressToneClasses.label}`}>{robot.label}</p>
               </div>
             </div>
@@ -151,10 +151,10 @@ export default async function MarketingBusinessContextPage({ searchParams }: Pag
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-        <Card className="rounded-[28px] p-6">
+        <Card className="rounded-2xl p-6">
           <div className="mb-5 flex items-center gap-3">
-            <Megaphone className="h-5 w-5 text-[var(--primary)]" />
-            <h2 className="text-xl font-semibold tracking-[-0.04em] text-slate-950">
+            <Megaphone className="h-5 w-5 text-primary" />
+            <h2 className="text-xl font-semibold tracking-tight text-foreground">
               Informacion base del negocio
             </h2>
           </div>
@@ -172,10 +172,10 @@ export default async function MarketingBusinessContextPage({ searchParams }: Pag
           </div>
         </Card>
 
-        <Card className="rounded-[28px] p-6">
+        <Card className="rounded-2xl p-6">
           <div className="mb-5 flex items-center gap-3">
-            <Users2 className="h-5 w-5 text-[var(--primary)]" />
-            <h2 className="text-xl font-semibold tracking-[-0.04em] text-slate-950">
+            <Users2 className="h-5 w-5 text-primary" />
+            <h2 className="text-xl font-semibold tracking-tight text-foreground">
               Senales utiles para marketing
             </h2>
           </div>
@@ -216,7 +216,7 @@ export default async function MarketingBusinessContextPage({ searchParams }: Pag
       <Card className="rounded-[28px] p-6">
         <div className="space-y-4">
           <div className="space-y-2">
-            <h2 className="text-xl font-semibold tracking-[-0.04em] text-slate-950">
+            <h2 className="text-xl font-semibold tracking-tight text-foreground">
               Resporte del marketing
             </h2>
           </div>
@@ -238,9 +238,9 @@ function InfoBlock({
   wide?: boolean;
 }) {
   return (
-    <div className={`rounded-[22px] border border-[var(--line)] bg-slate-50 p-4 ${wide ? "md:col-span-2" : ""}`}>
-      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</p>
-      <p className="mt-2 text-sm leading-6 text-slate-800">{value}</p>
+    <div className={`rounded-2xl border bg-muted p-4 ${wide ? "md:col-span-2" : ""}`}>
+      <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">{label}</p>
+      <p className="mt-2 text-sm leading-6 text-foreground">{value}</p>
     </div>
   );
 }
@@ -255,12 +255,12 @@ function ContextChip({
   body: string;
 }) {
   return (
-    <div className="rounded-[22px] border border-[var(--line)] bg-slate-50 p-4">
-      <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-        <span className="text-[var(--primary)]">{icon}</span>
+    <div className="rounded-2xl border bg-muted p-4">
+      <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+        <span className="text-primary">{icon}</span>
         <span>{title}</span>
       </div>
-      <p className="mt-2 text-sm leading-6 text-slate-600">{body}</p>
+      <p className="mt-2 text-sm leading-6 text-muted-foreground">{body}</p>
     </div>
   );
 }

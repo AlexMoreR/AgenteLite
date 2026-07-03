@@ -35,7 +35,7 @@ export function ProductImportExportControls() {
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--line)] bg-white text-slate-700 transition hover:bg-slate-50"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-card text-foreground transition hover:bg-muted"
             aria-label="Opciones de importacion y exportacion"
           >
             <MoreHorizontal className="h-4 w-4" />
@@ -55,7 +55,7 @@ export function ProductImportExportControls() {
 
       {openModal === "import" && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-[#11182752] px-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
           role="dialog"
           aria-modal="true"
           aria-label="Importar productos"
@@ -67,23 +67,23 @@ export function ProductImportExportControls() {
           >
             <div className="mb-4 flex items-start justify-between gap-3">
               <div>
-                <h2 className="text-lg font-semibold text-slate-900">Importar productos</h2>
-                <p className="mt-1 text-sm text-slate-600">
+                <h2 className="text-lg font-semibold text-foreground">Importar productos</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
                   Sube un archivo CSV para crear productos en lote.
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setOpenModal(null)}
-                className="rounded-lg border border-[var(--line)] px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                className="rounded-lg border border-border px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted"
               >
                 Cerrar
               </button>
             </div>
 
-            <div className="rounded-lg border border-[var(--line)] bg-slate-50 px-3 py-2.5">
-              <p className="text-xs font-medium text-slate-600">Formato recomendado</p>
-              <code className="mt-1 block overflow-x-auto whitespace-nowrap rounded-md bg-white px-2 py-1 text-[11px] text-slate-700">
+            <div className="rounded-lg border border-border bg-muted px-3 py-2.5">
+              <p className="text-xs font-medium text-muted-foreground">Formato recomendado</p>
+              <code className="mt-1 block overflow-x-auto whitespace-nowrap rounded-md bg-card px-2 py-1 text-[11px] text-foreground">
                 Codigo, Nombre, Descripcion, Costo, %Detal, %Mayor, MinMayor, Categoria, Proveedor, Imagen
               </code>
             </div>
@@ -107,7 +107,7 @@ export function ProductImportExportControls() {
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="inline-flex h-10 w-full items-center justify-center gap-1 rounded-lg bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
+                className="inline-flex h-10 w-full items-center justify-center gap-1 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"
               >
                 <FileSpreadsheet className="h-4 w-4" />
                 Importar por CSV
@@ -119,7 +119,7 @@ export function ProductImportExportControls() {
 
       {openModal === "export" && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-[#11182752] px-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
           role="dialog"
           aria-modal="true"
           aria-label="Exportar productos"
@@ -131,15 +131,15 @@ export function ProductImportExportControls() {
           >
             <div className="mb-4 flex items-start justify-between gap-3">
               <div>
-                <h2 className="text-lg font-semibold text-slate-900">Exportar productos</h2>
-                <p className="mt-1 text-sm text-slate-600">
+                <h2 className="text-lg font-semibold text-foreground">Exportar productos</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
                   Descarga tu catalogo actual en CSV para respaldo o edicion masiva.
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setOpenModal(null)}
-                className="rounded-lg border border-[var(--line)] px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                className="rounded-lg border border-border px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted"
               >
                 Cerrar
               </button>
@@ -147,7 +147,7 @@ export function ProductImportExportControls() {
 
             <Link
               href="/admin/productos/export"
-              className="inline-flex h-10 w-full items-center justify-center gap-1 rounded-lg bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
+              className="inline-flex h-10 w-full items-center justify-center gap-1 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"
               onClick={() => setOpenModal(null)}
             >
               <Download className="h-4 w-4" />

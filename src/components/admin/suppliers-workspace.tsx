@@ -50,18 +50,18 @@ export function SuppliersWorkspace({ suppliers }: SuppliersWorkspaceProps) {
     <>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="inline-flex items-center gap-1 text-lg font-semibold tracking-tight text-slate-900 md:text-xl">
-            <Truck className="h-4 w-4 text-slate-500" />
+          <h1 className="inline-flex items-center gap-1 text-lg font-semibold tracking-tight text-foreground md:text-xl">
+            <Truck className="h-4 w-4 text-muted-foreground" />
             <span>Proveedores</span>
           </h1>
-          <p className="mt-1 text-xs text-slate-600">
+          <p className="mt-1 text-xs text-muted-foreground">
             Crea, edita y elimina proveedores del catalogo.
           </p>
         </div>
         <button
           type="button"
           onClick={openNewModal}
-          className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
+          className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"
         >
           <Plus className="h-4 w-4" />
           Nuevo proveedor
@@ -72,7 +72,7 @@ export function SuppliersWorkspace({ suppliers }: SuppliersWorkspaceProps) {
 
       {modal === "new" ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-[#11182752] px-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4"
           role="dialog"
           aria-modal="true"
           aria-label="Nuevo proveedor"
@@ -83,11 +83,11 @@ export function SuppliersWorkspace({ suppliers }: SuppliersWorkspaceProps) {
             onClick={(event) => event.stopPropagation()}
           >
             <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-slate-900">Nuevo proveedor</h2>
+              <h2 className="text-lg font-semibold text-foreground">Nuevo proveedor</h2>
               <button
                 type="button"
                 onClick={closeModal}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--line)] text-slate-600 transition hover:bg-slate-50"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border text-muted-foreground transition hover:bg-muted"
                 aria-label="Cerrar"
               >
                 <X className="h-4 w-4" />
@@ -96,22 +96,22 @@ export function SuppliersWorkspace({ suppliers }: SuppliersWorkspaceProps) {
 
             <form action={adminCreateSupplierAction} className="space-y-3">
               <label className="block space-y-1.5">
-                <span className="text-sm font-medium text-slate-700">Nombre</span>
+                <span className="text-sm font-medium text-foreground">Nombre</span>
                 <Input name="name" placeholder="Ej. Textiles Andina" required />
               </label>
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="block space-y-1.5">
-                  <span className="text-sm font-medium text-slate-700">Correo</span>
+                  <span className="text-sm font-medium text-foreground">Correo</span>
                   <Input name="email" type="email" placeholder="ventas@proveedor.com" />
                 </label>
                 <label className="block space-y-1.5">
-                  <span className="text-sm font-medium text-slate-700">Telefono</span>
+                  <span className="text-sm font-medium text-foreground">Telefono</span>
                   <Input name="phone" placeholder="+57 300..." />
                 </label>
               </div>
               <button
                 type="submit"
-                className="inline-flex h-10 w-full items-center justify-center rounded-lg bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
+                className="inline-flex h-10 w-full items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"
               >
                 Guardar proveedor
               </button>
@@ -122,7 +122,7 @@ export function SuppliersWorkspace({ suppliers }: SuppliersWorkspaceProps) {
 
       {modal === "edit" && activeSupplier ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-[#11182752] px-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4"
           role="dialog"
           aria-modal="true"
           aria-label={`Editar ${activeSupplier.name}`}
@@ -133,11 +133,11 @@ export function SuppliersWorkspace({ suppliers }: SuppliersWorkspaceProps) {
             onClick={(event) => event.stopPropagation()}
           >
             <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-slate-900">Editar proveedor</h2>
+              <h2 className="text-lg font-semibold text-foreground">Editar proveedor</h2>
               <button
                 type="button"
                 onClick={closeModal}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--line)] text-slate-600 transition hover:bg-slate-50"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border text-muted-foreground transition hover:bg-muted"
                 aria-label="Cerrar"
               >
                 <X className="h-4 w-4" />
@@ -147,12 +147,12 @@ export function SuppliersWorkspace({ suppliers }: SuppliersWorkspaceProps) {
             <form action={adminUpdateSupplierAction} className="space-y-3">
               <input type="hidden" name="supplierId" value={activeSupplier.id} />
               <label className="block space-y-1.5">
-                <span className="text-sm font-medium text-slate-700">Nombre</span>
+                <span className="text-sm font-medium text-foreground">Nombre</span>
                 <Input name="name" defaultValue={activeSupplier.name} required />
               </label>
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="block space-y-1.5">
-                  <span className="text-sm font-medium text-slate-700">Correo</span>
+                  <span className="text-sm font-medium text-foreground">Correo</span>
                   <Input
                     name="email"
                     type="email"
@@ -161,7 +161,7 @@ export function SuppliersWorkspace({ suppliers }: SuppliersWorkspaceProps) {
                   />
                 </label>
                 <label className="block space-y-1.5">
-                  <span className="text-sm font-medium text-slate-700">Telefono</span>
+                  <span className="text-sm font-medium text-foreground">Telefono</span>
                   <Input
                     name="phone"
                     defaultValue={activeSupplier.phone ?? ""}
@@ -171,7 +171,7 @@ export function SuppliersWorkspace({ suppliers }: SuppliersWorkspaceProps) {
               </div>
               <button
                 type="submit"
-                className="inline-flex h-10 w-full items-center justify-center rounded-lg bg-[var(--primary)] px-4 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
+                className="inline-flex h-10 w-full items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"
               >
                 Guardar cambios
               </button>
