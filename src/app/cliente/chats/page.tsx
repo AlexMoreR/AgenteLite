@@ -14,6 +14,7 @@ import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { dedupeAndSortConversationListRows } from "@/lib/chat-conversation-list";
 import { fetchEvolutionProfilePictureUrl } from "@/lib/evolution";
 import { extractEvolutionPhoneNumber, isEvolutionStatusBroadcastPayload, normalizePhoneFromJid } from "@/lib/evolution-webhook";
+import { getOfficialApiChatsData } from "@/features/official-api/services/getOfficialApiChatsData";
 import { getEvolutionSettings } from "@/lib/system-settings";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
@@ -32,7 +33,7 @@ type PageProps = {
 
 type UnifiedConversation = {
   key: string;
-  source: "agent";
+  source: "agent" | "official";
   conversationId: string;
   agentId?: string;
   channelId?: string;
@@ -172,11 +173,14 @@ function getConversationPreviewLabel(type?: UnifiedConversation["lastMessageType
   return "";
 }
 
-function parseChatKey(input: string): { source: "agent"; conversationId: string } | null {
+function parseChatKey(input: string): { source: "agent" | "official"; conversationId: string } | null {
   if (!input) return null;
   const [source, ...rest] = input.split(":");
   const conversationId = rest.join(":");
   if (source === "agent" && conversationId) {
+    return { source, conversationId };
+  }
+  if (source === "official" && conversationId) {
     return { source, conversationId };
   }
   return null;
@@ -304,7 +308,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     ],
   };
 
-  const [evolutionSettings, channels, agentConversationsRaw] = await Promise.all([
+  const [evolutionSettings, channels, agentConversationsRaw, officialChatsData] = await Promise.all([
     getEvolutionSettings(),
     prisma.whatsAppChannel.findMany({
       where: { workspaceId: membership.workspace.id },
@@ -346,6 +350,12 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           },
         },
       },
+    }),
+    getOfficialApiChatsData({
+      workspaceId: membership.workspace.id,
+      conversationId: selectedChatRef?.source === "official" ? selectedChatRef.conversationId : undefined,
+      q: searchQuery || undefined,
+      includeSelectedConversation: true,
     }),
   ]);
 
@@ -611,6 +621,26 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     };
   });
 
+  const officialRows: UnifiedConversation[] = officialChatsData.conversations.map((conversation) => ({
+    key: `official:${conversation.id}`,
+    source: "official",
+    conversationId: conversation.id,
+    label: conversation.contact.name?.trim() || conversation.contact.phoneNumber?.trim() || conversation.contact.waId,
+    secondaryLabel: conversation.contact.phoneNumber?.trim() || conversation.contact.waId,
+    contactId: conversation.contact.id,
+    tags: [],
+    avatarUrl: null,
+    incomingCount: selectedChatRef?.source === "official" && selectedChatRef.conversationId === conversation.id
+      ? 0
+      : conversation.incomingCount ?? 0,
+    assignedToName: null,
+    lastMessage: conversation.lastMessage?.content ?? null,
+    lastMessageType: conversation.lastMessage?.type ?? null,
+    lastMessageDirection: conversation.lastMessage?.direction ?? null,
+    lastMessageAt: conversation.lastMessage?.createdAt ?? null,
+    activeProductContext: null,
+  }));
+
   const selectedConnectionKey = selectedConnectionParam;
   const sidebarItems = channels.map((channel) => ({
     id: `channel:${channel.id}`,
@@ -624,9 +654,9 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       | "whatsapp"
       | "whatsapp_official",
   }));
-  const merged = dedupeAndSortConversationListRows(agentRows)
-    .filter((item) => {
-      if (!searchQuery) return true;
+  const merged = dedupeAndSortConversationListRows([...agentRows, ...officialRows])
+      .filter((item) => {
+        if (!searchQuery) return true;
       const q = searchQuery.toLowerCase();
       return (
         item.label.toLowerCase().includes(q) ||
@@ -770,6 +800,58 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       loadMoreCursor: hasRealMessages ? detail?.loadMoreCursor ?? null : null,
       loadMoreHref: null,
       // Si trajimos mensajes reales NO es preview: el chat se muestra completo de una.
+      isPreview: !hasRealMessages,
+    };
+  } else if (selectedUnified?.source === "official") {
+    const detail = officialChatsData.selectedConversation;
+    const detailMessages = detail?.messages.map((message) => ({
+      id: message.id,
+      content: message.content,
+      direction: message.direction,
+      createdAt: message.createdAt,
+      editedAt: null,
+      deletedAt: null,
+      authorType: (message.direction === "OUTBOUND" ? "bot" : "user") as "user" | "bot",
+      outboundStatusLabel: message.direction === "OUTBOUND" ? message.status : null,
+      type: message.type,
+      mediaUrl: message.mediaUrl,
+      rawPayload: message.rawPayload,
+    })) ?? [];
+
+    const previewText = selectedUnified.lastMessage?.trim() || getConversationPreviewLabel(selectedUnified.lastMessageType);
+    const previewDirection = selectedUnified.lastMessageDirection || "INBOUND";
+    const previewCreatedAt = selectedUnified.lastMessageAt ?? new Date();
+    const previewMessages = previewText
+      ? [{
+          id: `${selectedUnified.key}:preview`,
+          content: previewText,
+          direction: previewDirection,
+          createdAt: previewCreatedAt,
+          editedAt: null,
+          deletedAt: null,
+          authorType: (previewDirection === "OUTBOUND" ? "bot" : "user") as "user" | "bot",
+          outboundStatusLabel: null,
+          type: (selectedUnified.lastMessageType ?? "TEXT") as NonNullable<UnifiedConversation["lastMessageType"]>,
+          mediaUrl: null,
+          rawPayload: null,
+        }]
+      : [];
+    const hasRealMessages = detailMessages.length > 0;
+
+    selectedConversation = {
+      id: selectedUnified.conversationId,
+      label: selectedUnified.label,
+      secondaryLabel: selectedUnified.secondaryLabel,
+      tags: selectedUnified.tags ?? [],
+      avatarUrl: selectedUnified.avatarUrl ?? null,
+      contactId: selectedUnified.contactId ?? null,
+      contactName: selectedUnified.label,
+      automationPaused: false,
+      cacheKey: selectedUnified.key,
+      messages: hasRealMessages ? detailMessages : previewMessages,
+      hasMoreMessages: false,
+      loadMoreCursor: null,
+      loadMoreHref: null,
       isPreview: !hasRealMessages,
     };
   }

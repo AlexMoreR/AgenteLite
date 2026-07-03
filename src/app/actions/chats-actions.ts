@@ -14,6 +14,8 @@ import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
 import { deleteEvolutionMessageForEveryone, sendEvolutionTextMessage } from "@/lib/evolution";
 import { normalizeInternalPath } from "@/lib/app-url";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
+import { getOfficialApiConfigByWorkspaceId, hasOfficialApiBaseCredentials } from "@/lib/official-api-config";
+import { sendOfficialApiTextMessage } from "@/lib/official-api-messaging";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { Prisma } from "@prisma/client";
@@ -533,7 +535,7 @@ export async function resetContactAction(formData: FormData): Promise<void> {
 }
 
 const sendUnifiedChatReplySchema = z.object({
-  source: z.literal("agent"),
+  source: z.enum(["agent", "official"]),
   conversationId: z.string().trim().min(1),
   message: z.string().trim().min(1).max(4096),
   agentId: z.string().trim().optional(),
@@ -565,11 +567,80 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
     return { ok: false, error: "No se pudo enviar el mensaje" };
   }
 
+  const safeReturnTo = normalizeInternalPath(parsed.data.returnTo, "");
+
+  if (parsed.data.source === "official") {
+    const session = await auth();
+    if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
+      return { ok: false, error: "No autorizado" };
+    }
+    await requireClientWorkspaceAccess("chats");
+
+    const membership = await getPrimaryWorkspaceForUser(session.user.id);
+    if (!membership?.workspace.id) {
+      return { ok: false, error: "Workspace no encontrado" };
+    }
+
+    const config = await getOfficialApiConfigByWorkspaceId(membership.workspace.id);
+    if (!config || !hasOfficialApiBaseCredentials(config)) {
+      return { ok: false, error: "La API oficial no esta activa" };
+    }
+
+    const conversationRows = await prisma.$queryRaw<Array<{
+      id: string;
+      contactId: string;
+      contactWaId: string | null;
+    }>>`
+      SELECT
+        c."id",
+        ct."id" AS "contactId",
+        ct."waId" AS "contactWaId"
+      FROM "OfficialApiConversation" c
+      INNER JOIN "OfficialApiContact" ct
+        ON ct."id" = c."contactId"
+      WHERE c."id" = ${parsed.data.conversationId}
+        AND c."configId" = ${config.id}
+      LIMIT 1
+    `;
+
+    const conversation = conversationRows[0] ?? null;
+    if (!conversation?.contactWaId) {
+      return { ok: false, error: "No se encontro el contacto oficial" };
+    }
+
+    const result = await sendOfficialApiTextMessage({
+      config,
+      conversationId: conversation.id,
+      contactId: conversation.contactId,
+      to: conversation.contactWaId,
+      message: parsed.data.message,
+      source: "manual",
+    });
+
+    if (!result.ok) {
+      return { ok: false, error: result.error };
+    }
+
+    await syncLeadLifecycleForContact({
+      workspaceId: membership.workspace.id,
+      contactId: conversation.contactId,
+      hasHistory: true,
+    });
+
+    revalidatePath("/cliente/chats");
+    revalidatePath("/cliente/api-oficial");
+    revalidatePath("/cliente/api-oficial/chats");
+    if (safeReturnTo) {
+      revalidatePath(safeReturnTo);
+    }
+
+    return { ok: true };
+  }
+
   if (!parsed.data.agentId) {
     return { ok: false, error: "No se encontro el agente" };
   }
 
-  const safeReturnTo = normalizeInternalPath(parsed.data.returnTo, "");
   const nextData = new FormData();
   nextData.set("agentId", parsed.data.agentId);
   nextData.set("conversationId", parsed.data.conversationId);
