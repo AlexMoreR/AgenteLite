@@ -640,7 +640,7 @@ export async function adminUpdateOfficialApiConfigAction(formData: FormData): Pr
     },
   });
 
-  if (!user || user.role !== "CLIENTE") {
+  if (!user || (user.role !== "CLIENTE" && user.role !== "ADMIN")) {
     redirect("/admin/configuracion/usuarios?error=Cliente+no+encontrado");
   }
 

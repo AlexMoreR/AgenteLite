@@ -28,7 +28,6 @@ import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { NewConnectionChannelModal } from "./NewConnectionChannelModal";
 
 type ConnectionsWorkspaceProps = {
-  officialApiEnabled: boolean;
   officialApiEmbeddedSignupReady: boolean;
   officialApiProviderAppId: string;
   officialApiProviderConfigId: string;
@@ -58,7 +57,6 @@ type ConnectionsWorkspaceProps = {
 };
 
 export function ConnectionsWorkspaceV2({
-  officialApiEnabled,
   officialApiEmbeddedSignupReady,
   officialApiProviderAppId,
   officialApiProviderConfigId,
@@ -88,7 +86,6 @@ export function ConnectionsWorkspaceV2({
 
         <NewConnectionChannelModal
           canSeeOfficialApiModule={canSeeOfficialApiModule}
-          officialApiEnabled={officialApiEnabled}
           officialApiEmbeddedSignupReady={officialApiEmbeddedSignupReady}
           officialApiProviderAppId={officialApiProviderAppId}
           officialApiProviderConfigId={officialApiProviderConfigId}

@@ -3,7 +3,6 @@ import { redirect } from "next/navigation";
 import {
   ConnectionsTabsShell,
   ConnectionsWorkspace,
-  getConnectionsOverview,
   getWhatsAppBusinessConnections,
 } from "@/features/conexion";
 import { DailyReportPanel, getDailyReports } from "@/features/reportes";
@@ -32,8 +31,7 @@ export default async function ClienteConexionPage({ searchParams }: PageProps) {
     redirect("/cliente?error=Debes+crear+tu+negocio+primero");
   }
 
-  const [overview, connections, moduleAccess, dailyReports, reportConfig, providerSettings, params] = await Promise.all([
-    getConnectionsOverview(membership.workspace.id),
+  const [connections, moduleAccess, dailyReports, reportConfig, providerSettings, params] = await Promise.all([
     getWhatsAppBusinessConnections(membership.workspace.id),
     getAdminModuleAccess(access.userId, access.role),
     getDailyReports(membership.workspace.id),
@@ -69,7 +67,6 @@ export default async function ClienteConexionPage({ searchParams }: PageProps) {
     <ConnectionsTabsShell
       conexiones={
         <ConnectionsWorkspace
-          officialApiEnabled={overview.officialApiEnabled}
           officialApiEmbeddedSignupReady={officialApiEmbeddedSignupReady}
           officialApiProviderAppId={providerSettings.appId}
           officialApiProviderConfigId={providerSettings.configId}

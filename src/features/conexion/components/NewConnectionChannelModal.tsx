@@ -37,7 +37,6 @@ type EmbeddedSignupFinishPayload = {
 
 type NewConnectionChannelModalProps = {
   canSeeOfficialApiModule: boolean;
-  officialApiEnabled: boolean;
   officialApiEmbeddedSignupReady: boolean;
   officialApiProviderAppId: string;
   officialApiProviderConfigId: string;
@@ -49,7 +48,6 @@ type NewConnectionChannelModalProps = {
 
 export function NewConnectionChannelModal({
   canSeeOfficialApiModule,
-  officialApiEnabled,
   officialApiEmbeddedSignupReady,
   officialApiProviderAppId,
   officialApiProviderConfigId,
@@ -58,11 +56,26 @@ export function NewConnectionChannelModal({
   const [open, setOpen] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<ConnectionProvider | null>(null);
   const [channelName, setChannelName] = useState("");
+  const [officialApiForm, setOfficialApiForm] = useState({
+    embeddedCode: "",
+    sessionResponse: "",
+    appId: "",
+    appSecret: "",
+    accessToken: "",
+    phoneNumberId: "",
+    wabaId: "",
+  });
   const [coexistenceResult, setCoexistenceResult] = useState<{
     ok: boolean;
     message: string;
   } | null>(null);
+  const [officialApiResult, setOfficialApiResult] = useState<{
+    ok: boolean;
+    message: string;
+  } | null>(null);
   const [isLaunchingCoexistence, setIsLaunchingCoexistence] = useState(false);
+  const [isSavingOfficialApi, setIsSavingOfficialApi] = useState(false);
+  const [isImportingOfficialApi, setIsImportingOfficialApi] = useState(false);
   const metaCodeRef = useRef<string>("");
   const sessionResponseRef = useRef<string>("");
   const sdkReadyRef = useRef(false);
@@ -86,7 +99,19 @@ export function NewConnectionChannelModal({
     setSelectedProvider(null);
     setChannelName("");
     setCoexistenceResult(null);
+    setOfficialApiResult(null);
     setIsLaunchingCoexistence(false);
+    setIsSavingOfficialApi(false);
+    setIsImportingOfficialApi(false);
+    setOfficialApiForm({
+      embeddedCode: "",
+      sessionResponse: "",
+      appId: "",
+      appSecret: "",
+      accessToken: "",
+      phoneNumberId: "",
+      wabaId: "",
+    });
     metaCodeRef.current = "";
     sessionResponseRef.current = "";
   };
@@ -170,6 +195,148 @@ export function NewConnectionChannelModal({
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
   }, [open, selectedProvider]);
+
+  const updateOfficialApiField = (field: keyof typeof officialApiForm, value: string) => {
+    setOfficialApiForm((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  };
+
+  const handleImportOfficialApiFromMeta = async () => {
+    if (!officialApiForm.sessionResponse.trim()) {
+      setOfficialApiResult({
+        ok: false,
+        message: "Pega primero la respuesta de registro de la sesion de Meta.",
+      });
+      return;
+    }
+
+    setIsImportingOfficialApi(true);
+    setOfficialApiResult(null);
+
+    try {
+      const response = await fetch("/api/cliente/conexion/official-api/import-embedded-signup", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          code: officialApiForm.embeddedCode,
+          sessionResponse: officialApiForm.sessionResponse,
+          accessToken: officialApiForm.accessToken,
+          appId: officialApiForm.appId,
+          appSecret: officialApiForm.appSecret,
+        }),
+      });
+
+      const payload = (await response.json().catch(() => null)) as
+        | {
+            ok?: boolean;
+            accessToken?: string;
+            phoneNumberId?: string;
+            wabaId?: string;
+            error?: string;
+          }
+        | null;
+
+      if (!response.ok || !payload?.ok) {
+        throw new Error(payload?.error || "No se pudo importar la configuracion desde Meta.");
+      }
+
+      setOfficialApiForm((current) => ({
+        ...current,
+        accessToken: payload.accessToken || current.accessToken,
+        phoneNumberId: payload.phoneNumberId || current.phoneNumberId,
+        wabaId: payload.wabaId || current.wabaId,
+      }));
+
+      setOfficialApiResult({
+        ok: true,
+        message: "Importamos el token y los IDs de Meta. Ahora ya puedes guardar el canal oficial.",
+      });
+    } catch (error) {
+      setOfficialApiResult({
+        ok: false,
+        message:
+          error instanceof Error
+            ? error.message
+            : "No se pudo importar la configuracion de Meta.",
+      });
+    } finally {
+      setIsImportingOfficialApi(false);
+    }
+  };
+
+  const handleCreateOfficialApiChannel = async () => {
+    if (!channelName.trim()) {
+      setOfficialApiResult({
+        ok: false,
+        message: "Escribe primero el nombre del canal.",
+      });
+      return;
+    }
+
+    if (!officialApiForm.accessToken.trim() || !officialApiForm.phoneNumberId.trim() || !officialApiForm.wabaId.trim()) {
+      setOfficialApiResult({
+        ok: false,
+        message: "Completa access token, phone number ID y WABA ID para continuar.",
+      });
+      return;
+    }
+
+    setIsSavingOfficialApi(true);
+    setOfficialApiResult(null);
+
+    try {
+      const response = await fetch("/api/cliente/conexion/official-api/setup", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: channelName,
+          accessToken: officialApiForm.accessToken,
+          phoneNumberId: officialApiForm.phoneNumberId,
+          wabaId: officialApiForm.wabaId,
+          agentId: targetAgent?.id,
+        }),
+      });
+
+      const payload = (await response.json().catch(() => null)) as
+        | {
+            ok?: boolean;
+            channelId?: string;
+            error?: string;
+          }
+        | null;
+
+      if (!response.ok || !payload?.ok || !payload.channelId) {
+        throw new Error(payload?.error || "No se pudo guardar la API oficial.");
+      }
+
+      setOfficialApiResult({
+        ok: true,
+        message: "API oficial guardada y canal creado. Vamos a recargar la pagina para mostrarlo.",
+      });
+
+      window.setTimeout(() => {
+        const params = new URLSearchParams();
+        params.set("ok", targetAgent ? "Canal+oficial+creado+y+vinculado" : "Canal+oficial+creado");
+        if (targetAgent?.id) {
+          params.set("agentId", targetAgent.id);
+        }
+        window.location.href = `/cliente/conexion?${params.toString()}`;
+      }, 800);
+    } catch (error) {
+      setOfficialApiResult({
+        ok: false,
+        message: error instanceof Error ? error.message : "No se pudo crear el canal oficial.",
+      });
+    } finally {
+      setIsSavingOfficialApi(false);
+    }
+  };
 
   const handleLaunchCoexistence = async () => {
     if (!channelName.trim()) {
@@ -417,6 +584,206 @@ export function NewConnectionChannelModal({
                     </button>
                   </div>
                 </div>
+              ) : selectedProvider === "OFFICIAL_API" ? (
+                <div className="mt-6 space-y-5">
+                  <div className="space-y-2">
+                    <label htmlFor="official-api-channel-name" className="text-sm font-medium text-slate-700">
+                      Nombre del canal
+                    </label>
+                    <input
+                      id="official-api-channel-name"
+                      name="name"
+                      type="text"
+                      required
+                      autoFocus
+                      value={channelName}
+                      onChange={(event) => setChannelName(event.target.value)}
+                      placeholder="Ej. WhatsApp oficial principal"
+                      className="h-12 w-full rounded-2xl border border-[rgba(148,163,184,0.18)] bg-white px-4 text-sm text-slate-900 outline-none transition focus:border-[var(--primary)] focus:ring-4 focus:ring-[color:color-mix(in_srgb,var(--primary)_12%,white)]"
+                    />
+                  </div>
+
+                  <div className="rounded-[24px] border border-[var(--line)] bg-slate-50 px-4 py-4 text-sm leading-6 text-slate-600">
+                    Completa aqui mismo la configuracion de Meta para dejar activa la API oficial en el workspace y crear el canal sin pasar por administracion.
+                  </div>
+
+                  <div className="rounded-[24px] border border-[rgba(148,163,184,0.18)] bg-white p-4">
+                    <div className="space-y-1">
+                      <h3 className="text-sm font-semibold text-slate-900">Importar desde Embedded Signup</h3>
+                      <p className="text-sm leading-6 text-slate-600">
+                        Si Meta ya te devolvio el code y la respuesta de sesion, pegalos aqui y llenamos el token y los IDs automaticamente.
+                      </p>
+                    </div>
+
+                    <div className="mt-4 grid gap-4">
+                      <div className="space-y-2">
+                        <label htmlFor="official-api-embedded-code" className="text-sm font-medium text-slate-700">
+                          Code de registro insertado
+                        </label>
+                        <textarea
+                          id="official-api-embedded-code"
+                          value={officialApiForm.embeddedCode}
+                          onChange={(event) => updateOfficialApiField("embeddedCode", event.target.value)}
+                          placeholder="AQJ..."
+                          className="min-h-[92px] w-full rounded-2xl border border-[rgba(148,163,184,0.18)] bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-[var(--primary)] focus:ring-4 focus:ring-[color:color-mix(in_srgb,var(--primary)_12%,white)]"
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <label htmlFor="official-api-session-response" className="text-sm font-medium text-slate-700">
+                          Respuesta de registro de la sesion
+                        </label>
+                        <textarea
+                          id="official-api-session-response"
+                          value={officialApiForm.sessionResponse}
+                          onChange={(event) => updateOfficialApiField("sessionResponse", event.target.value)}
+                          placeholder='[{"data":{"phone_number_id":"...","waba_id":"...","business_id":"..."},"type":"WA_EMBEDDED_SIGNUP","event":"FINISH"}]'
+                          className="min-h-[120px] w-full rounded-2xl border border-[rgba(148,163,184,0.18)] bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-[var(--primary)] focus:ring-4 focus:ring-[color:color-mix(in_srgb,var(--primary)_12%,white)]"
+                        />
+                      </div>
+
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="space-y-2">
+                          <label htmlFor="official-api-provider-app-id" className="text-sm font-medium text-slate-700">
+                            App ID del proveedor (opcional)
+                          </label>
+                          <input
+                            id="official-api-provider-app-id"
+                            type="text"
+                            value={officialApiForm.appId}
+                            onChange={(event) => updateOfficialApiField("appId", event.target.value)}
+                            placeholder="1096639035350984"
+                            className="h-12 w-full rounded-2xl border border-[rgba(148,163,184,0.18)] bg-white px-4 text-sm text-slate-900 outline-none transition focus:border-[var(--primary)] focus:ring-4 focus:ring-[color:color-mix(in_srgb,var(--primary)_12%,white)]"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label htmlFor="official-api-provider-app-secret" className="text-sm font-medium text-slate-700">
+                            App Secret del proveedor (opcional)
+                          </label>
+                          <input
+                            id="official-api-provider-app-secret"
+                            type="password"
+                            value={officialApiForm.appSecret}
+                            onChange={(event) => updateOfficialApiField("appSecret", event.target.value)}
+                            placeholder="Se usa solo si vas a cambiar el code por token"
+                            className="h-12 w-full rounded-2xl border border-[rgba(148,163,184,0.18)] bg-white px-4 text-sm text-slate-900 outline-none transition focus:border-[var(--primary)] focus:ring-4 focus:ring-[color:color-mix(in_srgb,var(--primary)_12%,white)]"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex justify-end">
+                        <button
+                          type="button"
+                          onClick={handleImportOfficialApiFromMeta}
+                          disabled={isImportingOfficialApi || !officialApiForm.sessionResponse.trim()}
+                          className="inline-flex h-11 items-center justify-center rounded-2xl border border-[rgba(148,163,184,0.18)] px-4 text-sm font-medium text-slate-700 transition hover:border-[var(--primary)] hover:text-[var(--primary)] disabled:cursor-not-allowed disabled:opacity-70"
+                        >
+                          {isImportingOfficialApi ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Importando...
+                            </>
+                          ) : (
+                            "Importar desde Meta"
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2 md:col-span-2">
+                      <label htmlFor="official-api-access-token" className="text-sm font-medium text-slate-700">
+                        Access token de Meta
+                      </label>
+                      <textarea
+                        id="official-api-access-token"
+                        value={officialApiForm.accessToken}
+                        onChange={(event) => updateOfficialApiField("accessToken", event.target.value)}
+                        placeholder="EAAP..."
+                        className="min-h-[110px] w-full rounded-2xl border border-[rgba(148,163,184,0.18)] bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-[var(--primary)] focus:ring-4 focus:ring-[color:color-mix(in_srgb,var(--primary)_12%,white)]"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <label htmlFor="official-api-phone-number-id" className="text-sm font-medium text-slate-700">
+                        Phone Number ID
+                      </label>
+                      <input
+                        id="official-api-phone-number-id"
+                        type="text"
+                        value={officialApiForm.phoneNumberId}
+                        onChange={(event) => updateOfficialApiField("phoneNumberId", event.target.value)}
+                        placeholder="1230794916781773"
+                        className="h-12 w-full rounded-2xl border border-[rgba(148,163,184,0.18)] bg-white px-4 text-sm text-slate-900 outline-none transition focus:border-[var(--primary)] focus:ring-4 focus:ring-[color:color-mix(in_srgb,var(--primary)_12%,white)]"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <label htmlFor="official-api-waba-id" className="text-sm font-medium text-slate-700">
+                        WABA ID
+                      </label>
+                      <input
+                        id="official-api-waba-id"
+                        type="text"
+                        value={officialApiForm.wabaId}
+                        onChange={(event) => updateOfficialApiField("wabaId", event.target.value)}
+                        placeholder="1040209858511004"
+                        className="h-12 w-full rounded-2xl border border-[rgba(148,163,184,0.18)] bg-white px-4 text-sm text-slate-900 outline-none transition focus:border-[var(--primary)] focus:ring-4 focus:ring-[color:color-mix(in_srgb,var(--primary)_12%,white)]"
+                      />
+                    </div>
+                  </div>
+
+                  {officialApiResult ? (
+                    <div
+                      className={`rounded-[24px] border px-4 py-4 text-sm ${
+                        officialApiResult.ok
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                          : "border-rose-200 bg-rose-50 text-rose-800"
+                      }`}
+                    >
+                      <div className="flex items-start gap-3">
+                        {officialApiResult.ok ? (
+                          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                        ) : (
+                          <X className="mt-0.5 h-4 w-4 shrink-0" />
+                        )}
+                        <span>{officialApiResult.message}</span>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div className="flex flex-wrap justify-end gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedProvider(null)}
+                      className="inline-flex h-11 items-center justify-center rounded-2xl border border-[rgba(148,163,184,0.18)] px-4 text-sm font-medium text-slate-700 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+                    >
+                      Volver
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleCreateOfficialApiChannel}
+                      disabled={
+                        isSavingOfficialApi ||
+                        !channelName.trim() ||
+                        !officialApiForm.accessToken.trim() ||
+                        !officialApiForm.phoneNumberId.trim() ||
+                        !officialApiForm.wabaId.trim()
+                      }
+                      className="inline-flex h-11 items-center justify-center rounded-2xl bg-[var(--primary)] px-5 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)] disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                      {isSavingOfficialApi ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Guardando API oficial...
+                        </>
+                      ) : (
+                        "Guardar y crear canal"
+                      )}
+                    </button>
+                  </div>
+                </div>
               ) : (
               <form action={createConnectionChannelAction} className="mt-6 space-y-4">
                 <input type="hidden" name="provider" value={selectedProvider} />
@@ -466,10 +833,10 @@ export function NewConnectionChannelModal({
 
                 <ChannelOptionCard
                   title="WhatsApp API (Meta)"
-                  description="Crea el canal oficial si tu workspace ya tiene la API oficial activada por administracion."
-                  cta={canSeeOfficialApiModule && officialApiEnabled ? "Empezar ahora" : "Desactivado"}
+                  description="Configura y activa la API oficial del workspace en un solo modal, sin pasar por administracion."
+                  cta={canSeeOfficialApiModule ? "Configurar y crear" : "Desactivado"}
                   icon={<WhatsAppGlyph className="h-8 w-8" />}
-                  disabled={!canSeeOfficialApiModule || !officialApiEnabled}
+                  disabled={!canSeeOfficialApiModule}
                   onSelect={() => setSelectedProvider("OFFICIAL_API")}
                 />
 
