@@ -642,18 +642,6 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   }));
 
   const selectedConnectionKey = selectedConnectionParam;
-  const sidebarItems = channels.map((channel) => ({
-    id: `channel:${channel.id}`,
-    label: channel.name,
-    helper:
-      channel.phoneNumber?.trim() ||
-      (channel.provider === "OFFICIAL_API" ? "WhatsApp API oficial" : "WhatsApp QR"),
-    href: `/cliente/chats?connection=${encodeURIComponent(`channel:${channel.id}`)}`,
-    isActive: selectedConnectionKey === `channel:${channel.id}`,
-    channelType: (channel.provider === "OFFICIAL_API" ? "whatsapp_official" : "whatsapp") as
-      | "whatsapp"
-      | "whatsapp_official",
-  }));
   const merged = dedupeAndSortConversationListRows([...agentRows, ...officialRows])
       .filter((item) => {
         if (!searchQuery) return true;
@@ -1020,7 +1008,6 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         selectedConversationId={selectedUnified?.key ?? ""}
         mobileConversationActive={Boolean(selectedChatKeyParam)}
         selectedConnectionKey={selectedConnectionKey}
-        sidebarItems={sidebarItems}
         assignedFilter={assignedFilter}
         statusFilter={statusFilter}
         isManager={isManager}
