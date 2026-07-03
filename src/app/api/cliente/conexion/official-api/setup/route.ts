@@ -24,7 +24,7 @@ export async function POST(request: Request) {
   }
 
   const access = await getClientWorkspaceAccessForUser(session.user.id);
-  if (!access || !canAccessClientModule(access.role, access.enabledModules, "connection")) {
+  if (!access || !canAccessClientModule(access, "connection")) {
     return NextResponse.json({ ok: false, error: "No autorizado para conexion" }, { status: 403 });
   }
 
