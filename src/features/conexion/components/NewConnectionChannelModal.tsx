@@ -564,7 +564,7 @@ export function NewConnectionChannelModal({
 
       <DialogContent
         showCloseButton={false}
-        className="w-full max-w-2xl overflow-hidden rounded-[2rem] border border-[rgba(148,163,184,0.16)] bg-white p-0 text-left shadow-[0_32px_80px_-32px_rgba(15,23,42,0.45)] sm:max-w-2xl"
+        className="flex max-h-[90vh] w-full max-w-2xl flex-col gap-0 overflow-hidden rounded-[2rem] border border-[rgba(148,163,184,0.16)] bg-white p-0 text-left shadow-[0_32px_80px_-32px_rgba(15,23,42,0.45)] sm:max-w-2xl"
       >
         <DialogHeader className="flex-row items-start justify-between gap-4 space-y-0 border-b border-[rgba(148,163,184,0.14)] bg-white px-6 py-5">
           <div className="space-y-2">
@@ -596,7 +596,7 @@ export function NewConnectionChannelModal({
           </button>
         </DialogHeader>
 
-        <div className="max-h-[min(72vh,720px)] overflow-y-auto px-6 py-6">
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
         {selectedProvider ? (
               selectedProvider === "OFFICIAL_API_COEXISTENCE" ? (
                 <div className="space-y-4">
