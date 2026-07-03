@@ -5,6 +5,7 @@ import {
   ConnectionsWorkspace,
   getWhatsAppBusinessConnections,
 } from "@/features/conexion";
+import { NewConnectionChannelModal } from "@/features/conexion/components/NewConnectionChannelModal";
 import { DailyReportPanel, getDailyReports } from "@/features/reportes";
 import { getAdminModuleAccess } from "@/lib/admin-module-access";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
@@ -65,6 +66,15 @@ export default async function ClienteConexionPage({ searchParams }: PageProps) {
 
   return (
     <ConnectionsTabsShell
+      action={
+        <NewConnectionChannelModal
+          canSeeOfficialApiModule={canSeeOfficialApiModule}
+          officialApiEmbeddedSignupReady={officialApiEmbeddedSignupReady}
+          officialApiProviderAppId={providerSettings.appId}
+          officialApiProviderConfigId={providerSettings.configId}
+          targetAgent={targetAgent}
+        />
+      }
       conexiones={
         <ConnectionsWorkspace
           officialApiEmbeddedSignupReady={officialApiEmbeddedSignupReady}

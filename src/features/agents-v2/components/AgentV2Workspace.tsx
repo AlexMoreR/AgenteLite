@@ -181,7 +181,7 @@ export function AgentV2Workspace({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 px-4 py-4 sm:px-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-lg font-semibold text-foreground">Agente V2</h1>
@@ -191,7 +191,7 @@ export function AgentV2Workspace({
         </div>
         <Button onClick={() => setModalOpen(true)}>
           <Plus className="h-4 w-4" />
-          Crear agente flow
+          Crear agente
         </Button>
       </div>
 
@@ -208,30 +208,27 @@ export function AgentV2Workspace({
           </div>
           <Button variant="outline" onClick={() => setModalOpen(true)}>
             <Plus className="h-4 w-4" />
-            Crear agente flow
+            Crear agente
           </Button>
         </Card>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3">
           {agents.map((agent) => (
             <Card
               key={agent.id}
               className="p-4 transition hover:border-primary/40 hover:shadow-sm"
             >
-              <div className="flex items-start gap-3">
+              <div className="flex items-center gap-3">
                 <button
                   type="button"
                   onClick={() => setSelectedId(agent.id)}
-                  className="flex min-w-0 flex-1 items-start gap-3 text-left"
+                  className="flex min-w-0 flex-1 items-center gap-3 text-left"
                 >
-                  <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                    <Bot className="h-5 w-5" />
+                  <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <Bot className="h-4.5 w-4.5" />
                   </span>
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-foreground">{agent.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {agent.active ? "Abrir constructor" : "Desactivado"}
-                    </p>
                   </div>
                 </button>
                 <div className="flex shrink-0 items-center gap-1">
@@ -270,7 +267,7 @@ export function AgentV2Workspace({
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h2 className="text-base font-semibold text-foreground">
-                  {editingId ? "Editar agente" : "Crear agente flow"}
+                  {editingId ? "Editar agente" : "Crear agente"}
                 </h2>
                 <p className="text-sm text-muted-foreground">
                   {editingId

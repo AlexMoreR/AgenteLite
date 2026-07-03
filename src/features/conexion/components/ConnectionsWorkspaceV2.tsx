@@ -7,7 +7,6 @@ import {
   FiMessageCircle,
   FiTrash2,
 } from "react-icons/fi";
-import { HiMiniChartBar } from "react-icons/hi2";
 import { Bot, MoreHorizontal } from "lucide-react";
 import {
   assignConnectionChannelAction,
@@ -25,7 +24,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
-import { NewConnectionChannelModal } from "./NewConnectionChannelModal";
 
 type ConnectionsWorkspaceProps = {
   officialApiEmbeddedSignupReady: boolean;
@@ -67,31 +65,13 @@ export function ConnectionsWorkspaceV2({
   items,
 }: ConnectionsWorkspaceProps) {
   return (
-    <section className="app-page w-full space-y-5 p-6">
+    <section className="app-page w-full space-y-5 px-6 pb-6 pt-4">
       <QueryFeedbackToast
         okMessage={okMessage}
         errorMessage={errorMessage}
         okTitle="Agente listo"
         errorTitle="No pudimos continuar"
       />
-
-      <div className="flex w-full flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="space-y-1">
-          <div className="inline-flex items-center gap-3">
-            <HiMiniChartBar className="size-6 text-sky-600" />
-            <h1 className="text-2xl font-semibold tracking-tight text-foreground">Conexion</h1>
-          </div>
-          <p className="max-w-3xl text-sm text-muted-foreground">Crea y administra tus canales de conexion.</p>
-        </div>
-
-        <NewConnectionChannelModal
-          canSeeOfficialApiModule={canSeeOfficialApiModule}
-          officialApiEmbeddedSignupReady={officialApiEmbeddedSignupReady}
-          officialApiProviderAppId={officialApiProviderAppId}
-          officialApiProviderConfigId={officialApiProviderConfigId}
-          targetAgent={targetAgent}
-        />
-      </div>
 
       {targetAgent ? (
         <Card>
