@@ -18,6 +18,7 @@ import { resolveAgentKnowledgeBaseReply } from "@/lib/agent-knowledge-media";
 import { recordContactMatch } from "@/lib/contact-matches";
 import { prisma } from "@/lib/prisma";
 import { ensureOfficialApiConfigTable } from "@/lib/official-api-config";
+import { normalizeMetaAppSecret } from "@/lib/official-api-graph";
 import { getOfficialApiProviderSettings } from "@/lib/system-settings";
 import { buildHandoffMessage, parseAgentTrainingConfig } from "@/lib/agent-training";
 import {
@@ -111,7 +112,9 @@ async function isProviderVerifyToken(verifyToken: string) {
 
 async function getProviderAppSecret() {
   const settings = await getOfficialApiProviderSettings();
-  return settings.appSecret.trim();
+  // Solo devolvemos el secret si tiene formato valido (32 hex). Un placeholder invalido
+  // activaria la validacion HMAC y rechazaria todos los entrantes con 401.
+  return normalizeMetaAppSecret(settings.appSecret);
 }
 
 async function markWebhookVerified(configId: string) {
@@ -603,7 +606,10 @@ export async function POST(request: Request) {
   const config = await findConfigByWebhookTarget({ phoneNumberId, wabaId });
   const signature = request.headers.get("x-hub-signature-256")?.trim() || "";
   const providerAppSecret = await getProviderAppSecret();
-  const expectedAppSecret = config?.appSecret?.trim() || providerAppSecret;
+  // Ignoramos un config.appSecret con formato invalido y caemos al del proveedor; si ninguno
+  // es valido, expectedAppSecret queda vacio y se omite la verificacion de firma (en vez de
+  // rechazar todos los entrantes por firmar contra un secret incorrecto).
+  const expectedAppSecret = normalizeMetaAppSecret(config?.appSecret) || providerAppSecret;
 
   if (expectedAppSecret) {
     if (!signature) {

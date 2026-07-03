@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
-import { getMetaGraphErrorMessage, type MetaGraphErrorPayload } from "@/lib/official-api-graph";
+import { getMetaGraphErrorMessage, normalizeMetaAppSecret, type MetaGraphErrorPayload } from "@/lib/official-api-graph";
 import { upsertOfficialApiConfigByWorkspaceId } from "@/lib/official-api-config";
 import { subscribeOfficialApiAppToWaba } from "@/lib/official-api-subscription";
 import { prisma } from "@/lib/prisma";
@@ -97,7 +97,7 @@ export async function POST(request: Request) {
     phoneNumberId: parsed.data.phoneNumberId,
     wabaId: parsed.data.wabaId,
     webhookVerifyToken: parsed.data.webhookVerifyToken || providerSettings.verifyToken || undefined,
-    appSecret: providerSettings.appSecret || undefined,
+    appSecret: normalizeMetaAppSecret(providerSettings.appSecret) || undefined,
   });
 
   const subscription = await subscribeOfficialApiAppToWaba({
