@@ -121,6 +121,8 @@ export async function getOfficialApiChatsData(input: {
 
   type OfficialConversationDetailRow = {
     conversationId: string;
+    conversationStatus: "OPEN" | "PENDING" | "CLOSED" | "ARCHIVED";
+    conversationAutomationPaused: boolean | null;
     contactId: string;
     contactName: string | null;
     contactPhoneNumber: string | null;
@@ -138,6 +140,8 @@ export async function getOfficialApiChatsData(input: {
     const conversationDetailRows = await prisma.$queryRaw<Array<OfficialConversationDetailRow>>`
       SELECT
         c."id" AS "conversationId",
+        c."status"::text AS "conversationStatus",
+        c."automationPaused" AS "conversationAutomationPaused",
         ct."id" AS "contactId",
         ct."name" AS "contactName",
         ct."phoneNumber" AS "contactPhoneNumber",
@@ -184,6 +188,8 @@ export async function getOfficialApiChatsData(input: {
         phoneNumber: firstRow.contactPhoneNumber,
         waId: firstRow.contactWaId,
       },
+      status: firstRow.conversationStatus,
+      automationPaused: Boolean(firstRow.conversationAutomationPaused),
       messages: conversationDetailRows
         .filter((row) => row.messageId && row.messageDirection && row.messageCreatedAt && row.messageStatus)
         .map((row) => ({

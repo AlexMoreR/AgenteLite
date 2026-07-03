@@ -1,6 +1,6 @@
 ﻿import { redirect } from "next/navigation";
 import { after } from "next/server";
-import { sendUnifiedChatReplyAction, toggleConversationAutomationAction } from "@/app/actions/chats-actions";
+import { sendUnifiedChatReplyAction, toggleConversationAutomationAction, toggleOfficialApiConversationAutomationAction } from "@/app/actions/chats-actions";
 import { sendChatAudioReplyAction, sendChatMediaReplyAction } from "@/app/actions/agent-actions";
 import { AssignChatControl } from "@/components/chats/assign-chat-control";
 import { ChatHeaderActions } from "@/components/chats/chat-header-actions";
@@ -834,7 +834,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       avatarUrl: selectedUnified.avatarUrl ?? null,
       contactId: selectedUnified.contactId ?? null,
       contactName: selectedUnified.label,
-      automationPaused: false,
+      automationPaused: Boolean(officialChatsData.selectedConversation?.automationPaused),
       cacheKey: selectedUnified.key,
       messages: hasRealMessages ? detailMessages : previewMessages,
       hasMoreMessages: false,
@@ -1050,6 +1050,18 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
               status={selectedAgentConversation?.status ?? "OPEN"}
               returnTo={selectedChatHref}
               toggleAutomationAction={toggleConversationAutomationAction}
+            />
+          ) : selectedUnified?.source === "official" && selectedConversation ? (
+            <ChatHeaderActions
+              key={`header-actions:${selectedConversation.id}:${officialChatsData.selectedConversation?.status ?? "OPEN"}`}
+              contactId={null}
+              stage={"NUEVO" as CrmStage}
+              conversationId={selectedConversation.id}
+              automationPaused={Boolean(selectedConversation.automationPaused)}
+              status={officialChatsData.selectedConversation?.status ?? "OPEN"}
+              returnTo={selectedChatHref}
+              toggleAutomationAction={toggleOfficialApiConversationAutomationAction}
+              source="official"
             />
           ) : null
         }

@@ -14,7 +14,13 @@ import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
 import { deleteEvolutionMessageForEveryone, sendEvolutionTextMessage } from "@/lib/evolution";
 import { normalizeInternalPath } from "@/lib/app-url";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
-import { getOfficialApiConfigByWorkspaceId, hasOfficialApiBaseCredentials } from "@/lib/official-api-config";
+import {
+  getOfficialApiConfigByWorkspaceId,
+  getOfficialApiConversationAutomationPaused,
+  hasOfficialApiBaseCredentials,
+  setOfficialApiConversationAutomationPaused,
+  setOfficialApiConversationStatus,
+} from "@/lib/official-api-config";
 import { sendOfficialApiTextMessage } from "@/lib/official-api-messaging";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
@@ -868,6 +874,65 @@ export async function toggleConversationAutomationAction(formData: FormData): Pr
   );
 }
 
+// Verifica que una conversacion oficial pertenece al workspace (via su config).
+async function findOfficialApiConversationInWorkspace(conversationId: string, workspaceId: string) {
+  const rows = await prisma.$queryRaw<Array<{ id: string }>>`
+    SELECT c."id"
+    FROM "OfficialApiConversation" c
+    INNER JOIN "OfficialApiClientConfig" cfg ON cfg."id" = c."configId"
+    WHERE c."id" = ${conversationId}
+      AND cfg."workspaceId" = ${workspaceId}
+    LIMIT 1
+  `;
+  return rows[0] ?? null;
+}
+
+// Pausar/reanudar la IA en una conversacion de la API oficial (equivalente a
+// toggleConversationAutomationAction pero sobre OfficialApiConversation).
+export async function toggleOfficialApiConversationAutomationAction(formData: FormData): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
+    redirect("/unauthorized");
+  }
+  await requireClientWorkspaceAccess("chats");
+
+  const parsed = toggleConversationAutomationSchema.safeParse({
+    conversationId: formData.get("conversationId"),
+    returnTo: formData.get("returnTo"),
+  });
+
+  if (!parsed.success) {
+    redirect("/cliente/chats?error=No+se+pudo+actualizar+la+IA");
+  }
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    redirect("/cliente/chats?error=Debes+configurar+tu+negocio+primero");
+  }
+
+  const conversation = await findOfficialApiConversationInWorkspace(
+    parsed.data.conversationId,
+    membership.workspace.id,
+  );
+
+  if (!conversation) {
+    const safeReturnTo = normalizeInternalPath(parsed.data.returnTo, "/cliente/chats");
+    redirect(`${safeReturnTo}${safeReturnTo.includes("?") ? "&" : "?"}error=Conversacion+no+encontrada`);
+  }
+
+  const currentPaused = await getOfficialApiConversationAutomationPaused(conversation.id);
+  const nextPaused = !currentPaused;
+  await setOfficialApiConversationAutomationPaused({ conversationId: conversation.id, paused: nextPaused });
+
+  revalidatePath("/cliente/chats");
+  const safeReturnTo = normalizeInternalPath(parsed.data.returnTo, "/cliente/chats");
+  redirect(
+    `${safeReturnTo}${safeReturnTo.includes("?") ? "&" : "?"}ok=${
+      nextPaused ? "IA+pausada+en+este+chat" : "IA+reactivada+en+este+chat"
+    }`,
+  );
+}
+
 const clearConversationSchema = z.object({
   conversationId: z.string().trim().min(1),
   returnTo: z.string().trim().min(1).max(500),
@@ -1425,6 +1490,7 @@ export async function toggleContactTagAction(
 export async function updateConversationStatusAction(input: {
   conversationId: string;
   status: "OPEN" | "CLOSED";
+  source?: "agent" | "official";
 }): Promise<{ error?: string }> {
   const session = await auth();
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
@@ -1440,6 +1506,17 @@ export async function updateConversationStatusAction(input: {
   const membership = await getPrimaryWorkspaceForUser(session.user.id);
   if (!membership) {
     return { error: "Workspace no encontrado" };
+  }
+
+  // Conversaciones de la API oficial viven en OfficialApiConversation, no en Conversation.
+  if (input.source === "official") {
+    const officialConversation = await findOfficialApiConversationInWorkspace(conversationId, membership.workspace.id);
+    if (!officialConversation) {
+      return { error: "Conversacion no encontrada" };
+    }
+    await setOfficialApiConversationStatus({ conversationId: officialConversation.id, status: input.status });
+    revalidatePath("/cliente/chats");
+    return {};
   }
 
   const conversation = await prisma.conversation.findFirst({

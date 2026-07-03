@@ -16,6 +16,7 @@ type ChatHeaderActionsProps = {
   status: "OPEN" | "PENDING" | "CLOSED" | "ARCHIVED";
   returnTo: string;
   toggleAutomationAction: (formData: FormData) => void | Promise<void>;
+  source?: "agent" | "official";
 };
 
 // Acciones de la cabecera del chat (Etapa CRM, pausar agente IA, resolver).
@@ -29,6 +30,7 @@ export function ChatHeaderActions({
   status,
   returnTo,
   toggleAutomationAction,
+  source = "agent",
 }: ChatHeaderActionsProps) {
   const isMobile = useIsMobile();
 
@@ -48,7 +50,7 @@ export function ChatHeaderActions({
           ariaLabel={switchAriaLabel}
           hiddenFields={switchHiddenFields}
         />
-        <ResolveChatControl conversationId={conversationId} status={status} />
+        <ResolveChatControl conversationId={conversationId} status={status} source={source} />
       </div>
     );
   }
@@ -89,7 +91,7 @@ export function ChatHeaderActions({
           </div>
           <div className="flex items-center justify-between gap-2 rounded-xl px-2 py-2">
             <span className="text-[13px] font-medium text-foreground">Conversación</span>
-            <ResolveChatControl conversationId={conversationId} status={status} />
+            <ResolveChatControl conversationId={conversationId} status={status} source={source} />
           </div>
         </div>
       </PopoverContent>

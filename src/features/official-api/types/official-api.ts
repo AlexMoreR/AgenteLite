@@ -64,6 +64,8 @@ export type OfficialApiChatConversationDetail = {
     phoneNumber: string | null;
     waId: string;
   };
+  status: "OPEN" | "PENDING" | "CLOSED" | "ARCHIVED";
+  automationPaused: boolean;
   messages: OfficialApiChatMessage[];
 };
 

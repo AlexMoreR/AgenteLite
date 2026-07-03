@@ -487,6 +487,8 @@ model OfficialApiConversation {
   updatedAt        DateTime                      @updatedAt
   activeProductContext Json?
   commercialContext Json?
+  automationPaused   Boolean                     @default(false)
+  automationPausedAt DateTime?
   config           OfficialApiClientConfig       @relation(fields: [configId], references: [id], onDelete: Cascade)
   contact          OfficialApiContact            @relation(fields: [contactId], references: [id], onDelete: Cascade)
   messages         OfficialApiMessage[]

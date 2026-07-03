@@ -13,11 +13,14 @@ import {
   sendOfficialApiTypingIndicator,
   sendOfficialApiVideoMessage,
 } from "@/lib/official-api-messaging";
-import { setConversationAutomationPaused } from "@/lib/conversation-automation";
+import {
+  ensureOfficialApiConfigTable,
+  getOfficialApiConversationAutomationPaused,
+  setOfficialApiConversationAutomationPaused,
+} from "@/lib/official-api-config";
 import { resolveAgentKnowledgeBaseReply } from "@/lib/agent-knowledge-media";
 import { recordContactMatch } from "@/lib/contact-matches";
 import { prisma } from "@/lib/prisma";
-import { ensureOfficialApiConfigTable } from "@/lib/official-api-config";
 import { normalizeMetaAppSecret } from "@/lib/official-api-graph";
 import { getOfficialApiProviderSettings } from "@/lib/system-settings";
 import { buildHandoffMessage, parseAgentTrainingConfig } from "@/lib/agent-training";
@@ -635,6 +638,12 @@ export async function POST(request: Request) {
     const linkedAgentChannel = await findOfficialApiLinkedAgent(config.workspaceId);
 
     for (const message of insertedMessages) {
+      // Si el asesor pauso la automatizacion de esta conversacion, guardamos el entrante
+      // (ya persistido por syncInboundMessages) pero NO auto-respondemos.
+      if (await getOfficialApiConversationAutomationPaused(message.conversationId)) {
+        continue;
+      }
+
       const recentMessages = linkedAgentChannel?.agent?.id
         ? await prisma.$queryRaw<Array<{ direction: "INBOUND" | "OUTBOUND"; content: string | null }>>`
             SELECT "direction"::text AS "direction", "content"
@@ -838,7 +847,9 @@ export async function POST(request: Request) {
       if (autoUnknownProductNotifyPromise) {
         await autoUnknownProductNotifyPromise;
         if (agentTraining?.actions.notify.pauseConversationAfterNotify) {
-          await setConversationAutomationPaused({
+          // message.conversationId es un id de OfficialApiConversation: usar el setter oficial
+          // (antes se usaba el de la tabla "Conversation" de Evolution, un no-op aqui).
+          await setOfficialApiConversationAutomationPaused({
             conversationId: message.conversationId,
             paused: true,
           });

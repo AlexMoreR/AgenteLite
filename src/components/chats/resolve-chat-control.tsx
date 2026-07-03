@@ -10,9 +10,10 @@ import { updateConversationStatusAction } from "@/app/actions/chats-actions";
 type ResolveChatControlProps = {
   conversationId: string;
   status: "OPEN" | "PENDING" | "CLOSED" | "ARCHIVED";
+  source?: "agent" | "official";
 };
 
-export function ResolveChatControl({ conversationId, status }: ResolveChatControlProps) {
+export function ResolveChatControl({ conversationId, status, source = "agent" }: ResolveChatControlProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   // Estado optimista para que el botón cambie al instante.
@@ -25,6 +26,7 @@ export function ResolveChatControl({ conversationId, status }: ResolveChatContro
       const result = await updateConversationStatusAction({
         conversationId,
         status: nextResolved ? "CLOSED" : "OPEN",
+        source,
       });
       if (result?.error) {
         setResolved(!nextResolved); // revertir
@@ -34,7 +36,7 @@ export function ResolveChatControl({ conversationId, status }: ResolveChatContro
       toast.success(nextResolved ? "Conversación resuelta" : "Conversación reabierta");
       router.refresh();
     });
-  }, [conversationId, resolved, router]);
+  }, [conversationId, resolved, router, source]);
 
   return (
     <button

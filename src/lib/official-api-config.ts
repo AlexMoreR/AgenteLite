@@ -153,6 +153,14 @@ export async function ensureOfficialApiConfigTable(): Promise<void> {
     ON "OfficialApiConversation" ("contactId", "lastMessageAt");
   `);
 
+    // Columnas anadidas despues de la creacion original (self-migracion aditiva e idempotente,
+    // para no depender de `prisma db push` sobre la BD de produccion).
+    await prisma.$executeRawUnsafe(`
+    ALTER TABLE "OfficialApiConversation"
+      ADD COLUMN IF NOT EXISTS "automationPaused" BOOLEAN NOT NULL DEFAULT false,
+      ADD COLUMN IF NOT EXISTS "automationPausedAt" TIMESTAMP(3);
+  `);
+
     await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS "OfficialApiMessage" (
       "id" TEXT NOT NULL PRIMARY KEY,
@@ -349,4 +357,52 @@ export async function upsertOfficialApiConfigByWorkspaceId(input: {
       "status" = EXCLUDED."status",
       "updatedAt" = CURRENT_TIMESTAMP
   `;
+}
+
+export type OfficialApiConversationStatusValue = "OPEN" | "PENDING" | "CLOSED" | "ARCHIVED";
+
+// Devuelve si la automatizacion del bot esta pausada para una conversacion oficial.
+export async function getOfficialApiConversationAutomationPaused(conversationId: string): Promise<boolean> {
+  await ensureOfficialApiConfigTable();
+  const rows = await prisma.$queryRaw<Array<{ automationPaused: boolean | null }>>`
+    SELECT "automationPaused"
+    FROM "OfficialApiConversation"
+    WHERE "id" = ${conversationId}
+    LIMIT 1
+  `;
+  return Boolean(rows[0]?.automationPaused);
+}
+
+// Pausa/reanuda la automatizacion del bot para una conversacion oficial.
+export async function setOfficialApiConversationAutomationPaused(input: {
+  conversationId: string;
+  paused: boolean;
+}): Promise<void> {
+  await ensureOfficialApiConfigTable();
+  await prisma.$executeRaw`
+    UPDATE "OfficialApiConversation"
+    SET
+      "automationPaused" = ${input.paused},
+      "automationPausedAt" = ${input.paused ? new Date() : null},
+      "updatedAt" = CURRENT_TIMESTAMP
+    WHERE "id" = ${input.conversationId}
+  `;
+}
+
+// Cambia el estado (resolver/reabrir) de una conversacion oficial.
+export async function setOfficialApiConversationStatus(input: {
+  conversationId: string;
+  status: OfficialApiConversationStatusValue;
+}): Promise<void> {
+  await ensureOfficialApiConfigTable();
+  await prisma.$executeRawUnsafe(
+    `
+    UPDATE "OfficialApiConversation"
+    SET "status" = $1::"OfficialApiConversationStatus",
+        "updatedAt" = CURRENT_TIMESTAMP
+    WHERE "id" = $2
+  `,
+    input.status,
+    input.conversationId,
+  );
 }
