@@ -317,16 +317,14 @@ export function NewConnectionChannelModal({
 
       setOfficialApiResult({
         ok: true,
-        message: "API oficial guardada y canal creado. Vamos a recargar la pagina para mostrarlo.",
+        message: "API oficial guardada y canal creado. Vamos a abrir Chats con el nuevo canal listo.",
       });
 
       window.setTimeout(() => {
         const params = new URLSearchParams();
         params.set("ok", targetAgent ? "Canal+oficial+creado+y+vinculado" : "Canal+oficial+creado");
-        if (targetAgent?.id) {
-          params.set("agentId", targetAgent.id);
-        }
-        window.location.href = `/cliente/conexion?${params.toString()}`;
+        params.set("connection", `channel:${payload.channelId}`);
+        window.location.href = `/cliente/chats?${params.toString()}`;
       }, 800);
     } catch (error) {
       setOfficialApiResult({
@@ -439,16 +437,14 @@ export function NewConnectionChannelModal({
 
       setCoexistenceResult({
         ok: true,
-        message: "Coexistencia oficial creada. Vamos a recargar la pagina para mostrar el nuevo canal.",
+        message: "Coexistencia oficial creada. Vamos a abrir Chats con el nuevo canal listo.",
       });
 
       window.setTimeout(() => {
         const params = new URLSearchParams();
         params.set("ok", targetAgent ? "Canal+oficial+coexistente+creado+y+vinculado" : "Canal+oficial+coexistente+creado");
-        if (targetAgent?.id) {
-          params.set("agentId", targetAgent.id);
-        }
-        window.location.href = `/cliente/conexion?${params.toString()}`;
+        params.set("connection", `channel:${payload.channelId}`);
+        window.location.href = `/cliente/chats?${params.toString()}`;
       }, 800);
     } catch (error) {
       setCoexistenceResult({
