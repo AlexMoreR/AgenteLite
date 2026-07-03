@@ -453,6 +453,91 @@ export function NewConnectionChannelModal({
     }
   };
 
+  const footerActions = selectedProvider ? (
+    selectedProvider === "OFFICIAL_API_COEXISTENCE" ? (
+      <>
+        <button
+          type="button"
+          onClick={() => setSelectedProvider(null)}
+          className="inline-flex h-11 items-center justify-center rounded-2xl border border-[rgba(148,163,184,0.18)] px-4 text-sm font-medium text-slate-700 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+        >
+          Volver
+        </button>
+        <button
+          type="button"
+          onClick={handleLaunchCoexistence}
+          disabled={isLaunchingCoexistence || !channelName.trim()}
+          className="inline-flex h-11 items-center justify-center rounded-2xl bg-[var(--primary)] px-5 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)] disabled:cursor-not-allowed disabled:opacity-70"
+        >
+          {isLaunchingCoexistence ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Conectando con Meta...
+            </>
+          ) : (
+            "Continuar con Meta"
+          )}
+        </button>
+      </>
+    ) : selectedProvider === "OFFICIAL_API" ? (
+      <>
+        <button
+          type="button"
+          onClick={() => setSelectedProvider(null)}
+          className="inline-flex h-11 items-center justify-center rounded-2xl border border-[rgba(148,163,184,0.18)] px-4 text-sm font-medium text-slate-700 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+        >
+          Volver
+        </button>
+        <button
+          type="button"
+          onClick={handleCreateOfficialApiChannel}
+          disabled={
+            isSavingOfficialApi ||
+            !channelName.trim() ||
+            !officialApiForm.accessToken.trim() ||
+            !officialApiForm.phoneNumberId.trim() ||
+            !officialApiForm.wabaId.trim()
+          }
+          className="inline-flex h-11 items-center justify-center rounded-2xl bg-[var(--primary)] px-5 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)] disabled:cursor-not-allowed disabled:opacity-70"
+        >
+          {isSavingOfficialApi ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Guardando API oficial...
+            </>
+          ) : (
+            "Guardar y crear canal"
+          )}
+        </button>
+      </>
+    ) : (
+      <>
+        <button
+          type="button"
+          onClick={() => setSelectedProvider(null)}
+          className="inline-flex h-11 items-center justify-center rounded-2xl border border-[rgba(148,163,184,0.18)] px-4 text-sm font-medium text-slate-700 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+        >
+          Volver
+        </button>
+        <button
+          type="submit"
+          form="new-connection-channel-form"
+          className="inline-flex h-11 items-center justify-center rounded-2xl bg-[var(--primary)] px-5 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
+        >
+          Crear canal
+        </button>
+      </>
+    )
+  ) : (
+    <button
+      type="button"
+      onClick={closeModal}
+      className="inline-flex h-11 items-center justify-center rounded-2xl border border-[rgba(148,163,184,0.18)] px-4 text-sm font-medium text-slate-700 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+    >
+      Cerrar
+    </button>
+  );
+
   return (
     <Dialog
       open={open}
@@ -479,9 +564,9 @@ export function NewConnectionChannelModal({
 
       <DialogContent
         showCloseButton={false}
-        className="w-full max-w-2xl rounded-[2rem] border border-[rgba(148,163,184,0.16)] bg-white p-6 text-left shadow-[0_32px_80px_-32px_rgba(15,23,42,0.45)] sm:max-w-2xl"
+        className="w-full max-w-2xl overflow-hidden rounded-[2rem] border border-[rgba(148,163,184,0.16)] bg-white p-0 text-left shadow-[0_32px_80px_-32px_rgba(15,23,42,0.45)] sm:max-w-2xl"
       >
-        <DialogHeader className="flex-row items-start justify-between gap-4 space-y-0">
+        <DialogHeader className="flex-row items-start justify-between gap-4 space-y-0 border-b border-[rgba(148,163,184,0.14)] bg-white px-6 py-5">
           <div className="space-y-2">
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Nuevo canal</p>
             <DialogTitle className="text-2xl font-semibold tracking-[-0.05em] text-slate-950">
@@ -511,9 +596,10 @@ export function NewConnectionChannelModal({
           </button>
         </DialogHeader>
 
+        <div className="max-h-[min(72vh,720px)] overflow-y-auto px-6 py-6">
         {selectedProvider ? (
               selectedProvider === "OFFICIAL_API_COEXISTENCE" ? (
-                <div className="mt-6 space-y-4">
+                <div className="space-y-4">
                   <div className="space-y-2">
                     <label htmlFor="coexistence-channel-name" className="text-sm font-medium text-slate-700">
                       Nombre del canal
@@ -554,33 +640,9 @@ export function NewConnectionChannelModal({
                     </div>
                   ) : null}
 
-                  <div className="flex flex-wrap justify-end gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedProvider(null)}
-                      className="inline-flex h-11 items-center justify-center rounded-2xl border border-[rgba(148,163,184,0.18)] px-4 text-sm font-medium text-slate-700 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
-                    >
-                      Volver
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleLaunchCoexistence}
-                      disabled={isLaunchingCoexistence || !channelName.trim()}
-                      className="inline-flex h-11 items-center justify-center rounded-2xl bg-[var(--primary)] px-5 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)] disabled:cursor-not-allowed disabled:opacity-70"
-                    >
-                      {isLaunchingCoexistence ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Conectando con Meta...
-                        </>
-                      ) : (
-                        "Continuar con Meta"
-                      )}
-                    </button>
-                  </div>
                 </div>
               ) : selectedProvider === "OFFICIAL_API" ? (
-                <div className="mt-6 space-y-5">
+                <div className="space-y-5">
                   <div className="space-y-2">
                     <label htmlFor="official-api-channel-name" className="text-sm font-medium text-slate-700">
                       Nombre del canal
@@ -748,39 +810,9 @@ export function NewConnectionChannelModal({
                     </div>
                   ) : null}
 
-                  <div className="flex flex-wrap justify-end gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedProvider(null)}
-                      className="inline-flex h-11 items-center justify-center rounded-2xl border border-[rgba(148,163,184,0.18)] px-4 text-sm font-medium text-slate-700 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
-                    >
-                      Volver
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleCreateOfficialApiChannel}
-                      disabled={
-                        isSavingOfficialApi ||
-                        !channelName.trim() ||
-                        !officialApiForm.accessToken.trim() ||
-                        !officialApiForm.phoneNumberId.trim() ||
-                        !officialApiForm.wabaId.trim()
-                      }
-                      className="inline-flex h-11 items-center justify-center rounded-2xl bg-[var(--primary)] px-5 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)] disabled:cursor-not-allowed disabled:opacity-70"
-                    >
-                      {isSavingOfficialApi ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Guardando API oficial...
-                        </>
-                      ) : (
-                        "Guardar y crear canal"
-                      )}
-                    </button>
-                  </div>
                 </div>
               ) : (
-              <form action={createConnectionChannelAction} className="mt-6 space-y-4">
+              <form id="new-connection-channel-form" action={createConnectionChannelAction} className="space-y-4">
                 <input type="hidden" name="provider" value={selectedProvider} />
                 {targetAgent ? <input type="hidden" name="agentId" value={targetAgent.id} /> : null}
 
@@ -798,26 +830,10 @@ export function NewConnectionChannelModal({
                     className="h-12 w-full rounded-2xl border border-[rgba(148,163,184,0.18)] bg-white px-4 text-sm text-slate-900 outline-none transition focus:border-[var(--primary)] focus:ring-4 focus:ring-[color:color-mix(in_srgb,var(--primary)_12%,white)]"
                   />
                 </div>
-
-                <div className="flex flex-wrap justify-end gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedProvider(null)}
-                    className="inline-flex h-11 items-center justify-center rounded-2xl border border-[rgba(148,163,184,0.18)] px-4 text-sm font-medium text-slate-700 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
-                  >
-                    Volver
-                  </button>
-                  <button
-                    type="submit"
-                    className="inline-flex h-11 items-center justify-center rounded-2xl bg-[var(--primary)] px-5 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
-                  >
-                    Crear canal
-                  </button>
-                </div>
               </form>
               )
         ) : (
-          <div className="mt-6 grid gap-4 md:grid-cols-2">
+          <div className="grid gap-4 md:grid-cols-2">
             <ChannelOptionCard
               title="WhatsApp QR Code"
               description="Conecta numeros de WhatsApp Business por QR o codigo con Evolution."
@@ -845,6 +861,10 @@ export function NewConnectionChannelModal({
             />
           </div>
         )}
+        </div>
+        <div className="flex flex-wrap justify-end gap-3 border-t border-[rgba(148,163,184,0.14)] bg-white px-6 py-4">
+          {footerActions}
+        </div>
       </DialogContent>
     </Dialog>
   );
