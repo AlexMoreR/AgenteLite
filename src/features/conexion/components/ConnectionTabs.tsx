@@ -5,20 +5,28 @@ import type { ReactNode } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export function ConnectionTabs({
+  agente,
   ajustes,
   colaboradores,
 }: {
-  ajustes: ReactNode;
+  agente: ReactNode;
+  ajustes?: ReactNode;
   colaboradores: ReactNode;
 }) {
   return (
-    <Tabs defaultValue="ajustes">
+    <Tabs defaultValue={ajustes ? "ajustes" : "agente"}>
       <TabsList variant="line">
-        <TabsTrigger value="ajustes">Ajustes</TabsTrigger>
+        {ajustes ? <TabsTrigger value="ajustes">Ajustes</TabsTrigger> : null}
+        <TabsTrigger value="agente">Agente</TabsTrigger>
         <TabsTrigger value="colaboradores">Colaboradores</TabsTrigger>
       </TabsList>
-      <TabsContent value="ajustes" className="pt-4">
-        {ajustes}
+      {ajustes ? (
+        <TabsContent value="ajustes" className="pt-4">
+          {ajustes}
+        </TabsContent>
+      ) : null}
+      <TabsContent value="agente" className="pt-4">
+        {agente}
       </TabsContent>
       <TabsContent value="colaboradores" className="pt-4">
         {colaboradores}

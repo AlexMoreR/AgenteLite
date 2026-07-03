@@ -100,8 +100,7 @@ export function ConnectionsWorkspaceV2({
         {items.length ? (
           <div className="grid w-full gap-4">
             {items.map((item) => {
-              const detailHref =
-                item.provider === "OFFICIAL_API" ? "/cliente/api-oficial" : `/cliente/conexion/whatsapp-business/${item.id}`;
+              const detailHref = `/cliente/conexion/whatsapp-business/${item.id}`;
               const canAssignToTargetAgent = Boolean(targetAgent && item.linkedAgentId !== targetAgent.id);
 
               return (

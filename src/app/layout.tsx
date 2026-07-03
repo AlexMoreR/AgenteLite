@@ -25,6 +25,7 @@ import { enforceWorkspacePlanAccess } from "@/lib/workspace-plan-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import "./globals.css";
 import "@xyflow/react/dist/style.css";
+import "react-toastify/dist/ReactToastify.css";
 import { cn } from "@/lib/utils";
 
 const geist = Geist({subsets:['latin'],variable:'--font-sans'});

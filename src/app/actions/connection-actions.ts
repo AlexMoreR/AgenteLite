@@ -93,31 +93,43 @@ export async function createConnectionChannelAction(formData: FormData): Promise
   }
 
   const officialApiConfig = await getOfficialApiConfigByWorkspaceId(membership.workspace.id);
-  if (officialApiConfig?.status !== "CONNECTED") {
-    redirect("/cliente/conexion?error=La+API+oficial+no+esta+activa+para+este+workspace");
-  }
-
-  await prisma.whatsAppChannel.create({
+  const createdChannel = await prisma.whatsAppChannel.create({
     data: {
       workspaceId: membership.workspace.id,
       agentId,
       provider: "OFFICIAL_API",
       name: parsed.data.name,
-      evolutionInstanceName: `official-${officialApiConfig.phoneNumberId}-${randomUUID()}`,
-      status: "CONNECTED",
-      metadata: {
-        officialApiConfigId: officialApiConfig.id,
-        phoneNumberId: officialApiConfig.phoneNumberId,
-        wabaId: officialApiConfig.wabaId,
-      },
+      evolutionInstanceName:
+        officialApiConfig?.status === "CONNECTED" && officialApiConfig.phoneNumberId
+          ? `official-${officialApiConfig.phoneNumberId}-${randomUUID()}`
+          : null,
+      status: officialApiConfig?.status === "CONNECTED" ? "CONNECTED" : "DISCONNECTED",
+      metadata:
+        officialApiConfig?.status === "CONNECTED"
+          ? {
+              officialApiConfigId: officialApiConfig.id,
+              phoneNumberId: officialApiConfig.phoneNumberId,
+              wabaId: officialApiConfig.wabaId,
+            }
+          : {
+              source: "client-draft-setup",
+            },
+    },
+    select: {
+      id: true,
     },
   });
 
   revalidatePath("/cliente/conexion");
   revalidatePath("/cliente/conexion/whatsapp-business");
   revalidatePath("/cliente/api-oficial");
-  const okMessage = agentId ? "Canal+oficial+creado+y+vinculado" : "Canal+oficial+creado";
-  redirect(`/cliente/conexion?${agentId ? `agentId=${agentId}&` : ""}ok=${okMessage}`);
+  const okMessage =
+    officialApiConfig?.status === "CONNECTED"
+      ? agentId
+        ? "Canal+oficial+creado+y+vinculado"
+        : "Canal+oficial+creado"
+      : "Canal+oficial+creado.+Completa+ahora+la+configuracion+de+Meta";
+  redirect(`/cliente/conexion/whatsapp-business/${createdChannel.id}?ok=${okMessage}`);
 }
 
 const deleteConnectionChannelSchema = z.object({

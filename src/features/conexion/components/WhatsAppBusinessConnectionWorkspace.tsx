@@ -8,6 +8,7 @@ import {
 import { assignConnectionChannelAction, toggleConnectionChannelStatusAction } from "@/app/actions/connection-actions";
 import { WhatsappQrAutoRefresh } from "@/components/agents/whatsapp-qr-auto-refresh";
 import { WhatsappQrCountdown } from "@/components/agents/whatsapp-qr-countdown";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { FormActionSwitch } from "@/components/ui/form-action-switch";
@@ -18,6 +19,7 @@ import { EvolutionChatSyncDialog } from "./EvolutionChatSyncDialog";
 import { AgentAssignAutosaveForm, ReactivationAutosaveForm, ResponseDelayAutosaveForm } from "./ConnectionAutosaveControls";
 import { NotificationSoundSelect } from "@/components/chats/notification-sound-select";
 import { ChannelCollaboratorsForm } from "./ChannelCollaboratorsForm";
+import { OfficialApiConnectionSetupCard } from "./OfficialApiConnectionSetupCard";
 
 type WhatsAppBusinessConnectionWorkspaceProps = {
   connection: {
@@ -39,6 +41,16 @@ type WhatsAppBusinessConnectionWorkspaceProps = {
   pairingCode: string;
   hasQrCode: boolean;
   channelStatus: string | null | undefined;
+  officialApiConfig?: {
+    accessToken: string | null;
+    phoneNumberId: string | null;
+    wabaId: string | null;
+    webhookVerifyToken: string | null;
+    appSecret: string | null;
+  } | null;
+  officialApiProviderAppId?: string;
+  officialApiProviderAppSecret?: string;
+  officialApiWebhookCallbackUrl?: string;
   okMessage: string;
   errorMessage: string;
   availableAgents: Array<{
@@ -57,6 +69,10 @@ export function WhatsAppBusinessConnectionWorkspace({
   pairingCode,
   hasQrCode,
   channelStatus,
+  officialApiConfig,
+  officialApiProviderAppId = "",
+  officialApiProviderAppSecret = "",
+  officialApiWebhookCallbackUrl = "",
   okMessage,
   errorMessage,
   availableAgents,
@@ -68,6 +84,172 @@ export function WhatsAppBusinessConnectionWorkspace({
     connection.provider === "OFFICIAL_API"
       ? connection.phoneNumber || "API oficial"
       : connection.phoneNumber || "QR";
+  const connectionReturnTo = `/cliente/conexion/whatsapp-business/${connection.id}`;
+  const connectionStatusLabel = isConnected ? "Conectado" : "Desconectado";
+
+  const headerCard = (
+    <Card>
+      <CardContent className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="flex items-start gap-2.5">
+          <Avatar className="size-10 rounded-md">
+            {connection.logoUrl ? (
+              <AvatarImage src={connection.logoUrl} alt={`Logo de ${connection.name}`} className="object-cover" />
+            ) : null}
+            <AvatarFallback
+              className={
+                isConnected
+                  ? "rounded-md bg-emerald-500/10 text-emerald-600"
+                  : "rounded-md bg-primary/10 text-primary"
+              }
+            >
+              {isConnected ? <CheckCircle2 className="size-5" /> : <Smartphone className="size-5" />}
+            </AvatarFallback>
+          </Avatar>
+          <div className="min-w-0 space-y-0.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="truncate text-sm font-semibold text-foreground">{connection.name}</h2>
+              <StatusPill label={connectionStatusLabel} />
+            </div>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm text-muted-foreground">
+              <div className="inline-flex items-center gap-1.5">
+                <Smartphone className="size-3.5" />
+                <span>{providerLabel}</span>
+              </div>
+              <div className="inline-flex items-center gap-1.5">
+                <Bot className="size-3.5 text-primary" />
+                <span className="truncate">{connection.agentName || "Sin agente"}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <FormActionSwitch
+            action={toggleConnectionChannelStatusAction}
+            checked={connection.isActive}
+            ariaLabel={connection.isActive ? `Apagar ${connection.name}` : `Encender ${connection.name}`}
+            hiddenFields={[
+              { name: "channelId", value: connection.id },
+              { name: "returnTo", value: connectionReturnTo },
+            ]}
+          />
+
+          {connection.agentId ? (
+            <Button asChild>
+              <Link href={`/cliente/agentes/${connection.agentId}`}>Ir al agente</Link>
+            </Button>
+          ) : null}
+        </div>
+      </CardContent>
+    </Card>
+  );
+
+  const agentTabContent = (
+    <div className="space-y-4">
+      {availableAgents.length ? (
+        <div className="grid gap-4 md:grid-cols-2">
+          <Card>
+            <CardContent className="space-y-2">
+              <p className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
+                <UserRound className="size-4 text-primary" />
+                <span>Agente vinculado</span>
+              </p>
+              <AgentAssignAutosaveForm
+                action={assignConnectionChannelAction}
+                channelId={connection.id}
+                returnTo={connectionReturnTo}
+                defaultValue={connection.agentId || ""}
+                availableAgents={availableAgents.map((agent) => ({ id: agent.id, name: agent.name }))}
+              />
+            </CardContent>
+          </Card>
+
+          {connection.agentId ? (
+            <>
+              <Card>
+                <CardContent className="space-y-2.5">
+                  <p className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
+                    <Power className="size-4 text-primary" />
+                    <span>Agente activo</span>
+                  </p>
+                  <FormActionSwitch
+                    action={toggleAgentStatusAction}
+                    checked={connection.agentIsActive}
+                    ariaLabel={
+                      connection.agentIsActive
+                        ? `Apagar agente ${connection.agentName}`
+                        : `Encender agente ${connection.agentName}`
+                    }
+                    hiddenFields={[
+                      { name: "agentId", value: connection.agentId },
+                      { name: "returnTo", value: connectionReturnTo },
+                    ]}
+                    wrapperClassName="flex w-full items-center justify-start"
+                  />
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardContent className="space-y-2">
+                  <p className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
+                    <MessageSquareReply className="size-4 text-primary" />
+                    <span>Frase de reactivacion</span>
+                  </p>
+                  <ReactivationAutosaveForm
+                    action={saveAgentReactivationMessageAction}
+                    agentId={connection.agentId}
+                    returnTo={connectionReturnTo}
+                    defaultValue={connection.agentReactivationMessage || "Somos tu socio aliado."}
+                  />
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardContent className="space-y-2">
+                  <p className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
+                    <TimerReset className="size-4 text-primary" />
+                    <span>Retraso de respuesta IA</span>
+                  </p>
+                  <ResponseDelayAutosaveForm
+                    action={saveAgentResponseDelayAction}
+                    agentId={connection.agentId}
+                    returnTo={connectionReturnTo}
+                    defaultValue={connection.agentResponseDelaySeconds}
+                  />
+                </CardContent>
+              </Card>
+            </>
+          ) : null}
+        </div>
+      ) : null}
+
+      <Card>
+        <CardContent className="space-y-2">
+          <p className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
+            <Volume2 className="size-4 text-primary" />
+            <span>Sonido</span>
+          </p>
+          <NotificationSoundSelect />
+        </CardContent>
+      </Card>
+
+      {connection.provider === "EVOLUTION" ? <EvolutionChatSyncDialog channelId={connection.id} /> : null}
+    </div>
+  );
+
+  const settingsTabContent =
+    connection.provider === "OFFICIAL_API" ? (
+      <OfficialApiConnectionSetupCard
+        channelId={connection.id}
+        appId={officialApiProviderAppId}
+        appSecret={officialApiProviderAppSecret || officialApiConfig?.appSecret || ""}
+        initialAccessToken={officialApiConfig?.accessToken ?? ""}
+        initialPhoneNumberId={officialApiConfig?.phoneNumberId ?? ""}
+        initialWabaId={officialApiConfig?.wabaId ?? ""}
+        initialWebhookVerifyToken={officialApiConfig?.webhookVerifyToken ?? ""}
+        webhookCallbackUrl={officialApiWebhookCallbackUrl}
+      />
+    ) : undefined;
 
   return (
     <section className="space-y-5 p-6">
@@ -78,57 +260,15 @@ export function WhatsAppBusinessConnectionWorkspace({
         errorTitle="No pudimos completar la conexion"
       />
 
-      {!isConnected ? <WhatsappQrAutoRefresh isConnected={isConnected} /> : null}
+      {!isConnected && connection.provider === "EVOLUTION" ? <WhatsappQrAutoRefresh isConnected={isConnected} /> : null}
 
       {isConnected ? (
         <>
-          <Card>
-            <CardContent className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-              <div className="flex items-start gap-2.5">
-                <Avatar className="size-10 rounded-md">
-                  {connection.logoUrl ? (
-                    <AvatarImage src={connection.logoUrl} alt={`Logo de ${connection.name}`} className="object-cover" />
-                  ) : null}
-                  <AvatarFallback className="rounded-md bg-emerald-500/10 text-emerald-600">
-                    <CheckCircle2 className="size-5" />
-                  </AvatarFallback>
-                </Avatar>
-                <div className="min-w-0 space-y-0.5">
-                  <h2 className="truncate text-sm font-semibold text-foreground">{connection.name}</h2>
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm text-muted-foreground">
-                    <div className="inline-flex items-center gap-1.5">
-                      <Smartphone className="size-3.5" />
-                      <span>{providerLabel}</span>
-                    </div>
-                    <div className="inline-flex items-center gap-1.5">
-                      <Bot className="size-3.5 text-primary" />
-                      <span className="truncate">{connection.agentName || "Sin agente"}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <FormActionSwitch
-                  action={toggleConnectionChannelStatusAction}
-                  checked={connection.isActive}
-                  ariaLabel={connection.isActive ? `Apagar ${connection.name}` : `Encender ${connection.name}`}
-                  hiddenFields={[
-                    { name: "channelId", value: connection.id },
-                    { name: "returnTo", value: `/cliente/conexion/whatsapp-business/${connection.id}` },
-                  ]}
-                />
-
-                {connection.agentId ? (
-                  <Button asChild>
-                    <Link href={`/cliente/agentes/${connection.agentId}`}>Ir al agente</Link>
-                  </Button>
-                ) : null}
-              </div>
-            </CardContent>
-          </Card>
+          {headerCard}
 
           <ConnectionTabs
+            agente={agentTabContent}
+            ajustes={settingsTabContent}
             colaboradores={
               <Card>
                 <CardContent>
@@ -140,97 +280,24 @@ export function WhatsAppBusinessConnectionWorkspace({
                 </CardContent>
               </Card>
             }
-            ajustes={
-              <div className="space-y-4">
-                {availableAgents.length ? (
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <Card>
-                      <CardContent className="space-y-2">
-                        <p className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
-                          <UserRound className="size-4 text-primary" />
-                          <span>Agente vinculado</span>
-                        </p>
-                  <AgentAssignAutosaveForm
-                    action={assignConnectionChannelAction}
+          />
+        </>
+      ) : connection.provider === "OFFICIAL_API" ? (
+        <>
+          {headerCard}
+          <ConnectionTabs
+            agente={agentTabContent}
+            ajustes={settingsTabContent}
+            colaboradores={
+              <Card>
+                <CardContent>
+                  <ChannelCollaboratorsForm
                     channelId={connection.id}
-                    returnTo={`/cliente/conexion/whatsapp-business/${connection.id}`}
-                    defaultValue={connection.agentId || ""}
-                    availableAgents={availableAgents.map((agent) => ({ id: agent.id, name: agent.name }))}
+                    members={collaboratorMembers}
+                    collaboratorIds={collaboratorIds}
                   />
                 </CardContent>
               </Card>
-
-              {connection.agentId ? (
-                <>
-                  <Card>
-                    <CardContent className="space-y-2.5">
-                      <p className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
-                        <Power className="size-4 text-primary" />
-                        <span>Agente activo</span>
-                      </p>
-                      <FormActionSwitch
-                        action={toggleAgentStatusAction}
-                        checked={connection.agentIsActive}
-                        ariaLabel={
-                          connection.agentIsActive
-                            ? `Apagar agente ${connection.agentName}`
-                            : `Encender agente ${connection.agentName}`
-                        }
-                        hiddenFields={[
-                          { name: "agentId", value: connection.agentId },
-                          { name: "returnTo", value: `/cliente/conexion/whatsapp-business/${connection.id}` },
-                        ]}
-                        wrapperClassName="flex w-full items-center justify-start"
-                      />
-                    </CardContent>
-                  </Card>
-
-                  <Card>
-                    <CardContent className="space-y-2">
-                      <p className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
-                        <MessageSquareReply className="size-4 text-primary" />
-                        <span>Frase de reactivacion</span>
-                      </p>
-                      <ReactivationAutosaveForm
-                        action={saveAgentReactivationMessageAction}
-                        agentId={connection.agentId}
-                        returnTo={`/cliente/conexion/whatsapp-business/${connection.id}`}
-                        defaultValue={connection.agentReactivationMessage || "Somos tu socio aliado."}
-                      />
-                    </CardContent>
-                  </Card>
-
-                  <Card>
-                    <CardContent className="space-y-2">
-                      <p className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
-                        <TimerReset className="size-4 text-primary" />
-                        <span>Retraso de respuesta IA</span>
-                      </p>
-                      <ResponseDelayAutosaveForm
-                        action={saveAgentResponseDelayAction}
-                        agentId={connection.agentId}
-                        returnTo={`/cliente/conexion/whatsapp-business/${connection.id}`}
-                        defaultValue={connection.agentResponseDelaySeconds}
-                      />
-                    </CardContent>
-                  </Card>
-                </>
-              ) : null}
-            </div>
-                ) : null}
-
-                <Card>
-                  <CardContent className="space-y-2">
-                    <p className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
-                      <Volume2 className="size-4 text-primary" />
-                      <span>Sonido</span>
-                    </p>
-                    <NotificationSoundSelect />
-                  </CardContent>
-                </Card>
-
-                {connection.provider === "EVOLUTION" ? <EvolutionChatSyncDialog channelId={connection.id} /> : null}
-              </div>
             }
           />
         </>
@@ -287,6 +354,17 @@ export function WhatsAppBusinessConnectionWorkspace({
         </div>
       )}
     </section>
+  );
+}
+
+function StatusPill({ label }: { label: string }) {
+  const dotTone = label === "Conectado" ? "bg-emerald-500" : "bg-muted-foreground";
+
+  return (
+    <Badge variant="outline" className="gap-1.5">
+      <span className={`size-1.5 rounded-full ${dotTone}`} />
+      {label}
+    </Badge>
   );
 }
 

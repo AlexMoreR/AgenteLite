@@ -6,7 +6,6 @@ import { CheckCircle2, Loader2, MessageCirclePlus, X } from "lucide-react";
 import { createConnectionChannelAction } from "@/app/actions/connection-actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -18,7 +17,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
 type ConnectionProvider = "EVOLUTION" | "OFFICIAL_API" | "OFFICIAL_API_COEXISTENCE";
@@ -72,27 +70,11 @@ export function NewConnectionChannelModal({
   const [open, setOpen] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<ConnectionProvider | null>(null);
   const [channelName, setChannelName] = useState("");
-  const [officialApiForm, setOfficialApiForm] = useState({
-    embeddedCode: "",
-    sessionResponse: "",
-    appId: "",
-    appSecret: "",
-    accessToken: "",
-    phoneNumberId: "",
-    wabaId: "",
-  });
   const [coexistenceResult, setCoexistenceResult] = useState<{
     ok: boolean;
     message: string;
   } | null>(null);
-  const [officialApiResult, setOfficialApiResult] = useState<{
-    ok: boolean;
-    message: string;
-  } | null>(null);
   const [isLaunchingCoexistence, setIsLaunchingCoexistence] = useState(false);
-  const [isSavingOfficialApi, setIsSavingOfficialApi] = useState(false);
-  const [isImportingOfficialApi, setIsImportingOfficialApi] = useState(false);
-  const [showEmbeddedImport, setShowEmbeddedImport] = useState(false);
   const metaCodeRef = useRef<string>("");
   const sessionResponseRef = useRef<string>("");
   const sdkReadyRef = useRef(false);
@@ -102,20 +84,7 @@ export function NewConnectionChannelModal({
     setSelectedProvider(null);
     setChannelName("");
     setCoexistenceResult(null);
-    setOfficialApiResult(null);
     setIsLaunchingCoexistence(false);
-    setIsSavingOfficialApi(false);
-    setIsImportingOfficialApi(false);
-    setShowEmbeddedImport(false);
-    setOfficialApiForm({
-      embeddedCode: "",
-      sessionResponse: "",
-      appId: "",
-      appSecret: "",
-      accessToken: "",
-      phoneNumberId: "",
-      wabaId: "",
-    });
     metaCodeRef.current = "";
     sessionResponseRef.current = "";
   };
@@ -199,146 +168,6 @@ export function NewConnectionChannelModal({
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
   }, [open, selectedProvider]);
-
-  const updateOfficialApiField = (field: keyof typeof officialApiForm, value: string) => {
-    setOfficialApiForm((current) => ({
-      ...current,
-      [field]: value,
-    }));
-  };
-
-  const handleImportOfficialApiFromMeta = async () => {
-    if (!officialApiForm.sessionResponse.trim()) {
-      setOfficialApiResult({
-        ok: false,
-        message: "Pega primero la respuesta de registro de la sesion de Meta.",
-      });
-      return;
-    }
-
-    setIsImportingOfficialApi(true);
-    setOfficialApiResult(null);
-
-    try {
-      const response = await fetch("/api/cliente/conexion/official-api/import-embedded-signup", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          code: officialApiForm.embeddedCode,
-          sessionResponse: officialApiForm.sessionResponse,
-          accessToken: officialApiForm.accessToken,
-          appId: officialApiForm.appId,
-          appSecret: officialApiForm.appSecret,
-        }),
-      });
-
-      const payload = (await response.json().catch(() => null)) as
-        | {
-            ok?: boolean;
-            accessToken?: string;
-            phoneNumberId?: string;
-            wabaId?: string;
-            error?: string;
-          }
-        | null;
-
-      if (!response.ok || !payload?.ok) {
-        throw new Error(payload?.error || "No se pudo importar la configuracion desde Meta.");
-      }
-
-      setOfficialApiForm((current) => ({
-        ...current,
-        accessToken: payload.accessToken || current.accessToken,
-        phoneNumberId: payload.phoneNumberId || current.phoneNumberId,
-        wabaId: payload.wabaId || current.wabaId,
-      }));
-
-      setOfficialApiResult({
-        ok: true,
-        message: "Importamos el token y los IDs de Meta. Ahora ya puedes guardar el canal oficial.",
-      });
-    } catch (error) {
-      setOfficialApiResult({
-        ok: false,
-        message:
-          error instanceof Error
-            ? error.message
-            : "No se pudo importar la configuracion de Meta.",
-      });
-    } finally {
-      setIsImportingOfficialApi(false);
-    }
-  };
-
-  const handleCreateOfficialApiChannel = async () => {
-    if (!channelName.trim()) {
-      setOfficialApiResult({
-        ok: false,
-        message: "Escribe primero el nombre del canal.",
-      });
-      return;
-    }
-
-    if (!officialApiForm.accessToken.trim() || !officialApiForm.phoneNumberId.trim() || !officialApiForm.wabaId.trim()) {
-      setOfficialApiResult({
-        ok: false,
-        message: "Completa access token, phone number ID y WABA ID para continuar.",
-      });
-      return;
-    }
-
-    setIsSavingOfficialApi(true);
-    setOfficialApiResult(null);
-
-    try {
-      const response = await fetch("/api/cliente/conexion/official-api/setup", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          name: channelName,
-          accessToken: officialApiForm.accessToken,
-          phoneNumberId: officialApiForm.phoneNumberId,
-          wabaId: officialApiForm.wabaId,
-          agentId: targetAgent?.id,
-        }),
-      });
-
-      const payload = (await response.json().catch(() => null)) as
-        | {
-            ok?: boolean;
-            channelId?: string;
-            error?: string;
-          }
-        | null;
-
-      if (!response.ok || !payload?.ok || !payload.channelId) {
-        throw new Error(payload?.error || "No se pudo guardar la API oficial.");
-      }
-
-      setOfficialApiResult({
-        ok: true,
-        message: "API oficial guardada y canal creado. Vamos a abrir Chats con el nuevo canal listo.",
-      });
-
-      window.setTimeout(() => {
-        const params = new URLSearchParams();
-        params.set("ok", targetAgent ? "Canal+oficial+creado+y+vinculado" : "Canal+oficial+creado");
-        params.set("connection", `channel:${payload.channelId}`);
-        window.location.href = `/cliente/chats?${params.toString()}`;
-      }, 800);
-    } catch (error) {
-      setOfficialApiResult({
-        ok: false,
-        message: error instanceof Error ? error.message : "No se pudo crear el canal oficial.",
-      });
-    } finally {
-      setIsSavingOfficialApi(false);
-    }
-  };
 
   const handleLaunchCoexistence = async () => {
     if (!channelName.trim()) {
@@ -484,32 +313,6 @@ export function NewConnectionChannelModal({
           )}
         </Button>
       </>
-    ) : selectedProvider === "OFFICIAL_API" ? (
-      <>
-        <Button type="button" variant="outline" onClick={() => setSelectedProvider(null)}>
-          Volver
-        </Button>
-        <Button
-          type="button"
-          onClick={handleCreateOfficialApiChannel}
-          disabled={
-            isSavingOfficialApi ||
-            !channelName.trim() ||
-            !officialApiForm.accessToken.trim() ||
-            !officialApiForm.phoneNumberId.trim() ||
-            !officialApiForm.wabaId.trim()
-          }
-        >
-          {isSavingOfficialApi ? (
-            <>
-              <Loader2 className="animate-spin" />
-              Guardando API oficial...
-            </>
-          ) : (
-            "Guardar y crear canal"
-          )}
-        </Button>
-      </>
     ) : (
       <>
         <Button type="button" variant="outline" onClick={() => setSelectedProvider(null)}>
@@ -582,137 +385,6 @@ export function NewConnectionChannelModal({
 
               {coexistenceResult ? <ResultBanner result={coexistenceResult} /> : null}
             </div>
-          ) : selectedProvider === "OFFICIAL_API" ? (
-            <div className="min-w-0 space-y-5">
-              <div className="space-y-2">
-                <Label htmlFor="official-api-channel-name">Nombre del canal</Label>
-                <Input
-                  id="official-api-channel-name"
-                  name="name"
-                  type="text"
-                  required
-                  autoFocus
-                  value={channelName}
-                  onChange={(event) => setChannelName(event.target.value)}
-                  placeholder="Ej. WhatsApp oficial principal"
-                />
-              </div>
-
-              <div className="flex items-center gap-3">
-                <Checkbox
-                  id="toggle-embedded-import"
-                  checked={showEmbeddedImport}
-                  onCheckedChange={(checked) => setShowEmbeddedImport(checked === true)}
-                />
-                <Label htmlFor="toggle-embedded-import">Importar desde Embedded Signup</Label>
-              </div>
-
-              {showEmbeddedImport ? (
-              <Card className="min-w-0">
-                <CardContent className="min-w-0 space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="official-api-embedded-code">Code de registro insertado</Label>
-                    <Textarea
-                      id="official-api-embedded-code"
-                      className="min-w-0 [field-sizing:fixed]"
-                      value={officialApiForm.embeddedCode}
-                      onChange={(event) => updateOfficialApiField("embeddedCode", event.target.value)}
-                      placeholder="AQJ..."
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="official-api-session-response">Respuesta de registro de la sesion</Label>
-                    <Textarea
-                      id="official-api-session-response"
-                      className="min-w-0 [field-sizing:fixed]"
-                      value={officialApiForm.sessionResponse}
-                      onChange={(event) => updateOfficialApiField("sessionResponse", event.target.value)}
-                      placeholder='[{"data":{"phone_number_id":"...","waba_id":"...","business_id":"..."},"type":"WA_EMBEDDED_SIGNUP","event":"FINISH"}]'
-                    />
-                  </div>
-
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label htmlFor="official-api-provider-app-id">App ID del proveedor (opcional)</Label>
-                      <Input
-                        id="official-api-provider-app-id"
-                        type="text"
-                        value={officialApiForm.appId}
-                        onChange={(event) => updateOfficialApiField("appId", event.target.value)}
-                        placeholder="1096639035350984"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="official-api-provider-app-secret">App Secret del proveedor (opcional)</Label>
-                      <Input
-                        id="official-api-provider-app-secret"
-                        type="password"
-                        value={officialApiForm.appSecret}
-                        onChange={(event) => updateOfficialApiField("appSecret", event.target.value)}
-                        placeholder="Se usa solo si vas a cambiar el code por token"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex justify-end">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={handleImportOfficialApiFromMeta}
-                      disabled={isImportingOfficialApi || !officialApiForm.sessionResponse.trim()}
-                    >
-                      {isImportingOfficialApi ? (
-                        <>
-                          <Loader2 className="animate-spin" />
-                          Importando...
-                        </>
-                      ) : (
-                        "Importar desde Meta"
-                      )}
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-              ) : null}
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2 md:col-span-2">
-                  <Label htmlFor="official-api-access-token">Access token de Meta</Label>
-                  <Textarea
-                    id="official-api-access-token"
-                    className="min-w-0 [field-sizing:fixed]"
-                    value={officialApiForm.accessToken}
-                    onChange={(event) => updateOfficialApiField("accessToken", event.target.value)}
-                    placeholder="EAAP..."
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="official-api-phone-number-id">Phone Number ID</Label>
-                  <Input
-                    id="official-api-phone-number-id"
-                    type="text"
-                    value={officialApiForm.phoneNumberId}
-                    onChange={(event) => updateOfficialApiField("phoneNumberId", event.target.value)}
-                    placeholder="1230794916781773"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="official-api-waba-id">WABA ID</Label>
-                  <Input
-                    id="official-api-waba-id"
-                    type="text"
-                    value={officialApiForm.wabaId}
-                    onChange={(event) => updateOfficialApiField("wabaId", event.target.value)}
-                    placeholder="1040209858511004"
-                  />
-                </div>
-              </div>
-
-              {officialApiResult ? <ResultBanner result={officialApiResult} /> : null}
-            </div>
           ) : (
             <form id="new-connection-channel-form" action={createConnectionChannelAction} className="min-w-0 space-y-4">
               <input type="hidden" name="provider" value={selectedProvider} />
@@ -744,7 +416,7 @@ export function NewConnectionChannelModal({
             <ChannelOptionCard
               title="WhatsApp API (Meta)"
               description=""
-              cta={canSeeOfficialApiModule ? "Configurar y crear" : "Desactivado"}
+              cta={canSeeOfficialApiModule ? "Crear y configurar" : "Desactivado"}
               icon={<WhatsAppGlyph className="size-8" />}
               disabled={!canSeeOfficialApiModule}
               onSelect={() => setSelectedProvider("OFFICIAL_API")}

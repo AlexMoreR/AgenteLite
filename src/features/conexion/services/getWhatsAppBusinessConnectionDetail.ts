@@ -5,6 +5,7 @@ import {
   getEvolutionConnectionQr,
   getEvolutionConnectionState,
 } from "@/lib/evolution";
+import { getOfficialApiConfigByWorkspaceId } from "@/lib/official-api-config";
 import { prisma } from "@/lib/prisma";
 
 async function buildQrDataUrl(qrValue: string | null) {
@@ -70,7 +71,9 @@ export async function getWhatsAppBusinessConnectionDetail(workspaceId: string, c
     return null;
   }
 
-  const remoteConnectionState = channel?.evolutionInstanceName
+  const officialApiConfig =
+    channel.provider === "OFFICIAL_API" ? await getOfficialApiConfigByWorkspaceId(workspaceId) : null;
+  const remoteConnectionState = channel?.provider === "EVOLUTION" && channel?.evolutionInstanceName
     ? await getEvolutionConnectionState(channel.evolutionInstanceName)
     : null;
   const remoteIsConnected =
@@ -79,7 +82,7 @@ export async function getWhatsAppBusinessConnectionDetail(workspaceId: string, c
     remoteConnectionState === "connection_open" ||
     remoteConnectionState === "online";
   const remoteConnectionQr =
-    channel?.evolutionInstanceName && !remoteIsConnected
+    channel?.provider === "EVOLUTION" && channel?.evolutionInstanceName && !remoteIsConnected
       ? await getEvolutionConnectionQr(channel.evolutionInstanceName)
       : { qrCode: null, pairingCode: null };
   const instanceProfile =
@@ -137,7 +140,7 @@ export async function getWhatsAppBusinessConnectionDetail(workspaceId: string, c
     });
   }
 
-  const isConnected = remoteIsConnected || channel?.status === "CONNECTED";
+  const isConnected = channel.provider === "OFFICIAL_API" ? channel.status === "CONNECTED" : remoteIsConnected || channel?.status === "CONNECTED";
   const rawQrCode = isConnected ? null : remoteConnectionQr.qrCode;
   const qrDataUrl = await buildQrDataUrl(rawQrCode);
   const pairingCode =
@@ -172,6 +175,7 @@ export async function getWhatsAppBusinessConnectionDetail(workspaceId: string, c
       logoUrl: profilePictureUrl,
     },
     channel,
+    officialApiConfig,
     isConnected,
     qrDataUrl,
     pairingCode,

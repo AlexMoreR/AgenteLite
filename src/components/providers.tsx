@@ -3,6 +3,7 @@
 import type { Session } from "next-auth";
 import { SessionProvider } from "next-auth/react";
 import { Toaster } from "sonner";
+import { ToastContainer } from "react-toastify";
 import { BreadcrumbLabelProvider } from "@/components/breadcrumb-label-context";
 
 type ProvidersProps = {
@@ -29,6 +30,14 @@ export function Providers({ children, session }: ProvidersProps) {
             description: "app-sonner-description",
           },
         }}
+      />
+      <ToastContainer
+        position="top-right"
+        autoClose={4000}
+        newestOnTop
+        closeOnClick
+        pauseOnHover
+        theme="colored"
       />
     </SessionProvider>
   );

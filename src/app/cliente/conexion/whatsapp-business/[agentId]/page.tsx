@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { WhatsAppBusinessConnectionWorkspace, getWhatsAppBusinessConnectionDetail } from "@/features/conexion";
+import { getPublicBaseUrl } from "@/lib/app-url";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
+import { getOfficialApiProviderSettings } from "@/lib/system-settings";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
@@ -30,7 +32,7 @@ export default async function ClienteConexionWhatsAppBusinessDetailPage({ params
 
   const [{ agentId }, paramsData] = await Promise.all([params, searchParams]);
   const detail = await getWhatsAppBusinessConnectionDetail(membership.workspace.id, agentId);
-  const [availableAgents, workspaceMembers] = await Promise.all([
+  const [availableAgents, workspaceMembers, providerSettings] = await Promise.all([
     prisma.agent.findMany({
       where: {
         workspaceId: membership.workspace.id,
@@ -52,6 +54,7 @@ export default async function ClienteConexionWhatsAppBusinessDetailPage({ params
       select: { user: { select: { id: true, name: true, email: true } } },
       orderBy: { createdAt: "asc" },
     }),
+    getOfficialApiProviderSettings(),
   ]);
 
   if (!detail) {
@@ -74,6 +77,7 @@ export default async function ClienteConexionWhatsAppBusinessDetailPage({ params
 
   const okMessage = typeof paramsData.ok === "string" ? paramsData.ok : "";
   const errorMessage = typeof paramsData.error === "string" ? paramsData.error : "";
+  const webhookCallbackUrl = `${getPublicBaseUrl()}/api/webhooks/meta/official-api`;
 
   return (
     <WhatsAppBusinessConnectionWorkspace
@@ -83,6 +87,10 @@ export default async function ClienteConexionWhatsAppBusinessDetailPage({ params
       pairingCode={detail.pairingCode}
       hasQrCode={detail.hasQrCode}
       channelStatus={detail.channel?.status}
+      officialApiConfig={detail.officialApiConfig}
+      officialApiProviderAppId={providerSettings.appId}
+      officialApiProviderAppSecret={providerSettings.appSecret}
+      officialApiWebhookCallbackUrl={webhookCallbackUrl}
       okMessage={okMessage}
       errorMessage={errorMessage}
       availableAgents={availableAgents}

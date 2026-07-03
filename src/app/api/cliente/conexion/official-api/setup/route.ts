@@ -9,11 +9,11 @@ import { prisma } from "@/lib/prisma";
 import { getOfficialApiProviderSettings } from "@/lib/system-settings";
 
 const setupOfficialApiSchema = z.object({
-  name: z.string().trim().min(2, "Escribe un nombre de canal valido").max(100, "El nombre del canal es demasiado largo"),
+  channelId: z.string().trim().min(1, "Canal invalido."),
   accessToken: z.string().trim().min(1, "Pega el access token de Meta."),
   phoneNumberId: z.string().trim().min(1, "Pega el Phone Number ID."),
   wabaId: z.string().trim().min(1, "Pega el WABA ID."),
-  agentId: z.string().trim().optional(),
+  webhookVerifyToken: z.string().trim().optional(),
 });
 
 export async function POST(request: Request) {
@@ -43,21 +43,21 @@ export async function POST(request: Request) {
 
   const providerSettings = await getOfficialApiProviderSettings();
 
-  let agentId: string | null = null;
-  if (parsed.data.agentId) {
-    const agent = await prisma.agent.findFirst({
-      where: {
-        id: parsed.data.agentId,
-        workspaceId: access.workspaceId,
-      },
-      select: { id: true },
-    });
+  const channel = await prisma.whatsAppChannel.findFirst({
+    where: {
+      id: parsed.data.channelId,
+      workspaceId: access.workspaceId,
+      provider: "OFFICIAL_API",
+    },
+    select: {
+      id: true,
+      metadata: true,
+      phoneNumber: true,
+    },
+  });
 
-    if (!agent) {
-      return NextResponse.json({ ok: false, error: "No se encontro el agente para vincular." }, { status: 404 });
-    }
-
-    agentId = agent.id;
+  if (!channel) {
+    return NextResponse.json({ ok: false, error: "No se encontro el canal oficial." }, { status: 404 });
   }
 
   await upsertOfficialApiConfigByWorkspaceId({
@@ -65,7 +65,7 @@ export async function POST(request: Request) {
     accessToken: parsed.data.accessToken,
     phoneNumberId: parsed.data.phoneNumberId,
     wabaId: parsed.data.wabaId,
-    webhookVerifyToken: providerSettings.verifyToken || undefined,
+    webhookVerifyToken: parsed.data.webhookVerifyToken || providerSettings.verifyToken || undefined,
     appSecret: providerSettings.appSecret || undefined,
   });
 
@@ -84,28 +84,29 @@ export async function POST(request: Request) {
     );
   }
 
-  const channel = await prisma.whatsAppChannel.create({
+  const baseMetadata =
+    channel.metadata && typeof channel.metadata === "object" && !Array.isArray(channel.metadata)
+      ? (channel.metadata as Record<string, unknown>)
+      : {};
+
+  await prisma.whatsAppChannel.update({
+    where: { id: channel.id },
     data: {
-      workspaceId: access.workspaceId,
-      agentId,
-      provider: "OFFICIAL_API",
-      name: parsed.data.name,
       evolutionInstanceName: `official-${parsed.data.phoneNumberId}-${randomUUID()}`,
+      phoneNumber: channel.phoneNumber || parsed.data.phoneNumberId,
       status: "CONNECTED",
       metadata: {
+        ...baseMetadata,
         phoneNumberId: parsed.data.phoneNumberId,
         wabaId: parsed.data.wabaId,
         subscribedAppId: subscription.appId,
-        source: "client-direct-setup",
+        source: "client-detail-setup",
       },
-    },
-    select: {
-      id: true,
     },
   });
 
   return NextResponse.json({
     ok: true,
-    channelId: channel.id,
+    channelId: parsed.data.channelId,
   });
 }
