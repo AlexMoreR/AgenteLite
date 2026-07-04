@@ -2,8 +2,18 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
-import { resolveAgentProductFlowReply, type ActiveProductContext } from "@/lib/agent-product-flow";
+import { buildActiveProductContextNote, resolveAgentProductFlowReply, type ActiveProductContext } from "@/lib/agent-product-flow";
 import { composeAgentWelcomeReply } from "@/lib/agent-reply-composer";
+import { generateAgentReply } from "@/lib/agent-ai";
+import {
+  buildCommercialConversationContext,
+  buildCommercialConversationContextPromptSection,
+  buildCommercialStagePromptSection,
+  buildNegotiationAdvanceReply,
+  classifyCommercialStage,
+  parseCommercialConversationContext,
+  shouldOverrideCommercialReply,
+} from "@/lib/commercial-stage";
 import { resolveOfficialApiAutomationReply } from "@/lib/official-api-chatbot";
 import {
   sendOfficialApiAudioMessage,
@@ -25,8 +35,14 @@ import { normalizeMetaAppSecret } from "@/lib/official-api-graph";
 import { getOfficialApiProviderSettings } from "@/lib/system-settings";
 import { buildHandoffMessage, parseAgentTrainingConfig } from "@/lib/agent-training";
 import {
+  CONSULTAR_FLUJOS_TOOL,
+  CONSULTAR_PRODUCTOS_TOOL,
+  NOTIFICAR_ASESOR_TOOL,
+  executeConsultarFlujosTool,
+  executeConsultarProductosTool,
   resolveNotifyHumanAction,
   resolveUnknownProductNotifyAction,
+  sendNotificarAsesorNotification,
 } from "@/features/agent-actions";
 
 type MetaWebhookPayload = {
@@ -207,7 +223,10 @@ async function findOfficialApiLinkedAgent(workspaceId: string) {
           select: {
             id: true,
             name: true,
+            model: true,
+            systemPrompt: true,
             welcomeMessage: true,
+            fallbackMessage: true,
             trainingConfig: true,
           },
         },
@@ -696,7 +715,7 @@ export async function POST(request: Request) {
           });
       const conversationForProductFlow = await prisma.officialApiConversation.findUnique({
         where: { id: message.conversationId },
-        select: { activeProductContext: true },
+        select: { activeProductContext: true, commercialContext: true },
       });
       const activeProductContext = conversationForProductFlow?.activeProductContext as ActiveProductContext | null | undefined;
       const agentProductFlowResolution = shouldHandoffToHuman || !linkedAgentChannel?.agent?.id
@@ -755,13 +774,155 @@ export async function POST(request: Request) {
           })
         : null;
 
-      const chatbotReply = shouldHandoffToHuman || Boolean(autoUnknownProductNotifyAction)
+      // Conversacion IA libre (paridad con Evolution): cuando el agente no resolvio por
+      // producto/flujo/conocimiento y no hay handoff/auto-notify, generamos la respuesta con
+      // el modelo del agente (system prompt + tools + contexto comercial + fallback + bienvenida).
+      const iaAgent = linkedAgentChannel?.agent;
+      let agentIaText: string | null = null;
+      const shouldRunAgentIa =
+        Boolean(iaAgent?.id) &&
+        !shouldHandoffToHuman &&
+        !autoUnknownProductNotifyAction &&
+        !agentProductFlowReply &&
+        !agentKnowledgeBaseReply;
+
+      // El chatbot basico de la API oficial solo actua cuando NO hay agente IA que responda
+      // (el agente vinculado tiene prioridad y no queremos avanzar escenarios en silencio).
+      const chatbotReply = shouldHandoffToHuman || Boolean(autoUnknownProductNotifyAction) || shouldRunAgentIa
         ? null
         : await resolveOfficialApiAutomationReply({
             configId: config.id,
             conversationId: message.conversationId,
             inboundText: message.content,
           });
+
+      if (shouldRunAgentIa && iaAgent) {
+        const inboundText = message.content ?? "";
+        const historyRows = await prisma.$queryRaw<
+          Array<{ direction: "INBOUND" | "OUTBOUND"; content: string | null; type: string | null; mediaUrl: string | null }>
+        >`
+          SELECT "direction"::text AS "direction", "content", "type"::text AS "type", "mediaUrl"
+          FROM "OfficialApiMessage"
+          WHERE "conversationId" = ${message.conversationId}
+          ORDER BY "createdAt" DESC
+          LIMIT 12
+        `;
+        const historyTurns = historyRows
+          .reverse()
+          .map((m) => ({
+            direction: m.direction,
+            content: m.content,
+            type: (m.type ?? "TEXT") as
+              | "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "TEMPLATE" | "INTERACTIVE" | "SYSTEM",
+            mediaUrl: m.mediaUrl,
+          }));
+
+        // Contexto comercial (etapa + contexto de conversacion) y su persistencia.
+        const previousCommercialContext = parseCommercialConversationContext(conversationForProductFlow?.commercialContext);
+        const commercialStageResolution = classifyCommercialStage({
+          latestUserMessage: inboundText,
+          history: historyTurns,
+          activeProductContext: activeProductContext ?? null,
+          previousStage: previousCommercialContext?.currentStage ?? null,
+          commercialContext: previousCommercialContext,
+        });
+        const commercialConversationContext = buildCommercialConversationContext({
+          stage: commercialStageResolution,
+          latestUserMessage: inboundText,
+          history: historyTurns,
+          activeProductContext: activeProductContext ?? null,
+          previousContext: previousCommercialContext,
+        });
+        await prisma.$executeRaw`
+          UPDATE "OfficialApiConversation"
+          SET "commercialContext" = ${commercialConversationContext as unknown as Prisma.InputJsonValue},
+              "updatedAt" = CURRENT_TIMESTAMP
+          WHERE "id" = ${message.conversationId}
+        `;
+
+        const commercialStagePrompt = buildCommercialStagePromptSection(commercialStageResolution);
+        const commercialContextPrompt = buildCommercialConversationContextPromptSection(commercialConversationContext);
+        const effectiveSystemPrompt =
+          agentTraining?.useCustomPrompt && agentTraining.customSystemPrompt?.trim()
+            ? `${agentTraining.customSystemPrompt.trim()}\n\n${commercialStagePrompt}\n\n${commercialContextPrompt}`
+            : `${iaAgent.systemPrompt ?? ""}\n\n${commercialStagePrompt}\n\n${commercialContextPrompt}`;
+
+        // Notas de contexto que se anteponen al mensaje del cliente (no al system prompt).
+        const aiContextNotes = new Set<string>();
+        const productNote = buildActiveProductContextNote(activeProductContext ?? null);
+        if (productNote) aiContextNotes.add(productNote);
+        if (commercialStagePrompt) aiContextNotes.add(commercialStagePrompt);
+        if (commercialContextPrompt) aiContextNotes.add(commercialContextPrompt);
+        const latestUserMessageForIa =
+          aiContextNotes.size > 0
+            ? `${Array.from(aiContextNotes).join("\n")}\n\nMensaje del cliente: ${message.content ?? ""}`
+            : message.content ?? "";
+
+        const toolHandlers = {
+          Notificar_asesor: async (args: Record<string, unknown>) => {
+            const result = await sendNotificarAsesorNotification({
+              trainingConfig: iaAgent.trainingConfig,
+              agentName: iaAgent.name,
+              customerPhoneNumber: message.waId,
+              customerName: message.contactName,
+              latestUserMessage: message.content,
+              toolInput: args,
+              sendMessage: async (destinationPhoneNumber: string, text: string) =>
+                sendOfficialApiDirectTextMessage({ config, to: destinationPhoneNumber, message: text }),
+            });
+            if (result.ok && agentTraining?.actions.notify.pauseConversationAfterNotify) {
+              await setOfficialApiConversationAutomationPaused({ conversationId: message.conversationId, paused: true });
+            }
+            return result;
+          },
+          consultar_productos: async (args: Record<string, unknown>) => {
+            const result = await executeConsultarProductosTool({ agentId: iaAgent.id, toolInput: args });
+            return result ?? { found: false, matches: [], bestMatch: null, recommendation: "No hay coincidencias suficientes." };
+          },
+          consultar_flujos: async (args: Record<string, unknown>) => {
+            const result = await executeConsultarFlujosTool({
+              workspaceId: config.workspaceId,
+              includeOfficialApi: true,
+              toolInput: args,
+              allowedFlowIds: agentTraining?.knowledgeFlowIds?.length ? agentTraining.knowledgeFlowIds : undefined,
+              enabledChildFlowIds: activeProductContext?.followUpFlowId?.trim()
+                ? [activeProductContext.followUpFlowId.trim()]
+                : undefined,
+            });
+            return result ?? { found: false, matches: [], bestMatch: null, recommendation: "No hay coincidencias suficientes." };
+          },
+        } satisfies Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
+
+        const agentTools = [
+          NOTIFICAR_ASESOR_TOOL,
+          ...(agentTraining?.enableProductLookup !== false ? [CONSULTAR_PRODUCTOS_TOOL] : []),
+          ...(agentTraining?.enableFlowLookup !== false ? [CONSULTAR_FLUJOS_TOOL] : []),
+        ];
+
+        let iaText = await generateAgentReply({
+          model: iaAgent.model,
+          systemPrompt: effectiveSystemPrompt,
+          fallbackMessage: iaAgent.fallbackMessage,
+          history: historyTurns,
+          latestUserMessage: latestUserMessageForIa,
+          tools: agentTools,
+          toolHandlers,
+        });
+
+        if (shouldOverrideCommercialReply(iaText ?? "", commercialConversationContext)) {
+          iaText = buildNegotiationAdvanceReply({
+            latestUserMessage: inboundText,
+            activeProductContext: activeProductContext ?? null,
+          });
+        }
+
+        agentIaText = composeAgentWelcomeReply({
+          welcomeMessage: iaAgent.welcomeMessage ?? null,
+          reply: iaText,
+          hasConversationHistory: recentMessages.length > 1,
+        });
+      }
+
       const agentProductFlowSteps = agentProductFlowReply?.steps ?? [];
       const reply = agentProductFlowReply
         ? {
@@ -791,13 +952,19 @@ export async function POST(request: Request) {
                   image: null,
                   video: null,
                 }
-              : chatbotReply
+              : agentIaText
                 ? {
-                    text: chatbotReply.text?.trim() || null,
-                    image: chatbotReply.image,
+                    text: agentIaText,
+                    image: null,
                     video: null,
                   }
-                : null;
+                : chatbotReply
+                  ? {
+                      text: chatbotReply.text?.trim() || null,
+                      image: chatbotReply.image,
+                      video: null,
+                    }
+                  : null;
 
       const contactMatchTasks: Array<Promise<unknown>> = [];
       if (agentProductFlowReply?.flowTitle) {
