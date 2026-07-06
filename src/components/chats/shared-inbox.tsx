@@ -4501,12 +4501,15 @@ export function SharedInbox({
   // - result.suppressOptimistic -> se disparo un flujo -> quitar la burbuja del texto
   // - ok (o void) -> dejar la burbuja; el sync en tiempo real la reemplaza por el real
   const finalizeOptimisticSend = useCallback(
-    (optimisticId: string, result: { ok?: boolean; suppressOptimistic?: boolean } | null) => {
+    (optimisticId: string, result: { ok?: boolean; suppressOptimistic?: boolean; error?: string } | null) => {
       setOptimisticOutgoingMessage((current) => {
         if (!current || current.id !== optimisticId) {
           return current;
         }
         if (!result || result.ok === false) {
+          const errorMessage = result?.error?.trim() || "No se pudo enviar el mensaje";
+          console.error("[SharedInbox] send failed", { optimisticId, error: errorMessage });
+          toast.error(errorMessage);
           return { ...current, outboundStatusLabel: "error" };
         }
         if (result.suppressOptimistic) {

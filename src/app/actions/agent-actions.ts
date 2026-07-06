@@ -2840,8 +2840,21 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
         ? { id: quotedKey.id, remoteJid: quotedKey.remoteJid, fromMe: quotedKey.fromMe, text: replyTo?.content ?? "" }
         : null,
     });
-  } catch {
-    return { ok: false, error: "No se pudo enviar el mensaje" };
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    console.error("[sendManualAgentReplyAction] evolution_text_send_failed", {
+      workspaceId: membership.workspace.id,
+      conversationId: conversation.id,
+      channelId: conversation.channel.id,
+      contactId: conversation.contact.id,
+      instanceName: conversation.channel.evolutionInstanceName,
+      phoneNumber: conversation.contact.phoneNumber,
+      error: detail,
+    });
+    return {
+      ok: false,
+      error: detail ? `No se pudo enviar el mensaje: ${detail}` : "No se pudo enviar el mensaje",
+    };
   }
 
   await prisma.message.create({
