@@ -91,6 +91,11 @@ type EvolutionResolvedInstance = {
   raw: EvolutionInstanceRecord | null;
 };
 
+type EvolutionStoredInstanceAuth = {
+  id: string | null;
+  token: string | null;
+};
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
@@ -210,6 +215,79 @@ function extractCreatedInstanceToken(payload: unknown) {
   return readString(data?.token) || readString(root?.token) || null;
 }
 
+function debugEvolutionPayload(label: string, payload: unknown) {
+  if (process.env.NODE_ENV === "production") {
+    return;
+  }
+
+  try {
+    console.log(`[EVOLUTION_DEBUG] ${label}`, JSON.stringify(payload, null, 2));
+  } catch {
+    console.log(`[EVOLUTION_DEBUG] ${label}`, payload);
+  }
+}
+
+function isEvolutionInstanceAlreadyExistsError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /instance already exists/i.test(message);
+}
+
+function isEvolutionNotAuthorizedError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /not authorized/i.test(message);
+}
+
+async function ensureEvolutionInstanceConnectionSession(instance: EvolutionResolvedInstance | null) {
+  if (!instance?.name) {
+    return false;
+  }
+
+  const settings = await getEvolutionSettings();
+  if (!settings.webhookBaseUrl) {
+    return false;
+  }
+
+  try {
+    if (instance.id || instance.token) {
+      await evolutionRequest("/instance/connect", {
+        method: "POST",
+        headers: buildInstanceHeaders(instance, { useInstanceApiKey: true }),
+        body: JSON.stringify({
+          webhookUrl: settings.webhookBaseUrl,
+          subscribe: ["ALL"],
+          immediate: true,
+        }),
+      });
+    } else {
+      await evolutionRequest("/instance/create", {
+        method: "POST",
+        body: JSON.stringify({
+          instanceName: instance.name,
+          name: instance.name,
+          token: randomUUID(),
+        }),
+      });
+    }
+
+    debugEvolutionPayload("ensure_instance_connect_sent", {
+      instanceName: instance.name,
+      instanceId: instance.id,
+      instanceToken: instance.token,
+      webhookUrl: settings.webhookBaseUrl,
+    });
+
+    return true;
+  } catch (error) {
+    debugEvolutionPayload("ensure_instance_connect_failed", {
+      instanceName: instance.name,
+      instanceId: instance.id,
+      instanceToken: instance.token,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return false;
+  }
+}
+
 async function evolutionRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const settings = await getEvolutionSettings();
   if (!settings.apiBaseUrl || !settings.apiToken || !settings.webhookBaseUrl) {
@@ -282,6 +360,27 @@ async function fetchEvolutionInstances() {
   return extractInstancePayloadList(legacyResponse);
 }
 
+async function getStoredEvolutionInstanceAuth(instanceName: string): Promise<EvolutionStoredInstanceAuth | null> {
+  const channel = await prisma.whatsAppChannel.findUnique({
+    where: { evolutionInstanceName: instanceName },
+    select: {
+      evolutionExternalKey: true,
+      metadata: true,
+    },
+  });
+
+  if (!channel) {
+    return null;
+  }
+
+  const metadata = asRecord(channel.metadata);
+
+  return {
+    id: readString(channel.evolutionExternalKey),
+    token: readString(metadata?.instanceToken) || readString(metadata?.token),
+  };
+}
+
 async function resolveEvolutionInstance(instanceName: string): Promise<EvolutionResolvedInstance | null> {
   const normalizedInstanceName = instanceName.trim();
   if (!normalizedInstanceName) {
@@ -289,6 +388,7 @@ async function resolveEvolutionInstance(instanceName: string): Promise<Evolution
   }
 
   try {
+    const storedAuth = await getStoredEvolutionInstanceAuth(normalizedInstanceName);
     const records = await fetchEvolutionInstances();
     const record =
       records.find((item) => getInstanceRecordName(item) === normalizedInstanceName) ??
@@ -299,13 +399,38 @@ async function resolveEvolutionInstance(instanceName: string): Promise<Evolution
       null;
 
     if (!record) {
-      return null;
+      debugEvolutionPayload("resolve_instance_not_found", {
+        instanceName: normalizedInstanceName,
+        availableInstances: records.map((item) => ({
+          id: getInstanceRecordId(item),
+          name: getInstanceRecordName(item),
+          token: getInstanceRecordToken(item),
+        })),
+        storedAuth,
+      });
+      return storedAuth
+        ? {
+            id: storedAuth.id,
+            name: normalizedInstanceName,
+            token: storedAuth.token,
+            raw: null,
+          }
+        : null;
     }
 
+    debugEvolutionPayload("resolve_instance_match", {
+      requestedName: normalizedInstanceName,
+      resolvedId: getInstanceRecordId(record) || storedAuth?.id,
+      resolvedName: getInstanceRecordName(record),
+      resolvedToken: getInstanceRecordToken(record) || storedAuth?.token,
+      raw: record,
+      storedAuth,
+    });
+
     return {
-      id: getInstanceRecordId(record),
+      id: getInstanceRecordId(record) || storedAuth?.id || null,
       name: getInstanceRecordName(record) ?? normalizedInstanceName,
-      token: getInstanceRecordToken(record),
+      token: getInstanceRecordToken(record) || storedAuth?.token || null,
       raw: record,
     };
   } catch {
@@ -313,15 +438,15 @@ async function resolveEvolutionInstance(instanceName: string): Promise<Evolution
   }
 }
 
-function buildInstanceHeaders(instance: EvolutionResolvedInstance | null) {
+function buildInstanceHeaders(instance: EvolutionResolvedInstance | null, options?: { useInstanceApiKey?: boolean }) {
   const headers: Record<string, string> = {};
 
   if (instance?.id) {
     headers.instanceId = instance.id;
   }
 
-  if (instance?.token) {
-    headers.instanceToken = instance.token;
+  if (options?.useInstanceApiKey && instance?.token) {
+    headers.apikey = instance.token;
   }
 
   return headers;
@@ -351,11 +476,11 @@ async function evolutionInstanceRequest<T>(input: {
   const normalizedPath = normalizeEvolutionPath(input.path);
   const method = input.method ?? "POST";
 
-  if (instance?.id) {
+  if (instance?.id || instance?.token) {
     try {
       return await evolutionRequest<T>(normalizedPath, {
         method,
-        headers: buildInstanceHeaders(instance),
+        headers: buildInstanceHeaders(instance, { useInstanceApiKey: true }),
         ...(typeof input.body === "undefined" ? {} : { body: JSON.stringify(input.body) }),
       });
     } catch (error) {
@@ -842,14 +967,26 @@ export async function getEvolutionConnectionState(instanceName: string) {
   try {
     const instance = await resolveEvolutionInstance(instanceName);
 
-    if (instance?.id) {
+    if (instance?.id || instance?.token) {
       const response = await evolutionRequest<{
         data?: { Connected?: boolean; LoggedIn?: boolean; Name?: string };
         message?: string;
       }>("/instance/status", {
         method: "GET",
-        headers: buildInstanceHeaders(instance),
+        headers: buildInstanceHeaders(instance, { useInstanceApiKey: true }),
       });
+
+      if (typeof response.data?.LoggedIn === "boolean") {
+        if (response.data.LoggedIn) {
+          return "connected";
+        }
+
+        if (response.data.Connected === true) {
+          return "connecting";
+        }
+
+        return "disconnected";
+      }
 
       if (typeof response.data?.Connected === "boolean") {
         return response.data.Connected ? "connected" : "disconnected";
@@ -883,30 +1020,58 @@ export async function getEvolutionConnectionQr(instanceName: string) {
   try {
     const instance = await resolveEvolutionInstance(instanceName);
 
-    if (instance?.id) {
-      const response = await evolutionRequest<EvolutionConnectResponse & { qrCode?: string; qrcode?: string }>(
-        "/instance/qr",
-        {
-          method: "GET",
-          headers: buildInstanceHeaders(instance),
-        },
-      );
+    if (instance?.id || instance?.token) {
+      const needsConnectBootstrap =
+        !getInstanceRecordWebhook(instance.raw ?? {}) ||
+        !getInstanceRecordEvents(instance.raw ?? {}) ||
+        getInstanceRecordQrCode(instance.raw ?? {}) === null;
 
-      return {
-        qrCode: response.qrCode || extractEvolutionConnectQrCode(response) || getInstanceRecordQrCode(instance.raw ?? {}) || null,
-        pairingCode: extractEvolutionPairingCode(response),
-      };
+      if (needsConnectBootstrap) {
+        await ensureEvolutionInstanceConnectionSession(instance);
+      }
+
+      try {
+        const response = await evolutionRequest<EvolutionConnectResponse & { qrCode?: string; qrcode?: string }>("/instance/qr", {
+          method: "GET",
+          headers: buildInstanceHeaders(instance, { useInstanceApiKey: true }),
+        });
+
+        debugEvolutionPayload("instance_qr_response", {
+          instanceName,
+          instanceId: instance.id,
+          instanceToken: instance.token,
+          response,
+        });
+
+        return {
+          qrCode: response.qrCode || extractEvolutionConnectQrCode(response) || getInstanceRecordQrCode(instance.raw ?? {}) || null,
+          pairingCode: extractEvolutionPairingCode(response),
+        };
+      } catch (error) {
+        if (!isEvolutionNotAuthorizedError(error)) {
+          throw error;
+        }
+      }
     }
 
-    const response = await evolutionRequest<EvolutionConnectResponse>(`/instance/connect/${instanceName}`, {
+    const response = await evolutionRequest<EvolutionConnectResponse>(`/instance/${instanceName}/qrcode`, {
       method: "GET",
+    });
+
+    debugEvolutionPayload("legacy_instance_qrcode_response", {
+      instanceName,
+      response,
     });
 
     return {
       qrCode: extractEvolutionConnectQrCode(response),
       pairingCode: extractEvolutionPairingCode(response),
     };
-  } catch {
+  } catch (error) {
+    debugEvolutionPayload("instance_qr_failed", {
+      instanceName,
+      error: error instanceof Error ? error.message : String(error),
+    });
     return { qrCode: null, pairingCode: null };
   }
 }
@@ -958,28 +1123,66 @@ export async function createEvolutionChannel(input: {
   }
 
   const normalizedPrefix = settings.instancePrefix.trim().toLowerCase() || "instancia";
+  const remoteInstances = await fetchEvolutionInstances().catch(() => []);
+  const usedInstanceNames = new Set(
+    remoteInstances
+      .map((item) => getInstanceRecordName(item)?.trim().toLowerCase())
+      .filter((value): value is string => Boolean(value)),
+  );
+
   let sequence = (await prisma.whatsAppChannel.count()) + 1;
   let instanceName = `${normalizedPrefix}-${sequence}`;
 
-  while (await prisma.whatsAppChannel.findUnique({ where: { evolutionInstanceName: instanceName }, select: { id: true } })) {
+  while (true) {
+    const existingChannel = await prisma.whatsAppChannel.findUnique({
+      where: { evolutionInstanceName: instanceName },
+      select: { id: true },
+    });
+
+    if (!existingChannel && !usedInstanceNames.has(instanceName.toLowerCase())) {
+      break;
+    }
+
     sequence += 1;
     instanceName = `${normalizedPrefix}-${sequence}`;
   }
 
-  const createdResponse = await evolutionRequest<{
-    data?: { id?: string; token?: string; name?: string };
-    id?: string;
-    token?: string;
-    instanceId?: string;
-    instanceName?: string;
-  }>("/instance/create", {
-    method: "POST",
-    body: JSON.stringify({
-      instanceName,
-      name: instanceName,
-      token: randomUUID(),
-    }),
-  });
+  let createdResponse:
+    | {
+        data?: { id?: string; token?: string; name?: string };
+        id?: string;
+        token?: string;
+        instanceId?: string;
+        instanceName?: string;
+      }
+    | null = null;
+
+  while (!createdResponse) {
+    try {
+      createdResponse = await evolutionRequest<{
+        data?: { id?: string; token?: string; name?: string };
+        id?: string;
+        token?: string;
+        instanceId?: string;
+        instanceName?: string;
+      }>("/instance/create", {
+        method: "POST",
+        body: JSON.stringify({
+          instanceName,
+          name: instanceName,
+          token: randomUUID(),
+        }),
+      });
+    } catch (error) {
+      if (!isEvolutionInstanceAlreadyExistsError(error)) {
+        throw error;
+      }
+
+      usedInstanceNames.add(instanceName.toLowerCase());
+      sequence += 1;
+      instanceName = `${normalizedPrefix}-${sequence}`;
+    }
+  }
 
   const createdInstanceId = extractCreatedInstanceId(createdResponse);
   const createdInstanceToken = extractCreatedInstanceToken(createdResponse);
@@ -987,7 +1190,7 @@ export async function createEvolutionChannel(input: {
   let connectData: EvolutionConnectResponse = {};
   let connectedInstanceSnapshot: EvolutionInstanceRecord | null = null;
   try {
-    if (createdInstanceId) {
+    if (createdInstanceId || createdInstanceToken) {
       await evolutionRequest("/instance/connect", {
         method: "POST",
         headers: {
@@ -996,7 +1199,7 @@ export async function createEvolutionChannel(input: {
             name: instanceName,
             token: createdInstanceToken,
             raw: null,
-          }),
+          }, { useInstanceApiKey: true }),
         },
         body: JSON.stringify({
           webhookUrl: settings.webhookBaseUrl,
@@ -1013,7 +1216,7 @@ export async function createEvolutionChannel(input: {
             name: instanceName,
             token: createdInstanceToken,
             raw: null,
-          }),
+          }, { useInstanceApiKey: true }),
         },
       }).catch(() => ({}));
 

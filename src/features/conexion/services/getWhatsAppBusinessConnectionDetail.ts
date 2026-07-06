@@ -119,25 +119,45 @@ export async function getWhatsAppBusinessConnectionDetail(workspaceId: string, c
         lastConnectionAt: new Date(),
       },
     });
+    channel.status = "CONNECTED";
+    channel.qrCode = null;
   }
 
-  if (channel?.id && remoteConnectionQr.qrCode && channel.qrCode !== remoteConnectionQr.qrCode) {
+  if (
+    channel?.id &&
+    remoteConnectionQr.qrCode &&
+    (channel.qrCode !== remoteConnectionQr.qrCode || channel.status !== "QRCODE")
+  ) {
     const baseMetadata =
       channel.metadata && typeof channel.metadata === "object" && !Array.isArray(channel.metadata)
         ? (channel.metadata as Record<string, unknown>)
         : {};
+    const nextMetadata = {
+      ...baseMetadata,
+      pairingCode: remoteConnectionQr.pairingCode ?? null,
+    };
+
     await prisma.whatsAppChannel.update({
       where: { id: channel.id },
       data: {
         status: "QRCODE",
         qrCode: remoteConnectionQr.qrCode,
         // Fusionamos para no borrar otras claves del metadata (p. ej. collaboratorIds).
-        metadata: {
-          ...baseMetadata,
-          pairingCode: remoteConnectionQr.pairingCode ?? null,
-        },
+        metadata: nextMetadata,
       },
     });
+    channel.status = "QRCODE";
+    channel.qrCode = remoteConnectionQr.qrCode;
+    channel.metadata = nextMetadata;
+  } else if (channel?.id && !remoteIsConnected && !remoteConnectionQr.qrCode && channel.status === "CONNECTED") {
+    await prisma.whatsAppChannel.update({
+      where: { id: channel.id },
+      data: {
+        status: "DISCONNECTED",
+        lastDisconnectionAt: new Date(),
+      },
+    });
+    channel.status = "DISCONNECTED";
   }
 
   const isConnected = channel.provider === "OFFICIAL_API" ? channel.status === "CONNECTED" : remoteIsConnected || channel?.status === "CONNECTED";
