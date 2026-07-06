@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { CheckCircle2, Loader2, MessageCirclePlus, X } from "lucide-react";
 import { createConnectionChannelAction } from "@/app/actions/connection-actions";
 import { Button } from "@/components/ui/button";
@@ -75,9 +75,11 @@ export function NewConnectionChannelModal({
     message: string;
   } | null>(null);
   const [isLaunchingCoexistence, setIsLaunchingCoexistence] = useState(false);
+  const [isCreatingChannel, setIsCreatingChannel] = useState(false);
   const metaCodeRef = useRef<string>("");
   const sessionResponseRef = useRef<string>("");
   const sdkReadyRef = useRef(false);
+  const isSubmittingChannelRef = useRef(false);
 
   const closeModal = () => {
     setOpen(false);
@@ -85,9 +87,23 @@ export function NewConnectionChannelModal({
     setChannelName("");
     setCoexistenceResult(null);
     setIsLaunchingCoexistence(false);
+    setIsCreatingChannel(false);
     metaCodeRef.current = "";
     sessionResponseRef.current = "";
+    isSubmittingChannelRef.current = false;
   };
+
+  const handleCreateChannelSubmit = (event: FormEvent<HTMLFormElement>) => {
+    if (isSubmittingChannelRef.current) {
+      event.preventDefault();
+      return;
+    }
+
+    isSubmittingChannelRef.current = true;
+    setIsCreatingChannel(true);
+  };
+
+  const isBusy = isCreatingChannel || isLaunchingCoexistence;
 
   useEffect(() => {
     if (!open || selectedProvider !== "OFFICIAL_API_COEXISTENCE" || !officialApiProviderAppId.trim()) {
@@ -295,7 +311,7 @@ export function NewConnectionChannelModal({
   const footerActions = selectedProvider ? (
     selectedProvider === "OFFICIAL_API_COEXISTENCE" ? (
       <>
-        <Button type="button" variant="outline" onClick={() => setSelectedProvider(null)}>
+        <Button type="button" variant="outline" onClick={() => setSelectedProvider(null)} disabled={isBusy}>
           Volver
         </Button>
         <Button
@@ -315,16 +331,23 @@ export function NewConnectionChannelModal({
       </>
     ) : (
       <>
-        <Button type="button" variant="outline" onClick={() => setSelectedProvider(null)}>
+        <Button type="button" variant="outline" onClick={() => setSelectedProvider(null)} disabled={isCreatingChannel}>
           Volver
         </Button>
-        <Button type="submit" form="new-connection-channel-form">
-          Crear canal
+        <Button type="submit" form="new-connection-channel-form" disabled={isCreatingChannel}>
+          {isCreatingChannel ? (
+            <>
+              <Loader2 className="animate-spin" />
+              Creando canal...
+            </>
+          ) : (
+            "Crear canal"
+          )}
         </Button>
       </>
     )
   ) : (
-    <Button type="button" variant="outline" onClick={closeModal}>
+    <Button type="button" variant="outline" onClick={closeModal} disabled={isBusy}>
       Cerrar
     </Button>
   );
@@ -334,6 +357,10 @@ export function NewConnectionChannelModal({
       open={open}
       onOpenChange={(nextOpen) => {
         if (!nextOpen) {
+          if (isBusy) {
+            return;
+          }
+
           closeModal();
           return;
         }
@@ -350,7 +377,10 @@ export function NewConnectionChannelModal({
         }
       />
 
-      <DialogContent className="flex max-h-[90vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
+      <DialogContent
+        className="flex max-h-[90vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl"
+        showCloseButton={!isBusy}
+      >
         <DialogHeader className="shrink-0 border-b px-6 py-4">
           <DialogTitle>{selectedProvider ? "Ponle un nombre a tu canal" : "Nuevo canal"}</DialogTitle>
           <DialogDescription className="sr-only">
@@ -386,7 +416,12 @@ export function NewConnectionChannelModal({
               {coexistenceResult ? <ResultBanner result={coexistenceResult} /> : null}
             </div>
           ) : (
-            <form id="new-connection-channel-form" action={createConnectionChannelAction} className="min-w-0 space-y-4">
+            <form
+              id="new-connection-channel-form"
+              action={createConnectionChannelAction}
+              className="min-w-0 space-y-4"
+              onSubmit={handleCreateChannelSubmit}
+            >
               <input type="hidden" name="provider" value={selectedProvider} />
               {targetAgent ? <input type="hidden" name="agentId" value={targetAgent.id} /> : null}
 
@@ -398,6 +433,7 @@ export function NewConnectionChannelModal({
                   type="text"
                   required
                   autoFocus
+                  disabled={isCreatingChannel}
                   placeholder={selectedProvider === "EVOLUTION" ? "Ej. WhatsApp ventas principal" : "Ej. WhatsApp oficial tienda"}
                 />
               </div>

@@ -10,6 +10,11 @@ function readString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function getPrimaryPayloadRoot(payload: unknown) {
+  const root = asRecord(payload);
+  return asRecord(root?.evolution) ?? root;
+}
+
 function pickString(source: UnknownRecord | null, keys: string[]): string | null {
   if (!source) return null;
 
@@ -22,18 +27,25 @@ function pickString(source: UnknownRecord | null, keys: string[]): string | null
 }
 
 function getMessageRecord(payload: unknown) {
-  const root = asRecord(payload);
+  const root = getPrimaryPayloadRoot(payload);
   const data = asRecord(root?.data);
   const update = asRecord(root?.update);
 
-  return asRecord(data?.message) ?? asRecord(update?.message) ?? asRecord(root?.message);
+  return (
+    asRecord(data?.message) ??
+    asRecord(data?.Message) ??
+    asRecord(update?.message) ??
+    asRecord(update?.Message) ??
+    asRecord(root?.message) ??
+    asRecord(root?.Message)
+  );
 }
 
 export function hasEvolutionEditedMessagePayload(payload: unknown) {
   const message = getMessageRecord(payload);
-  const payloadRoot = asRecord(payload);
+  const payloadRoot = getPrimaryPayloadRoot(payload);
   const update = asRecord(payloadRoot?.update);
-  const updateMessage = asRecord(update?.message);
+  const updateMessage = asRecord(update?.message) ?? asRecord(update?.Message);
   const messageEdited = asRecord(message?.editedMessage);
   const updateEditedMessage = asRecord(updateMessage?.editedMessage);
 
@@ -42,9 +54,9 @@ export function hasEvolutionEditedMessagePayload(payload: unknown) {
 
 function getDeletedMessageRecord(payload: unknown) {
   const message = getMessageRecord(payload);
-  const payloadRoot = asRecord(payload);
+  const payloadRoot = getPrimaryPayloadRoot(payload);
   const update = asRecord(payloadRoot?.update);
-  const updateMessage = asRecord(update?.message);
+  const updateMessage = asRecord(update?.message) ?? asRecord(update?.Message);
   const payloadDeletedMessage = asRecord(payloadRoot?.deletedMessage);
   const messageDeleted = asRecord(message?.deletedMessage);
   const updateDeletedMessage = asRecord(updateMessage?.deletedMessage);
@@ -66,9 +78,9 @@ function getDeletedMessageRecord(payload: unknown) {
 
 export function hasEvolutionDeletedMessagePayload(payload: unknown) {
   const deletedMessage = getDeletedMessageRecord(payload);
-  const payloadRoot = asRecord(payload);
+  const payloadRoot = getPrimaryPayloadRoot(payload);
   const update = asRecord(payloadRoot?.update);
-  const updateMessage = asRecord(update?.message);
+  const updateMessage = asRecord(update?.message) ?? asRecord(update?.Message);
   const protocolMessage = asRecord(getMessageRecord(payload)?.protocolMessage);
   const updateProtocolMessage = asRecord(updateMessage?.protocolMessage);
   const normalizedEvent = readString(payloadRoot?.event)?.toUpperCase() ?? "";
@@ -125,9 +137,9 @@ function extractMessageTextFromRecord(message: UnknownRecord | null): string | n
 
 function getEditedMessageRecord(payload: unknown) {
   const message = getMessageRecord(payload);
-  const payloadRoot = asRecord(payload);
+  const payloadRoot = getPrimaryPayloadRoot(payload);
   const update = asRecord(payloadRoot?.update);
-  const updateMessage = asRecord(update?.message);
+  const updateMessage = asRecord(update?.message) ?? asRecord(update?.Message);
   const messageEdited = asRecord(message?.editedMessage);
   const updateEditedMessage = asRecord(updateMessage?.editedMessage);
   const payloadEditedMessage = asRecord(payloadRoot?.editedMessage);
@@ -255,8 +267,9 @@ export function extractEvolutionConnectionState(payload: unknown): string | null
 }
 
 export function extractEvolutionPhoneNumber(payload: unknown): string | null {
-  const root = asRecord(payload);
+  const root = getPrimaryPayloadRoot(payload);
   const data = asRecord(root?.data);
+  const info = asRecord(data?.Info) ?? asRecord(root?.Info);
   const instance = asRecord(root?.instance);
   const key = asRecord(root?.key);
   const sender = asRecord(root?.sender);
@@ -271,6 +284,7 @@ export function extractEvolutionPhoneNumber(payload: unknown): string | null {
 
   return (
     pickString(data, ["chatId", "remoteJidAlt", "remoteJid", "participant", "from"]) ||
+    pickString(info, ["Chat", "Sender", "TargetChat", "TargetSender"]) ||
     pickString(data, ["number", "phone", "phoneNumber", "owner", "ownerJid", "wuid"]) ||
     dataSender ||
     dataFrom ||
@@ -365,7 +379,7 @@ export function hasEvolutionCallPayload(payload: unknown) {
     return true;
   }
 
-  const root = asRecord(payload);
+  const root = getPrimaryPayloadRoot(payload);
   const data = asRecord(root?.data);
   const normalizedStatus = readString(data?.status)?.toUpperCase() ?? "";
 
@@ -375,11 +389,12 @@ export function hasEvolutionCallPayload(payload: unknown) {
 export function extractEvolutionMessageText(payload: unknown): string | null {
   const message = getMessageRecord(payload);
   const editedMessage = getEditedMessageRecord(payload);
+  const data = asRecord(getPrimaryPayloadRoot(payload)?.data);
 
   return (
     extractMessageTextFromRecord(editedMessage) ||
     extractMessageTextFromRecord(message) ||
-    pickString(asRecord(asRecord(payload)?.data), ["text", "body"])
+    pickString(data, ["text", "body"])
   );
 }
 
@@ -412,7 +427,7 @@ export function extractEvolutionMessageType(payload: unknown) {
 }
 
 export function extractEvolutionMediaUrl(payload: unknown): string | null {
-  const root = asRecord(payload);
+  const root = getPrimaryPayloadRoot(payload);
   const data = asRecord(root?.data);
   const message = getMessageRecord(payload);
   const editedMessage = getEditedMessageRecord(payload);
@@ -441,10 +456,11 @@ export function extractEvolutionMediaUrl(payload: unknown): string | null {
 }
 
 export function extractEvolutionMessageId(payload: unknown): string | null {
-  const root = asRecord(payload);
+  const root = getPrimaryPayloadRoot(payload);
   const data = asRecord(root?.data);
-  const key = asRecord(data?.key);
-  const rootKey = asRecord(root?.key);
+  const info = asRecord(data?.Info) ?? asRecord(root?.Info);
+  const key = asRecord(data?.key) ?? asRecord(data?.Key);
+  const rootKey = asRecord(root?.key) ?? asRecord(root?.Key);
   const message = getMessageRecord(payload);
   const deletedMessage = getDeletedMessageRecord(payload);
   const protocolMessage = asRecord(message?.protocolMessage) ?? asRecord(deletedMessage?.protocolMessage);
@@ -452,6 +468,7 @@ export function extractEvolutionMessageId(payload: unknown): string | null {
   const deletedKey = asRecord(deletedMessage?.key);
 
   return (
+    pickString(info, ["ID", "Id", "id"]) ||
     pickString(data, ["keyId", "messageId", "message_id", "id"]) ||
     pickString(root, ["keyId", "messageId", "message_id", "id"]) ||
     pickString(key, ["id"]) ||
@@ -462,25 +479,34 @@ export function extractEvolutionMessageId(payload: unknown): string | null {
 }
 
 export function extractEvolutionFromMe(payload: unknown): boolean {
-  const root = asRecord(payload);
+  const root = getPrimaryPayloadRoot(payload);
   const data = asRecord(root?.data);
-  const key = asRecord(data?.key);
-  const rootKey = asRecord(root?.key);
+  const info = asRecord(data?.Info) ?? asRecord(root?.Info);
+  const key = asRecord(data?.key) ?? asRecord(data?.Key);
+  const rootKey = asRecord(root?.key) ?? asRecord(root?.Key);
 
-  return key?.fromMe === true || rootKey?.fromMe === true || data?.fromMe === true || root?.fromMe === true;
+  return (
+    key?.fromMe === true ||
+    rootKey?.fromMe === true ||
+    data?.fromMe === true ||
+    root?.fromMe === true ||
+    info?.IsFromMe === true ||
+    String(data?.fromMe ?? "").toLowerCase() === "true" ||
+    String(root?.fromMe ?? "").toLowerCase() === "true" ||
+    String(info?.IsFromMe ?? "").toLowerCase() === "true"
+  );
 }
 
 export function extractEvolutionRemoteJid(payload: unknown): string | null {
-  const root = asRecord(payload);
+  const root = getPrimaryPayloadRoot(payload);
   const data = asRecord(root?.data);
-  const key = asRecord(data?.key);
-  const rootKey = asRecord(root?.key);
-  const sender = asRecord(data?.sender);
-  const rootSender = asRecord(root?.sender);
-  const message = asRecord(data?.message);
-  const rootMessage = asRecord(root?.message);
+  const info = asRecord(data?.Info) ?? asRecord(root?.Info);
+  const key = asRecord(data?.key) ?? asRecord(data?.Key);
+  const rootKey = asRecord(root?.key) ?? asRecord(root?.Key);
+  const sender = asRecord(data?.sender) ?? asRecord(data?.Sender);
+  const rootSender = asRecord(root?.sender) ?? asRecord(root?.Sender);
+  const message = getMessageRecord(payload);
   const contextInfo = asRecord(asRecord(message?.extendedTextMessage)?.contextInfo);
-  const rootContextInfo = asRecord(asRecord(rootMessage?.extendedTextMessage)?.contextInfo);
   const dataSender = readString(data?.sender);
   const rootSenderValue = readString(root?.sender);
   const dataFrom = readString(data?.from);
@@ -490,6 +516,7 @@ export function extractEvolutionRemoteJid(payload: unknown): string | null {
 
   return (
     pickString(data, ["chatId", "remoteJidAlt", "remoteJid", "participant", "from"]) ||
+    pickString(info, ["Chat", "Sender", "TargetChat", "TargetSender"]) ||
     dataSender ||
     dataFrom ||
     dataParticipant ||
@@ -502,19 +529,20 @@ export function extractEvolutionRemoteJid(payload: unknown): string | null {
     rootParticipant ||
     pickString(root, ["chatId", "remoteJidAlt", "remoteJid", "participant", "from"]) ||
     pickString(contextInfo, ["participant", "remoteJid"]) ||
-    pickString(rootContextInfo, ["participant", "remoteJid"]) ||
     pickString(root, ["chatId", "remoteJidAlt", "remoteJid"]) ||
-    findDeepString(payload, (candidate) => /@\w+/i.test(candidate))
+    findDeepString(root, (candidate) => /@\w+/i.test(candidate))
   );
 }
 
 // Nombre visible del remitente (perfil de WhatsApp) si viene en el payload.
 export function extractEvolutionPushName(payload: unknown): string | null {
-  const root = asRecord(payload);
+  const root = getPrimaryPayloadRoot(payload);
   const data = asRecord(root?.data);
+  const info = asRecord(data?.Info) ?? asRecord(root?.Info);
   const sender = asRecord(data?.sender) ?? asRecord(root?.sender);
 
   return (
+    pickString(info, ["PushName", "VerifiedName"]) ||
     pickString(data, ["pushName", "pushname", "notifyName", "verifiedName"]) ||
     pickString(root, ["pushName", "pushname", "notifyName", "verifiedName"]) ||
     pickString(sender, ["pushName", "pushname", "name", "notifyName"]) ||

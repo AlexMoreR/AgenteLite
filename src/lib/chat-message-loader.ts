@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { extractEvolutionMessageText } from "@/lib/evolution-webhook";
 
 export type AgentConversationMessageRecord = {
   id: string;
@@ -132,7 +133,10 @@ export async function loadAgentConversationDetail(input: {
     }
 
     return left.id.localeCompare(right.id);
-  });
+  }).map((message) => ({
+    ...message,
+    content: message.content?.trim() || extractEvolutionMessageText(message.rawPayload) || null,
+  }));
 
   return {
     id: conversation.id,

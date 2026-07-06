@@ -13,7 +13,13 @@ import { SharedInbox } from "@/components/chats/shared-inbox";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { dedupeAndSortConversationListRows } from "@/lib/chat-conversation-list";
 import { fetchEvolutionProfilePictureUrl } from "@/lib/evolution";
-import { extractEvolutionPhoneNumber, isEvolutionStatusBroadcastPayload, normalizePhoneFromJid } from "@/lib/evolution-webhook";
+import {
+  extractEvolutionMessageText,
+  extractEvolutionPhoneNumber,
+  extractEvolutionPushName,
+  isEvolutionStatusBroadcastPayload,
+  normalizePhoneFromJid,
+} from "@/lib/evolution-webhook";
 import { getOfficialApiChatsData } from "@/features/official-api/services/getOfficialApiChatsData";
 import { getEvolutionSettings } from "@/lib/system-settings";
 import { prisma } from "@/lib/prisma";
@@ -171,6 +177,26 @@ function getConversationPreviewLabel(type?: UnifiedConversation["lastMessageType
   if (type === "STICKER") return "Sticker";
   if (type === "DOCUMENT") return "Documento";
   return "";
+}
+
+function resolveStoredAgentMessagePreview(input: {
+  content: string | null;
+  deletedAt: Date | null;
+  rawPayload: unknown;
+}) {
+  if (input.deletedAt) {
+    return "Mensaje eliminado";
+  }
+
+  return input.content?.trim() || extractEvolutionMessageText(input.rawPayload) || null;
+}
+
+function resolveStoredAgentContactLabel(input: {
+  contactName: string | null;
+  phoneNumber: string;
+  rawPayload: unknown;
+}) {
+  return input.contactName?.trim() || extractEvolutionPushName(input.rawPayload)?.trim() || input.phoneNumber;
 }
 
 function parseChatKey(input: string): { source: "agent" | "official"; conversationId: string } | null {
@@ -393,21 +419,23 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       `
     : Promise.resolve([] as Array<{ contactId: string; name: string; color: string }>);
   const latestAgentMessageRowsPromise = activeAgentConversationIds.length
-    ? prisma.$queryRaw<Array<{
-        conversationId: string;
-        content: string | null;
-        direction: "INBOUND" | "OUTBOUND";
-        createdAt: Date;
-        deletedAt: Date | null;
-        type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
-      }>>`
+      ? prisma.$queryRaw<Array<{
+          conversationId: string;
+          content: string | null;
+          direction: "INBOUND" | "OUTBOUND";
+          createdAt: Date;
+          deletedAt: Date | null;
+          type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
+          rawPayload: unknown;
+        }>>`
         SELECT DISTINCT ON (m."conversationId")
           m."conversationId" AS "conversationId",
           m."content" AS "content",
           m."direction" AS "direction",
           m."createdAt" AS "createdAt",
           m."deletedAt" AS "deletedAt",
-          m."type" AS "type"
+          m."type" AS "type",
+          m."rawPayload" AS "rawPayload"
         FROM "Message" m
         WHERE m."workspaceId" = ${membership.workspace.id}
           AND m."conversationId" IN (${Prisma.join(activeAgentConversationIds)})
@@ -422,6 +450,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         createdAt: Date;
         deletedAt: Date | null;
         type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
+        rawPayload: unknown;
       }>);
   if (autoTagNewLeads && contactIds.length > 0) {
     after(async () => {
@@ -502,6 +531,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
             AND m."direction" = 'INBOUND'
             AND m."readAt" IS NULL
             AND COALESCE(m."rawPayload"::text, '') NOT ILIKE '%status@broadcast%'
+            AND (m."rawPayload"->>'source') IS DISTINCT FROM 'activity'
           GROUP BY m."conversationId"
         )
         SELECT
@@ -556,6 +586,9 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     selectedChatRef?.source === "agent"
       ? activeAgentConversations.find((item) => item.id === selectedChatRef.conversationId) || null
       : null;
+  const selectedConnectionChannelId = selectedConnectionParam.startsWith("channel:")
+    ? selectedConnectionParam.slice("channel:".length)
+    : "";
 
   // Fetch avatars only for contacts without cached avatarUrl (max 10 per load)
   // Selected conversation contact gets priority so it always appears in the list
@@ -589,6 +622,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
 
   const agentRows: UnifiedConversation[] = activeAgentConversations.map((conversation) => {
     const linkedChannel = conversation.channelId ? channelsById.get(conversation.channelId) || null : null;
+    const latestMessage = latestAgentMessageByConversationId.get(conversation.id);
     const avatarUrl = conversation.contact.avatarUrl ?? null;
     const activeProductContext = toActiveProductContextSummary(conversation.activeProductContext);
     const tags = mergeConversationTags(
@@ -603,7 +637,13 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       agentId: conversation.agentId || linkedChannel?.agent?.id || undefined,
       contactId: conversation.contact.id,
       channelId: conversation.channelId || undefined,
-      label: getAgentContactLabel(conversation.contact),
+      label: latestMessage
+        ? resolveStoredAgentContactLabel({
+            contactName: conversation.contact.name,
+            phoneNumber: conversation.contact.phoneNumber,
+            rawPayload: latestMessage.rawPayload,
+          })
+        : getAgentContactLabel(conversation.contact),
       secondaryLabel: conversation.contact.phoneNumber,
       tags,
       avatarUrl,
@@ -613,10 +653,12 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         conversation.id === selectedAgentConversationIdForRead
           ? 0
           : agentIncomingCountById.get(conversation.id) ?? 0,
-      lastMessage: latestAgentMessageByConversationId.get(conversation.id)?.deletedAt ? "Mensaje eliminado" : latestAgentMessageByConversationId.get(conversation.id)?.content ?? null,
-      lastMessageType: latestAgentMessageByConversationId.get(conversation.id)?.type ?? null,
-      lastMessageDirection: latestAgentMessageByConversationId.get(conversation.id)?.direction ?? null,
-      lastMessageAt: latestAgentMessageByConversationId.get(conversation.id)?.createdAt ?? null,
+      lastMessage: latestMessage
+        ? resolveStoredAgentMessagePreview(latestMessage)
+        : null,
+      lastMessageType: latestMessage?.type ?? null,
+      lastMessageDirection: latestMessage?.direction ?? null,
+      lastMessageAt: latestMessage?.createdAt ?? null,
       activeProductContext,
     };
   });
@@ -642,7 +684,15 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   }));
 
   const selectedConnectionKey = selectedConnectionParam;
-  const merged = dedupeAndSortConversationListRows([...agentRows, ...officialRows])
+  const selectedConnectionChannel = selectedConnectionChannelId
+    ? channelsById.get(selectedConnectionChannelId) ?? null
+    : null;
+  const shouldIncludeOfficialRows =
+    !selectedConnectionChannelId || selectedConnectionChannel?.provider === "OFFICIAL_API";
+  const merged = dedupeAndSortConversationListRows([
+    ...agentRows,
+    ...(shouldIncludeOfficialRows ? officialRows : []),
+  ])
       .filter((item) => {
         if (!searchQuery) return true;
       const q = searchQuery.toLowerCase();

@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { auth } from "@/auth";
 import { dedupeAndSortConversationListRows } from "@/lib/chat-conversation-list";
 import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
+import { extractEvolutionMessageText, extractEvolutionPushName } from "@/lib/evolution-webhook";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { prisma } from "@/lib/prisma";
 
@@ -97,6 +98,26 @@ function mergeConversationTags(
   }
 
   return merged;
+}
+
+function resolveStoredAgentMessagePreview(input: {
+  content: string | null;
+  deletedAt: Date | null;
+  rawPayload: unknown;
+}) {
+  if (input.deletedAt) {
+    return "Mensaje eliminado";
+  }
+
+  return input.content?.trim() || extractEvolutionMessageText(input.rawPayload) || null;
+}
+
+function resolveStoredAgentContactLabel(input: {
+  contactName: string | null;
+  phoneNumber: string;
+  rawPayload: unknown;
+}) {
+  return input.contactName?.trim() || extractEvolutionPushName(input.rawPayload)?.trim() || input.phoneNumber;
 }
 
 async function getAgentConversationList(input: {
@@ -228,21 +249,23 @@ async function getAgentConversationList(input: {
       `
     : Promise.resolve([] as Array<{ contactId: string; name: string; color: string }>);
   const latestAgentMessageRowsPromise = activeAgentConversationIds.length
-    ? prisma.$queryRaw<Array<{
-        conversationId: string;
-        content: string | null;
-        direction: "INBOUND" | "OUTBOUND";
-        createdAt: Date;
-        deletedAt: Date | null;
-        type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
-      }>>`
+      ? prisma.$queryRaw<Array<{
+          conversationId: string;
+          content: string | null;
+          direction: "INBOUND" | "OUTBOUND";
+          createdAt: Date;
+          deletedAt: Date | null;
+          type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
+          rawPayload: unknown;
+        }>>`
         SELECT DISTINCT ON (m."conversationId")
           m."conversationId" AS "conversationId",
           m."content" AS "content",
           m."direction" AS "direction",
           m."createdAt" AS "createdAt",
           m."deletedAt" AS "deletedAt",
-          m."type" AS "type"
+          m."type" AS "type",
+          m."rawPayload" AS "rawPayload"
         FROM "Message" m
         WHERE m."workspaceId" = ${input.workspaceId}
           AND m."conversationId" IN (${Prisma.join(activeAgentConversationIds)})
@@ -257,6 +280,7 @@ async function getAgentConversationList(input: {
         createdAt: Date;
         deletedAt: Date | null;
         type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
+        rawPayload: unknown;
       }>);
 
   const agentIncomingCountRowsPromise = activeAgentConversationIds.length
@@ -280,6 +304,7 @@ async function getAgentConversationList(input: {
             AND m."direction" = 'INBOUND'
             AND m."readAt" IS NULL
             AND m."isStatusBroadcast" = false
+            AND (m."rawPayload"->>'source') IS DISTINCT FROM 'activity'
           GROUP BY m."conversationId"
         )
         SELECT
@@ -323,6 +348,7 @@ async function getAgentConversationList(input: {
 
   const agentRows: UnifiedConversation[] = activeAgentConversations.map((conversation) => {
     const linkedChannel = conversation.channelId ? channelsById.get(conversation.channelId) || null : null;
+    const latestMessage = latestAgentMessageByConversationId.get(conversation.id);
     const activeProductContext = toActiveProductContextSummary(conversation.activeProductContext);
     const tags = mergeConversationTags(
       contactTagsByContactId.get(conversation.contact.id) ?? [],
@@ -337,15 +363,23 @@ async function getAgentConversationList(input: {
       channelId: conversation.channelId || undefined,
       assignedToUserId: conversation.assignedToUserId ?? null,
       assignedToName: conversation.assignedTo?.name?.trim() || conversation.assignedTo?.email || null,
-      label: getAgentContactLabel(conversation.contact),
+      label: latestMessage
+        ? resolveStoredAgentContactLabel({
+            contactName: conversation.contact.name,
+            phoneNumber: conversation.contact.phoneNumber,
+            rawPayload: latestMessage.rawPayload,
+          })
+        : getAgentContactLabel(conversation.contact),
       secondaryLabel: conversation.contact.phoneNumber,
       tags,
       avatarUrl: conversation.contact.avatarUrl ?? null,
       incomingCount: agentIncomingCountById.get(conversation.id) ?? 0,
-      lastMessage: latestAgentMessageByConversationId.get(conversation.id)?.deletedAt ? "Mensaje eliminado" : latestAgentMessageByConversationId.get(conversation.id)?.content ?? null,
-      lastMessageType: latestAgentMessageByConversationId.get(conversation.id)?.type ?? null,
-      lastMessageDirection: latestAgentMessageByConversationId.get(conversation.id)?.direction ?? null,
-      lastMessageAt: latestAgentMessageByConversationId.get(conversation.id)?.createdAt ?? null,
+      lastMessage: latestMessage
+        ? resolveStoredAgentMessagePreview(latestMessage)
+        : null,
+      lastMessageType: latestMessage?.type ?? null,
+      lastMessageDirection: latestMessage?.direction ?? null,
+      lastMessageAt: latestMessage?.createdAt ?? null,
     };
   });
 
