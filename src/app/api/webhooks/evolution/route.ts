@@ -23,6 +23,7 @@ import { resolveAgentV2StageFollowRuleIds } from "@/lib/agent-v2-stage-follows";
 import { resolveEvolutionQuickResponseFlow } from "@/features/flows/services/resolveEvolutionQuickResponseFlow";
 import {
   extractEvolutionConnectionState,
+  extractEvolutionInstanceKey,
   extractEvolutionCallDirection,
   extractEvolutionCallStatus,
   extractEvolutionEventName,
@@ -90,8 +91,12 @@ import { persistChatMediaFromDataUrl } from "@/lib/chat-media-storage";
 function mapChannelStatus(eventName: string | null, rawState: string | null) {
   const state = rawState?.toLowerCase() ?? "";
 
-  if (eventName === "QRCODE_UPDATED") {
+  if (eventName === "QRCODE_UPDATED" || eventName === "QRCODE") {
     return "QRCODE" as const;
+  }
+
+  if (eventName === "PAIRSUCCESS") {
+    return "CONNECTING" as const;
   }
 
   if (["open", "connected", "connection_open", "online"].includes(state)) {
@@ -735,7 +740,9 @@ export async function POST(request: Request) {
   const providedSecret =
     request.headers.get("x-webhook-secret") ||
     request.headers.get("x-evolution-secret") ||
-    request.headers.get("authorization");
+    request.headers.get("authorization") ||
+    request.nextUrl.searchParams.get("token") ||
+    request.nextUrl.searchParams.get("secret");
 
   if (settings.webhookSecret) {
     const normalizedSecret = providedSecret?.replace(/^Bearer\s+/i, "").trim();
@@ -746,26 +753,47 @@ export async function POST(request: Request) {
 
   const eventName = extractEvolutionEventName(payload);
   const instanceName = extractEvolutionInstanceName(payload);
+  const instanceKey = extractEvolutionInstanceKey(payload);
   const channelPhoneNumber = normalizePhoneFromJid(extractEvolutionPhoneNumber(payload));
-  const isConnectionEvent = eventName === "QRCODE_UPDATED" || eventName === "CONNECTION_UPDATE";
+  const isConnectionEvent =
+    eventName === "QRCODE_UPDATED" ||
+    eventName === "CONNECTION_UPDATE" ||
+    eventName === "QRCODE" ||
+    eventName === "CONNECTED" ||
+    eventName === "PAIRSUCCESS" ||
+    eventName === "OFFLINESYNCCOMPLETED" ||
+    eventName === "LOGGEDOUT";
   const isCallEvent = hasEvolutionCallPayload(payload);
 
-  let channel = instanceName
-    ? await prisma.whatsAppChannel.findUnique({
-        where: { evolutionInstanceName: instanceName },
-        select: {
-          id: true,
-          workspaceId: true,
-          agentId: true,
-          name: true,
-          isActive: true,
-          evolutionInstanceName: true,
-          status: true,
-          phoneNumber: true,
-          qrCode: true,
+  const channelSelect = {
+    id: true,
+    workspaceId: true,
+    agentId: true,
+    name: true,
+    isActive: true,
+    evolutionInstanceName: true,
+    evolutionExternalKey: true,
+    status: true,
+    phoneNumber: true,
+    qrCode: true,
+  } as const;
+
+  let channel = instanceKey
+    ? await prisma.whatsAppChannel.findFirst({
+        where: {
+          provider: "EVOLUTION",
+          OR: [{ evolutionExternalKey: instanceKey }, { metadata: { path: ["instanceToken"], equals: instanceKey } }],
         },
+        select: channelSelect,
       })
     : null;
+
+  if (!channel && instanceName) {
+    channel = await prisma.whatsAppChannel.findUnique({
+      where: { evolutionInstanceName: instanceName },
+      select: channelSelect,
+    });
+  }
 
   if (!channel && channelPhoneNumber) {
     channel = await prisma.whatsAppChannel.findFirst({
@@ -774,17 +802,7 @@ export async function POST(request: Request) {
         phoneNumber: channelPhoneNumber,
       },
       orderBy: [{ updatedAt: "desc" }],
-      select: {
-        id: true,
-        workspaceId: true,
-        agentId: true,
-        name: true,
-        isActive: true,
-        evolutionInstanceName: true,
-        status: true,
-        phoneNumber: true,
-        qrCode: true,
-      },
+      select: channelSelect,
     });
   }
 
@@ -804,6 +822,7 @@ export async function POST(request: Request) {
     console.warn("[EVOLUTION] channel_not_found", {
       eventName,
       instanceName,
+      instanceKey,
       channelPhoneNumber,
     });
     return NextResponse.json({
@@ -826,6 +845,7 @@ export async function POST(request: Request) {
         ...(qrCode ? { qrCode, status: "QRCODE" } : {}),
         ...(phoneNumber ? { phoneNumber } : {}),
         ...(pairingCode ? { metadata: { pairingCode } } : {}),
+        ...(instanceKey && !channel.evolutionExternalKey ? { evolutionExternalKey: instanceKey } : {}),
         ...(nextStatus ? { status: nextStatus } : {}),
         ...(nextStatus === "CONNECTED"
           ? {

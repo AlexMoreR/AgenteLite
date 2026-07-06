@@ -176,6 +176,18 @@ export function extractEvolutionInstanceName(payload: unknown): string | null {
   );
 }
 
+export function extractEvolutionInstanceKey(payload: unknown): string | null {
+  const root = asRecord(payload);
+  const data = asRecord(root?.data);
+  const instance = asRecord(root?.instance);
+
+  return (
+    pickString(root, ["instanceId", "instance_id", "instanceToken", "instance_token"]) ||
+    pickString(data, ["instanceId", "instance_id", "instanceToken", "instance_token"]) ||
+    pickString(instance, ["id", "token", "instanceId", "instanceToken"])
+  );
+}
+
 export function extractEvolutionEventName(payload: unknown): string | null {
   const root = asRecord(payload);
   const rawEvent = pickString(root, ["event", "type"]);
@@ -221,6 +233,19 @@ export function extractEvolutionConnectionState(payload: unknown): string | null
   const root = asRecord(payload);
   const data = asRecord(root?.data);
   const instance = asRecord(root?.instance);
+  const eventName = extractEvolutionEventName(payload);
+
+  if (eventName === "CONNECTED" || eventName === "OFFLINESYNCCOMPLETED") {
+    return "connected";
+  }
+
+  if (eventName === "LOGGEDOUT") {
+    return "disconnected";
+  }
+
+  if (eventName === "QRCODE" || eventName === "PAIRSUCCESS") {
+    return "connecting";
+  }
 
   return (
     pickString(data, ["state", "status", "connection", "connectionStatus"]) ||
@@ -541,6 +566,7 @@ export function isInboundMessageEvent(eventName: string | null): boolean {
   }
 
   return (
+    eventName === "MESSAGE" ||
     eventName === "MESSAGES_UPSERT" ||
     eventName === "MESSAGE_UPSERT" ||
     eventName === "MESSAGES_UPSERT_NOTIFY" ||

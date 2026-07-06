@@ -1,19 +1,7 @@
+import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { getEvolutionSettings } from "@/lib/system-settings";
 import { persistedChatMediaFileExists } from "@/lib/chat-media-storage";
-
-const WEBHOOK_EVENTS = [
-  "QRCODE_UPDATED",
-  "CONNECTION_UPDATE",
-  "MESSAGES_UPSERT",
-  "SEND_MESSAGE",
-  // Senales de respaldo: si MESSAGES_UPSERT no llega (o se pierde), estos eventos
-  // disparan el rescate de mensajes recientes via la API de Evolution.
-  "CONTACTS_UPSERT",
-  "CONTACTS_UPDATE",
-  "CHATS_UPSERT",
-  "CHATS_UPDATE",
-];
 
 type EvolutionConnectResponse = {
   code?: string;
@@ -63,7 +51,15 @@ type EvolutionProfilePictureResponse = {
 };
 
 type EvolutionInstanceRecord = {
+  id?: string;
+  name?: string;
+  token?: string;
+  qrcode?: string | null;
+  connected?: boolean;
   instance?: {
+    id?: string;
+    name?: string;
+    token?: string;
     instanceName?: string;
     owner?: string | null;
     ownerJid?: string | null;
@@ -78,6 +74,14 @@ type EvolutionInstanceRecord = {
 };
 
 type EvolutionPresence = "available" | "unavailable" | "composing" | "recording" | "paused";
+
+type EvolutionResolvedInstance = {
+  id: string | null;
+  name: string;
+  token: string | null;
+  raw: EvolutionInstanceRecord | null;
+};
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
@@ -128,14 +132,24 @@ function extractInstancePayloadList(payload: unknown): EvolutionInstanceRecord[]
   return [];
 }
 
-function buildWebhookHeaders(secret: string) {
-  if (!secret) {
-    return undefined;
-  }
+function normalizeEvolutionPath(path: string) {
+  return path.startsWith("/") ? path : `/${path}`;
+}
 
-  return {
-    "x-webhook-secret": secret,
-  };
+function getInstanceRecordName(record: EvolutionInstanceRecord) {
+  return readString(record.name) || readString(asRecord(record.instance)?.name) || readString(asRecord(record.instance)?.instanceName);
+}
+
+function getInstanceRecordId(record: EvolutionInstanceRecord) {
+  return readString(record.id) || readString(asRecord(record.instance)?.id);
+}
+
+function getInstanceRecordToken(record: EvolutionInstanceRecord) {
+  return readString(record.token) || readString(asRecord(record.instance)?.token);
+}
+
+function getInstanceRecordQrCode(record: EvolutionInstanceRecord) {
+  return readString(record.qrcode) || readString(asRecord(record.instance)?.qrcode);
 }
 
 async function evolutionRequest<T>(path: string, init?: RequestInit): Promise<T> {
@@ -188,6 +202,120 @@ async function evolutionRawRequest(path: string, init?: RequestInit) {
   }
 
   return response;
+}
+
+async function fetchEvolutionInstances() {
+  try {
+    const response = await evolutionRequest<EvolutionInstanceRecord[] | EvolutionInstanceRecord>("/instance/all", {
+      method: "GET",
+    });
+    const records = extractInstancePayloadList(response);
+    if (records.length > 0) {
+      return records;
+    }
+  } catch {
+    // Fall back to Evolution API legacy endpoint below.
+  }
+
+  const legacyResponse = await evolutionRequest<EvolutionInstanceRecord[] | EvolutionInstanceRecord>("/instance/fetchInstances", {
+    method: "GET",
+  });
+
+  return extractInstancePayloadList(legacyResponse);
+}
+
+async function resolveEvolutionInstance(instanceName: string): Promise<EvolutionResolvedInstance | null> {
+  const normalizedInstanceName = instanceName.trim();
+  if (!normalizedInstanceName) {
+    return null;
+  }
+
+  try {
+    const records = await fetchEvolutionInstances();
+    const record =
+      records.find((item) => getInstanceRecordName(item) === normalizedInstanceName) ??
+      records.find((item) => {
+        const currentName = getInstanceRecordName(item);
+        return typeof currentName === "string" && currentName.trim().toLowerCase() === normalizedInstanceName.toLowerCase();
+      }) ??
+      null;
+
+    if (!record) {
+      return null;
+    }
+
+    return {
+      id: getInstanceRecordId(record),
+      name: getInstanceRecordName(record) ?? normalizedInstanceName,
+      token: getInstanceRecordToken(record),
+      raw: record,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function buildInstanceHeaders(instance: EvolutionResolvedInstance | null) {
+  const headers: Record<string, string> = {};
+
+  if (instance?.id) {
+    headers.instanceId = instance.id;
+  }
+
+  if (instance?.token) {
+    headers.instanceToken = instance.token;
+  }
+
+  return headers;
+}
+
+function extractEvolutionExternalId(response: EvolutionSendTextResponse | EvolutionSendMediaResponse) {
+  return (
+    response.key?.id ||
+    response.message?.key?.id ||
+    response.data?.key?.id ||
+    response.data?.id ||
+    response.id ||
+    response.messageId ||
+    null
+  );
+}
+
+async function evolutionInstanceRequest<T>(input: {
+  instanceName: string;
+  path: string;
+  method?: "GET" | "POST" | "DELETE";
+  body?: unknown;
+  legacyPath?: string;
+  legacyBody?: unknown;
+}) {
+  const instance = await resolveEvolutionInstance(input.instanceName);
+  const normalizedPath = normalizeEvolutionPath(input.path);
+  const method = input.method ?? "POST";
+
+  if (instance?.id) {
+    try {
+      return await evolutionRequest<T>(normalizedPath, {
+        method,
+        headers: buildInstanceHeaders(instance),
+        ...(typeof input.body === "undefined" ? {} : { body: JSON.stringify(input.body) }),
+      });
+    } catch (error) {
+      if (!input.legacyPath) {
+        throw error;
+      }
+    }
+  }
+
+  if (!input.legacyPath) {
+    throw new Error(`No se pudo resolver la instancia Evolution: ${input.instanceName}`);
+  }
+
+  const legacyRequestBody = input.legacyBody ?? input.body;
+  return evolutionRequest<T>(normalizeEvolutionPath(input.legacyPath), {
+    method,
+    ...(typeof legacyRequestBody === "undefined" ? {} : { body: JSON.stringify(legacyRequestBody) }),
+  });
 }
 
 function inferMediaMimeType(input: { mediaType: "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT"; mimeType?: string | null }) {
@@ -654,6 +782,22 @@ export async function getEvolutionConnectionState(instanceName: string) {
   }
 
   try {
+    const instance = await resolveEvolutionInstance(instanceName);
+
+    if (instance?.id) {
+      const response = await evolutionRequest<{
+        data?: { Connected?: boolean; LoggedIn?: boolean; Name?: string };
+        message?: string;
+      }>("/instance/status", {
+        method: "GET",
+        headers: buildInstanceHeaders(instance),
+      });
+
+      if (typeof response.data?.Connected === "boolean") {
+        return response.data.Connected ? "connected" : "disconnected";
+      }
+    }
+
     const response = await evolutionRequest<EvolutionConnectionStateResponse>(`/instance/connectionState/${instanceName}`, {
       method: "GET",
     });
@@ -679,6 +823,23 @@ export async function getEvolutionConnectionQr(instanceName: string) {
   }
 
   try {
+    const instance = await resolveEvolutionInstance(instanceName);
+
+    if (instance?.id) {
+      const response = await evolutionRequest<{ qrCode?: string; code?: string; pairingCode?: string }>(
+        "/instance/qr",
+        {
+          method: "GET",
+          headers: buildInstanceHeaders(instance),
+        },
+      );
+
+      return {
+        qrCode: response.qrCode || response.code || getInstanceRecordQrCode(instance.raw ?? {}) || null,
+        pairingCode: response.pairingCode ?? null,
+      };
+    }
+
     const response = await evolutionRequest<EvolutionConnectResponse>(`/instance/connect/${instanceName}`, {
       method: "GET",
     });
@@ -699,43 +860,29 @@ export async function fetchEvolutionInstanceProfile(instanceName: string) {
   }
 
   try {
-    const scopedResponse = await evolutionRequest<EvolutionInstanceRecord[] | EvolutionInstanceRecord>(
-      `/instance/fetchInstances?instanceName=${encodeURIComponent(instanceName)}`,
-      {
-        method: "GET",
-      },
-    );
-    let records = extractInstancePayloadList(scopedResponse);
-
-    if (!records.length) {
-      const fallbackResponse = await evolutionRequest<EvolutionInstanceRecord[] | EvolutionInstanceRecord>("/instance/fetchInstances", {
-        method: "GET",
-      });
-      records = extractInstancePayloadList(fallbackResponse);
-    }
-
+    const records = await fetchEvolutionInstances();
     const instanceRecord =
-      records.find((item) => item.instance?.instanceName === instanceName) ??
+      records.find((item) => getInstanceRecordName(item) === instanceName) ??
       records.find((item) => {
-        const nested = asRecord(item.instance);
-        return readString(nested?.instanceName) === instanceName;
+        const currentName = getInstanceRecordName(item);
+        return typeof currentName === "string" && currentName.trim().toLowerCase() === instanceName.toLowerCase();
       }) ??
-      records[0];
+      null;
     const instance = asRecord(instanceRecord?.instance);
 
-    if (!instance) {
+    if (!instanceRecord) {
       return null;
     }
 
     return {
       owner:
-        normalizePhoneValue(readString(instance.owner)) ||
-        normalizePhoneValue(readString(instance.ownerJid)) ||
-        normalizePhoneValue(readString(instance.number)) ||
-        normalizePhoneValue(readString(instance.phoneNumber)) ||
-        normalizePhoneValue(readString(instance.wuid)),
-      profileName: readString(instance.profileName),
-      profilePictureUrl: readString(instance.profilePictureUrl),
+        normalizePhoneValue(readString(instance?.owner)) ||
+        normalizePhoneValue(readString(instance?.ownerJid)) ||
+        normalizePhoneValue(readString(instance?.number)) ||
+        normalizePhoneValue(readString(instance?.phoneNumber)) ||
+        normalizePhoneValue(readString(instance?.wuid)),
+      profileName: readString(instance?.profileName),
+      profilePictureUrl: readString(instance?.profilePictureUrl),
     };
   } catch {
     return null;
@@ -761,28 +908,53 @@ export async function createEvolutionChannel(input: {
     instanceName = `${normalizedPrefix}-${sequence}`;
   }
 
-  await evolutionRequest("/instance/create", {
+  const createdResponse = await evolutionRequest<{ data?: { id?: string; token?: string; name?: string } }>("/instance/create", {
     method: "POST",
     body: JSON.stringify({
-      instanceName,
-      qrcode: true,
-      integration: "WHATSAPP-BAILEYS",
-      syncFullHistory: true,
-      webhook: {
-        url: settings.webhookBaseUrl,
-        byEvents: false,
-        base64: false,
-        headers: buildWebhookHeaders(settings.webhookSecret),
-        events: WEBHOOK_EVENTS,
-      },
+      name: instanceName,
+      token: randomUUID(),
     }),
   });
 
+  const createdInstanceId = readString(createdResponse.data?.id) ?? null;
+  const createdInstanceToken = readString(createdResponse.data?.token) ?? null;
+
   let connectData: EvolutionConnectResponse = {};
   try {
-    connectData = await evolutionRequest<EvolutionConnectResponse>(`/instance/connect/${instanceName}`, {
-      method: "GET",
-    });
+    if (createdInstanceId) {
+      await evolutionRequest("/instance/connect", {
+        method: "POST",
+        headers: {
+          ...buildInstanceHeaders({
+            id: createdInstanceId,
+            name: instanceName,
+            token: createdInstanceToken,
+            raw: null,
+          }),
+        },
+        body: JSON.stringify({
+          webhookUrl: settings.webhookBaseUrl,
+          subscribe: ["ALL"],
+          immediate: true,
+        }),
+      });
+
+      connectData = await evolutionRequest<EvolutionConnectResponse>("/instance/qr", {
+        method: "GET",
+        headers: {
+          ...buildInstanceHeaders({
+            id: createdInstanceId,
+            name: instanceName,
+            token: createdInstanceToken,
+            raw: null,
+          }),
+        },
+      }).catch(() => ({}));
+    } else {
+      connectData = await evolutionRequest<EvolutionConnectResponse>(`/instance/connect/${instanceName}`, {
+        method: "GET",
+      });
+    }
   } catch {
     // Si Evolution crea la instancia pero tarda en devolver el QR,
     // dejamos el canal en CONNECTING y esperamos los webhooks.
@@ -797,10 +969,12 @@ export async function createEvolutionChannel(input: {
       provider: "EVOLUTION",
       name: input.name,
       evolutionInstanceName: instanceName,
+      evolutionExternalKey: createdInstanceId,
       status: qrCode ? "QRCODE" : "CONNECTING",
       qrCode,
       metadata: {
         pairingCode: connectData.pairingCode ?? null,
+        ...(createdInstanceToken ? { instanceToken: createdInstanceToken } : {}),
       },
     },
     select: {
@@ -875,6 +1049,19 @@ export async function deleteEvolutionInstance(instanceName: string) {
     return;
   }
 
+  const instance = await resolveEvolutionInstance(instanceName);
+  if (instance?.id) {
+    await evolutionRequest(`/instance/${instance.id}`, {
+      method: "DELETE",
+      headers: buildInstanceHeaders(instance),
+    }).catch(async () => {
+      await evolutionRequest(`/instance/delete/${instanceName}`, {
+        method: "DELETE",
+      });
+    });
+    return;
+  }
+
   await evolutionRequest(`/instance/delete/${instanceName}`, {
     method: "DELETE",
   });
@@ -887,17 +1074,29 @@ export async function sendEvolutionTextMessage(input: {
   delayMs?: number;
   quoted?: { id: string; remoteJid?: string; fromMe?: boolean; text?: string } | null;
 }) {
-  const response = await evolutionRequest<EvolutionSendTextResponse>(`/message/sendText/${input.instanceName}`, {
-    method: "POST",
-    body: JSON.stringify({
+  const response = await evolutionInstanceRequest<EvolutionSendTextResponse>({
+    instanceName: input.instanceName,
+    path: "/send/text",
+    legacyPath: `/message/sendText/${input.instanceName}`,
+    body: {
       number: input.phoneNumber,
       text: input.text,
       delay: input.delayMs ?? 1200,
       ...(input.quoted?.id
         ? {
-            // Solo enviamos la `key`: Evolution reconstruye el mensaje citado real
-            // desde su propia BD (getMessage por key.id). Si mandáramos un `message`
-            // sintético, Evolution lo usaría tal cual y la cita quedaría frágil/falsa.
+            quoted: {
+              messageId: input.quoted.id,
+              ...(input.quoted.remoteJid ? { participant: input.quoted.remoteJid } : {}),
+            },
+          }
+        : {}),
+    },
+    legacyBody: {
+      number: input.phoneNumber,
+      text: input.text,
+      delay: input.delayMs ?? 1200,
+      ...(input.quoted?.id
+        ? {
             quoted: {
               key: {
                 id: input.quoted.id,
@@ -907,20 +1106,11 @@ export async function sendEvolutionTextMessage(input: {
             },
           }
         : {}),
-    }),
+    },
   });
 
-  const externalId =
-    response.key?.id ||
-    response.message?.key?.id ||
-    response.data?.key?.id ||
-    response.data?.id ||
-    response.id ||
-    response.messageId ||
-    null;
-
   return {
-    externalId,
+    externalId: extractEvolutionExternalId(response),
     raw: response,
   };
 }
@@ -929,15 +1119,54 @@ export async function deleteEvolutionMessageForEveryone(input: {
   instanceName: string;
   key: { id: string; remoteJid: string; fromMe: boolean; participant?: string };
 }) {
-  await evolutionRequest(`/chat/deleteMessageForEveryone/${input.instanceName}`, {
-    method: "DELETE",
-    body: JSON.stringify({
+  await evolutionInstanceRequest({
+    instanceName: input.instanceName,
+    path: "/message/delete",
+    method: "POST",
+    legacyPath: `/chat/deleteMessageForEveryone/${input.instanceName}`,
+    body: {
+      chat: input.key.remoteJid,
+      messageId: input.key.id,
+    },
+    legacyBody: {
       id: input.key.id,
       remoteJid: input.key.remoteJid,
       fromMe: input.key.fromMe,
       ...(input.key.participant ? { participant: input.key.participant } : {}),
-    }),
+    },
   });
+}
+
+async function sendEvolutionMediaRequest(input: {
+  instanceName: string;
+  phoneNumber: string;
+  type: "image" | "audio" | "video" | "document";
+  media: string;
+  fileName: string;
+  caption?: string | null;
+  delayMs?: number;
+  legacyPath?: string;
+  legacyBody: Record<string, unknown>;
+}) {
+  const response = await evolutionInstanceRequest<EvolutionSendMediaResponse>({
+    instanceName: input.instanceName,
+    path: "/send/media",
+    legacyPath: input.legacyPath ?? `/message/sendMedia/${input.instanceName}`,
+    body: {
+      number: input.phoneNumber,
+      type: input.type,
+      url: input.media,
+      filename: input.fileName,
+      caption: input.caption?.trim() || "",
+      delay: input.delayMs ?? 1200,
+    },
+    legacyBody: input.legacyBody,
+  });
+
+  return {
+    externalId: extractEvolutionExternalId(response),
+    raw: response,
+  };
 }
 
 export async function sendEvolutionImageMessage(input: {
@@ -958,67 +1187,24 @@ export async function sendEvolutionImageMessage(input: {
     }
   })();
 
-  try {
-    const response = await evolutionRequest<EvolutionSendMediaResponse>(`/message/sendMedia/${input.instanceName}`, {
-      method: "POST",
-      body: JSON.stringify({
-        number: input.phoneNumber,
-        mediatype: "image",
-        mimetype: "image/jpeg",
-        caption: normalizedCaption,
-        media: input.imageUrl,
-        fileName: normalizedFileName,
-        delay: input.delayMs ?? 1200,
-      }),
-    });
-
-    const externalId =
-      response.key?.id ||
-      response.message?.key?.id ||
-      response.data?.key?.id ||
-      response.data?.id ||
-      response.id ||
-      response.messageId ||
-      null;
-
-    return {
-      externalId,
-      raw: response,
-    };
-  } catch (firstError) {
-    const response = await evolutionRequest<EvolutionSendMediaResponse>(`/message/sendMedia/${input.instanceName}`, {
-      method: "POST",
-      body: JSON.stringify({
-        number: input.phoneNumber,
-        mediaMessage: {
-          mediaType: "image",
-          fileName: normalizedFileName,
-          caption: normalizedCaption,
-          media: input.imageUrl,
-        },
-        options: {
-          delay: input.delayMs ?? 1200,
-          presence: "composing",
-        },
-      }),
-    }).catch(() => {
-      throw firstError;
-    });
-
-    const externalId =
-      response.key?.id ||
-      response.message?.key?.id ||
-      response.data?.key?.id ||
-      response.data?.id ||
-      response.id ||
-      response.messageId ||
-      null;
-
-    return {
-      externalId,
-      raw: response,
-    };
-  }
+  return sendEvolutionMediaRequest({
+    instanceName: input.instanceName,
+    phoneNumber: input.phoneNumber,
+    type: "image",
+    media: input.imageUrl,
+    fileName: normalizedFileName,
+    caption: normalizedCaption,
+    delayMs: input.delayMs,
+    legacyBody: {
+      number: input.phoneNumber,
+      mediatype: "image",
+      mimetype: "image/jpeg",
+      caption: normalizedCaption,
+      media: input.imageUrl,
+      fileName: normalizedFileName,
+      delay: input.delayMs ?? 1200,
+    },
+  });
 }
 
 function inferAudioMimeTypeFromUrl(audioUrl: string) {
@@ -1054,67 +1240,24 @@ export async function sendEvolutionAudioMessage(input: {
     }
   })();
 
-  try {
-    const response = await evolutionRequest<EvolutionSendMediaResponse>(`/message/sendMedia/${input.instanceName}`, {
-      method: "POST",
-      body: JSON.stringify({
-        number: input.phoneNumber,
-        mediatype: "audio",
-        mimetype: inferAudioMimeTypeFromUrl(input.audioUrl),
-        caption: normalizedCaption,
-        media: input.audioUrl,
-        fileName: normalizedFileName,
-        delay: input.delayMs ?? 1200,
-      }),
-    });
-
-    const externalId =
-      response.key?.id ||
-      response.message?.key?.id ||
-      response.data?.key?.id ||
-      response.data?.id ||
-      response.id ||
-      response.messageId ||
-      null;
-
-    return {
-      externalId,
-      raw: response,
-    };
-  } catch (firstError) {
-    const response = await evolutionRequest<EvolutionSendMediaResponse>(`/message/sendMedia/${input.instanceName}`, {
-      method: "POST",
-      body: JSON.stringify({
-        number: input.phoneNumber,
-        mediaMessage: {
-          mediaType: "audio",
-          fileName: normalizedFileName,
-          caption: normalizedCaption,
-          media: input.audioUrl,
-        },
-        options: {
-          delay: input.delayMs ?? 1200,
-          presence: "composing",
-        },
-      }),
-    }).catch(() => {
-      throw firstError;
-    });
-
-    const externalId =
-      response.key?.id ||
-      response.message?.key?.id ||
-      response.data?.key?.id ||
-      response.data?.id ||
-      response.id ||
-      response.messageId ||
-      null;
-
-  return {
-    externalId,
-    raw: response,
-  };
-  }
+  return sendEvolutionMediaRequest({
+    instanceName: input.instanceName,
+    phoneNumber: input.phoneNumber,
+    type: "audio",
+    media: input.audioUrl,
+    fileName: normalizedFileName,
+    caption: normalizedCaption,
+    delayMs: input.delayMs,
+    legacyBody: {
+      number: input.phoneNumber,
+      mediatype: "audio",
+      mimetype: inferAudioMimeTypeFromUrl(input.audioUrl),
+      caption: normalizedCaption,
+      media: input.audioUrl,
+      fileName: normalizedFileName,
+      delay: input.delayMs ?? 1200,
+    },
+  });
 }
 
 function inferVideoMimeTypeFromUrl(videoUrl: string) {
@@ -1138,28 +1281,20 @@ export async function sendEvolutionVoiceNote(input: {
   audio: string;
   delayMs?: number;
 }) {
-  const response = await evolutionRequest<EvolutionSendMediaResponse>(`/message/sendWhatsAppAudio/${input.instanceName}`, {
-    method: "POST",
-    body: JSON.stringify({
+  return sendEvolutionMediaRequest({
+    instanceName: input.instanceName,
+    phoneNumber: input.phoneNumber,
+    type: "audio",
+    media: input.audio,
+    fileName: "audio.ogg",
+    delayMs: input.delayMs,
+    legacyPath: `/message/sendWhatsAppAudio/${input.instanceName}`,
+    legacyBody: {
       number: input.phoneNumber,
       audio: input.audio,
       delay: input.delayMs ?? 1200,
-    }),
+    },
   });
-
-  const externalId =
-    response.key?.id ||
-    response.message?.key?.id ||
-    response.data?.key?.id ||
-    response.data?.id ||
-    response.id ||
-    response.messageId ||
-    null;
-
-  return {
-    externalId,
-    raw: response,
-  };
 }
 
 export async function sendEvolutionVideoMessage(input: {
@@ -1180,67 +1315,24 @@ export async function sendEvolutionVideoMessage(input: {
     }
   })();
 
-  try {
-    const response = await evolutionRequest<EvolutionSendMediaResponse>(`/message/sendMedia/${input.instanceName}`, {
-      method: "POST",
-      body: JSON.stringify({
-        number: input.phoneNumber,
-        mediatype: "video",
-        mimetype: inferVideoMimeTypeFromUrl(input.videoUrl),
-        caption: normalizedCaption,
-        media: input.videoUrl,
-        fileName: normalizedFileName,
-        delay: input.delayMs ?? 1200,
-      }),
-    });
-
-    const externalId =
-      response.key?.id ||
-      response.message?.key?.id ||
-      response.data?.key?.id ||
-      response.data?.id ||
-      response.id ||
-      response.messageId ||
-      null;
-
-    return {
-      externalId,
-      raw: response,
-    };
-  } catch (firstError) {
-    const response = await evolutionRequest<EvolutionSendMediaResponse>(`/message/sendMedia/${input.instanceName}`, {
-      method: "POST",
-      body: JSON.stringify({
-        number: input.phoneNumber,
-        mediaMessage: {
-          mediaType: "video",
-          fileName: normalizedFileName,
-          caption: normalizedCaption,
-          media: input.videoUrl,
-        },
-        options: {
-          delay: input.delayMs ?? 1200,
-          presence: "composing",
-        },
-      }),
-    }).catch(() => {
-      throw firstError;
-    });
-
-    const externalId =
-      response.key?.id ||
-      response.message?.key?.id ||
-      response.data?.key?.id ||
-      response.data?.id ||
-      response.id ||
-      response.messageId ||
-      null;
-
-    return {
-      externalId,
-      raw: response,
-    };
-  }
+  return sendEvolutionMediaRequest({
+    instanceName: input.instanceName,
+    phoneNumber: input.phoneNumber,
+    type: "video",
+    media: input.videoUrl,
+    fileName: normalizedFileName,
+    caption: normalizedCaption,
+    delayMs: input.delayMs,
+    legacyBody: {
+      number: input.phoneNumber,
+      mediatype: "video",
+      mimetype: inferVideoMimeTypeFromUrl(input.videoUrl),
+      caption: normalizedCaption,
+      media: input.videoUrl,
+      fileName: normalizedFileName,
+      delay: input.delayMs ?? 1200,
+    },
+  });
 }
 
 export async function sendEvolutionDocumentMessage(input: {
@@ -1263,9 +1355,15 @@ export async function sendEvolutionDocumentMessage(input: {
   })();
   const mimetype = normalizedFileName.endsWith(".pdf") ? "application/pdf" : "application/octet-stream";
 
-  const response = await evolutionRequest<EvolutionSendMediaResponse>(`/message/sendMedia/${input.instanceName}`, {
-    method: "POST",
-    body: JSON.stringify({
+  return sendEvolutionMediaRequest({
+    instanceName: input.instanceName,
+    phoneNumber: input.phoneNumber,
+    type: "document",
+    media: input.documentUrl,
+    fileName: normalizedFileName,
+    caption: normalizedCaption,
+    delayMs: input.delayMs,
+    legacyBody: {
       number: input.phoneNumber,
       mediatype: "document",
       mimetype,
@@ -1273,19 +1371,8 @@ export async function sendEvolutionDocumentMessage(input: {
       media: input.documentUrl,
       fileName: normalizedFileName,
       delay: input.delayMs ?? 1200,
-    }),
+    },
   });
-
-  const externalId =
-    response.key?.id ||
-    response.message?.key?.id ||
-    response.data?.key?.id ||
-    response.data?.id ||
-    response.id ||
-    response.messageId ||
-    null;
-
-  return { externalId, raw: response };
 }
 
 export async function sendEvolutionMediaBase64(input: {
@@ -1298,9 +1385,15 @@ export async function sendEvolutionMediaBase64(input: {
   caption?: string | null;
   delayMs?: number;
 }) {
-  const response = await evolutionRequest<EvolutionSendMediaResponse>(`/message/sendMedia/${input.instanceName}`, {
-    method: "POST",
-    body: JSON.stringify({
+  return sendEvolutionMediaRequest({
+    instanceName: input.instanceName,
+    phoneNumber: input.phoneNumber,
+    type: input.mediatype,
+    media: input.base64,
+    fileName: input.fileName,
+    caption: input.caption,
+    delayMs: input.delayMs,
+    legacyBody: {
       number: input.phoneNumber,
       mediatype: input.mediatype,
       mimetype: input.mimetype,
@@ -1308,22 +1401,8 @@ export async function sendEvolutionMediaBase64(input: {
       media: input.base64,
       fileName: input.fileName,
       delay: input.delayMs ?? 1200,
-    }),
+    },
   });
-
-  const externalId =
-    response.key?.id ||
-    response.message?.key?.id ||
-    response.data?.key?.id ||
-    response.data?.id ||
-    response.id ||
-    response.messageId ||
-    null;
-
-  return {
-    externalId,
-    raw: response,
-  };
 }
 
 function isEvolutionConnectionClosedError(error: unknown) {
@@ -1377,13 +1456,21 @@ export async function sendEvolutionPresence(input: {
   presence?: EvolutionPresence;
   delay?: number;
 }) {
-  await evolutionRequest(`/chat/sendPresence/${input.instanceName}`, {
+  await evolutionInstanceRequest({
+    instanceName: input.instanceName,
+    path: "/message/presence",
     method: "POST",
-    body: JSON.stringify({
+    legacyPath: `/chat/sendPresence/${input.instanceName}`,
+    body: {
+      number: input.phoneNumber,
+      state: input.presence ?? "composing",
+      isAudio: (input.presence ?? "composing") === "recording",
+    },
+    legacyBody: {
       number: input.phoneNumber,
       presence: input.presence ?? "composing",
       delay: input.delay ?? 1200,
-    }),
+    },
   });
 }
 
@@ -1397,17 +1484,20 @@ export async function fetchEvolutionProfilePictureUrl(input: {
   }
 
   try {
-    const response = await evolutionRequest<EvolutionProfilePictureResponse>(
-      `/chat/fetchProfilePictureUrl/${input.instanceName}`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          number: input.phoneNumber,
-        }),
+    const response = await evolutionInstanceRequest<EvolutionProfilePictureResponse & { avatar?: string }>({
+      instanceName: input.instanceName,
+      path: "/user/avatar",
+      legacyPath: `/chat/fetchProfilePictureUrl/${input.instanceName}`,
+      body: {
+        number: input.phoneNumber,
+        preview: true,
       },
-    );
+      legacyBody: {
+        number: input.phoneNumber,
+      },
+    });
 
-    return response.profilePictureUrl || null;
+    return response.profilePictureUrl || response.avatar || null;
   } catch {
     return null;
   }

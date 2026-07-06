@@ -22,13 +22,19 @@ function normalizeUrlSetting(value: string | null | undefined) {
   return value?.trim().replace(/\/+$/, "") ?? "";
 }
 
-function buildEvolutionWebhookUrl(baseUrl: string) {
+function buildEvolutionWebhookUrl(baseUrl: string, secret?: string) {
   const normalizedBaseUrl = normalizeUrlSetting(baseUrl);
   if (!normalizedBaseUrl) {
     return "";
   }
 
-  return `${normalizedBaseUrl}/api/webhooks/evolution`;
+  const webhookUrl = new URL(`${normalizedBaseUrl}/api/webhooks/evolution`);
+  const normalizedSecret = secret?.trim() ?? "";
+  if (normalizedSecret) {
+    webhookUrl.searchParams.set("token", normalizedSecret);
+  }
+
+  return webhookUrl.toString();
 }
 
 function getEvolutionWebhookBaseUrlFromEnv() {
@@ -43,7 +49,7 @@ function getEvolutionWebhookBaseUrlFromEnv() {
     normalizeUrlSetting(process.env.AUTH_URL) ||
     normalizeUrlSetting(process.env.NEXTAUTH_URL);
 
-  return buildEvolutionWebhookUrl(backendBaseUrl);
+  return buildEvolutionWebhookUrl(backendBaseUrl, getEvolutionWebhookSecretFromEnv());
 }
 
 function getEvolutionWebhookSecretFromEnv() {
