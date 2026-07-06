@@ -162,8 +162,22 @@ function getInstanceRecordToken(record: EvolutionInstanceRecord) {
   return readString(record.token) || readString(asRecord(record.instance)?.token);
 }
 
+function extractQrBase64Value(value: string | null | undefined) {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = value.trim();
+  if (!normalized) {
+    return null;
+  }
+
+  const [base64Candidate] = normalized.split("|");
+  return base64Candidate?.trim() || null;
+}
+
 function getInstanceRecordQrCode(record: EvolutionInstanceRecord) {
-  return readString(record.qrcode) || readString(asRecord(record.instance)?.qrcode);
+  return extractQrBase64Value(readString(record.qrcode) || readString(asRecord(record.instance)?.qrcode));
 }
 
 function getInstanceRecordWebhook(record: EvolutionInstanceRecord) {
@@ -227,6 +241,10 @@ function debugEvolutionPayload(label: string, payload: unknown) {
   }
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function isEvolutionInstanceAlreadyExistsError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   return /instance already exists/i.test(message);
@@ -251,7 +269,7 @@ async function ensureEvolutionInstanceConnectionSession(instance: EvolutionResol
     if (instance.id || instance.token) {
       await evolutionRequest("/instance/connect", {
         method: "POST",
-        headers: buildInstanceHeaders(instance, { useInstanceApiKey: true }),
+        headers: buildInstanceManagerHeaders(instance),
         body: JSON.stringify({
           webhookUrl: settings.webhookBaseUrl,
           subscribe: ["ALL"],
@@ -450,6 +468,14 @@ function buildInstanceHeaders(instance: EvolutionResolvedInstance | null, option
   }
 
   return headers;
+}
+
+function buildInstanceManagerHeaders(instance: EvolutionResolvedInstance | null) {
+  if (instance?.token) {
+    return { apikey: instance.token };
+  }
+
+  return buildInstanceHeaders(instance);
 }
 
 function extractEvolutionExternalId(response: EvolutionSendTextResponse | EvolutionSendMediaResponse) {
@@ -973,7 +999,7 @@ export async function getEvolutionConnectionState(instanceName: string) {
         message?: string;
       }>("/instance/status", {
         method: "GET",
-        headers: buildInstanceHeaders(instance, { useInstanceApiKey: true }),
+        headers: buildInstanceManagerHeaders(instance),
       });
 
       if (typeof response.data?.LoggedIn === "boolean") {
@@ -1021,19 +1047,20 @@ export async function getEvolutionConnectionQr(instanceName: string) {
     const instance = await resolveEvolutionInstance(instanceName);
 
     if (instance?.id || instance?.token) {
+      // Si la instancia ya existe pero aun no genero QR, no debemos disparar
+      // /instance/connect en cada poll de la UI; eso termina saturando Evolution.
       const needsConnectBootstrap =
-        !getInstanceRecordWebhook(instance.raw ?? {}) ||
-        !getInstanceRecordEvents(instance.raw ?? {}) ||
-        getInstanceRecordQrCode(instance.raw ?? {}) === null;
+        !instance.raw || !getInstanceRecordWebhook(instance.raw ?? {}) || !getInstanceRecordEvents(instance.raw ?? {});
 
       if (needsConnectBootstrap) {
         await ensureEvolutionInstanceConnectionSession(instance);
+        await sleep(2000);
       }
 
       try {
         const response = await evolutionRequest<EvolutionConnectResponse & { qrCode?: string; qrcode?: string }>("/instance/qr", {
           method: "GET",
-          headers: buildInstanceHeaders(instance, { useInstanceApiKey: true }),
+          headers: buildInstanceManagerHeaders(instance),
         });
 
         debugEvolutionPayload("instance_qr_response", {
@@ -1193,14 +1220,12 @@ export async function createEvolutionChannel(input: {
     if (createdInstanceId || createdInstanceToken) {
       await evolutionRequest("/instance/connect", {
         method: "POST",
-        headers: {
-          ...buildInstanceHeaders({
-            id: createdInstanceId,
-            name: instanceName,
-            token: createdInstanceToken,
-            raw: null,
-          }, { useInstanceApiKey: true }),
-        },
+        headers: buildInstanceManagerHeaders({
+          id: createdInstanceId,
+          name: instanceName,
+          token: createdInstanceToken,
+          raw: null,
+        }),
         body: JSON.stringify({
           webhookUrl: settings.webhookBaseUrl,
           subscribe: ["ALL"],
@@ -1208,16 +1233,16 @@ export async function createEvolutionChannel(input: {
         }),
       });
 
+      await sleep(2000);
+
       connectData = await evolutionRequest<EvolutionConnectResponse>("/instance/qr", {
         method: "GET",
-        headers: {
-          ...buildInstanceHeaders({
-            id: createdInstanceId,
-            name: instanceName,
-            token: createdInstanceToken,
-            raw: null,
-          }, { useInstanceApiKey: true }),
-        },
+        headers: buildInstanceManagerHeaders({
+          id: createdInstanceId,
+          name: instanceName,
+          token: createdInstanceToken,
+          raw: null,
+        }),
       }).catch(() => ({}));
 
       connectedInstanceSnapshot =
