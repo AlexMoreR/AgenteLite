@@ -1,11 +1,9 @@
-import { FaWhatsapp } from "react-icons/fa";
+import { IconBrandWhatsapp } from "@tabler/icons-react";
 
 type WhatsAppGlyphProps = {
   className?: string;
 };
 
 export function WhatsAppGlyph({ className }: WhatsAppGlyphProps) {
-  return (
-    <FaWhatsapp aria-hidden="true" className={className} />
-  );
+  return <IconBrandWhatsapp aria-hidden="true" className={className} stroke={1.8} />;
 }

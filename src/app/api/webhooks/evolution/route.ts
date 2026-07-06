@@ -773,6 +773,7 @@ export async function POST(request: NextRequest) {
     isActive: true,
     evolutionInstanceName: true,
     evolutionExternalKey: true,
+    metadata: true,
     status: true,
     phoneNumber: true,
     qrCode: true,

@@ -51,9 +51,10 @@ import {
   Users,
   X,
   Sidebar,
+  File as FileIcon,
+  FileSpreadsheet,
 } from "lucide-react";
 import { ChatScrollAnchor } from "@/components/agents/chat-scroll-anchor";
-import { FaFileAlt, FaFileExcel, FaFilePdf, FaFilePowerpoint, FaFileWord } from "react-icons/fa";
 import { ContactAvatar } from "@/components/chats/contact-avatar";
 import { getContactDetailsAction } from "@/app/actions/chats-actions";
 import {
@@ -1308,11 +1309,11 @@ function getDocumentTypeLabel(fileName: string, mimeType?: string | null) {
 // Ícono coloreado según el tipo de documento (PDF rojo, Word azul, Excel verde, etc.).
 function getDocumentIcon(typeLabel: string) {
   const type = typeLabel.toUpperCase();
-  if (type === "PDF") return { Icon: FaFilePdf, color: "#e2433a" };
-  if (type === "DOC" || type === "DOCX") return { Icon: FaFileWord, color: "#2b7cd3" };
-  if (type === "XLS" || type === "XLSX" || type === "CSV") return { Icon: FaFileExcel, color: "#1d8f4e" };
-  if (type === "PPT" || type === "PPTX") return { Icon: FaFilePowerpoint, color: "#d24726" };
-  return { Icon: FaFileAlt, color: "#64748b" };
+  if (type === "PDF") return { Icon: FileText, color: "#e2433a" };
+  if (type === "DOC" || type === "DOCX") return { Icon: FileText, color: "#2b7cd3" };
+  if (type === "XLS" || type === "XLSX" || type === "CSV") return { Icon: FileSpreadsheet, color: "#1d8f4e" };
+  if (type === "PPT" || type === "PPTX") return { Icon: FileText, color: "#d24726" };
+  return { Icon: FileIcon, color: "#64748b" };
 }
 
 // Extrae nombre / tipo / tamaño del documento desde el mensaje, soportando tanto el envío
