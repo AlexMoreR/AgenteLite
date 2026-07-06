@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { after } from "next/server";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { analyzeImageForAgent, generateAgentReply, transcribeAudioForAgent } from "@/lib/agent-ai";
 import { summarizeContactHistory } from "@/lib/contact-summary";
 import {
@@ -729,7 +729,7 @@ function shouldRunContactSyncBackfill(key: string, now: number) {
   return true;
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   const payload = await request.json().catch(() => null);
 
   if (!payload) {
