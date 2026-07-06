@@ -111,7 +111,10 @@ const toggleAgentStatusSchema = z.object({
 });
 
 const sendManualAgentReplySchema = z.object({
-  agentId: z.string().trim().min(1, "Agente invalido"),
+  agentId: z.preprocess(
+    (value) => (typeof value === "string" && value.trim() ? value.trim() : undefined),
+    z.string().optional(),
+  ),
   conversationId: z.string().trim().min(1, "Conversacion invalida"),
   message: z.string().trim().min(1, "Escribe un mensaje").max(2000, "Mensaje demasiado largo"),
   returnTo: z.string().trim().max(500).optional(),
@@ -2593,6 +2596,7 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
     channelId: conversation.channel.id,
     manualMessage: parsed.data.message,
   });
+  const messageAgentId = parsed.data.agentId ?? null;
 
   if (!quickResponseFlow) {
     try {
@@ -2624,7 +2628,7 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
             conversationId: conversation.id,
             channelId: conversation.channel!.id,
             contactId: conversation.contact!.id,
-            agentId: parsed.data.agentId,
+            agentId: messageAgentId,
             externalId: outbound.externalId,
             direction: "OUTBOUND",
             type: "TEXT",
@@ -2651,7 +2655,7 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
             conversationId: conversation.id,
             channelId: conversation.channel!.id,
             contactId: conversation.contact!.id,
-            agentId: parsed.data.agentId,
+            agentId: messageAgentId,
             externalId: outbound.externalId,
             direction: "OUTBOUND",
             type: "IMAGE",
@@ -2679,7 +2683,7 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
             conversationId: conversation.id,
             channelId: conversation.channel!.id,
             contactId: conversation.contact!.id,
-            agentId: parsed.data.agentId,
+            agentId: messageAgentId,
             externalId: outbound.externalId,
             direction: "OUTBOUND",
             type: "AUDIO",
@@ -2707,7 +2711,7 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
             conversationId: conversation.id,
             channelId: conversation.channel!.id,
             contactId: conversation.contact!.id,
-            agentId: parsed.data.agentId,
+            agentId: messageAgentId,
             externalId: outbound.externalId,
             direction: "OUTBOUND",
             type: "VIDEO",
@@ -2736,7 +2740,7 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
             conversationId: conversation.id,
             channelId: conversation.channel!.id,
             contactId: conversation.contact!.id,
-            agentId: parsed.data.agentId,
+            agentId: messageAgentId,
             externalId: outbound.externalId,
             direction: "OUTBOUND",
             type: "DOCUMENT",
@@ -2863,7 +2867,7 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
       conversationId: conversation.id,
       channelId: conversation.channel.id,
       contactId: conversation.contact.id,
-      agentId: parsed.data.agentId,
+      agentId: messageAgentId,
       externalId: outbound.externalId,
       direction: "OUTBOUND",
       type: "TEXT",

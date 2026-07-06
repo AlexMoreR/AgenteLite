@@ -544,7 +544,10 @@ const sendUnifiedChatReplySchema = z.object({
   source: z.enum(["agent", "official"]),
   conversationId: z.string().trim().min(1),
   message: z.string().trim().min(1).max(4096),
-  agentId: z.string().trim().optional(),
+  agentId: z.preprocess(
+    (value) => (typeof value === "string" && value.trim() ? value.trim() : undefined),
+    z.string().optional(),
+  ),
   returnTo: z.string().trim().min(1).max(500).optional(),
   quotedMessageId: z.string().trim().nullish(),
   quotedContent: z.string().trim().max(4096).nullish(),
@@ -643,12 +646,10 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
     return { ok: true };
   }
 
-  if (!parsed.data.agentId) {
-    return { ok: false, error: "No se encontro el agente" };
-  }
-
   const nextData = new FormData();
-  nextData.set("agentId", parsed.data.agentId);
+  if (parsed.data.agentId) {
+    nextData.set("agentId", parsed.data.agentId);
+  }
   nextData.set("conversationId", parsed.data.conversationId);
   nextData.set("message", parsed.data.message);
   nextData.set("returnTo", safeReturnTo || `/cliente/chats?chatKey=agent:${parsed.data.conversationId}`);
