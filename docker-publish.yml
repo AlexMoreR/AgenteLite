@@ -35,3 +35,5 @@ jobs:
             DEPLOYMENT_ID=${{ github.sha }}
             NEXT_SERVER_ACTIONS_ENCRYPTION_KEY=${{ secrets.NEXT_SERVER_ACTIONS_ENCRYPTION_KEY }}
           tags: ghcr.io/alexmorer/agentelite:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
