@@ -439,7 +439,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         FROM "Message" m
         WHERE m."workspaceId" = ${membership.workspace.id}
           AND m."conversationId" IN (${Prisma.join(activeAgentConversationIds)})
-          AND COALESCE(m."rawPayload"::text, '') NOT ILIKE '%status@broadcast%'
+          AND m."isStatusBroadcast" = false
           AND (m."rawPayload"->>'source') IS DISTINCT FROM 'activity'
         ORDER BY m."conversationId", m."createdAt" DESC, m."id" DESC
       `
@@ -530,7 +530,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
             AND m."conversationId" IN (${Prisma.join(activeAgentConversationIds)})
             AND m."direction" = 'INBOUND'
             AND m."readAt" IS NULL
-            AND COALESCE(m."rawPayload"::text, '') NOT ILIKE '%status@broadcast%'
+            AND m."isStatusBroadcast" = false
             AND (m."rawPayload"->>'source') IS DISTINCT FROM 'activity'
           GROUP BY m."conversationId"
         )

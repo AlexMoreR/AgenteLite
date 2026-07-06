@@ -12,6 +12,7 @@ import {
   extractEvolutionMediaUrl,
   extractEvolutionPushName,
   extractEvolutionRemoteJid,
+  extractEvolutionInstanceName,
   hasEvolutionDeletedMessagePayload,
   hasEvolutionEditedMessagePayload,
   normalizePhoneFromJid,
@@ -158,17 +159,27 @@ function pickString(source: UnknownRecord | null, keys: string[]): string | null
   return null;
 }
 
-// Solo @s.whatsapp.net es un JID de contacto individual valido.
-// @g.us = grupo, @lid = identificador interno de Meta (no es numero), otros = desconocidos.
-function isIndividualJid(jid: string | null): boolean {
-  return Boolean(jid && jid.endsWith("@s.whatsapp.net"));
+// @s.whatsapp.net es el JID de contacto individual. Evolution Go a veces entrega
+// solo los digitos; eso tambien es valido si normaliza a un telefono real.
+// @g.us = grupo, @lid = identificador interno de Meta, status = estados.
+function isIndividualContactAddress(value: string | null): boolean {
+  if (!value?.trim()) {
+    return false;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (normalized.includes("@")) {
+    return normalized.endsWith("@s.whatsapp.net") || normalized.endsWith("@c.us");
+  }
+
+  return Boolean(normalizePhoneFromJid(normalized));
 }
 
 function extractPhoneNumberFromPayload(payload: unknown): string | null {
   const remoteJid = extractEvolutionRemoteJid(payload) ?? extractEvolutionPhoneNumber(payload);
 
-  // Si el JID principal existe pero no es de contacto individual, descartar todo el payload.
-  if (remoteJid && !isIndividualJid(remoteJid)) {
+  // Si el identificador principal existe pero no es de contacto individual, descartar todo el payload.
+  if (remoteJid && !isIndividualContactAddress(remoteJid)) {
     return null;
   }
 
@@ -191,7 +202,7 @@ function extractPhoneNumberFromPayload(payload: unknown): string | null {
     pickString(contextInfo, ["participant", "remoteJid"]) ||
     pickString(root, ["remoteJid", "phoneNumber", "number", "phone", "owner", "ownerJid", "wuid"]);
 
-  if (!rawJid || !isIndividualJid(rawJid)) {
+  if (!rawJid || !isIndividualContactAddress(rawJid)) {
     return null;
   }
 
@@ -734,6 +745,9 @@ export function ChatsRealtimeSync({
           // sin necesidad de recrear los sockets cuando el usuario cambia de chat.
           const normalizedActiveInstanceName = activeInstanceNameRef.current?.trim() || "";
           const payload = pickSocketPayload(args);
+          const socketInstanceName = instanceName?.trim() || "";
+          const payloadInstanceName = extractEvolutionInstanceName(payload)?.trim() || "";
+          const effectiveInstanceName = socketInstanceName || payloadInstanceName;
           const payloadRemoteJid = extractEvolutionRemoteJid(payload);
           const payloadPhoneNumber = extractEvolutionPhoneNumber(payload);
           const isEditedOrDeletedPayload =
@@ -752,11 +766,15 @@ export function ChatsRealtimeSync({
           const eventSignature = buildSocketUpdateSignature({
             eventName: normalizedEventName,
             conversationKey: currentConversationKey,
-            instanceName,
+            instanceName: effectiveInstanceName || instanceName,
             phoneNumber,
             payload,
           });
           const shouldFollowUp = extractEvolutionFromMe(payload) && !isEditedOrDeletedPayload;
+          const isEventForSelectedInstance =
+            !normalizedActiveInstanceName ||
+            !effectiveInstanceName ||
+            effectiveInstanceName === normalizedActiveInstanceName;
 
           // Notificación + sonido para mensajes entrantes (no propios, no editados/eliminados),
           // solo de chats individuales (phoneNumber válido) y eventos de mensaje reales.
@@ -802,6 +820,8 @@ export function ChatsRealtimeSync({
           debugRealtimeSync("socket event", {
             eventName: normalizedEventName,
             instanceName,
+            payloadInstanceName: payloadInstanceName || null,
+            effectiveInstanceName: effectiveInstanceName || null,
             currentConversationKey,
             selectedPhoneNumber: normalizedSelectedPhoneNumber || null,
             phoneNumber,
@@ -814,16 +834,19 @@ export function ChatsRealtimeSync({
           });
 
           if (hasActiveAgentConversation) {
+            const canRefreshSelectedConversation = isSelectedAgentConversation && isEventForSelectedInstance;
             // (Antes: snapshot optimista de entrante para "feedback instantáneo".
             // Se quitó: usaba el id en formato chatKey y, al no coincidir con el id de
             // BD de la conversación cargada, el merge colapsaba el chat a 1 mensaje y
             // luego el /live lo restauraba → parpadeo "desaparece y reaparece". El
             // /live ya carga rápido el mensaje nuevo sin colapsar.)
-            scheduleLiveUpdate("active", {
-              signature: eventSignature,
-              followUp: shouldFollowUp,
-            });
-            if (isSelectedAgentConversation && !isEditedOrDeletedPayload) {
+            if (canRefreshSelectedConversation) {
+              scheduleLiveUpdate("active", {
+                signature: eventSignature,
+                followUp: shouldFollowUp,
+              });
+            }
+            if (canRefreshSelectedConversation && !isEditedOrDeletedPayload) {
               window.dispatchEvent(
                 new CustomEvent("chat-list-update", {
                   detail: {
@@ -836,16 +859,18 @@ export function ChatsRealtimeSync({
               );
             }
             if (!phoneNumber) {
-              scheduleListUpdate(
-                "active",
-                instanceName ?? normalizedActiveInstanceName,
-                payload,
-                currentConversationKey || undefined,
-                {
-                  signature: eventSignature,
-                  followUp: shouldFollowUp,
-                },
-              );
+              if (canRefreshSelectedConversation) {
+                scheduleListUpdate(
+                  "active",
+                  effectiveInstanceName || normalizedActiveInstanceName,
+                  payload,
+                  currentConversationKey || undefined,
+                  {
+                    signature: eventSignature,
+                    followUp: shouldFollowUp,
+                  },
+                );
+              }
               return;
             }
 
@@ -855,11 +880,20 @@ export function ChatsRealtimeSync({
 
             // Con número disponible, actualizamos solo el resumen de la lista.
             // El chat activo ya quedó cubierto por `scheduleLiveUpdate("active")`.
+            const summaryInstanceName = effectiveInstanceName || (isSelectedAgentConversation ? normalizedActiveInstanceName : "");
+            if (!summaryInstanceName) {
+              debugRealtimeSync("skip list update without instance", {
+                eventName: normalizedEventName,
+                phoneNumber,
+                payloadInstanceName,
+              });
+              return;
+            }
             scheduleListUpdate(
               "active",
-              instanceName ?? normalizedActiveInstanceName,
+              summaryInstanceName,
               payload,
-              isSelectedAgentConversation ? currentConversationKey || undefined : undefined,
+              canRefreshSelectedConversation ? currentConversationKey || undefined : undefined,
               {
                 signature: eventSignature,
                 followUp: shouldFollowUp,
@@ -870,8 +904,8 @@ export function ChatsRealtimeSync({
 
           const isActiveInstance =
             Boolean(normalizedActiveInstanceName) &&
-            (!globalEventsEnabled || instanceName === normalizedActiveInstanceName) &&
-            instanceName === normalizedActiveInstanceName;
+            (!globalEventsEnabled || effectiveInstanceName === normalizedActiveInstanceName) &&
+            effectiveInstanceName === normalizedActiveInstanceName;
 
           if (isActiveInstance) {
             if (isOfficialConversationSelected) {
@@ -912,7 +946,7 @@ export function ChatsRealtimeSync({
             }
 
             if (phoneNumber) {
-              scheduleListUpdate("active", instanceName ?? normalizedActiveInstanceName, payload, undefined, {
+              scheduleListUpdate("active", effectiveInstanceName || normalizedActiveInstanceName, payload, undefined, {
                 signature: eventSignature,
                 followUp: shouldFollowUp,
               });
@@ -923,14 +957,7 @@ export function ChatsRealtimeSync({
             return;
           }
 
-          // Evolution socket.io usa 'instance' (no 'instanceName') como clave del payload global.
-          const payloadInstanceName = (() => {
-            if (!payload || typeof payload !== "object" || Array.isArray(payload)) return "";
-            const p = payload as Record<string, unknown>;
-            return String(p["instanceName"] || p["instance"] || "").trim();
-          })();
-
-          if (payloadInstanceName && payloadInstanceName === normalizedActiveInstanceName) {
+          if (effectiveInstanceName && effectiveInstanceName === normalizedActiveInstanceName) {
             if (isOfficialConversationSelected) {
               if (isEditedOrDeletedPayload) {
                 return;
@@ -955,7 +982,7 @@ export function ChatsRealtimeSync({
             }
 
             if (phoneNumber) {
-              scheduleListUpdate("active", payloadInstanceName, payload, undefined, {
+              scheduleListUpdate("active", effectiveInstanceName, payload, undefined, {
                 signature: eventSignature,
                 followUp: shouldFollowUp,
               });
@@ -983,7 +1010,7 @@ export function ChatsRealtimeSync({
               // schedulePageRefresh("background") se reemplaza por scheduleListUpdate
               // porque page-refresh tiene min-gap de 4000ms y dejaria el preview
               // desactualizado varios segundos; scheduleListUpdate es directo y rapido.
-              const listInstanceName = payloadInstanceName || normalizedActiveInstanceName;
+              const listInstanceName = effectiveInstanceName || (isSelectedAgentConversation ? normalizedActiveInstanceName : "");
               if (listInstanceName) {
                 scheduleListUpdate("active", listInstanceName, payload, undefined, {
                   signature: eventSignature,
@@ -1009,7 +1036,7 @@ export function ChatsRealtimeSync({
 
             scheduleListUpdate(
               "active",
-              payloadInstanceName || (instanceName ?? normalizedActiveInstanceName) || "",
+              effectiveInstanceName || normalizedActiveInstanceName,
               payload,
               undefined,
               {

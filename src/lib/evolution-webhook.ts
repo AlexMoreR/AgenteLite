@@ -173,23 +173,21 @@ function pickNestedString(source: UnknownRecord | null, nestedKeys: string[][]):
 }
 
 export function extractEvolutionInstanceName(payload: unknown): string | null {
-  const root = asRecord(payload);
+  const root = getPrimaryPayloadRoot(payload);
   const data = asRecord(root?.data);
   const instance = asRecord(root?.instance);
   const sender = asRecord(data?.sender);
-  const key = asRecord(data?.key);
 
   return (
     pickString(root, ["instanceName", "instance", "instance_name"]) ||
     pickString(instance, ["instanceName", "instance", "instance_name", "name"]) ||
     pickString(data, ["instanceName", "instance", "instance_name"]) ||
-    pickString(sender, ["instanceName"]) ||
-    pickString(key, ["remoteJid"])
+    pickString(sender, ["instanceName"])
   );
 }
 
 export function extractEvolutionInstanceKey(payload: unknown): string | null {
-  const root = asRecord(payload);
+  const root = getPrimaryPayloadRoot(payload);
   const data = asRecord(root?.data);
   const instance = asRecord(root?.instance);
 
@@ -201,7 +199,7 @@ export function extractEvolutionInstanceKey(payload: unknown): string | null {
 }
 
 export function extractEvolutionEventName(payload: unknown): string | null {
-  const root = asRecord(payload);
+  const root = getPrimaryPayloadRoot(payload);
   const rawEvent = pickString(root, ["event", "type"]);
   if (!rawEvent) return null;
 
@@ -209,7 +207,7 @@ export function extractEvolutionEventName(payload: unknown): string | null {
 }
 
 export function extractEvolutionQrCode(payload: unknown): string | null {
-  const root = asRecord(payload);
+  const root = getPrimaryPayloadRoot(payload);
   const data = asRecord(root?.data);
 
   return (
@@ -231,7 +229,7 @@ export function extractEvolutionQrCode(payload: unknown): string | null {
 }
 
 export function extractEvolutionPairingCode(payload: unknown): string | null {
-  const root = asRecord(payload);
+  const root = getPrimaryPayloadRoot(payload);
   const data = asRecord(root?.data);
 
   return (
@@ -242,7 +240,7 @@ export function extractEvolutionPairingCode(payload: unknown): string | null {
 }
 
 export function extractEvolutionConnectionState(payload: unknown): string | null {
-  const root = asRecord(payload);
+  const root = getPrimaryPayloadRoot(payload);
   const data = asRecord(root?.data);
   const instance = asRecord(root?.instance);
   const eventName = extractEvolutionEventName(payload);
@@ -306,7 +304,7 @@ export function extractEvolutionPhoneNumber(payload: unknown): string | null {
 }
 
 export function extractEvolutionCallDirection(payload: unknown): "INBOUND" | "OUTBOUND" | null {
-  const root = asRecord(payload);
+  const root = getPrimaryPayloadRoot(payload);
   const data = asRecord(root?.data);
 
   const fromMe =
@@ -366,7 +364,7 @@ function findDeepString(
 }
 
 export function extractEvolutionCallStatus(payload: unknown): string | null {
-  const root = asRecord(payload);
+  const root = getPrimaryPayloadRoot(payload);
   const data = asRecord(root?.data);
   const rawStatus = readString(data?.status) || readString(root?.status) || readString(data?.callStatus) || readString(root?.callStatus);
 
@@ -565,7 +563,7 @@ export function isEvolutionStatusBroadcastPayload(payload: unknown): boolean {
     return true;
   }
 
-  const root = asRecord(payload);
+  const root = getPrimaryPayloadRoot(payload);
   const data = asRecord(root?.data);
   const message = getMessageRecord(payload);
   const update = asRecord(root?.update);
@@ -629,7 +627,7 @@ export function isEvolutionContactSyncEvent(eventName: string | null): boolean {
 // puede venir como un objeto unico o como un arreglo de contactos. Ignora grupos (@g.us),
 // status broadcasts y JIDs @lid (que no mapean a un numero real).
 export function extractEvolutionContactSyncPhones(payload: unknown): string[] {
-  const root = asRecord(payload);
+  const root = getPrimaryPayloadRoot(payload);
   const data = root?.data;
 
   const records: UnknownRecord[] = [];

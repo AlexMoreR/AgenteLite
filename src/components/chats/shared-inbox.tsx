@@ -1006,9 +1006,9 @@ function mergeConversationListItem(
   return {
     ...next,
     incomingCount: Math.max(existing.incomingCount ?? 0, next.incomingCount ?? 0),
-    lastMessage: nextHasMediaPreviewType ? next.lastMessage ?? null : existing.lastMessage ?? next.lastMessage ?? null,
-    lastMessageType: existing.lastMessageType ?? next.lastMessageType ?? null,
-    lastMessageDirection: existing.lastMessageDirection ?? next.lastMessageDirection ?? null,
+    lastMessage: nextHasMediaPreviewType ? next.lastMessage ?? null : next.lastMessage ?? existing.lastMessage ?? null,
+    lastMessageType: next.lastMessageType ?? existing.lastMessageType ?? null,
+    lastMessageDirection: next.lastMessageDirection ?? existing.lastMessageDirection ?? null,
     lastMessageAt: existing.lastMessageAt ?? next.lastMessageAt ?? null,
   };
 }
