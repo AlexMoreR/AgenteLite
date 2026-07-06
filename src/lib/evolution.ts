@@ -320,9 +320,13 @@ async function ensureEvolutionInstanceConnectionSession(instance: EvolutionResol
   }
 }
 
-async function evolutionRequest<T>(path: string, init?: RequestInit): Promise<T> {
+async function evolutionRequest<T>(
+  path: string,
+  init?: RequestInit,
+  options: { requireWebhookBaseUrl?: boolean } = {},
+): Promise<T> {
   const settings = await getEvolutionSettings();
-  if (!settings.apiBaseUrl || !settings.apiToken || !settings.webhookBaseUrl) {
+  if (!settings.apiBaseUrl || !settings.apiToken || (options.requireWebhookBaseUrl && !settings.webhookBaseUrl)) {
     throw new Error("La configuracion global de WhatsApp no esta completa");
   }
 
@@ -348,9 +352,13 @@ async function evolutionRequest<T>(path: string, init?: RequestInit): Promise<T>
   return (await response.json().catch(() => ({}))) as T;
 }
 
-async function evolutionRawRequest(path: string, init?: RequestInit) {
+async function evolutionRawRequest(
+  path: string,
+  init?: RequestInit,
+  options: { requireWebhookBaseUrl?: boolean } = {},
+) {
   const settings = await getEvolutionSettings();
-  if (!settings.apiBaseUrl || !settings.apiToken || !settings.webhookBaseUrl) {
+  if (!settings.apiBaseUrl || !settings.apiToken || (options.requireWebhookBaseUrl && !settings.webhookBaseUrl)) {
     throw new Error("La configuracion global de WhatsApp no esta completa");
   }
 
