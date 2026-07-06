@@ -113,6 +113,20 @@ function normalizePhoneValue(value: string | null | undefined) {
   return normalized || null;
 }
 
+function normalizeEvolutionSendNumber(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return trimmed;
+  }
+
+  // Grupos/newsletters usan JID; contactos individuales se envian como digitos.
+  if (/@(g\.us|newsletter)$/i.test(trimmed)) {
+    return trimmed;
+  }
+
+  return normalizePhoneValue(trimmed) ?? trimmed;
+}
+
 function extractInstancePayloadList(payload: unknown): EvolutionInstanceRecord[] {
   if (Array.isArray(payload)) {
     return payload as EvolutionInstanceRecord[];
@@ -1379,25 +1393,18 @@ export async function sendEvolutionTextMessage(input: {
   delayMs?: number;
   quoted?: { id: string; remoteJid?: string; fromMe?: boolean; text?: string } | null;
 }) {
+  const sendNumber = normalizeEvolutionSendNumber(input.phoneNumber);
   const response = await evolutionInstanceRequest<EvolutionSendTextResponse>({
     instanceName: input.instanceName,
     path: "/send/text",
     legacyPath: `/message/sendText/${input.instanceName}`,
     body: {
-      number: input.phoneNumber,
+      number: sendNumber,
       text: input.text,
       delay: input.delayMs ?? 1200,
-      ...(input.quoted?.id
-        ? {
-            quoted: {
-              messageId: input.quoted.id,
-              ...(input.quoted.remoteJid ? { participant: input.quoted.remoteJid } : {}),
-            },
-          }
-        : {}),
     },
     legacyBody: {
-      number: input.phoneNumber,
+      number: sendNumber,
       text: input.text,
       delay: input.delayMs ?? 1200,
       ...(input.quoted?.id
@@ -1455,11 +1462,12 @@ async function sendEvolutionMediaRequest(input: {
   legacyPath?: string;
   legacyBody: Record<string, unknown>;
 }) {
+  const sendNumber = normalizeEvolutionSendNumber(input.phoneNumber);
   const mediaSource = input.mediaSource ?? "url";
   const mediaValue = input.media.trim();
   const normalizedCaption = input.caption?.trim() || "";
   const baseMediaBody = {
-    number: input.phoneNumber,
+    number: sendNumber,
     type: input.type,
     mediatype: input.type,
     filename: input.fileName,
@@ -1521,7 +1529,7 @@ export async function sendEvolutionImageMessage(input: {
     caption: normalizedCaption,
     delayMs: input.delayMs,
     legacyBody: {
-      number: input.phoneNumber,
+      number: normalizeEvolutionSendNumber(input.phoneNumber),
       mediatype: "image",
       mimetype: "image/jpeg",
       caption: normalizedCaption,
@@ -1575,7 +1583,7 @@ export async function sendEvolutionAudioMessage(input: {
     caption: normalizedCaption,
     delayMs: input.delayMs,
     legacyBody: {
-      number: input.phoneNumber,
+      number: normalizeEvolutionSendNumber(input.phoneNumber),
       mediatype: "audio",
       mimetype: inferAudioMimeTypeFromUrl(input.audioUrl),
       caption: normalizedCaption,
@@ -1618,7 +1626,7 @@ export async function sendEvolutionVoiceNote(input: {
     delayMs: input.delayMs,
     legacyPath: `/message/sendWhatsAppAudio/${input.instanceName}`,
     legacyBody: {
-      number: input.phoneNumber,
+      number: normalizeEvolutionSendNumber(input.phoneNumber),
       audio: input.audio,
       delay: input.delayMs ?? 1200,
     },
@@ -1653,7 +1661,7 @@ export async function sendEvolutionVideoMessage(input: {
     caption: normalizedCaption,
     delayMs: input.delayMs,
     legacyBody: {
-      number: input.phoneNumber,
+      number: normalizeEvolutionSendNumber(input.phoneNumber),
       mediatype: "video",
       mimetype: inferVideoMimeTypeFromUrl(input.videoUrl),
       caption: normalizedCaption,
@@ -1694,7 +1702,7 @@ export async function sendEvolutionDocumentMessage(input: {
     caption: normalizedCaption,
     delayMs: input.delayMs,
     legacyBody: {
-      number: input.phoneNumber,
+      number: normalizeEvolutionSendNumber(input.phoneNumber),
       mediatype: "document",
       mimetype,
       caption: normalizedCaption,
@@ -1726,7 +1734,7 @@ export async function sendEvolutionMediaBase64(input: {
     caption: input.caption,
     delayMs: input.delayMs,
     legacyBody: {
-      number: input.phoneNumber,
+      number: normalizeEvolutionSendNumber(input.phoneNumber),
       mediatype: input.mediatype,
       mimetype: input.mimetype,
       caption: input.caption?.trim() || "",

@@ -2539,7 +2539,7 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     redirect("/unauthorized");
   }
-  await requireClientWorkspaceAccess("agents");
+  await requireClientWorkspaceAccess("chats");
 
   const parsed = sendManualAgentReplySchema.safeParse({
     agentId: formData.get("agentId"),
@@ -2918,7 +2918,7 @@ export async function sendChatAudioReplyAction(input: {
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     return { error: "No autorizado" };
   }
-  await requireClientWorkspaceAccess("agents");
+  await requireClientWorkspaceAccess("chats");
 
   const parsed = sendChatAudioReplySchema.safeParse(input);
   if (!parsed.success) {
@@ -3057,7 +3057,7 @@ export async function sendChatMediaReplyAction(input: {
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     return { error: "No autorizado" };
   }
-  await requireClientWorkspaceAccess("agents");
+  await requireClientWorkspaceAccess("chats");
 
   const parsed = sendChatMediaReplySchema.safeParse(input);
   if (!parsed.success) {
