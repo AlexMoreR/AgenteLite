@@ -1187,6 +1187,10 @@ function isMediaSourceUrl(url?: string | null) {
   }
 
   const normalized = url.trim().toLowerCase();
+  if (isWhatsAppCdnMediaSourceUrl(normalized)) {
+    return false;
+  }
+
   return (
     normalized.startsWith("data:") ||
     normalized.startsWith("blob:") ||
@@ -1195,6 +1199,15 @@ function isMediaSourceUrl(url?: string | null) {
     normalized.startsWith("http://") ||
     normalized.startsWith("https://")
   );
+}
+
+function isWhatsAppCdnMediaSourceUrl(value: string) {
+  try {
+    const host = new URL(value).hostname.toLowerCase();
+    return host === "whatsapp.net" || host.endsWith(".whatsapp.net");
+  } catch {
+    return false;
+  }
 }
 
 function toProxiedMediaUrl(url: string) {

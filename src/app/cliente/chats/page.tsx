@@ -1135,23 +1135,23 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
               ]
             : [],
           audio:
-            selectedUnified && selectedUnified.source === "agent" && selectedUnified.agentId
+            selectedUnified && selectedUnified.source === "agent"
               ? {
                   uploadPath: "/api/cliente/chats/upload-audio",
                   source: selectedUnified.source,
                   conversationId: selectedUnified.conversationId,
-                  agentId: selectedUnified.agentId,
+                  agentId: selectedUnified.agentId ?? "",
                   returnTo: selectedChatHref ?? "",
                   sendAction: sendChatAudioReplyAction,
                 }
               : undefined,
           media:
-            selectedUnified && selectedUnified.source === "agent" && selectedUnified.agentId
+            selectedUnified && selectedUnified.source === "agent"
               ? {
                   uploadPath: "/api/cliente/chats/upload-media",
                   source: selectedUnified.source,
                   conversationId: selectedUnified.conversationId,
-                  agentId: selectedUnified.agentId,
+                  agentId: selectedUnified.agentId ?? "",
                   returnTo: selectedChatHref ?? "",
                   sendAction: sendChatMediaReplyAction,
                 }

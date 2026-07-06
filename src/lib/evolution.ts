@@ -647,16 +647,17 @@ function normalizeBase64DataUrl(base64Like: string, mimeType: string) {
   }
 
   const compact = trimmed.replace(/\s+/g, "");
+  const padded = compact.padEnd(compact.length + ((4 - (compact.length % 4)) % 4), "=");
   const looksLikeBase64 =
     compact.length > 32 &&
-    compact.length % 4 === 0 &&
-    /^[A-Za-z0-9+/=]+$/.test(compact);
+    /^[A-Za-z0-9+/=]+$/.test(compact) &&
+    /^[A-Za-z0-9+/]+={0,2}$/.test(padded);
 
   if (!looksLikeBase64) {
     return null;
   }
 
-  return `data:${mimeType};base64,${compact}`;
+  return `data:${mimeType};base64,${padded}`;
 }
 
 // Los hosts del CDN de WhatsApp (mmg/a.whatsapp.net, *.cdn.whatsapp.net) sirven
@@ -788,11 +789,15 @@ function extractImageThumbnailDataUrl(payload: unknown, mimeType = "image/jpeg")
 function extractEvolutionMessageIdFromPayload(payload: unknown) {
   const root = asRecord(payload);
   const data = asRecord(root?.data);
-  const message = asRecord(data?.message) ?? asRecord(root?.message);
-  const key = asRecord(data?.key) ?? asRecord(root?.key) ?? asRecord(message?.key);
+  const info = asRecord(data?.Info) ?? asRecord(root?.Info);
+  const message = getEvolutionPayloadMessageRecord(payload);
+  const key = asRecord(data?.key) ?? asRecord(data?.Key) ?? asRecord(root?.key) ?? asRecord(root?.Key) ?? asRecord(message?.key);
 
   return (
     readString(key?.id) ||
+    readString(info?.ID) ||
+    readString(info?.Id) ||
+    readString(info?.id) ||
     readString(data?.messageId) ||
     readString(root?.messageId) ||
     readString(message?.id) ||
@@ -800,11 +805,42 @@ function extractEvolutionMessageIdFromPayload(payload: unknown) {
   );
 }
 
+function getEvolutionPayloadMessageRecord(payload: unknown) {
+  const root = asRecord(payload);
+  const data = asRecord(root?.data);
+  const update = asRecord(root?.update);
+
+  return (
+    asRecord(data?.message) ??
+    asRecord(data?.Message) ??
+    asRecord(update?.message) ??
+    asRecord(update?.Message) ??
+    asRecord(root?.message) ??
+    asRecord(root?.Message)
+  );
+}
+
+function getEvolutionPayloadMediaRecord(
+  message: Record<string, unknown> | null,
+  mediaType: "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT",
+) {
+  if (!message) {
+    return null;
+  }
+
+  if (mediaType === "IMAGE") return asRecord(message.imageMessage) ?? asRecord(message.ImageMessage);
+  if (mediaType === "AUDIO") return asRecord(message.audioMessage) ?? asRecord(message.AudioMessage);
+  if (mediaType === "VIDEO") return asRecord(message.videoMessage) ?? asRecord(message.VideoMessage);
+  if (mediaType === "STICKER") return asRecord(message.stickerMessage) ?? asRecord(message.StickerMessage);
+
+  return asRecord(message.documentMessage) ?? asRecord(message.DocumentMessage);
+}
+
 function extractRenderableImageUrlFromPayload(payload: unknown) {
   const root = asRecord(payload);
   const data = asRecord(root?.data);
-  const message = asRecord(data?.message) ?? asRecord(root?.message);
-  const imageMessage = asRecord(message?.imageMessage);
+  const message = getEvolutionPayloadMessageRecord(payload);
+  const imageMessage = getEvolutionPayloadMediaRecord(message, "IMAGE");
 
   const candidate =
     readString(imageMessage?.directPath) ||
@@ -820,18 +856,8 @@ function extractRenderableImageUrlFromPayload(payload: unknown) {
 function extractRenderableMediaUrlFromPayload(payload: unknown, mediaType: "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT") {
   const root = asRecord(payload);
   const data = asRecord(root?.data);
-  const message = asRecord(data?.message) ?? asRecord(root?.message);
-
-  const mediaMessage =
-    mediaType === "IMAGE"
-      ? asRecord(message?.imageMessage)
-      : mediaType === "AUDIO"
-        ? asRecord(message?.audioMessage)
-        : mediaType === "VIDEO"
-          ? asRecord(message?.videoMessage)
-          : mediaType === "STICKER"
-            ? asRecord(message?.stickerMessage)
-          : asRecord(message?.documentMessage);
+  const message = getEvolutionPayloadMessageRecord(payload);
+  const mediaMessage = getEvolutionPayloadMediaRecord(message, mediaType);
 
   const candidate =
     readString(mediaMessage?.url) ||
@@ -842,6 +868,31 @@ function extractRenderableMediaUrlFromPayload(payload: unknown, mediaType: "IMAG
     readString(data?.url);
 
   return isRenderableMediaUrl(candidate) ? candidate : null;
+}
+
+function extractPayloadMediaDataUrl(payload: unknown, mediaType: "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT") {
+  const root = asRecord(payload);
+  const data = asRecord(root?.data);
+  const message = getEvolutionPayloadMessageRecord(payload);
+  const mediaMessage = getEvolutionPayloadMediaRecord(message, mediaType);
+  const mimeType = inferMediaMimeType({
+    mediaType,
+    mimeType:
+      readString(mediaMessage?.mimetype) ||
+      readString(mediaMessage?.Mimetype) ||
+      readString(mediaMessage?.mimeType) ||
+      readString(data?.mimetype) ||
+      readString(data?.mimeType),
+  });
+
+  const base64Candidate =
+    readString(message?.base64) ||
+    readString(message?.Base64) ||
+    readString(data?.base64) ||
+    readString(data?.Base64) ||
+    extractBase64Candidate(mediaMessage);
+
+  return normalizeBase64DataUrl(base64Candidate || "", mimeType);
 }
 
 export async function fetchEvolutionMediaDataUrl(input: {
@@ -919,6 +970,11 @@ export async function resolveEvolutionMessageMediaUrl(input: {
 
   const payloadMessageId = input.rawPayload ? extractEvolutionMessageIdFromPayload(input.rawPayload) : null;
   const resolvedMessageId = payloadMessageId || input.messageId?.trim() || null;
+  const payloadMediaDataUrl = input.rawPayload ? extractPayloadMediaDataUrl(input.rawPayload, input.mediaType) : null;
+
+  if (payloadMediaDataUrl) {
+    return payloadMediaDataUrl;
+  }
 
   if (input.mediaType === "AUDIO") {
     if (input.instanceName?.trim() && resolvedMessageId) {
