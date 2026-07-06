@@ -1447,24 +1447,43 @@ async function sendEvolutionMediaRequest(input: {
   phoneNumber: string;
   type: "image" | "audio" | "video" | "document";
   media: string;
+  mediaSource?: "url" | "base64";
   fileName: string;
+  mimetype?: string | null;
   caption?: string | null;
   delayMs?: number;
   legacyPath?: string;
   legacyBody: Record<string, unknown>;
 }) {
+  const mediaSource = input.mediaSource ?? "url";
+  const mediaValue = input.media.trim();
+  const normalizedCaption = input.caption?.trim() || "";
+  const baseMediaBody = {
+    number: input.phoneNumber,
+    type: input.type,
+    mediatype: input.type,
+    filename: input.fileName,
+    fileName: input.fileName,
+    caption: normalizedCaption,
+    delay: input.delayMs ?? 1200,
+    ...(input.mimetype?.trim() ? { mimetype: input.mimetype.trim() } : {}),
+  };
   const response = await evolutionInstanceRequest<EvolutionSendMediaResponse>({
     instanceName: input.instanceName,
     path: "/send/media",
     legacyPath: input.legacyPath ?? `/message/sendMedia/${input.instanceName}`,
-    body: {
-      number: input.phoneNumber,
-      type: input.type,
-      url: input.media,
-      filename: input.fileName,
-      caption: input.caption?.trim() || "",
-      delay: input.delayMs ?? 1200,
-    },
+    body:
+      mediaSource === "base64"
+        ? {
+            ...baseMediaBody,
+            base64: mediaValue,
+            media: mediaValue,
+          }
+        : {
+            ...baseMediaBody,
+            url: mediaValue,
+            media: mediaValue,
+          },
     legacyBody: input.legacyBody,
   });
 
@@ -1498,6 +1517,7 @@ export async function sendEvolutionImageMessage(input: {
     type: "image",
     media: input.imageUrl,
     fileName: normalizedFileName,
+    mimetype: "image/jpeg",
     caption: normalizedCaption,
     delayMs: input.delayMs,
     legacyBody: {
@@ -1551,6 +1571,7 @@ export async function sendEvolutionAudioMessage(input: {
     type: "audio",
     media: input.audioUrl,
     fileName: normalizedFileName,
+    mimetype: inferAudioMimeTypeFromUrl(input.audioUrl),
     caption: normalizedCaption,
     delayMs: input.delayMs,
     legacyBody: {
@@ -1591,7 +1612,9 @@ export async function sendEvolutionVoiceNote(input: {
     phoneNumber: input.phoneNumber,
     type: "audio",
     media: input.audio,
+    mediaSource: "base64",
     fileName: "audio.ogg",
+    mimetype: "audio/ogg",
     delayMs: input.delayMs,
     legacyPath: `/message/sendWhatsAppAudio/${input.instanceName}`,
     legacyBody: {
@@ -1626,6 +1649,7 @@ export async function sendEvolutionVideoMessage(input: {
     type: "video",
     media: input.videoUrl,
     fileName: normalizedFileName,
+    mimetype: inferVideoMimeTypeFromUrl(input.videoUrl),
     caption: normalizedCaption,
     delayMs: input.delayMs,
     legacyBody: {
@@ -1666,6 +1690,7 @@ export async function sendEvolutionDocumentMessage(input: {
     type: "document",
     media: input.documentUrl,
     fileName: normalizedFileName,
+    mimetype,
     caption: normalizedCaption,
     delayMs: input.delayMs,
     legacyBody: {
@@ -1695,7 +1720,9 @@ export async function sendEvolutionMediaBase64(input: {
     phoneNumber: input.phoneNumber,
     type: input.mediatype,
     media: input.base64,
+    mediaSource: "base64",
     fileName: input.fileName,
+    mimetype: input.mimetype,
     caption: input.caption,
     delayMs: input.delayMs,
     legacyBody: {
