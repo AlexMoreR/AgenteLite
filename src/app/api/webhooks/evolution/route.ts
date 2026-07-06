@@ -838,13 +838,17 @@ export async function POST(request: NextRequest) {
     const pairingCode = extractEvolutionPairingCode(payload);
     const phoneNumber = normalizePhoneFromJid(extractEvolutionPhoneNumber(payload));
     const nextStatus = mapChannelStatus(eventName, extractEvolutionConnectionState(payload));
+    const channelMetadata =
+      channel.metadata && typeof channel.metadata === "object" && !Array.isArray(channel.metadata)
+        ? (channel.metadata as Record<string, unknown>)
+        : null;
 
     await prisma.whatsAppChannel.update({
       where: { id: channel.id },
       data: {
         ...(qrCode ? { qrCode, status: "QRCODE" } : {}),
         ...(phoneNumber ? { phoneNumber } : {}),
-        ...(pairingCode ? { metadata: { pairingCode } } : {}),
+        ...(pairingCode ? { metadata: { ...(channelMetadata ?? {}), pairingCode } } : {}),
         ...(instanceKey && !channel.evolutionExternalKey ? { evolutionExternalKey: instanceKey } : {}),
         ...(nextStatus ? { status: nextStatus } : {}),
         ...(nextStatus === "CONNECTED"

@@ -201,14 +201,14 @@ export function extractEvolutionQrCode(payload: unknown): string | null {
   const data = asRecord(root?.data);
 
   return (
-    pickString(data, ["base64", "qrcode", "qr", "code"]) ||
+    pickString(data, ["base64", "qrcode", "qr", "code", "Qrcode", "Code"]) ||
     pickNestedString(data, [
       ["qrcode", "base64"],
       ["qrcode", "code"],
       ["qrCode", "base64"],
       ["qrCode", "code"],
     ]) ||
-    pickString(root, ["base64", "qrcode", "qr", "code"]) ||
+    pickString(root, ["base64", "qrcode", "qr", "code", "Qrcode", "Code"]) ||
     pickNestedString(root, [
       ["qrcode", "base64"],
       ["qrcode", "code"],

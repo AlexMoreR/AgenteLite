@@ -141,7 +141,8 @@ export async function getWhatsAppBusinessConnectionDetail(workspaceId: string, c
   }
 
   const isConnected = channel.provider === "OFFICIAL_API" ? channel.status === "CONNECTED" : remoteIsConnected || channel?.status === "CONNECTED";
-  const rawQrCode = isConnected ? null : remoteConnectionQr.qrCode;
+  const persistedQrCode = typeof channel.qrCode === "string" && channel.qrCode.trim() ? channel.qrCode.trim() : null;
+  const rawQrCode = isConnected ? null : remoteConnectionQr.qrCode || persistedQrCode;
   const qrDataUrl = await buildQrDataUrl(rawQrCode);
   const pairingCode =
     remoteConnectionQr.pairingCode ||

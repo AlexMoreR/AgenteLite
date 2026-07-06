@@ -5,8 +5,15 @@ import { persistedChatMediaFileExists } from "@/lib/chat-media-storage";
 
 type EvolutionConnectResponse = {
   code?: string;
+  qrcode?: string;
   pairingCode?: string;
   base64?: string;
+  data?: {
+    code?: string;
+    qrcode?: string;
+    pairingCode?: string;
+    webhookUrl?: string;
+  };
 };
 
 type EvolutionConnectionStateResponse = {
@@ -55,6 +62,8 @@ type EvolutionInstanceRecord = {
   name?: string;
   token?: string;
   qrcode?: string | null;
+  webhook?: string | null;
+  events?: string | null;
   connected?: boolean;
   instance?: {
     id?: string;
@@ -150,6 +159,55 @@ function getInstanceRecordToken(record: EvolutionInstanceRecord) {
 
 function getInstanceRecordQrCode(record: EvolutionInstanceRecord) {
   return readString(record.qrcode) || readString(asRecord(record.instance)?.qrcode);
+}
+
+function getInstanceRecordWebhook(record: EvolutionInstanceRecord) {
+  return readString(record.webhook) || readString(asRecord(record.instance)?.webhook);
+}
+
+function getInstanceRecordEvents(record: EvolutionInstanceRecord) {
+  return readString(record.events) || readString(asRecord(record.instance)?.events);
+}
+
+function extractEvolutionConnectQrCode(response: EvolutionConnectResponse | null | undefined) {
+  if (!response) {
+    return null;
+  }
+
+  const responseData = asRecord(response.data);
+
+  return (
+    response.qrcode ||
+    response.base64 ||
+    response.code ||
+    response.data?.qrcode ||
+    response.data?.code ||
+    readString(responseData?.Qrcode) ||
+    readString(responseData?.Code) ||
+    null
+  );
+}
+
+function extractEvolutionPairingCode(response: EvolutionConnectResponse | null | undefined) {
+  if (!response) {
+    return null;
+  }
+
+  return response.pairingCode || response.data?.pairingCode || null;
+}
+
+function extractCreatedInstanceId(payload: unknown) {
+  const root = asRecord(payload);
+  const data = asRecord(root?.data);
+
+  return readString(data?.id) || readString(root?.instanceId) || readString(root?.id) || null;
+}
+
+function extractCreatedInstanceToken(payload: unknown) {
+  const root = asRecord(payload);
+  const data = asRecord(root?.data);
+
+  return readString(data?.token) || readString(root?.token) || null;
 }
 
 async function evolutionRequest<T>(path: string, init?: RequestInit): Promise<T> {
@@ -826,7 +884,7 @@ export async function getEvolutionConnectionQr(instanceName: string) {
     const instance = await resolveEvolutionInstance(instanceName);
 
     if (instance?.id) {
-      const response = await evolutionRequest<{ qrCode?: string; code?: string; pairingCode?: string }>(
+      const response = await evolutionRequest<EvolutionConnectResponse & { qrCode?: string; qrcode?: string }>(
         "/instance/qr",
         {
           method: "GET",
@@ -835,8 +893,8 @@ export async function getEvolutionConnectionQr(instanceName: string) {
       );
 
       return {
-        qrCode: response.qrCode || response.code || getInstanceRecordQrCode(instance.raw ?? {}) || null,
-        pairingCode: response.pairingCode ?? null,
+        qrCode: response.qrCode || extractEvolutionConnectQrCode(response) || getInstanceRecordQrCode(instance.raw ?? {}) || null,
+        pairingCode: extractEvolutionPairingCode(response),
       };
     }
 
@@ -845,8 +903,8 @@ export async function getEvolutionConnectionQr(instanceName: string) {
     });
 
     return {
-      qrCode: response.base64 || response.code || null,
-      pairingCode: response.pairingCode ?? null,
+      qrCode: extractEvolutionConnectQrCode(response),
+      pairingCode: extractEvolutionPairingCode(response),
     };
   } catch {
     return { qrCode: null, pairingCode: null };
@@ -908,18 +966,26 @@ export async function createEvolutionChannel(input: {
     instanceName = `${normalizedPrefix}-${sequence}`;
   }
 
-  const createdResponse = await evolutionRequest<{ data?: { id?: string; token?: string; name?: string } }>("/instance/create", {
+  const createdResponse = await evolutionRequest<{
+    data?: { id?: string; token?: string; name?: string };
+    id?: string;
+    token?: string;
+    instanceId?: string;
+    instanceName?: string;
+  }>("/instance/create", {
     method: "POST",
     body: JSON.stringify({
+      instanceName,
       name: instanceName,
       token: randomUUID(),
     }),
   });
 
-  const createdInstanceId = readString(createdResponse.data?.id) ?? null;
-  const createdInstanceToken = readString(createdResponse.data?.token) ?? null;
+  const createdInstanceId = extractCreatedInstanceId(createdResponse);
+  const createdInstanceToken = extractCreatedInstanceToken(createdResponse);
 
   let connectData: EvolutionConnectResponse = {};
+  let connectedInstanceSnapshot: EvolutionInstanceRecord | null = null;
   try {
     if (createdInstanceId) {
       await evolutionRequest("/instance/connect", {
@@ -950,6 +1016,14 @@ export async function createEvolutionChannel(input: {
           }),
         },
       }).catch(() => ({}));
+
+      connectedInstanceSnapshot =
+        (await fetchEvolutionInstances().then(
+          (records) =>
+            records.find((item) => getInstanceRecordId(item) === createdInstanceId) ??
+            records.find((item) => getInstanceRecordName(item) === instanceName) ??
+            null,
+        ).catch(() => null)) ?? null;
     } else {
       connectData = await evolutionRequest<EvolutionConnectResponse>(`/instance/connect/${instanceName}`, {
         method: "GET",
@@ -960,7 +1034,8 @@ export async function createEvolutionChannel(input: {
     // dejamos el canal en CONNECTING y esperamos los webhooks.
   }
 
-  const qrCode = connectData.base64 || connectData.code || null;
+  const qrCode = extractEvolutionConnectQrCode(connectData) || getInstanceRecordQrCode(connectedInstanceSnapshot ?? {}) || null;
+  const pairingCode = extractEvolutionPairingCode(connectData);
 
   const channel = await prisma.whatsAppChannel.create({
     data: {
@@ -973,7 +1048,9 @@ export async function createEvolutionChannel(input: {
       status: qrCode ? "QRCODE" : "CONNECTING",
       qrCode,
       metadata: {
-        pairingCode: connectData.pairingCode ?? null,
+        pairingCode,
+        webhookUrl: getInstanceRecordWebhook(connectedInstanceSnapshot ?? {}) || settings.webhookBaseUrl,
+        subscribedEvents: getInstanceRecordEvents(connectedInstanceSnapshot ?? {}) || "ALL",
         ...(createdInstanceToken ? { instanceToken: createdInstanceToken } : {}),
       },
     },
