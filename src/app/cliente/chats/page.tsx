@@ -15,10 +15,7 @@ import { dedupeAndSortConversationListRows } from "@/lib/chat-conversation-list"
 import { fetchEvolutionProfilePictureUrl } from "@/lib/evolution";
 import {
   extractEvolutionMessageText,
-  extractEvolutionPhoneNumber,
   extractEvolutionPushName,
-  isEvolutionStatusBroadcastPayload,
-  normalizePhoneFromJid,
 } from "@/lib/evolution-webhook";
 import { getOfficialApiChatsData } from "@/features/official-api/services/getOfficialApiChatsData";
 import { getEvolutionSettings } from "@/lib/system-settings";
@@ -59,45 +56,6 @@ type UnifiedConversation = {
   lastMessageAt?: Date | null;
   activeProductContext?: ActiveProductContextSummary | null;
 };
-
-function extractEvolutionPayloadList(payload: unknown): unknown[] {
-  if (Array.isArray(payload)) {
-    return payload;
-  }
-
-  if (!payload || typeof payload !== "object") {
-    return [];
-  }
-
-  const record = payload as Record<string, unknown>;
-
-  if (Array.isArray(record.response)) {
-    return record.response;
-  }
-
-  if (Array.isArray(record.data)) {
-    return record.data;
-  }
-
-  if (record.response && typeof record.response === "object") {
-    return [record.response];
-  }
-
-  if (record.data && typeof record.data === "object") {
-    return [record.data];
-  }
-
-  return [];
-}
-
-function normalizePhoneDigits(value: string | null | undefined) {
-  if (!value) {
-    return null;
-  }
-
-  const digits = value.replace(/\D/g, "");
-  return digits || null;
-}
 
 type ActiveProductContextSummary = {
   productName?: string | null;
@@ -913,120 +871,6 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       })()
     : "NUEVO";
 
-  const selectedConversationPhoneNumber = normalizePhoneFromJid(selectedConversation?.secondaryLabel ?? null) ?? normalizePhoneDigits(selectedConversation?.secondaryLabel);
-  const selectedConversationStatusMessages = await (async () => {
-    const databaseStatusMessages = selectedConversation?.id
-      ? (
-          await prisma.message.findMany({
-            where: {
-              workspaceId: membership.workspace.id,
-              conversationId: selectedConversation.id,
-            },
-            orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-            take: 20,
-            select: {
-              id: true,
-              content: true,
-              type: true,
-              createdAt: true,
-              mediaUrl: true,
-              rawPayload: true,
-            },
-          })
-        )
-          .filter((message) => isEvolutionStatusBroadcastPayload(message.rawPayload))
-          .slice(0, 8)
-          .map((message) => ({
-            id: message.id,
-            content: message.content,
-            type: message.type,
-            createdAt: message.createdAt,
-            mediaUrl: message.mediaUrl,
-          }))
-      : [];
-
-    if (!selectedEvolutionInstanceName || !evolutionSettings.apiBaseUrl || !evolutionSettings.apiToken) {
-      return databaseStatusMessages;
-    }
-
-    // Velocidad: el fetch de estados a Evolution es una llamada externa que bloquea el
-    // render del chat. Las historias llegan por webhook y quedan persistidas, así que solo
-    // hacemos la llamada en vivo cuando el contacto YA tiene estados en BD (para enriquecer);
-    // si no hay ninguno, abrimos el chat al instante sin esa llamada.
-    if (databaseStatusMessages.length === 0) {
-      return databaseStatusMessages;
-    }
-
-    try {
-      const response = await fetch(`${evolutionSettings.apiBaseUrl}/messages/fetch/${encodeURIComponent(selectedEvolutionInstanceName)}`, {
-        method: "GET",
-        headers: {
-          apikey: evolutionSettings.apiToken,
-          "Content-Type": "application/json",
-        },
-        cache: "no-store",
-        // Cap de seguridad: nunca bloquear la apertura del chat más de 1.5s por estados.
-        signal: AbortSignal.timeout(1500),
-      });
-
-      if (!response.ok) {
-        return databaseStatusMessages;
-      }
-
-      const payload = await response.json().catch(() => null);
-      const liveStatusMessages = extractEvolutionPayloadList(payload)
-        .filter((message) => isEvolutionStatusBroadcastPayload(message))
-        .filter((message) => {
-          if (!selectedConversationPhoneNumber) {
-            return true;
-          }
-
-          const messagePhoneNumber = normalizePhoneFromJid(extractEvolutionPhoneNumber(message) ?? null) ?? normalizePhoneDigits(extractEvolutionPhoneNumber(message));
-          return messagePhoneNumber ? messagePhoneNumber === selectedConversationPhoneNumber : false;
-        })
-        .slice(0, 8)
-        .map((message, index) => {
-          const rawMessage = message as Record<string, unknown>;
-          const content =
-            typeof rawMessage.content === "string"
-              ? rawMessage.content
-              : typeof rawMessage.text === "string"
-                ? rawMessage.text
-                : typeof rawMessage.caption === "string"
-                  ? rawMessage.caption
-                  : null;
-          const createdAtValue =
-            typeof rawMessage.createdAt === "string" || rawMessage.createdAt instanceof Date
-              ? new Date(rawMessage.createdAt)
-              : new Date();
-          const id =
-            typeof rawMessage.id === "string" && rawMessage.id.trim()
-              ? rawMessage.id
-              : typeof rawMessage.messageId === "string" && rawMessage.messageId.trim()
-                ? rawMessage.messageId
-                : `live-status-${index}`;
-
-          return {
-            id,
-            content,
-            type:
-              typeof rawMessage.type === "string" && rawMessage.type.trim()
-                ? (rawMessage.type.toUpperCase() as "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE")
-                : null,
-            createdAt: createdAtValue,
-            mediaUrl:
-              typeof rawMessage.mediaUrl === "string" && rawMessage.mediaUrl.trim()
-                ? rawMessage.mediaUrl
-                : null,
-          };
-        });
-
-      return liveStatusMessages.length > 0 ? liveStatusMessages : databaseStatusMessages;
-    } catch {
-      return databaseStatusMessages;
-    }
-  })();
-
   return (
     <section className="flex h-full min-h-0 flex-1 flex-col gap-4 overflow-hidden">
       <ChatsAutoRefresh
@@ -1066,7 +910,6 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         conversationListApiPath="/api/cliente/chats/list"
         searchQuery={searchQuery}
         messageScrollBehavior={scrollMode === CHAT_MESSAGE_SCROLL_PRESERVE_QUERY ? "preserve" : "bottom"}
-        statusMessages={selectedConversationStatusMessages}
         conversations={merged.map((item) => ({
           id: item.key,
           source: item.source,

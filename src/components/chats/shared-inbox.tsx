@@ -69,7 +69,6 @@ import { MediaPreviewDialog } from "@/components/chats/media-preview-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -485,14 +484,6 @@ export type SharedInboxSelectedConversation = {
   isPreview?: boolean;
 };
 
-export type SharedInboxStatusMessageItem = {
-  id: string;
-  content: string | null;
-  type?: SharedInboxMessageItem["type"] | null;
-  createdAt: Date;
-  mediaUrl?: string | null;
-};
-
 type OptimisticDraftMessage = SharedInboxMessageItem & {
   conversationId: string;
   isOptimistic: true;
@@ -628,7 +619,6 @@ type SharedInboxProps = {
     label: string;
     color: string;
   }>;
-  statusMessages?: SharedInboxStatusMessageItem[];
   backHref: string;
   headerBadge?: ReactNode;
   headerActions?: ReactNode;
@@ -2341,7 +2331,6 @@ type ConversationPanelProps = {
   backHref: string;
   composer: SharedInboxProps["composer"];
   composerHiddenFields: Array<{ name: string; value: string }>;
-  hasStatusMessages: boolean;
   hasSettledConversation: boolean;
   isLoadingOlderMessages: boolean;
   loadMoreSentinelRef: RefObject<HTMLDivElement | null>;
@@ -2349,7 +2338,6 @@ type ConversationPanelProps = {
   messagesScrollRef: RefObject<HTMLDivElement | null>;
   unreadCount: number;
   onScrollToBottom: () => void;
-  onOpenStatusDialog: () => void;
   onEditContact: () => void;
   onComposerDraft: (message: string, formData: FormData) => void;
   onRetryFailedMessage?: () => void;
@@ -2378,7 +2366,6 @@ const ConversationPanel = memo(function ConversationPanel({
   backHref,
   composer,
   composerHiddenFields,
-  hasStatusMessages,
   hasSettledConversation,
   isLoadingOlderMessages,
   loadMoreSentinelRef,
@@ -2386,7 +2373,6 @@ const ConversationPanel = memo(function ConversationPanel({
   messagesScrollRef,
   unreadCount,
   onScrollToBottom,
-  onOpenStatusDialog,
   onEditContact,
   onComposerDraft,
   onRetryFailedMessage,
@@ -2919,35 +2905,23 @@ const ConversationPanel = memo(function ConversationPanel({
                     <Tooltip>
                       <TooltipTrigger
                         type="button"
-                        onClick={onOpenStatusDialog}
-                        className={`group relative shrink-0 rounded-[22px] p-[2px] transition focus:outline-none focus:ring-2 focus:ring-ring/50 ${
-                          hasStatusMessages
-                            ? "bg-gradient-to-br from-emerald-400 via-lime-300 to-cyan-400 shadow-[0_14px_28px_-18px_rgba(16,185,129,0.55)]"
-                            : "bg-transparent"
-                        }`}
-                        aria-label={hasStatusMessages ? "Abrir estados de WhatsApp" : "Abrir detalles del contacto"}
-                        title={hasStatusMessages ? "Estados" : "Contacto"}
+                        onClick={() => setIsContactPanelOpen((open) => !open)}
+                        className="group relative shrink-0 rounded-[22px] p-[2px] transition focus:outline-none focus:ring-2 focus:ring-ring/50"
+                        aria-label={isContactPanelOpen ? "Cerrar detalles del contacto" : "Abrir detalles del contacto"}
+                        title="Contacto"
                       >
                         <span className="relative block">
                           <ContactAvatar
                             avatarUrl={renderedConversation.avatarUrl}
                             label={renderedConversation.label}
-                            className={`h-10 w-10 rounded-[18px] border border-border bg-muted text-muted-foreground transition ${
-                              hasStatusMessages ? "ring-2 ring-white" : ""
-                            }`}
+                            className="h-10 w-10 rounded-[18px] border border-border bg-muted text-muted-foreground transition"
                             fallbackClassName="rounded-[18px] bg-muted text-muted-foreground"
                           />
-                          {hasStatusMessages ? (
-                            <span
-                              aria-hidden="true"
-                              className="absolute -right-0.5 -top-0.5 h-3.5 w-3.5 rounded-full border-2 border-background bg-emerald-500 shadow-[0_4px_10px_-4px_rgba(16,185,129,0.75)]"
-                            />
-                          ) : null}
                         </span>
                       </TooltipTrigger>
                       {renderedConversation.secondaryLabel ? (
                         <TooltipContent side="right">
-                          {hasStatusMessages ? "Toca para ver estados" : renderedConversation.secondaryLabel}
+                          {renderedConversation.secondaryLabel}
                         </TooltipContent>
                       ) : null}
                     </Tooltip>
@@ -3509,7 +3483,6 @@ export function SharedInbox({
   conversations,
   selectedConversation,
   selectedConversationTags = [],
-  statusMessages = [],
   backHref,
   headerBadge,
   headerActions,
@@ -3538,7 +3511,6 @@ export function SharedInbox({
   const [deletedMessageIds, setDeletedMessageIds] = useState<ReadonlySet<string>>(() => new Set());
   const [editContactOpen, setEditContactOpen] = useState(false);
   const handleCloseEditContact = useCallback(() => setEditContactOpen(false), []);
-  const [statusDialogOpen, setStatusDialogOpen] = useState(false);
   const handleOpenEditContact = useCallback(() => setEditContactOpen(true), []);
   const [, startSelectionTransition] = useTransition();
   const messagesScrollRef = useRef<HTMLDivElement | null>(null);
@@ -3560,8 +3532,6 @@ export function SharedInbox({
   const [unreadCount, setUnreadCount] = useState(0);
   const [hasHydrated, setHasHydrated] = useState(false);
   const selectedConversationDetailInFlightRef = useRef<string | null>(null);
-  const hasStatusMessages = statusMessages.length > 0;
-  const handleOpenStatusDialog = useCallback(() => setStatusDialogOpen(true), []);
   // Ref sincronizada en cada render: permite leer el valor actual dentro de event
   // listeners sin declararlos como dependencia (evita re-registro en cada mensaje).
   const selectedConversationRef = useRef(selectedConversation);
@@ -5139,7 +5109,6 @@ export function SharedInbox({
         backHref={backHref}
         composer={composer}
         composerHiddenFields={composerHiddenFields}
-        hasStatusMessages={hasStatusMessages}
         hasSettledConversation={hasSettledConversation}
         isLoadingOlderMessages={isLoadingOlderMessages}
         loadMoreSentinelRef={loadMoreSentinelRef}
@@ -5147,7 +5116,6 @@ export function SharedInbox({
         messagesScrollRef={messagesScrollRef}
         unreadCount={unreadCount}
         onScrollToBottom={scrollToBottom}
-        onOpenStatusDialog={handleOpenStatusDialog}
         onEditContact={handleOpenEditContact}
         onComposerDraft={handleComposerDraft}
         onRetryFailedMessage={handleRetryFailedMessage}
@@ -5177,73 +5145,6 @@ export function SharedInbox({
         contactName={renderedConversation.contactName ?? renderedConversation.label}
       />
     ) : null}
-    <Dialog open={statusDialogOpen} onOpenChange={setStatusDialogOpen}>
-      <DialogContent className="w-[min(92vw,34rem)] max-w-none overflow-hidden border border-border bg-popover p-0 shadow-[0_30px_80px_-36px_rgba(15,23,42,0.45)]">
-        <div className="border-b border-border bg-card px-5 py-4">
-          <DialogHeader className="text-left">
-            <DialogTitle>Estados de WhatsApp</DialogTitle>
-            <DialogDescription>
-              {renderedConversation?.secondaryLabel
-                ? `Estados sincronizados para ${renderedConversation.secondaryLabel}`
-                : "Estados sincronizados para este contacto"}
-            </DialogDescription>
-          </DialogHeader>
-        </div>
-        <div className="max-h-[70vh] space-y-3 overflow-y-auto p-5">
-          {hasStatusMessages ? (
-            statusMessages.slice(0, 8).map((message) => {
-              const previewText =
-                message.content?.trim() ||
-                (message.type === "IMAGE"
-                  ? "Foto"
-                  : message.type === "VIDEO"
-                    ? "Video"
-                    : message.type === "AUDIO"
-                      ? "Audio"
-                      : message.type === "DOCUMENT"
-                        ? "Documento"
-                        : "Estado");
-
-              return (
-                <div
-                  key={message.id}
-                  className="rounded-2xl border border-border bg-muted/80 p-4"
-                >
-                  <div className="flex items-start gap-3">
-                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 via-lime-300 to-cyan-400 p-[2px]">
-                      <div className="flex h-full w-full items-center justify-center rounded-full bg-card text-emerald-600">
-                        <MessageCircle className="h-4 w-4" />
-                      </div>
-                    </div>
-                    <div className="min-w-0 flex-1 space-y-1">
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="truncate text-sm font-semibold text-foreground">{previewText}</p>
-                        <Badge variant="outline" className="h-5 border-emerald-500/20 bg-emerald-500/10 px-2 text-[10px] text-emerald-600">
-                          {message.type ?? "TEXT"}
-                        </Badge>
-                      </div>
-                      <p className="text-xs text-muted-foreground">{formatChatTime(message.createdAt)}</p>
-                    </div>
-                  </div>
-                </div>
-              );
-            })
-          ) : (
-            <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-border bg-muted/70 px-6 py-10 text-center">
-              <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-card text-muted-foreground shadow-[0_8px_24px_-18px_rgba(15,23,42,0.35)]">
-                <MessageCircle className="h-5 w-5" />
-              </span>
-              <div className="space-y-1">
-                <p className="text-sm font-semibold text-foreground">No hay estados sincronizados</p>
-                <p className="text-sm text-muted-foreground">
-                  Si Evolution expone estados para este chat, aparecerán aquí al tocar la foto.
-                </p>
-              </div>
-            </div>
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
     </>
   );
 }
