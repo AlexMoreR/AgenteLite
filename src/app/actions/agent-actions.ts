@@ -2919,7 +2919,7 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
 const sendChatAudioReplySchema = z.object({
   source: z.string(),
   conversationId: z.string().min(1),
-  agentId: z.string().min(1),
+  agentId: z.string().optional(),
   audioUrl: z.string().min(1),
   returnTo: z.string().optional(),
 });
@@ -2927,7 +2927,7 @@ const sendChatAudioReplySchema = z.object({
 export async function sendChatAudioReplyAction(input: {
   source: string;
   conversationId: string;
-  agentId: string;
+  agentId?: string;
   audioUrl: string;
   returnTo: string;
 }): Promise<{ ok: true } | { error: string }> {
@@ -3007,7 +3007,7 @@ export async function sendChatAudioReplyAction(input: {
       conversationId: conversation.id,
       channelId: conversation.channel.id,
       contactId: conversation.contact.id,
-      agentId: parsed.data.agentId,
+      agentId: parsed.data.agentId?.trim() || conversation.agentId || null,
       externalId: outbound.externalId,
       direction: "OUTBOUND",
       type: "AUDIO",
