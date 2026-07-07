@@ -77,6 +77,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -2873,6 +2874,84 @@ const ConversationPanel = memo(function ConversationPanel({
     }
   }, [mediaConfig?.conversationId, audioConfig?.conversationId, isSuggestingReply, autoResizeComposer]);
 
+  const contactPanelContent = renderedConversation ? (
+    <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+      <div className="flex items-center gap-3">
+        <ContactAvatar
+          avatarUrl={renderedConversation.avatarUrl}
+          label={renderedConversation.label}
+          className="h-12 w-12 shrink-0 rounded-full border border-border bg-muted text-muted-foreground"
+          fallbackClassName="rounded-full bg-muted text-muted-foreground"
+        />
+        <div className="min-w-0 flex-1 space-y-0.5">
+          <p className="truncate text-sm font-semibold text-foreground">
+            {renderedConversation.label}
+          </p>
+          {renderedConversation.secondaryLabel ? (
+            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+              <span className="min-w-0 flex-1 truncate">{renderedConversation.secondaryLabel}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  void navigator.clipboard?.writeText(renderedConversation.secondaryLabel);
+                  toast.success("Copiado");
+                }}
+                aria-label="Copiar nÃºmero"
+                title="Copiar"
+                className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground"
+              >
+                <Copy className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ) : null}
+          {contactCity ? (
+            <p className="flex items-center gap-1 truncate text-xs text-muted-foreground">
+              <MapPin className="h-3.5 w-3.5 shrink-0" />
+              <span className="min-w-0 truncate">{contactCity}</span>
+            </p>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="mt-3 flex items-center gap-2">
+        {renderedConversation.contactId ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            onClick={onEditContact}
+            className="h-8 w-8"
+            aria-label="Editar"
+            title="Editar"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </Button>
+        ) : null}
+      </div>
+
+      <div className="mt-5 space-y-3">
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Etiquetas
+        </h4>
+        <ChatTagsControl
+          contactId={renderedConversation.contactId}
+          conversationId={renderedConversation.id}
+          tags={renderedConversation.tags ?? []}
+          canDelete={canDeleteTags}
+        />
+      </div>
+
+      {contactPanelActions ? (
+        <div className="mt-5 space-y-3">
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Agente asignado
+          </h4>
+          {contactPanelActions}
+        </div>
+      ) : null}
+    </div>
+  ) : null;
+
   return (
     <Card
       className={`${selectedConversationId ? "flex md:flex" : "!hidden md:!flex"} chat-inbox-panel relative min-h-0 flex-1 overflow-hidden rounded-none border border-border bg-transparent p-0 shadow-none md:h-full md:shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)]`}
@@ -3355,6 +3434,27 @@ const ConversationPanel = memo(function ConversationPanel({
             }}
           />
         ) : null}
+        <Sheet open={isContactPanelOpen} onOpenChange={setIsContactPanelOpen}>
+          <SheetContent side="right" className="w-[min(92vw,24rem)] border-l border-border bg-card p-0 md:hidden" showCloseButton={false}>
+            <SheetHeader className="border-b border-border px-4 py-3 text-left">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <SheetTitle>Contacto</SheetTitle>
+                  <SheetDescription>InformaciÃ³n del cliente y etiquetas.</SheetDescription>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsContactPanelOpen(false)}
+                  aria-label="Cerrar panel"
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </SheetHeader>
+            {contactPanelContent}
+          </SheetContent>
+        </Sheet>
         {isContactPanelOpen ? (
           <aside className="hidden w-72 shrink-0 flex-col border-l border-border bg-card md:flex lg:w-80">
             <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
