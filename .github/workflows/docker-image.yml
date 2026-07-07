@@ -5,12 +5,13 @@ on:
     branches: [ "main" ]
   workflow_dispatch:
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
 
     steps:
       - name: Checkout
@@ -32,6 +33,20 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
+          build-args: |
+            DEPLOYMENT_ID=${{ github.sha }}
+            NEXT_SERVER_ACTIONS_ENCRYPTION_KEY=${{ secrets.NEXT_SERVER_ACTIONS_ENCRYPTION_KEY }}
           tags: ghcr.io/alexmorer/agentelite:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Trigger Portainer redeploy
+        env:
+          WEBHOOK: ${{ secrets.PORTAINER_AGENTELITE }}
+        run: |
+          if [ -n "$WEBHOOK" ]; then
+            echo "Avisando a Portainer para redesplegar AgenteLite..."
+            curl -fsSL -X POST "$WEBHOOK"
+          else
+            echo "PORTAINER_AGENTELITE no configurado; se omite el redeploy automatico."
+          fi
