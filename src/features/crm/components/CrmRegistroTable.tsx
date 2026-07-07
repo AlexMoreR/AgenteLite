@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import * as React from "react";
-import { ArrowDown, ArrowUp, ArrowUpDown, Broom, CalendarDays, ChartNoAxesCombined, Copy, Eye, FileText, Globe2, Hash, MoreHorizontal, Search, Tag, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, CalendarDays, ChartNoAxesCombined, Copy, Eraser, Eye, FileText, Globe2, Hash, MoreHorizontal, Search, Tag, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
@@ -362,7 +362,7 @@ export function CrmRegistroTable({
             aria-label="Limpiar filtros"
             title="Limpiar filtros"
           >
-            <Broom className="h-4 w-4" />
+            <Eraser className="h-4 w-4" />
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
