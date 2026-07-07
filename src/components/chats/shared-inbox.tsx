@@ -2867,7 +2867,7 @@ const ConversationPanel = memo(function ConversationPanel({
       {renderedConversation ? (
         <div className="relative z-10 flex min-h-0 h-full w-full flex-1">
         <div className="flex min-h-0 h-full min-w-0 flex-1 flex-col">
-          <div className="shrink-0 border-b border-border bg-card px-3 pb-2.5 pt-[calc(env(safe-area-inset-top)+0.625rem)] md:px-[10px] md:py-[10px]">
+          <div className="shrink-0 border-b border-border bg-card px-3 pb-2.5 pt-[max(env(safe-area-inset-top),0.875rem)] min-h-[4.5rem] md:min-h-0 md:px-[10px] md:py-[10px]">
             <div className="@container/chathdr flex min-w-0 items-center justify-between gap-3">
               <div className="flex min-w-0 flex-1 items-center gap-3">
                 <Link
