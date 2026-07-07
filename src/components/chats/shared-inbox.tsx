@@ -2597,6 +2597,7 @@ const ConversationPanel = memo(function ConversationPanel({
       }
 
       setIsSendingAudio(true);
+      let optimisticId: string | null = null;
       try {
         // El mime de MediaRecorder suele venir como "audio/webm;codecs=opus"; usamos el tipo base.
         const baseMime = mimeType.split(";")[0].trim() || "audio/webm";
@@ -2612,6 +2613,26 @@ const ConversationPanel = memo(function ConversationPanel({
           return;
         }
 
+        optimisticId = `optimistic-media:${data.url}`;
+        const optimisticMessage: SharedInboxMessageItem = {
+          id: optimisticId,
+          content: null,
+          direction: "OUTBOUND",
+          createdAt: new Date(),
+          authorType: "bot",
+          outboundStatusLabel: null,
+          type: "AUDIO",
+          mediaUrl: data.url,
+          rawPayload: {
+            source: "manual",
+            fileName: file.name,
+            mimeType: baseMime,
+            fileSize: file.size,
+          },
+        };
+        setOptimisticMediaMessages((prev) => [...prev, optimisticMessage]);
+        window.requestAnimationFrame(() => onScrollToBottom());
+
         const result = await audioConfig.sendAction({
           source: audioConfig.source,
           conversationId: audioConfig.conversationId,
@@ -2623,15 +2644,23 @@ const ConversationPanel = memo(function ConversationPanel({
         if (result && "ok" in result && result.ok) {
           composerRouter.refresh();
         } else {
+          if (optimisticId) {
+            const failedId = optimisticId;
+            setOptimisticMediaMessages((prev) => prev.filter((message) => message.id !== failedId));
+          }
           toast.error((result && "error" in result && result.error) || "No se pudo enviar la nota de voz.");
         }
       } catch {
+        if (optimisticId) {
+          const failedId = optimisticId;
+          setOptimisticMediaMessages((prev) => prev.filter((message) => message.id !== failedId));
+        }
         toast.error("No se pudo enviar la nota de voz.");
       } finally {
         setIsSendingAudio(false);
       }
     },
-    [audioConfig, composerRouter],
+    [audioConfig, composerRouter, onScrollToBottom],
   );
 
   const startAudioRecording = useCallback(async () => {
