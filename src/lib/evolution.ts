@@ -1619,6 +1619,11 @@ function inferAudioMimeTypeFromUrl(audioUrl: string) {
   return "audio/ogg";
 }
 
+function looksLikeBase64Payload(value: string) {
+  const compact = value.trim().replace(/\s+/g, "");
+  return compact.length > 64 && /^[A-Za-z0-9+/=]+$/.test(compact);
+}
+
 export async function sendEvolutionAudioMessage(input: {
   instanceName: string;
   phoneNumber: string;
@@ -1627,9 +1632,15 @@ export async function sendEvolutionAudioMessage(input: {
   delayMs?: number;
 }) {
   const normalizedCaption = input.caption?.trim() || "";
+  const normalizedAudioValue = input.audioUrl.trim();
+  const isBase64Audio = looksLikeBase64Payload(normalizedAudioValue) && !/^https?:\/\//i.test(normalizedAudioValue);
   const normalizedFileName = (() => {
+    if (isBase64Audio) {
+      return "audio.ogg";
+    }
+
     try {
-      const pathname = new URL(input.audioUrl).pathname;
+      const pathname = new URL(normalizedAudioValue).pathname;
       const rawName = pathname.split("/").pop()?.trim() || "";
       return rawName || "audio.ogg";
     } catch {
@@ -1641,17 +1652,18 @@ export async function sendEvolutionAudioMessage(input: {
     instanceName: input.instanceName,
     phoneNumber: input.phoneNumber,
     type: "audio",
-    media: input.audioUrl,
+    media: normalizedAudioValue,
+    mediaSource: isBase64Audio ? "base64" : "url",
     fileName: normalizedFileName,
-    mimetype: inferAudioMimeTypeFromUrl(input.audioUrl),
+    mimetype: inferAudioMimeTypeFromUrl(normalizedAudioValue),
     caption: normalizedCaption,
     delayMs: input.delayMs,
     legacyBody: {
       number: normalizeEvolutionSendNumber(input.phoneNumber),
       mediatype: "audio",
-      mimetype: inferAudioMimeTypeFromUrl(input.audioUrl),
+      mimetype: inferAudioMimeTypeFromUrl(normalizedAudioValue),
       caption: normalizedCaption,
-      media: input.audioUrl,
+      media: normalizedAudioValue,
       fileName: normalizedFileName,
       delay: input.delayMs ?? 1200,
     },

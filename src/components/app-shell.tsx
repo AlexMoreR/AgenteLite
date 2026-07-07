@@ -213,6 +213,7 @@ export function AppShell({
   const isAuthPath = pathname === "/login" || pathname === "/register";
   const isAgentWorkspacePath = pathname.startsWith("/cliente/agentes/");
   const isChatWorkspacePath = pathname.startsWith("/cliente/chats");
+  const hasActiveChatConversation = Boolean(isChatWorkspacePath && searchParams.get("chatKey")?.trim());
   const isClientPlanRole = user?.role === "CLIENTE" || user?.role === "EMPLEADO";
   const showClientPlanAlert = Boolean(isClientPlanRole && pathname.startsWith("/cliente") && clientPlanAlert);
   const showClientPlanBlock = Boolean(isClientPlanRole && pathname.startsWith("/cliente") && clientPlanBlock?.isExpired);
@@ -261,7 +262,12 @@ export function AppShell({
             isAgentWorkspacePath && "bg-[#F1F5F9]",
           )}
         >
-          <header className="flex h-12 shrink-0 items-center gap-1.5 border-b border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12">
+          <header
+            className={cn(
+              "flex h-12 shrink-0 items-center gap-1.5 border-b border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12",
+              hasActiveChatConversation && "hidden md:flex",
+            )}
+          >
             <div className="flex w-full items-center gap-1.5 px-1.5">
               <SidebarTrigger className="-ml-1" />
               <Separator orientation="vertical"/>
