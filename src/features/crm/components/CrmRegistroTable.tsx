@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import * as React from "react";
-import { ArrowDown, ArrowUp, ArrowUpDown, CalendarDays, ChartNoAxesCombined, Copy, Eye, FileText, Globe2, Hash, MoreHorizontal, Search, Tag, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Broom, CalendarDays, ChartNoAxesCombined, Copy, Eye, FileText, Globe2, Hash, MoreHorizontal, Search, Tag, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
@@ -355,22 +355,35 @@ export function CrmRegistroTable({
           <Button
             type="button"
             variant="ghost"
-            size="sm"
-            className="h-9 px-3 text-xs"
+            size="icon"
+            className="h-9 w-9 shrink-0"
             onClick={clearFilters}
             disabled={!query && statusFilter === "__all__"}
+            aria-label="Limpiar filtros"
+            title="Limpiar filtros"
           >
-            Limpiar filtros
+            <Broom className="h-4 w-4" />
           </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-9 px-3 text-xs"
-            onClick={exportCsv}
-          >
-            Exportar CSV
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="h-9 w-9 shrink-0"
+                aria-label="Mas opciones"
+                title="Mas opciones"
+              >
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-44 rounded-2xl">
+              <DropdownMenuItem onSelect={exportCsv} className="gap-2">
+                <FileText className="h-4 w-4" />
+                Exportar CSV
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
