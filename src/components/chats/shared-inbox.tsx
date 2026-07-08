@@ -2985,7 +2985,7 @@ const ConversationPanel = memo(function ConversationPanel({
                       <TooltipTrigger
                         type="button"
                         onClick={() => setIsContactPanelOpen((open) => !open)}
-                        className="group relative shrink-0 rounded-[22px] p-[2px] transition focus:outline-none focus:ring-2 focus:ring-ring/50"
+                        className="group relative shrink-0 rounded-[22px] transition focus:outline-none focus:ring-2 focus:ring-ring/50"
                         aria-label={isContactPanelOpen ? "Cerrar detalles del contacto" : "Abrir detalles del contacto"}
                         title="Contacto"
                       >
@@ -2993,7 +2993,7 @@ const ConversationPanel = memo(function ConversationPanel({
                           <ContactAvatar
                             avatarUrl={renderedConversation.avatarUrl}
                             label={renderedConversation.label}
-                            className="h-10 w-10 rounded-[18px] border border-border bg-muted text-muted-foreground transition"
+                            className="h-10 w-10 rounded-[18px] border-0 bg-muted text-muted-foreground after:border-0 transition"
                             fallbackClassName="rounded-[18px] bg-muted text-muted-foreground"
                           />
                         </span>
@@ -4678,6 +4678,16 @@ export function SharedInbox({
             }
           : { optimistic: true },
         isOptimistic: true,
+      });
+      window.requestAnimationFrame(() => {
+        const container = messagesScrollRef.current;
+        if (!container) {
+          return;
+        }
+
+        container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+        isNearBottomRef.current = true;
+        setUnreadCount(0);
       });
 
       window.dispatchEvent(

@@ -626,25 +626,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
           </div>
 
         </div>
-      ) : (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          <ContactMetric
-            label="Total"
-            value={String(data.stats.total)}
-            icon={<Users2 className="h-5 w-5" />}
-          />
-          <ContactMetric
-            label="Con chats"
-            value={String(data.stats.withConversations)}
-            icon={<MessagesSquare className="h-5 w-5" />}
-          />
-          <ContactMetric
-            label="Sin chat"
-            value={String(data.stats.withoutConversations)}
-            icon={<Sparkles className="h-5 w-5" />}
-          />
-          </div>
-      )}
+      ) : null}
 
       {activeView === "contacto" ? (
         <div className="grid gap-4 xl:grid-cols-[380px_minmax(0,1fr)]">
