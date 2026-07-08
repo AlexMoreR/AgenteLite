@@ -781,16 +781,18 @@ export function ChatsRealtimeSync({
         phoneNumber,
         payload,
       });
-      const shouldFollowUp = extractEvolutionFromMe(payload) && !isEditedOrDeletedPayload;
-      const isEventForSelectedInstance =
-        !normalizedActiveInstanceName ||
-        !effectiveInstanceName ||
-        effectiveInstanceName === normalizedActiveInstanceName;
-
       const hasMessageContent =
         Boolean(extractEvolutionMessageText(payload)?.trim()) ||
         Boolean(extractEvolutionMediaUrl(payload)?.trim()) ||
         Boolean(extractEvolutionMessageType(payload)?.trim());
+      const shouldFollowUp =
+        !isEditedOrDeletedPayload &&
+        hasMessageContent &&
+        /MESSAGE/.test(normalizedEventName);
+      const isEventForSelectedInstance =
+        !normalizedActiveInstanceName ||
+        !effectiveInstanceName ||
+        effectiveInstanceName === normalizedActiveInstanceName;
       const isInboundMessage =
         !extractEvolutionFromMe(payload) &&
         !isEditedOrDeletedPayload &&
