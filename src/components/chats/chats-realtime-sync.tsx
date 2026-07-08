@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { io, type Socket } from "socket.io-client";
 import { usePendingConversationSelection } from "./chat-selection-store";
 import {
+  extractEvolutionEventName,
   extractEvolutionPhoneNumber,
   extractEvolutionMessageText,
   extractEvolutionMessageType,
