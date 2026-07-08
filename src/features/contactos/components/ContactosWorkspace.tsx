@@ -496,9 +496,6 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-        <p className="max-w-3xl text-sm text-muted-foreground">
-          Organiza los contactos.
-        </p>
         {data.agentFilterName ? (
           <p className="text-xs font-medium text-muted-foreground">Filtrado por {data.agentFilterName}</p>
         ) : null}
