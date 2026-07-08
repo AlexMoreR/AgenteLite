@@ -894,8 +894,8 @@ function buildConversationItemFromListSnapshot(
     source: existing?.source ?? (snapshot.channelType === "whatsapp_official" ? "official" : "agent"),
     agentId: existing?.agentId ?? null,
     contactId: snapshot.contactId ?? existing?.contactId ?? null,
-    label: snapshot.label,
-    secondaryLabel: snapshot.secondaryLabel,
+    label: snapshot.label ?? existing?.label ?? snapshot.id,
+    secondaryLabel: snapshot.secondaryLabel ?? existing?.secondaryLabel ?? "",
     tags: snapshot.tags ?? existing?.tags ?? [],
     channelType: snapshot.channelType ?? existing?.channelType,
     assignedToName: snapshot.assignedToName ?? existing?.assignedToName ?? null,
@@ -4106,14 +4106,21 @@ export function SharedInbox({
 
       setConversationItems((current) => {
         const currentItem = findConversationItemBySnapshotId(current, snapshot.id) ?? undefined;
-        const updatedItem = normalizeRealtimeConversationItem(buildConversationItemFromListSnapshot(snapshot, currentItem));
+        const baseItem = buildConversationItemFromListSnapshot(snapshot, currentItem);
+        const mergedItem = mergeConversationListItem(baseItem, currentItem);
+        const effectiveSelectedKey = pendingConversation?.chatKey ?? selectedConversationId;
+        const updatedItem = normalizeRealtimeConversationItem(
+          conversationIdMatchesKey(effectiveSelectedKey, snapshot.id)
+            ? { ...mergedItem, incomingCount: 0 }
+            : mergedItem,
+        );
         return updateConversationItemInSortedList(current, snapshot.id, updatedItem);
       });
     }
 
     window.addEventListener("chat-list-update", handleListUpdate as EventListener);
     return () => window.removeEventListener("chat-list-update", handleListUpdate as EventListener);
-  }, [normalizeRealtimeConversationItem]);
+  }, [normalizeRealtimeConversationItem, pendingConversation?.chatKey, selectedConversationId]);
 
   useEffect(() => {
     function handleContactUpdate(event: Event) {
