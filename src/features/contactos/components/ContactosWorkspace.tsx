@@ -14,7 +14,6 @@ import {
   MoreVertical,
   MessageCircle,
   MessagesSquare,
-  Phone,
   Search,
   Trash2,
   RotateCcw,
@@ -239,7 +238,7 @@ function ContactMetric({
   icon: ReactNode;
 }) {
   return (
-    <Card className="border border-border/70 shadow-none">
+    <Card className="rounded-none border border-border/70 shadow-none">
       <CardHeader className="flex flex-row items-start justify-between gap-3">
         <div className="flex flex-col gap-1">
           <CardDescription className="text-[10px] font-semibold uppercase tracking-[0.18em]">{label}</CardDescription>
@@ -264,14 +263,12 @@ function ContactCard({
 }) {
   const name = getContactDisplayName(contact);
   const lastConversation = contact.recentConversations[0] ?? null;
-  const activeProductName = lastConversation?.activeProductContext?.productName?.trim() || null;
-  const latestMatchName = contact.latestMatch?.targetName?.trim() || null;
 
   return (
     <Link href={href} className="group block">
       <Card
         className={cn(
-          "border border-border/70 py-3 shadow-none transition",
+          "rounded-none border border-border/70 py-3 shadow-none transition",
           isSelected ? "border-primary/30 bg-primary/5" : "hover:border-primary/20 hover:bg-accent/30",
         )}
       >
@@ -279,8 +276,8 @@ function ContactCard({
         <ContactAvatar
           avatarUrl={contact.avatarUrl}
           label={name}
-          className="h-11 w-11 shrink-0 rounded-xl border border-border bg-muted text-muted-foreground"
-          fallbackClassName="rounded-xl bg-muted text-muted-foreground"
+          className="h-11 w-11 shrink-0 rounded-xl border-0 bg-transparent text-muted-foreground after:border-0"
+          fallbackClassName="rounded-xl bg-transparent text-muted-foreground"
         />
 
         <div className="min-w-0 flex-1 space-y-1">
@@ -314,48 +311,6 @@ function ContactCard({
               </Badge>
             )}
           </div>
-
-          {activeProductName ? (
-            <div className="flex flex-wrap gap-1">
-              <Badge variant="outline" className="h-auto gap-1 rounded-full border-primary/20 bg-primary/5 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-primary">
-                <span className="h-1 w-1 rounded-full bg-[var(--primary)]" />
-                Activo
-              </Badge>
-              <Badge variant="secondary" className="h-auto max-w-full rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em]">
-                <span className="truncate">{activeProductName}</span>
-              </Badge>
-            </div>
-          ) : latestMatchName ? (
-            <div className="flex flex-wrap gap-1.5">
-              <Badge variant="secondary" className="h-auto gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em]">
-                <span className="h-1 w-1 rounded-full bg-slate-400" />
-                Historial
-              </Badge>
-              <Badge variant="outline" className="h-auto max-w-full rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                <span className="truncate">{latestMatchName}</span>
-              </Badge>
-            </div>
-          ) : null}
-
-          {contact.latestMatch ? (
-            <div className="flex flex-wrap items-center gap-1.5">
-              <Badge
-                variant="outline"
-                className="h-auto px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em]"
-              >
-                {contact.latestMatch.matchType === "FLOW" ? "Flujo" : "Producto"}
-              </Badge>
-              <Badge
-                variant="outline"
-                className="h-auto border-primary/20 bg-primary/5 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-primary"
-              >
-                {contact.latestMatch.targetName}
-              </Badge>
-              <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                {getMatchSourceLabel(contact.latestMatch.sourceType)}
-              </span>
-            </div>
-          ) : null}
 
         </div>
         </CardContent>
@@ -628,7 +583,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
 
       {activeView === "contacto" ? (
         <div className="grid gap-4 xl:grid-cols-[380px_minmax(0,1fr)]">
-        <Card className="flex h-full flex-col border border-border/70 shadow-none">
+        <Card className="rounded-none flex h-full flex-col border border-border/70 shadow-none">
           <CardHeader className="border-b p-4 sm:p-5">
             <form method="get" className="space-y-3">
               {data.agentFilterId ? <input type="hidden" name="agentId" value={data.agentFilterId} /> : null}
@@ -664,7 +619,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                 />
               ))
             ) : (
-              <Card className="border border-dashed border-border/70 bg-muted/30 py-10 shadow-none">
+              <Card className="rounded-none border border-dashed border-border/70 bg-muted/30 py-10 shadow-none">
                 <CardContent className="text-center">
                 <div className="mx-auto flex max-w-sm flex-col items-center gap-3">
                   <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-background text-muted-foreground">
@@ -712,7 +667,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
           </div>
         </Card>
 
-        <Card className="border border-border/70 shadow-none">
+        <Card className="rounded-none border border-border/70 shadow-none">
           {selectedContact ? (
             <div className="flex h-full flex-col">
               <div className="border-b p-3.5 sm:p-4">
@@ -759,14 +714,15 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                     <Button
                       type="button"
                       variant="outline"
+                      size="icon-lg"
                       onClick={() => void copyToClipboard(selectedContact.phoneNumber, "phone")}
+                      aria-label={copiedField === "phone" ? "Telefono copiado" : "Copiar telefono"}
+                      title={copiedField === "phone" ? "Copiado" : "Copiar"}
                     >
                       <Copy className="h-4 w-4" />
-                      {copiedField === "phone" ? "Copiado" : "Copiar"}
                     </Button>
-                    <Button asChild>
-                      <Link href={selectedHref}>
-                      Abrir chat
+                    <Button asChild size="icon-lg">
+                      <Link href={selectedHref} aria-label="Abrir chat" title="Abrir chat">
                       <MessageCircle className="h-4 w-4" />
                       </Link>
                     </Button>
@@ -827,8 +783,8 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                 </div>
               </div>
 
-              <div className="grid gap-4 p-4 sm:grid-cols-2 sm:p-5">
-                <Card className="border border-border/70 bg-muted/30 shadow-none">
+              <div className="grid gap-4 p-4 sm:p-5">
+                <Card className="rounded-none border border-border/70 bg-muted/30 shadow-none">
                   <CardHeader>
                     <CardDescription className="text-[10px] font-semibold uppercase tracking-[0.18em]">Resumen</CardDescription>
                   </CardHeader>
@@ -844,7 +800,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                   </CardContent>
                   <CardFooter className="flex flex-col gap-3 border-none bg-transparent p-4 pt-0">
                     {getCurrentProductName(selectedContact) ? (
-                      <Card size="sm" className="w-full shadow-none">
+                      <Card size="sm" className="rounded-none w-full shadow-none">
                         <CardHeader>
                           <CardDescription className="text-[10px] font-semibold uppercase tracking-[0.18em]">
                             Producto activo
@@ -862,7 +818,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                     ) : null}
 
                     {selectedContact.latestMatch ? (
-                      <Card size="sm" className="w-full shadow-none">
+                      <Card size="sm" className="rounded-none w-full shadow-none">
                         <CardHeader>
                           <CardDescription className="text-[10px] font-semibold uppercase tracking-[0.18em]">
                             Ultimo match
@@ -881,7 +837,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                     ) : null}
 
                     {selectedContact.matchHistory.length > 0 ? (
-                      <Card size="sm" className="w-full shadow-none">
+                      <Card size="sm" className="rounded-none w-full shadow-none">
                         <CardHeader>
                           <div className="flex items-center justify-between gap-2">
                             <CardDescription className="text-[10px] font-semibold uppercase tracking-[0.18em]">
@@ -892,7 +848,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                         </CardHeader>
                         <CardContent className="flex flex-col gap-2">
                           {selectedContact.matchHistory.map((match) => (
-                            <Card key={match.id} size="sm" className="bg-muted/40 shadow-none">
+                            <Card key={match.id} size="sm" className="rounded-none bg-muted/40 shadow-none">
                               <CardContent className="flex flex-wrap items-center justify-between gap-2">
                                 <div className="min-w-0">
                                   <p className="truncate text-sm font-medium text-foreground">{match.targetName}</p>
@@ -911,46 +867,11 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                     ) : null}
                   </CardFooter>
                 </Card>
-
-                <Card className="border border-border/70 bg-muted/30 shadow-none">
-                  <CardHeader>
-                    <CardDescription className="text-[10px] font-semibold uppercase tracking-[0.18em]">Acciones rapidas</CardDescription>
-                  </CardHeader>
-                  <CardContent className="mt-1 flex flex-col gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => void copyToClipboard(selectedContact.phoneNumber, "phone")}
-                      className="w-full justify-between"
-                    >
-                      <span className="inline-flex items-center gap-2">
-                        <Phone className="h-4 w-4 text-muted-foreground" />
-                        {selectedContact.phoneNumber}
-                      </span>
-                      <Copy className="h-4 w-4 text-muted-foreground" />
-                    </Button>
-
-                    {selectedContact.email ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => void copyToClipboard(selectedContact.email || "", "email")}
-                        className="w-full justify-between"
-                      >
-                        <span className="inline-flex items-center gap-2">
-                          <Mail className="h-4 w-4 text-muted-foreground" />
-                          {selectedContact.email}
-                        </span>
-                        <Copy className="h-4 w-4 text-muted-foreground" />
-                      </Button>
-                    ) : null}
-                  </CardContent>
-                </Card>
               </div>
 
               <div className="grid gap-4 p-4 sm:p-5">
                 <Separator />
-                <Card className="border border-border/70 shadow-none">
+                <Card className="rounded-none border border-border/70 shadow-none">
                   <CardHeader>
                     <div className="flex items-center justify-between gap-3">
                       <CardTitle className="text-sm">Conversaciones recientes</CardTitle>
@@ -963,7 +884,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                         <Card
                           key={conversation.id}
                           size="sm"
-                          className="border border-border/70 bg-muted/30 shadow-none"
+                          className="rounded-none border border-border/70 bg-muted/30 shadow-none"
                         >
                           <CardContent className="flex flex-col gap-3">
                             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -1003,7 +924,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                         </Card>
                       ))
                     ) : (
-                      <Card className="border border-dashed border-border/70 bg-muted/30 py-8 text-center shadow-none">
+                      <Card className="rounded-none border border-dashed border-border/70 bg-muted/30 py-8 text-center shadow-none">
                         <CardContent>
                         <p className="text-sm font-medium text-foreground">Todavia no hay conversaciones</p>
                         <p className="mt-1 text-sm leading-6 text-muted-foreground">
@@ -1016,7 +937,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                 </Card>
 
                 {selectedContact.notes ? (
-                  <Card className="border border-border/70 shadow-none">
+                  <Card className="rounded-none border border-border/70 shadow-none">
                     <CardHeader>
                       <CardDescription className="text-[10px] font-semibold uppercase tracking-[0.18em]">Notas</CardDescription>
                     </CardHeader>
