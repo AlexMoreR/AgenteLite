@@ -105,37 +105,38 @@ export function ConnectionsWorkspaceV2({
 
               return (
                 <Card key={item.id} className="relative py-3 transition hover:ring-foreground/20">
-                  <Link href={detailHref} aria-label={`Abrir ${item.name}`} className="absolute inset-0 z-0" />
+                  <CardContent className="relative z-10 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                    <div className="flex flex-col gap-3 xl:flex-1">
+                      <Link href={detailHref} aria-label={`Abrir ${item.name}`} className="block">
+                        <div className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md">
+                          <span className="inline-flex size-8 shrink-0 items-center justify-center text-emerald-600">
+                            <WhatsAppGlyph className="size-5" />
+                          </span>
 
-                  <CardContent className="pointer-events-none relative z-10 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-                    <div className="flex min-w-0 flex-1 items-center gap-2.5">
-                      <span className="inline-flex size-8 shrink-0 items-center justify-center text-emerald-600">
-                        <WhatsAppGlyph className="size-5" />
-                      </span>
+                          <div className="flex min-w-0 flex-1 flex-col gap-1">
+                            <div className="flex min-w-0 flex-wrap items-center gap-2">
+                              <h3 className="text-sm font-semibold text-foreground">{item.name}</h3>
+                              {item.linkedAgentName ? (
+                                <span className="inline-flex items-center gap-1.5 text-xs font-medium text-primary">
+                                  <Bot className="size-3" />
+                                  {item.linkedAgentName}
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                                  <FiCpu className="size-3" />
+                                  Sin agente
+                                </span>
+                              )}
+                            </div>
 
-                      <div className="flex min-w-0 flex-1 flex-col gap-1">
-                        <div className="flex min-w-0 flex-wrap items-center gap-2">
-                          <h3 className="text-sm font-semibold text-foreground">{item.name}</h3>
-                          {item.linkedAgentName ? (
-                            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-primary">
-                              <Bot className="size-3" />
-                              {item.linkedAgentName}
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                              <FiCpu className="size-3" />
-                              Sin agente
-                            </span>
-                          )}
+                            {item.phoneNumber ? (
+                              <span className="text-xs text-muted-foreground">{item.phoneNumber}</span>
+                            ) : null}
+                          </div>
                         </div>
+                      </Link>
 
-                        {item.phoneNumber ? (
-                          <span className="text-xs text-muted-foreground">{item.phoneNumber}</span>
-                        ) : null}
-                      </div>
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-2.5 xl:justify-end">
+                      <div className="flex flex-wrap items-center gap-2.5 xl:justify-end">
                       <StatusPill label={item.channelStatusLabel} />
                       <FormActionSwitch
                         action={toggleConnectionChannelStatusAction}
@@ -151,7 +152,7 @@ export function ConnectionsWorkspaceV2({
                       <MetricPill icon={<FiMail className="size-4" />} value={String(item.messagesCount)} />
 
                       {canAssignToTargetAgent ? (
-                        <form action={assignConnectionChannelAction} className="pointer-events-auto relative z-20">
+                        <form action={assignConnectionChannelAction} className="relative z-20">
                           <input type="hidden" name="channelId" value={item.id} />
                           <input type="hidden" name="agentId" value={targetAgent?.id} />
                           <input
@@ -168,7 +169,7 @@ export function ConnectionsWorkspaceV2({
 
                       <DropdownMenu>
                         <DropdownMenuTrigger
-                          className="pointer-events-auto relative z-20"
+                          className="relative z-20"
                           render={
                             <Button type="button" variant="ghost" size="icon-sm" aria-label={`Acciones para ${item.name}`} />
                           }
@@ -185,6 +186,7 @@ export function ConnectionsWorkspaceV2({
                           </form>
                         </DropdownMenuContent>
                       </DropdownMenu>
+                    </div>
                     </div>
                   </CardContent>
                 </Card>
