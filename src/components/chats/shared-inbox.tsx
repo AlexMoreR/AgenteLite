@@ -987,19 +987,14 @@ function mergeConversationListItem(
     return next;
   }
 
-  const nextHasMediaPreviewType =
-    next.lastMessageType === "AUDIO" ||
-    next.lastMessageType === "IMAGE" ||
-    next.lastMessageType === "VIDEO" ||
-    next.lastMessageType === "STICKER" ||
-    next.lastMessageType === "DOCUMENT";
-
   return {
     ...next,
     incomingCount: Math.max(existing.incomingCount ?? 0, next.incomingCount ?? 0),
-    lastMessage: nextHasMediaPreviewType ? next.lastMessage ?? null : next.lastMessage ?? existing.lastMessage ?? null,
-    lastMessageType: next.lastMessageType ?? existing.lastMessageType ?? null,
-    lastMessageDirection: next.lastMessageDirection ?? existing.lastMessageDirection ?? null,
+    // Si ya tenemos una versión más reciente del preview en memoria, debemos
+    // conservarla completa para no mezclar contenido viejo con timestamps nuevos.
+    lastMessage: existing.lastMessage ?? next.lastMessage ?? null,
+    lastMessageType: existing.lastMessageType ?? next.lastMessageType ?? null,
+    lastMessageDirection: existing.lastMessageDirection ?? next.lastMessageDirection ?? null,
     lastMessageAt: existing.lastMessageAt ?? next.lastMessageAt ?? null,
   };
 }
