@@ -4121,6 +4121,15 @@ export function SharedInbox({
     }
   }, [pendingConversation?.chatKey, selectedConversationId]);
 
+  const scheduleConversationRefreshAfterSend = useCallback(() => {
+    const retryDelays = [700, 1800, 3600];
+    for (const delay of retryDelays) {
+      window.setTimeout(() => {
+        void refreshSelectedConversationFromServer();
+      }, delay);
+    }
+  }, [refreshSelectedConversationFromServer]);
+
   useEffect(() => {
     function handleLiveUpdate(event: Event) {
       const customEvent = event as CustomEvent<{ conversation?: unknown }>;
@@ -4688,12 +4697,10 @@ export function SharedInbox({
       });
 
       if (result?.ok && !result.suppressOptimistic) {
-        window.setTimeout(() => {
-          void refreshSelectedConversationFromServer();
-        }, 900);
+        scheduleConversationRefreshAfterSend();
       }
     },
-    [refreshSelectedConversationFromServer],
+    [scheduleConversationRefreshAfterSend],
   );
 
   const handleComposerDraft = useCallback(
