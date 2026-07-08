@@ -42,12 +42,16 @@ const geistMono = Geist_Mono({
 });
 
 export async function generateMetadata(): Promise<Metadata> {
-  const brandName = await getSystemBrandName();
+  const [brandName, primaryStrongColor] = await Promise.all([
+    getSystemBrandName(),
+    getSystemPrimaryStrongColor(),
+  ]);
   const description = "La mejor solucion para su empresa";
   const socialImageUrl = getSiteUrl("/opengraph-image");
 
   return {
     metadataBase: new URL(siteConfig.domain),
+    manifest: "/manifest.webmanifest",
     title: {
       default: `${brandName} | La mejor solucion para su empresa`,
       template: `%s | ${brandName}`,
@@ -56,10 +60,19 @@ export async function generateMetadata(): Promise<Metadata> {
     keywords: [brandName.toLowerCase(), ...siteConfig.coreKeywords.filter((keyword) => keyword !== "magilus")],
     applicationName: brandName,
     category: "shopping",
+    themeColor: primaryStrongColor,
+    appleWebApp: {
+      capable: true,
+      statusBarStyle: "default",
+      title: brandName,
+    },
     icons: {
-      icon: { url: siteConfig.iconPath, sizes: "512x512", type: "image/png" },
-      shortcut: siteConfig.iconPath,
-      apple: siteConfig.iconPath,
+      icon: [
+        { url: "/icon?size=192", sizes: "192x192", type: "image/png" },
+        { url: "/icon?size=512", sizes: "512x512", type: "image/png" },
+      ],
+      shortcut: "/icon?size=192",
+      apple: "/apple-icon",
     },
     verification: {
       google: "2EMj69XiBfiLqnhIVRUaEhFbiNZ3t7V5piUczJabv3c",

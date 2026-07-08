@@ -5,6 +5,7 @@ import { SessionProvider } from "next-auth/react";
 import { Toaster } from "sonner";
 import { ToastContainer } from "react-toastify";
 import { BreadcrumbLabelProvider } from "@/components/breadcrumb-label-context";
+import { PwaRegister } from "@/components/pwa-register";
 
 type ProvidersProps = {
   children: React.ReactNode;
@@ -15,6 +16,7 @@ export function Providers({ children, session }: ProvidersProps) {
   return (
     <SessionProvider session={session}>
       <BreadcrumbLabelProvider>{children}</BreadcrumbLabelProvider>
+      <PwaRegister />
       <Toaster
         position="top-right"
         closeButton

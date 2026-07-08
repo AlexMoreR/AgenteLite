@@ -2896,7 +2896,7 @@ const ConversationPanel = memo(function ConversationPanel({
                   void navigator.clipboard?.writeText(renderedConversation.secondaryLabel);
                   toast.success("Copiado");
                 }}
-                aria-label="Copiar nÃºmero"
+                aria-label="Copiar número"
                 title="Copiar"
                 className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground"
               >
@@ -3440,7 +3440,7 @@ const ConversationPanel = memo(function ConversationPanel({
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <SheetTitle>Contacto</SheetTitle>
-                  <SheetDescription>InformaciÃ³n del cliente y etiquetas.</SheetDescription>
+                  <SheetDescription>Información del cliente y etiquetas.</SheetDescription>
                 </div>
                 <button
                   type="button"
