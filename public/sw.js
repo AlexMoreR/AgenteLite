@@ -1,4 +1,4 @@
-const CACHE_NAME = "agente-lite-v1";
+const CACHE_NAME = "agente-lite-v2";
 const APP_SHELL = ["/", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
@@ -32,6 +32,14 @@ self.addEventListener("fetch", (event) => {
 
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) {
+    return;
+  }
+
+  // Nunca interceptar/cachear la API: son datos dinámicos (chats, mensajes, contadores).
+  // Con cache-first el Service Worker servía respuestas viejas para siempre y dejaba la
+  // UI congelada (el polling recibía la primera respuesta cacheada y el realtime "no
+  // aparecía" hasta recargar). Dejamos que estas peticiones vayan directo a la red.
+  if (url.pathname.startsWith("/api/")) {
     return;
   }
 
