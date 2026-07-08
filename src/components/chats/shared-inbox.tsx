@@ -4066,6 +4066,61 @@ export function SharedInbox({
     [searchAction, selectedConnectionKey, searchQuery, assignedFilter, statusFilter],
   );
 
+  const refreshSelectedConversationFromServer = useCallback(async () => {
+    const chatKey = (pendingConversation?.chatKey ?? selectedConversationId).trim();
+    if (!chatKey.startsWith("agent:")) {
+      return;
+    }
+
+    try {
+      const [liveResponse, summaryResponse] = await Promise.all([
+        fetch(`/api/cliente/chats/live?chatKey=${encodeURIComponent(chatKey)}`, {
+          credentials: "same-origin",
+          cache: "no-store",
+        }),
+        fetch(`/api/cliente/chats/summary?chatKey=${encodeURIComponent(chatKey)}`, {
+          credentials: "same-origin",
+          cache: "no-store",
+        }),
+      ]);
+
+      if (liveResponse.ok) {
+        const livePayload = (await liveResponse.json().catch(() => null)) as
+          | { ok?: boolean; conversation?: unknown }
+          | null;
+        const liveConversationSnapshot = normalizeLiveConversationSnapshot(livePayload?.conversation);
+        if (livePayload?.ok && liveConversationSnapshot) {
+          window.dispatchEvent(
+            new CustomEvent("chat-live-update", {
+              detail: {
+                conversation: liveConversationSnapshot,
+                chatKey,
+              },
+            }),
+          );
+        }
+      }
+
+      if (summaryResponse.ok) {
+        const summaryPayload = (await summaryResponse.json().catch(() => null)) as
+          | { ok?: boolean; conversation?: unknown }
+          | null;
+        const summaryConversationSnapshot = normalizeLiveConversationListSnapshot(summaryPayload?.conversation);
+        if (summaryPayload?.ok && summaryConversationSnapshot) {
+          window.dispatchEvent(
+            new CustomEvent("chat-list-update", {
+              detail: {
+                conversation: summaryConversationSnapshot,
+              },
+            }),
+          );
+        }
+      }
+    } catch {
+      // Si falla este respaldo, el polling/realtime siguiente vuelve a intentar.
+    }
+  }, [pendingConversation?.chatKey, selectedConversationId]);
+
   useEffect(() => {
     function handleLiveUpdate(event: Event) {
       const customEvent = event as CustomEvent<{ conversation?: unknown }>;
@@ -4631,8 +4686,14 @@ export function SharedInbox({
         }
         return current;
       });
+
+      if (result?.ok && !result.suppressOptimistic) {
+        window.setTimeout(() => {
+          void refreshSelectedConversationFromServer();
+        }, 900);
+      }
     },
-    [],
+    [refreshSelectedConversationFromServer],
   );
 
   const handleComposerDraft = useCallback(
