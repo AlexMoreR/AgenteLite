@@ -26,6 +26,17 @@ function hydrateConversationSnapshot(value: unknown) {
   };
 }
 
+function hydrateConversationListSnapshot(value: unknown) {
+  if (!value || typeof value !== "object") return null;
+  const snapshot = value as { id?: unknown; lastMessageAt?: string | Date | null };
+  if (typeof snapshot.id !== "string") return null;
+  return {
+    ...(value as Record<string, unknown>),
+    id: snapshot.id,
+    lastMessageAt: snapshot.lastMessageAt ? new Date(snapshot.lastMessageAt) : null,
+  };
+}
+
 export function ChatsAutoRefresh({
   intervalMs = 5000,
   enabled = true,
@@ -100,32 +111,47 @@ export function ChatsAutoRefresh({
 
         inFlightRef.current = true;
         try {
-        const response = await fetch(`/api/cliente/chats/live?chatKey=${encodeURIComponent(chatKey)}`, {
-          credentials: "same-origin",
-          cache: "no-store",
-        });
+          const [liveResponse, summaryResponse] = await Promise.all([
+            fetch(`/api/cliente/chats/live?chatKey=${encodeURIComponent(chatKey)}`, {
+              credentials: "same-origin",
+              cache: "no-store",
+            }),
+            fetch(`/api/cliente/chats/summary?chatKey=${encodeURIComponent(chatKey)}`, {
+              credentials: "same-origin",
+              cache: "no-store",
+            }),
+          ]);
 
-        if (!response.ok) {
-          return;
-        }
+          if (liveResponse.ok) {
+            const livePayload = (await liveResponse.json().catch(() => null)) as
+              | { ok?: boolean; conversation?: unknown }
+              | null;
 
-          const payload = (await response.json().catch(() => null)) as
-            | { ok?: boolean; conversation?: unknown }
-            | null;
+            if (livePayload?.ok && livePayload.conversation) {
+              const conversation = hydrateConversationSnapshot(livePayload.conversation);
 
-          if (!payload?.ok || !payload.conversation) {
-            return;
+              if (conversation) {
+                window.dispatchEvent(
+                  new CustomEvent("chat-live-update", { detail: { conversation, chatKey } }),
+                );
+              }
+            }
           }
 
-          const conversation = hydrateConversationSnapshot(payload.conversation);
+          if (summaryResponse.ok) {
+            const summaryPayload = (await summaryResponse.json().catch(() => null)) as
+              | { ok?: boolean; conversation?: unknown }
+              | null;
 
-          if (!conversation) {
-            return;
+            if (summaryPayload?.ok && summaryPayload.conversation) {
+              const summaryConversation = hydrateConversationListSnapshot(summaryPayload.conversation);
+              if (summaryConversation) {
+                window.dispatchEvent(
+                  new CustomEvent("chat-list-update", { detail: { conversation: summaryConversation } }),
+                );
+              }
+            }
           }
-
-          window.dispatchEvent(
-            new CustomEvent("chat-live-update", { detail: { conversation, chatKey } }),
-          );
         } catch {
           // Network error: the next tick will retry.
         } finally {
