@@ -26,7 +26,7 @@ import type { ContactosContact, ContactosData } from "../types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,6 +38,7 @@ import { deleteContactAction, resetContactAction, toggleContactCrmHiddenAction }
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ContactAvatar } from "@/components/chats/contact-avatar";
+import { Separator } from "@/components/ui/separator";
 
 const contactDateFormatter = new Intl.DateTimeFormat("es-CO", {
   timeZone: "America/Bogota",
@@ -743,14 +744,14 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                       {selectedContact.tags.length ? (
                         <div className="flex flex-wrap gap-1 pt-0.5">
                           {selectedContact.tags.map((tag) => (
-                            <span
+                            <Badge
                               key={`${selectedContact.id}:${tag.label}`}
-                              className="inline-flex max-w-full items-center rounded-full px-2.5 py-0.75 text-[10px] font-semibold uppercase tracking-[0.08em] text-white shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
+                              className="max-w-full border-transparent text-[10px] font-semibold uppercase tracking-[0.08em] text-white shadow-none"
                               style={getTagBadgeStyle(tag.color)}
                               title={tag.label}
                             >
                               <span className="truncate">{tag.label}</span>
-                            </span>
+                            </Badge>
                           ))}
                         </div>
                       ) : null}
@@ -758,30 +759,25 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
-                    <button
+                    <Button
                       type="button"
+                      variant="outline"
                       onClick={() => void copyToClipboard(selectedContact.phoneNumber, "phone")}
-                      className="inline-flex items-center gap-2 rounded-2xl border border-border bg-background px-3.5 py-2 text-sm font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground"
                     >
                       <Copy className="h-4 w-4" />
                       {copiedField === "phone" ? "Copiado" : "Copiar"}
-                    </button>
-                    <Link
-                      href={selectedHref}
-                      className="inline-flex items-center gap-2 rounded-2xl bg-[var(--primary)] px-3.5 py-2 text-sm font-medium text-white transition hover:bg-[var(--primary-strong)]"
-                    >
+                    </Button>
+                    <Button asChild>
+                      <Link href={selectedHref}>
                       Abrir chat
                       <MessageCircle className="h-4 w-4" />
-                    </Link>
+                      </Link>
+                    </Button>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <button
-                          type="button"
-                          className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-border bg-background text-muted-foreground transition hover:bg-accent hover:text-foreground"
-                          aria-label="Acciones del contacto"
-                        >
+                        <Button type="button" variant="outline" size="icon-lg" aria-label="Acciones del contacto">
                           <MoreVertical className="h-4 w-4" />
-                        </button>
+                        </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="min-w-44 rounded-2xl">
                         <DropdownMenuItem asChild className="gap-2">
@@ -839,7 +835,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                   <CardHeader>
                     <CardDescription className="text-[10px] font-semibold uppercase tracking-[0.18em]">Resumen</CardDescription>
                   </CardHeader>
-                  <CardContent className="mt-1 space-y-2 text-sm text-muted-foreground">
+                  <CardContent className="mt-1 flex flex-col gap-2 text-sm text-muted-foreground">
                     <p>
                       <span className="font-medium text-foreground">{selectedContact.totalConversations}</span> conversaciones
                     </p>
@@ -849,165 +845,177 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                     <p>Creado: {formatDateLabel(selectedContact.createdAt)}</p>
                     <p>Ultima actividad: {formatDateLabel(selectedContact.lastActivityAt)}</p>
                   </CardContent>
+                  <CardFooter className="flex flex-col gap-3 border-none bg-transparent p-4 pt-0">
+                    {getCurrentProductName(selectedContact) ? (
+                      <Card size="sm" className="w-full shadow-none">
+                        <CardHeader>
+                          <CardDescription className="text-[10px] font-semibold uppercase tracking-[0.18em]">
+                            Producto activo
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent className="flex flex-wrap items-center gap-2">
+                          <Badge variant="outline" className="text-[10px] font-semibold uppercase tracking-[0.08em]">
+                            {getCurrentProductName(selectedContact)}
+                          </Badge>
+                          <span className="text-xs text-muted-foreground">
+                            Lo que está activo ahora en la conversación
+                          </span>
+                        </CardContent>
+                      </Card>
+                    ) : null}
 
-                  {getCurrentProductName(selectedContact) ? (
-                    <div className="mt-4 rounded-[20px] border border-[color:color-mix(in_srgb,var(--primary)_14%,white)] bg-white p-3">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Producto activo</p>
-                      <div className="mt-2 flex flex-wrap items-center gap-2">
-                        <Badge
-                          variant="outline"
-                          className="h-auto border-[color:color-mix(in_srgb,var(--primary)_16%,white)] bg-[color:color-mix(in_srgb,var(--primary)_6%,white)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--primary)]"
-                        >
-                          {getCurrentProductName(selectedContact)}
-                        </Badge>
-                        <span className="text-xs text-slate-500">
-                          Lo que está activo ahora en la conversación
-                        </span>
-                      </div>
-                    </div>
-                  ) : null}
+                    {selectedContact.latestMatch ? (
+                      <Card size="sm" className="w-full shadow-none">
+                        <CardHeader>
+                          <CardDescription className="text-[10px] font-semibold uppercase tracking-[0.18em]">
+                            Ultimo match
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent className="flex flex-wrap items-center gap-2">
+                          <Badge variant="outline" className="text-[10px] font-semibold uppercase tracking-[0.08em]">
+                            {selectedContact.latestMatch.targetName}
+                          </Badge>
+                          <span className="text-xs text-muted-foreground">
+                            {getMatchSourceLabel(selectedContact.latestMatch.sourceType)} ·{" "}
+                            {formatDateLabel(selectedContact.latestMatch.detectedAt)}
+                          </span>
+                        </CardContent>
+                      </Card>
+                    ) : null}
 
-                {selectedContact.latestMatch ? (
-                  <div className="mt-4 rounded-[20px] border border-slate-200 bg-white p-3">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Ultimo match</p>
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <Badge
-                          variant="outline"
-                          className="h-auto border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-700"
-                        >
-                          {selectedContact.latestMatch.targetName}
-                        </Badge>
-                        <span className="text-xs text-slate-500">
-                          {getMatchSourceLabel(selectedContact.latestMatch.sourceType)} ·{" "}
-                          {formatDateLabel(selectedContact.latestMatch.detectedAt)}
-                        </span>
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {selectedContact.matchHistory.length > 0 ? (
-                    <div className="mt-3 rounded-[20px] border border-slate-200 bg-white p-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Historial de matches</p>
-                        <span className="text-[11px] text-slate-500">{selectedContact.matchHistory.length}</span>
-                      </div>
-                      <div className="mt-3 space-y-2">
-                        {selectedContact.matchHistory.map((match) => (
-                          <div key={match.id} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2">
-                            <div className="min-w-0">
-                              <p className="truncate text-sm font-medium text-slate-950">{match.targetName}</p>
-                              <p className="text-[11px] text-slate-500">
-                                {getMatchSourceLabel(match.sourceType)} · {formatDateLabel(match.detectedAt)}
-                              </p>
-                            </div>
-                            <Badge
-                              variant="outline"
-                              className="h-auto border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-700"
-                            >
-                              {match.matchType === "FLOW" ? "Flujo" : "Producto"}
-                            </Badge>
+                    {selectedContact.matchHistory.length > 0 ? (
+                      <Card size="sm" className="w-full shadow-none">
+                        <CardHeader>
+                          <div className="flex items-center justify-between gap-2">
+                            <CardDescription className="text-[10px] font-semibold uppercase tracking-[0.18em]">
+                              Historial de matches
+                            </CardDescription>
+                            <Badge variant="outline">{selectedContact.matchHistory.length}</Badge>
                           </div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
+                        </CardHeader>
+                        <CardContent className="flex flex-col gap-2">
+                          {selectedContact.matchHistory.map((match) => (
+                            <Card key={match.id} size="sm" className="bg-muted/40 shadow-none">
+                              <CardContent className="flex flex-wrap items-center justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="truncate text-sm font-medium text-foreground">{match.targetName}</p>
+                                  <p className="text-[11px] text-muted-foreground">
+                                    {getMatchSourceLabel(match.sourceType)} · {formatDateLabel(match.detectedAt)}
+                                  </p>
+                                </div>
+                                <Badge variant="outline">
+                                  {match.matchType === "FLOW" ? "Flujo" : "Producto"}
+                                </Badge>
+                              </CardContent>
+                            </Card>
+                          ))}
+                        </CardContent>
+                      </Card>
+                    ) : null}
+                  </CardFooter>
                 </Card>
 
                 <Card className="border border-border/70 bg-muted/30 shadow-none">
                   <CardHeader>
                     <CardDescription className="text-[10px] font-semibold uppercase tracking-[0.18em]">Acciones rapidas</CardDescription>
                   </CardHeader>
-                  <CardContent className="mt-1 space-y-2">
-                    <button
+                  <CardContent className="mt-1 flex flex-col gap-2">
+                    <Button
                       type="button"
+                      variant="outline"
                       onClick={() => void copyToClipboard(selectedContact.phoneNumber, "phone")}
-                      className="flex w-full items-center justify-between rounded-2xl border border-border bg-background px-3 py-2.5 text-sm text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                      className="w-full justify-between"
                     >
                       <span className="inline-flex items-center gap-2">
                         <Phone className="h-4 w-4 text-muted-foreground" />
                         {selectedContact.phoneNumber}
                       </span>
                       <Copy className="h-4 w-4 text-muted-foreground" />
-                    </button>
+                    </Button>
 
                     {selectedContact.email ? (
-                      <button
+                      <Button
                         type="button"
+                        variant="outline"
                         onClick={() => void copyToClipboard(selectedContact.email || "", "email")}
-                        className="flex w-full items-center justify-between rounded-2xl border border-border bg-background px-3 py-2.5 text-sm text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                        className="w-full justify-between"
                       >
                         <span className="inline-flex items-center gap-2">
                           <Mail className="h-4 w-4 text-muted-foreground" />
                           {selectedContact.email}
                         </span>
                         <Copy className="h-4 w-4 text-muted-foreground" />
-                      </button>
+                      </Button>
                     ) : null}
                   </CardContent>
                 </Card>
               </div>
 
-              <div className="grid gap-4 border-t border-slate-100 p-4 sm:p-5">
+              <div className="grid gap-4 p-4 sm:p-5">
+                <Separator />
                 <Card className="border border-border/70 shadow-none">
-                  <div className="flex items-center justify-between gap-3">
-                    <h3 className="text-sm font-semibold text-foreground">Conversaciones recientes</h3>
-                    <span className="text-[11px] text-muted-foreground">{selectedContact.recentConversations.length} hilos</span>
-                  </div>
-
-                  <div className="mt-3 space-y-3">
+                  <CardHeader>
+                    <div className="flex items-center justify-between gap-3">
+                      <CardTitle className="text-sm">Conversaciones recientes</CardTitle>
+                      <Badge variant="outline">{selectedContact.recentConversations.length} hilos</Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="flex flex-col gap-3">
                     {selectedContact.recentConversations.length > 0 ? (
                       selectedContact.recentConversations.map((conversation) => (
-                        <div
+                        <Card
                           key={conversation.id}
-                          className="rounded-[20px] border border-border/70 bg-muted/30 p-4"
+                          size="sm"
+                          className="border border-border/70 bg-muted/30 shadow-none"
                         >
-                          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                            <div className="min-w-0 space-y-1">
+                          <CardContent className="flex flex-col gap-3">
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                              <div className="min-w-0 space-y-1">
                               <p className="text-sm font-medium text-foreground">
                                 {conversation.agent?.name ?? "Chat sin agente asignado"}
                               </p>
                               <p className="text-xs text-muted-foreground">
                                 {conversation.channel?.name ?? "Canal"} · {conversation.status}
                               </p>
+                              </div>
+                              <Badge variant="outline">
+                                {formatDateLabel(conversation.lastMessageAt || conversation.updatedAt)}
+                              </Badge>
                             </div>
-                            <span className="rounded-full border border-border bg-background px-2.5 py-1 text-[11px] text-muted-foreground">
-                              {formatDateLabel(conversation.lastMessageAt || conversation.updatedAt)}
-                            </span>
-                          </div>
 
-                          {conversation.lastMessage?.content ? (
-                            <p className="mt-3 line-clamp-2 text-sm leading-6 text-muted-foreground">
-                              {conversation.lastMessage.content}
-                            </p>
-                          ) : (
-                            <p className="mt-3 text-sm text-muted-foreground">Sin mensaje visible en este hilo.</p>
-                          )}
+                            {conversation.lastMessage?.content ? (
+                              <p className="line-clamp-2 text-sm leading-6 text-muted-foreground">
+                                {conversation.lastMessage.content}
+                              </p>
+                            ) : (
+                              <p className="text-sm text-muted-foreground">Sin mensaje visible en este hilo.</p>
+                            )}
 
-                          <div className="mt-3 flex flex-wrap items-center gap-2">
-                            <Link
-                              href={`/cliente/chats?chatKey=agent:${conversation.id}`}
-                              className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-1.5 text-[11px] font-medium text-primary transition hover:bg-primary/10"
-                            >
-                              Abrir conversacion
-                              <ArrowRight className="h-3.5 w-3.5" />
-                            </Link>
-                            {conversation.automationPaused ? (
-                              <span className="rounded-full border border-border bg-background px-2.5 py-1 text-[11px] text-muted-foreground">
-                                IA pausada
-                              </span>
-                            ) : null}
-                          </div>
-                        </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Button asChild variant="outline" size="sm">
+                                <Link href={`/cliente/chats?chatKey=agent:${conversation.id}`}>
+                                  Abrir conversacion
+                                  <ArrowRight className="h-3.5 w-3.5" />
+                                </Link>
+                              </Button>
+                              {conversation.automationPaused ? (
+                                <Badge variant="outline">IA pausada</Badge>
+                              ) : null}
+                            </div>
+                          </CardContent>
+                        </Card>
                       ))
                     ) : (
-                      <div className="rounded-[20px] border border-dashed border-border/70 bg-muted/30 px-4 py-8 text-center">
+                      <Card className="border border-dashed border-border/70 bg-muted/30 py-8 text-center shadow-none">
+                        <CardContent>
                         <p className="text-sm font-medium text-foreground">Todavia no hay conversaciones</p>
                         <p className="mt-1 text-sm leading-6 text-muted-foreground">
                           Este contacto todavia no ha entrado al flujo de chats.
                         </p>
-                      </div>
+                        </CardContent>
+                      </Card>
                     )}
-                  </div>
+                  </CardContent>
                 </Card>
 
                 {selectedContact.notes ? (
