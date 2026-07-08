@@ -679,8 +679,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       : [];
   const chatsRealtimeSyncEnabled = Boolean(
     evolutionSettings.apiBaseUrl &&
-      evolutionSettings.apiToken &&
-      (realtimeGlobalEventsEnabled || realtimeInstanceNames.length > 0),
+      evolutionSettings.apiToken,
   );
   const chatListHref = `/cliente/chats${
     selectedConnectionKey || searchQuery || assignedFilter !== "all" || statusFilter !== "open"

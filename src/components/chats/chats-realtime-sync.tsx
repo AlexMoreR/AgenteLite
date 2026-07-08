@@ -60,6 +60,18 @@ function buildSocketUrl(baseUrl: string, instanceName?: string | null) {
   return `${normalizedBaseUrl}/${encodeURIComponent(instanceName)}`;
 }
 
+function buildNativeWebSocketUrl(baseUrl: string, token: string) {
+  const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
+  if (!normalizedBaseUrl || !token.trim()) {
+    return "";
+  }
+
+  const url = new URL(`${normalizedBaseUrl}/ws`);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  url.searchParams.set("token", token.trim());
+  return url.toString();
+}
+
 function normalizeEventName(eventName: string) {
   return eventName.trim().replace(/[\s.-]+/g, "_").toUpperCase();
 }
@@ -321,11 +333,14 @@ export function ChatsRealtimeSync({
       ...normalizedInstanceNames,
     ]));
 
-    if (!enabled || !normalizedBaseUrl || socketTargets.length === 0) {
+    if (!enabled || !normalizedBaseUrl || (!apiKey?.trim() && socketTargets.length === 0)) {
       return;
     }
 
     const sockets: Socket[] = [];
+    let nativeSocket: WebSocket | null = null;
+    let nativeReconnectTimer: number | null = null;
+    let nativeSocketClosedByCleanup = false;
     const listUpdateTimers = listUpdateTimerRefs.current;
     const listUpdateFollowUpTimers = listUpdateFollowUpTimerRefs.current;
     const listUpdatePendingByKey = listUpdatePendingByKeyRef.current;
@@ -349,6 +364,13 @@ export function ChatsRealtimeSync({
       if (pageRefreshTimerRef.current) {
         window.clearTimeout(pageRefreshTimerRef.current);
         pageRefreshTimerRef.current = null;
+      }
+    }
+
+    function clearNativeReconnectTimer() {
+      if (nativeReconnectTimer !== null) {
+        window.clearTimeout(nativeReconnectTimer);
+        nativeReconnectTimer = null;
       }
     }
 
@@ -725,6 +747,320 @@ export function ChatsRealtimeSync({
       }, Math.max(0, targetAt - now));
     };
 
+    const handleRealtimeEvent = (input: {
+      eventName: string;
+      payload: unknown;
+      socketInstanceName?: string | null;
+    }) => {
+      const normalizedEventName = normalizeEventName(input.eventName);
+      const normalizedActiveInstanceName = activeInstanceNameRef.current?.trim() || "";
+      const payload = input.payload;
+      const socketInstanceName = input.socketInstanceName?.trim() || "";
+      const payloadInstanceName = extractEvolutionInstanceName(payload)?.trim() || "";
+      const effectiveInstanceName = socketInstanceName || payloadInstanceName;
+      const payloadRemoteJid = extractEvolutionRemoteJid(payload);
+      const payloadPhoneNumber = extractEvolutionPhoneNumber(payload);
+      const isEditedOrDeletedPayload =
+        hasEvolutionEditedMessagePayload(payload) || hasEvolutionDeletedMessagePayload(payload);
+      const phoneNumber = extractPhoneNumberFromPayload(payload);
+      const currentConversationKey = pendingSelectionRef.current?.key ?? selectedConversationKeyRef.current;
+      const isOfficialConversationSelected = currentConversationKey?.startsWith("official:");
+      const selectedPhoneNumber = getEffectiveSelectedPhoneNumber()?.trim() || "";
+      const normalizedSelectedPhoneNumber = selectedPhoneNumber.replace(/\D/g, "");
+      const hasActiveAgentConversation = Boolean(currentConversationKey?.startsWith("agent:"));
+      const isSelectedAgentConversation =
+        hasActiveAgentConversation &&
+        Boolean(phoneNumber) &&
+        Boolean(normalizedSelectedPhoneNumber) &&
+        phoneNumber === normalizedSelectedPhoneNumber;
+      const eventSignature = buildSocketUpdateSignature({
+        eventName: normalizedEventName,
+        conversationKey: currentConversationKey,
+        instanceName: effectiveInstanceName || socketInstanceName,
+        phoneNumber,
+        payload,
+      });
+      const shouldFollowUp = extractEvolutionFromMe(payload) && !isEditedOrDeletedPayload;
+      const isEventForSelectedInstance =
+        !normalizedActiveInstanceName ||
+        !effectiveInstanceName ||
+        effectiveInstanceName === normalizedActiveInstanceName;
+
+      const hasMessageContent =
+        Boolean(extractEvolutionMessageText(payload)?.trim()) ||
+        Boolean(extractEvolutionMediaUrl(payload)?.trim()) ||
+        Boolean(extractEvolutionMessageType(payload)?.trim());
+      const isInboundMessage =
+        !extractEvolutionFromMe(payload) &&
+        !isEditedOrDeletedPayload &&
+        Boolean(phoneNumber) &&
+        hasMessageContent &&
+        /MESSAGE/.test(normalizedEventName);
+      if (isInboundMessage) {
+        const messageId = extractEvolutionMessageId(payload)?.trim() || "";
+        const isDuplicate = messageId ? notifiedMessageIdsRef.current.has(messageId) : false;
+        if (!isDuplicate) {
+          if (messageId) {
+            notifiedMessageIdsRef.current.add(messageId);
+            if (notifiedMessageIdsRef.current.size > 200) {
+              const oldest = notifiedMessageIdsRef.current.values().next().value;
+              if (oldest) notifiedMessageIdsRef.current.delete(oldest);
+            }
+          }
+          window.dispatchEvent(
+            new CustomEvent("chat-incoming-message", {
+              detail: {
+                phoneNumber,
+                senderName: extractEvolutionPushName(payload)?.trim() || null,
+                text: extractEvolutionMessageText(payload)?.trim() || "",
+                type: extractEvolutionMessageType(payload) || null,
+                chatKey: isSelectedAgentConversation ? currentConversationKey ?? null : null,
+                isActiveConversation: isSelectedAgentConversation,
+              },
+            }),
+          );
+        }
+      }
+
+      debugRealtimeSync("realtime event", {
+        eventName: normalizedEventName,
+        socketInstanceName: socketInstanceName || null,
+        payloadInstanceName: payloadInstanceName || null,
+        effectiveInstanceName: effectiveInstanceName || null,
+        currentConversationKey,
+        selectedPhoneNumber: normalizedSelectedPhoneNumber || null,
+        phoneNumber,
+        payloadRemoteJid,
+        payloadPhoneNumber,
+        hasActiveAgentConversation,
+        isSelectedAgentConversation,
+        isOfficialConversationSelected,
+        isEditedOrDeletedPayload,
+      });
+
+      if (hasActiveAgentConversation) {
+        const canRefreshSelectedConversation = isSelectedAgentConversation && isEventForSelectedInstance;
+        if (canRefreshSelectedConversation) {
+          scheduleLiveUpdate("active", {
+            signature: eventSignature,
+            followUp: shouldFollowUp,
+          });
+        }
+        if (canRefreshSelectedConversation && !isEditedOrDeletedPayload) {
+          window.dispatchEvent(
+            new CustomEvent("chat-list-update", {
+              detail: {
+                conversation: buildOptimisticConversationListSnapshot({
+                  conversationKey: currentConversationKey || "",
+                  payload,
+                }),
+              },
+            }),
+          );
+        }
+        if (!phoneNumber) {
+          if (canRefreshSelectedConversation) {
+            scheduleListUpdate(
+              "active",
+              effectiveInstanceName || normalizedActiveInstanceName,
+              payload,
+              currentConversationKey || undefined,
+              {
+                signature: eventSignature,
+                followUp: shouldFollowUp,
+              },
+            );
+          }
+          return;
+        }
+
+        if (isEditedOrDeletedPayload) {
+          return;
+        }
+
+        const summaryInstanceName = effectiveInstanceName || (isSelectedAgentConversation ? normalizedActiveInstanceName : "");
+        if (!summaryInstanceName) {
+          debugRealtimeSync("skip list update without instance", {
+            eventName: normalizedEventName,
+            phoneNumber,
+            payloadInstanceName,
+          });
+          return;
+        }
+        scheduleListUpdate(
+          "active",
+          summaryInstanceName,
+          payload,
+          canRefreshSelectedConversation ? currentConversationKey || undefined : undefined,
+          {
+            signature: eventSignature,
+            followUp: shouldFollowUp,
+          },
+        );
+        return;
+      }
+
+      const isActiveInstance =
+        Boolean(normalizedActiveInstanceName) &&
+        (!globalEventsEnabled || effectiveInstanceName === normalizedActiveInstanceName) &&
+        effectiveInstanceName === normalizedActiveInstanceName;
+
+      if (isActiveInstance) {
+        if (isOfficialConversationSelected) {
+          if (isEditedOrDeletedPayload) {
+            return;
+          }
+          schedulePageRefresh("active");
+          return;
+        }
+
+        if (isSelectedAgentConversation) {
+          scheduleLiveUpdate("active", {
+            signature: eventSignature,
+            followUp: shouldFollowUp,
+          });
+          if (!isEditedOrDeletedPayload) {
+            window.dispatchEvent(
+              new CustomEvent("chat-list-update", {
+                detail: {
+                  conversation: buildOptimisticConversationListSnapshot({
+                    conversationKey: currentConversationKey || "",
+                    payload,
+                  }),
+                },
+              }),
+            );
+          }
+          if (isEditedOrDeletedPayload) {
+            return;
+          }
+          return;
+        }
+
+        if (isEditedOrDeletedPayload) {
+          return;
+        }
+
+        if (phoneNumber) {
+          scheduleListUpdate("active", effectiveInstanceName || normalizedActiveInstanceName, payload, undefined, {
+            signature: eventSignature,
+            followUp: shouldFollowUp,
+          });
+          return;
+        }
+
+        schedulePageRefresh("active");
+        return;
+      }
+
+      if (effectiveInstanceName && effectiveInstanceName === normalizedActiveInstanceName) {
+        if (isOfficialConversationSelected) {
+          if (isEditedOrDeletedPayload) {
+            return;
+          }
+          schedulePageRefresh("active");
+          return;
+        }
+
+        if (isSelectedAgentConversation) {
+          scheduleLiveUpdate("active", {
+            signature: eventSignature,
+            followUp: shouldFollowUp,
+          });
+          if (isEditedOrDeletedPayload) {
+            return;
+          }
+          return;
+        }
+
+        if (isEditedOrDeletedPayload) {
+          return;
+        }
+
+        if (phoneNumber) {
+          scheduleListUpdate("active", effectiveInstanceName, payload, undefined, {
+            signature: eventSignature,
+            followUp: shouldFollowUp,
+          });
+          return;
+        }
+
+        schedulePageRefresh("active");
+        return;
+      }
+
+      if (phoneNumber) {
+        if (globalEventsEnabled) {
+          if (isSelectedAgentConversation) {
+            scheduleLiveUpdate("background", {
+              signature: eventSignature,
+              followUp: shouldFollowUp,
+            });
+          }
+
+          if (isEditedOrDeletedPayload) {
+            return;
+          }
+
+          const listInstanceName = effectiveInstanceName || (isSelectedAgentConversation ? normalizedActiveInstanceName : "");
+          if (listInstanceName) {
+            scheduleListUpdate("active", listInstanceName, payload, undefined, {
+              signature: eventSignature,
+              followUp: shouldFollowUp,
+            });
+          } else {
+            schedulePageRefresh("active");
+          }
+          return;
+        }
+
+        if (isOfficialConversationSelected) {
+          if (isEditedOrDeletedPayload) {
+            return;
+          }
+          schedulePageRefresh("background");
+          return;
+        }
+
+        if (isEditedOrDeletedPayload) {
+          return;
+        }
+
+        scheduleListUpdate(
+          "active",
+          effectiveInstanceName || normalizedActiveInstanceName,
+          payload,
+          undefined,
+          {
+            signature: eventSignature,
+            followUp: shouldFollowUp,
+          },
+        );
+        return;
+      }
+
+      if (currentConversationKey?.startsWith("agent:")) {
+        scheduleLiveUpdate("background", {
+          signature: eventSignature,
+          followUp: shouldFollowUp,
+        });
+        if (isEditedOrDeletedPayload) {
+          return;
+        }
+        schedulePageRefresh("background");
+      } else if (isOfficialConversationSelected) {
+        if (isEditedOrDeletedPayload) {
+          return;
+        }
+        schedulePageRefresh("background");
+      } else if (/MESSAGE|CHAT/.test(normalizedEventName)) {
+        if (isEditedOrDeletedPayload) {
+          return;
+        }
+        schedulePageRefresh("background");
+      }
+    };
+
     for (const instanceName of socketTargets) {
       const normalizedApiKey = apiKey?.trim() || null;
       const socketApiKey = normalizedApiKey;
@@ -740,344 +1076,80 @@ export function ChatsRealtimeSync({
 
       socket.onAny((eventName, ...args) => {
         if (typeof eventName === "string" && shouldTriggerRefresh(eventName)) {
-          const normalizedEventName = normalizeEventName(eventName);
-          // Leer refs en el momento del evento - siempre reflejan la conversacion actual
-          // sin necesidad de recrear los sockets cuando el usuario cambia de chat.
-          const normalizedActiveInstanceName = activeInstanceNameRef.current?.trim() || "";
-          const payload = pickSocketPayload(args);
-          const socketInstanceName = instanceName?.trim() || "";
-          const payloadInstanceName = extractEvolutionInstanceName(payload)?.trim() || "";
-          const effectiveInstanceName = socketInstanceName || payloadInstanceName;
-          const payloadRemoteJid = extractEvolutionRemoteJid(payload);
-          const payloadPhoneNumber = extractEvolutionPhoneNumber(payload);
-          const isEditedOrDeletedPayload =
-            hasEvolutionEditedMessagePayload(payload) || hasEvolutionDeletedMessagePayload(payload);
-          const phoneNumber = extractPhoneNumberFromPayload(payload);
-          const currentConversationKey = pendingSelectionRef.current?.key ?? selectedConversationKeyRef.current;
-          const isOfficialConversationSelected = currentConversationKey?.startsWith("official:");
-          const selectedPhoneNumber = getEffectiveSelectedPhoneNumber()?.trim() || "";
-          const normalizedSelectedPhoneNumber = selectedPhoneNumber.replace(/\D/g, "");
-          const hasActiveAgentConversation = Boolean(currentConversationKey?.startsWith("agent:"));
-          const isSelectedAgentConversation =
-            hasActiveAgentConversation &&
-            Boolean(phoneNumber) &&
-            Boolean(normalizedSelectedPhoneNumber) &&
-            phoneNumber === normalizedSelectedPhoneNumber;
-          const eventSignature = buildSocketUpdateSignature({
-            eventName: normalizedEventName,
-            conversationKey: currentConversationKey,
-            instanceName: effectiveInstanceName || instanceName,
-            phoneNumber,
-            payload,
+          handleRealtimeEvent({
+            eventName,
+            payload: pickSocketPayload(args),
+            socketInstanceName: instanceName,
           });
-          const shouldFollowUp = extractEvolutionFromMe(payload) && !isEditedOrDeletedPayload;
-          const isEventForSelectedInstance =
-            !normalizedActiveInstanceName ||
-            !effectiveInstanceName ||
-            effectiveInstanceName === normalizedActiveInstanceName;
-
-          // Notificación + sonido para mensajes entrantes (no propios, no editados/eliminados),
-          // solo de chats individuales (phoneNumber válido) y eventos de mensaje reales.
-          const hasMessageContent =
-            Boolean(extractEvolutionMessageText(payload)?.trim()) ||
-            Boolean(extractEvolutionMediaUrl(payload)?.trim()) ||
-            Boolean(extractEvolutionMessageType(payload)?.trim());
-          const isInboundMessage =
-            !extractEvolutionFromMe(payload) &&
-            !isEditedOrDeletedPayload &&
-            Boolean(phoneNumber) &&
-            hasMessageContent &&
-            /MESSAGE/.test(normalizedEventName);
-          if (isInboundMessage) {
-            // Dedup SOLO por messageId real (único por mensaje). Si no hay messageId,
-            // no deduplicamos: así mensajes con el mismo texto siempre notifican
-            // (evita que el segundo "test" idéntico quede silenciado).
-            const messageId = extractEvolutionMessageId(payload)?.trim() || "";
-            const isDuplicate = messageId ? notifiedMessageIdsRef.current.has(messageId) : false;
-            if (!isDuplicate) {
-              if (messageId) {
-                notifiedMessageIdsRef.current.add(messageId);
-                if (notifiedMessageIdsRef.current.size > 200) {
-                  const oldest = notifiedMessageIdsRef.current.values().next().value;
-                  if (oldest) notifiedMessageIdsRef.current.delete(oldest);
-                }
-              }
-              window.dispatchEvent(
-                new CustomEvent("chat-incoming-message", {
-                  detail: {
-                    phoneNumber,
-                    senderName: extractEvolutionPushName(payload)?.trim() || null,
-                    text: extractEvolutionMessageText(payload)?.trim() || "",
-                    type: extractEvolutionMessageType(payload) || null,
-                    chatKey: isSelectedAgentConversation ? currentConversationKey ?? null : null,
-                    isActiveConversation: isSelectedAgentConversation,
-                  },
-                }),
-              );
-            }
-          }
-
-          debugRealtimeSync("socket event", {
-            eventName: normalizedEventName,
-            instanceName,
-            payloadInstanceName: payloadInstanceName || null,
-            effectiveInstanceName: effectiveInstanceName || null,
-            currentConversationKey,
-            selectedPhoneNumber: normalizedSelectedPhoneNumber || null,
-            phoneNumber,
-            payloadRemoteJid,
-            payloadPhoneNumber,
-            hasActiveAgentConversation,
-            isSelectedAgentConversation,
-            isOfficialConversationSelected,
-            isEditedOrDeletedPayload,
-          });
-
-          if (hasActiveAgentConversation) {
-            const canRefreshSelectedConversation = isSelectedAgentConversation && isEventForSelectedInstance;
-            // (Antes: snapshot optimista de entrante para "feedback instantáneo".
-            // Se quitó: usaba el id en formato chatKey y, al no coincidir con el id de
-            // BD de la conversación cargada, el merge colapsaba el chat a 1 mensaje y
-            // luego el /live lo restauraba → parpadeo "desaparece y reaparece". El
-            // /live ya carga rápido el mensaje nuevo sin colapsar.)
-            if (canRefreshSelectedConversation) {
-              scheduleLiveUpdate("active", {
-                signature: eventSignature,
-                followUp: shouldFollowUp,
-              });
-            }
-            if (canRefreshSelectedConversation && !isEditedOrDeletedPayload) {
-              window.dispatchEvent(
-                new CustomEvent("chat-list-update", {
-                  detail: {
-                    conversation: buildOptimisticConversationListSnapshot({
-                      conversationKey: currentConversationKey || "",
-                      payload,
-                    }),
-                  },
-                }),
-              );
-            }
-            if (!phoneNumber) {
-              if (canRefreshSelectedConversation) {
-                scheduleListUpdate(
-                  "active",
-                  effectiveInstanceName || normalizedActiveInstanceName,
-                  payload,
-                  currentConversationKey || undefined,
-                  {
-                    signature: eventSignature,
-                    followUp: shouldFollowUp,
-                  },
-                );
-              }
-              return;
-            }
-
-            if (isEditedOrDeletedPayload) {
-              return;
-            }
-
-            // Con número disponible, actualizamos solo el resumen de la lista.
-            // El chat activo ya quedó cubierto por `scheduleLiveUpdate("active")`.
-            const summaryInstanceName = effectiveInstanceName || (isSelectedAgentConversation ? normalizedActiveInstanceName : "");
-            if (!summaryInstanceName) {
-              debugRealtimeSync("skip list update without instance", {
-                eventName: normalizedEventName,
-                phoneNumber,
-                payloadInstanceName,
-              });
-              return;
-            }
-            scheduleListUpdate(
-              "active",
-              summaryInstanceName,
-              payload,
-              canRefreshSelectedConversation ? currentConversationKey || undefined : undefined,
-              {
-                signature: eventSignature,
-                followUp: shouldFollowUp,
-              },
-            );
-            return;
-          }
-
-          const isActiveInstance =
-            Boolean(normalizedActiveInstanceName) &&
-            (!globalEventsEnabled || effectiveInstanceName === normalizedActiveInstanceName) &&
-            effectiveInstanceName === normalizedActiveInstanceName;
-
-          if (isActiveInstance) {
-            if (isOfficialConversationSelected) {
-              if (isEditedOrDeletedPayload) {
-                return;
-              }
-              schedulePageRefresh("active");
-              return;
-            }
-
-            if (isSelectedAgentConversation) {
-              // Snapshot optimista de entrante removido (causaba el parpadeo
-              // "desaparece y reaparece"): el /live agrega el mensaje sin colapsar.
-              scheduleLiveUpdate("active", {
-                signature: eventSignature,
-                followUp: shouldFollowUp,
-              });
-              if (!isEditedOrDeletedPayload) {
-                window.dispatchEvent(
-                  new CustomEvent("chat-list-update", {
-                    detail: {
-                      conversation: buildOptimisticConversationListSnapshot({
-                        conversationKey: currentConversationKey || "",
-                        payload,
-                      }),
-                    },
-                  }),
-                );
-              }
-              if (isEditedOrDeletedPayload) {
-                return;
-              }
-              return;
-            }
-
-            if (isEditedOrDeletedPayload) {
-              return;
-            }
-
-            if (phoneNumber) {
-              scheduleListUpdate("active", effectiveInstanceName || normalizedActiveInstanceName, payload, undefined, {
-                signature: eventSignature,
-                followUp: shouldFollowUp,
-              });
-              return;
-            }
-
-            schedulePageRefresh("active");
-            return;
-          }
-
-          if (effectiveInstanceName && effectiveInstanceName === normalizedActiveInstanceName) {
-            if (isOfficialConversationSelected) {
-              if (isEditedOrDeletedPayload) {
-                return;
-              }
-              schedulePageRefresh("active");
-              return;
-            }
-
-            if (isSelectedAgentConversation) {
-              scheduleLiveUpdate("active", {
-                signature: eventSignature,
-                followUp: shouldFollowUp,
-              });
-              if (isEditedOrDeletedPayload) {
-                return;
-              }
-              return;
-            }
-
-            if (isEditedOrDeletedPayload) {
-              return;
-            }
-
-            if (phoneNumber) {
-              scheduleListUpdate("active", effectiveInstanceName, payload, undefined, {
-                signature: eventSignature,
-                followUp: shouldFollowUp,
-              });
-              return;
-            }
-
-            schedulePageRefresh("active");
-            return;
-          }
-          if (phoneNumber) {
-            if (globalEventsEnabled) {
-              if (isSelectedAgentConversation) {
-                scheduleLiveUpdate("background", {
-                  signature: eventSignature,
-                  followUp: shouldFollowUp,
-                });
-              }
-
-              if (isEditedOrDeletedPayload) {
-                return;
-              }
-
-              // En modo global el payload incluye instanceName: usar ese valor para la
-              // query del summary, igual que el path no-global (linea de abajo).
-              // schedulePageRefresh("background") se reemplaza por scheduleListUpdate
-              // porque page-refresh tiene min-gap de 4000ms y dejaria el preview
-              // desactualizado varios segundos; scheduleListUpdate es directo y rapido.
-              const listInstanceName = effectiveInstanceName || (isSelectedAgentConversation ? normalizedActiveInstanceName : "");
-              if (listInstanceName) {
-                scheduleListUpdate("active", listInstanceName, payload, undefined, {
-                  signature: eventSignature,
-                  followUp: shouldFollowUp,
-                });
-              } else {
-                schedulePageRefresh("active");
-              }
-              return;
-            }
-
-            if (isOfficialConversationSelected) {
-              if (isEditedOrDeletedPayload) {
-                return;
-              }
-              schedulePageRefresh("background");
-              return;
-            }
-
-            if (isEditedOrDeletedPayload) {
-              return;
-            }
-
-            scheduleListUpdate(
-              "active",
-              effectiveInstanceName || normalizedActiveInstanceName,
-              payload,
-              undefined,
-              {
-                signature: eventSignature,
-                followUp: shouldFollowUp,
-              },
-            );
-            return;
-          }
-
-          if (currentConversationKey?.startsWith("agent:")) {
-            scheduleLiveUpdate("background", {
-              signature: eventSignature,
-              followUp: shouldFollowUp,
-            });
-            if (isEditedOrDeletedPayload) {
-              return;
-            }
-            schedulePageRefresh("background");
-          } else if (isOfficialConversationSelected) {
-            if (isEditedOrDeletedPayload) {
-              return;
-            }
-            schedulePageRefresh("background");
-          } else if (/MESSAGE|CHAT/.test(normalizedEventName)) {
-            if (isEditedOrDeletedPayload) {
-              return;
-            }
-            // Fallback para payloads que no dejan extraer el telefono pero si son eventos
-            // de mensaje reales. Un refresh de background mantiene la lista viva.
-            schedulePageRefresh("background");
-          }
         }
       });
 
       sockets.push(socket);
     }
 
+    const nativeWebSocketUrl = apiKey?.trim() ? buildNativeWebSocketUrl(normalizedBaseUrl, apiKey) : "";
+    const connectNativeSocket = () => {
+      if (!nativeWebSocketUrl || nativeSocketClosedByCleanup) {
+        return;
+      }
+
+      try {
+        nativeSocket = new WebSocket(nativeWebSocketUrl);
+      } catch {
+        nativeSocket = null;
+        return;
+      }
+
+      nativeSocket.onmessage = (event) => {
+        try {
+          const rawFrame = typeof event.data === "string" ? event.data : "";
+          if (!rawFrame) {
+            return;
+          }
+
+          const frame = JSON.parse(rawFrame) as Record<string, unknown>;
+          const rawPayload =
+            typeof frame.payload === "string"
+              ? JSON.parse(frame.payload)
+              : frame.payload;
+          const queueName = readString(frame.queue) || readString(frame.event) || "";
+          const eventName = extractEvolutionEventName(rawPayload) || queueName;
+
+          if (!eventName || !shouldTriggerRefresh(eventName)) {
+            return;
+          }
+
+          handleRealtimeEvent({
+            eventName,
+            payload: rawPayload,
+            socketInstanceName: extractEvolutionInstanceName(rawPayload),
+          });
+        } catch {
+          // Ignorar frames no parseables.
+        }
+      };
+
+      nativeSocket.onclose = () => {
+        nativeSocket = null;
+        if (nativeSocketClosedByCleanup) {
+          return;
+        }
+
+        clearNativeReconnectTimer();
+        nativeReconnectTimer = window.setTimeout(() => {
+          connectNativeSocket();
+        }, 2500);
+      };
+    };
+
+    connectNativeSocket();
+
     return () => {
+      nativeSocketClosedByCleanup = true;
       clearLiveUpdateTimer();
       clearLiveUpdateFollowUpTimer();
+      clearNativeReconnectTimer();
+      nativeSocket?.close();
       for (const timer of listUpdateTimers.values()) {
         window.clearTimeout(timer);
       }
