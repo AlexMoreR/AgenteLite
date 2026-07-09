@@ -114,7 +114,6 @@ export const ConversationPanel = memo(function ConversationPanel({
   renderedMessages,
   selectedConversationId,
   selectedConversationScrollKey,
-  selectedConversationTags,
   emptySelectionTitle,
   emptySelectionDescription,
   headerActions,
@@ -699,10 +698,6 @@ export const ConversationPanel = memo(function ConversationPanel({
                 >
                   <ArrowLeft className="h-4 w-4" />
                 </Link>
-                {(() => {
-                  const headerTags = renderedConversation?.tags?.length ? renderedConversation.tags : selectedConversationTags;
-
-                  return (
                 <div
                   className={`flex min-w-0 items-center gap-3 transition-opacity duration-200 ease-out ${
                     hasSettledConversation ? "opacity-100" : "opacity-80"
@@ -751,24 +746,8 @@ export const ConversationPanel = memo(function ConversationPanel({
                         <Pencil className="h-3.5 w-3.5" />
                       </button>
                     </div>
-                    <div
-                      className={`transition-opacity duration-200 ease-out ${
-                        hasSettledConversation ? "opacity-100" : "opacity-60"
-                      }`}
-                    >
-                      <ChatTagsControl
-                        contactId={renderedConversation.contactId}
-                        conversationId={renderedConversation.id}
-                        tags={headerTags}
-                        badgeClassName="shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
-                        canDelete={canDeleteTags}
-                        compact
-                      />
-                    </div>
                   </div>
                 </div>
-                  );
-                })()}
               </div>
 
               {hasSettledConversation && (headerActions || headerBadge) ? (
