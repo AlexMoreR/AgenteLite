@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Bot, CheckCircle2, MessageSquareReply, Power, Smartphone, TimerReset, UserRound, Volume2 } from "lucide-react";
+import { BellRing, Bot, CheckCircle2, MessageSquareReply, Power, Smartphone, TimerReset, UserRound, Volume2 } from "lucide-react";
 import {
   saveAgentReactivationMessageAction,
   saveAgentResponseDelayAction,
@@ -18,6 +18,7 @@ import { ConnectionTabs } from "./ConnectionTabs";
 import { EvolutionChatSyncDialog } from "./EvolutionChatSyncDialog";
 import { AgentAssignAutosaveForm, ReactivationAutosaveForm, ResponseDelayAutosaveForm } from "./ConnectionAutosaveControls";
 import { NotificationSoundSelect } from "@/components/chats/notification-sound-select";
+import { NotificationPermissionToggle } from "@/components/chats/notification-permission-toggle";
 import { ChannelCollaboratorsForm } from "./ChannelCollaboratorsForm";
 import { OfficialApiConnectionSetupCard } from "./OfficialApiConnectionSetupCard";
 
@@ -224,12 +225,21 @@ export function WhatsAppBusinessConnectionWorkspace({
       ) : null}
 
       <Card>
-        <CardContent className="space-y-2">
-          <p className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
-            <Volume2 className="size-4 text-primary" />
-            <span>Sonido</span>
-          </p>
-          <NotificationSoundSelect />
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <p className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
+              <Volume2 className="size-4 text-primary" />
+              <span>Sonido</span>
+            </p>
+            <NotificationSoundSelect />
+          </div>
+          <div className="space-y-2 border-t border-border pt-4">
+            <p className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
+              <BellRing className="size-4 text-primary" />
+              <span>Notificaciones del dispositivo</span>
+            </p>
+            <NotificationPermissionToggle />
+          </div>
         </CardContent>
       </Card>
 

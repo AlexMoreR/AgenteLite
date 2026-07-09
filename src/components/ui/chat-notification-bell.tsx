@@ -13,6 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { NotificationPermissionInline } from "@/components/chats/notification-permission-inline";
 
 const POLL_INTERVAL_MS = 15000;
 const MAX_VISIBLE_NOTIFICATIONS = 8;
@@ -156,6 +157,8 @@ export function ChatNotificationBell({ className }: { className?: string }) {
           ) : null}
         </div>
         <DropdownMenuSeparator className="mx-0 my-0" />
+
+        <NotificationPermissionInline />
 
         {visibleConversations.length === 0 ? (
           <div className="px-3 py-8 text-center text-sm text-muted-foreground">

@@ -29,6 +29,7 @@ model User {
   ownedWorkspaces      Workspace[]       @relation("WorkspaceOwner")
   workspaceMemberships WorkspaceMember[]
   assignedConversations Conversation[]   @relation("ConversationAssignee")
+  webPushSubscriptions WebPushSubscription[]
 }
 
 model EmailAuthToken {
@@ -80,6 +81,7 @@ model Workspace {
   channels             WhatsAppChannel[]
   owner                User?                    @relation("WorkspaceOwner", fields: [ownerId], references: [id])
   memberships          WorkspaceMember[]
+  webPushSubscriptions WebPushSubscription[]
 
   @@index([ownerId])
 }
@@ -973,4 +975,26 @@ model Follow {
   @@index([followRuleId])
   @@index([channelId])
   @@index([lockedAt])
+}
+
+// Suscripcion de Web Push (VAPID) de un dispositivo/navegador. Permite enviar
+// notificaciones "tipo WhatsApp" (suenan/vibran con la PWA cerrada o en segundo
+// plano) a cada colaborador del workspace cuando entra un mensaje. Se crea al
+// aceptar el permiso de notificaciones y se elimina si el endpoint deja de ser
+// valido (410/404 al enviar).
+model WebPushSubscription {
+  id          String    @id @default(cuid())
+  workspaceId String
+  userId      String
+  endpoint    String    @unique
+  p256dh      String
+  auth        String
+  userAgent   String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([userId])
 }

@@ -1,4 +1,4 @@
-const CACHE_NAME = "agente-lite-v2";
+const CACHE_NAME = "agente-lite-v3";
 const APP_SHELL = ["/", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
@@ -73,6 +73,60 @@ self.addEventListener("fetch", (event) => {
         caches.open(CACHE_NAME).then((cache) => cache.put(request, clone)).catch(() => undefined);
         return response;
       });
+    }),
+  );
+});
+
+// --- Web Push: notificaciones "tipo WhatsApp" con la app cerrada o en segundo plano ---
+// El servidor (src/lib/web-push.ts) empuja un JSON con { title, body, tag, url, icon }.
+// Aquí el Service Worker muestra la notificación del sistema, que suena/vibra de forma
+// NATIVA aunque el JavaScript de la página esté congelado.
+self.addEventListener("push", (event) => {
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch (error) {
+    // Si el cuerpo no es JSON válido, lo tratamos como texto plano del body.
+    payload = { body: event.data ? event.data.text() : "" };
+  }
+
+  const title = payload.title || "Nuevo mensaje";
+  const options = {
+    body: payload.body || "",
+    // Mismo tag = reemplaza la notificación anterior del mismo chat en vez de apilar.
+    tag: payload.tag || "chat",
+    renotify: true,
+    icon: payload.icon || "/icon?size=192",
+    badge: payload.badge || "/icon?size=192",
+    // Vibración tipo mensajería (patrón corto) en dispositivos que la soportan.
+    vibrate: [120, 60, 120],
+    data: { url: payload.url || "/cliente/chats" },
+  };
+
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+// Al tocar la notificación: enfoca una pestaña abierta de la app o abre una nueva
+// en la ruta indicada (por defecto, el módulo de chats).
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const targetUrl = (event.notification.data && event.notification.data.url) || "/cliente/chats";
+
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        if ("focus" in client) {
+          client.focus();
+          if ("navigate" in client) {
+            client.navigate(targetUrl).catch(() => undefined);
+          }
+          return undefined;
+        }
+      }
+      if (self.clients.openWindow) {
+        return self.clients.openWindow(targetUrl);
+      }
+      return undefined;
     }),
   );
 });

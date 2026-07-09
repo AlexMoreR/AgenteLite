@@ -14,6 +14,7 @@ import { composeAgentWelcomeReply } from "@/lib/agent-reply-composer";
 import { getConversationAutomationPaused, setConversationAutomationPaused } from "@/lib/conversation-automation";
 import { recordConversationActivity } from "@/lib/conversation-activity";
 import { prisma } from "@/lib/prisma";
+import { sendChatPushToWorkspace } from "@/lib/web-push";
 import {
   cancelPendingFollowsByContact,
   createFollowsFromRulesForSource,
@@ -1519,6 +1520,46 @@ export async function POST(request: NextRequest) {
     instanceName,
     event: eventName,
   });
+
+  // Notificación push "tipo WhatsApp": suena/vibra en el celular del equipo aunque la
+  // PWA esté cerrada o en segundo plano. Solo para mensajes ENTRANTES nuevos (no
+  // salientes, ni ediciones/borrados). Best-effort: nunca bloquea ni rompe la ingesta.
+  if (direction === "INBOUND" && !messageWasEdited && !messageWasDeleted && !isCallEvent) {
+    const pushContactName = contact.name?.trim() || phoneNumber;
+    const pushBody =
+      messageText?.trim() ||
+      (messageType === "AUDIO"
+        ? "🎤 Audio"
+        : messageType === "IMAGE"
+          ? "📷 Foto"
+          : messageType === "VIDEO"
+            ? "🎥 Video"
+            : messageType === "DOCUMENT"
+              ? "📄 Documento"
+              : messageType === "STICKER"
+                ? "Sticker"
+                : "Nuevo mensaje");
+
+    after(async () => {
+      try {
+        await sendChatPushToWorkspace({
+          workspaceId: channel.workspaceId,
+          payload: {
+            title: pushContactName,
+            body: pushBody,
+            tag: `chat:${conversation.id || phoneNumber}`,
+            url: "/cliente/chats",
+          },
+        });
+      } catch (error) {
+        console.warn("[EVOLUTION] web_push_failed", {
+          channelId: channel.id,
+          conversationId: conversation.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    });
+  }
 
   after(async () => {
     try {
