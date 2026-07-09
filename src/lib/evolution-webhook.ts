@@ -512,6 +512,26 @@ export function extractEvolutionRemoteJid(payload: unknown): string | null {
   const dataParticipant = readString(data?.participant);
   const rootParticipant = readString(root?.participant);
 
+  // Evolution GO (whatsmeow): el contacto real (@s.whatsapp.net/@c.us) debe primar sobre @lid.
+  // En mensajes salientes (fromMe) Info.Chat/Info.Sender vienen como @lid (ID privado) y el
+  // número real del destinatario está en Info.RecipientAlt. Sin esto, el webhook guardaba el
+  // fromMe en una conversación con el @lid, distinta a la del contacto real.
+  if (info) {
+    const isIndividual = (jid: string | null) => {
+      const domain = (jid?.split("@")[1] ?? "").toLowerCase();
+      return domain === "s.whatsapp.net" || domain === "c.us";
+    };
+    const infoIndividual = [
+      readString(info.RecipientAlt),
+      readString(info.Sender),
+      readString(info.Chat),
+      readString(info.SenderAlt),
+    ].find((jid) => jid && isIndividual(jid));
+    if (infoIndividual) {
+      return infoIndividual;
+    }
+  }
+
   return (
     pickString(data, ["chatId", "remoteJidAlt", "remoteJid", "participant", "from"]) ||
     pickString(info, ["Chat", "Sender", "TargetChat", "TargetSender"]) ||
