@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { useEffect, useRef } from "react";
+import { toast } from "sonner";
 import { io, type Socket } from "socket.io-client";
 import { usePendingConversationSelection } from "./chat-selection-store";
 import {
@@ -35,6 +36,27 @@ type RefreshPriority = "active" | "background";
 // Logs de depuración del realtime desactivados. Poner en true puntualmente si se
 // necesita diagnosticar el socket de Evolution; en desarrollo normal ensucian la consola.
 const CHAT_REALTIME_DEBUG = false;
+
+// [RT-DEBUG temporal] Sondas visibles en pantalla para diagnosticar el realtime de la
+// lista en móvil (donde no se puede leer la consola). Solo se activan si la URL trae
+// ?rtdebug=1, así que no las ven otros usuarios. Quitar cuando termine el diagnóstico.
+function rtDebugEnabled() {
+  if (typeof window === "undefined") return false;
+  try {
+    return new URLSearchParams(window.location.search).has("rtdebug");
+  } catch {
+    return false;
+  }
+}
+function rtToast(message: string) {
+  if (rtDebugEnabled()) {
+    try {
+      toast(message, { duration: 6000 });
+    } catch {
+      // no-op
+    }
+  }
+}
 const ACTIVE_REFRESH_DELAY_MS = 180;
 const BACKGROUND_REFRESH_DELAY_MS = 1200;
 const ACTIVE_REFRESH_MIN_GAP_MS = 350;
@@ -509,6 +531,7 @@ export function ChatsRealtimeSync({
       const summaryUrl = input.chatKey
         ? `/api/cliente/chats/summary?chatKey=${encodeURIComponent(input.chatKey)}`
         : `/api/cliente/chats/summary?instanceName=${encodeURIComponent(input.instanceName)}&phoneNumber=${encodeURIComponent(phoneNumber!)}`;
+      rtToast(`2·fetch summary chatKey:${input.chatKey ?? "-"} tel:${phoneNumber ?? "-"}`);
 
       debugRealtimeSync("run list update", {
         updateKey: input.updateKey,
@@ -526,6 +549,7 @@ export function ChatsRealtimeSync({
           });
 
         if (!response.ok) {
+          rtToast(`3·summary HTTP ${response.status}`);
           return false;
         }
 
@@ -534,13 +558,16 @@ export function ChatsRealtimeSync({
           | null;
 
         if (!payload?.ok || !payload.conversation) {
+          rtToast(`3·summary payload !ok`);
           return false;
         }
 
         const conversation = normalizeConversationSummarySnapshot(payload.conversation);
         if (!conversation) {
+          rtToast(`3·summary sin conversation`);
           return false;
         }
+        rtToast(`3·summary OK id:${conversation.id}`);
         debugRealtimeSync("list update applied", {
           updateKey: input.updateKey,
           conversationId: conversation.id,
@@ -769,6 +796,11 @@ export function ChatsRealtimeSync({
       const selectedPhoneNumber = getEffectiveSelectedPhoneNumber()?.trim() || "";
       const normalizedSelectedPhoneNumber = selectedPhoneNumber.replace(/\D/g, "");
       const hasActiveAgentConversation = Boolean(currentConversationKey?.startsWith("agent:"));
+      if (phoneNumber || /message/i.test(normalizedEventName)) {
+        rtToast(
+          `1·evt ${normalizedEventName} | chat:${currentConversationKey ? "si" : "no"} | inst:${effectiveInstanceName || "-"} | tel:${phoneNumber || "-"}`,
+        );
+      }
       const isSelectedAgentConversation =
         hasActiveAgentConversation &&
         Boolean(phoneNumber) &&
