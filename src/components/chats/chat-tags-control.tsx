@@ -6,6 +6,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { BsFillTagFill } from "react-icons/bs";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
+import { TAG_BADGE_CLASS } from "@/lib/tag-badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
@@ -220,7 +221,7 @@ export function ChatTagsControl({
           aria-label={`Etiqueta ${tag.label}`}
         >
           <Badge
-            className={`max-w-full cursor-pointer rounded-[4px] px-2 py-0.5 text-[10px] font-normal uppercase tracking-wide transition hover:opacity-90 ${badgeClassName}`}
+            className={`max-w-full cursor-pointer ${TAG_BADGE_CLASS} transition hover:opacity-90 ${badgeClassName}`}
             style={{ backgroundColor: tag.color, color: "#ffffff" }}
           >
             <span className="truncate">{tag.label}</span>

@@ -4,6 +4,7 @@ import * as React from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { TAG_BADGE_CLASS } from "@/lib/tag-badge";
 import { Button } from "@/components/ui/button";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { updateCrmCollapsedAction, updateCrmStageAction } from "@/app/actions/crm-actions";
@@ -81,7 +82,7 @@ function KanbanCard({
                     {record.tags.map((tag) => (
                       <span
                         key={`${record.id}:${tag.label}`}
-                        className="inline-flex max-w-full items-center rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-white shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
+                        className={`inline-flex max-w-full items-center text-white shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)] ${TAG_BADGE_CLASS}`}
                         style={getTagStyle(tag.color)}
                       >
                         {tag.label}

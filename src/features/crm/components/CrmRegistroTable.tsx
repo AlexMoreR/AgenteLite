@@ -5,6 +5,7 @@ import * as React from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown, CalendarDays, ChartNoAxesCombined, Copy, Eraser, Eye, FileText, Globe2, Hash, MoreHorizontal, Search, Tag, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { TAG_BADGE_CLASS } from "@/lib/tag-badge";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -424,7 +425,7 @@ export function CrmRegistroTable({
                   {record.tags.map((tag) => (
                     <Badge
                       key={`${record.id}:${tag.label}`}
-                      className="shrink-0 max-w-[140px] px-2.5 py-1 text-[10px] shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
+                      className={`shrink-0 max-w-[140px] shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)] ${TAG_BADGE_CLASS}`}
                       style={{ ...getTagStyle(tag.color), color: "#ffffff" }}
                       title={tag.label}
                     >
@@ -574,7 +575,7 @@ export function CrmRegistroTable({
                         {record.tags.map((tag) => (
                           <Badge
                             key={`${record.id}:${tag.label}`}
-                            className="shrink-0 max-w-[140px] px-2.5 py-1 text-[10px] shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
+                            className={`shrink-0 max-w-[140px] shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)] ${TAG_BADGE_CLASS}`}
                             style={{ ...getTagStyle(tag.color), color: "#ffffff" }}
                             title={tag.label}
                           >

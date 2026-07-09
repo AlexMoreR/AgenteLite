@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import type { ContactosContact, ContactosData } from "../types";
 import { cn } from "@/lib/utils";
+import { TAG_BADGE_CLASS } from "@/lib/tag-badge";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -698,7 +699,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                           {selectedContact.tags.map((tag) => (
                             <Badge
                               key={`${selectedContact.id}:${tag.label}`}
-                              className="max-w-full border-transparent text-[10px] font-semibold uppercase tracking-[0.08em] text-white shadow-none"
+                              className={`max-w-full border-transparent text-white shadow-none ${TAG_BADGE_CLASS}`}
                               style={getTagBadgeStyle(tag.color)}
                               title={tag.label}
                             >

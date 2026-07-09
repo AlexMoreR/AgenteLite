@@ -6,6 +6,7 @@ import Link from "next/link";
 import { BadgeCheck, Facebook, FileText, Image as ImageIcon, Instagram, LoaderCircle, Mic, Sticker, UserRound, Video } from "lucide-react";
 import { WhatsAppGlyph } from "@/components/icons/whatsapp-glyph";
 import { Badge } from "@/components/ui/badge";
+import { TAG_BADGE_CLASS } from "@/lib/tag-badge";
 import { ContactAvatar } from "./contact-avatar";
 import { warmConversationCache } from "./chat-conversation-warmup";
 import { setPendingConversationSelection } from "./chat-selection-store";
@@ -185,7 +186,7 @@ function ConversationTagsRow({
         {tags.map((tag) => (
           <Badge
             key={`measure:${conversationId}:${tag.label}`}
-            className="shrink-0 px-2.5 py-1 text-[10px]"
+            className={`shrink-0 ${TAG_BADGE_CLASS}`}
           >
             <span>{tag.label}</span>
           </Badge>
@@ -196,7 +197,7 @@ function ConversationTagsRow({
         {tags.slice(0, visibleCount).map((tag) => (
           <Badge
             key={`${conversationId}:${tag.label}`}
-            className="shrink-0 max-w-[140px] px-2.5 py-1 text-[10px] shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)]"
+            className={`shrink-0 max-w-[140px] shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)] ${TAG_BADGE_CLASS}`}
             style={{
               ...getConversationTagBadgeStyle(tag.color),
               color: "#ffffff",
