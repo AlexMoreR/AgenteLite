@@ -1,8 +1,6 @@
 ﻿"use client";
 
 import { useEffect, useRef } from "react";
-import { toast } from "sonner";
-import { io, type Socket } from "socket.io-client";
 import { usePendingConversationSelection } from "./chat-selection-store";
 import {
   extractEvolutionEventName,
@@ -37,35 +35,6 @@ type RefreshPriority = "active" | "background";
 // necesita diagnosticar el socket de Evolution; en desarrollo normal ensucian la consola.
 const CHAT_REALTIME_DEBUG = false;
 
-// [RT-DEBUG temporal] Sondas visibles en pantalla para diagnosticar el realtime de la
-// lista en móvil (donde no se puede leer la consola). Solo se activan si la URL trae
-// ?rtdebug=1, así que no las ven otros usuarios. Quitar cuando termine el diagnóstico.
-function rtDebugEnabled() {
-  if (typeof window === "undefined") return false;
-  try {
-    const params = new URLSearchParams(window.location.search);
-    if (params.has("rtdebug")) {
-      const value = params.get("rtdebug");
-      if (value === "0" || value === "false") {
-        window.localStorage.removeItem("rtdebug");
-      } else {
-        window.localStorage.setItem("rtdebug", "1");
-      }
-    }
-    return window.localStorage.getItem("rtdebug") === "1";
-  } catch {
-    return false;
-  }
-}
-function rtToast(message: string) {
-  if (rtDebugEnabled()) {
-    try {
-      toast(message, { duration: 6000 });
-    } catch {
-      // no-op
-    }
-  }
-}
 const ACTIVE_REFRESH_DELAY_MS = 180;
 const BACKGROUND_REFRESH_DELAY_MS = 1200;
 const ACTIVE_REFRESH_MIN_GAP_MS = 350;
@@ -81,15 +50,6 @@ const LIST_REFRESH_MIN_GAP_MS = 2000;
 
 function normalizeBaseUrl(value?: string) {
   return value?.trim().replace(/\/+$/, "") || "";
-}
-
-function buildSocketUrl(baseUrl: string, instanceName?: string | null) {
-  const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
-  if (!instanceName?.trim()) {
-    return normalizedBaseUrl;
-  }
-
-  return `${normalizedBaseUrl}/${encodeURIComponent(instanceName)}`;
 }
 
 function buildNativeWebSocketUrl(baseUrl: string, token: string) {
@@ -175,23 +135,6 @@ function asRecord(value: unknown): UnknownRecord | null {
 
 function readString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function pickSocketPayload(args: unknown[]): unknown {
-  for (const arg of args) {
-    if (arg && typeof arg === "object" && !Array.isArray(arg)) {
-      return arg;
-    }
-
-    if (Array.isArray(arg)) {
-      const nested = arg.find((item) => item && typeof item === "object" && !Array.isArray(item));
-      if (nested) {
-        return nested;
-      }
-    }
-  }
-
-  return args[0];
 }
 
 function pickString(source: UnknownRecord | null, keys: string[]): string | null {
@@ -378,27 +321,13 @@ export function ChatsRealtimeSync({
   // Dedup de notificaciones: un mismo mensaje puede llegar por varios sockets (global + instancia).
   const notifiedMessageIdsRef = useRef<Set<string>>(new Set());
 
-  // [RT-DEBUG temporal] Confirmación en pantalla de que el modo debug está activo.
-  useEffect(() => {
-    rtToast("0·RT-DEBUG activo");
-  }, []);
-
   useEffect(() => {
     const normalizedBaseUrl = normalizeBaseUrl(apiBaseUrl);
-    const normalizedInstanceNames = normalizedInstanceNamesKey ? normalizedInstanceNamesKey.split("\u0000") : [];
-    // Socket base (null) solo en globalEventsEnabled: Evolution global emite todos los eventos
-    // en la raiz. En modo no-global solo conectar por instancia evita conexiones fallidas al
-    // base URL que no acepta socket.io sin path de instancia.
-    const socketTargets: Array<string | null> = Array.from(new Set([
-      ...(globalEventsEnabled ? ([null] as Array<string | null>) : []),
-      ...normalizedInstanceNames,
-    ]));
 
-    if (!enabled || !normalizedBaseUrl || (!apiKey?.trim() && socketTargets.length === 0)) {
+    if (!enabled || !normalizedBaseUrl || !apiKey?.trim()) {
       return;
     }
 
-    const sockets: Socket[] = [];
     let nativeSocket: WebSocket | null = null;
     let nativeReconnectTimer: number | null = null;
     let nativeSocketClosedByCleanup = false;
@@ -569,7 +498,6 @@ export function ChatsRealtimeSync({
       const summaryUrl = input.chatKey
         ? `/api/cliente/chats/summary?chatKey=${encodeURIComponent(input.chatKey)}`
         : `/api/cliente/chats/summary?instanceName=${encodeURIComponent(input.instanceName)}&phoneNumber=${encodeURIComponent(phoneNumber!)}`;
-      rtToast(`2·fetch summary chatKey:${input.chatKey ?? "-"} tel:${phoneNumber ?? "-"}`);
 
       debugRealtimeSync("run list update", {
         updateKey: input.updateKey,
@@ -587,7 +515,6 @@ export function ChatsRealtimeSync({
           });
 
         if (!response.ok) {
-          rtToast(`3·summary HTTP ${response.status}`);
           return false;
         }
 
@@ -596,16 +523,13 @@ export function ChatsRealtimeSync({
           | null;
 
         if (!payload?.ok || !payload.conversation) {
-          rtToast(`3·summary payload !ok`);
           return false;
         }
 
         const conversation = normalizeConversationSummarySnapshot(payload.conversation);
         if (!conversation) {
-          rtToast(`3·summary sin conversation`);
           return false;
         }
-        rtToast(`3·summary OK id:${conversation.id}`);
         debugRealtimeSync("list update applied", {
           updateKey: input.updateKey,
           conversationId: conversation.id,
@@ -834,11 +758,6 @@ export function ChatsRealtimeSync({
       const selectedPhoneNumber = getEffectiveSelectedPhoneNumber()?.trim() || "";
       const normalizedSelectedPhoneNumber = selectedPhoneNumber.replace(/\D/g, "");
       const hasActiveAgentConversation = Boolean(currentConversationKey?.startsWith("agent:"));
-      if (phoneNumber || /message/i.test(normalizedEventName)) {
-        rtToast(
-          `1·evt ${normalizedEventName} | tel:${phoneNumber || "-"} | jid:${extractEvolutionRemoteJid(payload) || "-"}`,
-        );
-      }
       const isSelectedAgentConversation =
         hasActiveAgentConversation &&
         Boolean(phoneNumber) &&
@@ -855,10 +774,15 @@ export function ChatsRealtimeSync({
         Boolean(extractEvolutionMessageText(payload)?.trim()) ||
         Boolean(extractEvolutionMediaUrl(payload)?.trim()) ||
         Boolean(extractEvolutionMessageType(payload)?.trim());
+      // El reintento diferido es para mensajes SALIENTES (fromMe): el webhook puede tardar en
+      // guardarlos y el primer summary llega antes. Evolution GO marca el saliente en
+      // data.Info.IsFromMe (extractEvolutionFromMe, hecho para Evolution API, no lo detecta ahí).
+      const goInfoRecord = asRecord(asRecord(asRecord(payload)?.data)?.Info);
+      const isOutgoingMessage = Boolean(extractEvolutionFromMe(payload)) || goInfoRecord?.IsFromMe === true;
       const shouldFollowUp =
         !isEditedOrDeletedPayload &&
-        hasMessageContent &&
-        /MESSAGE/.test(normalizedEventName);
+        /MESSAGE/.test(normalizedEventName) &&
+        isOutgoingMessage;
       const isEventForSelectedInstance =
         !normalizedActiveInstanceName ||
         !effectiveInstanceName ||
@@ -1134,57 +1058,20 @@ export function ChatsRealtimeSync({
       }
     };
 
-    for (const instanceName of socketTargets) {
-      const normalizedApiKey = apiKey?.trim() || null;
-      const socketApiKey = normalizedApiKey;
-      const socket = io(buildSocketUrl(normalizedBaseUrl, instanceName), {
-        transports: ["websocket", "polling"],
-        reconnection: true,
-        ...(socketApiKey ? {
-          auth: { apikey: socketApiKey },
-          query: { apikey: socketApiKey },
-          extraHeaders: { apikey: socketApiKey },
-        } : {}),
-      });
-
-      socket.onAny((eventName, ...args) => {
-        if (typeof eventName === "string" && shouldTriggerRefresh(eventName)) {
-          handleRealtimeEvent({
-            eventName,
-            payload: pickSocketPayload(args),
-            socketInstanceName: instanceName,
-          });
-        }
-      });
-
-      sockets.push(socket);
-    }
-
     const nativeWebSocketUrl = apiKey?.trim() ? buildNativeWebSocketUrl(normalizedBaseUrl, apiKey) : "";
     const connectNativeSocket = () => {
       if (!nativeWebSocketUrl || nativeSocketClosedByCleanup) {
         return;
       }
 
-      rtToast(`W1·conectando /ws nativo (${nativeWebSocketUrl.split(":")[0]})`);
       try {
         nativeSocket = new WebSocket(nativeWebSocketUrl);
       } catch {
         nativeSocket = null;
-        rtToast("W2·new WebSocket lanzó excepción");
         return;
       }
 
-      nativeSocket.onopen = () => {
-        rtToast("W3·WS nativo ABIERTO ✓");
-      };
-
-      nativeSocket.onerror = () => {
-        rtToast("W4·WS nativo ERROR");
-      };
-
       nativeSocket.onmessage = (event) => {
-        rtToast("W5·frame recibido");
         try {
           const rawFrame = typeof event.data === "string" ? event.data : "";
           if (!rawFrame) {
@@ -1198,7 +1085,6 @@ export function ChatsRealtimeSync({
               : frame.payload;
           const queueName = readString(frame.queue) || readString(frame.event) || "";
           const eventName = extractEvolutionEventName(rawPayload) || queueName;
-          rtToast(`W6·queue:${queueName || "-"} evt:${eventName || "-"} pasa:${eventName && shouldTriggerRefresh(eventName) ? "si" : "no"}`);
 
           if (!eventName || !shouldTriggerRefresh(eventName)) {
             return;
@@ -1214,9 +1100,8 @@ export function ChatsRealtimeSync({
         }
       };
 
-      nativeSocket.onclose = (event) => {
+      nativeSocket.onclose = () => {
         nativeSocket = null;
-        rtToast(`W7·WS nativo CERRADO code:${event.code} clean:${event.wasClean ? "si" : "no"}`);
         if (nativeSocketClosedByCleanup) {
           return;
         }
@@ -1249,11 +1134,6 @@ export function ChatsRealtimeSync({
       clearPageRefreshTimer();
       liveUpdateQueuedRef.current = false;
       liveUpdateInFlightRef.current = false;
-
-      for (const socket of sockets) {
-        socket.removeAllListeners();
-        socket.disconnect();
-      }
     };
   }, [apiBaseUrl, apiKey, enabled, normalizedInstanceNamesKey, globalEventsEnabled]);
 

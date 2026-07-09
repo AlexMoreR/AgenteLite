@@ -873,7 +873,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   return (
     <section className="flex h-full min-h-0 flex-1 flex-col gap-4 overflow-hidden">
       <ChatsAutoRefresh
-        intervalMs={30000}
+        intervalMs={60000}
         enabled
         realtimeEnabled={chatsRealtimeSyncEnabled}
         selectedConversationKey={selectedUnified?.key ?? null}

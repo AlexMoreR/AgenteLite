@@ -62,27 +62,6 @@ const CONVERSATION_LIST_LOAD_BATCH_SIZE = 10;
 // Logs de depuración de la lista desactivados (ensuciaban la consola en desarrollo).
 const CHAT_LIST_DEBUG = false;
 
-// [RT-DEBUG temporal] Sonda visible en pantalla (móvil sin consola) para el realtime de
-// la lista. Solo se activa con ?rtdebug=1 en la URL. Quitar tras el diagnóstico.
-function rtToast(message: string) {
-  if (typeof window === "undefined") return;
-  try {
-    const params = new URLSearchParams(window.location.search);
-    if (params.has("rtdebug")) {
-      const value = params.get("rtdebug");
-      if (value === "0" || value === "false") {
-        window.localStorage.removeItem("rtdebug");
-      } else {
-        window.localStorage.setItem("rtdebug", "1");
-      }
-    }
-    if (window.localStorage.getItem("rtdebug") !== "1") return;
-    toast(message, { duration: 6000 });
-  } catch {
-    // no-op
-  }
-}
-
 function debugConversationList(...args: unknown[]) {
   if (!CHAT_LIST_DEBUG) {
     return;
@@ -756,10 +735,8 @@ export function SharedInbox({
       const customEvent = event as CustomEvent<{ conversation?: unknown }>;
       const snapshot = normalizeLiveConversationListSnapshot(customEvent.detail?.conversation);
       if (!snapshot) {
-        rtToast(`4·ui list-evt sin snapshot`);
         return;
       }
-      rtToast(`4·ui list-evt id:${snapshot.id}`);
 
       setConversationItems((current) => {
         const currentItem = findConversationItemBySnapshotId(current, snapshot.id) ?? undefined;
