@@ -11,7 +11,7 @@ export default async function manifest(): Promise<MetadataRoute.Manifest> {
     name: brandName,
     short_name: brandName,
     description: "Panel de trabajo para chats, CRM, contactos y gestion comercial.",
-    start_url: "/",
+    start_url: "/cliente/chats",
     scope: "/",
     display: "standalone",
     orientation: "portrait",
