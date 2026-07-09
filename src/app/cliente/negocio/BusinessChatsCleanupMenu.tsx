@@ -1,14 +1,14 @@
 "use client";
 
 import { useFormStatus } from "react-dom";
-import { Trash2, Users2 } from "lucide-react";
+import { MoreVertical, RotateCcw, Trash2, Users2 } from "lucide-react";
 import {
   clearEvolutionGhostChatsAction,
   clearWorkspaceChatsAction,
   clearWorkspaceContactsAction,
+  clearWorkspaceCrmAction,
 } from "@/app/actions/workspace-actions";
 import { clearConversationCache } from "@/components/chats/chat-history-cache";
-import { WhatsAppGlyph } from "@/components/icons/whatsapp-glyph";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -50,6 +50,21 @@ function ClearContactsSubmitButton() {
   );
 }
 
+function ClearCrmSubmitButton() {
+  const { pending } = useFormStatus();
+
+  return (
+    <button
+      type="submit"
+      className={`${cleanupItemClass} text-amber-600 hover:bg-amber-500/10 focus:bg-amber-500/10 dark:text-amber-400`}
+      disabled={pending}
+    >
+      <RotateCcw className="size-4" />
+      {pending ? "Reiniciando..." : "Limpiar CRM"}
+    </button>
+  );
+}
+
 function ClearEvolutionGhostChatsSubmitButton() {
   const { pending } = useFormStatus();
 
@@ -70,7 +85,7 @@ export function BusinessChatsCleanupMenu() {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button type="button" variant="outline" size="icon" aria-label="Abrir acciones del negocio">
-          <WhatsAppGlyph className="size-4" />
+          <MoreVertical className="size-4" />
         </Button>
       </DropdownMenuTrigger>
 
@@ -111,6 +126,24 @@ export function BusinessChatsCleanupMenu() {
           <input type="hidden" name="confirm" value="CLEAR_CONTACTS" />
           <DropdownMenuItem asChild>
             <ClearContactsSubmitButton />
+          </DropdownMenuItem>
+        </form>
+        <form
+          action={clearWorkspaceCrmAction}
+          onSubmit={(event) => {
+            const confirmed = window.confirm(
+              "Esto reiniciara el CRM: todos los contactos vuelven a la etapa NUEVO y ninguno queda oculto del CRM. No borra contactos ni chats.",
+            );
+
+            if (!confirmed) {
+              event.preventDefault();
+              return;
+            }
+          }}
+        >
+          <input type="hidden" name="confirm" value="CLEAR_CRM" />
+          <DropdownMenuItem asChild>
+            <ClearCrmSubmitButton />
           </DropdownMenuItem>
         </form>
         <form

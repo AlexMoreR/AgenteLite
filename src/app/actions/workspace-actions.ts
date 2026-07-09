@@ -30,6 +30,10 @@ const clearWorkspaceContactsSchema = z.object({
   confirm: z.literal("CLEAR_CONTACTS"),
 });
 
+const clearWorkspaceCrmSchema = z.object({
+  confirm: z.literal("CLEAR_CRM"),
+});
+
 const clearEvolutionGhostChatsSchema = z.object({
   confirm: z.literal("CLEAR_EVOLUTION_GHOST_CHATS"),
 });
@@ -373,6 +377,52 @@ export async function clearWorkspaceContactsAction(formData: FormData): Promise<
   revalidatePath("/cliente/agentes");
 
   redirect("/cliente/negocio?ok=Contactos+limpiados+correctamente");
+}
+
+export async function clearWorkspaceCrmAction(formData: FormData): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+    redirect("/unauthorized");
+  }
+
+  const parsed = clearWorkspaceCrmSchema.safeParse({
+    confirm: formData.get("confirm"),
+  });
+
+  if (!parsed.success) {
+    redirect("/cliente/negocio?error=No+se+pudo+limpiar+el+CRM");
+  }
+
+  const membership = await prisma.workspaceMember.findFirst({
+    where: { userId: session.user.id },
+    orderBy: { createdAt: "asc" },
+    select: {
+      workspace: {
+        select: {
+          id: true,
+        },
+      },
+    },
+  });
+
+  if (!membership?.workspace.id) {
+    redirect("/cliente/negocio?error=No+hay+negocio+configurado");
+  }
+
+  const workspaceId = membership.workspace.id;
+
+  // Reinicia el embudo del CRM SIN borrar contactos: todas las etapas vuelven a NUEVO y
+  // ningún contacto queda oculto del CRM. No toca chats, mensajes ni etiquetas.
+  await prisma.contact.updateMany({
+    where: { workspaceId },
+    data: { crmStage: "NUEVO", excludedFromCrm: false },
+  });
+
+  revalidatePath("/cliente/negocio");
+  revalidatePath("/cliente/crm");
+  revalidatePath("/cliente/contactos");
+
+  redirect("/cliente/negocio?ok=CRM+reiniciado+correctamente");
 }
 
 export async function clearEvolutionGhostChatsAction(formData: FormData): Promise<void> {
