@@ -43,7 +43,16 @@ const CHAT_REALTIME_DEBUG = false;
 function rtDebugEnabled() {
   if (typeof window === "undefined") return false;
   try {
-    return new URLSearchParams(window.location.search).has("rtdebug");
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("rtdebug")) {
+      const value = params.get("rtdebug");
+      if (value === "0" || value === "false") {
+        window.localStorage.removeItem("rtdebug");
+      } else {
+        window.localStorage.setItem("rtdebug", "1");
+      }
+    }
+    return window.localStorage.getItem("rtdebug") === "1";
   } catch {
     return false;
   }
@@ -344,6 +353,11 @@ export function ChatsRealtimeSync({
   activeInstanceNameRef.current = activeInstanceName;
   // Dedup de notificaciones: un mismo mensaje puede llegar por varios sockets (global + instancia).
   const notifiedMessageIdsRef = useRef<Set<string>>(new Set());
+
+  // [RT-DEBUG temporal] Confirmación en pantalla de que el modo debug está activo.
+  useEffect(() => {
+    rtToast("0·RT-DEBUG activo");
+  }, []);
 
   useEffect(() => {
     const normalizedBaseUrl = normalizeBaseUrl(apiBaseUrl);

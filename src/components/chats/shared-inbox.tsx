@@ -67,7 +67,16 @@ const CHAT_LIST_DEBUG = false;
 function rtToast(message: string) {
   if (typeof window === "undefined") return;
   try {
-    if (!new URLSearchParams(window.location.search).has("rtdebug")) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("rtdebug")) {
+      const value = params.get("rtdebug");
+      if (value === "0" || value === "false") {
+        window.localStorage.removeItem("rtdebug");
+      } else {
+        window.localStorage.setItem("rtdebug", "1");
+      }
+    }
+    if (window.localStorage.getItem("rtdebug") !== "1") return;
     toast(message, { duration: 6000 });
   } catch {
     // no-op
