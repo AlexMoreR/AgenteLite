@@ -271,6 +271,58 @@ export function SharedInbox({
     };
   }, [conversationListApiPath, searchQuery, selectedConnectionKey]);
 
+  // Al montar / cambiar de conexión o filtros, refresca la lista base desde el servidor
+  // (fetch directo, cache: no-store) y hace upsert. Evita depender del RSC cacheado en
+  // navegación: una conversación nueva que llegó mientras no estabas en esta vista aparece
+  // de una, sin recargar la página. Es un fetch único por cambio de deps (no un polling).
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const params = new URLSearchParams();
+        if (searchQuery.trim()) params.set("q", searchQuery.trim());
+        if (selectedConnectionKey.trim()) params.set("connection", selectedConnectionKey.trim());
+        if (assignedFilter !== "all") params.set("assigned", assignedFilter);
+        if (statusFilter !== "open") params.set("status", statusFilter);
+
+        const response = await fetch(`${conversationListApiPath}?${params.toString()}`, {
+          credentials: "same-origin",
+          cache: "no-store",
+        });
+        if (!response.ok) {
+          return;
+        }
+
+        const payload = (await response.json().catch(() => null)) as
+          | { ok?: boolean; conversations?: SharedInboxConversationItem[] }
+          | null;
+        if (cancelled || !payload?.ok || !Array.isArray(payload.conversations)) {
+          return;
+        }
+
+        const fresh = normalizeConversationItems(payload.conversations, (item) =>
+          buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item, assignedFilter, statusFilter),
+        );
+
+        setConversationItems((current) => {
+          let next = current;
+          for (const item of fresh) {
+            if (!item.id) continue;
+            next = updateConversationItemInSortedList(next, item.id, item);
+          }
+          return next;
+        });
+      } catch {
+        // Ignoramos errores de red.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [conversationListApiPath, searchAction, searchQuery, selectedConnectionKey, assignedFilter, statusFilter]);
+
   // Búsqueda aumentativa: trae del servidor los chats que coinciden por contenido de
   // mensaje o que están más allá de lo ya cargado, y los AGREGA (nunca quita) a la lista.
   // No navega ni reemplaza la lista: así borrar el buscador siempre restaura todos los
