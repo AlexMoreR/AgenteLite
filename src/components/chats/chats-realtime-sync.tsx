@@ -222,6 +222,17 @@ function isIndividualContactAddress(value: string | null): boolean {
 }
 
 function extractPhoneNumberFromPayload(payload: unknown): string | null {
+  // El teléfono del chat vive en key.remoteJid (el contacto), igual en mensajes entrantes
+  // que en salientes (fromMe). Priorizarlo evita que un remoteJid raro del payload haga que
+  // los mensajes fromMe salgan sin teléfono y no actualicen la lista.
+  const earlyRoot = asRecord(payload);
+  const earlyData = asRecord(earlyRoot?.data);
+  const earlyKey = asRecord(earlyData?.key) ?? asRecord(earlyData?.Key) ?? asRecord(earlyRoot?.key);
+  const chatJid = pickString(earlyKey, ["remoteJid", "chatId", "remoteJidAlt"]);
+  if (chatJid && isIndividualContactAddress(chatJid)) {
+    return normalizePhoneFromJid(chatJid);
+  }
+
   const remoteJid = extractEvolutionRemoteJid(payload) ?? extractEvolutionPhoneNumber(payload);
 
   // Si el identificador principal existe pero no es de contacto individual, descartar todo el payload.
@@ -814,7 +825,7 @@ export function ChatsRealtimeSync({
       const hasActiveAgentConversation = Boolean(currentConversationKey?.startsWith("agent:"));
       if (phoneNumber || /message/i.test(normalizedEventName)) {
         rtToast(
-          `1·evt ${normalizedEventName} | chat:${currentConversationKey ? "si" : "no"} | inst:${effectiveInstanceName || "-"} | tel:${phoneNumber || "-"}`,
+          `1·evt ${normalizedEventName} | tel:${phoneNumber || "-"} | jid:${extractEvolutionRemoteJid(payload) || "-"}`,
         );
       }
       const isSelectedAgentConversation =
