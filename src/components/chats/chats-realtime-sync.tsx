@@ -99,7 +99,9 @@ function buildNativeWebSocketUrl(baseUrl: string, token: string) {
   }
 
   const url = new URL(`${normalizedBaseUrl}/ws`);
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  // https:// y wss:// → wss:// ; http:// y ws:// → ws://.
+  // (El bug anterior degradaba wss:// a ws://, que el navegador bloquea en páginas https.)
+  url.protocol = url.protocol === "https:" || url.protocol === "wss:" ? "wss:" : "ws:";
   url.searchParams.set("token", token.trim());
   return url.toString();
 }
@@ -1142,14 +1144,25 @@ export function ChatsRealtimeSync({
         return;
       }
 
+      rtToast(`W1·conectando /ws nativo (${nativeWebSocketUrl.split(":")[0]})`);
       try {
         nativeSocket = new WebSocket(nativeWebSocketUrl);
       } catch {
         nativeSocket = null;
+        rtToast("W2·new WebSocket lanzó excepción");
         return;
       }
 
+      nativeSocket.onopen = () => {
+        rtToast("W3·WS nativo ABIERTO ✓");
+      };
+
+      nativeSocket.onerror = () => {
+        rtToast("W4·WS nativo ERROR");
+      };
+
       nativeSocket.onmessage = (event) => {
+        rtToast("W5·frame recibido");
         try {
           const rawFrame = typeof event.data === "string" ? event.data : "";
           if (!rawFrame) {
@@ -1163,6 +1176,7 @@ export function ChatsRealtimeSync({
               : frame.payload;
           const queueName = readString(frame.queue) || readString(frame.event) || "";
           const eventName = extractEvolutionEventName(rawPayload) || queueName;
+          rtToast(`W6·queue:${queueName || "-"} evt:${eventName || "-"} pasa:${eventName && shouldTriggerRefresh(eventName) ? "si" : "no"}`);
 
           if (!eventName || !shouldTriggerRefresh(eventName)) {
             return;
@@ -1178,8 +1192,9 @@ export function ChatsRealtimeSync({
         }
       };
 
-      nativeSocket.onclose = () => {
+      nativeSocket.onclose = (event) => {
         nativeSocket = null;
+        rtToast(`W7·WS nativo CERRADO code:${event.code} clean:${event.wasClean ? "si" : "no"}`);
         if (nativeSocketClosedByCleanup) {
           return;
         }
