@@ -222,15 +222,26 @@ function isIndividualContactAddress(value: string | null): boolean {
 }
 
 function extractPhoneNumberFromPayload(payload: unknown): string | null {
-  // El teléfono del chat vive en key.remoteJid (el contacto), igual en mensajes entrantes
-  // que en salientes (fromMe). Priorizarlo evita que un remoteJid raro del payload haga que
-  // los mensajes fromMe salgan sin teléfono y no actualicen la lista.
+  // Evolution GO (whatsmeow) manda data.Info con Chat/Sender/RecipientAlt/SenderAlt en vez
+  // de data.key.remoteJid. El número real del contacto (@s.whatsapp.net) está en:
+  //  - Entrante (IsFromMe=false): Info.Sender / Info.Chat.
+  //  - Saliente (IsFromMe=true): Info.RecipientAlt (Chat/Sender vienen como @lid, ID privado).
+  // Tomamos el primer candidato que sea un contacto individual real.
   const earlyRoot = asRecord(payload);
   const earlyData = asRecord(earlyRoot?.data);
-  const earlyKey = asRecord(earlyData?.key) ?? asRecord(earlyData?.Key) ?? asRecord(earlyRoot?.key);
-  const chatJid = pickString(earlyKey, ["remoteJid", "chatId", "remoteJidAlt"]);
-  if (chatJid && isIndividualContactAddress(chatJid)) {
-    return normalizePhoneFromJid(chatJid);
+  const info = asRecord(earlyData?.Info) ?? asRecord(earlyData?.info);
+  if (info) {
+    const infoCandidates = [
+      readString(info.RecipientAlt),
+      readString(info.Sender),
+      readString(info.Chat),
+      readString(info.SenderAlt),
+    ];
+    for (const jid of infoCandidates) {
+      if (jid && isIndividualContactAddress(jid)) {
+        return normalizePhoneFromJid(jid);
+      }
+    }
   }
 
   const remoteJid = extractEvolutionRemoteJid(payload) ?? extractEvolutionPhoneNumber(payload);
