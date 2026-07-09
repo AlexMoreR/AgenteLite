@@ -1,6 +1,6 @@
 "use client";
 
-import type { SharedInboxMessageItem, SharedInboxSelectedConversation } from "./shared-inbox";
+import type { SharedInboxMessageItem, SharedInboxSelectedConversation } from "./chat-inbox-types";
 
 type CachedMessageItem = Omit<SharedInboxMessageItem, "createdAt" | "editedAt" | "deletedAt"> & {
   createdAt: string;
