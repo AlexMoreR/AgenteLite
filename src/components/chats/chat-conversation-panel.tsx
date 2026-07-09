@@ -729,23 +729,9 @@ export const ConversationPanel = memo(function ConversationPanel({
                     </Tooltip>
                   </TooltipProvider>
                   <div className="min-w-0 space-y-0.5">
-                    <div className="flex min-w-0 items-center gap-1.5">
-                      <h2 className="truncate text-[13px] font-semibold text-foreground md:text-sm">
-                        {renderedConversation.label}
-                      </h2>
-                      <button
-                        type="button"
-                        onClick={() => setIsContactPanelOpen((open) => !open)}
-                        aria-pressed={isContactPanelOpen}
-                        className={`shrink-0 inline-flex h-6 w-6 items-center justify-center rounded-md transition hover:bg-muted ${
-                          isContactPanelOpen ? "bg-muted text-foreground" : "text-muted-foreground"
-                        }`}
-                        aria-label={isContactPanelOpen ? "Cerrar detalles del contacto" : "Abrir detalles del contacto"}
-                        title="Detalles del contacto"
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
+                    <h2 className="truncate text-[13px] font-semibold text-foreground md:text-sm">
+                      {renderedConversation.label}
+                    </h2>
                   </div>
                 </div>
               </div>

@@ -220,7 +220,7 @@ export function ChatTagsControl({
           aria-label={`Etiqueta ${tag.label}`}
         >
           <Badge
-            className={`max-w-full cursor-pointer px-2.5 py-1 text-[10px] transition hover:opacity-90 ${badgeClassName}`}
+            className={`max-w-full cursor-pointer rounded-[4px] px-2 py-0.5 text-[10px] font-normal uppercase tracking-wide transition hover:opacity-90 ${badgeClassName}`}
             style={{ backgroundColor: tag.color, color: "#ffffff" }}
           >
             <span className="truncate">{tag.label}</span>
