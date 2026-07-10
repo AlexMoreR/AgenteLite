@@ -5,10 +5,12 @@ import {
   Building2,
   CheckCircle2,
   Globe,
+  Megaphone,
   Sparkles,
   Users2,
 } from "lucide-react";
 import { MarketingIaResetButton } from "@/components/marketing/marketing-ia-reset-button";
+import { PageHeader } from "@/components/ui/page-header";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import {
@@ -78,12 +80,7 @@ function MarketingPageContent({
 
       <div className="grid gap-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="space-y-1">
-            <h1 className="text-2xl font-semibold tracking-[-0.05em] text-slate-950">Marketing IA</h1>
-            <p className="max-w-3xl text-sm text-slate-600">
-              Prepara el contexto del negocio y crea anuncios con el mismo lenguaje visual del resto del workspace.
-            </p>
-          </div>
+          <PageHeader icon={Megaphone} title="Marketing IA" />
 
           <div className="sm:pt-1">
             <MarketingIaResetButton />
