@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Bell, BellOff, BellRing, Loader2 } from "lucide-react";
+import { Bell, BellOff, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -159,10 +159,6 @@ export function NotificationPermissionToggle() {
   if (status === "on") {
     return (
       <div className="space-y-2">
-        <p className="inline-flex items-center gap-2 text-sm font-medium text-emerald-600 dark:text-emerald-400">
-          <BellRing className="size-4" />
-          Activadas en este dispositivo
-        </p>
         <div className="flex flex-wrap gap-2">
           <Button type="button" variant="outline" size="sm" onClick={handleTest} disabled={testing}>
             {testing ? <Loader2 className="size-4 animate-spin" /> : <Bell className="size-4" />}
