@@ -56,6 +56,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -2649,24 +2650,21 @@ export function OfficialApiChatbotWorkspace({
           </div>
         ) : null}
         {isCreatingWorkflow ? (
-          <div className="fixed inset-0 z-20 flex items-center justify-center bg-slate-950/20 p-6 backdrop-blur-[2px]">
-            <div className="w-full max-w-md overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_30px_80px_-48px_rgba(15,23,42,0.32)]">
-              <div className="relative border-b border-slate-200 px-6 py-7 text-center">
-                <button
-                  type="button"
-                  onClick={closeCreateWorkflowModal}
-                  className="absolute right-4 top-4 inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
-                  aria-label="Cerrar modal"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--primary)_10%,white)]">
-                  <Inbox className="h-6 w-6 text-[var(--primary)]" />
+          <Dialog
+            open={isCreatingWorkflow}
+            onOpenChange={(open) => {
+              if (!open) closeCreateWorkflowModal();
+            }}
+          >
+            <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-md">
+              <DialogHeader className="items-center text-center">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+                  <Inbox className="h-6 w-6" />
                 </div>
-                <p className="mt-4 text-xl font-semibold text-slate-950">Crear flujo</p>
-              </div>
+                <DialogTitle className="text-xl">Crear flujo</DialogTitle>
+              </DialogHeader>
 
-              <div className="space-y-5 px-6 py-6">
+              <div className="space-y-5">
                 <label className="block space-y-2">
                   <span className="text-sm font-medium text-slate-900">Nombre del flujo</span>
                   <Input
@@ -2806,8 +2804,8 @@ export function OfficialApiChatbotWorkspace({
                   Continuar
                 </Button>
               </div>
-            </div>
-          </div>
+            </DialogContent>
+          </Dialog>
         ) : null}
         {isQuickResponsesModalOpen && quickResponsesScenario ? (
           <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/25 p-6 backdrop-blur-[2px]">
