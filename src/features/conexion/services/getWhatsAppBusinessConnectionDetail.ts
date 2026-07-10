@@ -8,6 +8,27 @@ import {
 import { getOfficialApiConfigByWorkspaceId } from "@/lib/official-api-config";
 import { prisma } from "@/lib/prisma";
 
+// Tiempos maximos que esperamos a Evolution GO antes de seguir con un fallback,
+// para que un gateway lento no bloquee el render de la pantalla de detalle.
+const EVOLUTION_CALL_TIMEOUT_MS = 6000;
+const EVOLUTION_QR_TIMEOUT_MS = 9000; // el QR puede tener una espera interna (~2s)
+
+function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return new Promise<T>((resolve) => {
+    const timer = setTimeout(() => resolve(fallback), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      () => {
+        clearTimeout(timer);
+        resolve(fallback);
+      },
+    );
+  });
+}
+
 async function buildQrDataUrl(qrValue: string | null) {
   if (!qrValue) {
     return "";
@@ -71,34 +92,49 @@ export async function getWhatsAppBusinessConnectionDetail(workspaceId: string, c
     return null;
   }
 
-  const officialApiConfig =
-    channel.provider === "OFFICIAL_API" ? await getOfficialApiConfigByWorkspaceId(workspaceId) : null;
-  const remoteConnectionState = channel?.provider === "EVOLUTION" && channel?.evolutionInstanceName
-    ? await getEvolutionConnectionState(channel.evolutionInstanceName)
-    : null;
+  const instanceName = channel.provider === "EVOLUTION" ? channel.evolutionInstanceName : null;
+
+  // Ola 1 (en paralelo): config oficial, estado remoto y perfil de la instancia.
+  // Antes se hacian en serie, sumando 3+ round-trips a Evolution.
+  const [officialApiConfig, remoteConnectionState, instanceProfile] = await Promise.all([
+    channel.provider === "OFFICIAL_API"
+      ? getOfficialApiConfigByWorkspaceId(workspaceId)
+      : Promise.resolve(null),
+    instanceName
+      ? withTimeout(getEvolutionConnectionState(instanceName), EVOLUTION_CALL_TIMEOUT_MS, null)
+      : Promise.resolve(null),
+    instanceName
+      ? withTimeout(fetchEvolutionInstanceProfile(instanceName), EVOLUTION_CALL_TIMEOUT_MS, null)
+      : Promise.resolve(null),
+  ]);
+
   const remoteIsConnected =
     remoteConnectionState === "open" ||
     remoteConnectionState === "connected" ||
     remoteConnectionState === "connection_open" ||
     remoteConnectionState === "online";
-  const remoteConnectionQr =
-    channel?.provider === "EVOLUTION" && channel?.evolutionInstanceName && !remoteIsConnected
-      ? await getEvolutionConnectionQr(channel.evolutionInstanceName)
-      : { qrCode: null, pairingCode: null };
-  const instanceProfile =
-    channel?.provider === "EVOLUTION" && channel.evolutionInstanceName
-      ? await fetchEvolutionInstanceProfile(channel.evolutionInstanceName)
-      : null;
+
   const normalizedInstanceOwner = instanceProfile?.owner ? instanceProfile.owner.split("@")[0]?.replace(/\D/g, "") ?? "" : "";
   const resolvedPhoneNumber = channel.phoneNumber || normalizedInstanceOwner || null;
-  const profilePictureUrl =
-    instanceProfile?.profilePictureUrl ||
-    (channel?.provider === "EVOLUTION" && channel.evolutionInstanceName && resolvedPhoneNumber
-      ? await fetchEvolutionProfilePictureUrl({
-          instanceName: channel.evolutionInstanceName,
-          phoneNumber: resolvedPhoneNumber,
+
+  // Ola 2 (en paralelo): QR (solo si no esta conectado) y foto de perfil (solo si el perfil no la trajo).
+  const [remoteConnectionQr, fetchedProfilePictureUrl] = await Promise.all([
+    instanceName && !remoteIsConnected
+      ? withTimeout(getEvolutionConnectionQr(instanceName), EVOLUTION_QR_TIMEOUT_MS, {
+          qrCode: null,
+          pairingCode: null,
         })
-      : null);
+      : Promise.resolve({ qrCode: null as string | null, pairingCode: null as string | null }),
+    !instanceProfile?.profilePictureUrl && instanceName && resolvedPhoneNumber
+      ? withTimeout(
+          fetchEvolutionProfilePictureUrl({ instanceName, phoneNumber: resolvedPhoneNumber }),
+          EVOLUTION_CALL_TIMEOUT_MS,
+          null,
+        )
+      : Promise.resolve(null),
+  ]);
+
+  const profilePictureUrl = instanceProfile?.profilePictureUrl || fetchedProfilePictureUrl;
 
   if (channel.id && resolvedPhoneNumber && channel.phoneNumber !== resolvedPhoneNumber) {
     await prisma.whatsAppChannel.update({
