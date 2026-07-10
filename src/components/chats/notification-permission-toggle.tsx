@@ -143,15 +143,15 @@ export function NotificationPermissionToggle() {
 
   if (status === "denied") {
     return (
-      <div className="space-y-1">
-        <p className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
-          <BellOff className="size-4 text-muted-foreground" />
-          Notificaciones bloqueadas
-        </p>
-        <p className="text-sm text-muted-foreground">
-          Las bloqueaste antes. Actívalas en los ajustes del navegador (candado junto a la
-          dirección → Notificaciones → Permitir) y recarga.
-        </p>
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" variant="outline" size="sm" onClick={handleTest} disabled={testing}>
+          {testing ? <Loader2 className="size-4 animate-spin" /> : <Bell className="size-4" />}
+          Probar
+        </Button>
+        <Button type="button" size="sm" onClick={handleActivate} disabled={busy}>
+          {busy ? <Loader2 className="size-4 animate-spin" /> : <Bell className="size-4" />}
+          Activar
+        </Button>
       </div>
     );
   }
