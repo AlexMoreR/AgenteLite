@@ -18,6 +18,7 @@ import { NotificationSoundSelect } from "@/components/chats/notification-sound-s
 import { NotificationPermissionToggle } from "@/components/chats/notification-permission-toggle";
 import { ChannelCollaboratorsForm } from "./ChannelCollaboratorsForm";
 import { OfficialApiConnectionSetupCard } from "./OfficialApiConnectionSetupCard";
+import { RegenerateInstanceButton } from "./RegenerateInstanceButton";
 
 type WhatsAppBusinessConnectionWorkspaceProps = {
   connection: {
@@ -357,6 +358,17 @@ export function WhatsAppBusinessConnectionWorkspace({
                   title="Escanea el codigo QR"
                   description="Apunta la camara y espera la confirmacion de conexion."
                 />
+              </div>
+
+              <div className="rounded-lg border border-dashed border-border bg-muted/30 p-4">
+                <p className="text-sm font-medium text-foreground">¿El QR no funciona o no aparece?</p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  Crea una cuenta nueva para este canal con un QR nuevo. Tus chats, contactos, CRM,
+                  etiquetas y el agente vinculado se conservan; solo tendrás que volver a escanear.
+                </p>
+                <div className="mt-3">
+                  <RegenerateInstanceButton channelId={connection.id} returnTo={connectionReturnTo} />
+                </div>
               </div>
             </CardContent>
           </Card>

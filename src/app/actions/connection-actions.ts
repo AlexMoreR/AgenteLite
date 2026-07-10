@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
-import { createEvolutionChannel, deleteEvolutionInstance } from "@/lib/evolution";
+import { createEvolutionChannel, deleteEvolutionInstance, recreateEvolutionInstanceForChannel } from "@/lib/evolution";
 import { getOfficialApiConfigByWorkspaceId } from "@/lib/official-api-config";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
@@ -130,6 +130,64 @@ export async function createConnectionChannelAction(formData: FormData): Promise
         : "Canal+oficial+creado"
       : "Canal+oficial+creado.+Completa+ahora+la+configuracion+de+Meta";
   redirect(`/cliente/conexion/whatsapp-business/${createdChannel.id}?ok=${okMessage}`);
+}
+
+const regenerateConnectionInstanceSchema = z.object({
+  channelId: z.string().trim().min(1, "Canal invalido"),
+  returnTo: z.string().trim().optional(),
+});
+
+/**
+ * Crea una instancia de Evolution NUEVA para un canal existente (nuevo QR) sin borrar el
+ * canal: conserva conversaciones, contactos, CRM, etiquetas, agente y colaboradores.
+ * Sirve cuando la instancia vieja quedo pegada y no genera QR.
+ */
+export async function regenerateConnectionInstanceAction(formData: FormData): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
+    redirect("/unauthorized");
+  }
+  await requireClientWorkspaceAccess("connection");
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    redirect("/cliente/conexion?error=Debes+crear+tu+negocio+primero");
+  }
+
+  const parsed = regenerateConnectionInstanceSchema.safeParse({
+    channelId: getRequiredFormValue(formData, "channelId"),
+    returnTo: getOptionalFormValue(formData, "returnTo"),
+  });
+  if (!parsed.success) {
+    redirect("/cliente/conexion?error=Canal+invalido");
+  }
+
+  const channel = await prisma.whatsAppChannel.findFirst({
+    where: {
+      id: parsed.data.channelId,
+      workspaceId: membership.workspace.id,
+      provider: "EVOLUTION",
+    },
+    select: { id: true },
+  });
+  if (!channel) {
+    redirect("/cliente/conexion?error=Canal+no+encontrado");
+  }
+
+  const detailPath = `/cliente/conexion/whatsapp-business/${channel.id}`;
+  try {
+    await recreateEvolutionInstanceForChannel({
+      channelId: channel.id,
+      workspaceId: membership.workspace.id,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "No se pudo crear la cuenta nueva";
+    redirect(`${detailPath}?error=${encodeURIComponent(message)}`);
+  }
+
+  revalidatePath("/cliente/conexion");
+  revalidatePath(detailPath);
+  redirect(`${detailPath}?ok=${encodeURIComponent("Cuenta nueva creada. Escanea el QR para conectar.")}`);
 }
 
 const deleteConnectionChannelSchema = z.object({

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getEvolutionSettings } from "@/lib/system-settings";
 import { persistedChatMediaFileExists } from "@/lib/chat-media-storage";
@@ -1217,11 +1218,20 @@ export async function fetchEvolutionInstanceProfile(instanceName: string) {
   }
 }
 
-export async function createEvolutionChannel(input: {
-  workspaceId: string;
-  name: string;
-  agentId?: string | null;
-}) {
+export type ProvisionedEvolutionInstance = {
+  instanceName: string;
+  instanceId: string | null;
+  instanceToken: string | null;
+  qrCode: string | null;
+  pairingCode: string | null;
+  webhookUrl: string;
+  subscribedEvents: string;
+};
+
+// Crea y conecta una instancia NUEVA en Evolution GO (sin tocar la BD) y devuelve sus
+// datos (nombre, id, QR, etc.). La usan tanto la creacion de canal como la recreacion
+// de instancia para un canal existente.
+export async function provisionEvolutionInstance(): Promise<ProvisionedEvolutionInstance> {
   const settings = await getEvolutionSettings();
   if (!settings.apiBaseUrl || !settings.apiToken || !settings.webhookBaseUrl) {
     throw new Error("Completa primero la configuracion global de WhatsApp");
@@ -1343,21 +1353,39 @@ export async function createEvolutionChannel(input: {
   const qrCode = extractEvolutionConnectQrCode(connectData) || getInstanceRecordQrCode(connectedInstanceSnapshot ?? {}) || null;
   const pairingCode = extractEvolutionPairingCode(connectData);
 
+  return {
+    instanceName,
+    instanceId: createdInstanceId,
+    instanceToken: createdInstanceToken,
+    qrCode,
+    pairingCode,
+    webhookUrl: getInstanceRecordWebhook(connectedInstanceSnapshot ?? {}) || settings.webhookBaseUrl,
+    subscribedEvents: getInstanceRecordEvents(connectedInstanceSnapshot ?? {}) || "ALL",
+  };
+}
+
+export async function createEvolutionChannel(input: {
+  workspaceId: string;
+  name: string;
+  agentId?: string | null;
+}) {
+  const provisioned = await provisionEvolutionInstance();
+
   const channel = await prisma.whatsAppChannel.create({
     data: {
       workspaceId: input.workspaceId,
       agentId: input.agentId ?? null,
       provider: "EVOLUTION",
       name: input.name,
-      evolutionInstanceName: instanceName,
-      evolutionExternalKey: createdInstanceId,
-      status: qrCode ? "QRCODE" : "CONNECTING",
-      qrCode,
+      evolutionInstanceName: provisioned.instanceName,
+      evolutionExternalKey: provisioned.instanceId,
+      status: provisioned.qrCode ? "QRCODE" : "CONNECTING",
+      qrCode: provisioned.qrCode,
       metadata: {
-        pairingCode,
-        webhookUrl: getInstanceRecordWebhook(connectedInstanceSnapshot ?? {}) || settings.webhookBaseUrl,
-        subscribedEvents: getInstanceRecordEvents(connectedInstanceSnapshot ?? {}) || "ALL",
-        ...(createdInstanceToken ? { instanceToken: createdInstanceToken } : {}),
+        pairingCode: provisioned.pairingCode,
+        webhookUrl: provisioned.webhookUrl,
+        subscribedEvents: provisioned.subscribedEvents,
+        ...(provisioned.instanceToken ? { instanceToken: provisioned.instanceToken } : {}),
       },
     },
     select: {
@@ -1370,6 +1398,61 @@ export async function createEvolutionChannel(input: {
     channelId: channel.id,
     instanceName: channel.evolutionInstanceName,
   };
+}
+
+// Recrea la instancia de Evolution para un canal EXISTENTE sin borrar el canal:
+// crea una instancia nueva, apunta el canal a ella (nuevo QR) y borra la vieja en evogo.
+// Conserva conversaciones, contactos, CRM, etiquetas, agente y colaboradores (todo cuelga del channelId).
+export async function recreateEvolutionInstanceForChannel(input: {
+  channelId: string;
+  workspaceId: string;
+}) {
+  const channel = await prisma.whatsAppChannel.findFirst({
+    where: { id: input.channelId, workspaceId: input.workspaceId, provider: "EVOLUTION" },
+    select: { id: true, evolutionInstanceName: true, metadata: true },
+  });
+  if (!channel) {
+    throw new Error("Canal no encontrado");
+  }
+
+  const oldInstanceName = channel.evolutionInstanceName;
+  const provisioned = await provisionEvolutionInstance();
+
+  const baseMetadata =
+    channel.metadata && typeof channel.metadata === "object" && !Array.isArray(channel.metadata)
+      ? (channel.metadata as Record<string, unknown>)
+      : {};
+  const nextMetadata: Record<string, unknown> = {
+    ...baseMetadata,
+    pairingCode: provisioned.pairingCode,
+    webhookUrl: provisioned.webhookUrl,
+    subscribedEvents: provisioned.subscribedEvents,
+  };
+  if (provisioned.instanceToken) {
+    nextMetadata.instanceToken = provisioned.instanceToken;
+  }
+
+  await prisma.whatsAppChannel.update({
+    where: { id: channel.id },
+    data: {
+      evolutionInstanceName: provisioned.instanceName,
+      evolutionExternalKey: provisioned.instanceId,
+      status: provisioned.qrCode ? "QRCODE" : "CONNECTING",
+      qrCode: provisioned.qrCode,
+      metadata: nextMetadata as Prisma.InputJsonValue,
+    },
+  });
+
+  // Borra la instancia vieja en evogo (best-effort) para no dejar huerfanos.
+  if (oldInstanceName && oldInstanceName !== provisioned.instanceName) {
+    try {
+      await deleteEvolutionInstance(oldInstanceName);
+    } catch {
+      // no rompemos si ya no existe o el borrado falla
+    }
+  }
+
+  return { instanceName: provisioned.instanceName };
 }
 
 export async function ensureEvolutionInstanceFullHistory(instanceName: string) {
