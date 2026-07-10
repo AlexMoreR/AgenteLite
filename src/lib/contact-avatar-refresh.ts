@@ -6,7 +6,8 @@ import { fetchEvolutionProfilePictureUrl } from "@/lib/evolution";
 // Cache "on-demand" de las fotos de perfil de WhatsApp por contacto.
 // Las URLs de foto de Evolution/WhatsApp son temporales (expiran), por eso guardamos
 // cuándo se pidió la última vez en Contact.metadata.avatarFetchedAt y refrescamos por TTL.
-const AVATAR_TTL_MS = 12 * 60 * 60 * 1000; // 12 horas
+const AVATAR_TTL_MS = 12 * 60 * 60 * 1000; // con foto: refresca cada 12h (las URLs de Meta expiran)
+const AVATAR_RETRY_MS = 60 * 60 * 1000; // sin foto todavía / fallo: reintenta cada 1h
 const MAX_PER_RUN = 12; // como máximo una página de contactos por ejecución
 
 export type ContactAvatarTarget = {
@@ -67,7 +68,9 @@ async function refreshContactAvatars(targets: ContactAvatarTarget[]) {
       if (Number.isNaN(fetchedAt)) {
         return true; // nunca se intentó
       }
-      return now - fetchedAt > AVATAR_TTL_MS;
+      // Si ya tiene foto, refrescamos cada 12h; si aún no, reintentamos cada 1h.
+      const ttl = contact.avatarUrl ? AVATAR_TTL_MS : AVATAR_RETRY_MS;
+      return now - fetchedAt > ttl;
     })
     .slice(0, MAX_PER_RUN);
 

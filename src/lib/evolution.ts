@@ -54,10 +54,6 @@ type EvolutionSendTextResponse = {
 
 type EvolutionSendMediaResponse = EvolutionSendTextResponse;
 
-type EvolutionProfilePictureResponse = {
-  profilePictureUrl?: string | null;
-};
-
 type EvolutionInstanceRecord = {
   id?: string;
   name?: string;
@@ -1983,7 +1979,7 @@ export async function fetchEvolutionProfilePictureUrl(input: {
   }
 
   try {
-    const response = await evolutionInstanceRequest<EvolutionProfilePictureResponse & { avatar?: string }>({
+    const response = await evolutionInstanceRequest<Record<string, unknown>>({
       instanceName: input.instanceName,
       path: "/user/avatar",
       legacyPath: `/chat/fetchProfilePictureUrl/${input.instanceName}`,
@@ -1996,8 +1992,63 @@ export async function fetchEvolutionProfilePictureUrl(input: {
       },
     });
 
-    return response.profilePictureUrl || response.avatar || null;
+    debugEvolutionPayload("profile_picture_response", {
+      instanceName: input.instanceName,
+      number: input.phoneNumber,
+      response,
+    });
+
+    return extractProfilePictureUrl(response);
   } catch {
     return null;
   }
+}
+
+// La respuesta de /user/avatar en Evolution GO es un mapa generico (gin.H) y la clave de la
+// URL varia (whatsmeow usa `URL` en mayuscula; Evolution API usa `profilePictureUrl`). Buscamos
+// la primera URL http(s) bajo claves conocidas o, en su defecto, en profundidad.
+function extractProfilePictureUrl(response: unknown): string | null {
+  const isHttpUrl = (value: unknown): value is string =>
+    typeof value === "string" && /^https?:\/\//i.test(value.trim());
+
+  const KNOWN_KEYS = [
+    "URL",
+    "url",
+    "profilePictureUrl",
+    "profilePicUrl",
+    "pictureUrl",
+    "picUrl",
+    "avatarUrl",
+    "avatar",
+    "picture",
+    "image",
+    "imageUrl",
+  ];
+
+  const visit = (node: unknown, depth: number): string | null => {
+    if (node == null || depth > 4) {
+      return null;
+    }
+    if (isHttpUrl(node)) {
+      return node.trim();
+    }
+    if (typeof node !== "object") {
+      return null;
+    }
+    const obj = node as Record<string, unknown>;
+    for (const key of KNOWN_KEYS) {
+      if (isHttpUrl(obj[key])) {
+        return (obj[key] as string).trim();
+      }
+    }
+    for (const value of Object.values(obj)) {
+      const found = visit(value, depth + 1);
+      if (found) {
+        return found;
+      }
+    }
+    return null;
+  };
+
+  return visit(response, 0);
 }
