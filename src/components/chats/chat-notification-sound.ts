@@ -62,8 +62,8 @@ const SOUND_FILES: Partial<Record<NotificationSoundId, string>> = {
   sound1: "/sounds/sonido-1.mp3",
   sound2: "/sounds/sonido-2.mp3",
   sound3: "/sounds/sonido-3.mp3",
-  sound4: "/sounds/sonido-4.mp3",
-  sound5: "/sounds/sonido-5.mp3",
+  // sound4 y sound5 aun no tienen archivo mp3: usan el tono generado de respaldo
+  // (ver SOUND_PATTERNS) para que nunca queden en silencio.
 };
 
 // Tonos generados de respaldo (solo se usan si un sonido NO tiene archivo asociado).
@@ -84,11 +84,27 @@ const SOUND_PATTERNS: Partial<Record<NotificationSoundId, Tone[]>> = {
     { freq: 523, start: 0, duration: 0.12 },
     { freq: 784, start: 0.1, duration: 0.22 },
   ],
+  // Campanita doble media.
+  sound4: [
+    { freq: 660, start: 0, duration: 0.14 },
+    { freq: 990, start: 0.13, duration: 0.2 },
+  ],
+  // Dos notas altas rápidas.
+  sound5: [
+    { freq: 1046, start: 0, duration: 0.1 },
+    { freq: 1568, start: 0.12, duration: 0.18 },
+  ],
 };
 
-export function playNotificationSound(soundId: NotificationSoundId, ctx: AudioContext) {
+/**
+ * Reproduce el sonido de notificación. Devuelve `true` si se intentó reproducir algo.
+ * Los sonidos con ARCHIVO usan un <audio> (funciona aunque la pestaña esté en segundo
+ * plano, siempre que la página ya haya tenido una interacción del usuario) y NO dependen
+ * del AudioContext. Los tonos generados sí necesitan un AudioContext activo (`ctx`).
+ */
+export function playNotificationSound(soundId: NotificationSoundId, ctx: AudioContext | null): boolean {
   if (soundId === "silence") {
-    return;
+    return false;
   }
 
   // Si el sonido tiene un archivo asociado, lo reproducimos con un <audio>.
@@ -98,15 +114,16 @@ export function playNotificationSound(soundId: NotificationSoundId, ctx: AudioCo
       const audio = new Audio(fileUrl);
       audio.volume = 0.85;
       void audio.play().catch(() => {});
+      return true;
     } catch {
       // Si falla (archivo ausente, etc.) no rompemos nada.
+      return false;
     }
-    return;
   }
 
   const pattern = SOUND_PATTERNS[soundId];
-  if (!pattern) {
-    return;
+  if (!pattern || !ctx) {
+    return false;
   }
 
   if (ctx.state === "suspended") {
@@ -132,4 +149,6 @@ export function playNotificationSound(soundId: NotificationSoundId, ctx: AudioCo
     osc.start(startAt);
     osc.stop(endAt + 0.02);
   }
+
+  return true;
 }

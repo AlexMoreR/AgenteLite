@@ -83,12 +83,13 @@ export function ChatIncomingNotifier({ enabled = true }: { enabled?: boolean }) 
 
       const soundId = getStoredNotificationSound();
       const ctx = audioContextRef.current;
-      // Solo podemos reproducir Web Audio (sonido personalizado) si el contexto ya
-      // fue desbloqueado por una interacción del usuario (state === "running").
-      const playedWebAudio = soundId !== "silence" && ctx?.state === "running";
-      if (playedWebAudio && ctx) {
-        playNotificationSound(soundId, ctx);
+      // Si el contexto quedó suspendido (p. ej. al pasar a segundo plano), intentamos
+      // reanudarlo para los tonos generados. Los sonidos de ARCHIVO no dependen del ctx.
+      if (ctx?.state === "suspended") {
+        void ctx.resume();
       }
+      // playNotificationSound decide archivo vs tono y devuelve si se reprodujo algo.
+      const playedWebAudio = playNotificationSound(soundId, ctx ?? null);
 
       if (
         typeof Notification !== "undefined" &&
