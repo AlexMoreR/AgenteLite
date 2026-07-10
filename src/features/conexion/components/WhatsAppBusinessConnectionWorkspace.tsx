@@ -1,5 +1,4 @@
-import Link from "next/link";
-import { BellRing, Bot, CheckCircle2, MessageSquareReply, Power, Smartphone, TimerReset, UserRound, Volume2 } from "lucide-react";
+import { BellRing, Bot, Cpu, MessageSquareReply, Power, Smartphone, TimerReset, UserRound, Volume2 } from "lucide-react";
 import {
   saveAgentReactivationMessageAction,
   saveAgentResponseDelayAction,
@@ -8,8 +7,6 @@ import {
 import { assignConnectionChannelAction, toggleConnectionChannelStatusAction } from "@/app/actions/connection-actions";
 import { WhatsappQrAutoRefresh } from "@/components/agents/whatsapp-qr-auto-refresh";
 import { WhatsappQrCountdown } from "@/components/agents/whatsapp-qr-countdown";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { FormActionSwitch } from "@/components/ui/form-action-switch";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
@@ -86,45 +83,52 @@ export function WhatsAppBusinessConnectionWorkspace({
       ? connection.phoneNumber || "API oficial"
       : connection.phoneNumber || "QR";
   const connectionReturnTo = `/cliente/conexion/whatsapp-business/${connection.id}`;
-  const connectionStatusLabel = isConnected ? "Conectado" : "Desconectado";
+  const connectionStatusLabel = isConnected ? "Conectado" : "Sin conectar";
 
   const headerCard = (
-    <Card>
-      <CardContent className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div className="flex items-start gap-2.5">
-          <Avatar className="size-10 rounded-md">
+    <Card className="relative overflow-hidden py-0">
+      <span
+        className={`absolute inset-y-0 left-0 w-1 ${isConnected ? "bg-emerald-500" : "bg-muted-foreground/25"}`}
+        aria-hidden="true"
+      />
+      <CardContent className="relative flex flex-col gap-3 py-3.5 pl-5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
+          <Avatar className="size-11 shrink-0 rounded-full ring-1 ring-emerald-100">
             {connection.logoUrl ? (
-              <AvatarImage src={connection.logoUrl} alt={`Logo de ${connection.name}`} className="object-cover" />
+              <AvatarImage src={connection.logoUrl} alt={`Logo de ${connection.name}`} className="rounded-full object-cover" />
             ) : null}
-            <AvatarFallback
-              className={
-                isConnected
-                  ? "rounded-md bg-emerald-500/10 text-emerald-600"
-                  : "rounded-md bg-primary/10 text-primary"
-              }
-            >
-              {isConnected ? <CheckCircle2 className="size-5" /> : <Smartphone className="size-5" />}
+            <AvatarFallback className="rounded-full bg-emerald-50 text-emerald-600">
+              <WhatsAppGlyph className="size-6" />
             </AvatarFallback>
           </Avatar>
-          <div className="min-w-0 space-y-0.5">
-            <div className="flex flex-wrap items-center gap-2">
+
+          <div className="min-w-0 space-y-1">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
               <h2 className="truncate text-sm font-semibold text-foreground">{connection.name}</h2>
-              <StatusPill label={connectionStatusLabel} />
+              {connection.agentName ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+                  <Bot className="size-3" />
+                  {connection.agentName}
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                  <Cpu className="size-3" />
+                  Sin agente
+                </span>
+              )}
             </div>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm text-muted-foreground">
-              <div className="inline-flex items-center gap-1.5">
-                <Smartphone className="size-3.5" />
-                <span>{providerLabel}</span>
-              </div>
-              <div className="inline-flex items-center gap-1.5">
-                <Bot className="size-3.5 text-primary" />
-                <span className="truncate">{connection.agentName || "Sin agente"}</span>
-              </div>
-            </div>
+
+            {providerLabel ? (
+              <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                <Smartphone className="size-3 shrink-0" />
+                <span className="tabular-nums">{providerLabel}</span>
+              </span>
+            ) : null}
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+          <StatusPill label={connectionStatusLabel} />
           <FormActionSwitch
             action={toggleConnectionChannelStatusAction}
             checked={connection.isActive}
@@ -134,12 +138,6 @@ export function WhatsAppBusinessConnectionWorkspace({
               { name: "returnTo", value: connectionReturnTo },
             ]}
           />
-
-          {connection.agentId ? (
-            <Button asChild>
-              <Link href={`/cliente/agentes/${connection.agentId}`}>Ir al agente</Link>
-            </Button>
-          ) : null}
         </div>
       </CardContent>
     </Card>
@@ -367,14 +365,31 @@ export function WhatsAppBusinessConnectionWorkspace({
   );
 }
 
+function WhatsAppGlyph({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className={className}>
+      <path d="M19.05 4.94A9.9 9.9 0 0 0 12.02 2C6.51 2 2.02 6.48 2.02 12c0 1.76.46 3.48 1.33 5L2 22l5.15-1.34A9.95 9.95 0 0 0 12.02 22h.01c5.51 0 9.99-4.49 9.99-10 0-2.67-1.04-5.18-2.97-7.06Zm-7.03 15.38h-.01a8.3 8.3 0 0 1-4.23-1.16l-.3-.18-3.06.8.82-2.98-.2-.31a8.27 8.27 0 0 1-1.28-4.43c0-4.58 3.73-8.31 8.32-8.31 2.22 0 4.3.86 5.87 2.43a8.23 8.23 0 0 1 2.43 5.88c0 4.58-3.73 8.31-8.36 8.31Zm4.56-6.2c-.25-.12-1.47-.72-1.7-.8-.23-.08-.4-.12-.57.12-.17.25-.65.8-.8.96-.15.17-.3.19-.55.07-.25-.12-1.05-.39-2-1.24-.74-.66-1.24-1.47-1.39-1.72-.15-.25-.02-.38.11-.5.11-.11.25-.29.37-.43.12-.15.16-.25.24-.42.08-.17.04-.32-.02-.44-.06-.12-.57-1.37-.78-1.87-.2-.49-.4-.42-.57-.43h-.48c-.17 0-.44.06-.67.31-.23.25-.88.86-.88 2.1 0 1.23.9 2.43 1.02 2.59.12.17 1.77 2.7 4.29 3.78.6.26 1.08.42 1.44.53.61.19 1.17.16 1.61.1.49-.07 1.47-.6 1.68-1.18.21-.58.21-1.08.15-1.18-.06-.1-.22-.16-.47-.28Z" />
+    </svg>
+  );
+}
+
 function StatusPill({ label }: { label: string }) {
-  const dotTone = label === "Conectado" ? "bg-emerald-500" : "bg-muted-foreground";
+  const connected = label === "Conectado";
+  const waiting = label === "Esperando QR";
+  const tone = connected
+    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+    : waiting
+      ? "border-amber-200 bg-amber-50 text-amber-700"
+      : "border-border bg-muted text-muted-foreground";
+  const dotTone = connected ? "bg-emerald-500" : waiting ? "bg-amber-500" : "bg-muted-foreground";
 
   return (
-    <Badge variant="outline" className="gap-1.5">
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ${tone}`}
+    >
       <span className={`size-1.5 rounded-full ${dotTone}`} />
       {label}
-    </Badge>
+    </span>
   );
 }
 
