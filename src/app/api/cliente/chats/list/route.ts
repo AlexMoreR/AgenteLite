@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { auth } from "@/auth";
 import { dedupeAndSortConversationListRows } from "@/lib/chat-conversation-list";
 import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
+import { scheduleContactAvatarRefresh, type ContactAvatarTarget } from "@/lib/contact-avatar-refresh";
 import { extractEvolutionMessageText, extractEvolutionPushName } from "@/lib/evolution-webhook";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { prisma } from "@/lib/prisma";
@@ -396,6 +397,20 @@ async function getAgentConversationList(input: {
 
   const sorted = merged;
   const page = sorted.slice(0, input.limit);
+
+  // Refresco best-effort de las fotos de perfil de WhatsApp para los contactos visibles
+  // (en segundo plano, con TTL/caché en Contact.metadata). Ver contact-avatar-refresh.ts.
+  const avatarTargets = activeAgentConversations.reduce<ContactAvatarTarget[]>((acc, conversation) => {
+    const channel = conversation.channelId ? channelsById.get(conversation.channelId) : null;
+    const instanceName =
+      channel?.provider === "EVOLUTION" ? channel.evolutionInstanceName?.trim() ?? "" : "";
+    const phoneNumber = conversation.contact.phoneNumber?.trim() ?? "";
+    if (instanceName && phoneNumber) {
+      acc.push({ contactId: conversation.contact.id, phoneNumber, instanceName });
+    }
+    return acc;
+  }, []);
+  scheduleContactAvatarRefresh(avatarTargets);
 
   return {
     conversations: page,
