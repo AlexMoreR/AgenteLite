@@ -223,21 +223,22 @@ export function WhatsAppBusinessConnectionWorkspace({
       ) : null}
 
       <Card>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <p className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
-              <Volume2 className="size-4 text-primary" />
-              <span>Sonido</span>
-            </p>
-            <NotificationSoundSelect />
-          </div>
-          <div className="space-y-2 border-t border-border pt-4">
-            <p className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
-              <BellRing className="size-4 text-primary" />
-              <span>Notificaciones del dispositivo</span>
-            </p>
-            <NotificationPermissionToggle />
-          </div>
+        <CardContent className="space-y-2">
+          <p className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
+            <Volume2 className="size-4 text-primary" />
+            <span>Sonido</span>
+          </p>
+          <NotificationSoundSelect />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="space-y-2">
+          <p className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
+            <BellRing className="size-4 text-primary" />
+            <span>Notificaciones del dispositivo</span>
+          </p>
+          <NotificationPermissionToggle />
         </CardContent>
       </Card>
 
