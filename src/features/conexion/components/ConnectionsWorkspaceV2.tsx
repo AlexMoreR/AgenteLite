@@ -13,7 +13,6 @@ import {
   deleteConnectionChannelAction,
   toggleConnectionChannelStatusAction,
 } from "@/app/actions/connection-actions";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { FormActionSwitch } from "@/components/ui/form-action-switch";
@@ -102,27 +101,39 @@ export function ConnectionsWorkspaceV2({
             {items.map((item) => {
               const detailHref = `/cliente/conexion/whatsapp-business/${item.id}`;
               const canAssignToTargetAgent = Boolean(targetAgent && item.linkedAgentId !== targetAgent.id);
+              const isConnected = item.channelStatusLabel === "Conectado";
 
               return (
-                <Card key={item.id} className="relative py-3 transition hover:ring-foreground/20">
-                  <CardContent className="relative z-10 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                <Card
+                  key={item.id}
+                  className="group relative overflow-hidden py-0 transition hover:shadow-md hover:ring-1 hover:ring-foreground/10"
+                >
+                  <span
+                    className={`absolute inset-y-0 left-0 w-1 ${isConnected ? "bg-emerald-500" : "bg-muted-foreground/25"}`}
+                    aria-hidden="true"
+                  />
+                  <CardContent className="relative z-10 flex flex-col gap-3 py-3.5 pl-5 xl:flex-row xl:items-center xl:justify-between">
                     <div className="flex flex-col gap-3 xl:flex-1">
                       <Link href={detailHref} aria-label={`Abrir ${item.name}`} className="block">
-                        <div className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md">
-                          <span className="inline-flex size-8 shrink-0 items-center justify-center text-emerald-600">
-                            <WhatsAppGlyph className="size-5" />
+                        <div className="flex min-w-0 flex-1 items-center gap-3 rounded-md">
+                          <span className="relative inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100">
+                            <WhatsAppGlyph className="size-6" />
+                            <span
+                              className={`absolute -bottom-0.5 -right-0.5 size-3 rounded-full border-2 border-card ${isConnected ? "bg-emerald-500" : "bg-muted-foreground/40"}`}
+                              aria-hidden="true"
+                            />
                           </span>
 
                           <div className="flex min-w-0 flex-1 flex-col gap-1">
                             <div className="flex min-w-0 flex-wrap items-center gap-2">
                               <h3 className="text-sm font-semibold text-foreground">{item.name}</h3>
                               {item.linkedAgentName ? (
-                                <span className="inline-flex items-center gap-1.5 text-xs font-medium text-primary">
+                                <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
                                   <Bot className="size-3" />
                                   {item.linkedAgentName}
                                 </span>
                               ) : (
-                                <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                                <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
                                   <FiCpu className="size-3" />
                                   Sin agente
                                 </span>
@@ -130,13 +141,13 @@ export function ConnectionsWorkspaceV2({
                             </div>
 
                             {item.phoneNumber ? (
-                              <span className="text-xs text-muted-foreground">{item.phoneNumber}</span>
+                              <span className="text-xs tabular-nums text-muted-foreground">{item.phoneNumber}</span>
                             ) : null}
                           </div>
                         </div>
                       </Link>
 
-                      <div className="flex flex-wrap items-center gap-2.5 xl:justify-end">
+                      <div className="flex flex-wrap items-center gap-2 xl:justify-end">
                       <StatusPill label={item.channelStatusLabel} />
                       <FormActionSwitch
                         action={toggleConnectionChannelStatusAction}
@@ -206,22 +217,30 @@ export function ConnectionsWorkspaceV2({
 }
 
 function StatusPill({ label }: { label: string }) {
-  const dotTone =
-    label === "Conectado" ? "bg-emerald-500" : label === "Esperando QR" ? "bg-amber-500" : "bg-muted-foreground";
+  const connected = label === "Conectado";
+  const waiting = label === "Esperando QR";
+  const tone = connected
+    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+    : waiting
+      ? "border-amber-200 bg-amber-50 text-amber-700"
+      : "border-border bg-muted text-muted-foreground";
+  const dotTone = connected ? "bg-emerald-500" : waiting ? "bg-amber-500" : "bg-muted-foreground";
 
   return (
-    <Badge variant="outline" className="gap-1.5 uppercase">
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ${tone}`}
+    >
       <span className={`size-1.5 rounded-full ${dotTone}`} />
       {label}
-    </Badge>
+    </span>
   );
 }
 
 function MetricPill({ icon, value }: { icon: ReactNode; value: string }) {
   return (
-    <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-muted/60 px-2.5 py-1 text-xs font-medium text-muted-foreground">
       {icon}
-      <span>{value}</span>
+      <span className="tabular-nums">{value}</span>
     </span>
   );
 }
