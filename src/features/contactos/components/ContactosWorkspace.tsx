@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState, useTransition, type ReactNode } from "react";
+import { useFormStatus } from "react-dom";
 import { useRouter } from "next/navigation";
 import {
   ArrowRight,
@@ -318,6 +319,22 @@ function ContactCard({
         </CardContent>
       </Card>
     </Link>
+  );
+}
+
+// Botón de submit del borrado: se deshabilita mientras la acción corre para evitar
+// clicks repetidos (que disparaban varias eliminaciones).
+function DeleteContactSubmitButton() {
+  const { pending } = useFormStatus();
+  return (
+    <button
+      type="submit"
+      disabled={pending}
+      aria-busy={pending}
+      className="inline-flex h-10 items-center gap-2 rounded-2xl bg-rose-600 px-4 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
+    >
+      {pending ? "Eliminando..." : "Eliminar contacto"}
+    </button>
   );
 }
 
@@ -1043,12 +1060,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                 >
                   Cancelar
                 </button>
-                <button
-                  type="submit"
-                  className="h-10 rounded-2xl bg-rose-600 px-4 text-sm font-semibold text-white transition hover:bg-rose-700"
-                >
-                  Eliminar contacto
-                </button>
+                <DeleteContactSubmitButton />
               </div>
             </form>
           </div>
