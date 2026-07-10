@@ -2659,23 +2659,23 @@ export function OfficialApiChatbotWorkspace({
               if (!open) closeCreateWorkflowModal();
             }}
           >
-            <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-md">
-              <DialogHeader className="items-center text-center">
-                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
-                  <Inbox className="h-6 w-6" />
+            <DialogContent className="flex max-h-[85vh] w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-md">
+              <DialogHeader className="shrink-0 gap-0 border-b border-border px-5 py-3 pr-12">
+                <div className="flex items-center gap-2">
+                  <Workflow className="size-5 shrink-0 text-primary" />
+                  <DialogTitle className="text-base font-semibold">Crear flujo</DialogTitle>
                 </div>
-                <DialogTitle className="text-xl">Crear flujo</DialogTitle>
               </DialogHeader>
 
-              <div className="space-y-5">
-                <label className="block space-y-2">
-                  <span className="text-sm font-medium text-slate-900">Nombre del flujo</span>
+              <div className="flex-1 space-y-5 overflow-y-auto px-5 py-4">
+                <label className="block">
+                  <span className="mb-2.5 block text-sm font-medium text-slate-900">Nombre del flujo</span>
                   <Input
                     value={newWorkflowTitle}
                     onChange={(event) => setNewWorkflowTitle(event.target.value)}
                     placeholder="Ej. Bienvenida principal"
                   />
-                  <p className="text-xs leading-5 text-slate-500">Usa un nombre claro y facil de identificar.</p>
+                  <p className="mt-2 text-xs leading-5 text-slate-500">Usa un nombre claro y facil de identificar.</p>
                 </label>
 
                 <div className="space-y-3">
@@ -2804,6 +2804,9 @@ export function OfficialApiChatbotWorkspace({
                   </div>
                 ) : null}
 
+              </div>
+
+              <div className="shrink-0 border-t border-border px-5 py-3">
                 <Button type="button" className="h-11 w-full rounded-xl" onClick={createWorkflow}>
                   Continuar
                 </Button>
