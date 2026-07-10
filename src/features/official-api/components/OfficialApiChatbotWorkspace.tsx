@@ -131,6 +131,7 @@ const workflowTypeOptions: Array<{
   value: OfficialApiChatbotScenarioFlowType;
   title: string;
   description: string;
+  example: string;
   icon: typeof Bot;
   accentClassName: string;
 }> = [
@@ -138,6 +139,7 @@ const workflowTypeOptions: Array<{
     value: "ia",
     title: "🧠 IA",
     description: "Detecta intenciones",
+    example: 'Ej: el cliente escribe "quiero comprar" o "¿cuánto cuesta?" y la IA entiende la intención aunque no use palabras exactas.',
     icon: BrainCircuit,
     accentClassName: "border-blue-200 bg-blue-50 text-blue-700 ring-blue-200",
   },
@@ -145,6 +147,7 @@ const workflowTypeOptions: Array<{
     value: "chatbot",
     title: "🤖 CHATBOT",
     description: "Por palabras clave",
+    example: 'Ej: si el cliente escribe exactamente "1", "menú" o "precios", se activa este flujo.',
     icon: Bot,
     accentClassName: "border-emerald-200 bg-emerald-50 text-emerald-700 ring-emerald-200",
   },
@@ -2694,6 +2697,7 @@ export function OfficialApiChatbotWorkspace({
                             <div className="flex flex-col items-center gap-1">
                               <p className="text-sm font-semibold text-slate-950">{option.title}</p>
                               <p className="text-xs leading-5 text-slate-600">{option.description}</p>
+                              <p className="mt-1 text-[11px] leading-4 text-slate-400">{option.example}</p>
                             </div>
                           </button>
                         );
