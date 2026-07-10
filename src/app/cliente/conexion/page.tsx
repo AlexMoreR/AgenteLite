@@ -6,7 +6,6 @@ import {
   getWhatsAppBusinessConnections,
 } from "@/features/conexion";
 import { NewConnectionChannelModal } from "@/features/conexion/components/NewConnectionChannelModal";
-import { DailyReportPanel, getDailyReports } from "@/features/reportes";
 import { getAdminModuleAccess } from "@/lib/admin-module-access";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { prisma } from "@/lib/prisma";
@@ -32,14 +31,9 @@ export default async function ClienteConexionPage({ searchParams }: PageProps) {
     redirect("/cliente?error=Debes+crear+tu+negocio+primero");
   }
 
-  const [connections, moduleAccess, dailyReports, reportConfig, providerSettings, params] = await Promise.all([
+  const [connections, moduleAccess, providerSettings, params] = await Promise.all([
     getWhatsAppBusinessConnections(membership.workspace.id),
     getAdminModuleAccess(access.userId, access.role),
-    getDailyReports(membership.workspace.id),
-    prisma.workspace.findUnique({
-      where: { id: membership.workspace.id },
-      select: { dailyReportEnabled: true, dailyReportRecipients: true },
-    }),
     getOfficialApiProviderSettings(),
     searchParams,
   ]);
@@ -85,13 +79,6 @@ export default async function ClienteConexionPage({ searchParams }: PageProps) {
           errorMessage={errorMessage}
           targetAgent={targetAgent}
           items={connections.items}
-        />
-      }
-      reporte={
-        <DailyReportPanel
-          enabled={reportConfig?.dailyReportEnabled ?? false}
-          recipients={reportConfig?.dailyReportRecipients ?? []}
-          reports={dailyReports}
         />
       }
     />

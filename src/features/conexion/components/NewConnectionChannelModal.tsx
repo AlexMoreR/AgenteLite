@@ -453,7 +453,7 @@ export function NewConnectionChannelModal({
               title="WhatsApp API (Meta)"
               description=""
               cta={canSeeOfficialApiModule ? "Crear y configurar" : "Desactivado"}
-              icon={<WhatsAppGlyph className="size-8" />}
+              icon={<MetaGlyph className="size-8" />}
               disabled={!canSeeOfficialApiModule}
               onSelect={() => setSelectedProvider("OFFICIAL_API")}
             />
@@ -462,7 +462,7 @@ export function NewConnectionChannelModal({
               title="API oficial coexistencia"
               description=""
               cta={canSeeOfficialApiModule && officialApiEmbeddedSignupReady ? "Continuar con Meta" : "Pendiente de configurar"}
-              icon={<WhatsAppGlyph className="size-8" />}
+              icon={<MetaGlyph className="size-8" />}
               disabled={!canSeeOfficialApiModule || !officialApiEmbeddedSignupReady}
               onSelect={() => setSelectedProvider("OFFICIAL_API_COEXISTENCE")}
             />
@@ -542,6 +542,23 @@ function ChannelOptionCard({
         </span>
       </CardContent>
     </Card>
+  );
+}
+
+function MetaGlyph({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className={className}>
+      <defs>
+        <linearGradient id="meta-glyph-gradient" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#0064E0" />
+          <stop offset="100%" stopColor="#0082FB" />
+        </linearGradient>
+      </defs>
+      <path
+        fill="url(#meta-glyph-gradient)"
+        d="M6.915 4.03c-1.968 0-3.683 1.28-4.871 3.113C.704 9.208 0 11.883 0 14.449c0 .706.07 1.369.21 1.973a6.624 6.624 0 0 0 .265.86 5.297 5.297 0 0 0 .371.761c.696 1.159 1.818 1.927 3.593 1.927 1.497 0 2.633-.671 3.965-2.444.76-1.012 1.144-1.626 2.663-4.32l.756-1.339.186-.325c.061.1.121.196.183.3l2.152 3.595c.724 1.21 1.665 2.556 2.47 3.314 1.046.987 1.992 1.22 3.06 1.22 1.075 0 1.876-.355 2.455-.843a3.743 3.743 0 0 0 .81-.973c.542-.939.861-2.127.861-3.745 0-2.72-.681-5.357-2.084-7.45-1.282-1.912-2.957-2.93-4.716-2.93-1.047 0-2.088.467-3.053 1.308-.652.57-1.257 1.29-1.82 2.05-.69-.875-1.335-1.547-1.958-2.056-1.182-.966-2.315-1.303-3.454-1.303zm10.16 2.053c1.147 0 2.188.758 2.992 1.999 1.132 1.748 1.647 4.195 1.647 6.4 0 1.548-.368 2.9-1.839 2.9-.58 0-1.027-.23-1.664-1.004-.496-.601-1.343-1.878-2.832-4.358l-.617-1.028a44.908 44.908 0 0 0-1.255-1.98c.07-.109.141-.224.211-.327 1.12-1.667 2.118-2.602 3.157-2.602zm-10.201.553c1.038 0 1.986.451 2.983 1.408.369.355.741.788 1.113 1.288a44.203 44.203 0 0 0-1.297 2.048l-.782 1.384c-1.203 2.132-1.463 2.606-1.907 3.19-.879 1.156-1.532 1.421-2.383 1.421-.916 0-1.463-.826-1.463-2.512 0-2.402.79-4.996 1.995-6.671.582-.813 1.245-1.354 1.732-1.354z"
+      />
+    </svg>
   );
 }
 
