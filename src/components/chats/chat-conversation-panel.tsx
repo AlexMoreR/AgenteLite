@@ -33,6 +33,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type {
   ComposerReplyTarget,
@@ -166,6 +167,7 @@ export const ConversationPanel = memo(function ConversationPanel({
     return pending.length === 0 ? renderedMessages : [...renderedMessages, ...pending];
   }, [renderedMessages, optimisticMediaMessages]);
   const [isContactPanelOpen, setIsContactPanelOpen] = useState(false);
+  const isMobile = useIsMobile();
   const [contactCity, setContactCity] = useState("");
 
   const panelContactId = renderedConversation?.contactId ?? null;
@@ -1127,7 +1129,7 @@ export const ConversationPanel = memo(function ConversationPanel({
             }}
           />
         ) : null}
-        <Sheet open={isContactPanelOpen} onOpenChange={setIsContactPanelOpen}>
+        <Sheet open={isContactPanelOpen && isMobile} onOpenChange={setIsContactPanelOpen}>
           <SheetContent side="right" className="w-[min(92vw,24rem)] border-l border-border bg-card p-0 md:hidden" showCloseButton={false}>
             <SheetHeader className="border-b border-border px-4 py-3 text-left">
               <div className="flex items-center justify-between gap-3">
