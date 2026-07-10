@@ -25,7 +25,6 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
-  CardContent,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -226,10 +225,10 @@ export function SeguimientosWorkspace({
   }, [deleteActionState]);
 
   const statCards = [
-    { label: "Total", value: counts.total, icon: Users2 },
-    { label: "En proceso", value: counts.pending, icon: TrendingUp },
-    { label: "Ejecutados", value: counts.executed, icon: CheckCircle2 },
-    { label: "Cancelados", value: counts.cancelled, icon: CircleSlash2 },
+    { label: "Total", value: counts.total, icon: Users2, iconClass: "text-blue-600" },
+    { label: "En proceso", value: counts.pending, icon: TrendingUp, iconClass: "text-amber-500" },
+    { label: "Ejecutados", value: counts.executed, icon: CheckCircle2, iconClass: "text-emerald-600" },
+    { label: "Cancelados", value: counts.cancelled, icon: CircleSlash2, iconClass: "text-rose-600" },
   ];
 
   return (
@@ -245,22 +244,20 @@ export function SeguimientosWorkspace({
         />
       </div>
 
-      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-        {statCards.map(({ label, value, icon: Icon }) => (
-          <Card key={label} size="sm">
-            <CardContent className="flex items-center gap-3">
-              <div className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                <Icon className="h-5 w-5" />
-              </div>
-              <p className="min-w-0 flex-1 truncate text-sm font-medium text-muted-foreground">
+      <div className="w-full overflow-hidden rounded-lg border border-border bg-card">
+        <div className="flex flex-col divide-y divide-border sm:flex-row sm:items-center sm:divide-x sm:divide-y-0">
+          {statCards.map(({ label, value, icon: Icon, iconClass }) => (
+            <div key={label} className="flex flex-1 items-center gap-2 px-3 py-2">
+              <Icon className={`h-3.5 w-3.5 ${iconClass}`} />
+              <span className="truncate text-[13px] font-medium text-foreground">
                 {label}
-              </p>
-              <p className="shrink-0 text-2xl font-semibold leading-none tracking-tight">
+              </span>
+              <span className="ml-auto shrink-0 text-[13px] font-medium text-foreground">
                 {String(value)}
-              </p>
-            </CardContent>
-          </Card>
-        ))}
+              </span>
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
