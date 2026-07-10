@@ -1172,9 +1172,22 @@ export const ConversationPanel = memo(function ConversationPanel({
                   fallbackClassName="rounded-full bg-muted text-muted-foreground"
                 />
                 <div className="min-w-0 flex-1 space-y-0.5">
-                  <p className="truncate text-sm font-semibold text-foreground">
-                    {renderedConversation.label}
-                  </p>
+                  <div className="flex items-center gap-1.5">
+                    <p className="truncate text-sm font-semibold text-foreground">
+                      {renderedConversation.label}
+                    </p>
+                    {renderedConversation.contactId ? (
+                      <button
+                        type="button"
+                        onClick={onEditContact}
+                        aria-label="Editar"
+                        title="Editar"
+                        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                    ) : null}
+                  </div>
                   {renderedConversation.secondaryLabel ? (
                     <div className="flex items-center gap-1 text-xs text-muted-foreground">
                       <span className="min-w-0 flex-1 truncate">{renderedConversation.secondaryLabel}</span>
@@ -1199,22 +1212,6 @@ export const ConversationPanel = memo(function ConversationPanel({
                     </p>
                   ) : null}
                 </div>
-              </div>
-
-              <div className="mt-3 flex items-center gap-2">
-                {renderedConversation.contactId ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    onClick={onEditContact}
-                    className="h-8 w-8"
-                    aria-label="Editar"
-                    title="Editar"
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </Button>
-                ) : null}
               </div>
 
               <div className="mt-5 space-y-3">
