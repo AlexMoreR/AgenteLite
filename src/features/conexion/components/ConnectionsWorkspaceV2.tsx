@@ -112,8 +112,13 @@ export function ConnectionsWorkspaceV2({
                     className={`absolute inset-y-0 left-0 w-1 ${isConnected ? "bg-emerald-500" : "bg-muted-foreground/25"}`}
                     aria-hidden="true"
                   />
-                  <CardContent className="relative z-10 flex flex-col gap-3 py-3.5 pl-5 sm:flex-row sm:items-center sm:justify-between">
-                      <Link href={detailHref} aria-label={`Abrir ${item.name}`} className="block min-w-0 sm:flex-1">
+                  <Link
+                    href={detailHref}
+                    aria-label={`Abrir ${item.name}`}
+                    className="absolute inset-0 z-10"
+                  />
+                  <CardContent className="relative flex flex-col gap-3 py-3.5 pl-5 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0 sm:flex-1">
                         <div className="flex min-w-0 flex-1 items-center gap-3 rounded-md">
                           <span className="inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100">
                             <WhatsAppGlyph className="size-6" />
@@ -140,7 +145,7 @@ export function ConnectionsWorkspaceV2({
                             ) : null}
                           </div>
                         </div>
-                      </Link>
+                      </div>
 
                       <div className="flex flex-wrap items-center gap-2 sm:justify-end">
                       <StatusPill label={item.channelStatusLabel} />
