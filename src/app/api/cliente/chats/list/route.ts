@@ -272,6 +272,7 @@ async function getAgentConversationList(input: {
           AND m."conversationId" IN (${Prisma.join(activeAgentConversationIds)})
           AND m."isStatusBroadcast" = false
           AND (m."rawPayload"->>'source') IS DISTINCT FROM 'activity'
+          AND m."type" IS DISTINCT FROM 'SYSTEM'
         ORDER BY m."conversationId", m."createdAt" DESC, m."id" DESC
       `
     : Promise.resolve([] as Array<{
