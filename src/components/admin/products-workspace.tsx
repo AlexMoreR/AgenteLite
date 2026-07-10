@@ -6,6 +6,7 @@ import { EditProductForm } from "@/components/admin/edit-product-form";
 import { NEW_PRODUCT_DRAFT_KEY, NewProductForm } from "@/components/admin/new-product-form";
 import { ProductImportExportControls } from "@/components/admin/product-import-export-controls";
 import { ProductsDataTable } from "@/components/admin/products-data-table";
+import { PageHeader } from "@/components/ui/page-header";
 import type { SupportedCurrencyCode } from "@/lib/currency";
 
 type CategoryOption = {
@@ -84,13 +85,7 @@ export function ProductsWorkspace({
   return (
     <>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <h1 className="inline-flex items-center gap-1 text-lg font-semibold tracking-tight text-slate-900 md:text-xl">
-            <Package className="h-4 w-4 text-slate-500" />
-            <span>Productos</span>
-          </h1>
-          <p className="mt-1 text-xs text-slate-600">Gestion de productos.</p>
-        </div>
+        <PageHeader icon={Package} title="Productos" className="min-w-0" />
         <div className="flex w-full items-center gap-2 sm:w-auto">
           <ProductImportExportControls />
           <button

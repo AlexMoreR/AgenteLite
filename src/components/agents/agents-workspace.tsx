@@ -28,6 +28,7 @@ import {
   toneOptions,
 } from "@/lib/agent-training";
 import { Card } from "@/components/ui/card";
+import { PageHeader } from "@/components/ui/page-header";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -240,13 +241,7 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
       <div className="space-y-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0 flex-1">
-            <div className="inline-flex items-center gap-3">
-              <Bot className="h-6 w-6 text-primary" />
-              <h1 className="text-2xl font-semibold tracking-[-0.05em] text-foreground">Agentes</h1>
-            </div>
-            <p className="max-w-3xl text-sm text-muted-foreground">
-              Crea y administra tus agentes de venta para WhatsApp.
-            </p>
+            <PageHeader icon={Bot} title="Agentes" />
           </div>
           {agents.length > 0 ? (
             <button

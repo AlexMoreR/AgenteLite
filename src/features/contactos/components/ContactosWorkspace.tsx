@@ -26,6 +26,7 @@ import { cn } from "@/lib/utils";
 import { TAG_BADGE_CLASS } from "@/lib/tag-badge";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   DropdownMenu,
@@ -413,12 +414,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
     <section className="space-y-2">
       <div className="space-y-1">
         <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0 flex items-center gap-2 max-md:pl-10">
-            <Users2 className="h-5 w-5 shrink-0 text-primary" />
-            <h1 className="truncate text-[22px] font-semibold tracking-[-0.05em] text-foreground md:text-2xl">
-              Contactos
-            </h1>
-          </div>
+          <PageHeader icon={Users2} title="Contactos" className="min-w-0 max-md:pl-10" />
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

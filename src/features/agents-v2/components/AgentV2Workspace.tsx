@@ -4,6 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { Bot, MoreVertical, Pencil, Plus, Trash2, Workflow, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { PageHeader } from "@/components/ui/page-header";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -183,12 +184,7 @@ export function AgentV2Workspace({
   return (
     <div className="space-y-4 px-4 py-4 sm:px-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold text-foreground">Agente V2</h1>
-          <p className="text-sm text-muted-foreground">
-            Crea agentes como un flujo visual de nodos.
-          </p>
-        </div>
+        <PageHeader icon={Workflow} title="Agente V2" />
         <Button onClick={() => setModalOpen(true)}>
           <Plus className="h-4 w-4" />
           Crear agente
