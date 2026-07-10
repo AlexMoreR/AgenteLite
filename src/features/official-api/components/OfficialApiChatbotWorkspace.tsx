@@ -2608,7 +2608,7 @@ export function OfficialApiChatbotWorkspace({
               Crear
             </Button>
           </div>
-          <Card className="flex min-h-[calc(100dvh-16rem)] flex-col items-center justify-center gap-4 p-8 text-center">
+          <Card className="flex min-h-[calc(100dvh-16rem)] flex-col items-center justify-center gap-4 border-0 bg-transparent p-8 text-center shadow-none">
             <span className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 text-primary">
               <Workflow className="h-7 w-7" />
             </span>
