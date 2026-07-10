@@ -2236,7 +2236,7 @@ export function OfficialApiChatbotWorkspace({
   return (
     <section className="space-y-4">
       {hasWorkflows && !hasSelectedFlow ? (
-        <div className="space-y-4">
+        <div className="space-y-4 p-4 md:p-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <PageHeader icon={Workflow} title="Flujos" />
             <Button type="button" size="sm" onClick={openCreateWorkflowModal}>
