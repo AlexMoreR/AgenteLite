@@ -6,7 +6,7 @@ import { auth } from "@/auth";
 import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
-const MAX_FILE_SIZE_BYTES = 16 * 1024 * 1024;
+const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024;
 const ALLOWED_MEDIA_MIME_TYPES = new Set([
   "image/jpeg",
   "image/jpg",
@@ -87,7 +87,7 @@ export async function POST(request: Request) {
   }
 
   if (file.size <= 0 || file.size > MAX_FILE_SIZE_BYTES) {
-    return NextResponse.json({ ok: false, error: "El archivo debe pesar entre 1 byte y 16 MB." }, { status: 400 });
+    return NextResponse.json({ ok: false, error: "El archivo debe pesar entre 1 byte y 50 MB." }, { status: 400 });
   }
 
   const uploadDir = path.join(process.cwd(), "public", "uploads", "chatbot-flows");
