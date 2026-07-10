@@ -2601,7 +2601,13 @@ export function OfficialApiChatbotWorkspace({
         </Card>
       ) : (
         <div className="space-y-4 p-4 md:p-6">
-          <PageHeader icon={Workflow} title="Flujos" />
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <PageHeader icon={Workflow} title="Flujos" />
+            <Button type="button" size="sm" onClick={openCreateWorkflowModal}>
+              <Plus className="h-4 w-4" />
+              Crear
+            </Button>
+          </div>
           <Card className="flex min-h-[calc(100dvh-16rem)] flex-col items-center justify-center gap-4 p-8 text-center">
             <span className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 text-primary">
               <Workflow className="h-7 w-7" />
