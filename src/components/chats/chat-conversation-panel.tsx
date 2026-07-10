@@ -1071,6 +1071,22 @@ export const ConversationPanel = memo(function ConversationPanel({
                           onKeyUp={(event) => syncComposerSelection(event.currentTarget)}
                           onMouseUp={(event) => syncComposerSelection(event.currentTarget)}
                           onBlur={(event) => syncComposerSelection(event.currentTarget)}
+                          onPaste={(event) => {
+                            // Pegar (Ctrl+V) una imagen del portapapeles: se envía por el
+                            // mismo flujo que "Fotos y videos" (previsualización + envío).
+                            if (!mediaConfig || isSendingMedia) {
+                              return;
+                            }
+                            const items = Array.from(event.clipboardData?.items ?? []);
+                            const images = items
+                              .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+                              .map((item) => item.getAsFile())
+                              .filter((file): file is File => Boolean(file));
+                            if (images.length > 0) {
+                              event.preventDefault();
+                              setPendingMediaFiles(images);
+                            }
+                          }}
                           className="min-h-[52px] min-w-0 flex-1 resize-none bg-transparent py-3.5 pr-2 text-[14px] text-foreground placeholder:text-muted-foreground outline-none disabled:opacity-70 md:min-h-[46px] md:py-3 md:text-sm"
                         />
                         <Button
