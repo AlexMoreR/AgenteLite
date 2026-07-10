@@ -54,6 +54,7 @@ import {
 import { useSetBreadcrumbLabel } from "@/components/breadcrumb-label-context";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import { Card } from "@/components/ui/card";
 import {
   DropdownMenu,
@@ -2237,12 +2238,7 @@ export function OfficialApiChatbotWorkspace({
       {hasWorkflows && !hasSelectedFlow ? (
         <div className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <Workflow className="h-5 w-5" />
-              </span>
-              <h1 className="text-2xl font-semibold tracking-tight">Flujos</h1>
-            </div>
+            <PageHeader icon={Workflow} title="Flujos" />
             <Button type="button" size="sm" onClick={openCreateWorkflowModal}>
               <Plus className="h-4 w-4" />
               Crear
