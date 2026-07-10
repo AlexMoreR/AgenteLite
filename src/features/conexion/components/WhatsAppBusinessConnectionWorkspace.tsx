@@ -144,9 +144,9 @@ export function WhatsAppBusinessConnectionWorkspace({
   );
 
   const agentTabContent = (
-    <div className="space-y-4">
+    <div className="grid gap-4 md:grid-cols-2">
       {availableAgents.length ? (
-        <div className="grid gap-4 md:grid-cols-2">
+        <>
           <Card>
             <CardContent className="space-y-2">
               <p className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
@@ -219,7 +219,7 @@ export function WhatsAppBusinessConnectionWorkspace({
               </Card>
             </>
           ) : null}
-        </div>
+        </>
       ) : null}
 
       <Card>
