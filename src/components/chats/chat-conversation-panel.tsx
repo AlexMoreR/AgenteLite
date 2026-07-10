@@ -913,7 +913,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                         </div>
                       </div>
                     ) : (
-                      <div className="flex min-h-[44px] min-w-0 flex-1 items-center gap-0.5 rounded-2xl border border-border bg-background px-1.5 transition focus-within:border-[var(--primary)] focus-within:bg-background focus-within:ring-2 focus-within:ring-ring/50 md:min-h-[40px]">
+                      <div className="flex min-h-[44px] min-w-0 flex-1 items-center gap-0.5 rounded-2xl border border-border bg-background px-1.5 shadow-[0_1px_6px_#0000001f] transition focus-within:border-[var(--primary)] focus-within:bg-background focus-within:ring-2 focus-within:ring-ring/50 md:min-h-[40px]">
                         {mediaConfig ? (
                           <>
                             <input
@@ -1071,7 +1071,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                           onKeyUp={(event) => syncComposerSelection(event.currentTarget)}
                           onMouseUp={(event) => syncComposerSelection(event.currentTarget)}
                           onBlur={(event) => syncComposerSelection(event.currentTarget)}
-                          className="min-h-[42px] min-w-0 flex-1 resize-none bg-transparent py-2.5 pr-2 text-[14px] text-foreground placeholder:text-muted-foreground outline-none disabled:opacity-70 md:min-h-[38px] md:py-2 md:text-sm"
+                          className="min-h-[52px] min-w-0 flex-1 resize-none bg-transparent py-3.5 pr-2 text-[14px] text-foreground placeholder:text-muted-foreground outline-none disabled:opacity-70 md:min-h-[46px] md:py-3 md:text-sm"
                         />
                         <Button
                           type="button"
