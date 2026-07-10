@@ -2736,14 +2736,21 @@ export function OfficialApiChatbotWorkspace({
 
                 {newWorkflowType === "ia" ? (
                   <label className="block space-y-2">
-                    <span className="text-sm font-medium text-slate-900">IA</span>
+                    <span className="text-sm font-medium text-slate-900">¿Cuándo debe activarse este flujo?</span>
+                    <p className="text-xs leading-5 text-slate-500">
+                      Describe con tus palabras qué quiere o pregunta el cliente. La IA lo detecta aunque
+                      lo escriba diferente (no necesita las palabras exactas).
+                    </p>
                     <textarea
                       value={newWorkflowIntent}
                       onChange={(event) => setNewWorkflowIntent(event.target.value)}
                       className="field-textarea min-h-24"
-                      placeholder="El usuario quiere comprar o pregunta por precios o disponibilidad"
+                      placeholder="Ej: El cliente quiere comprar, pregunta por precios, disponibilidad o cómo pagar."
                     />
-                    <p className="text-xs leading-5 text-slate-500">Detecta intenciones.</p>
+                    <p className="text-xs leading-5 text-slate-500">
+                      Otros ejemplos: &ldquo;Pregunta por el horario o la dirección&rdquo; · &ldquo;Quiere
+                      agendar una cita&rdquo; · &ldquo;Tiene un reclamo con su pedido&rdquo;.
+                    </p>
                   </label>
                 ) : newWorkflowType === "chatbot" ? (
                   <div className="space-y-4">
