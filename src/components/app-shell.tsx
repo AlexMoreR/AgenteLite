@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
+import { CircleHelp } from "lucide-react";
 import type { Role } from "@prisma/client";
 import { AppSidebar } from "@/components/app-sidebar";
 import {
@@ -19,7 +21,9 @@ import { ClientPlanWarningBar } from "@/components/client-plan-warning-bar";
 import { Navbar } from "@/components/navbar";
 import { Separator } from "@/components/ui/separator";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { Button } from "@/components/ui/button";
 import { ChatNotificationBell } from "@/components/ui/chat-notification-bell";
+import { HelpCopilotWidget } from "@/components/help/help-copilot-widget";
 import { ThemeToggleButton } from "@/components/ui/theme-toggle";
 import type { AdminModuleKey } from "@/lib/admin-modules";
 import { cn } from "@/lib/utils";
@@ -189,6 +193,7 @@ export function AppShell({
   const { data } = useSession();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const [helpOpen, setHelpOpen] = useState(false);
   const user = data?.user ?? initialUser;
   const currentConnectionKey = searchParams.get("connection")?.trim() || "";
   const firstSegment = pathname.split("/").filter(Boolean)[0] ?? "";
@@ -274,6 +279,15 @@ export function AppShell({
               {!isChatWorkspacePath ? <AppBreadcrumb pathname={pathname} /> : null}
               <div className="ml-auto flex items-center gap-0.5">
                 <ChatNotificationBell />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="¿Necesitas ayuda?"
+                  onClick={() => setHelpOpen(true)}
+                >
+                  <CircleHelp data-icon="inline-start" />
+                </Button>
                 <ThemeToggleButton />
               </div>
             </div>
@@ -290,6 +304,7 @@ export function AppShell({
           </main>
           {showClientPlanBlock && clientPlanBlock ? <ClientPlanBlockModal {...clientPlanBlock} /> : null}
         </SidebarInset>
+        <HelpCopilotWidget open={helpOpen} onClose={() => setHelpOpen(false)} />
       </SidebarProvider>
     );
   }
