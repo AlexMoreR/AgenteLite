@@ -115,12 +115,8 @@ export function ConnectionsWorkspaceV2({
                   <CardContent className="relative z-10 flex flex-col gap-3 py-3.5 pl-5 sm:flex-row sm:items-center sm:justify-between">
                       <Link href={detailHref} aria-label={`Abrir ${item.name}`} className="block min-w-0 sm:flex-1">
                         <div className="flex min-w-0 flex-1 items-center gap-3 rounded-md">
-                          <span className="relative inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100">
+                          <span className="inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100">
                             <WhatsAppGlyph className="size-6" />
-                            <span
-                              className={`absolute -bottom-0.5 -right-0.5 size-3 rounded-full border-2 border-card ${isConnected ? "bg-emerald-500" : "bg-muted-foreground/40"}`}
-                              aria-hidden="true"
-                            />
                           </span>
 
                           <div className="flex min-w-0 flex-1 flex-col gap-1">
