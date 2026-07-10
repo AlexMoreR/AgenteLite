@@ -6,6 +6,7 @@ import { getFlowTargets } from "@/features/flows/services/getFlowTargets";
 import { canAccessOfficialApiModule } from "@/lib/admin-module-access";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
+import { PageHeader } from "@/components/ui/page-header";
 
 type PageProps = {
   searchParams: Promise<{
@@ -34,15 +35,7 @@ export default async function ClientFlowsPage({ searchParams }: PageProps) {
     if (!targets.length) {
       return (
         <section className="space-y-4">
-          <div className="min-w-0 flex-1">
-            <div className="inline-flex items-center gap-3">
-              <Workflow className="h-6 w-6 text-sky-600" />
-              <h1 className="text-2xl font-semibold tracking-[-0.05em] text-slate-950">Flujos</h1>
-            </div>
-            <p className="max-w-3xl text-sm leading-6 text-slate-600">
-              Crea y administra tus flujos y automatizaciones.
-            </p>
-          </div>
+          <PageHeader icon={Workflow} title="Flujos" />
 
           <div className="rounded-[28px] border border-dashed border-[rgba(148,163,184,0.32)] bg-white px-6 py-10 text-sm leading-6 text-slate-600">
             Aun no hay una fuente disponible para construir flujos. Conecta primero la API oficial o crea un canal no oficial con Evolution.
