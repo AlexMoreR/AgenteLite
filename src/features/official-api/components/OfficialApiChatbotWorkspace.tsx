@@ -2315,7 +2315,7 @@ export function OfficialApiChatbotWorkspace({
           </div>
         </div>
 
-      ) : (
+      ) : hasSelectedFlow ? (
         <Card
           className={cn(
             "overflow-hidden p-0",
@@ -2599,6 +2599,27 @@ export function OfficialApiChatbotWorkspace({
           </aside>
         </div>
         </Card>
+      ) : (
+        <div className="space-y-4 p-4 md:p-6">
+          <PageHeader icon={Workflow} title="Flujos" />
+          <Card className="flex min-h-[calc(100dvh-16rem)] flex-col items-center justify-center gap-4 p-8 text-center">
+            <span className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 text-primary">
+              <Workflow className="h-7 w-7" />
+            </span>
+            <div className="space-y-1.5">
+              <h3 className="text-lg font-semibold text-foreground">Aun no tienes flujos</h3>
+              <p className="mx-auto max-w-md text-sm leading-6 text-muted-foreground">
+                Crea tu primera conversacion: un menu de bienvenida, una consulta de pedido o un bot
+                de preguntas frecuentes. El cliente toca botones y el bot lo lleva a la respuesta
+                correcta (o al agente indicado).
+              </p>
+            </div>
+            <Button type="button" onClick={openCreateWorkflowModal}>
+              <Plus className="h-4 w-4" />
+              Crear tu primer flujo
+            </Button>
+          </Card>
+        </div>
       )}
         {scenarioPendingDelete ? (
           <div className="fixed inset-0 z-30 flex items-center justify-center bg-slate-950/25 p-6 backdrop-blur-[2px]">
