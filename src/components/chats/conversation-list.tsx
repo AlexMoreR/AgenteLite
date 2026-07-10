@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition, type RefObject } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useTransition, type RefObject } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { BadgeCheck, Facebook, FileText, Image as ImageIcon, Instagram, LoaderCircle, Mic, Sticker, UserRound, Video } from "lucide-react";
@@ -130,7 +130,11 @@ function getConversationAvatarClassName() {
   return "size-10 after:border-0";
 }
 
-// Muestra las etiquetas en una sola fila; si no caben, agrega un badge "+N" al final.
+// Cuántas etiquetas mostrar como máximo en la fila antes del contador "+N".
+const MAX_VISIBLE_TAGS = 3;
+
+// Muestra hasta MAX_VISIBLE_TAGS etiquetas en una sola fila. Se encogen y se cortan
+// (truncate) para compartir el ancho disponible; si hay más, agrega un badge "+N".
 function ConversationTagsRow({
   tags,
   conversationId,
@@ -138,73 +142,23 @@ function ConversationTagsRow({
   tags: NonNullable<SharedInboxConversationItem["tags"]>;
   conversationId: string;
 }) {
-  const wrapperRef = useRef<HTMLDivElement>(null);
-  const measureRef = useRef<HTMLDivElement>(null);
-  const [visibleCount, setVisibleCount] = useState(tags.length);
-
-  useLayoutEffect(() => {
-    const wrapper = wrapperRef.current;
-    const measure = measureRef.current;
-    if (!wrapper || !measure) return;
-
-    const recompute = () => {
-      const available = wrapper.clientWidth;
-      if (available <= 0) return;
-      const badges = Array.from(measure.children) as HTMLElement[];
-      const GAP = 4; // gap-1
-      const RESERVED = 42; // espacio del badge "+N" (incluye gap)
-      let used = 0;
-      let count = 0;
-      for (let i = 0; i < badges.length; i++) {
-        const candidate = used + (count > 0 ? GAP : 0) + badges[i].offsetWidth;
-        const reserve = i === badges.length - 1 ? 0 : RESERVED;
-        if (candidate + reserve <= available) {
-          used = candidate;
-          count += 1;
-        } else {
-          break;
-        }
-      }
-      setVisibleCount(Math.max(count, 1));
-    };
-
-    recompute();
-    const observer = new ResizeObserver(recompute);
-    observer.observe(wrapper);
-    return () => observer.disconnect();
-  }, [tags]);
-
-  const hidden = tags.length - visibleCount;
+  const visibleTags = tags.slice(0, MAX_VISIBLE_TAGS);
+  const hidden = tags.length - visibleTags.length;
 
   return (
-    <div ref={wrapperRef} className="relative pt-0.5">
-      <div
-        ref={measureRef}
-        aria-hidden="true"
-        className="pointer-events-none invisible absolute left-0 top-0 flex flex-nowrap gap-1"
-      >
-        {tags.map((tag) => (
-          <Badge
-            key={`measure:${conversationId}:${tag.label}`}
-            className={`shrink-0 ${TAG_BADGE_CLASS}`}
-          >
-            <span>{tag.label}</span>
-          </Badge>
-        ))}
-      </div>
-
+    <div className="pt-0.5">
       <div className="flex flex-nowrap items-center gap-1 overflow-hidden">
-        {tags.slice(0, visibleCount).map((tag) => (
+        {visibleTags.map((tag) => (
           <Badge
             key={`${conversationId}:${tag.label}`}
-            className={`shrink-0 max-w-[140px] shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)] ${TAG_BADGE_CLASS}`}
+            className={`min-w-0 shrink max-w-[140px] shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)] ${TAG_BADGE_CLASS}`}
             style={{
               ...getConversationTagBadgeStyle(tag.color),
               color: "#ffffff",
             }}
             title={tag.label}
           >
-            <span className="truncate">{tag.label}</span>
+            <span className="min-w-0 truncate">{tag.label}</span>
           </Badge>
         ))}
         {hidden > 0 ? (
