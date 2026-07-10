@@ -7,7 +7,7 @@ import {
   FiMessageCircle,
   FiTrash2,
 } from "react-icons/fi";
-import { Bot, MoreHorizontal } from "lucide-react";
+import { Bot, MoreHorizontal, Smartphone } from "lucide-react";
 import {
   assignConnectionChannelAction,
   deleteConnectionChannelAction,
@@ -141,7 +141,10 @@ export function ConnectionsWorkspaceV2({
                             </div>
 
                             {item.phoneNumber ? (
-                              <span className="text-xs tabular-nums text-muted-foreground">{item.phoneNumber}</span>
+                              <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                                <Smartphone className="size-3 shrink-0" />
+                                <span className="tabular-nums">{item.phoneNumber}</span>
+                              </span>
                             ) : null}
                           </div>
                         </div>
