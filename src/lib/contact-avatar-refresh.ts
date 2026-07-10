@@ -7,8 +7,13 @@ import { fetchEvolutionProfilePictureUrl } from "@/lib/evolution";
 // Las URLs de foto de Evolution/WhatsApp son temporales (expiran), por eso guardamos
 // cuándo se pidió la última vez en Contact.metadata.avatarFetchedAt y refrescamos por TTL.
 const AVATAR_TTL_MS = 12 * 60 * 60 * 1000; // con foto: refresca cada 12h (las URLs de Meta expiran)
-const AVATAR_RETRY_MS = 60 * 60 * 1000; // sin foto todavía / fallo: reintenta cada 1h
-const MAX_PER_RUN = 12; // como máximo una página de contactos por ejecución
+const AVATAR_RETRY_MS = 3 * 60 * 60 * 1000; // sin foto todavía / fallo: reintenta cada 3h
+const MAX_PER_RUN = 4; // pocas por ejecución: Evolution GO es sensible a la carga en su Postgres
+// Cooldown global (por instancia del server): aunque la lista se refresque muy seguido, el
+// refresco de avatares corre como máximo una vez cada 5 min para no saturar a evogo.
+const GLOBAL_COOLDOWN_MS = 5 * 60 * 1000;
+
+let lastAvatarRunAt = 0;
 
 export type ContactAvatarTarget = {
   contactId: string;
@@ -31,6 +36,13 @@ export function scheduleContactAvatarRefresh(targets: ContactAvatarTarget[]) {
   if (!targets.length) {
     return;
   }
+
+  // No saturar a evogo: como máximo una corrida cada GLOBAL_COOLDOWN_MS por instancia.
+  const now = Date.now();
+  if (now - lastAvatarRunAt < GLOBAL_COOLDOWN_MS) {
+    return;
+  }
+  lastAvatarRunAt = now;
 
   after(async () => {
     try {
