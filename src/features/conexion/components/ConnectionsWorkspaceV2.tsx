@@ -118,7 +118,7 @@ export function ConnectionsWorkspaceV2({
                           <span className="relative inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100">
                             <WhatsAppGlyph className="size-6" />
                             <span
-                              className={`absolute -bottom-1 right-0.5 size-3 rounded-full border-2 border-card ${isConnected ? "bg-emerald-500" : "bg-muted-foreground/40"}`}
+                              className={`absolute -bottom-0.5 -right-0.5 size-3 rounded-full border-2 border-card ${isConnected ? "bg-emerald-500" : "bg-muted-foreground/40"}`}
                               aria-hidden="true"
                             />
                           </span>
