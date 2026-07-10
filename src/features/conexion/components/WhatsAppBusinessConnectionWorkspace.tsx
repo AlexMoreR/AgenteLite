@@ -7,6 +7,7 @@ import {
 import { assignConnectionChannelAction, toggleConnectionChannelStatusAction } from "@/app/actions/connection-actions";
 import { WhatsappQrAutoRefresh } from "@/components/agents/whatsapp-qr-auto-refresh";
 import { WhatsappQrCountdown } from "@/components/agents/whatsapp-qr-countdown";
+import { WhatsappQrStaleWatcher } from "@/components/agents/whatsapp-qr-stale-watcher";
 import { Card, CardContent } from "@/components/ui/card";
 import { FormActionSwitch } from "@/components/ui/form-action-switch";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
@@ -333,6 +334,7 @@ export function WhatsAppBusinessConnectionWorkspace({
 
               <div className="mt-4 w-full">
                 <WhatsappQrCountdown isConnected={isConnected} cycleSeconds={40} />
+                <WhatsappQrStaleWatcher qrDataUrl={qrDataUrl} isConnected={isConnected} />
               </div>
             </CardContent>
           </Card>
