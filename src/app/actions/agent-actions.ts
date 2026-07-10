@@ -40,11 +40,12 @@ import {
   sendEvolutionAudioMessage,
   sendEvolutionDocumentMessage,
   sendEvolutionImageMessage,
-  sendEvolutionMediaBase64,
+  sendEvolutionMediaUrl,
   sendEvolutionPresence,
   sendEvolutionTextMessage,
   sendEvolutionVideoMessage,
 } from "@/lib/evolution";
+import { getPublicBaseUrl } from "@/lib/app-url";
 import { setConversationAutomationPaused } from "@/lib/conversation-automation";
 import { buildDefaultWorkspacePlan } from "@/lib/plans";
 import { prisma } from "@/lib/prisma";
@@ -3084,12 +3085,13 @@ export async function sendChatMediaReplyAction(input: {
     return { error: "No se encontro el canal o contacto" };
   }
 
-  // Enviamos el archivo en base64 para no depender de que la URL sea publica (funciona en local y prod).
+  // Leemos el archivo para conocer su tamaño y tener un respaldo en base64 (path legacy).
   let mediaBase64 = "";
   let fileSize = 0;
+  let mediaPathname = "";
   try {
-    const pathname = new URL(parsed.data.mediaUrl).pathname;
-    const filePath = path.join(process.cwd(), "public", pathname);
+    mediaPathname = new URL(parsed.data.mediaUrl).pathname;
+    const filePath = path.join(process.cwd(), "public", mediaPathname);
     const buffer = await readFile(filePath);
     mediaBase64 = buffer.toString("base64");
     fileSize = buffer.length;
@@ -3097,19 +3099,23 @@ export async function sendChatMediaReplyAction(input: {
     return { error: "No se pudo leer el archivo" };
   }
 
+  // Evolution GO (/send/media) descarga la media desde una URL pública (no acepta base64),
+  // por eso enviamos la URL absoluta pública y dejamos el base64 solo como respaldo legacy.
+  const publicMediaUrl = `${getPublicBaseUrl()}${mediaPathname}`;
   const mediatype = parsed.data.mediaType === "IMAGE" ? "image" : parsed.data.mediaType === "VIDEO" ? "video" : "document";
   const caption = parsed.data.caption?.trim() || "";
 
   let outbound;
   try {
-    outbound = await sendEvolutionMediaBase64({
+    outbound = await sendEvolutionMediaUrl({
       instanceName: conversation.channel.evolutionInstanceName,
       phoneNumber: conversation.contact.phoneNumber,
       mediatype,
       mimetype: parsed.data.mimeType,
-      base64: mediaBase64,
+      url: publicMediaUrl,
       fileName: parsed.data.fileName,
       caption,
+      base64Fallback: mediaBase64,
     });
   } catch (mediaError) {
     const detail = mediaError instanceof Error ? mediaError.message : "";

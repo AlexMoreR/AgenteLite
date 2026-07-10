@@ -1868,6 +1868,43 @@ export async function sendEvolutionDocumentMessage(input: {
   });
 }
 
+// Evolution GO (/send/media) descarga la media desde una URL pública (su body solo acepta
+// `url`, no base64). Enviamos la URL como fuente principal y dejamos el base64 únicamente
+// como respaldo del path legacy (Evolution API v1), por si el gateway no puede descargar la URL.
+export async function sendEvolutionMediaUrl(input: {
+  instanceName: string;
+  phoneNumber: string;
+  mediatype: "image" | "video" | "document" | "audio";
+  mimetype?: string | null;
+  url: string;
+  fileName: string;
+  caption?: string | null;
+  base64Fallback?: string | null;
+  delayMs?: number;
+}) {
+  const normalizedCaption = input.caption?.trim() || "";
+  return sendEvolutionMediaRequest({
+    instanceName: input.instanceName,
+    phoneNumber: input.phoneNumber,
+    type: input.mediatype,
+    media: input.url,
+    mediaSource: "url",
+    fileName: input.fileName,
+    mimetype: input.mimetype,
+    caption: normalizedCaption,
+    delayMs: input.delayMs,
+    legacyBody: {
+      number: normalizeEvolutionSendNumber(input.phoneNumber),
+      mediatype: input.mediatype,
+      ...(input.mimetype?.trim() ? { mimetype: input.mimetype.trim() } : {}),
+      caption: normalizedCaption,
+      media: input.base64Fallback || input.url,
+      fileName: input.fileName,
+      delay: input.delayMs ?? 1200,
+    },
+  });
+}
+
 export async function sendEvolutionMediaBase64(input: {
   instanceName: string;
   phoneNumber: string;
