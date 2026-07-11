@@ -630,11 +630,18 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
       return { ok: false, error: result.error };
     }
 
-    await syncLeadLifecycleForContact({
-      workspaceId: membership.workspace.id,
-      contactId: conversation.contactId,
-      hasHistory: true,
-    });
+    // conversation.contactId es un OfficialApiContact.id y ContactTag apunta al
+    // modelo Contact: la sincronizacion de tags falla con FK en el canal oficial.
+    // Nunca debe convertir un envio exitoso en error.
+    try {
+      await syncLeadLifecycleForContact({
+        workspaceId: membership.workspace.id,
+        contactId: conversation.contactId,
+        hasHistory: true,
+      });
+    } catch (error) {
+      console.error("[sendUnifiedChatReplyAction] No se pudo sincronizar tags del contacto oficial", error);
+    }
 
     revalidatePath("/cliente/chats");
     revalidatePath("/cliente/api-oficial");

@@ -164,11 +164,15 @@ export async function sendOfficialApiReplyAction(formData: FormData): Promise<vo
     if (safeReturnTo) {
       revalidatePath(safeReturnTo);
     }
-    await syncLeadLifecycleForContact({
-      workspaceId: membership.workspace.id,
-      contactId: conversation.contactId,
-      hasHistory: true,
-    });
+    try {
+      await syncLeadLifecycleForContact({
+        workspaceId: membership.workspace.id,
+        contactId: conversation.contactId,
+        hasHistory: true,
+      });
+    } catch (error) {
+      console.error("[official-api] No se pudo sincronizar tags del contacto oficial", error);
+    }
     revalidatePath("/cliente/api-oficial");
     revalidatePath("/cliente/api-oficial/chats");
     if (safeReturnTo) {
@@ -195,11 +199,15 @@ export async function sendOfficialApiReplyAction(formData: FormData): Promise<vo
     redirect(`/cliente/api-oficial/chats?conversationId=${conversation.id}&error=${encodeURIComponent(result.error)}`);
   }
 
-  await syncLeadLifecycleForContact({
-    workspaceId: membership.workspace.id,
-    contactId: conversation.contactId,
-    hasHistory: true,
-  });
+  try {
+    await syncLeadLifecycleForContact({
+      workspaceId: membership.workspace.id,
+      contactId: conversation.contactId,
+      hasHistory: true,
+    });
+  } catch (error) {
+    console.error("[official-api] No se pudo sincronizar tags del contacto oficial", error);
+  }
 
   if (safeReturnTo) {
     revalidatePath(safeReturnTo);
