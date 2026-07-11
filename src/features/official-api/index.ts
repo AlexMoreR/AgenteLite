@@ -2,6 +2,7 @@ export { OfficialApiChatsWorkspace } from "./components/OfficialApiChatsWorkspac
 export { OfficialApiChatbotWorkspace } from "./components/OfficialApiChatbotWorkspace";
 export { OfficialApiLockedState } from "./components/OfficialApiLockedState";
 export { OfficialApiPanelShell } from "./components/OfficialApiPanelShell";
+export { OfficialApiTemplatesWorkspace } from "./components/OfficialApiTemplatesWorkspace";
 export { OfficialApiWorkspace } from "./components/OfficialApiWorkspace";
 export { getOfficialApiChatbotData } from "./services/getOfficialApiChatbotData";
 export { getOfficialApiChatsData } from "./services/getOfficialApiChatsData";

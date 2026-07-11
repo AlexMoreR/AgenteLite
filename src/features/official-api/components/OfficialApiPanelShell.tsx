@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
-import { FileText } from "lucide-react";
+import { FileStack, FileText } from "lucide-react";
 
 type OfficialApiPanelShellProps = {
   children: ReactNode;
@@ -21,6 +21,12 @@ export function OfficialApiPanelShell({
       label: "Resumen",
       href: basePath,
       icon: FileText,
+    },
+    {
+      key: "plantillas",
+      label: "Plantillas",
+      href: `${basePath}/plantillas`,
+      icon: FileStack,
     },
   ];
 
