@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import Link from "next/link";
-import { useState, useTransition, type ReactNode } from "react";
+import { useEffect, useState, useTransition, type ReactNode } from "react";
 import { useFormStatus } from "react-dom";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { useRouter } from "next/navigation";
@@ -347,6 +347,14 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
   const router = useRouter();
   const selectedContact = data.selectedContact;
   const pagination = data.pagination;
+  // El modal se controla con estado local para que "Cerrar" funcione al instante,
+  // sin depender de que la navegación (quitar contactId de la URL) refresque el server.
+  const [detailOpen, setDetailOpen] = useState<boolean>(Boolean(selectedContact));
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setDetailOpen(Boolean(selectedContact));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedContact?.id]);
 
   async function copyToClipboard(value: string, field: string) {
     await navigator.clipboard.writeText(value);
@@ -698,8 +706,9 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
         </Card>
 
         <Dialog
-          open={Boolean(selectedContact)}
+          open={detailOpen}
           onOpenChange={(open) => {
+            setDetailOpen(open);
             if (!open) closeContactDetail();
           }}
         >
@@ -991,7 +1000,14 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
 
               <div className="shrink-0 border-t p-3.5 sm:p-4">
                 <div className="flex flex-wrap items-center justify-end gap-2">
-                  <Button type="button" variant="outline" onClick={closeContactDetail}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setDetailOpen(false);
+                      closeContactDetail();
+                    }}
+                  >
                     Cerrar
                   </Button>
                   <Button asChild>
