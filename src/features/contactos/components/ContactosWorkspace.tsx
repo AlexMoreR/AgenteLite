@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState, useTransition, type ReactNode } from "react";
 import { useFormStatus } from "react-dom";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { useRouter } from "next/navigation";
 import {
   ArrowRight,
@@ -427,6 +428,21 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
     );
   }
 
+  // Cierra el modal de detalle limpiando el contactId de la URL (la selección es por URL).
+  function closeContactDetail() {
+    router.push(
+      getContactosHref({
+        searchQuery: data.searchQuery,
+        agentFilterId: data.agentFilterId,
+        selectedContactId: null,
+        range: data.reportRangeDays,
+        page: pagination.page,
+        view: activeView,
+      }),
+      { scroll: false },
+    );
+  }
+
   return (
     <section className="space-y-2">
       <div className="space-y-1">
@@ -596,7 +612,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
       ) : null}
 
       {activeView === "contacto" ? (
-        <div className="grid gap-4 xl:grid-cols-[380px_minmax(0,1fr)]">
+        <>
         <Card className="rounded-none flex h-full flex-col border border-border/70 shadow-none">
           <CardHeader className="border-b p-4 sm:p-5">
             <form method="get" className="space-y-3">
@@ -681,10 +697,17 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
           </div>
         </Card>
 
-        <Card className="rounded-none border border-border/70 shadow-none">
-          {selectedContact ? (
-            <div className="flex h-full flex-col">
-              <div className="border-b p-3.5 sm:p-4">
+        <Dialog
+          open={Boolean(selectedContact)}
+          onOpenChange={(open) => {
+            if (!open) closeContactDetail();
+          }}
+        >
+          <DialogContent className="flex max-h-[85vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
+            <DialogTitle className="sr-only">Detalle del contacto</DialogTitle>
+            {selectedContact ? (
+              <>
+              <div className="shrink-0 border-b p-3.5 sm:p-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div className="flex min-w-0 items-start gap-2.5">
                     <ContactAvatar
@@ -797,6 +820,7 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                 </div>
               </div>
 
+              <div className="min-h-0 flex-1 overflow-y-auto">
               <div className="grid gap-4 p-4 sm:p-5">
                 <Card className="rounded-none border border-border/70 bg-muted/30 shadow-none">
                   <CardHeader>
@@ -964,23 +988,22 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                 ) : null}
               </div>
             </div>
-          ) : (
-            <div className="flex min-h-[36rem] items-center justify-center p-6 text-center">
-              <div className="mx-auto flex max-w-sm flex-col items-center gap-3">
-                <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-muted text-muted-foreground">
-                  <Users2 className="h-5 w-5" />
-                </span>
-                <div className="space-y-1">
-                  <h3 className="text-base font-semibold text-foreground">Selecciona un contacto</h3>
-                  <p className="text-sm leading-6 text-muted-foreground">
-                    Aqui veras su informacion, las conversaciones recientes y el acceso directo al chat.
-                  </p>
+
+              <div className="shrink-0 border-t p-3.5 sm:p-4">
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <Button type="button" variant="outline" onClick={closeContactDetail}>
+                    Cerrar
+                  </Button>
+                  <Button asChild>
+                    <Link href={selectedHref}>Abrir chat</Link>
+                  </Button>
                 </div>
               </div>
-            </div>
-          )}
-        </Card>
-        </div>
+              </>
+            ) : null}
+          </DialogContent>
+        </Dialog>
+        </>
           ) : null}
 
       {selectedContact && resetModalOpen ? (
