@@ -7,6 +7,8 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { useRouter } from "next/navigation";
 import {
   ArrowRight,
+  ChevronLeft,
+  ChevronRight,
   BarChart3,
   Copy,
   Download,
@@ -681,31 +683,33 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
             )}
           </CardContent>
 
-          <div className="mt-auto flex flex-col gap-2 border-t px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+          <div className="mt-auto flex flex-col gap-3 border-t px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
             <p className="text-xs text-muted-foreground">
               Mostrando {pagination.rangeStart}-{pagination.rangeEnd} de {pagination.total}
             </p>
-            <div className="flex items-center gap-2 self-end sm:self-auto">
+            <div className="flex items-center justify-between gap-2 sm:justify-end">
               <Button
                 type="button"
-                variant="ghost"
+                variant="outline"
                 size="sm"
                 onClick={() => handlePageChange(Math.max(1, pagination.page - 1))}
                 disabled={!pagination.hasPreviousPage}
               >
+                <ChevronLeft className="h-4 w-4" />
                 Anterior
               </Button>
-              <span className="text-xs text-muted-foreground">
-                Pagina {pagination.page} de {pagination.totalPages}
+              <span className="px-1 text-xs font-medium tabular-nums text-muted-foreground">
+                {pagination.page} / {pagination.totalPages}
               </span>
               <Button
                 type="button"
-                variant="ghost"
+                variant="outline"
                 size="sm"
                 onClick={() => handlePageChange(Math.min(pagination.totalPages, pagination.page + 1))}
                 disabled={!pagination.hasNextPage}
               >
                 Siguiente
+                <ChevronRight className="h-4 w-4" />
               </Button>
             </div>
           </div>
