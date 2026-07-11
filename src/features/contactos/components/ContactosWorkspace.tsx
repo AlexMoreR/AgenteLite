@@ -446,8 +446,8 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
   return (
     <section className="space-y-2">
       <div className="space-y-1">
-        <div className="flex items-start justify-between gap-2">
-          <PageHeader icon={Users2} title="Contactos" className="min-w-0 max-md:pl-10" />
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <PageHeader icon={Users2} title="Contactos" className="min-w-0" />
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
