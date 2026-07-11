@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import Link from "next/link";
-import { useEffect, useState, useTransition, type ReactNode } from "react";
+import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
 import { useFormStatus } from "react-dom";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { useRouter } from "next/navigation";
@@ -349,9 +349,15 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
   const pagination = data.pagination;
   // El modal se controla con estado local para que "Cerrar" funcione al instante,
   // sin depender de que la navegación (quitar contactId de la URL) refresque el server.
-  const [detailOpen, setDetailOpen] = useState<boolean>(Boolean(selectedContact));
+  const [detailOpen, setDetailOpen] = useState<boolean>(false);
+  const detailDidMountRef = useRef(false);
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // NO auto-abrimos al entrar a la página (aunque venga un contactId en la URL): solo
+    // se abre cuando el usuario selecciona un contacto (el id cambia DESPUÉS del montaje).
+    if (!detailDidMountRef.current) {
+      detailDidMountRef.current = true;
+      return;
+    }
     setDetailOpen(Boolean(selectedContact));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedContact?.id]);
