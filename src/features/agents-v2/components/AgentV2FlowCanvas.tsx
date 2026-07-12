@@ -20,6 +20,7 @@ import {
   HelpCircle,
   Megaphone,
   MessageSquare,
+  Minus,
   Pencil,
   Phone,
   Plus,
@@ -274,18 +275,36 @@ function NodeActionsToolbar({
   selected,
   onDuplicate,
   onDelete,
+  onToggleCollapsed,
+  collapsed = false,
   duplicateLabel = "Duplicar nodo",
   deleteLabel = "Eliminar nodo",
 }: {
   selected?: boolean;
   onDuplicate?: () => void;
   onDelete?: () => void;
+  onToggleCollapsed?: () => void;
+  collapsed?: boolean;
   duplicateLabel?: string;
   deleteLabel?: string;
 }) {
   return (
     <NodeToolbar isVisible={selected} position={Position.Top} align="end" offset={8}>
       <div className="flex items-center gap-1">
+        {onToggleCollapsed ? (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleCollapsed();
+            }}
+            className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border bg-card text-muted-foreground shadow-sm transition hover:bg-muted hover:text-foreground"
+            aria-label={collapsed ? "Mostrar cuerpo del nodo" : "Ocultar cuerpo del nodo"}
+            title={collapsed ? "Mostrar cuerpo" : "Ocultar cuerpo"}
+          >
+            {collapsed ? <Plus className="h-3.5 w-3.5" /> : <Minus className="h-3.5 w-3.5" />}
+          </button>
+        ) : null}
         {onDuplicate ? (
           <button
             type="button"
@@ -323,23 +342,38 @@ function EntradaNode({ id, data, selected }: NodeProps) {
   const nodeData = data as EntradaData;
   const isKeyword = nodeData.kind === "keyword";
   const [businessOpen, setBusinessOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
 
   return (
     <>
       {isKeyword ? (
         <NodeToolbar isVisible={selected} position={Position.Top} align="end" offset={8}>
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              nodeData.onDelete?.(id);
-            }}
-            className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border bg-card text-muted-foreground shadow-sm transition hover:bg-muted hover:text-foreground"
-            aria-label="Eliminar entrada"
-            title="Eliminar entrada"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                setCollapsed((current) => !current);
+              }}
+              className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border bg-card text-muted-foreground shadow-sm transition hover:bg-muted hover:text-foreground"
+              aria-label={collapsed ? "Mostrar cuerpo del nodo" : "Ocultar cuerpo del nodo"}
+              title={collapsed ? "Mostrar cuerpo" : "Ocultar cuerpo"}
+            >
+              {collapsed ? <Plus className="h-3.5 w-3.5" /> : <Minus className="h-3.5 w-3.5" />}
+            </button>
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                nodeData.onDelete?.(id);
+              }}
+              className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border bg-card text-muted-foreground shadow-sm transition hover:bg-muted hover:text-foreground"
+              aria-label="Eliminar entrada"
+              title="Eliminar entrada"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
         </NodeToolbar>
       ) : null}
 
@@ -364,7 +398,7 @@ function EntradaNode({ id, data, selected }: NodeProps) {
             {isKeyword ? "Entrada por pauta" : "Comenzar"}
           </BaseNodeHeaderTitle>
         </BaseNodeHeader>
-        {isKeyword ? (
+        {isKeyword && !collapsed ? (
           <BaseNodeContent>
             <p className="text-xs leading-5 text-muted-foreground">
               Cuando el mensaje trae una palabra clave (anuncio/pauta).
@@ -418,11 +452,18 @@ function EntradaNode({ id, data, selected }: NodeProps) {
 function AgentNode({ id, data, selected }: NodeProps) {
   const nodeData = data as AgentData;
   const [editorOpen, setEditorOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   const promptPreview = nodeData.prompt?.trim() ?? "";
   const welcomePreview = nodeData.welcome?.trim() ?? "";
 
   return (
     <>
+      <NodeActionsToolbar
+        selected={selected}
+        collapsed={collapsed}
+        onToggleCollapsed={() => setCollapsed((current) => !current)}
+      />
+
       <Handle
         id="target"
         type="target"
@@ -439,6 +480,7 @@ function AgentNode({ id, data, selected }: NodeProps) {
           </span>
           <BaseNodeHeaderTitle className="truncate">Agente</BaseNodeHeaderTitle>
         </BaseNodeHeader>
+        {!collapsed ? (
         <BaseNodeContent>
           <div className="nodrag space-y-2 rounded-lg border border-border bg-muted/40 px-3 py-2.5">
             <div className="space-y-1">
@@ -456,14 +498,6 @@ function AgentNode({ id, data, selected }: NodeProps) {
               </p>
             </div>
           </div>
-
-          <AgentEditorDialog
-            open={editorOpen}
-            onOpenChange={setEditorOpen}
-            data={nodeData}
-            onChange={(patch) => nodeData.onChange?.(id, patch)}
-          />
-
           <div className="space-y-1.5">
             <p className="text-xs font-medium text-foreground">Herramientas</p>
             <div
@@ -494,6 +528,7 @@ function AgentNode({ id, data, selected }: NodeProps) {
             </div>
           </div>
         </BaseNodeContent>
+        ) : null}
         <Handle
           id="source"
           type="source"
@@ -501,6 +536,12 @@ function AgentNode({ id, data, selected }: NodeProps) {
           className="!h-4 !w-4 !border-2 !border-white !bg-violet-600"
         />
       </BaseNode>
+      <AgentEditorDialog
+        open={editorOpen}
+        onOpenChange={setEditorOpen}
+        data={nodeData}
+        onChange={(patch) => nodeData.onChange?.(id, patch)}
+      />
     </>
   );
 }
@@ -606,6 +647,7 @@ function ProductoNode({ id, data, selected }: NodeProps) {
   const nodeData = data as ProductoData;
   const products = nodeData.products ?? [];
   const [editorOpen, setEditorOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   const selectedProduct = products.find((p) => p.id === nodeData.productId);
 
   return (
@@ -614,6 +656,8 @@ function ProductoNode({ id, data, selected }: NodeProps) {
         selected={selected}
         onDuplicate={() => nodeData.onDuplicate?.(id)}
         onDelete={() => nodeData.onDelete?.(id)}
+        collapsed={collapsed}
+        onToggleCollapsed={() => setCollapsed((current) => !current)}
         duplicateLabel="Duplicar producto"
         deleteLabel="Eliminar producto"
       />
@@ -631,6 +675,7 @@ function ProductoNode({ id, data, selected }: NodeProps) {
           </span>
           <BaseNodeHeaderTitle className="truncate">Producto</BaseNodeHeaderTitle>
         </BaseNodeHeader>
+        {!collapsed ? (
         <BaseNodeContent className="space-y-3">
           <div
             className="nodrag space-y-2 rounded-lg border border-border bg-muted/40 px-3 py-2.5"
@@ -690,6 +735,7 @@ function ProductoNode({ id, data, selected }: NodeProps) {
             </div>
           ) : null}
         </BaseNodeContent>
+        ) : null}
       </BaseNode>
     </>
   );
@@ -832,6 +878,7 @@ function FlujoNode({ id, data, selected }: NodeProps) {
     .map((flowId) => flows.find((flow) => flow.id === flowId))
     .filter((flow): flow is AgentV2Flow => Boolean(flow));
   const [editorOpen, setEditorOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
 
   return (
     <>
@@ -839,6 +886,8 @@ function FlujoNode({ id, data, selected }: NodeProps) {
         selected={selected}
         onDuplicate={() => nodeData.onDuplicate?.(id)}
         onDelete={() => nodeData.onDelete?.(id)}
+        collapsed={collapsed}
+        onToggleCollapsed={() => setCollapsed((current) => !current)}
         duplicateLabel="Duplicar flujo"
         deleteLabel="Eliminar flujo"
       />
@@ -867,6 +916,7 @@ function FlujoNode({ id, data, selected }: NodeProps) {
           </span>
           <BaseNodeHeaderTitle className="truncate">Flujo</BaseNodeHeaderTitle>
         </BaseNodeHeader>
+        {!collapsed ? (
         <BaseNodeContent>
           {selectedFlows.length > 0 ? (
             <div className="flex flex-wrap gap-1.5">
@@ -888,6 +938,7 @@ function FlujoNode({ id, data, selected }: NodeProps) {
             <p className="text-sm text-muted-foreground">Selecciona uno o varios flujos</p>
           )}
         </BaseNodeContent>
+        ) : null}
         <Handle
           id="source"
           type="source"
@@ -1035,6 +1086,7 @@ type SeguimientoData = {
 function SeguimientoNode({ id, data, selected }: NodeProps) {
   const nodeData = data as SeguimientoData;
   const followRules = nodeData.followRules ?? [];
+  const [collapsed, setCollapsed] = useState(false);
 
   return (
     <>
@@ -1042,6 +1094,8 @@ function SeguimientoNode({ id, data, selected }: NodeProps) {
         selected={selected}
         onDuplicate={() => nodeData.onDuplicate?.(id)}
         onDelete={() => nodeData.onDelete?.(id)}
+        collapsed={collapsed}
+        onToggleCollapsed={() => setCollapsed((current) => !current)}
         duplicateLabel="Duplicar seguimiento"
         deleteLabel="Eliminar seguimiento"
       />
@@ -1059,6 +1113,7 @@ function SeguimientoNode({ id, data, selected }: NodeProps) {
           </span>
           <BaseNodeHeaderTitle className="truncate">Seguimiento</BaseNodeHeaderTitle>
         </BaseNodeHeader>
+        {!collapsed ? (
         <BaseNodeContent>
           <div className="nodrag space-y-1" onClick={(event) => event.stopPropagation()}>
             <Select
@@ -1090,6 +1145,7 @@ function SeguimientoNode({ id, data, selected }: NodeProps) {
             </Select>
           </div>
         </BaseNodeContent>
+        ) : null}
       </BaseNode>
     </>
   );
@@ -1291,6 +1347,7 @@ function ConditionNode({ id, data, selected }: NodeProps) {
   const elseConnections = useNodeConnections({ id, handleType: "source", handleId: "else" });
   const elseConnected = elseConnections.length > 0;
   const [editorOpen, setEditorOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
 
   return (
     <>
@@ -1298,6 +1355,8 @@ function ConditionNode({ id, data, selected }: NodeProps) {
         selected={selected}
         onDuplicate={() => nodeData.onDuplicate?.(id)}
         onDelete={() => nodeData.onDelete?.(id)}
+        collapsed={collapsed}
+        onToggleCollapsed={() => setCollapsed((current) => !current)}
         duplicateLabel="Duplicar condicion"
         deleteLabel="Eliminar condicion"
       />
@@ -1321,6 +1380,7 @@ function ConditionNode({ id, data, selected }: NodeProps) {
           </span>
           <BaseNodeHeaderTitle className="truncate">Condicion</BaseNodeHeaderTitle>
         </BaseNodeHeader>
+        {!collapsed ? (
         <BaseNodeContent className="space-y-2">
           {rules.map((rule, index) => (
             <div
@@ -1364,15 +1424,15 @@ function ConditionNode({ id, data, selected }: NodeProps) {
               className="!-right-4 !h-4 !w-4 !border-2 !border-white !bg-slate-400"
             />
           </div>
-
-          <ConditionEditorDialog
-            open={editorOpen}
-            onOpenChange={setEditorOpen}
-            id={id}
-            data={nodeData}
-          />
         </BaseNodeContent>
+        ) : null}
       </BaseNode>
+      <ConditionEditorDialog
+        open={editorOpen}
+        onOpenChange={setEditorOpen}
+        id={id}
+        data={nodeData}
+      />
     </>
   );
 }
@@ -1487,6 +1547,7 @@ type TextData = {
 function TextNode({ id, data, selected }: NodeProps) {
   const nodeData = data as TextData;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -1502,6 +1563,8 @@ function TextNode({ id, data, selected }: NodeProps) {
         selected={selected}
         onDuplicate={() => nodeData.onDuplicate?.(id)}
         onDelete={() => nodeData.onDelete?.(id)}
+        collapsed={collapsed}
+        onToggleCollapsed={() => setCollapsed((current) => !current)}
         duplicateLabel="Duplicar texto"
         deleteLabel="Eliminar texto"
       />
@@ -1534,6 +1597,7 @@ function TextNode({ id, data, selected }: NodeProps) {
             </Tooltip>
           </TooltipProvider>
         </BaseNodeHeader>
+        {!collapsed ? (
         <BaseNodeContent>
           <textarea
             ref={textareaRef}
@@ -1544,6 +1608,7 @@ function TextNode({ id, data, selected }: NodeProps) {
             className="nodrag block min-h-[72px] w-full resize-none overflow-hidden rounded-lg border border-border bg-background px-3 py-2 text-sm leading-5 text-foreground outline-none transition placeholder:text-muted-foreground focus:border-sky-400 focus:ring-2 focus:ring-sky-100 dark:focus:ring-sky-950"
           />
         </BaseNodeContent>
+        ) : null}
         <Handle
           id="source"
           type="source"
@@ -1566,6 +1631,7 @@ type NotificarData = {
 function NotificarNode({ id, data, selected }: NodeProps) {
   const nodeData = data as NotificarData;
   const [editorOpen, setEditorOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
 
   return (
     <>
@@ -1573,6 +1639,8 @@ function NotificarNode({ id, data, selected }: NodeProps) {
         selected={selected}
         onDuplicate={() => nodeData.onDuplicate?.(id)}
         onDelete={() => nodeData.onDelete?.(id)}
+        collapsed={collapsed}
+        onToggleCollapsed={() => setCollapsed((current) => !current)}
         duplicateLabel="Duplicar notificar asesor"
         deleteLabel="Eliminar notificar asesor"
       />
@@ -1596,6 +1664,7 @@ function NotificarNode({ id, data, selected }: NodeProps) {
           </span>
           <BaseNodeHeaderTitle className="truncate">Notificar asesor</BaseNodeHeaderTitle>
         </BaseNodeHeader>
+        {!collapsed ? (
         <BaseNodeContent>
           <div className="space-y-2 rounded-lg border border-border bg-muted/40 px-3 py-2.5">
             <div className="space-y-0.5">
@@ -1617,6 +1686,7 @@ function NotificarNode({ id, data, selected }: NodeProps) {
             </div>
           </div>
         </BaseNodeContent>
+        ) : null}
       </BaseNode>
 
       <NotificarEditorDialog
