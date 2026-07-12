@@ -63,6 +63,7 @@ import {
   BaseNodeHeaderTitle,
 } from "@/components/reactflow/base-node";
 import { Switch } from "@/components/ui/switch";
+import { useSetBreadcrumbLabel } from "@/components/breadcrumb-label-context";
 import { saveAgentV2BusinessConfigAction } from "@/app/actions/agent-v2-actions";
 import { toast } from "sonner";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -2149,6 +2150,8 @@ function FlowCanvasInner({
   onBack,
 }: AgentV2FlowCanvasProps) {
   const initial = useMemo(() => loadGraph(initialGraph, agentName), [initialGraph, agentName]);
+  // Muestra el nombre del agente en el breadcrumb (donde dice "Agente V2") mientras se edita.
+  useSetBreadcrumbLabel(agentName);
   const [isPublishing, startPublish] = useTransition();
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>(initial.nodes);
@@ -2635,10 +2638,6 @@ function FlowCanvasInner({
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div className="pointer-events-none flex items-center gap-2">
-          <span className="inline-flex items-center gap-2 rounded-full bg-popover px-3 py-1.5 text-xs font-medium text-foreground ring-1 ring-border">
-            <Bot className="h-3.5 w-3.5 text-violet-600" />
-            {agentName}
-          </span>
           <span className="inline-flex items-center gap-2 rounded-full bg-popover px-3 py-1.5 text-xs font-medium text-foreground ring-1 ring-border">
             <Boxes className="h-3.5 w-3.5 text-sky-600" />
             {nodes.length} bloques
