@@ -418,7 +418,6 @@ function EntradaNode({ id, data, selected }: NodeProps) {
 function AgentNode({ id, data, selected }: NodeProps) {
   const nodeData = data as AgentData;
   const [editorOpen, setEditorOpen] = useState(false);
-
   const promptPreview = nodeData.prompt?.trim() ?? "";
   const welcomePreview = nodeData.welcome?.trim() ?? "";
 
@@ -430,7 +429,10 @@ function AgentNode({ id, data, selected }: NodeProps) {
         position={Position.Left}
         className="!h-4 !w-4 !border-2 !border-white !bg-sky-600"
       />
-      <BaseNode className={cn("w-[320px] transition-shadow", selected && SELECTED_NODE_CLASS)}>
+      <BaseNode
+        className={cn("w-[320px] cursor-pointer transition-shadow", selected && SELECTED_NODE_CLASS)}
+        onClick={() => setEditorOpen(true)}
+      >
         <BaseNodeHeader className="items-center justify-start gap-2.5">
           <span className="inline-flex shrink-0 items-center justify-center">
             <Bot className="h-4 w-4 text-violet-600" />
@@ -438,10 +440,7 @@ function AgentNode({ id, data, selected }: NodeProps) {
           <BaseNodeHeaderTitle className="truncate">Agente</BaseNodeHeaderTitle>
         </BaseNodeHeader>
         <BaseNodeContent>
-          <div
-            className="nodrag space-y-2 rounded-lg border border-border bg-muted/40 px-3 py-2.5"
-            onClick={(event) => event.stopPropagation()}
-          >
+          <div className="nodrag space-y-2 rounded-lg border border-border bg-muted/40 px-3 py-2.5">
             <div className="space-y-1">
               <p className="text-xs font-medium text-foreground">Bienvenida</p>
               <p className="line-clamp-2 text-[11px] leading-4 text-muted-foreground">
@@ -456,19 +455,6 @@ function AgentNode({ id, data, selected }: NodeProps) {
                 {promptPreview || "Sin instruccion base. Pulsa Editar agente para definirla."}
               </p>
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="nodrag w-full gap-2"
-              onClick={(event) => {
-                event.stopPropagation();
-                setEditorOpen(true);
-              }}
-            >
-              <Pencil className="h-3.5 w-3.5" />
-              Editar agente
-            </Button>
           </div>
 
           <AgentEditorDialog
@@ -541,9 +527,12 @@ function AgentEditorDialog({
         </DialogHeader>
 
         <div className="space-y-4">
-          <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/40 px-3 py-2">
+          <div className="flex items-center justify-between gap-3">
             <div className="space-y-0.5">
-              <span className="text-sm font-medium text-foreground">Bienvenida fija</span>
+              <span className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <Rocket className="h-4 w-4" />
+                Bienvenida fija
+              </span>
               <p className="text-[11px] leading-4 text-muted-foreground">
                 Si esta apagada, la IA genera la bienvenida segun el prompt.
               </p>
@@ -556,24 +545,26 @@ function AgentEditorDialog({
           </div>
 
           {data.fixedWelcome ? (
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-foreground">Mensaje de bienvenida</label>
+            <div>
               <textarea
                 value={data.welcome}
                 onChange={(event) => onChange({ welcome: event.target.value })}
                 placeholder="Hola, bienvenido a..."
-                className="block min-h-[88px] w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm leading-5 text-foreground outline-none transition placeholder:text-muted-foreground focus:border-violet-400 focus:ring-2 focus:ring-violet-100 dark:focus:ring-violet-950"
+                className="block min-h-[88px] w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm leading-[1.35] text-foreground outline-none transition placeholder:text-muted-foreground focus:border-violet-400 focus:ring-2 focus:ring-violet-100 dark:focus:ring-violet-950"
               />
             </div>
           ) : null}
 
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-foreground">Prompt principal</label>
+            <label className="flex items-center gap-2 text-sm font-medium text-foreground">
+              <MessageSquare className="h-4 w-4" />
+              Prompt principal
+            </label>
             <textarea
               value={data.prompt}
               onChange={(event) => onChange({ prompt: event.target.value })}
               placeholder="Eres el asistente de... Tu objetivo es..."
-              className="block min-h-[240px] w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm leading-5 text-foreground outline-none transition placeholder:text-muted-foreground focus:border-violet-400 focus:ring-2 focus:ring-violet-100 dark:focus:ring-violet-950"
+              className="block min-h-[240px] w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm leading-[1.35] text-foreground outline-none transition placeholder:text-muted-foreground focus:border-violet-400 focus:ring-2 focus:ring-violet-100 dark:focus:ring-violet-950"
             />
             <p className="text-[11px] leading-4 text-muted-foreground">
               Instruccion base de la IA. Desde aqui conectaras conocimiento, productos y flujos.
