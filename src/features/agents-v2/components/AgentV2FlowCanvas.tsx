@@ -562,15 +562,18 @@ function AgentEditorDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="nodrag sm:max-w-2xl" onClick={(event) => event.stopPropagation()}>
-        <DialogHeader>
+      <DialogContent
+        className="nodrag flex max-h-[85vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <DialogHeader className="shrink-0 border-b p-4 text-left">
           <DialogTitle className="flex items-center gap-2">
             <Bot className="h-4 w-4 text-violet-600" />
             Editar agente
           </DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
           <div className="flex items-center justify-between gap-3">
             <div className="space-y-0.5">
               <span className="flex items-center gap-2 text-sm font-medium text-foreground">
@@ -616,7 +619,7 @@ function AgentEditorDialog({
           </div>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="shrink-0 border-t p-4">
           <DialogClose render={<Button variant="outline" />}>Cerrar</DialogClose>
         </DialogFooter>
       </DialogContent>
