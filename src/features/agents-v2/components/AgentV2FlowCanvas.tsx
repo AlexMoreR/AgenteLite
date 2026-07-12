@@ -118,6 +118,7 @@ type NodeDataPatch = Partial<{
   ruleId: string;
   instruction: string;
   phoneNumbers: string[];
+  collapsed: boolean;
 }>;
 
 export type AgentV2Product = { id: string; name: string };
@@ -255,6 +256,7 @@ type EntradaData = {
   welcome: string;
   keywords: string;
   useBusiness: boolean;
+  collapsed?: boolean;
   business?: BusinessData;
   onChange?: (id: string, patch: NodeDataPatch) => void;
   onSaveBusiness?: (business: BusinessData) => void;
@@ -268,6 +270,7 @@ type AgentData = {
   fixedWelcome: boolean;
   consultProducts: boolean;
   consultFlows: boolean;
+  collapsed?: boolean;
   onChange?: (id: string, patch: NodeDataPatch) => void;
 };
 
@@ -342,7 +345,7 @@ function EntradaNode({ id, data, selected }: NodeProps) {
   const nodeData = data as EntradaData;
   const isKeyword = nodeData.kind === "keyword";
   const [businessOpen, setBusinessOpen] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
+  const collapsed = nodeData.collapsed ?? false;
 
   return (
     <>
@@ -353,7 +356,7 @@ function EntradaNode({ id, data, selected }: NodeProps) {
               type="button"
               onClick={(event) => {
                 event.stopPropagation();
-                setCollapsed((current) => !current);
+                nodeData.onChange?.(id, { collapsed: !collapsed });
               }}
               className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border bg-card text-muted-foreground shadow-sm transition hover:bg-muted hover:text-foreground"
               aria-label={collapsed ? "Mostrar cuerpo del nodo" : "Ocultar cuerpo del nodo"}
@@ -452,7 +455,7 @@ function EntradaNode({ id, data, selected }: NodeProps) {
 function AgentNode({ id, data, selected }: NodeProps) {
   const nodeData = data as AgentData;
   const [editorOpen, setEditorOpen] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
+  const collapsed = nodeData.collapsed ?? false;
   const promptPreview = nodeData.prompt?.trim() ?? "";
   const welcomePreview = nodeData.welcome?.trim() ?? "";
 
@@ -461,7 +464,7 @@ function AgentNode({ id, data, selected }: NodeProps) {
       <NodeActionsToolbar
         selected={selected}
         collapsed={collapsed}
-        onToggleCollapsed={() => setCollapsed((current) => !current)}
+        onToggleCollapsed={() => nodeData.onChange?.(id, { collapsed: !collapsed })}
       />
 
       <Handle
@@ -637,6 +640,7 @@ type ProductoData = {
   matchKeywords: string[];
   intent: string;
   useFunnel: boolean;
+  collapsed?: boolean;
   products?: AgentV2Product[];
   onChange?: (id: string, patch: NodeDataPatch) => void;
   onUpdateMatch?: (nodeId: string, matchType: MatchType, keywords: string[], intent: string) => void;
@@ -647,7 +651,7 @@ function ProductoNode({ id, data, selected }: NodeProps) {
   const nodeData = data as ProductoData;
   const products = nodeData.products ?? [];
   const [editorOpen, setEditorOpen] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
+  const collapsed = nodeData.collapsed ?? false;
   const selectedProduct = products.find((p) => p.id === nodeData.productId);
 
   return (
@@ -657,7 +661,7 @@ function ProductoNode({ id, data, selected }: NodeProps) {
         onDuplicate={() => nodeData.onDuplicate?.(id)}
         onDelete={() => nodeData.onDelete?.(id)}
         collapsed={collapsed}
-        onToggleCollapsed={() => setCollapsed((current) => !current)}
+        onToggleCollapsed={() => nodeData.onChange?.(id, { collapsed: !collapsed })}
         duplicateLabel="Duplicar producto"
         deleteLabel="Eliminar producto"
       />
@@ -860,6 +864,7 @@ type FlujoData = {
   onDuplicate?: (id: string) => void;
   flowId: string;
   flowIds?: string[];
+  collapsed?: boolean;
   flows?: AgentV2Flow[];
   onChange?: (id: string, patch: NodeDataPatch) => void;
   onDelete?: (id: string) => void;
@@ -878,7 +883,7 @@ function FlujoNode({ id, data, selected }: NodeProps) {
     .map((flowId) => flows.find((flow) => flow.id === flowId))
     .filter((flow): flow is AgentV2Flow => Boolean(flow));
   const [editorOpen, setEditorOpen] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
+  const collapsed = nodeData.collapsed ?? false;
 
   return (
     <>
@@ -887,7 +892,7 @@ function FlujoNode({ id, data, selected }: NodeProps) {
         onDuplicate={() => nodeData.onDuplicate?.(id)}
         onDelete={() => nodeData.onDelete?.(id)}
         collapsed={collapsed}
-        onToggleCollapsed={() => setCollapsed((current) => !current)}
+        onToggleCollapsed={() => nodeData.onChange?.(id, { collapsed: !collapsed })}
         duplicateLabel="Duplicar flujo"
         deleteLabel="Eliminar flujo"
       />
@@ -1078,6 +1083,7 @@ function FlujoEditorDialog({
 type SeguimientoData = {
   onDuplicate?: (id: string) => void;
   ruleId: string;
+  collapsed?: boolean;
   followRules?: AgentV2FollowRule[];
   onChange?: (id: string, patch: NodeDataPatch) => void;
   onDelete?: (id: string) => void;
@@ -1086,7 +1092,7 @@ type SeguimientoData = {
 function SeguimientoNode({ id, data, selected }: NodeProps) {
   const nodeData = data as SeguimientoData;
   const followRules = nodeData.followRules ?? [];
-  const [collapsed, setCollapsed] = useState(false);
+  const collapsed = nodeData.collapsed ?? false;
 
   return (
     <>
@@ -1095,7 +1101,7 @@ function SeguimientoNode({ id, data, selected }: NodeProps) {
         onDuplicate={() => nodeData.onDuplicate?.(id)}
         onDelete={() => nodeData.onDelete?.(id)}
         collapsed={collapsed}
-        onToggleCollapsed={() => setCollapsed((current) => !current)}
+        onToggleCollapsed={() => nodeData.onChange?.(id, { collapsed: !collapsed })}
         duplicateLabel="Duplicar seguimiento"
         deleteLabel="Eliminar seguimiento"
       />
@@ -1161,6 +1167,8 @@ type ConditionRule = {
 type ConditionData = {
   onDuplicate?: (id: string) => void;
   rules: ConditionRule[];
+  collapsed?: boolean;
+  onChange?: (id: string, patch: NodeDataPatch) => void;
   onAddRule?: (
     nodeId: string,
     rule: { matchType: MatchType; keywords: string[]; intent: string },
@@ -1347,7 +1355,7 @@ function ConditionNode({ id, data, selected }: NodeProps) {
   const elseConnections = useNodeConnections({ id, handleType: "source", handleId: "else" });
   const elseConnected = elseConnections.length > 0;
   const [editorOpen, setEditorOpen] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
+  const collapsed = nodeData.collapsed ?? false;
 
   return (
     <>
@@ -1356,7 +1364,7 @@ function ConditionNode({ id, data, selected }: NodeProps) {
         onDuplicate={() => nodeData.onDuplicate?.(id)}
         onDelete={() => nodeData.onDelete?.(id)}
         collapsed={collapsed}
-        onToggleCollapsed={() => setCollapsed((current) => !current)}
+        onToggleCollapsed={() => nodeData.onChange?.(id, { collapsed: !collapsed })}
         duplicateLabel="Duplicar condicion"
         deleteLabel="Eliminar condicion"
       />
@@ -1380,7 +1388,27 @@ function ConditionNode({ id, data, selected }: NodeProps) {
           </span>
           <BaseNodeHeaderTitle className="truncate">Condicion</BaseNodeHeaderTitle>
         </BaseNodeHeader>
-        {!collapsed ? (
+        {collapsed ? (
+          <>
+            {rules.map((rule, index) => (
+              <Handle
+                key={rule.id}
+                id={rule.id}
+                type="source"
+                position={Position.Right}
+                style={{ top: `${((index + 1) / (rules.length + 2)) * 100}%` }}
+                className="!-right-2 !h-4 !w-4 !border-2 !border-white !bg-amber-500"
+              />
+            ))}
+            <Handle
+              id="else"
+              type="source"
+              position={Position.Right}
+              style={{ top: `${((rules.length + 1) / (rules.length + 2)) * 100}%` }}
+              className="!-right-2 !h-4 !w-4 !border-2 !border-white !bg-slate-400"
+            />
+          </>
+        ) : (
         <BaseNodeContent className="space-y-2">
           {rules.map((rule, index) => (
             <div
@@ -1425,7 +1453,7 @@ function ConditionNode({ id, data, selected }: NodeProps) {
             />
           </div>
         </BaseNodeContent>
-        ) : null}
+        )}
       </BaseNode>
       <ConditionEditorDialog
         open={editorOpen}
@@ -1540,6 +1568,7 @@ function ConditionEditorDialog({
 type TextData = {
   onDuplicate?: (id: string) => void;
   text: string;
+  collapsed?: boolean;
   onChange?: (id: string, patch: NodeDataPatch) => void;
   onDelete?: (id: string) => void;
 };
@@ -1547,7 +1576,7 @@ type TextData = {
 function TextNode({ id, data, selected }: NodeProps) {
   const nodeData = data as TextData;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const [collapsed, setCollapsed] = useState(false);
+  const collapsed = nodeData.collapsed ?? false;
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -1564,7 +1593,7 @@ function TextNode({ id, data, selected }: NodeProps) {
         onDuplicate={() => nodeData.onDuplicate?.(id)}
         onDelete={() => nodeData.onDelete?.(id)}
         collapsed={collapsed}
-        onToggleCollapsed={() => setCollapsed((current) => !current)}
+        onToggleCollapsed={() => nodeData.onChange?.(id, { collapsed: !collapsed })}
         duplicateLabel="Duplicar texto"
         deleteLabel="Eliminar texto"
       />
@@ -1624,6 +1653,7 @@ type NotificarData = {
   onDuplicate?: (id: string) => void;
   instruction: string;
   phoneNumbers: string[];
+  collapsed?: boolean;
   onChange?: (id: string, patch: NodeDataPatch) => void;
   onDelete?: (id: string) => void;
 };
@@ -1631,7 +1661,7 @@ type NotificarData = {
 function NotificarNode({ id, data, selected }: NodeProps) {
   const nodeData = data as NotificarData;
   const [editorOpen, setEditorOpen] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
+  const collapsed = nodeData.collapsed ?? false;
 
   return (
     <>
@@ -1640,7 +1670,7 @@ function NotificarNode({ id, data, selected }: NodeProps) {
         onDuplicate={() => nodeData.onDuplicate?.(id)}
         onDelete={() => nodeData.onDelete?.(id)}
         collapsed={collapsed}
-        onToggleCollapsed={() => setCollapsed((current) => !current)}
+        onToggleCollapsed={() => nodeData.onChange?.(id, { collapsed: !collapsed })}
         duplicateLabel="Duplicar notificar asesor"
         deleteLabel="Eliminar notificar asesor"
       />
@@ -1810,6 +1840,7 @@ function AgentEdge({
   markerEnd,
   style,
   data,
+  selected,
 }: EdgeProps) {
   const [edgePath, labelX, labelY] = getSmoothStepPath({
     sourceX,
@@ -1830,25 +1861,27 @@ function AgentEdge({
         markerEnd={markerEnd}
         style={{ stroke: "#3b82f6", strokeWidth: 2, ...style }}
       />
-      <EdgeLabelRenderer>
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            edgeData?.onDelete?.(id);
-          }}
-          className="nodrag nopan inline-flex h-5 w-5 items-center justify-center rounded-full border border-blue-500 bg-blue-500 text-white opacity-90 shadow-sm transition hover:bg-blue-600 hover:opacity-100"
-          style={{
-            position: "absolute",
-            transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
-            pointerEvents: "all",
-          }}
-          aria-label="Eliminar conexion"
-          title="Eliminar conexion"
-        >
-          <X className="h-3 w-3" />
-        </button>
-      </EdgeLabelRenderer>
+      {selected ? (
+        <EdgeLabelRenderer>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              edgeData?.onDelete?.(id);
+            }}
+            className="nodrag nopan inline-flex h-5 w-5 items-center justify-center rounded-full border border-blue-500 bg-blue-500 text-white opacity-90 shadow-sm transition hover:bg-blue-600 hover:opacity-100"
+            style={{
+              position: "absolute",
+              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+              pointerEvents: "all",
+            }}
+            aria-label="Eliminar conexion"
+            title="Eliminar conexion"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </EdgeLabelRenderer>
+      ) : null}
     </>
   );
 }
@@ -1933,6 +1966,7 @@ function loadGraph(initialGraph: unknown, agentName: string): { nodes: Node[]; e
               fixedWelcome: node.data.fixedWelcome ?? false,
               consultProducts: node.data.consultProducts ?? true,
               consultFlows: node.data.consultFlows ?? true,
+              collapsed: node.data.collapsed === true,
             } satisfies AgentData)
           : node.type === "producto"
             ? ({
@@ -1942,6 +1976,7 @@ function loadGraph(initialGraph: unknown, agentName: string): { nodes: Node[]; e
                 matchKeywords: normalizeKeywords(node.data.matchKeywords),
                 intent: node.data.intent ?? "",
                 useFunnel: node.data.useFunnel ?? false,
+                collapsed: node.data.collapsed === true,
               } satisfies ProductoData)
             : node.type === "condicion"
               ? ({
@@ -1961,10 +1996,12 @@ function loadGraph(initialGraph: unknown, agentName: string): { nodes: Node[]; e
                             intent: "",
                           },
                         ],
+                  collapsed: node.data.collapsed === true,
                 } satisfies ConditionData)
               : node.type === "texto"
                 ? ({
                     text: node.data.text ?? "",
+                    collapsed: node.data.collapsed === true,
                   } satisfies TextData)
                 : node.type === "flujo"
                   ? ({
@@ -1974,10 +2011,12 @@ function loadGraph(initialGraph: unknown, agentName: string): { nodes: Node[]; e
                         : node.data.flowId
                           ? [node.data.flowId]
                           : [],
+                      collapsed: node.data.collapsed === true,
                     } satisfies FlujoData)
                   : node.type === "seguimiento"
                     ? ({
                         ruleId: node.data.ruleId ?? "",
+                        collapsed: node.data.collapsed === true,
                       } satisfies SeguimientoData)
                     : node.type === "notificar"
                       ? ({
@@ -1987,12 +2026,14 @@ function loadGraph(initialGraph: unknown, agentName: string): { nodes: Node[]; e
                             : typeof (node.data as { phoneNumber?: unknown }).phoneNumber === "string"
                               ? [(node.data as { phoneNumber: string }).phoneNumber]
                               : [],
+                          collapsed: node.data.collapsed === true,
                         } satisfies NotificarData)
                       : ({
                       kind: (node.data.kind as EntradaKind) ?? "general",
                       welcome: node.data.welcome ?? "",
                       keywords: node.data.keywords ?? "",
                       useBusiness: node.data.useBusiness ?? false,
+                      collapsed: node.data.collapsed === true,
                     } satisfies EntradaData),
       deletable: node.type === "agent" ? false : node.id !== "entry-general",
     }));
@@ -2022,6 +2063,7 @@ function serializeGraph(nodes: Node[], edges: Edge[]): StoredGraph {
               fixedWelcome: (node.data as AgentData).fixedWelcome,
               consultProducts: (node.data as AgentData).consultProducts,
               consultFlows: (node.data as AgentData).consultFlows,
+              collapsed: (node.data as AgentData).collapsed === true,
             }
           : node.type === "producto"
             ? {
@@ -2031,34 +2073,41 @@ function serializeGraph(nodes: Node[], edges: Edge[]): StoredGraph {
                 matchKeywords: (node.data as ProductoData).matchKeywords,
                 intent: (node.data as ProductoData).intent,
                 useFunnel: (node.data as ProductoData).useFunnel,
+                collapsed: (node.data as ProductoData).collapsed === true,
               }
             : node.type === "condicion"
               ? {
                   rules: (node.data as ConditionData).rules,
+                  collapsed: (node.data as ConditionData).collapsed === true,
                 }
               : node.type === "texto"
                 ? {
                     text: (node.data as TextData).text,
+                    collapsed: (node.data as TextData).collapsed === true,
                   }
                 : node.type === "flujo"
                   ? {
                       flowId: (node.data as FlujoData).flowId,
                       flowIds: getSelectedFlowIds(node.data as FlujoData),
+                      collapsed: (node.data as FlujoData).collapsed === true,
                     }
                   : node.type === "seguimiento"
                     ? {
                         ruleId: (node.data as SeguimientoData).ruleId,
+                        collapsed: (node.data as SeguimientoData).collapsed === true,
                       }
                     : node.type === "notificar"
                       ? {
                           instruction: (node.data as NotificarData).instruction,
                           phoneNumbers: (node.data as NotificarData).phoneNumbers,
+                          collapsed: (node.data as NotificarData).collapsed === true,
                         }
                       : {
                         kind: (node.data as EntradaData).kind,
                         welcome: (node.data as EntradaData).welcome,
                         keywords: (node.data as EntradaData).keywords,
                         useBusiness: (node.data as EntradaData).useBusiness,
+                        collapsed: (node.data as EntradaData).collapsed === true,
                       },
     })),
     edges: edges.map((edge) => ({
@@ -2333,6 +2382,7 @@ function FlowCanvasInner({
             ...node,
             data: {
               ...node.data,
+              onChange: updateNodeData,
               onAddRule: addRule,
               onUpdateRule: updateRule,
               onDeleteRule: deleteRule,
