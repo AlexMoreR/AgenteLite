@@ -2308,14 +2308,28 @@ function FlowCanvasInner({
     onSaveGraphRef.current = onSaveGraph;
   }, [onSaveGraph]);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingSaveRef = useRef<StoredGraph | null>(null);
+  // Baseline: el grafo tal como se cargó. Solo se guarda cuando el contenido
+  // difiere de lo último persistido; sin esto, la medición de nodos de React
+  // Flow al montar disparaba un autosave que, en una pestaña con datos viejos,
+  // sobrescribía en la BD cambios hechos desde otro dispositivo (así se
+  // perdían prompts editados en el celular).
+  const lastSavedGraphRef = useRef<string>(JSON.stringify(serializeGraph(initial.nodes, initial.edges)));
 
-  // Persistencia en BD (debounced).
+  // Persistencia en BD (debounced), solo ante cambios reales de contenido.
   useEffect(() => {
     const stored = serializeGraph(nodes, edges);
+    const serialized = JSON.stringify(stored);
+    if (serialized === lastSavedGraphRef.current) {
+      return;
+    }
+    pendingSaveRef.current = stored;
     if (saveTimer.current) {
       clearTimeout(saveTimer.current);
     }
     saveTimer.current = setTimeout(() => {
+      pendingSaveRef.current = null;
+      lastSavedGraphRef.current = serialized;
       onSaveGraphRef.current(stored);
     }, 800);
     return () => {
@@ -2324,6 +2338,37 @@ function FlowCanvasInner({
       }
     };
   }, [nodes, edges]);
+
+  // Si hay un autosave pendiente y el canvas se desmonta ("Volver") o la app
+  // pasa a segundo plano (cambio de app en el celular, bloquear pantalla),
+  // se guarda de inmediato en vez de descartarse.
+  useEffect(() => {
+    const flushPendingSave = () => {
+      if (!pendingSaveRef.current) {
+        return;
+      }
+      const stored = pendingSaveRef.current;
+      pendingSaveRef.current = null;
+      if (saveTimer.current) {
+        clearTimeout(saveTimer.current);
+      }
+      lastSavedGraphRef.current = JSON.stringify(stored);
+      onSaveGraphRef.current(stored);
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        flushPendingSave();
+      }
+    };
+
+    window.addEventListener("pagehide", flushPendingSave);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("pagehide", flushPendingSave);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      flushPendingSave();
+    };
+  }, []);
 
   return (
     <div className="flex h-[calc(100dvh-4rem)] flex-col overflow-hidden rounded-2xl border border-border bg-card">
