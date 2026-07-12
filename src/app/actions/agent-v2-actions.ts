@@ -257,6 +257,12 @@ function asStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
+function getGraphNodeFlowIds(node: GraphNode): string[] {
+  const flowIds = asStringArray(node.data?.flowIds).map((flowId) => flowId.trim()).filter(Boolean);
+  const legacyFlowId = asString(node.data?.flowId).trim();
+  return Array.from(new Set([...flowIds, legacyFlowId].filter(Boolean)));
+}
+
 // Compila el grafo V2 a las estructuras que el motor existente usa para responder.
 export async function publishAgentV2Action(input: {
   agentId: string;
@@ -425,10 +431,16 @@ export async function publishAgentV2Action(input: {
         : "continua la conversacion normal con la IA";
     }
     if (target.type === "flujo") {
-      const title = flowTitleById.get(asString(target.data?.flowId));
-      return title
-        ? `ejecuta OBLIGATORIAMENTE el flujo "${title}" llamando a la herramienta consultar_flujos con ese nombre exacto. ` +
-            `NO respondas con texto propio ni con la descripcion/precio del producto: deja que el flujo entregue el contenido (fotos, precio, etc.)`
+      const titles = getGraphNodeFlowIds(target)
+        .map((flowId) => flowTitleById.get(flowId))
+        .filter((title): title is string => Boolean(title));
+      if (titles.length === 1) {
+        return `ejecuta OBLIGATORIAMENTE el flujo "${titles[0]}" llamando a la herramienta consultar_flujos con ese nombre exacto. ` +
+            `NO respondas con texto propio ni con la descripcion/precio del producto: deja que el flujo entregue el contenido (fotos, precio, etc.)`;
+      }
+      return titles.length > 1
+        ? `ejecuta OBLIGATORIAMENTE uno de estos flujos segun el contexto del cliente: ${titles.map((title) => `"${title}"`).join(", ")}. ` +
+            `Llama a la herramienta consultar_flujos con el nombre exacto del flujo elegido y NO respondas con texto propio antes de ejecutarlo.`
         : "ejecuta el flujo configurado llamando a la herramienta consultar_flujos";
     }
     if (target.type === "condicion") {
@@ -572,7 +584,7 @@ export async function publishAgentV2Action(input: {
 
   // 2) Knowledge flows desde los nodos Flujo.
   const flowIds = consultFlows
-    ? flowNodes.map((node) => asString(node.data?.flowId)).filter(Boolean)
+    ? Array.from(new Set(flowNodes.flatMap((node) => getGraphNodeFlowIds(node))))
     : [];
   let knowledgeFlows: AgentKnowledgePromptFlow[] = [];
   if (flowIds.length) {

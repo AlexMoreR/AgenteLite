@@ -113,6 +113,7 @@ type NodeDataPatch = Partial<{
   text: string;
   productId: string;
   flowId: string;
+  flowIds: string[];
   ruleId: string;
   instruction: string;
   phoneNumbers: string[];
@@ -344,7 +345,8 @@ function EntradaNode({ id, data, selected }: NodeProps) {
 
       <BaseNode
         className={cn(
-          "w-[320px] transition-shadow",
+          isKeyword ? "w-[320px]" : "w-[210px]",
+          "transition-shadow",
           selected && SELECTED_NODE_CLASS,
           !isKeyword && "cursor-pointer",
         )}
@@ -362,15 +364,12 @@ function EntradaNode({ id, data, selected }: NodeProps) {
             {isKeyword ? "Entrada por pauta" : "Comenzar"}
           </BaseNodeHeaderTitle>
         </BaseNodeHeader>
-        <BaseNodeContent>
-          <p className="text-xs leading-5 text-muted-foreground">
-            {isKeyword
-              ? "Cuando el mensaje trae una palabra clave (anuncio/pauta)."
-              : "Lead nuevo sin historial y sin palabra clave."}
-          </p>
+        {isKeyword ? (
+          <BaseNodeContent>
+            <p className="text-xs leading-5 text-muted-foreground">
+              Cuando el mensaje trae una palabra clave (anuncio/pauta).
+            </p>
 
-
-          {isKeyword ? (
             <div className="space-y-1">
               <label className="text-xs font-medium text-foreground">Palabras clave</label>
               <input
@@ -381,9 +380,7 @@ function EntradaNode({ id, data, selected }: NodeProps) {
                 className="nodrag block w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-amber-400 focus:ring-2 focus:ring-amber-100 dark:focus:ring-amber-950"
               />
             </div>
-          ) : null}
 
-          {isKeyword ? (
             <div className="space-y-1">
               <label className="text-xs font-medium text-foreground">Mensaje de bienvenida</label>
               <textarea
@@ -394,8 +391,8 @@ function EntradaNode({ id, data, selected }: NodeProps) {
                 className="nodrag nowheel block min-h-[64px] w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm leading-5 text-foreground outline-none transition placeholder:text-muted-foreground focus:border-amber-400 focus:ring-2 focus:ring-amber-100 dark:focus:ring-amber-950"
               />
             </div>
-          ) : null}
-        </BaseNodeContent>
+          </BaseNodeContent>
+        ) : null}
         <Handle
           id="source"
           type="source"
@@ -483,9 +480,6 @@ function AgentNode({ id, data, selected }: NodeProps) {
 
           <div className="space-y-1.5">
             <p className="text-xs font-medium text-foreground">Herramientas</p>
-            <p className="text-[11px] leading-4 text-muted-foreground">
-              Conecta nodos de Productos o Flujos para que el agente pueda consultarlos.
-            </p>
             <div
               className="nodrag relative flex items-center gap-2 rounded-lg border border-emerald-600 bg-emerald-600 px-3 py-2"
               onClick={(event) => event.stopPropagation()}
@@ -828,14 +822,25 @@ function ProductEditorDialog({
 type FlujoData = {
   onDuplicate?: (id: string) => void;
   flowId: string;
+  flowIds?: string[];
   flows?: AgentV2Flow[];
   onChange?: (id: string, patch: NodeDataPatch) => void;
   onDelete?: (id: string) => void;
 };
 
+function getSelectedFlowIds(data: Pick<FlujoData, "flowId" | "flowIds">) {
+  const ids = Array.isArray(data.flowIds) ? data.flowIds : [];
+  return Array.from(new Set([...ids, data.flowId].map((value) => value?.trim()).filter(Boolean)));
+}
+
 function FlujoNode({ id, data, selected }: NodeProps) {
   const nodeData = data as FlujoData;
   const flows = nodeData.flows ?? [];
+  const selectedFlowIds = getSelectedFlowIds(nodeData);
+  const selectedFlows = selectedFlowIds
+    .map((flowId) => flows.find((flow) => flow.id === flowId))
+    .filter((flow): flow is AgentV2Flow => Boolean(flow));
+  const [editorOpen, setEditorOpen] = useState(false);
 
   return (
     <>
@@ -853,7 +858,18 @@ function FlujoNode({ id, data, selected }: NodeProps) {
         position={Position.Left}
         className="!h-4 !w-4 !border-2 !border-white !bg-indigo-600"
       />
-      <BaseNode className={cn("w-[300px] transition-shadow", selected && SELECTED_NODE_CLASS)}>
+      <BaseNode
+        role="button"
+        tabIndex={0}
+        onClick={() => setEditorOpen(true)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            setEditorOpen(true);
+          }
+        }}
+        className={cn("group w-[300px] cursor-pointer transition-shadow", selected && SELECTED_NODE_CLASS)}
+      >
         <BaseNodeHeader className="items-center justify-start gap-2.5">
           <span className="inline-flex shrink-0 items-center justify-center">
             <Workflow className="h-4 w-4 text-indigo-600" />
@@ -861,36 +877,25 @@ function FlujoNode({ id, data, selected }: NodeProps) {
           <BaseNodeHeaderTitle className="truncate">Flujo</BaseNodeHeaderTitle>
         </BaseNodeHeader>
         <BaseNodeContent>
-          <div className="nodrag space-y-1" onClick={(event) => event.stopPropagation()}>
-            <label className="text-xs font-medium text-foreground">Flujo a ejecutar</label>
-            <Select
-              value={nodeData.flowId}
-              onValueChange={(value) => nodeData.onChange?.(id, { flowId: value ?? "" })}
-            >
-              <SelectTrigger className="h-9 w-full text-xs">
-                <SelectValue placeholder="Selecciona un flujo">
-                  {(value) => flows.find((f) => f.id === value)?.name ?? "Selecciona un flujo"}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent
-              className="w-auto min-w-(--anchor-width) max-w-[22rem] p-1"
-              alignItemWithTrigger={false}
-              side="bottom"
-            >
-                {flows.length === 0 ? (
-                  <div className="px-2 py-1.5 text-xs text-muted-foreground">
-                    No hay flujos creados
-                  </div>
-                ) : (
-                  flows.map((flow) => (
-                    <SelectItem key={flow.id} value={flow.id} className="text-xs">
-                      {flow.name}
-                    </SelectItem>
-                  ))
-                )}
-              </SelectContent>
-            </Select>
-          </div>
+          {selectedFlows.length > 0 ? (
+            <div className="flex flex-wrap gap-1.5">
+              {selectedFlows.slice(0, 2).map((flow) => (
+                <span
+                  key={flow.id}
+                  className="inline-flex max-w-full items-center rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700"
+                >
+                  <span className="truncate">{flow.name}</span>
+                </span>
+              ))}
+              {selectedFlows.length > 2 ? (
+                <span className="inline-flex items-center rounded-full border border-border bg-background px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                  +{selectedFlows.length - 2}
+                </span>
+              ) : null}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">Selecciona uno o varios flujos</p>
+          )}
         </BaseNodeContent>
         <Handle
           id="source"
@@ -899,7 +904,132 @@ function FlujoNode({ id, data, selected }: NodeProps) {
           className="!h-4 !w-4 !border-2 !border-white !bg-indigo-600"
         />
       </BaseNode>
+      <FlujoEditorDialog
+        open={editorOpen}
+        onOpenChange={setEditorOpen}
+        data={nodeData}
+        onChange={(patch) => nodeData.onChange?.(id, patch)}
+      />
     </>
+  );
+}
+
+function FlujoEditorDialog({
+  open,
+  onOpenChange,
+  data,
+  onChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  data: FlujoData;
+  onChange: (patch: NodeDataPatch) => void;
+}) {
+  const flows = data.flows ?? [];
+  const selectedFlowIds = getSelectedFlowIds(data);
+  const rows = selectedFlowIds.length > 0 ? selectedFlowIds : [""];
+
+  const commitFlowIds = (nextIds: string[]) => {
+    const cleanIds = Array.from(new Set(nextIds.map((value) => value.trim()).filter(Boolean)));
+    onChange({ flowId: cleanIds[0] ?? "", flowIds: cleanIds });
+  };
+
+  const addFlowRow = () => {
+    const nextFlow = flows.find((flow) => !selectedFlowIds.includes(flow.id));
+    commitFlowIds([...selectedFlowIds, nextFlow?.id ?? ""]);
+  };
+
+  const changeFlowAt = (index: number, value: string) => {
+    const nextRows = [...rows];
+    nextRows[index] = value;
+    commitFlowIds(nextRows);
+  };
+
+  const removeFlowAt = (index: number) => {
+    commitFlowIds(rows.filter((_, rowIndex) => rowIndex !== index));
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="nodrag sm:max-w-lg" onClick={(event) => event.stopPropagation()}>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Workflow className="h-4 w-4 text-indigo-600" />
+            Editar flujos
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <p className="text-sm leading-5 text-muted-foreground">
+            Configura uno o varios flujos para este nodo. El agente podra ejecutarlos desde el mismo bloque.
+          </p>
+
+          <div className="space-y-2">
+            {rows.map((flowId, index) => {
+              const unavailableIds = new Set(rows.filter((_, rowIndex) => rowIndex !== index));
+
+              return (
+                <div key={`${flowId || "empty"}-${index}`} className="flex items-center gap-2">
+                  <Select value={flowId} onValueChange={(value) => changeFlowAt(index, value ?? "")}>
+                    <SelectTrigger className="h-9 min-w-0 flex-1 text-sm">
+                      <SelectValue placeholder={`Flujo ${index + 1}`}>
+                        {(value) => flows.find((flow) => flow.id === value)?.name ?? `Flujo ${index + 1}`}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent
+                      className="w-auto min-w-(--anchor-width) max-w-[24rem] p-1"
+                      alignItemWithTrigger={false}
+                      side="bottom"
+                    >
+                      {flows.length === 0 ? (
+                        <div className="px-2 py-1.5 text-xs text-muted-foreground">No hay flujos creados</div>
+                      ) : (
+                        flows.map((flow) => (
+                          <SelectItem
+                            key={flow.id}
+                            value={flow.id}
+                            className="text-sm"
+                            disabled={unavailableIds.has(flow.id)}
+                          >
+                            {flow.name}
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => removeFlowAt(index)}
+                    disabled={selectedFlowIds.length === 0}
+                    aria-label="Quitar flujo"
+                    className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+
+          <Button
+            type="button"
+            variant="outline"
+            onClick={addFlowRow}
+            disabled={flows.length === 0 || selectedFlowIds.length >= flows.length}
+            className="w-full justify-center gap-2"
+          >
+            <Plus className="h-4 w-4" />
+            Agregar otro flujo
+          </Button>
+        </div>
+
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline" />}>Cerrar</DialogClose>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1778,6 +1908,11 @@ function loadGraph(initialGraph: unknown, agentName: string): { nodes: Node[]; e
                 : node.type === "flujo"
                   ? ({
                       flowId: node.data.flowId ?? "",
+                      flowIds: Array.isArray(node.data.flowIds)
+                        ? node.data.flowIds.filter((value): value is string => typeof value === "string")
+                        : node.data.flowId
+                          ? [node.data.flowId]
+                          : [],
                     } satisfies FlujoData)
                   : node.type === "seguimiento"
                     ? ({
@@ -1847,6 +1982,7 @@ function serializeGraph(nodes: Node[], edges: Edge[]): StoredGraph {
                 : node.type === "flujo"
                   ? {
                       flowId: (node.data as FlujoData).flowId,
+                      flowIds: getSelectedFlowIds(node.data as FlujoData),
                     }
                   : node.type === "seguimiento"
                     ? {
@@ -2275,7 +2411,7 @@ function FlowCanvasInner({
       id: newId,
       type: "flujo",
       position: getSpawnPosition(),
-      data: { flowId: "" } satisfies FlujoData,
+      data: { flowId: "", flowIds: [] } satisfies FlujoData,
     };
     setNodes((current) => [...current, newNode]);
   }, [setNodes, getSpawnPosition]);

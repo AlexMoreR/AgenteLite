@@ -22,7 +22,10 @@ export function BaseNodeHeader({
 }: ComponentPropsWithoutRef<"div">) {
   return (
     <div
-      className={cn("flex items-start justify-between gap-3 border-b border-border px-3 py-2", className)}
+      className={cn(
+        "flex items-center justify-between gap-3 border-b border-border px-4 py-3 [&_svg]:!h-5 [&_svg]:!w-5",
+        className,
+      )}
       {...props}
     />
   );
@@ -34,7 +37,7 @@ export function BaseNodeHeaderTitle({
 }: ComponentPropsWithoutRef<"h4">) {
   return (
     <h4
-      className={cn("text-sm font-semibold leading-5 text-card-foreground", className)}
+      className={cn("text-base font-semibold leading-6 text-card-foreground", className)}
       {...props}
     />
   );
