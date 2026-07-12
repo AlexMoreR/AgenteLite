@@ -2626,12 +2626,13 @@ function FlowCanvasInner({
         <div className="absolute left-4 top-4 z-10 flex items-center gap-2">
           <Button
             variant="outline"
-            size="sm"
+            size="icon-sm"
             onClick={onBack}
+            aria-label="Volver"
+            title="Volver"
             className="rounded-full bg-popover shadow-sm"
           >
             <ArrowLeft className="h-4 w-4" />
-            Volver
           </Button>
           <div className="pointer-events-none flex items-center gap-2">
           <span className="inline-flex items-center gap-2 rounded-full bg-popover px-3 py-1.5 text-xs font-medium text-foreground ring-1 ring-border">
