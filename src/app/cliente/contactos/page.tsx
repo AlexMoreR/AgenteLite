@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { BarChart3, MoreVertical, Search, Users2 } from "lucide-react";
-import { ContactAvatar } from "@/components/chats/contact-avatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -14,6 +13,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/ui/page-header";
 import { getContactosData } from "@/features/contactos";
+import { ContactosCardsList } from "@/features/contactos/components/ContactosCardsList";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 
 export const metadata: Metadata = {
@@ -83,28 +83,21 @@ export default async function ClienteContactosPage({ searchParams }: PageProps) 
           </CardContent>
         </Card>
       ) : (
-        <div className="flex flex-col gap-3">
+        <>
           {data.contacts.length > 0 ? (
-            data.contacts.map((contact) => {
-              const displayName = contact.name?.trim() || contact.phoneNumber;
-
-              return (
-                <Card key={contact.id} className="py-0 transition hover:bg-accent/50">
-                  <CardContent className="flex items-center gap-3 py-3.5">
-                    <ContactAvatar
-                      avatarUrl={contact.avatarUrl}
-                      label={displayName}
-                      className="h-11 w-11 shrink-0 rounded-full"
-                      fallbackClassName="rounded-full"
-                    />
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-foreground">{displayName}</p>
-                      <p className="truncate text-xs tabular-nums text-muted-foreground">{contact.phoneNumber}</p>
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })
+            <ContactosCardsList
+              contacts={data.contacts.map((contact) => ({
+                id: contact.id,
+                name: contact.name,
+                phoneNumber: contact.phoneNumber,
+                email: contact.email,
+                avatarUrl: contact.avatarUrl,
+                profile: contact.profile,
+                createdAt: contact.createdAt,
+                lastActivityAt: contact.lastActivityAt,
+                tags: contact.tags,
+              }))}
+            />
           ) : (
             <Card className="border-dashed">
               <CardContent className="py-10 text-center text-sm text-muted-foreground">
@@ -112,7 +105,7 @@ export default async function ClienteContactosPage({ searchParams }: PageProps) 
               </CardContent>
             </Card>
           )}
-        </div>
+        </>
       )}
     </section>
   );

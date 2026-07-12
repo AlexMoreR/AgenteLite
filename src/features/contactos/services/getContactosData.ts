@@ -2,7 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
 import { getContactTags } from "@/lib/chat-conversation-summary";
-import type { ContactosContact, ContactosData } from "../types";
+import type { ContactosContact, ContactosContactProfile, ContactosData } from "../types";
 
 const CONTACTS_PAGE_SIZE = 10;
 const BOGOTA_TIMEZONE_OFFSET_MS = 5 * 60 * 60 * 1000;
@@ -21,6 +21,30 @@ type ContactosQuery = {
 
 function normalize(value: string | null | undefined) {
   return value?.trim().toLowerCase() ?? "";
+}
+
+// Lee metadata.profile (datos editables del contacto) tolerando metadata nulo,
+// con otras claves (p. ej. el TTL del avatar) o con formas inesperadas.
+function parseContactProfile(metadata: Prisma.JsonValue | null): ContactosContactProfile {
+  const container =
+    metadata && typeof metadata === "object" && !Array.isArray(metadata)
+      ? (metadata as { profile?: unknown }).profile
+      : null;
+  const record =
+    container && typeof container === "object" && !Array.isArray(container)
+      ? (container as Record<string, unknown>)
+      : {};
+  const asString = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : null);
+
+  return {
+    firstName: asString(record.firstName),
+    lastName: asString(record.lastName),
+    city: asString(record.city),
+    country: asString(record.country),
+    tiktok: asString(record.tiktok),
+    facebook: asString(record.facebook),
+    instagram: asString(record.instagram),
+  };
 }
 
 function getContactLastActivity(contact: Pick<ContactosContact, "lastActivityAt" | "updatedAt">) {
@@ -150,6 +174,7 @@ function buildContactSelect(agentId: string) {
     email: true,
     notes: true,
     avatarUrl: true,
+    metadata: true,
     excludedFromCrm: true,
     createdAt: true,
     updatedAt: true,
@@ -512,6 +537,7 @@ export async function getContactosData({
       email: contact.email,
       notes: contact.notes,
       avatarUrl: contact.avatarUrl,
+      profile: parseContactProfile(contact.metadata),
       excludedFromCrm: contact.excludedFromCrm,
       tags: getContactTags(contact.ContactTag.map((item) => item.Tag)),
       createdAt: contact.createdAt.toISOString(),
@@ -620,6 +646,7 @@ export async function getContactosData({
         email: selectedContactFromQuery.email,
         notes: selectedContactFromQuery.notes,
         avatarUrl: selectedContactFromQuery.avatarUrl,
+        profile: parseContactProfile(selectedContactFromQuery.metadata),
         excludedFromCrm: selectedContactFromQuery.excludedFromCrm,
         tags: getContactTags(selectedContactFromQuery.ContactTag.map((item) => item.Tag)),
         createdAt: selectedContactFromQuery.createdAt.toISOString(),

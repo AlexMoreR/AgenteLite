@@ -25,6 +25,18 @@ export type ContactosConversationSummary = {
   } | null;
 };
 
+// Datos editables del contacto que viven en Contact.metadata.profile (el modelo
+// solo tiene name/email como columnas; el resto se persiste en el JSON).
+export type ContactosContactProfile = {
+  firstName: string | null;
+  lastName: string | null;
+  city: string | null;
+  country: string | null;
+  tiktok: string | null;
+  facebook: string | null;
+  instagram: string | null;
+};
+
 export type ContactosContact = {
   id: string;
   name: string | null;
@@ -32,6 +44,7 @@ export type ContactosContact = {
   email: string | null;
   notes: string | null;
   avatarUrl: string | null;
+  profile: ContactosContactProfile;
   excludedFromCrm: boolean;
   tags: Array<{
     label: string;
