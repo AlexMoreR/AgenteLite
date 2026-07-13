@@ -15,6 +15,34 @@ const GLOBAL_COOLDOWN_MS = 5 * 60 * 1000;
 
 let lastAvatarRunAt = 0;
 
+// Cortacircuitos: evogo puede tardar ~75s y devolver 500 en /user/avatar cuando WhatsApp
+// limita las consultas de foto (GetProfilePictureInfo "info query timed out"). Cortamos
+// nuestras peticiones a los FETCH_TIMEOUT_MS y, si fallan varias seguidas, pausamos TODO el
+// refresco de avatares un rato para no seguir golpeando a evogo.
+const FETCH_TIMEOUT_MS = 8000;
+const CIRCUIT_FAILURE_THRESHOLD = 3;
+const CIRCUIT_PAUSE_MS = 30 * 60 * 1000;
+let avatarConsecutiveFailures = 0;
+let avatarCircuitPausedUntil = 0;
+
+// ok=false = la petición falló/expiró (evogo/WhatsApp); distinto de ok=true con url=null
+// (el contacto simplemente no tiene foto).
+async function fetchAvatarWithTimeout(
+  target: ContactAvatarTarget,
+): Promise<{ ok: boolean; url: string | null }> {
+  try {
+    const url = await Promise.race([
+      fetchEvolutionProfilePictureUrl({ instanceName: target.instanceName, phoneNumber: target.phoneNumber }),
+      new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error("avatar-timeout")), FETCH_TIMEOUT_MS);
+      }),
+    ]);
+    return { ok: true, url };
+  } catch {
+    return { ok: false, url: null };
+  }
+}
+
 export type ContactAvatarTarget = {
   contactId: string;
   phoneNumber: string;
@@ -93,6 +121,11 @@ async function refreshContactAvatars(
     return;
   }
 
+  // Cortacircuitos: si evogo viene fallando en /user/avatar, no insistimos por un rato.
+  if (Date.now() < avatarCircuitPausedUntil) {
+    return;
+  }
+
   const contacts = await prisma.contact.findMany({
     where: { id: { in: ids } },
     select: { id: true, avatarUrl: true, metadata: true },
@@ -119,25 +152,30 @@ async function refreshContactAvatars(
       continue;
     }
 
-    let url: string | null = null;
-    try {
-      url = await fetchEvolutionProfilePictureUrl({
-        instanceName: target.instanceName,
-        phoneNumber: target.phoneNumber,
-      });
-    } catch {
-      url = null;
+    const result = await fetchAvatarWithTimeout(target);
+
+    if (!result.ok) {
+      // Falla/timeout de evogo: NO marcamos fetchedAt (para reintentar cuando reabra el
+      // circuito) y contamos para el cortacircuitos.
+      avatarConsecutiveFailures += 1;
+      if (avatarConsecutiveFailures >= CIRCUIT_FAILURE_THRESHOLD) {
+        avatarConsecutiveFailures = 0;
+        avatarCircuitPausedUntil = Date.now() + CIRCUIT_PAUSE_MS;
+        break; // evogo está fallando: dejamos de insistir por un rato
+      }
+      continue;
     }
 
+    avatarConsecutiveFailures = 0;
     const meta = readMetadataObject(contact.metadata);
     const nextMetadata = { ...meta, avatarFetchedAt: new Date(now).toISOString() };
 
     await prisma.contact.update({
       where: { id: contact.id },
-      // Solo sobreescribimos la foto si conseguimos una nueva; si no, mantenemos la anterior
-      // y solo marcamos el intento para respetar el TTL.
-      data: url
-        ? { avatarUrl: url, metadata: nextMetadata as Prisma.InputJsonValue }
+      // Solo sobreescribimos la foto si conseguimos una nueva; si no (sin foto), mantenemos la
+      // anterior y solo marcamos el intento para respetar el TTL.
+      data: result.url
+        ? { avatarUrl: result.url, metadata: nextMetadata as Prisma.InputJsonValue }
         : { metadata: nextMetadata as Prisma.InputJsonValue },
     });
   }
