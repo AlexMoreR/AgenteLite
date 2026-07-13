@@ -928,20 +928,15 @@ function FlujoNode({ id, data, selected }: NodeProps) {
         {!collapsed ? (
         <BaseNodeContent>
           {selectedFlows.length > 0 ? (
-            <div className="flex flex-wrap gap-1.5">
-              {selectedFlows.slice(0, 2).map((flow) => (
+            <div className="flex flex-col gap-1.5">
+              {selectedFlows.map((flow) => (
                 <span
                   key={flow.id}
-                  className="inline-flex max-w-full items-center rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700"
+                  className="inline-flex max-w-full self-start items-center rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700"
                 >
                   <span className="truncate">{flow.name}</span>
                 </span>
               ))}
-              {selectedFlows.length > 2 ? (
-                <span className="inline-flex items-center rounded-full border border-border bg-background px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-                  +{selectedFlows.length - 2}
-                </span>
-              ) : null}
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">Selecciona uno o varios flujos</p>
