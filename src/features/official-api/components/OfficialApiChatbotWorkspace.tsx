@@ -14,6 +14,7 @@ import {
   File,
   FileText,
   MessageSquarePlus,
+  Pencil,
   MoreVertical,
   Inbox,
   Upload,
@@ -56,7 +57,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -1005,6 +1006,9 @@ export function OfficialApiChatbotWorkspace({
   const [newWorkflowKeywords, setNewWorkflowKeywords] = useState<string[]>([]);
   const [newWorkflowKeywordDraft, setNewWorkflowKeywordDraft] = useState("");
   const [isEditingWorkflowIntent, setIsEditingWorkflowIntent] = useState(false);
+  const [isRenamingWorkflow, setIsRenamingWorkflow] = useState(false);
+  const [renamingWorkflowScenarioId, setRenamingWorkflowScenarioId] = useState("");
+  const [renamingWorkflowTitle, setRenamingWorkflowTitle] = useState("");
   const [editingWorkflowIntentDraft, setEditingWorkflowIntentDraft] = useState("");
   const [editingWorkflowIntentScenarioId, setEditingWorkflowIntentScenarioId] = useState("");
   const [editingWorkflowType, setEditingWorkflowType] = useState<OfficialApiChatbotScenarioFlowType | "">("");
@@ -1070,6 +1074,70 @@ export function OfficialApiChatbotWorkspace({
     setEditingWorkflowKeywords(Array.isArray(scenario.keywords) ? scenario.keywords.slice(0, 20) : []);
     setEditingWorkflowKeywordDraft("");
     setIsEditingWorkflowIntent(true);
+  }
+
+  function openRenameWorkflowModal(scenario: OfficialApiChatbotScenario) {
+    setOpenMenuScenarioId("");
+    setRenamingWorkflowScenarioId(scenario.id);
+    setRenamingWorkflowTitle(scenario.title || "");
+    setIsRenamingWorkflow(true);
+  }
+
+  function closeRenameWorkflowModal() {
+    setIsRenamingWorkflow(false);
+    setRenamingWorkflowScenarioId("");
+    setRenamingWorkflowTitle("");
+  }
+
+  function saveWorkflowName() {
+    const scenarioId = renamingWorkflowScenarioId.trim();
+    const title = renamingWorkflowTitle.trim();
+    if (!scenarioId) {
+      closeRenameWorkflowModal();
+      return;
+    }
+    if (!title) {
+      toast.error("Escribe un nombre", {
+        description: "El flujo necesita un nombre para guardarlo.",
+      });
+      return;
+    }
+
+    const nextScenarios = scenarios.map((scenario) =>
+      scenario.id === scenarioId ? { ...scenario, title } : scenario,
+    );
+
+    setScenarios(nextScenarios);
+    closeRenameWorkflowModal();
+
+    startSaving(async () => {
+      try {
+        await persistBuilderState({
+          selectedScenarioId,
+          scenarios: nextScenarios,
+          nodesByScenarioId,
+          nodePositionsByScenarioId,
+          edgesByScenarioId,
+          successMessage: "Nombre actualizado",
+        });
+        lastAutoSavedSnapshotRef.current = buildAutoSaveSnapshot({
+          selectedScenarioId,
+          scenarios: nextScenarios,
+          nodesByScenarioId,
+          nodePositionsByScenarioId,
+          edgesByScenarioId,
+          businessHours,
+          captureLeadEnabled,
+          handoffEnabled,
+          fallbackEnabled,
+          replyEveryMessageEnabled,
+        });
+      } catch {
+        toast.error("No se pudo guardar", {
+          description: "Ocurrio un error al guardar el nombre del flujo.",
+        });
+      }
+    });
   }
 
   function addWorkflowKeyword(rawValue: string) {
@@ -2287,6 +2355,15 @@ export function OfficialApiChatbotWorkspace({
                     <DropdownMenuItem
                       onClick={(event) => {
                         event.stopPropagation();
+                        openRenameWorkflowModal(scenario);
+                      }}
+                    >
+                      <Pencil className="h-4 w-4" />
+                      Editar nombre
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={(event) => {
+                        event.stopPropagation();
                         openQuickResponsesModal(scenario.id);
                       }}
                     >
@@ -2624,6 +2701,42 @@ export function OfficialApiChatbotWorkspace({
           </Card>
         </div>
       )}
+        <Dialog
+          open={isRenamingWorkflow}
+          onOpenChange={(open) => {
+            if (!open) closeRenameWorkflowModal();
+          }}
+        >
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Editar nombre del flujo</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-slate-900">Nombre del flujo</label>
+              <Input
+                value={renamingWorkflowTitle}
+                onChange={(event) => setRenamingWorkflowTitle(event.target.value)}
+                placeholder="Ej. Catálogo de sillas"
+                autoFocus
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    saveWorkflowName();
+                  }
+                }}
+              />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={closeRenameWorkflowModal}>
+                Cancelar
+              </Button>
+              <Button type="button" onClick={saveWorkflowName}>
+                Guardar
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
         {scenarioPendingDelete ? (
           <div className="fixed inset-0 z-30 flex items-center justify-center bg-slate-950/25 p-6 backdrop-blur-[2px]">
             <div className="w-full max-w-md overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_30px_80px_-48px_rgba(15,23,42,0.32)]">
