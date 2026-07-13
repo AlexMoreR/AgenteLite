@@ -53,7 +53,34 @@ export function scheduleContactAvatarRefresh(targets: ContactAvatarTarget[]) {
   });
 }
 
-async function refreshContactAvatars(targets: ContactAvatarTarget[]) {
+// Al abrir un chat reintentamos la foto de ESE contacto sin esperar el TTL largo, para que
+// aparezca pronto (es un solo contacto, bajo costo para evogo).
+const SINGLE_NO_PHOTO_RETRY_MS = 15 * 60 * 1000;
+
+/**
+ * Refresca la foto de UN contacto (el de la conversación abierta) SALTANDO el cooldown global.
+ * Bajo costo (un solo contacto) y con TTL corto para que la foto se vea pronto en el CRM.
+ */
+export function scheduleSingleContactAvatarRefresh(target: ContactAvatarTarget) {
+  if (!target.contactId || !target.phoneNumber || !target.instanceName) {
+    return;
+  }
+
+  after(async () => {
+    try {
+      await refreshContactAvatars([target], { noPhotoRetryMs: SINGLE_NO_PHOTO_RETRY_MS, maxPerRun: 1 });
+    } catch {
+      // best-effort
+    }
+  });
+}
+
+async function refreshContactAvatars(
+  targets: ContactAvatarTarget[],
+  options: { noPhotoRetryMs?: number; maxPerRun?: number } = {},
+) {
+  const noPhotoRetryMs = options.noPhotoRetryMs ?? AVATAR_RETRY_MS;
+  const maxPerRun = options.maxPerRun ?? MAX_PER_RUN;
   const byId = new Map<string, ContactAvatarTarget>();
   for (const target of targets) {
     if (target.contactId && target.phoneNumber && target.instanceName && !byId.has(target.contactId)) {
@@ -80,11 +107,11 @@ async function refreshContactAvatars(targets: ContactAvatarTarget[]) {
       if (Number.isNaN(fetchedAt)) {
         return true; // nunca se intentó
       }
-      // Si ya tiene foto, refrescamos cada 12h; si aún no, reintentamos cada 1h.
-      const ttl = contact.avatarUrl ? AVATAR_TTL_MS : AVATAR_RETRY_MS;
+      // Si ya tiene foto, refrescamos cada 12h; si aún no, según el TTL de reintento.
+      const ttl = contact.avatarUrl ? AVATAR_TTL_MS : noPhotoRetryMs;
       return now - fetchedAt > ttl;
     })
-    .slice(0, MAX_PER_RUN);
+    .slice(0, maxPerRun);
 
   for (const contact of stale) {
     const target = byId.get(contact.id);

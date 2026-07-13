@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { loadAgentConversationDetail } from "@/lib/chat-message-loader";
 import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
 import { resolveEvolutionMessageMediaUrl } from "@/lib/evolution";
+import { scheduleSingleContactAvatarRefresh } from "@/lib/contact-avatar-refresh";
 import { persistChatMediaFromDataUrl } from "@/lib/chat-media-storage";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
@@ -157,6 +158,16 @@ export async function GET(request: Request) {
         ),
         ...backgroundMediaTasks.map((task) => task()),
       ]);
+    });
+  }
+
+  // Al abrir la conversación, refresca la foto de perfil de ESTE contacto (sin esperar el
+  // turno del refresco en segundo plano), para que la foto aparezca pronto en el CRM.
+  if (instanceName && conversation.contact.phoneNumber) {
+    scheduleSingleContactAvatarRefresh({
+      contactId: conversation.contact.id,
+      phoneNumber: conversation.contact.phoneNumber,
+      instanceName,
     });
   }
 
