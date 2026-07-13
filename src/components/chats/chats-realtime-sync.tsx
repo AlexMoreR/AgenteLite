@@ -836,7 +836,13 @@ export function ChatsRealtimeSync({
       });
 
       if (hasActiveAgentConversation) {
-        const canRefreshSelectedConversation = isSelectedAgentConversation && isEventForSelectedInstance;
+        // Los mensajes SALIENTES del agente (SendMessage / fromMe) a veces no traen el teléfono
+        // en un campo que podamos casar con la conversación seleccionada, así que
+        // isSelectedAgentConversation queda false y la respuesta del bot no aparecía en vivo.
+        // Si es un saliente en la instancia activa (con una conversación de agente abierta),
+        // refrescamos igual: la recarga de /live es idempotente y muestra la respuesta al vuelo.
+        const canRefreshSelectedConversation =
+          (isSelectedAgentConversation || isOutgoingMessage) && isEventForSelectedInstance;
         if (canRefreshSelectedConversation) {
           scheduleLiveUpdate("active", {
             signature: eventSignature,
