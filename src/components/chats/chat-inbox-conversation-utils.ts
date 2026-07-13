@@ -174,20 +174,30 @@ export function findConversationItemBySnapshotId(
   );
 }
 
+// El id de conversación ya viene prefijado por canal ("official:" = API oficial, resto =
+// WhatsApp por whatsmeow). Sirve de último recurso para no perder el badge del canal cuando
+// un update de realtime no trae channelType y el item existente no se pudo casar.
+function inferChannelTypeFromId(
+  id: string | null | undefined,
+): SharedInboxConversationItem["channelType"] {
+  return id?.startsWith("official:") ? "whatsapp_official" : "whatsapp";
+}
+
 export function buildConversationItemFromSnapshot(
   snapshot: LiveConversationSnapshot,
   existing?: SharedInboxConversationItem | null,
 ): SharedInboxConversationItem {
   const latestMessage = snapshot.messages.at(-1) ?? null;
+  const resolvedId = existing?.id ?? snapshot.id;
   const nextItem: SharedInboxConversationItem = {
-    id: existing?.id ?? snapshot.id,
+    id: resolvedId,
     source: existing?.source ?? "agent",
     agentId: existing?.agentId ?? null,
     contactId: snapshot.contactId ?? existing?.contactId ?? null,
     label: snapshot.label ?? existing?.label ?? snapshot.id,
     secondaryLabel: snapshot.secondaryLabel ?? existing?.secondaryLabel ?? "",
     tags: snapshot.tags ?? existing?.tags ?? [],
-    channelType: existing?.channelType,
+    channelType: existing?.channelType ?? inferChannelTypeFromId(resolvedId),
     assignedToName: existing?.assignedToName ?? null,
     // Esta funcion solo actualiza la conversacion abierta: el usuario la esta viendo,
     // asi que no hay mensajes sin leer.
@@ -223,7 +233,7 @@ export function buildConversationItemFromListSnapshot(
     label: snapshot.label ?? existing?.label ?? snapshot.id,
     secondaryLabel: snapshot.secondaryLabel ?? existing?.secondaryLabel ?? "",
     tags: snapshot.tags ?? existing?.tags ?? [],
-    channelType: snapshot.channelType ?? existing?.channelType,
+    channelType: snapshot.channelType ?? existing?.channelType ?? inferChannelTypeFromId(existing?.id ?? snapshot.id),
     assignedToName: snapshot.assignedToName ?? existing?.assignedToName ?? null,
     incomingCount: snapshot.incomingCount ?? existing?.incomingCount ?? 0,
     avatarUrl: snapshot.avatarUrl ?? existing?.avatarUrl ?? null,

@@ -248,9 +248,15 @@ function buildOptimisticConversationListSnapshot(input: {
   const lastMessage = extractEvolutionMessageText(input.payload)?.trim() || null;
   const lastMessageType = extractEvolutionMessageType(input.payload);
   const lastMessageDirection = extractEvolutionFromMe(input.payload) ? "OUTBOUND" : "INBOUND";
+  // El badge del canal (glyph de WhatsApp / verificado oficial) lo decide channelType. El
+  // conversationKey ya viene prefijado ("official:" u "agent:"), así que lo derivamos aquí:
+  // si el snapshot optimista no lo trae y el item existente no se casa en la lista, channelType
+  // quedaría undefined y el badge desaparecería hasta recargar la página.
+  const channelType = input.conversationKey.startsWith("official:") ? "whatsapp_official" : "whatsapp";
 
   return {
     id: input.conversationKey,
+    channelType,
     lastMessage,
     lastMessageType,
     lastMessageDirection,
