@@ -350,6 +350,65 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// Envía un paso del flujo con resiliencia: si evogo cierra la WS a mitad de un medio pesado
+// (p.ej. un PDF de 14MB), reconecta y reintenta ESE paso una vez; si aun asi falla, lo marca
+// FAILED y devuelve false — pero NUNCA lanza, para que un paso caido no aborte el flujo entero.
+async function sendAndPersistEvolutionFlowStepResilient(input: {
+  step: FlowStep;
+  workspaceId: string;
+  conversationId: string;
+  channelId: string;
+  contactId: string;
+  agentId: string;
+  instanceName: string;
+  phoneNumber: string;
+}): Promise<boolean> {
+  try {
+    await sendAndPersistEvolutionFlowStep(input);
+    return true;
+  } catch (error) {
+    const message = error instanceof Error ? error.stack || error.message : String(error);
+    console.error(
+      `[EVOLUTION] flow_step_failed kind=${input.step.kind} conversationId=${input.conversationId} error=${message}`,
+    );
+    if (message.toLowerCase().includes("connection closed")) {
+      try {
+        await ensureEvolutionInstanceReady(input.instanceName);
+        await sendAndPersistEvolutionFlowStep(input);
+        return true;
+      } catch {
+        // el reintento tras reconectar tambien fallo: cae al registro FAILED
+      }
+    }
+    const failedType =
+      input.step.kind === "text"
+        ? "TEXT"
+        : input.step.kind === "image"
+          ? "IMAGE"
+          : input.step.kind === "audio"
+            ? "AUDIO"
+            : input.step.kind === "video"
+              ? "VIDEO"
+              : "DOCUMENT";
+    await persistEvolutionMessage({
+      data: {
+        workspaceId: input.workspaceId,
+        conversationId: input.conversationId,
+        channelId: input.channelId,
+        contactId: input.contactId,
+        agentId: input.agentId,
+        direction: "OUTBOUND",
+        type: failedType,
+        status: "FAILED",
+        content: input.step.kind === "text" ? input.step.content : input.step.caption ?? null,
+        mediaUrl: input.step.kind === "text" ? null : input.step.url,
+        failedAt: new Date(),
+      },
+    }).catch(() => {});
+    return false;
+  }
+}
+
 type AutoReplyBufferMessage = {
   content: string;
   type: string;
@@ -2480,133 +2539,22 @@ export async function POST(request: NextRequest) {
             });
           }
 
-          for (const step of orderedFlowSteps) {
-            if (step.kind === "text") {
-              const content = step.content;
-              const outbound = await sendEvolutionTextMessageWithReconnect({
-                instanceName: channel.evolutionInstanceName,
-                phoneNumber,
-                text: content,
-                delayMs: 0,
-              });
-              await persistEvolutionMessage({
-                data: {
-                  workspaceId: channel.workspaceId,
-                  conversationId: conversation.id,
-                  channelId: channel.id,
-                  contactId: contact.id,
-                  agentId: agent.id,
-                  externalId: outbound.externalId,
-                  direction: "OUTBOUND",
-                  type: "TEXT",
-                  status: "SENT",
-                  content,
-                  sentAt: new Date(),
-                  rawPayload: outbound.raw as never,
-                },
-              });
-            } else if (step.kind === "image") {
-              const imageOutbound = await sendEvolutionImageMessage({
-                instanceName: channel.evolutionInstanceName,
-                phoneNumber,
-                imageUrl: step.url,
-                caption: step.caption,
-                delayMs: 0,
-              });
-              await persistEvolutionMessage({
-                data: {
-                  workspaceId: channel.workspaceId,
-                  conversationId: conversation.id,
-                  channelId: channel.id,
-                  contactId: contact.id,
-                  agentId: agent.id,
-                  externalId: imageOutbound.externalId,
-                  direction: "OUTBOUND",
-                  type: "IMAGE",
-                  status: "SENT",
-                  content: step.caption,
-                  mediaUrl: step.url,
-                  sentAt: new Date(),
-                  rawPayload: imageOutbound.raw as never,
-                },
-              });
-            } else if (step.kind === "audio") {
-              const audioOutbound = await sendEvolutionAudioMessage({
-                instanceName: channel.evolutionInstanceName,
-                phoneNumber,
-                audioUrl: step.url,
-                caption: step.caption,
-                delayMs: 0,
-              });
-              await persistEvolutionMessage({
-                data: {
-                  workspaceId: channel.workspaceId,
-                  conversationId: conversation.id,
-                  channelId: channel.id,
-                  contactId: contact.id,
-                  agentId: agent.id,
-                  externalId: audioOutbound.externalId,
-                  direction: "OUTBOUND",
-                  type: "AUDIO",
-                  status: "SENT",
-                  content: step.caption,
-                  mediaUrl: step.url,
-                  sentAt: new Date(),
-                  rawPayload: audioOutbound.raw as never,
-                },
-              });
-            } else if (step.kind === "video") {
-              const videoOutbound = await sendEvolutionVideoMessage({
-                instanceName: channel.evolutionInstanceName,
-                phoneNumber,
-                videoUrl: step.url,
-                caption: step.caption,
-                delayMs: 0,
-              });
-              await persistEvolutionMessage({
-                data: {
-                  workspaceId: channel.workspaceId,
-                  conversationId: conversation.id,
-                  channelId: channel.id,
-                  contactId: contact.id,
-                  agentId: agent.id,
-                  externalId: videoOutbound.externalId,
-                  direction: "OUTBOUND",
-                  type: "VIDEO",
-                  status: "SENT",
-                  content: step.caption,
-                  mediaUrl: step.url,
-                  sentAt: new Date(),
-                  rawPayload: videoOutbound.raw as never,
-                },
-              });
-            } else if (step.kind === "document") {
-              const docOutbound = await sendEvolutionDocumentMessage({
-                instanceName: channel.evolutionInstanceName,
-                phoneNumber,
-                documentUrl: step.url,
-                caption: step.caption,
-                fileName: step.fileName,
-                delayMs: 0,
-              });
-              await persistEvolutionMessage({
-                data: {
-                  workspaceId: channel.workspaceId,
-                  conversationId: conversation.id,
-                  channelId: channel.id,
-                  contactId: contact.id,
-                  agentId: agent.id,
-                  externalId: docOutbound.externalId,
-                  direction: "OUTBOUND",
-                  type: "DOCUMENT",
-                  status: "SENT",
-                  content: step.caption,
-                  mediaUrl: step.url,
-                  sentAt: new Date(),
-                  rawPayload: docOutbound.raw as never,
-                },
-              });
+          for (const [flowStepIndex, step] of orderedFlowSteps.entries()) {
+            // Respiro entre pasos: mandar varios medios pesados seguidos (p.ej. 3 PDFs de 14MB)
+            // sin pausa tumbaba la WS de evogo y cortaba el flujo a la mitad.
+            if (flowStepIndex > 0) {
+              await sleep(800);
             }
+            await sendAndPersistEvolutionFlowStepResilient({
+              step,
+              workspaceId: channel.workspaceId,
+              conversationId: conversation.id,
+              channelId: channel.id,
+              contactId: contact.id,
+              agentId: agent.id,
+              instanceName: channel.evolutionInstanceName,
+              phoneNumber,
+            });
           }
 
           if (notifyHumanPromise) await notifyHumanPromise;
