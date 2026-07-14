@@ -158,6 +158,90 @@ function getWorkflowTypeLabel(flowType?: OfficialApiChatbotScenarioFlowType | nu
   return flowType === "chatbot" ? "CHATBOT" : "IA";
 }
 
+// --- Aviso de solapamiento entre flujos ---
+// Dos flujos "se pisan" cuando sus intenciones/palabras clave comparten los mismos
+// términos distintivos (p.ej. dos flujos que mencionan "sillas peluqueria"): ahí el
+// clasificador no sabe cuál disparar y termina sin activar ninguno. Detectamos ese
+// solapamiento al crear/editar para avisarle a quien arma el flujo.
+const FLOW_OVERLAP_STOPWORDS = new Set([
+  // conectores/genéricos del español
+  "el", "la", "los", "las", "un", "una", "unos", "unas", "de", "del", "con", "por", "para",
+  "que", "cual", "cuales", "los", "y", "o", "u", "en", "su", "sus", "lo", "al", "se", "es",
+  "son", "como", "cuando", "cuándo", "si", "no", "mas", "más", "muy", "ya", "eso", "este", "esta",
+  // genéricos del negocio (no distinguen un flujo de otro)
+  "cliente", "clientes", "pregunta", "preguntar", "pregunte", "quiere", "quiero", "necesito",
+  "necesita", "ver", "mostrar", "muestra", "muestrame", "precio", "precios", "valor", "cuanto",
+  "cuánto", "cuesta", "catalogo", "catálogo", "catalogos", "producto", "productos", "mueble",
+  "muebles", "activar", "activa", "active", "mensaje", "ejemplo", "ejemplos", "bot", "agente",
+  "whatsapp", "enviar", "envia", "envía", "foto", "fotos", "informacion", "información", "info",
+  "tipo", "tipos", "sobre", "interesa", "interesado", "pide", "pedir", "responde", "cotizacion",
+  "cotización", "asesorar", "asesoria", "asesoría", "espacio", "negocio",
+]);
+
+function normalizeFlowText(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getFlowSignatureTokens(input: { intent?: string | null; title?: string | null; keywords?: string[] | null }) {
+  const parts = [input.title ?? "", input.intent ?? "", ...(input.keywords ?? [])];
+  const tokens = new Set<string>();
+  for (const token of normalizeFlowText(parts.join(" ")).split(" ")) {
+    if (token.length >= 3 && !FLOW_OVERLAP_STOPWORDS.has(token)) {
+      tokens.add(token);
+    }
+  }
+  return tokens;
+}
+
+function flowTokensShare(a: string, b: string) {
+  if (a === b) return true;
+  // "silla" ~ "sillas", "poltrona" ~ "poltronas": uno contiene al otro (con largo mínimo
+  // para no casar fragmentos cortos como "sal" en "sala").
+  return a.length >= 4 && b.length >= 4 && (a.includes(b) || b.includes(a));
+}
+
+type FlowOverlapMatch = { title: string; sharedWords: string[] };
+
+function computeFlowIntentOverlaps(input: {
+  current: { intent?: string | null; title?: string | null; keywords?: string[] | null };
+  currentScenarioId: string | null;
+  scenarios: Array<{ id: string; title?: string | null; intent?: string | null; keywords?: string[] | null }>;
+}): FlowOverlapMatch[] {
+  const currentTokens = getFlowSignatureTokens(input.current);
+  if (currentTokens.size === 0) {
+    return [];
+  }
+
+  const overlaps: FlowOverlapMatch[] = [];
+  for (const scenario of input.scenarios) {
+    if (scenario.id === input.currentScenarioId) {
+      continue;
+    }
+    const otherTokens = getFlowSignatureTokens(scenario);
+    const shared = new Set<string>();
+    for (const token of currentTokens) {
+      for (const otherToken of otherTokens) {
+        if (flowTokensShare(token, otherToken)) {
+          shared.add(token);
+          break;
+        }
+      }
+    }
+    // Umbral: 2+ términos distintivos compartidos = riesgo real de que el clasificador
+    // dude entre ambos flujos.
+    if (shared.size >= 2) {
+      overlaps.push({ title: scenario.title?.trim() || "otro flujo", sharedWords: Array.from(shared).slice(0, 6) });
+    }
+  }
+  return overlaps;
+}
+
 const MEDIA_NODE_KINDS = ["image", "audio", "video", "document"] as const;
 
 function isMediaNodeKind(kind: BuilderNode["kind"]): kind is "image" | "audio" | "video" | "document" {
@@ -1015,6 +1099,29 @@ export function OfficialApiChatbotWorkspace({
   const [editingWorkflowMatchType, setEditingWorkflowMatchType] = useState<OfficialApiChatbotScenarioMatchType>("exacta");
   const [editingWorkflowKeywords, setEditingWorkflowKeywords] = useState<string[]>([]);
   const [editingWorkflowKeywordDraft, setEditingWorkflowKeywordDraft] = useState("");
+  // Solapamiento de intención/palabras clave con otros flujos (aviso al crear/editar).
+  const newWorkflowOverlaps = useMemo(
+    () =>
+      computeFlowIntentOverlaps({
+        current: { intent: newWorkflowIntent, title: newWorkflowTitle, keywords: newWorkflowKeywords },
+        currentScenarioId: null,
+        scenarios,
+      }),
+    [newWorkflowIntent, newWorkflowTitle, newWorkflowKeywords, scenarios],
+  );
+  const editingWorkflowOverlaps = useMemo(
+    () =>
+      computeFlowIntentOverlaps({
+        current: {
+          intent: editingWorkflowIntentDraft,
+          keywords: editingWorkflowKeywords,
+          title: scenarios.find((scenario) => scenario.id === editingWorkflowIntentScenarioId)?.title,
+        },
+        currentScenarioId: editingWorkflowIntentScenarioId,
+        scenarios,
+      }),
+    [editingWorkflowIntentDraft, editingWorkflowKeywords, editingWorkflowIntentScenarioId, scenarios],
+  );
   const [isUploadingNodeImage, setIsUploadingNodeImage] = useState(false);
   const [nodeImageUploadError, setNodeImageUploadError] = useState("");
   const [openMenuScenarioId, setOpenMenuScenarioId] = useState("");
@@ -2924,6 +3031,20 @@ export function OfficialApiChatbotWorkspace({
                   </div>
                 ) : null}
 
+                {newWorkflowOverlaps.length > 0 ? (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+                    <p className="text-sm font-semibold text-amber-800">⚠️ Este flujo se pisa con otro</p>
+                    <p className="mt-1 text-xs leading-5 text-amber-700">
+                      Comparte palabras con{" "}
+                      {newWorkflowOverlaps
+                        .map((overlap) => `“${overlap.title}” (${overlap.sharedWords.join(", ")})`)
+                        .join("; ")}
+                      . El bot podría dudar entre ambos y no activar ninguno. Usá palabras distintas o quitá
+                      esas de uno de los dos flujos.
+                    </p>
+                  </div>
+                ) : null}
+
               </div>
 
               <div className="shrink-0 border-t border-border px-5 py-3">
@@ -3147,9 +3268,6 @@ export function OfficialApiChatbotWorkspace({
                       className="field-textarea min-h-28"
                       placeholder="Describe qué intención debe detectar el agente y qué debe lograr."
                     />
-                    <p className="text-xs leading-5 text-slate-500">
-                      Usa una frase concreta que le sirva al agente para reconocer la intención correcta.
-                    </p>
                   </label>
                 ) : editingWorkflowType === "chatbot" ? (
                   <div className="space-y-4">
@@ -3209,6 +3327,20 @@ export function OfficialApiChatbotWorkspace({
                         </div>
                       ) : null}
                     </div>
+                  </div>
+                ) : null}
+
+                {editingWorkflowOverlaps.length > 0 ? (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+                    <p className="text-sm font-semibold text-amber-800">⚠️ Este flujo se pisa con otro</p>
+                    <p className="mt-1 text-xs leading-5 text-amber-700">
+                      Comparte palabras con{" "}
+                      {editingWorkflowOverlaps
+                        .map((overlap) => `“${overlap.title}” (${overlap.sharedWords.join(", ")})`)
+                        .join("; ")}
+                      . El bot podría dudar entre ambos y no activar ninguno. Usá palabras distintas o quitá
+                      esas de uno de los dos flujos.
+                    </p>
                   </div>
                 ) : null}
               </div>
