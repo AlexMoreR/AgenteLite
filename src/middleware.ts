@@ -29,6 +29,21 @@ export default auth((req) => {
     return NextResponse.redirect(redirectUrl, 301);
   }
 
+  // La landing de marketing es solo para visitantes SIN sesión. Si el usuario ya está logueado
+  // y cae en "/", lo mandamos directo a su panel. Pasa sobre todo con la PWA instalada: Android
+  // congela el start_url del manifest al instalar, así que las apps ya instaladas siguen
+  // abriendo en "/" (la landing) aunque el manifest actual apunte a /cliente/chats.
+  // Nota: /cliente/chats ya redirige solo a /cliente si el usuario no tiene ese módulo.
+  if (pathname === "/" && role) {
+    const appHome =
+      role === "ADMIN"
+        ? "/admin"
+        : role === "EMPLEADO" && !primaryWorkspaceId
+          ? "/empleado"
+          : "/cliente/chats";
+    return NextResponse.redirect(new URL(appHome, nextUrl));
+  }
+
   if (authPages.includes(pathname) && role) {
     const home = role === "EMPLEADO" && primaryWorkspaceId ? "/cliente" : roleHome[role];
     return NextResponse.redirect(new URL(home, nextUrl));
