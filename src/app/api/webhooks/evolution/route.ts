@@ -2024,6 +2024,7 @@ export async function POST(request: NextRequest) {
         customerName: contact.name,
         latestUserMessage: inboundTextForProcessing,
         history: recentMessagesForModel,
+        commercialContext: conversation.commercialContext,
       });
       const notifyHumanPromise = notifyHumanAction && channel.evolutionInstanceName
         ? sendEvolutionTextMessageWithReconnect({
@@ -2290,7 +2291,7 @@ export async function POST(request: NextRequest) {
       let shouldComposeWelcome = true;
 
       if (shouldHandoffToHuman) {
-        replyText = buildHandoffMessage();
+        replyText = notifyHumanAction?.customerMessage ?? buildHandoffMessage();
         shouldComposeWelcome = false;
       } else if (quickResponseFlow) {
         replyText = null;

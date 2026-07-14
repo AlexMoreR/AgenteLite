@@ -760,6 +760,61 @@ export function shouldRequestPurchaseData(stage: CommercialStage) {
   return stage === "ACUERDO";
 }
 
+// Indicios de dirección (Colombia) que delatan que el cliente está entregando datos de envío.
+const CLOSING_ADDRESS_HINTS =
+  /(\bcarrera\b|\bcra\b|\bcarr?\b|\bcr\b|\bcll?\b|\bcalle\b|\bkra?\b|\bkr\b|\bdiagonal\b|\bdg\b|\btransversal\b|\btransv\b|\btv\b|\bavenida\b|\bav\b|\bautopista\b|\bmanzana\b|\bmz\b|\bbarrio\b|\bconjunto\b|\burbanizaci[oó]n\b|\bapto\b|\bapartamento\b|\bcasa\b|\btorre\b|\bpiso\b|#)/i;
+// El bot pidió datos de compra en su último mensaje (nombre / dirección / dónde enviar).
+const CLOSING_DATA_REQUEST =
+  /(nombre completo|tu nombre|nombres y apellidos|direcci[oó]n|donde.{0,25}(llegue|enviar|env[ií]o|recib)|datos.{0,15}(env[ií]o|pedido|entrega)|para el env[ií]o)/i;
+// Una negativa corta ("no", "luego", "mañana") NO es un cierre.
+const CLOSING_NEGATIVE = /^(no|no gracias|luego|despu[eé]s|ma[ñn]ana|todav[ií]a no|m[aá]s tarde|lo pienso|ahorita no)\b/i;
+
+/**
+ * Cierre determinista: el cliente está ENTREGANDO datos de compra (nombre/dirección) en una
+ * conversación ya avanzada. No depende de frases-consigna ("quiero comprar"): reconoce que el
+ * cliente respondió con datos reales al pedido de nombre/dirección. Sirve para pasar la
+ * conversación a un asesor sin esperar a que la IA lo decida.
+ */
+export function detectClosingPurchaseData(input: {
+  latestUserMessage: string | null | undefined;
+  previousCommercialContext: CommercialConversationContext | null | undefined;
+  history?: Array<{ direction: "INBOUND" | "OUTBOUND"; content: string | null }>;
+}): boolean {
+  const message = input.latestUserMessage?.trim() ?? "";
+  if (!message) {
+    return false;
+  }
+
+  const ctx = input.previousCommercialContext ?? null;
+  const isAdvanced = Boolean(
+    ctx &&
+      (ctx.presentedValue ||
+        ctx.shownProductMedia ||
+        ctx.shownPrice ||
+        ctx.askedCityOrShipping ||
+        ctx.currentStage === "EXPOSICION" ||
+        ctx.currentStage === "NEGOCIACION" ||
+        ctx.currentStage === "ACUERDO"),
+  );
+  if (!isAdvanced) {
+    return false;
+  }
+
+  const wordCount = message.split(/\s+/).filter(Boolean).length;
+  if (CLOSING_NEGATIVE.test(message) && wordCount <= 4) {
+    return false;
+  }
+
+  const lastOutbound =
+    [...(input.history ?? [])].reverse().find((line) => line.direction === "OUTBOUND")?.content ?? "";
+  const botAskedForData = CLOSING_DATA_REQUEST.test(lastOutbound);
+  const looksLikeAddress = CLOSING_ADDRESS_HINTS.test(message);
+
+  // Cierre si el cliente manda una dirección, o si el bot acaba de pedir datos de compra y el
+  // cliente respondió con contenido sustantivo (no una simple negativa).
+  return looksLikeAddress || (botAskedForData && wordCount >= 2);
+}
+
 export function shouldPrioritizeCommercialStageOverFaq(stage: CommercialStage) {
   return stage === "CONEXION" || stage === "AVERIGUACION" || stage === "DIAGNOSTICO";
 }
