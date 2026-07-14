@@ -763,17 +763,22 @@ export function shouldRequestPurchaseData(stage: CommercialStage) {
 // Indicios de dirección (Colombia) que delatan que el cliente está entregando datos de envío.
 const CLOSING_ADDRESS_HINTS =
   /(\bcarrera\b|\bcra\b|\bcarr?\b|\bcr\b|\bcll?\b|\bcalle\b|\bkra?\b|\bkr\b|\bdiagonal\b|\bdg\b|\btransversal\b|\btransv\b|\btv\b|\bavenida\b|\bav\b|\bautopista\b|\bmanzana\b|\bmz\b|\bbarrio\b|\bconjunto\b|\burbanizaci[oó]n\b|\bapto\b|\bapartamento\b|\bcasa\b|\btorre\b|\bpiso\b|#)/i;
-// El bot pidió datos de compra en su último mensaje (nombre / dirección / dónde enviar).
+// El bot pidió DATOS DE COTIZACIÓN/COMPRA en su último mensaje: nombre, dirección, dónde
+// enviar, color, ciudad, código, o menciona cotizar. Es la fase en que un asesor debe cerrar.
 const CLOSING_DATA_REQUEST =
-  /(nombre completo|tu nombre|nombres y apellidos|direcci[oó]n|donde.{0,25}(llegue|enviar|env[ií]o|recib)|datos.{0,15}(env[ií]o|pedido|entrega)|para el env[ií]o)/i;
+  /(nombre completo|tu nombre|nombres y apellidos|direcci[oó]n|donde.{0,25}(llegue|enviar|env[ií]o|recib)|datos.{0,15}(env[ií]o|pedido|entrega)|para el env[ií]o|cotiz|qu[eé] color|en qu[eé] color|color.{0,12}(quieres|interesa|prefieres)|en qu[eé] ciudad|qu[eé] ciudad|qu[eé] c[oó]digo)/i;
 // Una negativa corta ("no", "luego", "mañana") NO es un cierre.
 const CLOSING_NEGATIVE = /^(no|no gracias|luego|despu[eé]s|ma[ñn]ana|todav[ií]a no|m[aá]s tarde|lo pienso|ahorita no)\b/i;
+// El cliente está PREGUNTANDO (no entregando datos): no es cierre.
+const CLOSING_CUSTOMER_QUESTION =
+  /^[¿]|\?\s*$|^(cu[aá]nto|cuanto|qu[eé]|que|c[oó]mo|como|cu[aá]ndo|cuando|d[oó]nde|donde|por qu[eé]|porque|cu[aá]l|cual|tienen|tienes|hay|me pueden|pueden|puedo)\b/i;
 
 /**
- * Cierre determinista: el cliente está ENTREGANDO datos de compra (nombre/dirección) en una
- * conversación ya avanzada. No depende de frases-consigna ("quiero comprar"): reconoce que el
- * cliente respondió con datos reales al pedido de nombre/dirección. Sirve para pasar la
- * conversación a un asesor sin esperar a que la IA lo decida.
+ * Cierre determinista: en una conversación ya avanzada (producto/valor presentado), el cliente
+ * está ENTREGANDO datos de compra/cotización — dirección, o una respuesta con datos (color,
+ * ciudad, nombre, dirección) al pedido de cotización del bot. No depende de frases-consigna
+ * ("quiero comprar"). Sirve para pasar la conversación a un asesor que finalice la cotización,
+ * sin esperar a que la IA lo decida (que suele reiniciar el embudo).
  */
 export function detectClosingPurchaseData(input: {
   latestUserMessage: string | null | undefined;
@@ -805,14 +810,23 @@ export function detectClosingPurchaseData(input: {
     return false;
   }
 
+  const looksLikeAddress = CLOSING_ADDRESS_HINTS.test(message);
+  if (looksLikeAddress) {
+    return true;
+  }
+
+  // El cliente está preguntando (precio, dudas): no es entrega de datos → que siga la IA.
+  if (CLOSING_CUSTOMER_QUESTION.test(message)) {
+    return false;
+  }
+
   const lastOutbound =
     [...(input.history ?? [])].reverse().find((line) => line.direction === "OUTBOUND")?.content ?? "";
   const botAskedForData = CLOSING_DATA_REQUEST.test(lastOutbound);
-  const looksLikeAddress = CLOSING_ADDRESS_HINTS.test(message);
 
-  // Cierre si el cliente manda una dirección, o si el bot acaba de pedir datos de compra y el
-  // cliente respondió con contenido sustantivo (no una simple negativa).
-  return looksLikeAddress || (botAskedForData && wordCount >= 2);
+  // Cierre si el bot pidió datos de cotización/compra y el cliente respondió con contenido
+  // sustantivo (2+ palabras, no una pregunta ni una negativa).
+  return botAskedForData && wordCount >= 2;
 }
 
 export function shouldPrioritizeCommercialStageOverFaq(stage: CommercialStage) {
