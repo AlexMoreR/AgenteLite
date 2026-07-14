@@ -414,6 +414,12 @@ export function buildAgentSystemPrompt(input: {
     ? guardrails
     : ["No inventes informacion.", "No prometas algo que el negocio no pueda cumplir."];
 
+  // CATÁLOGO COMPACTO: solo el índice de lo que se vende (nombre + código + una línea de qué
+  // es). El DETALLE de cada producto (embudo, precio, medidas, cómo presentarlo) NO se hornea
+  // en el prompt: se trae on-demand con consultar_productos y con el CONTEXTO DEL PRODUCTO
+  // ACTIVO (que inyecta SOLO el producto del que se está hablando). Antes se pegaban TODOS los
+  // embudos ("responde EXACTAMENTE este mensaje…") de todos los productos, y la IA aplicaba el
+  // guion de un producto a otro distinto (p.ej. la política de color de lavacabezas a poltronas).
   const knowledgeProducts = (input.knowledgeProducts ?? [])
     .map((product) => {
       const name = product.name.trim();
@@ -421,45 +427,23 @@ export function buildAgentSystemPrompt(input: {
         return null;
       }
 
-      const summary = [`Producto: ${name}`];
-      const funnelLines = [
-        product.funnelOpening?.trim() ? `Embudo - Apertura: ${product.funnelOpening.trim()}` : null,
-        product.funnelQualification?.trim() ? `Embudo - Calificacion: ${product.funnelQualification.trim()}` : null,
-        product.funnelPresentation?.trim() ? `Embudo - Presentacion: ${product.funnelPresentation.trim()}` : null,
-        product.funnelFaq?.trim() ? `Embudo - FAQ: ${product.funnelFaq.trim()}` : null,
-        product.funnelClosing?.trim() ? `Embudo - Cierre: ${product.funnelClosing.trim()}` : null,
-      ].filter(Boolean);
-      const hasFunnel = funnelLines.length > 0;
-      if (hasFunnel) {
-        summary.push(funnelLines.join(" / "));
-      }
+      const parts = [name];
       if (product.code?.trim()) {
-        summary.push(`Codigo: ${product.code.trim()}`);
+        parts.push(`código ${product.code.trim()}`);
       }
-      if (product.slug?.trim()) {
-        summary.push(`Slug: ${product.slug.trim()}`);
-      }
-      // Si el producto tiene EMBUDO, NO horneamos descripcion ni precio: la IA debe
-      // guiarse por las etapas del embudo (y sus flujos), no responder de memoria con
-      // la ficha del producto. Sin esto, ante un "si" suelto la IA describe el producto
-      // en vez de avanzar la etapa / disparar el flujo. (El precio sigue disponible vía
-      // consultar_productos si el cliente lo pide explicitamente.)
-      if (!hasFunnel && product.description?.trim()) {
-        summary.push(`Descripcion: ${product.description.trim()}`);
-      }
-      if (!hasFunnel && product.price?.trim()) {
-        summary.push(`Precio de referencia: ${product.price.trim()}`);
-      }
-      if (product.instructions?.trim()) {
-        summary.push(`INSTRUCCION: ${product.instructions.trim()}`);
+      const shortDescription = product.description?.trim()
+        ? product.description.trim().split(/[.\n]/)[0].trim().slice(0, 120)
+        : "";
+      if (shortDescription) {
+        parts.push(shortDescription);
       }
 
-      return summary.join(" | ");
+      return parts.join(" — ");
     })
     .filter((item): item is string => Boolean(item));
 
   const knowledgeSection = knowledgeProducts.length
-    ? `CONOCIMIENTO DE PRODUCTOS\n- ${knowledgeProducts.join("\n- ")}\n- Usa esta base para responder con precision sobre esos productos.\n- Nunca respondas solo con el nombre del producto si tienes descripcion o precio disponible.\n- Cuando hables de un producto, menciona la informacion util disponible y agrega un siguiente paso claro si ayuda a vender.\n- Si te preguntan por algo fuera de esta base, no lo inventes y aclara que debes confirmarlo.\n- IMPORTANTE: Cuando un producto tenga un EMBUDO, ese embudo define como debes manejar ese producto. Siguelo por encima de cualquier otra consideracion.\n- IMPORTANTE: Si un producto tiene FLUJO HIJO, solo usa esa relacion cuando ese producto ya haya sido consultado o ejecutado en la conversacion; entonces tratalo como un siguiente paso explicito y no como un salto inmediato.\n- IMPORTANTE: No asumas envio de fotos por palabras como \"foto\" o \"imagenes\"; solo comparte imagenes cuando el embudo del producto o el prompt lo pidan de forma explicita.\n- ETAPAS: Si el EMBUDO tiene pasos numerados (1. 2. 3.), responde UNICAMENTE con el paso que corresponde al momento actual de la conversacion. Nunca adelantes pasos que dependen de la respuesta del cliente. Espera siempre la reaccion del cliente antes de avanzar al siguiente paso.`
+    ? `CATÁLOGO DE PRODUCTOS (índice)\n- ${knowledgeProducts.join("\n- ")}\n- Esto es SOLO el índice de lo que vendes. Para el detalle de UN producto (precio, medidas, beneficios, cómo presentarlo) llama a consultar_productos ANTES de responder sobre ese producto.\n- Responde SOLO sobre el producto del que se está hablando: NUNCA apliques el precio, los colores, la política de despacho o los mensajes de un producto a otro distinto.\n- No inventes productos ni datos fuera de este catálogo. Si preguntan por algo que no está, no lo niegues en seco: deriva a un asesor.`
     : null;
 
   const consultationToolsSection = [
@@ -506,6 +490,21 @@ export function buildAgentSystemPrompt(input: {
     ? buildCommercialConversationContextPromptSection(input.commercialConversationContext)
     : null;
 
+  // Metodología ÚNICA de venta, product-agnóstica. Reemplaza los embudos rígidos por-producto
+  // que antes se horneaban: la IA conversa naturalmente y trae el detalle de cada producto
+  // on-demand, sin scripts literales que se mezclen entre productos.
+  const playbookSection = [
+    "PLAYBOOK DE VENTA (aplica IGUAL a todos los productos)",
+    "Conversa de forma natural siguiendo esta metodología. NO uses mensajes fijos ni scripts literales; adapta las palabras al cliente y al producto del que se está hablando.",
+    "1. Apertura: saluda, presenta brevemente el negocio y pregunta qué busca o en qué puedes ayudarle.",
+    "2. Calificación: entiende qué necesita (qué producto, para qué espacio o uso). Una sola pregunta a la vez.",
+    "3. Presentación: cuando el cliente concreta un producto, llama a consultar_productos para su detalle y preséntalo por su valor (para qué sirve, beneficios). Si hay un catálogo/flujo para ese producto, lo envía el motor de flujos.",
+    "4. Objeciones: si duda o pausa la compra, valida + re-ancla el valor + una pregunta que avance. Evita frases pasivas ('quedo atento', 'cuando quieras').",
+    "5. Cierre: cuando muestra intención, pide los datos para cotizar (color, ciudad, nombre, dirección) y avanza al cierre.",
+    "REGLA ANTI-REGRESIÓN: una vez que el cliente eligió un producto o la conversación ya avanzó, NUNCA reinicies el embudo ni repitas la pregunta de apertura/calificación (p.ej. '¿qué servicios vas a ofrecer?'). Avanza siempre al siguiente paso comercial.",
+    "REGLA DE UN SOLO PRODUCTO: cada respuesta trata del producto en curso. Nunca traigas el precio, colores, política de despacho o guion de otro producto distinto.",
+  ].join("\n");
+
   const sections = [
     `## 🏢 DATOS DEL NEGOCIO\n\n${businessDataLines.join("\n")}\n\n${businessNotes}\n\n---`,
     `ROL\nEres un asesor comercial experto por whatsapp de ${businessName}. Actuas como una persona real del negocio y tu trabajo es vender con claridad, precision y criterio comercial.`,
@@ -515,6 +514,7 @@ export function buildAgentSystemPrompt(input: {
     `CONTEXTO DEL NEGOCIO\n- ${businessRules.join("\n- ")}${contactLines.length ? `\n\nDATOS DE CONTACTO\n- ${contactLines.join("\n- ")}` : ""}`,
     `COMO HABLAS\n- ${voiceRules.join("\n- ")}`,
     `COMPORTAMIENTO DE VENTA\n- ${salesBehaviors.join("\n- ")}`,
+    playbookSection,
     `DIRECTIVAS DE COMUNICACIÓN CON EL USUARIO\n- ${communicationDirectives.join("\n- ")}`,
     consultationToolsSection,
     knowledgeSection,
