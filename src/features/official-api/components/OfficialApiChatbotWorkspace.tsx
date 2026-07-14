@@ -3186,31 +3186,28 @@ export function OfficialApiChatbotWorkspace({
           </div>
         ) : null}
         {isEditingWorkflowIntent ? (
-          <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/25 p-6 backdrop-blur-[2px]">
-            <div className="w-full max-w-xl overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_30px_80px_-48px_rgba(15,23,42,0.32)]">
-              <div className="relative border-b border-slate-200 px-6 py-5">
-                  <button
-                    type="button"
-                    onClick={closeEditWorkflowIntentModal}
-                  className="absolute right-4 top-4 inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
-                  aria-label="Cerrar editor de intención"
-                >
-                  <X className="h-4 w-4" />
-                </button>
+          <Dialog
+            open={isEditingWorkflowIntent}
+            onOpenChange={(open) => {
+              if (!open) closeEditWorkflowIntentModal();
+            }}
+          >
+            <DialogContent className="flex max-h-[85dvh] w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-xl">
+              <DialogHeader className="shrink-0 gap-0 border-b border-border px-5 py-3 pr-12 text-left">
                 <div className="flex items-center gap-2">
-                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
+                  <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]">
                     <FileText className="h-4 w-4" />
                   </span>
-                  <div>
-                    <p className="text-lg font-semibold text-slate-950">Editar intención</p>
-                    <p className="text-sm text-slate-500">
+                  <div className="min-w-0">
+                    <DialogTitle className="text-base font-semibold">Editar intención</DialogTitle>
+                    <p className="truncate text-sm text-slate-500">
                       {scenarios.find((scenario) => scenario.id === editingWorkflowIntentScenarioId)?.title ?? "Flujo"}
                     </p>
                   </div>
                 </div>
-              </div>
+              </DialogHeader>
 
-              <div className="space-y-4 px-6 py-5">
+              <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5">
                 <div className="space-y-3">
                   <span className="text-sm font-medium text-slate-900">Tipo</span>
                   <p className="text-xs leading-5 text-slate-500">Define como se activa el flujo.</p>
@@ -3345,7 +3342,7 @@ export function OfficialApiChatbotWorkspace({
                 ) : null}
               </div>
 
-              <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-6 py-4">
+              <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border px-6 py-4">
                   <Button type="button" variant="outline" onClick={closeEditWorkflowIntentModal}>
                     Cancelar
                   </Button>
@@ -3353,8 +3350,8 @@ export function OfficialApiChatbotWorkspace({
                     Guardar
                   </Button>
               </div>
-            </div>
-          </div>
+            </DialogContent>
+          </Dialog>
         ) : null}
         {isNodeEditorOpen && selectedNode ? (
           <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/25 p-6 backdrop-blur-[2px]">
