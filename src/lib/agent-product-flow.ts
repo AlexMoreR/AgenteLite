@@ -853,6 +853,47 @@ export async function resolveAgentProductFlowReply(input: {
     const shouldResolveFunnelFlow = hasPriorSameProductContext || isChatbotActivation;
 
     if (!shouldResolveFunnelFlow) {
+      // El producto matcheó (a menudo por su NOMBRE al escribir una palabra genérica: p.ej.
+      // "lavacabezas" → "Combo Lavacabezas+Silla"), pero en modo default/ia NO debe secuestrar
+      // el turno. Si hay un FLUJO de catálogo que corresponde a lo que pidió el cliente, ese
+      // flujo GANA (muestra el catálogo) y NO activamos el embudo del producto. Así "lavacabezas"
+      // muestra el catálogo en vez de arrancar la calificación del combo.
+      const iaFlowCandidatesForProduct = availableFlowCandidates.filter((flow) => flow.flowType === "ia");
+      if (iaFlowCandidatesForProduct.length > 0) {
+        const selectedFlowId = await selectFlowByAI({
+          flows: iaFlowCandidatesForProduct.map((flow) => ({ id: flow.id, title: flow.title, intent: flow.intent })),
+          latestUserMessage: latestText,
+          history: input.history ?? [],
+        });
+        if (selectedFlowId) {
+          const reply = await getFlowReply({
+            workspaceId: input.workspaceId,
+            flowId: selectedFlowId,
+            includeOfficialApi: input.includeOfficialApi,
+          });
+          if (reply) {
+            const selectedFlow = flowTargets.find((flow) => flow.id === selectedFlowId);
+            if (process.env.NODE_ENV !== "production") {
+              console.info("[agent-product-flow] product-name-match-deferred-to-flow", {
+                agentId: input.agentId,
+                productName: matchedProduct.name,
+                flowTitle: selectedFlow?.title ?? null,
+                flowId: selectedFlowId,
+              });
+            }
+            return {
+              steps: reply.steps,
+              flowTitle: selectedFlow?.title ?? null,
+              productName: null,
+              flowId: selectedFlowId,
+              aiFollowUpEnabled: reply.aiFollowUpEnabled,
+              // No activamos el producto: el cliente pidió el catálogo, no el combo.
+              activeProductContext: null,
+            };
+          }
+        }
+      }
+
       if (process.env.NODE_ENV !== "production") {
         console.info("[agent-product-flow] follow-up blocked", {
           agentId: input.agentId,
