@@ -384,6 +384,10 @@ export const MessageBubble = memo(function MessageBubble({
               </p>
             </div>
           ) : null}
+          {/* Contenido + hora en flujo tipo WhatsApp: en mensajes cortos la hora
+              queda a la derecha en la MISMA linea; en los largos baja al pie. */}
+          <div className="flex flex-wrap items-end gap-x-2">
+          <div className="min-w-0">
           {callSummary ? (
             <div className="space-y-2">
               <Badge
@@ -662,8 +666,9 @@ export const MessageBubble = memo(function MessageBubble({
               </p>
             )
           )}
+          </div>
 
-          <div className={`mt-0.5 flex items-center justify-end gap-1 text-[10px] ${outbound ? "text-black/60" : "text-muted-foreground"}`}>
+          <div className={`ml-auto flex shrink-0 items-center justify-end gap-1 text-[10px] ${outbound ? "text-black/60" : "text-muted-foreground"}`}>
             {isDeleted ? (
               <Badge className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-normal tracking-[0.08em] shadow-none ${
                 outbound ? "bg-black/[0.06] text-black/60" : "bg-rose-50 text-rose-600"
@@ -713,6 +718,7 @@ export const MessageBubble = memo(function MessageBubble({
                 <span className="ml-1">{message.outboundStatusLabel}</span>
               )
             ) : null}
+          </div>
           </div>
         </div>
       </div>
