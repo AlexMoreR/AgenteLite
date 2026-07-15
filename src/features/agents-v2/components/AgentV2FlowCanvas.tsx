@@ -1186,8 +1186,9 @@ function normalizeKeywords(value: unknown): string[] {
     return value.filter((item): item is string => typeof item === "string");
   }
   if (typeof value === "string") {
-    return value
-      .split(",")
+    // Separador "|": cada keyword es una frase (puede tener comas). Un dato viejo sin "|" se
+    // trata como UNA sola frase, no se rompe por comas.
+    return (value.includes("|") ? value.split("|") : [value])
       .map((item) => item.trim())
       .filter(Boolean);
   }
@@ -1316,7 +1317,9 @@ function RulePopover({
                 value={draft}
                 onChange={(event) => setDraft(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === ",") {
+                  // Solo Enter agrega la frase. La coma NO separa: así una frase con comas
+                  // (p.ej. "camilla, escalera, silla y auxiliar") queda como UNA sola keyword.
+                  if (event.key === "Enter") {
                     event.preventDefault();
                     commitDraft();
                   } else if (event.key === "Backspace" && !draft && keywords.length > 0) {
@@ -1329,7 +1332,7 @@ function RulePopover({
               />
             </div>
             <p className="text-[11px] leading-4 text-muted-foreground">
-              Coincide si el texto matchea cualquiera (Enter o coma para agregar).
+              Coincide si el mensaje contiene cualquiera de estas frases. Cada frase es un chip; presiona Enter para agregar (podés usar comas dentro de una frase).
             </p>
           </div>
         )}

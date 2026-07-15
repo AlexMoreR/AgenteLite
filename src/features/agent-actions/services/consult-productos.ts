@@ -106,8 +106,12 @@ function parseActivationKeywords(instructions: string | null): string[] {
     return [];
   }
 
-  return match[1]
-    .split(",")
+  // Separador = "|". Cada keyword es UNA frase (puede tener comas adentro, p.ej.
+  // "camilla, escalera, silla y auxiliar"). Antes se separaba por coma y una frase con comas
+  // se rompía en varias palabras genéricas (y "camilla" a secas disparaba el producto). Si no
+  // hay "|" (dato viejo con comas), se trata TODO como UNA sola frase.
+  const raw = match[1];
+  return (raw.includes("|") ? raw.split("|") : [raw])
     .map((keyword) => keyword.trim())
     .filter(Boolean)
     .slice(0, 20);

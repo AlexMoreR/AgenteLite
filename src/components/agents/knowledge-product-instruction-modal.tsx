@@ -93,7 +93,7 @@ function composeFunnelInstructions(
   const blocks = [
     `Activacion: ${activationMode}`,
     activationMode === "chatbot" ? `Coincidencia: ${activationMatchType}` : null,
-    activationMode === "chatbot" && activationKeywords.length > 0 ? `Palabras clave: ${activationKeywords.join(", ")}` : null,
+    activationMode === "chatbot" && activationKeywords.length > 0 ? `Palabras clave: ${activationKeywords.join(" | ")}` : null,
     fields.opening.trim() ? `Apertura: ${fields.opening.trim()}` : null,
     fields.qualification.trim() ? `Calificacion: ${fields.qualification.trim()}` : null,
     fields.presentation.trim() ? `Presentacion: ${fields.presentation.trim()}` : null,

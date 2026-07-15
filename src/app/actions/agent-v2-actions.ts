@@ -544,7 +544,7 @@ export async function publishAgentV2Action(input: {
         `Activacion: ${activation.mode}`,
         activation.mode === "chatbot" ? `Coincidencia: ${activation.matchType}` : null,
         activation.mode === "chatbot" && activation.keywords.length
-          ? `Palabras clave: ${activation.keywords.join(", ")}`
+          ? `Palabras clave: ${activation.keywords.join(" | ")}`
           : null,
         funnelBlock,
         branchingBlock,
