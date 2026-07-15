@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, useActionState } from "react";
 import { User, Phone, MapPin, Home, Heart } from "lucide-react";
 import { getContactDetailsAction, updateContactAction, type ContactDetails } from "@/app/actions/chats-actions";
 import { Badge } from "@/components/ui/badge";
+import { TAG_BADGE_CLASS } from "@/lib/tag-badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -176,9 +177,8 @@ export function EditContactModal({ open, onClose, contactId, contactName }: Prop
                 selectedTags.map((tag) => (
                   <Badge
                     key={tag.id}
-                    variant="outline"
-                    className="max-w-full justify-start"
-                    style={{ borderColor: tag.color, color: tag.color }}
+                    className={`max-w-full justify-start border-transparent text-white shadow-none ${TAG_BADGE_CLASS}`}
+                    style={{ backgroundColor: tag.color }}
                     title={tag.name}
                   >
                     <span className="truncate">{tag.name}</span>

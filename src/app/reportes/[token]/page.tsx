@@ -123,7 +123,8 @@ export default async function DailyReportPublicPage({ params }: PageProps) {
                             row.tags.map((tag) => (
                               <span
                                 key={tag.name}
-                                className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600"
+                                className="rounded-[4px] px-2 py-0.5 text-[10px] font-normal uppercase tracking-wide text-white"
+                                style={{ backgroundColor: tag.color || "var(--primary)" }}
                               >
                                 {tag.name}
                               </span>
