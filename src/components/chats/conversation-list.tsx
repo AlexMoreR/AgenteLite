@@ -248,7 +248,7 @@ const ConversationListItem = memo(function ConversationListItem({
         </div>
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0 flex flex-1 items-center gap-1.5">
-            <p className="min-w-0 flex-1 truncate text-[13px] font-normal leading-[1.12] text-foreground md:text-[13px]">
+            <p className="min-w-0 flex-1 truncate text-[14px] font-normal leading-[1.12] text-black md:text-[14px] dark:text-foreground">
               {conversation.label}
             </p>
           </div>
@@ -264,7 +264,7 @@ const ConversationListItem = memo(function ConversationListItem({
         {/* Preview + contador de no leidos alineados a la derecha (patron WhatsApp):
             hora y contador forman una sola columna de estado y el avatar queda libre. */}
         <div className="mt-0.5 flex min-w-0 max-w-full items-center gap-2 overflow-hidden">
-          <p className="block min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[12px] leading-[1.12] text-muted-foreground md:text-[13px]">
+          <p className="block min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[14px] leading-[1.12] text-muted-foreground md:text-[14px]">
             {previewText}
           </p>
           {incomingCountLabel ? (
