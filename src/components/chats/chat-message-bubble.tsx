@@ -79,11 +79,9 @@ function renderMessageText(content?: string | null, className = "") {
 function AudioMessageCard({
   mediaUrl,
   content,
-  outbound,
 }: {
   mediaUrl: string;
   content: string | null;
-  outbound: boolean;
 }) {
   return (
     <div className="w-[280px] max-w-full space-y-2">
@@ -91,7 +89,7 @@ function AudioMessageCard({
         src={mediaUrl}
         controls
         preload="metadata"
-        className={`block w-full min-w-0 rounded-xl ${outbound ? "[color-scheme:dark]" : ""}`}
+        className="block w-full min-w-0 rounded-xl"
       />
 
       {renderMessageText(content)}
@@ -363,7 +361,7 @@ export const MessageBubble = memo(function MessageBubble({
         <div
           className={`group/bubble relative max-w-[88%] rounded-[8px] px-[7px] py-[6px] text-[13px] leading-5 shadow-[0_1px_1px_rgba(15,23,42,0.14)] md:max-w-[72%] ${
             outbound
-              ? "rounded-tr-[3px] bg-[#0e8f6d] text-white dark:bg-[#005c4b]"
+              ? "rounded-tr-[3px] bg-[#d9fdd3] text-[#111b21]"
               : "rounded-tl-[3px] border border-border bg-card text-foreground"
           }`}
         >
@@ -373,15 +371,15 @@ export const MessageBubble = memo(function MessageBubble({
           {replyPreview ? (
             <div
               className={`mb-1 rounded-md border-l-2 px-2 py-1 text-[11px] ${
-                outbound ? "border-white/60 bg-white/15" : "border-[var(--primary)] bg-muted"
+                outbound ? "border-[#0a7d62]/50 bg-black/[0.05]" : "border-[var(--primary)] bg-muted"
               }`}
             >
               {replyPreview.author ? (
-                <p className={`font-semibold ${outbound ? "text-white" : "text-[var(--primary)]"}`}>
+                <p className={`font-semibold ${outbound ? "text-[#0a7d62]" : "text-[var(--primary)]"}`}>
                   {replyPreview.author}
                 </p>
               ) : null}
-              <p className={`truncate ${outbound ? "text-white/80" : "text-muted-foreground"}`}>
+              <p className={`truncate ${outbound ? "text-black/60" : "text-muted-foreground"}`}>
                 {replyPreview.text}
               </p>
             </div>
@@ -390,13 +388,13 @@ export const MessageBubble = memo(function MessageBubble({
             <div className="space-y-2">
               <Badge
                 className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-[12px] font-semibold normal-case tracking-normal shadow-none ${
-                  outbound ? "bg-white/14 text-white" : "bg-muted text-foreground"
+                  outbound ? "bg-black/[0.06] text-[#111b21]" : "bg-muted text-foreground"
                 }`}
               >
-                {CallIcon ? <CallIcon className={`h-4 w-4 ${outbound ? "text-white/85" : "text-[var(--primary)]"}`} /> : null}
+                {CallIcon ? <CallIcon className={`h-4 w-4 ${outbound ? "text-black/65" : "text-[var(--primary)]"}`} /> : null}
                 <span>Llamada {callSummary.directionLabel}</span>
                 {callSummary.statusText ? (
-                  <span className={`font-normal ${outbound ? "text-white/75" : "text-muted-foreground"}`}>
+                  <span className={`font-normal ${outbound ? "text-black/55" : "text-muted-foreground"}`}>
                     {callSummary.statusText}
                   </span>
                 ) : null}
@@ -412,7 +410,7 @@ export const MessageBubble = memo(function MessageBubble({
                   title={adPreview.sourceUrl}
                   className={`group flex w-full max-w-[280px] items-center gap-3 overflow-hidden rounded-2xl border px-2.5 py-2 text-left transition ${
                     outbound
-                      ? "border-white/14 bg-white/10 hover:bg-white/14"
+                      ? "border-black/10 bg-black/[0.05] hover:bg-black/[0.08]"
                       : "border-border bg-muted hover:bg-muted/80"
                   }`}
                 >
@@ -438,18 +436,18 @@ export const MessageBubble = memo(function MessageBubble({
                   <div className="min-w-0 flex-1 space-y-0.5">
                     <div className="flex items-center gap-1.5">
                       {adPreview.sourceApp === "facebook" ? (
-                        <Facebook className={`h-3.5 w-3.5 ${outbound ? "text-white/80" : "text-blue-600"}`} />
+                        <Facebook className={`h-3.5 w-3.5 ${outbound ? "text-black/60" : "text-blue-600"}`} />
                       ) : (
-                        <MessageCircle className={`h-3.5 w-3.5 ${outbound ? "text-white/80" : "text-emerald-600"}`} />
+                        <MessageCircle className={`h-3.5 w-3.5 ${outbound ? "text-black/60" : "text-emerald-600"}`} />
                       )}
-                      <span className={`text-[11px] font-medium ${outbound ? "text-white/75" : "text-muted-foreground"}`}>
+                      <span className={`text-[11px] font-medium ${outbound ? "text-black/55" : "text-muted-foreground"}`}>
                         {adPreview.sourceApp === "facebook" ? "Anuncio de Facebook" : "Referencia de anuncio"}
                       </span>
                     </div>
-                    <p className={`truncate text-[13px] font-semibold leading-5 ${outbound ? "text-white" : "text-foreground"}`}>
+                    <p className={`truncate text-[13px] font-semibold leading-5 ${outbound ? "text-[#111b21]" : "text-foreground"}`}>
                       {adPreview.title}
                     </p>
-                    <p className={`text-[11px] font-medium ${outbound ? "text-white/80" : "text-muted-foreground"}`}>
+                    <p className={`text-[11px] font-medium ${outbound ? "text-black/60" : "text-muted-foreground"}`}>
                       Ver detalles
                     </p>
                   </div>
@@ -458,7 +456,7 @@ export const MessageBubble = memo(function MessageBubble({
                 <div
                   className={`flex w-full max-w-[280px] items-center gap-3 overflow-hidden rounded-2xl border px-2.5 py-2 ${
                     outbound
-                      ? "border-white/14 bg-white/10"
+                      ? "border-black/10 bg-black/[0.05]"
                       : "border-border bg-muted"
                   }`}
                 >
@@ -484,18 +482,18 @@ export const MessageBubble = memo(function MessageBubble({
                   <div className="min-w-0 flex-1 space-y-0.5">
                     <div className="flex items-center gap-1.5">
                       {adPreview.sourceApp === "facebook" ? (
-                        <Facebook className={`h-3.5 w-3.5 ${outbound ? "text-white/80" : "text-blue-600"}`} />
+                        <Facebook className={`h-3.5 w-3.5 ${outbound ? "text-black/60" : "text-blue-600"}`} />
                       ) : (
-                        <MessageCircle className={`h-3.5 w-3.5 ${outbound ? "text-white/80" : "text-emerald-600"}`} />
+                        <MessageCircle className={`h-3.5 w-3.5 ${outbound ? "text-black/60" : "text-emerald-600"}`} />
                       )}
-                      <span className={`text-[11px] font-medium ${outbound ? "text-white/75" : "text-muted-foreground"}`}>
+                      <span className={`text-[11px] font-medium ${outbound ? "text-black/55" : "text-muted-foreground"}`}>
                         {adPreview.sourceApp === "facebook" ? "Anuncio de Facebook" : "Referencia de anuncio"}
                       </span>
                     </div>
-                    <p className={`truncate text-[13px] font-semibold leading-5 ${outbound ? "text-white" : "text-foreground"}`}>
+                    <p className={`truncate text-[13px] font-semibold leading-5 ${outbound ? "text-[#111b21]" : "text-foreground"}`}>
                       {adPreview.title}
                     </p>
-                    <p className={`text-[11px] font-medium ${outbound ? "text-white/80" : "text-muted-foreground"}`}>
+                    <p className={`text-[11px] font-medium ${outbound ? "text-black/60" : "text-muted-foreground"}`}>
                       Ver detalles
                     </p>
                   </div>
@@ -576,7 +574,7 @@ export const MessageBubble = memo(function MessageBubble({
           ) : imagePreviewExhausted ? (
             <div className="space-y-2">
               <div className={`flex h-[180px] w-full items-center justify-center rounded-xl border border-dashed ${
-                outbound ? "border-white/20 bg-white/10 text-white/80" : "border-border bg-muted text-muted-foreground"
+                outbound ? "border-black/10 bg-black/[0.05] text-black/60" : "border-border bg-muted text-muted-foreground"
               }`}>
                 <span className="text-sm font-medium">Imagen no disponible</span>
               </div>
@@ -610,7 +608,6 @@ export const MessageBubble = memo(function MessageBubble({
             <AudioMessageCard
               mediaUrl={audioUrl}
               content={message.content}
-              outbound={outbound}
             />
           ) : documentUrl ? (
             <div className="space-y-2">
@@ -620,7 +617,7 @@ export const MessageBubble = memo(function MessageBubble({
                 rel="noreferrer"
                 title={documentMeta?.fileName ?? "Abrir documento"}
                 className={`flex max-w-[min(230px,68vw)] items-center gap-2 rounded-xl p-1.5 pr-3 transition ${
-                  outbound ? "bg-white/14 hover:bg-white/20" : "bg-background hover:bg-muted"
+                  outbound ? "bg-black/[0.06] hover:bg-black/10" : "bg-background hover:bg-muted"
                 }`}
               >
                 {(() => {
@@ -628,10 +625,10 @@ export const MessageBubble = memo(function MessageBubble({
                   return <Icon className="size-8 shrink-0" style={{ color }} />;
                 })()}
                 <span className="flex min-w-0 flex-col">
-                  <span className={`truncate text-[13px] font-normal leading-tight ${outbound ? "text-white" : "text-foreground"}`}>
+                  <span className={`truncate text-[13px] font-normal leading-tight ${outbound ? "text-[#111b21]" : "text-foreground"}`}>
                     {documentMeta?.fileName ?? "Documento"}
                   </span>
-                  <span className={`truncate text-[11px] leading-tight ${outbound ? "text-white/70" : "text-muted-foreground"}`}>
+                  <span className={`truncate text-[11px] leading-tight ${outbound ? "text-black/50" : "text-muted-foreground"}`}>
                     {documentMeta?.sizeLabel
                       ? `${documentMeta.typeLabel} • ${documentMeta.sizeLabel}`
                       : documentMeta?.typeLabel ?? "Documento"}
@@ -649,27 +646,27 @@ export const MessageBubble = memo(function MessageBubble({
               <div
                 className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium ${
                   outbound
-                    ? "border-white/14 bg-white/10 text-white"
+                    ? "border-black/10 bg-black/[0.05] text-[#111b21]"
                     : "border-border bg-muted text-foreground"
                 }`}
               >
-                <LoaderCircle className={`h-4 w-4 shrink-0 animate-spin ${outbound ? "text-white/80" : "text-muted-foreground"}`} />
+                <LoaderCircle className={`h-4 w-4 shrink-0 animate-spin ${outbound ? "text-black/60" : "text-muted-foreground"}`} />
                 <span>{mediaPreviewLabel}</span>
               </div>
               {shouldRenderMediaCaption ? renderMessageText(message.content) : null}
             </div>
           ) : (
             renderMessageText(message.content) || (
-              <p className={`text-[12px] italic ${outbound ? "text-white/75" : "text-muted-foreground"}`}>
+              <p className={`text-[12px] italic ${outbound ? "text-black/55" : "text-muted-foreground"}`}>
                 {isDeleted ? "Mensaje eliminado" : "-"}
               </p>
             )
           )}
 
-          <div className={`mt-0.5 flex items-center justify-end gap-1 text-[10px] ${outbound ? "text-white/80" : "text-muted-foreground"}`}>
+          <div className={`mt-0.5 flex items-center justify-end gap-1 text-[10px] ${outbound ? "text-black/60" : "text-muted-foreground"}`}>
             {isDeleted ? (
               <Badge className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-normal tracking-[0.08em] shadow-none ${
-                outbound ? "bg-white/14 text-white/80" : "bg-rose-50 text-rose-600"
+                outbound ? "bg-black/[0.06] text-black/60" : "bg-rose-50 text-rose-600"
               }`}>
                 <Trash2 className="h-2.5 w-2.5" />
                 Eliminado
@@ -677,7 +674,7 @@ export const MessageBubble = memo(function MessageBubble({
             ) : null}
             {message.editedAt ? (
               <Badge className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-normal tracking-[0.08em] shadow-none ${
-                outbound ? "bg-white/14 text-white/80" : "bg-muted text-muted-foreground"
+                outbound ? "bg-black/[0.06] text-black/60" : "bg-muted text-muted-foreground"
               }`}>
                 <Pencil className="h-2.5 w-2.5" />
                 Editado
@@ -698,14 +695,14 @@ export const MessageBubble = memo(function MessageBubble({
               message.outboundStatusLabel === "entregado" ? (
                 <CheckCheck className="ml-1 h-3 w-3 shrink-0" aria-hidden="true" />
               ) : message.outboundStatusLabel === "error" ? (
-                <span className="ml-1 inline-flex items-center gap-1 font-medium text-amber-100">
+                <span className="ml-1 inline-flex items-center gap-1 font-medium text-amber-700">
                   <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden="true" />
                   No se envió
                   {onRetry ? (
                     <button
                       type="button"
                       onClick={onRetry}
-                      className="ml-0.5 inline-flex cursor-pointer items-center gap-0.5 rounded-full bg-white/20 px-1.5 py-0.5 font-semibold text-white transition hover:bg-white/30"
+                      className="ml-0.5 inline-flex cursor-pointer items-center gap-0.5 rounded-full bg-amber-600/15 px-1.5 py-0.5 font-semibold text-amber-800 transition hover:bg-amber-600/25"
                     >
                       <RotateCcw className="h-2.5 w-2.5" />
                       Reintentar
