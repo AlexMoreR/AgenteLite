@@ -782,7 +782,11 @@ export async function resolveAgentProductFlowReply(input: {
         message: latestText,
         normalizedMessage: normalizedLatestText,
         flowTitleById,
-        candidateFlowIds,
+        // Una rama Condición→Flujo está CABLEADA a mano por el usuario a un flujo concreto:
+        // debe poder dispararlo esté o no marcado en "Consultar flujos". Antes se validaba
+        // contra candidateFlowIds (solo los seleccionados), así que un flujo cableado pero no
+        // seleccionado (p.ej. "Foto de combo de camilla") se descartaba y la IA improvisaba.
+        candidateFlowIds: new Set(flowTargets.map((flow) => flow.id)),
         model: agent.model,
       });
       if (branch) {
