@@ -611,14 +611,19 @@ async function resolveFlowBranchForActiveProduct(input: {
         // toma el clasificador con HISTORIAL (selectFlowByAI) más abajo. La rama IA solo
         // coincide con contenido sustantivo (palabra del intent o juez LLM explícito).
         const intent = fbStr(rule.intent);
-        if (looksAffirmative(input.normalizedMessage)) {
+        const intentKeywords = extractIntentKeywords(intent);
+        const hasIntentKeyword =
+          intentKeywords.length > 0 && includesAny(input.normalizedMessage, intentKeywords);
+        if (hasIntentKeyword) {
+          // El mensaje trae contenido SUSTANTIVO del intent (p.ej. "si FOTOS" contiene "fotos"):
+          // dispara la condición del producto activo, aunque empiece con un afirmativo. Antes
+          // "si fotos" se trataba como "si" a secas → se saltaba la condición → caía en el
+          // clasificador y disparaba el flujo de fotos de OTRO producto (lavacabezas en camillas).
+          matched = true;
+        } else if (looksAffirmative(input.normalizedMessage)) {
           matched = false;
         } else {
-          const intentKeywords = extractIntentKeywords(intent);
-          matched =
-            intentKeywords.length > 0 && includesAny(input.normalizedMessage, intentKeywords)
-              ? true
-              : await evaluateIaIntentMatch({ intent, message: input.message, model: input.model });
+          matched = await evaluateIaIntentMatch({ intent, message: input.message, model: input.model });
         }
       } else {
         matched = includesAny(
