@@ -2541,10 +2541,17 @@ export async function POST(request: NextRequest) {
           }
 
           for (const [flowStepIndex, step] of orderedFlowSteps.entries()) {
-            // Respiro entre pasos: mandar varios medios pesados seguidos (p.ej. 3 PDFs de 14MB)
-            // sin pausa tumbaba la WS de evogo y cortaba el flujo a la mitad.
+            // Respiro entre pasos: mandar medios pesados seguidos (p.ej. PDFs de 7-15MB) tumba
+            // la WS de evogo y los siguientes archivos no salen. Damos una pausa GRANDE antes de
+            // cada medio (para que la conexión se estabilice tras la subida anterior) y una
+            // corta entre textos.
             if (flowStepIndex > 0) {
-              await sleep(800);
+              const isMediaStep =
+                step.kind === "document" ||
+                step.kind === "image" ||
+                step.kind === "video" ||
+                step.kind === "audio";
+              await sleep(isMediaStep ? 3000 : 700);
             }
             await sendAndPersistEvolutionFlowStepResilient({
               step,
