@@ -359,10 +359,10 @@ export const MessageBubble = memo(function MessageBubble({
       ) : (
       <div className={`flex ${outbound ? "justify-end" : "justify-start"}`}>
         <div
-          className={`group/bubble relative max-w-[88%] rounded-[8px] px-[7px] py-[6px] text-[13px] leading-5 shadow-[0_1px_1px_rgba(15,23,42,0.14)] md:max-w-[72%] ${
+          className={`group/bubble relative max-w-[88%] rounded-[8px] px-[7px] py-[6px] text-[14px] leading-5 shadow-[0_1px_1px_rgba(15,23,42,0.14)] md:max-w-[72%] ${
             outbound
               ? "rounded-tr-[3px] bg-[#d9fdd3] text-[#111b21]"
-              : "rounded-tl-[3px] border border-border bg-card text-foreground"
+              : "rounded-tl-[3px] border border-border bg-card text-[#111b21] dark:text-foreground"
           }`}
         >
           {!isDeleted && !callSummary ? (
