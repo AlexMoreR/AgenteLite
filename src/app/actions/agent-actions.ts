@@ -2834,11 +2834,38 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
     };
   }
 
+  // @lid: los leads de pauta (Click-to-WhatsApp) llegan con un jid "<id>@lid" que oculta el
+  // teléfono. Para responderles hay que enviar a ESE jid, no al número pelado (si no, evogo
+  // devuelve 404). Lo sacamos del último mensaje entrante del cliente.
+  let sendRecipient = conversation.contact.phoneNumber;
+  try {
+    const lastInbound = await prisma.message.findFirst({
+      where: { conversationId: conversation.id, direction: "INBOUND" },
+      orderBy: { createdAt: "desc" },
+      select: { rawPayload: true },
+    });
+    const rp = lastInbound?.rawPayload as Record<string, unknown> | null | undefined;
+    const evo = rp && typeof rp === "object" ? ((rp as { evolution?: unknown }).evolution ?? rp) : null;
+    const info =
+      evo && typeof evo === "object"
+        ? ((evo as { data?: { Info?: Record<string, unknown> } }).data?.Info ?? undefined)
+        : undefined;
+    const lidJid = [info?.Chat, info?.Sender]
+      .filter((value): value is string => typeof value === "string")
+      .map((value) => value.trim())
+      .find((jid) => /@lid$/i.test(jid));
+    if (lidJid) {
+      sendRecipient = lidJid;
+    }
+  } catch {
+    // best-effort: si no se puede detectar el @lid, se envía al número normal
+  }
+
   let outbound: Awaited<ReturnType<typeof sendEvolutionTextMessage>>;
   try {
     outbound = await sendEvolutionTextMessage({
       instanceName: conversation.channel.evolutionInstanceName,
-      phoneNumber: conversation.contact.phoneNumber,
+      phoneNumber: sendRecipient,
       text: parsed.data.message,
       quoted: quotedKey
         ? { id: quotedKey.id, remoteJid: quotedKey.remoteJid, fromMe: quotedKey.fromMe, text: replyTo?.content ?? "" }

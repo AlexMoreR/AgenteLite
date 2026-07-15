@@ -116,8 +116,10 @@ function normalizeEvolutionSendNumber(value: string) {
     return trimmed;
   }
 
-  // Grupos/newsletters usan JID; contactos individuales se envian como digitos.
-  if (/@(g\.us|newsletter)$/i.test(trimmed)) {
+  // Grupos/newsletters/@lid usan JID completo; contactos individuales se envian como digitos.
+  // El @lid (leads de pauta Click-to-WhatsApp que ocultan su numero) debe enviarse como jid
+  // "<id>@lid", no como telefono pelado (si no, evogo no lo enruta y devuelve 404).
+  if (/@(g\.us|newsletter|lid)$/i.test(trimmed)) {
     return trimmed;
   }
 
