@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { TAG_BADGE_CLASS } from "@/lib/tag-badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
   createEtiquetaAction,
@@ -243,7 +244,7 @@ export function ChatTagsControl({
   );
 
   const addTagButton = (
-    <Popover
+    <Dialog
         open={popoverOpen}
         onOpenChange={(open) => {
           setPopoverOpen(open);
@@ -254,35 +255,32 @@ export function ChatTagsControl({
           }
         }}
       >
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            className="inline-flex h-6 items-center justify-center gap-1 rounded-full border border-dashed border-border bg-card px-2 text-[10px] font-medium text-muted-foreground transition hover:border-[var(--primary)] hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50"
-            aria-label="Agregar etiqueta"
-            title="Agregar etiqueta"
-          >
-            <Plus className="h-3.5 w-3.5" />
-          </button>
-        </PopoverTrigger>
-        <PopoverContent
-          align="start"
-          side="bottom"
-          sideOffset={8}
-          className="w-64 rounded-2xl border border-border bg-popover p-0 shadow-[0_24px_60px_-24px_rgba(15,23,42,0.35)]"
+        <DialogTrigger
+          className="inline-flex h-6 items-center justify-center gap-1 rounded-full border border-dashed border-border bg-card px-2 text-[10px] font-medium text-muted-foreground transition hover:border-[var(--primary)] hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50"
+          aria-label="Agregar etiqueta"
+          title="Agregar etiqueta"
         >
-          <div className="flex items-center justify-between border-b border-border px-3.5 py-2.5">
-            <h3 className="text-[13px] font-semibold text-foreground">Etiquetas</h3>
+          <Plus className="h-3.5 w-3.5" />
+        </DialogTrigger>
+        {/* Modal con header y footer fijos; solo la lista de etiquetas scrollea.
+            Funciona igual en escritorio y movil (se centra y limita al viewport). */}
+        <DialogContent
+          showCloseButton={false}
+          className="flex max-h-[80vh] w-[calc(100vw-2rem)] max-w-sm flex-col gap-0 overflow-hidden p-0"
+        >
+          <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
+            <DialogTitle className="text-sm font-semibold text-foreground">Etiquetas</DialogTitle>
             <button
               type="button"
               onClick={() => setPopoverOpen(false)}
-              className="inline-flex h-6 w-6 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-muted hover:text-foreground"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-muted hover:text-foreground"
               aria-label="Cerrar"
             >
-              <X className="h-3.5 w-3.5" />
+              <X className="h-4 w-4" />
             </button>
           </div>
 
-          <div className="max-h-60 min-h-0 overflow-y-auto px-2 py-1.5">
+          <div className="min-h-0 flex-1 overflow-y-auto px-2 py-1.5">
             {!loaded ? (
               <p className="py-4 text-center text-xs text-muted-foreground">Cargando…</p>
             ) : etiquetas.length === 0 ? (
@@ -344,7 +342,7 @@ export function ChatTagsControl({
           </div>
 
           {showForm ? (
-            <div className="border-t border-border px-3.5 pb-3.5 pt-2.5">
+            <div className="shrink-0 border-t border-border px-4 pb-4 pt-3">
               <form
                 action={(fd) => {
                   fd.set("color", selectedColor);
@@ -394,7 +392,7 @@ export function ChatTagsControl({
               </form>
             </div>
           ) : (
-            <div className="border-t border-border p-2">
+            <div className="shrink-0 border-t border-border p-2">
               <button
                 type="button"
                 onClick={() => setShowForm(true)}
@@ -405,8 +403,8 @@ export function ChatTagsControl({
               </button>
             </div>
           )}
-        </PopoverContent>
-      </Popover>
+        </DialogContent>
+      </Dialog>
   );
 
   if (collapsed) {
