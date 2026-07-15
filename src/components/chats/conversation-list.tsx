@@ -228,14 +228,6 @@ const ConversationListItem = memo(function ConversationListItem({
           fallbackClassName="rounded-full bg-muted text-muted-foreground"
         />
 
-        {incomingCountLabel ? (
-          <span className="absolute -top-1 -right-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#2563eb] px-1 shadow-[0_1px_4px_rgba(15,23,42,0.18)]">
-            <span className="text-[10px] font-semibold leading-none text-white">
-              {incomingCountLabel}
-            </span>
-          </span>
-        ) : null}
-
         {conversation.channelType ? (
           <span className="absolute -bottom-1 -right-1 inline-flex h-[18px] w-[18px] items-center justify-center rounded-full bg-[#25D366] text-white shadow-[0_1px_4px_rgba(15,23,42,0.18)]">
             {renderChannelBadgeIcon(conversation.channelType)}
@@ -260,15 +252,28 @@ const ConversationListItem = memo(function ConversationListItem({
               {conversation.label}
             </p>
           </div>
-          <span className="shrink-0 text-[10px] text-muted-foreground md:text-[10px]">
+          <span
+            className={`shrink-0 text-[10px] md:text-[10px] ${
+              incomingCountLabel ? "font-semibold text-[#25D366]" : "text-muted-foreground"
+            }`}
+          >
             {conversation.lastMessageAt ? formatConversationTime(conversation.lastMessageAt) : ""}
           </span>
         </div>
 
+        {/* Preview + contador de no leidos alineados a la derecha (patron WhatsApp):
+            hora y contador forman una sola columna de estado y el avatar queda libre. */}
         <div className="mt-0.5 flex min-w-0 max-w-full items-center gap-2 overflow-hidden">
           <p className="block min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[12px] leading-[1.12] text-muted-foreground md:text-[13px]">
             {previewText}
           </p>
+          {incomingCountLabel ? (
+            <span className="inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-[#25D366] px-1.5">
+              <span className="text-[10px] font-semibold leading-none text-white">
+                {incomingCountLabel}
+              </span>
+            </span>
+          ) : null}
         </div>
 
         {conversation.tags?.length ? (
