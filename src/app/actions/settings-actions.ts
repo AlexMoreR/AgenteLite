@@ -1,11 +1,14 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { isSupportedCurrency, type SupportedCurrencyCode } from "@/lib/currency";
 import {
+  getEvolutionGateways,
+  setEvolutionGateways,
   setEvolutionSettings,
   setSystemBrandName,
   setSystemCurrency,
@@ -115,6 +118,64 @@ export async function adminUpdateBrandNameAction(formData: FormData): Promise<vo
   revalidatePath("/admin/proveedores");
   revalidatePath("/admin/categorias");
   redirect("/admin/configuracion/negocio?ok=Marca+actualizada");
+}
+
+const createEvolutionGatewaySchema = z.object({
+  kind: z.enum(["EVOLUTION_GO", "EVOLUTION_API"]),
+  baseUrl: z.string().trim().url("URL invalida"),
+  apiKey: z.string().trim().optional(),
+});
+
+const deleteEvolutionGatewaySchema = z.object({
+  id: z.string().trim().min(1, "Conexion invalida"),
+});
+
+/** Agrega una conexion (Evolution GO o API) al catalogo que eligen los canales. */
+export async function adminCreateEvolutionGatewayAction(formData: FormData): Promise<void> {
+  await requireAdminSession();
+
+  const parsed = createEvolutionGatewaySchema.safeParse({
+    kind: formData.get("kind"),
+    baseUrl: formData.get("baseUrl"),
+    apiKey: formData.get("apiKey"),
+  });
+
+  if (!parsed.success) {
+    const message = parsed.error.issues[0]?.message || "Conexion invalida";
+    redirect(`/admin/configuracion/whatsapp?error=${encodeURIComponent(message)}`);
+  }
+
+  const current = await getEvolutionGateways();
+  await setEvolutionGateways([
+    ...current,
+    {
+      id: randomUUID(),
+      kind: parsed.data.kind,
+      baseUrl: parsed.data.baseUrl,
+      apiKey: parsed.data.apiKey ?? "",
+    },
+  ]);
+
+  revalidatePath("/admin/configuracion/whatsapp");
+  revalidatePath("/cliente/conexion");
+  redirect("/admin/configuracion/whatsapp?ok=Conexion+agregada");
+}
+
+/** Elimina una conexion del catalogo. Los canales ya creados conservan su copia. */
+export async function adminDeleteEvolutionGatewayAction(formData: FormData): Promise<void> {
+  await requireAdminSession();
+
+  const parsed = deleteEvolutionGatewaySchema.safeParse({ id: formData.get("id") });
+  if (!parsed.success) {
+    redirect("/admin/configuracion/whatsapp?error=Conexion+invalida");
+  }
+
+  const current = await getEvolutionGateways();
+  await setEvolutionGateways(current.filter((gateway) => gateway.id !== parsed.data.id));
+
+  revalidatePath("/admin/configuracion/whatsapp");
+  revalidatePath("/cliente/conexion");
+  redirect("/admin/configuracion/whatsapp?ok=Conexion+eliminada");
 }
 
 export async function adminUpdateEvolutionSettingsAction(formData: FormData): Promise<void> {

@@ -85,6 +85,29 @@ export default async function SeguimientosPage() {
     }),
   ]);
 
+  // Conversación de cada seguimiento, para poder abrir el chat desde la lista. El Follow solo
+  // guarda contactId + channelId, así que resolvemos la conversación de ese contacto (la del
+  // mismo canal si existe; si no, la más reciente).
+  const followContactIds = [...new Set(overview.follows.map((follow) => follow.contactId).filter(Boolean))];
+  const followConversations = followContactIds.length
+    ? await prisma.conversation.findMany({
+        where: { workspaceId: membership.workspace.id, contactId: { in: followContactIds } },
+        select: { id: true, contactId: true, channelId: true },
+        orderBy: { updatedAt: "desc" },
+      })
+    : [];
+  const conversationByContactChannel = new Map<string, string>();
+  const conversationByContact = new Map<string, string>();
+  for (const conversation of followConversations) {
+    const key = `${conversation.contactId}:${conversation.channelId ?? ""}`;
+    if (!conversationByContactChannel.has(key)) {
+      conversationByContactChannel.set(key, conversation.id);
+    }
+    if (!conversationByContact.has(conversation.contactId)) {
+      conversationByContact.set(conversation.contactId, conversation.id);
+    }
+  }
+
   return (
     <SeguimientosWorkspace
       workspaceName={membership.workspace.name}
@@ -124,6 +147,10 @@ export default async function SeguimientosPage() {
       follows={overview.follows.map((follow) => ({
         id: follow.id,
         contactId: follow.contactId,
+        conversationId:
+          conversationByContactChannel.get(`${follow.contactId}:${follow.channel?.id ?? ""}`) ??
+          conversationByContact.get(follow.contactId) ??
+          null,
         name: follow.name,
         timeType: follow.timeType,
         timeValue: follow.timeValue,

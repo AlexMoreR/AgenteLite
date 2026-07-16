@@ -9,7 +9,7 @@ import { NewConnectionChannelModal } from "@/features/conexion/components/NewCon
 import { getAdminModuleAccess } from "@/lib/admin-module-access";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { prisma } from "@/lib/prisma";
-import { getOfficialApiProviderSettings } from "@/lib/system-settings";
+import { getEvolutionGateways, getOfficialApiProviderSettings } from "@/lib/system-settings";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
 export const metadata: Metadata = {
@@ -31,10 +31,11 @@ export default async function ClienteConexionPage({ searchParams }: PageProps) {
     redirect("/cliente?error=Debes+crear+tu+negocio+primero");
   }
 
-  const [connections, moduleAccess, providerSettings, params] = await Promise.all([
+  const [connections, moduleAccess, providerSettings, evolutionGateways, params] = await Promise.all([
     getWhatsAppBusinessConnections(membership.workspace.id),
     getAdminModuleAccess(access.userId, access.role),
     getOfficialApiProviderSettings(),
+    getEvolutionGateways(),
     searchParams,
   ]);
   const canSeeOfficialApiModule = access.role === "ADMIN" || moduleAccess.client_official_api;
@@ -67,6 +68,11 @@ export default async function ClienteConexionPage({ searchParams }: PageProps) {
           officialApiProviderAppId={providerSettings.appId}
           officialApiProviderConfigId={providerSettings.configId}
           targetAgent={targetAgent}
+          evolutionGateways={evolutionGateways.map((gateway) => ({
+            id: gateway.id,
+            kind: gateway.kind,
+            baseUrl: gateway.baseUrl,
+          }))}
         />
       }
       conexiones={

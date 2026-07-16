@@ -4,11 +4,29 @@
 > Fases 1-5 completas. Verificación automática ✓ (`tsc`, `eslint`, `next build`).
 > Falta solo la prueba manual con QR real + deploy (checklist al final).
 
+## Dónde se configuran las conexiones
+
+El admin las configura **una sola vez** en **Admin → Configuracion WhatsApp**: tabla con
+**Tipo · URL base · Apikey · Webhook** y botón **"Nueva conexion"** (elige Evolution GO o
+Evolution API + URL base + apikey global). Se guardan como JSON en `AppSetting`
+(`evolutionGateways`) — **sin migración de BD**.
+
+Los canales **eligen** una de esas conexiones (no se teclea la URL por canal); la apikey
+**nunca viaja al navegador**: el cliente manda un `gatewayId` y el servidor resuelve
+URL/apikey del catálogo. Si no hay ninguna configurada, el modal de canal dice
+**"Falta configurar por un administrador"** y no deja crear.
+
+Retrocompatible: si el catálogo nunca se configuró, se **sintetiza** desde la conexión GO
+global existente (evogo sigue igual). Guardar una conexión GO mantiene el global en sync,
+que es el fallback de los canales sin `metadata.gateway`.
+
 ## Checklist para mañana (tú)
 
 1. **Merge del PR #2** en GitHub y **deploy en Portainer** (build de `main`).
-2. **Canal API nuevo**: Conexión → Nuevo canal → WhatsApp QR Code → elige **Evolution API**,
-   pon la **URL base** (+ apikey si tu servidor la pide) → Crear → **escanea el QR**.
+2. **Admin → Configuracion WhatsApp**: verifica que tu conexión **GO** ya aparece en la tabla.
+   Agrega con **"Nueva conexion"** tu servidor de **Evolution API** (URL base + apikey).
+3. **Canal API nuevo**: Conexión → Nuevo canal → WhatsApp QR Code → elige la conexión
+   **Evolution API** de la lista → Crear → **escanea el QR**.
 3. **Realtime**: manda un WhatsApp a ese número → debe aparecer **al instante** en Chats (SSE).
    Responde desde el CRM → debe salir. Prueba también que el **agente IA** responda.
 4. **Rellenado**: en el detalle del canal → "Sincronizar chats" → por número → confirma que trae

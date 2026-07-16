@@ -8,6 +8,7 @@ const PRIMARY_COLOR_SETTING_KEY = "primaryColor";
 const BRAND_NAME_SETTING_KEY = "brandName";
 const EVOLUTION_API_BASE_URL_SETTING_KEY = "evolutionApiBaseUrl";
 const EVOLUTION_API_TOKEN_SETTING_KEY = "evolutionApiToken";
+const EVOLUTION_GATEWAYS_SETTING_KEY = "evolutionGateways";
 const EVOLUTION_INSTANCE_PREFIX_SETTING_KEY = "evolutionInstancePrefix";
 const EVOLUTION_WEBHOOK_BASE_URL_SETTING_KEY = "evolutionWebhookBaseUrl";
 const EVOLUTION_WEBHOOK_SECRET_SETTING_KEY = "evolutionWebhookSecret";
@@ -225,6 +226,85 @@ export const getEvolutionSettings = cache(async (): Promise<EvolutionSettings> =
     webhookSecret: getEvolutionWebhookSecretFromEnv() || webhookSecret?.trim() || "",
   };
 });
+
+// Catalogo de conexiones (gateways) que el admin configura una sola vez. Los canales
+// eligen una de estas; la conexion elegida se copia a WhatsAppChannel.metadata.gateway.
+// Se guarda como JSON en AppSetting (key/value), sin migracion de BD.
+export type EvolutionGatewayKindSetting = "EVOLUTION_GO" | "EVOLUTION_API";
+
+export type EvolutionGatewayRecord = {
+  id: string;
+  kind: EvolutionGatewayKindSetting;
+  baseUrl: string;
+  apiKey: string;
+};
+
+function isEvolutionGatewayRecord(value: unknown): value is EvolutionGatewayRecord {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.id === "string" &&
+    record.id.trim().length > 0 &&
+    (record.kind === "EVOLUTION_GO" || record.kind === "EVOLUTION_API") &&
+    typeof record.baseUrl === "string" &&
+    record.baseUrl.trim().length > 0 &&
+    typeof record.apiKey === "string"
+  );
+}
+
+export const getEvolutionGateways = cache(async (): Promise<EvolutionGatewayRecord[]> => {
+  const raw = await getSettingValue(EVOLUTION_GATEWAYS_SETTING_KEY);
+
+  if (raw) {
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      // Un catalogo guardado se respeta TAL CUAL, incluso vacio: si el admin borro la
+      // ultima conexion no debemos resucitarla sintetizandola desde el global.
+      if (Array.isArray(parsed)) {
+        return parsed.filter(isEvolutionGatewayRecord);
+      }
+    } catch {
+      // JSON invalido: caemos a la sintesis desde el global de abajo.
+    }
+  }
+
+  // Nunca se configuro el catalogo: sintetizamos la conexion GO global existente para
+  // que la tabla muestre lo que ya esta funcionando (evogo) sin pedir nada al admin.
+  const settings = await getEvolutionSettings();
+  if (settings.apiBaseUrl) {
+    return [
+      {
+        id: "global-go",
+        kind: "EVOLUTION_GO",
+        baseUrl: settings.apiBaseUrl,
+        apiKey: settings.apiToken,
+      },
+    ];
+  }
+
+  return [];
+});
+
+export async function setEvolutionGateways(list: EvolutionGatewayRecord[]): Promise<void> {
+  const normalized = list.filter(isEvolutionGatewayRecord).map((gateway) => ({
+    id: gateway.id.trim(),
+    kind: gateway.kind,
+    baseUrl: normalizeUrlSetting(gateway.baseUrl),
+    apiKey: gateway.apiKey.trim(),
+  }));
+
+  await setSettingValue(EVOLUTION_GATEWAYS_SETTING_KEY, JSON.stringify(normalized));
+
+  // El global sigue siendo el fallback de los canales sin metadata.gateway (evogo
+  // actual), asi que lo mantenemos apuntando a la conexion GO del catalogo.
+  const goGateway = normalized.find((gateway) => gateway.kind === "EVOLUTION_GO");
+  if (goGateway) {
+    await Promise.all([
+      setSettingValue(EVOLUTION_API_BASE_URL_SETTING_KEY, goGateway.baseUrl),
+      setSettingValue(EVOLUTION_API_TOKEN_SETTING_KEY, goGateway.apiKey),
+    ]);
+  }
+}
 
 export async function setEvolutionSettings(settings: EvolutionSettings): Promise<void> {
   const normalized = {

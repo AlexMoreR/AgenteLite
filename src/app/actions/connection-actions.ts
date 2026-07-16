@@ -14,6 +14,7 @@ import {
 } from "@/lib/evolution";
 import { getOfficialApiConfigByWorkspaceId } from "@/lib/official-api-config";
 import { prisma } from "@/lib/prisma";
+import { getEvolutionGateways } from "@/lib/system-settings";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
 const createConnectionChannelSchema = z.object({
@@ -24,11 +25,9 @@ const createConnectionChannelSchema = z.object({
     .min(2, "Escribe un nombre de canal valido")
     .max(100, "El nombre del canal es demasiado largo"),
   agentId: z.string().trim().optional(),
-  // Solo para provider EVOLUTION: elige gateway. Por defecto GO (global). Para API,
-  // se requieren baseUrl + apiKey del servidor de Evolution API.
-  gatewayKind: z.enum(["EVOLUTION_GO", "EVOLUTION_API"]).optional(),
-  evolutionBaseUrl: z.string().trim().optional(),
-  evolutionApiKey: z.string().trim().optional(),
+  // Solo para provider EVOLUTION: id de la conexion del catalogo que configura el admin
+  // (Admin > Configuracion WhatsApp). La URL/apikey se resuelven en el servidor.
+  gatewayId: z.string().trim().optional(),
 });
 
 function getRequiredFormValue(formData: FormData, key: string) {
@@ -61,9 +60,7 @@ export async function createConnectionChannelAction(formData: FormData): Promise
     provider: getRequiredFormValue(formData, "provider"),
     name: getRequiredFormValue(formData, "name"),
     agentId: getOptionalFormValue(formData, "agentId"),
-    gatewayKind: getOptionalFormValue(formData, "gatewayKind"),
-    evolutionBaseUrl: getOptionalFormValue(formData, "evolutionBaseUrl"),
-    evolutionApiKey: getOptionalFormValue(formData, "evolutionApiKey"),
+    gatewayId: getOptionalFormValue(formData, "gatewayId"),
   });
 
   if (!parsed.success) {
@@ -93,23 +90,29 @@ export async function createConnectionChannelAction(formData: FormData): Promise
   }
 
   if (parsed.data.provider === "EVOLUTION") {
-    // Gateway API elegido: requiere baseUrl (+ apiKey opcional). Si no, GO por el global.
-    const wantsApi = parsed.data.gatewayKind === "EVOLUTION_API";
-    if (wantsApi && !parsed.data.evolutionBaseUrl) {
-      redirect("/cliente/conexion?error=Para+Evolution+API+ingresa+la+URL+base");
+    // Resuelve la conexion elegida desde el catalogo del admin (la apikey nunca viaja
+    // por el formulario). Sin conexiones configuradas no se puede crear el canal.
+    const gateways = await getEvolutionGateways();
+    if (gateways.length === 0) {
+      redirect("/cliente/conexion?error=Falta+configurar+la+conexion+de+WhatsApp+por+un+administrador");
+    }
+
+    const gateway = parsed.data.gatewayId
+      ? gateways.find((item) => item.id === parsed.data.gatewayId)
+      : gateways[0];
+    if (!gateway) {
+      redirect("/cliente/conexion?error=La+conexion+elegida+ya+no+existe");
     }
 
     const created = await createEvolutionChannel({
       workspaceId: membership.workspace.id,
       name: parsed.data.name,
       agentId,
-      gateway: wantsApi
-        ? {
-            kind: "EVOLUTION_API",
-            baseUrl: parsed.data.evolutionBaseUrl ?? "",
-            apiKey: parsed.data.evolutionApiKey ?? "",
-          }
-        : null,
+      gateway: {
+        kind: gateway.kind,
+        baseUrl: gateway.baseUrl,
+        apiKey: gateway.apiKey,
+      },
     });
 
     revalidatePath("/cliente/conexion");
@@ -218,8 +221,7 @@ export async function regenerateConnectionInstanceAction(formData: FormData): Pr
 
 const connectEvolutionApiSchema = z.object({
   channelId: z.string().trim().min(1, "Canal invalido"),
-  baseUrl: z.string().trim().min(1, "Ingresa la URL base de Evolution API"),
-  apiKey: z.string().trim().optional(),
+  gatewayId: z.string().trim().min(1, "Elige una conexion de Evolution API"),
 });
 
 /**
@@ -241,8 +243,7 @@ export async function connectEvolutionApiToChannelAction(formData: FormData): Pr
 
   const parsed = connectEvolutionApiSchema.safeParse({
     channelId: getRequiredFormValue(formData, "channelId"),
-    baseUrl: getRequiredFormValue(formData, "baseUrl"),
-    apiKey: getOptionalFormValue(formData, "apiKey"),
+    gatewayId: getRequiredFormValue(formData, "gatewayId"),
   });
   if (!parsed.success) {
     const message = parsed.error.issues[0]?.message || "Datos invalidos";
@@ -257,13 +258,22 @@ export async function connectEvolutionApiToChannelAction(formData: FormData): Pr
     redirect("/cliente/conexion?error=Canal+no+encontrado");
   }
 
+  // La URL/apikey salen del catalogo del admin, nunca del formulario.
+  const gateways = await getEvolutionGateways();
+  const gateway = gateways.find(
+    (item) => item.id === parsed.data.gatewayId && item.kind === "EVOLUTION_API",
+  );
+  if (!gateway) {
+    redirect("/cliente/conexion?error=La+conexion+de+Evolution+API+ya+no+existe");
+  }
+
   const detailPath = `/cliente/conexion/whatsapp-business/${channel.id}`;
   try {
     await connectEvolutionApiToChannel({
       channelId: channel.id,
       workspaceId: membership.workspace.id,
-      baseUrl: parsed.data.baseUrl,
-      apiKey: parsed.data.apiKey ?? "",
+      baseUrl: gateway.baseUrl,
+      apiKey: gateway.apiKey,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "No se pudo conectar Evolution API";
