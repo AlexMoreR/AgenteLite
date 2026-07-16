@@ -3014,6 +3014,7 @@ export async function sendChatAudioReplyAction(input: {
       instanceName: conversation.channel.evolutionInstanceName,
       phoneNumber: conversation.contact.phoneNumber,
       audioUrl: parsed.data.audioUrl,
+      delayMs: 0,
     });
   } catch (audioSendError) {
     const detail = audioSendError instanceof Error ? audioSendError.message : "";
