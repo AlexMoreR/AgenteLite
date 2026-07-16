@@ -151,9 +151,16 @@ export function ChatsEvolutionApiRealtime({
 
     try {
       // Evolution API expone un namespace de socket.io por instancia.
+      // La apiKey DEBE ir como query param: Evolution API la valida en la petición HTTP
+      // inicial del handshake y sin ella responde 403 {"code":4,"message":"apiKey is required"},
+      // así que el socket nunca conectaba. `auth` no alcanza: socket.io lo manda recién en el
+      // handshake interno, después de esa validación. Se deja también por compatibilidad.
+      const trimmedApiKey = apiKey?.trim() || "";
       socket = io(`${normalizedBaseUrl}/${instanceName}`, {
         transports: ["websocket"],
-        ...(apiKey?.trim() ? { auth: { apikey: apiKey.trim() } } : {}),
+        ...(trimmedApiKey
+          ? { query: { apikey: trimmedApiKey }, auth: { apikey: trimmedApiKey } }
+          : {}),
       });
     } catch {
       return;
