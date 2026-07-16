@@ -14,6 +14,7 @@ import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ConnectionTabs } from "./ConnectionTabs";
 import { EvolutionChatSyncDialog } from "./EvolutionChatSyncDialog";
+import { ConnectEvolutionApiCard } from "./ConnectEvolutionApiCard";
 import { AgentAssignAutosaveForm, ReactivationAutosaveForm, ResponseDelayAutosaveForm } from "./ConnectionAutosaveControls";
 import { NotificationSoundSelect } from "@/components/chats/notification-sound-select";
 import { NotificationPermissionToggle } from "@/components/chats/notification-permission-toggle";
@@ -245,6 +246,8 @@ export function WhatsAppBusinessConnectionWorkspace({
       </Card>
 
       {connection.provider === "EVOLUTION" ? <EvolutionChatSyncDialog channelId={connection.id} /> : null}
+
+      {connection.provider === "EVOLUTION" ? <ConnectEvolutionApiCard channelId={connection.id} /> : null}
     </div>
   );
 

@@ -81,16 +81,31 @@ type EvolutionInstanceRecord = {
 
 type EvolutionPresence = "available" | "unavailable" | "composing" | "recording" | "paused";
 
+// Gateway al que pertenece un canal. EVOLUTION_GO = whatsmeow; EVOLUTION_API = Baileys.
+export type EvolutionGatewayKind = "EVOLUTION_GO" | "EVOLUTION_API";
+
+// Conexión (URL base + apikey de nivel-gateway) resuelta POR-CANAL. Cuando es null se usa
+// la configuración global (getEvolutionSettings) — comportamiento histórico / evogo.
+export type EvolutionConnection = {
+  baseUrl: string;
+  apiToken: string;
+  kind: EvolutionGatewayKind;
+};
+
 type EvolutionResolvedInstance = {
   id: string | null;
   name: string;
   token: string | null;
   raw: EvolutionInstanceRecord | null;
+  // Conexión por-canal (null = usar la global).
+  connection: EvolutionConnection | null;
 };
 
 type EvolutionStoredInstanceAuth = {
   id: string | null;
   token: string | null;
+  // Conexión por-canal leída de metadata.gateway (null = usar la global).
+  connection: EvolutionConnection | null;
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -278,6 +293,8 @@ async function ensureEvolutionInstanceConnectionSession(instance: EvolutionResol
     return false;
   }
 
+  const connection = instance.connection ?? null;
+
   try {
     if (instance.id || instance.token) {
       await evolutionRequest("/instance/connect", {
@@ -288,7 +305,7 @@ async function ensureEvolutionInstanceConnectionSession(instance: EvolutionResol
           subscribe: ["ALL"],
           immediate: true,
         }),
-      });
+      }, { connection });
     } else {
       await evolutionRequest("/instance/create", {
         method: "POST",
@@ -297,7 +314,7 @@ async function ensureEvolutionInstanceConnectionSession(instance: EvolutionResol
           name: instance.name,
           token: randomUUID(),
         }),
-      });
+      }, { connection });
     }
 
     debugEvolutionPayload("ensure_instance_connect_sent", {
@@ -319,20 +336,34 @@ async function ensureEvolutionInstanceConnectionSession(instance: EvolutionResol
   }
 }
 
+// Opciones comunes de la capa HTTP. `connection` (por-canal) tiene prioridad sobre el global.
+type EvolutionRequestOptions = {
+  requireWebhookBaseUrl?: boolean;
+  connection?: EvolutionConnection | null;
+};
+
+// Resuelve la URL base + apikey efectivas: la conexión por-canal gana; si no, el global.
+async function resolveEvolutionHttpTarget(connection?: EvolutionConnection | null) {
+  const settings = await getEvolutionSettings();
+  const baseUrl = (connection?.baseUrl || settings.apiBaseUrl || "").replace(/\/+$/, "");
+  const apiToken = connection?.apiToken || settings.apiToken || "";
+  return { baseUrl, apiToken, webhookBaseUrl: settings.webhookBaseUrl };
+}
+
 async function evolutionRequest<T>(
   path: string,
   init?: RequestInit,
-  options: { requireWebhookBaseUrl?: boolean } = {},
+  options: EvolutionRequestOptions = {},
 ): Promise<T> {
-  const settings = await getEvolutionSettings();
-  if (!settings.apiBaseUrl || !settings.apiToken || (options.requireWebhookBaseUrl && !settings.webhookBaseUrl)) {
+  const { baseUrl, apiToken, webhookBaseUrl } = await resolveEvolutionHttpTarget(options.connection);
+  if (!baseUrl || !apiToken || (options.requireWebhookBaseUrl && !webhookBaseUrl)) {
     throw new Error("La configuracion global de WhatsApp no esta completa");
   }
 
-  const response = await fetch(`${settings.apiBaseUrl}${path}`, {
+  const response = await fetch(`${baseUrl}${path}`, {
     ...init,
     headers: {
-      apikey: settings.apiToken,
+      apikey: apiToken,
       "Content-Type": "application/json",
       ...(init?.headers ?? {}),
     },
@@ -354,17 +385,17 @@ async function evolutionRequest<T>(
 async function evolutionRawRequest(
   path: string,
   init?: RequestInit,
-  options: { requireWebhookBaseUrl?: boolean } = {},
+  options: EvolutionRequestOptions = {},
 ) {
-  const settings = await getEvolutionSettings();
-  if (!settings.apiBaseUrl || !settings.apiToken || (options.requireWebhookBaseUrl && !settings.webhookBaseUrl)) {
+  const { baseUrl, apiToken, webhookBaseUrl } = await resolveEvolutionHttpTarget(options.connection);
+  if (!baseUrl || !apiToken || (options.requireWebhookBaseUrl && !webhookBaseUrl)) {
     throw new Error("La configuracion global de WhatsApp no esta completa");
   }
 
-  const response = await fetch(`${settings.apiBaseUrl}${path}`, {
+  const response = await fetch(`${baseUrl}${path}`, {
     ...init,
     headers: {
-      apikey: settings.apiToken,
+      apikey: apiToken,
       "Content-Type": "application/json",
       ...(init?.headers ?? {}),
     },
@@ -379,11 +410,11 @@ async function evolutionRawRequest(
   return response;
 }
 
-async function fetchEvolutionInstances() {
+async function fetchEvolutionInstances(connection?: EvolutionConnection | null) {
   try {
     const response = await evolutionRequest<EvolutionInstanceRecord[] | EvolutionInstanceRecord>("/instance/all", {
       method: "GET",
-    });
+    }, { connection });
     const records = extractInstancePayloadList(response);
     if (records.length > 0) {
       return records;
@@ -394,9 +425,32 @@ async function fetchEvolutionInstances() {
 
   const legacyResponse = await evolutionRequest<EvolutionInstanceRecord[] | EvolutionInstanceRecord>("/instance/fetchInstances", {
     method: "GET",
-  });
+  }, { connection });
 
   return extractInstancePayloadList(legacyResponse);
+}
+
+// Lee metadata.gateway { kind, baseUrl, apiKey } y lo convierte en una conexión por-canal.
+// Devuelve null si no hay baseUrl (→ el caller usará la configuración global / evogo).
+export function readGatewayConnection(metadata: unknown): EvolutionConnection | null {
+  const gateway = asRecord(asRecord(metadata)?.gateway);
+  if (!gateway) {
+    return null;
+  }
+
+  const baseUrl = readString(gateway.baseUrl);
+  if (!baseUrl) {
+    return null;
+  }
+
+  const rawKind = readString(gateway.kind);
+  const kind: EvolutionGatewayKind = rawKind === "EVOLUTION_API" ? "EVOLUTION_API" : "EVOLUTION_GO";
+
+  return {
+    baseUrl: baseUrl.replace(/\/+$/, ""),
+    apiToken: readString(gateway.apiKey) || readString(gateway.apiToken) || "",
+    kind,
+  };
 }
 
 async function getStoredEvolutionInstanceAuth(instanceName: string): Promise<EvolutionStoredInstanceAuth | null> {
@@ -417,6 +471,7 @@ async function getStoredEvolutionInstanceAuth(instanceName: string): Promise<Evo
   return {
     id: readString(channel.evolutionExternalKey),
     token: readString(metadata?.instanceToken) || readString(metadata?.token),
+    connection: readGatewayConnection(channel.metadata),
   };
 }
 
@@ -428,7 +483,8 @@ async function resolveEvolutionInstance(instanceName: string): Promise<Evolution
 
   try {
     const storedAuth = await getStoredEvolutionInstanceAuth(normalizedInstanceName);
-    const records = await fetchEvolutionInstances();
+    const connection = storedAuth?.connection ?? null;
+    const records = await fetchEvolutionInstances(connection);
     const record =
       records.find((item) => getInstanceRecordName(item) === normalizedInstanceName) ??
       records.find((item) => {
@@ -453,6 +509,7 @@ async function resolveEvolutionInstance(instanceName: string): Promise<Evolution
             name: normalizedInstanceName,
             token: storedAuth.token,
             raw: null,
+            connection,
           }
         : null;
     }
@@ -471,6 +528,7 @@ async function resolveEvolutionInstance(instanceName: string): Promise<Evolution
       name: getInstanceRecordName(record) ?? normalizedInstanceName,
       token: getInstanceRecordToken(record) || storedAuth?.token || null,
       raw: record,
+      connection,
     };
   } catch {
     return null;
@@ -526,6 +584,8 @@ async function evolutionInstanceRequest<T>(input: {
   const normalizedPath = normalizeEvolutionPath(input.path);
   const method = input.method ?? "POST";
 
+  const connection = instance?.connection ?? null;
+
   if (instance?.id || instance?.token) {
     try {
       return await evolutionRequest<T>(normalizedPath, {
@@ -533,7 +593,7 @@ async function evolutionInstanceRequest<T>(input: {
         headers: buildInstanceHeaders(instance, { useInstanceApiKey: true }),
         ...(input.signal ? { signal: input.signal } : {}),
         ...(typeof input.body === "undefined" ? {} : { body: JSON.stringify(input.body) }),
-      });
+      }, { connection });
     } catch (error) {
       if (!input.legacyPath) {
         throw error;
@@ -550,7 +610,7 @@ async function evolutionInstanceRequest<T>(input: {
     method,
     ...(input.signal ? { signal: input.signal } : {}),
     ...(typeof legacyRequestBody === "undefined" ? {} : { body: JSON.stringify(legacyRequestBody) }),
-  });
+  }, { connection });
 }
 
 function inferMediaMimeType(input: { mediaType: "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT"; mimeType?: string | null }) {
@@ -906,6 +966,7 @@ export async function fetchEvolutionMediaDataUrl(input: {
   mimeType?: string | null;
 }) {
   try {
+    const connection = (await getStoredEvolutionInstanceAuth(input.instanceName))?.connection ?? null;
     const response = await evolutionRawRequest(`/chat/getBase64FromMediaMessage/${input.instanceName}`, {
       method: "POST",
       body: JSON.stringify({
@@ -916,7 +977,7 @@ export async function fetchEvolutionMediaDataUrl(input: {
         },
         convertToMp4: input.mediaType === "VIDEO",
       }),
-    });
+    }, { connection });
 
     const contentType = response.headers.get("content-type")?.toLowerCase() || "";
     const mimeType = inferMediaMimeType(input);
@@ -1074,6 +1135,7 @@ export async function getEvolutionConnectionState(instanceName: string) {
 
   try {
     const instance = await resolveEvolutionInstance(instanceName);
+    const connection = instance?.connection ?? null;
 
     if (instance?.id || instance?.token) {
       const response = await evolutionRequest<{
@@ -1082,7 +1144,7 @@ export async function getEvolutionConnectionState(instanceName: string) {
       }>("/instance/status", {
         method: "GET",
         headers: buildInstanceManagerHeaders(instance),
-      });
+      }, { connection });
 
       if (typeof response.data?.LoggedIn === "boolean") {
         if (response.data.LoggedIn) {
@@ -1103,7 +1165,7 @@ export async function getEvolutionConnectionState(instanceName: string) {
 
     const response = await evolutionRequest<EvolutionConnectionStateResponse>(`/instance/connectionState/${instanceName}`, {
       method: "GET",
-    });
+    }, { connection });
 
     return (
       normalizeEvolutionState(response.instance?.state) ||
@@ -1127,6 +1189,7 @@ export async function getEvolutionConnectionQr(instanceName: string) {
 
   try {
     const instance = await resolveEvolutionInstance(instanceName);
+    const connection = instance?.connection ?? null;
 
     if (instance?.id || instance?.token) {
       // Si la instancia ya existe pero aun no genero QR, no debemos disparar
@@ -1143,7 +1206,7 @@ export async function getEvolutionConnectionQr(instanceName: string) {
         const response = await evolutionRequest<EvolutionConnectResponse & { qrCode?: string; qrcode?: string }>("/instance/qr", {
           method: "GET",
           headers: buildInstanceManagerHeaders(instance),
-        });
+        }, { connection });
 
         debugEvolutionPayload("instance_qr_response", {
           instanceName,
@@ -1165,7 +1228,7 @@ export async function getEvolutionConnectionQr(instanceName: string) {
 
     const response = await evolutionRequest<EvolutionConnectResponse>(`/instance/${instanceName}/qrcode`, {
       method: "GET",
-    });
+    }, { connection });
 
     debugEvolutionPayload("legacy_instance_qrcode_response", {
       instanceName,
@@ -1192,7 +1255,8 @@ export async function fetchEvolutionInstanceProfile(instanceName: string) {
   }
 
   try {
-    const records = await fetchEvolutionInstances();
+    const connection = (await getStoredEvolutionInstanceAuth(instanceName))?.connection ?? null;
+    const records = await fetchEvolutionInstances(connection);
     const instanceRecord =
       records.find((item) => getInstanceRecordName(item) === instanceName) ??
       records.find((item) => {
@@ -1231,17 +1295,21 @@ export type ProvisionedEvolutionInstance = {
   subscribedEvents: string;
 };
 
-// Crea y conecta una instancia NUEVA en Evolution GO (sin tocar la BD) y devuelve sus
-// datos (nombre, id, QR, etc.). La usan tanto la creacion de canal como la recreacion
-// de instancia para un canal existente.
-export async function provisionEvolutionInstance(): Promise<ProvisionedEvolutionInstance> {
+// Crea y conecta una instancia NUEVA (sin tocar la BD) y devuelve sus datos (nombre, id,
+// QR, etc.). La usan tanto la creacion de canal como la recreacion de instancia para un
+// canal existente. `connection` elige el gateway (GO o API); si es null, usa el global.
+export async function provisionEvolutionInstance(
+  connection?: EvolutionConnection | null,
+): Promise<ProvisionedEvolutionInstance> {
   const settings = await getEvolutionSettings();
-  if (!settings.apiBaseUrl || !settings.apiToken || !settings.webhookBaseUrl) {
+  const effectiveBaseUrl = connection?.baseUrl || settings.apiBaseUrl;
+  const effectiveApiToken = connection?.apiToken || settings.apiToken;
+  if (!effectiveBaseUrl || !effectiveApiToken || !settings.webhookBaseUrl) {
     throw new Error("Completa primero la configuracion global de WhatsApp");
   }
 
   const normalizedPrefix = settings.instancePrefix.trim().toLowerCase() || "instancia";
-  const remoteInstances = await fetchEvolutionInstances().catch(() => []);
+  const remoteInstances = await fetchEvolutionInstances(connection).catch(() => []);
   const usedInstanceNames = new Set(
     remoteInstances
       .map((item) => getInstanceRecordName(item)?.trim().toLowerCase())
@@ -1290,7 +1358,7 @@ export async function provisionEvolutionInstance(): Promise<ProvisionedEvolution
           name: instanceName,
           token: randomUUID(),
         }),
-      });
+      }, { connection });
     } catch (error) {
       if (!isEvolutionInstanceAlreadyExistsError(error)) {
         throw error;
@@ -1316,13 +1384,14 @@ export async function provisionEvolutionInstance(): Promise<ProvisionedEvolution
           name: instanceName,
           token: createdInstanceToken,
           raw: null,
+          connection: connection ?? null,
         }),
         body: JSON.stringify({
           webhookUrl: settings.webhookBaseUrl,
           subscribe: ["ALL"],
           immediate: true,
         }),
-      });
+      }, { connection });
 
       await sleep(2000);
 
@@ -1333,11 +1402,12 @@ export async function provisionEvolutionInstance(): Promise<ProvisionedEvolution
           name: instanceName,
           token: createdInstanceToken,
           raw: null,
+          connection: connection ?? null,
         }),
-      }).catch(() => ({}));
+      }, { connection }).catch(() => ({}));
 
       connectedInstanceSnapshot =
-        (await fetchEvolutionInstances().then(
+        (await fetchEvolutionInstances(connection).then(
           (records) =>
             records.find((item) => getInstanceRecordId(item) === createdInstanceId) ??
             records.find((item) => getInstanceRecordName(item) === instanceName) ??
@@ -1346,7 +1416,7 @@ export async function provisionEvolutionInstance(): Promise<ProvisionedEvolution
     } else {
       connectData = await evolutionRequest<EvolutionConnectResponse>(`/instance/connect/${instanceName}`, {
         method: "GET",
-      });
+      }, { connection });
     }
   } catch {
     // Si Evolution crea la instancia pero tarda en devolver el QR,
@@ -1367,12 +1437,49 @@ export async function provisionEvolutionInstance(): Promise<ProvisionedEvolution
   };
 }
 
+// Config del gateway elegido al conectar (viene de la UI). Si es undefined → Evolution GO
+// por el global (comportamiento histórico). Si trae baseUrl → Evolution API por-canal.
+export type EvolutionGatewayInput = {
+  kind: EvolutionGatewayKind;
+  baseUrl: string;
+  apiKey: string;
+};
+
+// Construye la conexión por-canal a partir del input de la UI (o null para usar el global).
+function buildConnectionFromGatewayInput(gateway?: EvolutionGatewayInput | null): EvolutionConnection | null {
+  if (!gateway || !gateway.baseUrl.trim()) {
+    return null;
+  }
+  return {
+    baseUrl: gateway.baseUrl.trim().replace(/\/+$/, ""),
+    apiToken: gateway.apiKey.trim(),
+    kind: gateway.kind,
+  };
+}
+
+// Objeto metadata.gateway a persistir (solo cuando es un gateway API por-canal).
+function buildGatewayMetadata(connection: EvolutionConnection | null): Record<string, unknown> | null {
+  if (!connection) {
+    return null;
+  }
+  return {
+    gateway: {
+      kind: connection.kind,
+      baseUrl: connection.baseUrl,
+      apiKey: connection.apiToken,
+    },
+  };
+}
+
 export async function createEvolutionChannel(input: {
   workspaceId: string;
   name: string;
   agentId?: string | null;
+  gateway?: EvolutionGatewayInput | null;
 }) {
-  const provisioned = await provisionEvolutionInstance();
+  const connection = buildConnectionFromGatewayInput(input.gateway);
+  const provisioned = await provisionEvolutionInstance(connection);
+  const gatewayMetadata = buildGatewayMetadata(connection);
 
   const channel = await prisma.whatsAppChannel.create({
     data: {
@@ -1389,6 +1496,7 @@ export async function createEvolutionChannel(input: {
         webhookUrl: provisioned.webhookUrl,
         subscribedEvents: provisioned.subscribedEvents,
         ...(provisioned.instanceToken ? { instanceToken: provisioned.instanceToken } : {}),
+        ...(gatewayMetadata ?? {}),
       },
     },
     select: {
@@ -1401,6 +1509,64 @@ export async function createEvolutionChannel(input: {
     channelId: channel.id,
     instanceName: channel.evolutionInstanceName,
   };
+}
+
+// Conecta Evolution API a un canal EXISTENTE (p. ej. "ventas"): provisiona una instancia
+// nueva en el gateway API, apunta el canal a ella (nuevo QR) y guarda metadata.gateway.
+// API "reemplaza" a evogo: NO borramos la instancia vieja (queda como respaldo manual).
+// Conserva conversaciones/contactos/CRM (todo cuelga del channelId).
+export async function connectEvolutionApiToChannel(input: {
+  channelId: string;
+  workspaceId: string;
+  baseUrl: string;
+  apiKey: string;
+}) {
+  const channel = await prisma.whatsAppChannel.findFirst({
+    where: { id: input.channelId, workspaceId: input.workspaceId, provider: "EVOLUTION" },
+    select: { id: true, metadata: true },
+  });
+  if (!channel) {
+    throw new Error("Canal no encontrado");
+  }
+
+  const connection = buildConnectionFromGatewayInput({
+    kind: "EVOLUTION_API",
+    baseUrl: input.baseUrl,
+    apiKey: input.apiKey,
+  });
+  if (!connection) {
+    throw new Error("Falta la URL base de Evolution API");
+  }
+
+  const provisioned = await provisionEvolutionInstance(connection);
+
+  const baseMetadata =
+    channel.metadata && typeof channel.metadata === "object" && !Array.isArray(channel.metadata)
+      ? (channel.metadata as Record<string, unknown>)
+      : {};
+  const nextMetadata: Record<string, unknown> = {
+    ...baseMetadata,
+    pairingCode: provisioned.pairingCode,
+    webhookUrl: provisioned.webhookUrl,
+    subscribedEvents: provisioned.subscribedEvents,
+    ...(buildGatewayMetadata(connection) ?? {}),
+  };
+  if (provisioned.instanceToken) {
+    nextMetadata.instanceToken = provisioned.instanceToken;
+  }
+
+  await prisma.whatsAppChannel.update({
+    where: { id: channel.id },
+    data: {
+      evolutionInstanceName: provisioned.instanceName,
+      evolutionExternalKey: provisioned.instanceId,
+      status: provisioned.qrCode ? "QRCODE" : "CONNECTING",
+      qrCode: provisioned.qrCode,
+      metadata: nextMetadata as Prisma.InputJsonValue,
+    },
+  });
+
+  return { instanceName: provisioned.instanceName };
 }
 
 // Recrea la instancia de Evolution para un canal EXISTENTE sin borrar el canal:
@@ -1464,12 +1630,15 @@ export async function ensureEvolutionInstanceFullHistory(instanceName: string) {
     return false;
   }
 
+  const connection = (await getStoredEvolutionInstanceAuth(instanceName))?.connection ?? null;
+
   try {
     const response = await evolutionRequest<{ sync_full_history?: boolean; syncFullHistory?: boolean }>(
       `/settings/find/${instanceName}`,
       {
         method: "GET",
       },
+      { connection },
     );
 
     const currentValue = response.syncFullHistory ?? response.sync_full_history ?? null;
@@ -1491,7 +1660,7 @@ export async function ensureEvolutionInstanceFullHistory(instanceName: string) {
         readStatus: true,
         syncFullHistory: true,
       }),
-    });
+    }, { connection });
 
     return true;
   } catch {
@@ -1519,21 +1688,22 @@ export async function deleteEvolutionInstance(instanceName: string) {
   }
 
   const instance = await resolveEvolutionInstance(instanceName);
+  const connection = instance?.connection ?? null;
   if (instance?.id) {
     await evolutionRequest(`/instance/${instance.id}`, {
       method: "DELETE",
       headers: buildInstanceHeaders(instance),
-    }).catch(async () => {
+    }, { connection }).catch(async () => {
       await evolutionRequest(`/instance/delete/${instanceName}`, {
         method: "DELETE",
-      });
+      }, { connection });
     });
     return;
   }
 
   await evolutionRequest(`/instance/delete/${instanceName}`, {
     method: "DELETE",
-  });
+  }, { connection });
 }
 
 export async function sendEvolutionTextMessage(input: {

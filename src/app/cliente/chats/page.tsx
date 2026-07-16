@@ -7,6 +7,7 @@ import { ChatHeaderActions } from "@/components/chats/chat-header-actions";
 import type { CrmStage } from "@/features/crm/types";
 import { ChatsAutoRefresh } from "@/components/agents/chats-auto-refresh";
 import { ChatsRealtimeSync } from "@/components/chats/chats-realtime-sync";
+import { ChatsSseSync } from "@/components/chats/chats-sse-sync";
 import { ChatIncomingNotifier } from "@/components/chats/chat-incoming-notifier";
 import { PushSubscriptionManager } from "@/components/chats/push-subscription-manager";
 import { loadAgentConversationDetail } from "@/lib/chat-message-loader";
@@ -865,6 +866,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         selectedConversationPhoneNumber={selectedUnified?.source === "agent" ? selectedUnified.secondaryLabel : null}
         globalEventsEnabled={realtimeGlobalEventsEnabled}
       />
+      <ChatsSseSync enabled={chatsRealtimeSyncEnabled} />
       <ChatIncomingNotifier enabled={chatsRealtimeSyncEnabled} />
       <PushSubscriptionManager enabled={chatsRealtimeSyncEnabled} />
       <QueryFeedbackToast
