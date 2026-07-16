@@ -246,15 +246,50 @@ function extractEvolutionPairingCode(response: EvolutionConnectResponse | null |
 function extractCreatedInstanceId(payload: unknown) {
   const root = asRecord(payload);
   const data = asRecord(root?.data);
+  // Evolution API (Baileys) devuelve { instance: { instanceId, instanceName } }.
+  const instance = asRecord(root?.instance);
 
-  return readString(data?.id) || readString(root?.instanceId) || readString(root?.id) || null;
+  return (
+    readString(data?.id) ||
+    readString(instance?.instanceId) ||
+    readString(instance?.id) ||
+    readString(root?.instanceId) ||
+    readString(root?.id) ||
+    null
+  );
 }
 
 function extractCreatedInstanceToken(payload: unknown) {
   const root = asRecord(payload);
   const data = asRecord(root?.data);
+  // Evolution API devuelve la apikey en `hash`: string (v2.1+) u objeto { apikey } (v2.0).
+  const hash = root?.hash;
+  const hashRecord = asRecord(hash);
 
-  return readString(data?.token) || readString(root?.token) || null;
+  return (
+    readString(data?.token) ||
+    readString(root?.token) ||
+    readString(hash) ||
+    readString(hashRecord?.apikey) ||
+    readString(hashRecord?.token) ||
+    null
+  );
+}
+
+// El /instance/create de Evolution API ya trae el QR en la respuesta:
+// { qrcode: { code, base64, pairingCode } }. evogo, en cambio, lo pide aparte.
+function extractCreateResponseQrPayload(payload: unknown): EvolutionConnectResponse {
+  const root = asRecord(payload);
+  const qrcode = asRecord(root?.qrcode);
+  if (!qrcode) {
+    return {};
+  }
+
+  return {
+    base64: readString(qrcode.base64) ?? undefined,
+    code: readString(qrcode.code) ?? undefined,
+    pairingCode: readString(qrcode.pairingCode) ?? undefined,
+  };
 }
 
 function debugEvolutionPayload(label: string, payload: unknown) {
@@ -1343,6 +1378,12 @@ export async function provisionEvolutionInstance(
       }
     | null = null;
 
+  // Los dos gateways hablan dialectos distintos en /instance/create:
+  //  - Evolution GO: { instanceName, name, token } y el QR se pide aparte (/instance/qr).
+  //  - Evolution API (Baileys): { instanceName, qrcode, integration } y el QR ya viene
+  //    en la respuesta; el webhook se configura con /webhook/set/{instance}.
+  const isEvolutionApi = connection?.kind === "EVOLUTION_API";
+
   while (!createdResponse) {
     try {
       createdResponse = await evolutionRequest<{
@@ -1353,11 +1394,19 @@ export async function provisionEvolutionInstance(
         instanceName?: string;
       }>("/instance/create", {
         method: "POST",
-        body: JSON.stringify({
-          instanceName,
-          name: instanceName,
-          token: randomUUID(),
-        }),
+        body: JSON.stringify(
+          isEvolutionApi
+            ? {
+                instanceName,
+                qrcode: true,
+                integration: "WHATSAPP-BAILEYS",
+              }
+            : {
+                instanceName,
+                name: instanceName,
+                token: randomUUID(),
+              },
+        ),
       }, { connection });
     } catch (error) {
       if (!isEvolutionInstanceAlreadyExistsError(error)) {
@@ -1375,6 +1424,60 @@ export async function provisionEvolutionInstance(
 
   let connectData: EvolutionConnectResponse = {};
   let connectedInstanceSnapshot: EvolutionInstanceRecord | null = null;
+
+  if (isEvolutionApi) {
+    // El QR ya vino en el create. Si no, lo pedimos con /instance/connect/{instance}.
+    connectData = extractCreateResponseQrPayload(createdResponse);
+    if (!extractEvolutionConnectQrCode(connectData)) {
+      connectData = await evolutionRequest<EvolutionConnectResponse>(
+        `/instance/connect/${instanceName}`,
+        { method: "GET" },
+        { connection },
+      ).catch(() => ({}));
+    }
+
+    // El webhook se configura aparte. Probamos el formato v2.2 (anidado) y, si el
+    // servidor es mas viejo, el plano. Best-effort: sin webhook el canal igual se crea.
+    if (settings.webhookBaseUrl) {
+      const webhookEvents = ["MESSAGES_UPSERT", "MESSAGES_UPDATE", "SEND_MESSAGE", "CONNECTION_UPDATE", "QRCODE_UPDATED", "CONTACTS_UPSERT"];
+      try {
+        await evolutionRequest(`/webhook/set/${instanceName}`, {
+          method: "POST",
+          body: JSON.stringify({
+            webhook: {
+              enabled: true,
+              url: settings.webhookBaseUrl,
+              byEvents: false,
+              base64: true,
+              events: webhookEvents,
+            },
+          }),
+        }, { connection });
+      } catch {
+        await evolutionRequest(`/webhook/set/${instanceName}`, {
+          method: "POST",
+          body: JSON.stringify({
+            enabled: true,
+            url: settings.webhookBaseUrl,
+            webhook_by_events: false,
+            webhook_base64: true,
+            events: webhookEvents,
+          }),
+        }, { connection }).catch(() => {});
+      }
+    }
+
+    return {
+      instanceName,
+      instanceId: createdInstanceId,
+      instanceToken: createdInstanceToken,
+      qrCode: extractEvolutionConnectQrCode(connectData),
+      pairingCode: extractEvolutionPairingCode(connectData),
+      webhookUrl: settings.webhookBaseUrl,
+      subscribedEvents: "ALL",
+    };
+  }
+
   try {
     if (createdInstanceId || createdInstanceToken) {
       await evolutionRequest("/instance/connect", {
