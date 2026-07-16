@@ -1172,6 +1172,24 @@ export async function getEvolutionConnectionState(instanceName: string) {
     const instance = await resolveEvolutionInstance(instanceName);
     const connection = instance?.connection ?? null;
 
+    // Evolution API no tiene /instance/status (es de evogo): pedirlo lanza 404, la
+    // excepcion sube al catch de abajo y el canal se veria "sin conectar" aunque este
+    // conectado. Vamos directo a /instance/connectionState, que devuelve state "open".
+    if (connection?.kind === "EVOLUTION_API") {
+      const response = await evolutionRequest<EvolutionConnectionStateResponse>(
+        `/instance/connectionState/${instanceName}`,
+        { method: "GET" },
+        { connection },
+      );
+
+      return (
+        normalizeEvolutionState(response.instance?.state) ||
+        normalizeEvolutionState(response.state) ||
+        normalizeEvolutionState(response.data?.state) ||
+        normalizeEvolutionState(response.data?.connectionStatus)
+      );
+    }
+
     if (instance?.id || instance?.token) {
       const response = await evolutionRequest<{
         data?: { Connected?: boolean; LoggedIn?: boolean; Name?: string };
@@ -1315,11 +1333,14 @@ export async function fetchEvolutionInstanceProfile(instanceName: string) {
         return typeof currentName === "string" && currentName.trim().toLowerCase() === instanceName.toLowerCase();
       }) ??
       null;
-    const instance = asRecord(instanceRecord?.instance);
-
     if (!instanceRecord) {
       return null;
     }
+
+    // evogo anida el perfil bajo `.instance`; Evolution API lo devuelve plano en la raiz
+    // (ownerJid, profileName, profilePicUrl). Leemos primero el anidado y caemos a la raiz.
+    const nested = asRecord(instanceRecord.instance);
+    const instance: Record<string, unknown> = nested ?? (instanceRecord as Record<string, unknown>);
 
     return {
       owner:
@@ -1329,7 +1350,7 @@ export async function fetchEvolutionInstanceProfile(instanceName: string) {
         normalizePhoneValue(readString(instance?.phoneNumber)) ||
         normalizePhoneValue(readString(instance?.wuid)),
       profileName: readString(instance?.profileName),
-      profilePictureUrl: readString(instance?.profilePictureUrl),
+      profilePictureUrl: readString(instance?.profilePictureUrl) || readString(instance?.profilePicUrl),
     };
   } catch {
     return null;
