@@ -70,6 +70,10 @@ export function NewConnectionChannelModal({
   const [open, setOpen] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<ConnectionProvider | null>(null);
   const [channelName, setChannelName] = useState("");
+  // Gateway para canales EVOLUTION: GO (por el global) o API (URL + apikey por-canal).
+  const [gatewayKind, setGatewayKind] = useState<"EVOLUTION_GO" | "EVOLUTION_API">("EVOLUTION_GO");
+  const [evolutionBaseUrl, setEvolutionBaseUrl] = useState("");
+  const [evolutionApiKey, setEvolutionApiKey] = useState("");
   const [coexistenceResult, setCoexistenceResult] = useState<{
     ok: boolean;
     message: string;
@@ -85,6 +89,9 @@ export function NewConnectionChannelModal({
     setOpen(false);
     setSelectedProvider(null);
     setChannelName("");
+    setGatewayKind("EVOLUTION_GO");
+    setEvolutionBaseUrl("");
+    setEvolutionApiKey("");
     setCoexistenceResult(null);
     setIsLaunchingCoexistence(false);
     setIsCreatingChannel(false);
@@ -437,6 +444,75 @@ export function NewConnectionChannelModal({
                   placeholder={selectedProvider === "EVOLUTION" ? "Ej. WhatsApp ventas principal" : "Ej. WhatsApp oficial tienda"}
                 />
               </div>
+
+              {selectedProvider === "EVOLUTION" ? (
+                <div className="space-y-3">
+                  <input type="hidden" name="gatewayKind" value={gatewayKind} />
+                  <div className="space-y-2">
+                    <Label>Servidor de conexion</Label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setGatewayKind("EVOLUTION_GO")}
+                        disabled={isCreatingChannel}
+                        className={cn(
+                          "rounded-lg border px-3 py-2 text-sm font-medium transition-colors",
+                          gatewayKind === "EVOLUTION_GO"
+                            ? "border-primary bg-primary/10 text-foreground ring-1 ring-primary"
+                            : "border-border bg-card text-muted-foreground hover:bg-muted/50",
+                        )}
+                      >
+                        Evolution GO
+                        <span className="mt-0.5 block text-xs font-normal text-muted-foreground">Realtime (actual)</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setGatewayKind("EVOLUTION_API")}
+                        disabled={isCreatingChannel}
+                        className={cn(
+                          "rounded-lg border px-3 py-2 text-sm font-medium transition-colors",
+                          gatewayKind === "EVOLUTION_API"
+                            ? "border-primary bg-primary/10 text-foreground ring-1 ring-primary"
+                            : "border-border bg-card text-muted-foreground hover:bg-muted/50",
+                        )}
+                      >
+                        Evolution API
+                        <span className="mt-0.5 block text-xs font-normal text-muted-foreground">Historial + fill</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {gatewayKind === "EVOLUTION_API" ? (
+                    <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
+                      <div className="space-y-2">
+                        <Label htmlFor="evolution-base-url">URL base de Evolution API</Label>
+                        <Input
+                          id="evolution-base-url"
+                          name="evolutionBaseUrl"
+                          type="url"
+                          required
+                          disabled={isCreatingChannel}
+                          value={evolutionBaseUrl}
+                          onChange={(event) => setEvolutionBaseUrl(event.target.value)}
+                          placeholder="https://evo-api.tudominio.com"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="evolution-api-key">Apikey global (opcional)</Label>
+                        <Input
+                          id="evolution-api-key"
+                          name="evolutionApiKey"
+                          type="text"
+                          disabled={isCreatingChannel}
+                          value={evolutionApiKey}
+                          onChange={(event) => setEvolutionApiKey(event.target.value)}
+                          placeholder="Apikey del servidor de Evolution API"
+                        />
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </form>
           )
         ) : (

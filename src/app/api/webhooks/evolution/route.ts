@@ -15,6 +15,7 @@ import { getConversationAutomationPaused, setConversationAutomationPaused } from
 import { recordConversationActivity } from "@/lib/conversation-activity";
 import { prisma } from "@/lib/prisma";
 import { sendChatPushToWorkspace } from "@/lib/web-push";
+import { publishChatEvent } from "@/lib/chat-events";
 import {
   cancelPendingFollowsByContact,
   createFollowsFromRulesForSource,
@@ -816,19 +817,6 @@ export async function POST(request: NextRequest) {
   const instanceKey = extractEvolutionInstanceKey(payload);
   const channelPhoneNumber = normalizePhoneFromJid(extractEvolutionPhoneNumber(payload));
 
-  // FASE 1 (diagnóstico temporal): capturamos el payload crudo del evento HistorySync para
-  // conocer su formato exacto antes de escribir el parser que rellena chats incompletos.
-  // Se quita cuando el parser esté listo.
-  if (eventName === "HISTORYSYNC" || eventName === "HISTORY_SYNC") {
-    try {
-      const raw = JSON.stringify(payload);
-      console.log(`[HISTORY_SYNC_CAPTURE] instance=${instanceName ?? "?"} len=${raw.length} sample=${raw.slice(0, 3500)}`);
-    } catch {
-      console.log("[HISTORY_SYNC_CAPTURE] (payload no serializable)");
-    }
-    return NextResponse.json({ ok: true, message: "history-sync captured" });
-  }
-
   const isConnectionEvent =
     eventName === "QRCODE_UPDATED" ||
     eventName === "CONNECTION_UPDATE" ||
@@ -1505,6 +1493,18 @@ export async function POST(request: NextRequest) {
       },
     });
   }
+
+  // Realtime unificado (SSE): avisa a los navegadores del workspace que este chat cambio.
+  // Cubre AMBOS gateways (API y GO); en GO el WS nativo tambien dispara, pero emitir aqui
+  // no molesta (el refresco esta protegido contra concurrencia). Best-effort.
+  publishChatEvent({
+    type: "message",
+    workspaceId: channel.workspaceId,
+    chatKey: `agent:${conversation.id}`,
+    phoneNumber: contact.phoneNumber ?? null,
+    channelId: channel.id,
+    at: Date.now(),
+  });
 
   const resolvedCurrentMediaUrl =
     messageType === "IMAGE" || messageType === "STICKER" || messageType === "AUDIO"

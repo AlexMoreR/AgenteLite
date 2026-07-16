@@ -21,10 +21,10 @@ async function main() {
   const token = meta.instanceToken || meta.token;
   if (!token) { console.log("Sin instanceToken para", INSTANCE); return; }
 
-  // Mensaje de referencia: el MÁS ANTIGUO de un chat con externalId (history-sync trae los previos a este).
+  // Mensaje de referencia: el MÁS RECIENTE (la sesión de cifrado está más viva en chats activos).
   const ref = await prisma.message.findFirst({
-    where: { channelId: channel.id, externalId: { not: null }, contact: { phoneNumber: { not: null } } },
-    orderBy: { createdAt: "asc" },
+    where: { channelId: channel.id, externalId: { not: null }, contactId: { not: null } },
+    orderBy: { createdAt: "desc" },
     select: {
       externalId: true, direction: true, createdAt: true,
       contact: { select: { phoneNumber: true, name: true } },

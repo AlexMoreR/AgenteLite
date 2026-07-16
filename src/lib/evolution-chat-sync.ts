@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 import { prisma } from "@/lib/prisma";
-import { ensureEvolutionInstanceFullHistory, resolveEvolutionMessageMediaUrl } from "@/lib/evolution";
+import {
+  ensureEvolutionInstanceFullHistory,
+  readGatewayConnection,
+  resolveEvolutionMessageMediaUrl,
+  type EvolutionConnection,
+} from "@/lib/evolution";
 import { persistChatMediaFromDataUrl } from "@/lib/chat-media-storage";
 import { getEvolutionSettings } from "@/lib/system-settings";
 import {
@@ -659,6 +664,7 @@ async function fetchEvolutionChatMessageRecords(
   remoteJid: string,
   remoteJidAlt?: string | null,
   options?: { maxPages?: number },
+  connection?: EvolutionConnection | null,
 ) {
   // El import necesita TODAS las paginas; el preview solo la primera (mas recientes),
   // para no disparar decenas de llamadas a Evolution solo para mostrar una muestra.
@@ -707,7 +713,7 @@ async function fetchEvolutionChatMessageRecords(
             },
             page,
           }),
-        });
+        }, connection);
       } catch {
         // If Evolution rejects one lookup path, keep scanning the rest.
         break;
@@ -742,7 +748,7 @@ async function fetchEvolutionChatMessageRecords(
     try {
       fallbackPayload = await evolutionSyncRequest<unknown>(`/messages/fetch/${instanceName}`, {
         method: "GET",
-      });
+      }, connection);
     } catch {
       fallbackPayload = null;
     }
@@ -800,6 +806,7 @@ async function buildImportedEvolutionMessages(input: {
   // Cantidad de mensajes mas recientes a importar. null = todo el historial.
   // undefined = valor por defecto (IMPORT_RECENT_MESSAGE_LIMIT).
   limit?: number | null;
+  connection?: EvolutionConnection | null;
 }) {
   const limit = input.limit === undefined ? IMPORT_RECENT_MESSAGE_LIMIT : input.limit;
   // Solo paginamos lo necesario: con ~45 mensajes por pagina, calculamos cuantas hacen
@@ -815,6 +822,7 @@ async function buildImportedEvolutionMessages(input: {
     input.remoteJid,
     input.remoteJidAlt,
     { maxPages },
+    input.connection,
   );
   const rawMessages =
     limit && limit > 0
@@ -937,6 +945,7 @@ async function buildEvolutionChatMessagePreview(input: {
   instanceName: string;
   remoteJid: string;
   remoteJidAlt?: string | null;
+  connection?: EvolutionConnection | null;
 }): Promise<Array<{
   id: string;
   direction: "INBOUND" | "OUTBOUND";
@@ -982,6 +991,7 @@ async function buildEvolutionChatMessagePreview(input: {
     input.remoteJid,
     input.remoteJidAlt,
     { maxPages: 1 },
+    input.connection,
   );
   for (const [sourceIndex, message] of fallbackMessages.entries()) {
     enqueuePreview(message, sourceIndex);
@@ -1012,6 +1022,7 @@ async function buildEvolutionChatSyncCandidateFromRemoteChat(input: {
   summary: string;
   needsContact: boolean;
   needsConversation: boolean;
+  connection?: EvolutionConnection | null;
 }): Promise<EvolutionChatSyncCandidate> {
   const remoteDisplayName = extractDisplayName(input.remoteChat);
   const remoteItemId = extractRemoteItemId(input.remoteChat);
@@ -1025,6 +1036,7 @@ async function buildEvolutionChatSyncCandidateFromRemoteChat(input: {
         instanceName: input.instanceName,
         remoteJid,
         remoteJidAlt: extractRemoteJidAltFromChat(input.remoteChat),
+        connection: input.connection,
       });
     } catch {
       messagePreview = [];
@@ -1055,16 +1067,23 @@ function normalizeEvolutionPath(path: string) {
   return path.startsWith("/") ? path : `/${path}`;
 }
 
-async function evolutionSyncRequest<T>(path: string, init?: RequestInit): Promise<T> {
+// La conexión por-canal (Evolution API del canal) tiene prioridad sobre el global.
+async function evolutionSyncRequest<T>(
+  path: string,
+  init?: RequestInit,
+  connection?: EvolutionConnection | null,
+): Promise<T> {
   const settings = await getEvolutionSettings();
-  if (!settings.apiBaseUrl || !settings.apiToken) {
+  const baseUrl = (connection?.baseUrl || settings.apiBaseUrl || "").replace(/\/+$/, "");
+  const apiToken = connection?.apiToken || settings.apiToken || "";
+  if (!baseUrl || !apiToken) {
     throw new Error("La configuracion global de WhatsApp no esta completa");
   }
 
-  const response = await fetch(`${settings.apiBaseUrl.replace(/\/+$/, "")}${normalizeEvolutionPath(path)}`, {
+  const response = await fetch(`${baseUrl}${normalizeEvolutionPath(path)}`, {
     ...init,
     headers: {
-      apikey: settings.apiToken,
+      apikey: apiToken,
       "Content-Type": "application/json",
       ...(init?.headers ?? {}),
     },
@@ -1088,11 +1107,11 @@ async function evolutionSyncRequest<T>(path: string, init?: RequestInit): Promis
   }
 }
 
-async function fetchEvolutionChats(instanceName: string) {
+async function fetchEvolutionChats(instanceName: string, connection?: EvolutionConnection | null) {
   const payload = await evolutionSyncRequest<unknown>(`/chat/findChats/${instanceName}`, {
     method: "POST",
     body: JSON.stringify({}),
-  });
+  }, connection);
 
   return extractRecordList(payload);
 }
@@ -1176,6 +1195,7 @@ export async function scanEvolutionChatSyncCandidate(input: { workspaceId: strin
       id: true,
       name: true,
       evolutionInstanceName: true,
+      metadata: true,
     },
   });
 
@@ -1186,7 +1206,8 @@ export async function scanEvolutionChatSyncCandidate(input: { workspaceId: strin
     };
   }
 
-  const remoteChats = await fetchEvolutionChats(channel.evolutionInstanceName);
+  const connection = readGatewayConnection(channel.metadata);
+  const remoteChats = await fetchEvolutionChats(channel.evolutionInstanceName, connection);
 
   const remotePhones = Array.from(
     new Set(
@@ -1246,6 +1267,7 @@ export async function scanEvolutionChatSyncCandidate(input: { workspaceId: strin
             : `El contacto ${remotePhoneNumber} no existe en Chats.`,
           needsContact: true,
           needsConversation: true,
+          connection,
         }),
       );
 
@@ -1274,6 +1296,7 @@ export async function scanEvolutionChatSyncCandidate(input: { workspaceId: strin
           remoteChat,
           remotePhoneNumber,
           kind: "CONVERSATION",
+          connection,
           summary: needsConversation
             ? extractDisplayName(remoteChat)
               ? `El chat ${extractDisplayName(remoteChat)} (${remotePhoneNumber}) no tiene conversacion local.`
@@ -1328,6 +1351,7 @@ export async function scanEvolutionChatSyncCandidateByPhone(input: {
       id: true,
       name: true,
       evolutionInstanceName: true,
+      metadata: true,
     },
   });
 
@@ -1338,6 +1362,7 @@ export async function scanEvolutionChatSyncCandidateByPhone(input: {
     };
   }
 
+  const connection = readGatewayConnection(channel.metadata);
   const normalizedPhone = normalizePhoneDigits(input.phoneNumber);
   if (!normalizedPhone) {
     return {
@@ -1373,7 +1398,7 @@ export async function scanEvolutionChatSyncCandidateByPhone(input: {
   // 1) Ubicar el chat real en Evolution para extraer remoteJid + remoteJidAlt (incl. @lid).
   let matchedRemoteChat: UnknownRecord | null = null;
   try {
-    const remoteChats = await fetchEvolutionChats(channel.evolutionInstanceName);
+    const remoteChats = await fetchEvolutionChats(channel.evolutionInstanceName, connection);
     matchedRemoteChat =
       remoteChats.find((chat) => {
         const chatPhone = normalizePhoneDigits(extractComparablePhone(chat));
@@ -1396,6 +1421,7 @@ export async function scanEvolutionChatSyncCandidateByPhone(input: {
       summary,
       needsContact,
       needsConversation,
+      connection,
     });
     candidate.remoteDisplayName = candidate.remoteDisplayName ?? localContact?.name ?? null;
   } else {
@@ -1414,6 +1440,7 @@ export async function scanEvolutionChatSyncCandidateByPhone(input: {
         instanceName: channel.evolutionInstanceName,
         remoteJid: canonicalRemoteJid,
         remoteJidAlt: null,
+        connection,
       });
     } catch {
       messagePreview = [];
@@ -1472,6 +1499,7 @@ export async function applyEvolutionChatSyncCandidate(input: {
       agentId: true,
       evolutionInstanceName: true,
       name: true,
+      metadata: true,
     },
   });
 
@@ -1489,6 +1517,8 @@ export async function applyEvolutionChatSyncCandidate(input: {
     };
   }
 
+  const connection = readGatewayConnection(channel.metadata);
+
   await ensureEvolutionInstanceFullHistory(channel.evolutionInstanceName);
 
   let importedMessages: EvolutionChatSyncImportedMessageDraft[];
@@ -1498,6 +1528,7 @@ export async function applyEvolutionChatSyncCandidate(input: {
       remoteJid: candidate.remoteJid ?? buildCanonicalRemoteJid(candidate.remotePhoneNumber) ?? "",
       remoteJidAlt: candidate.remoteJidAlt,
       limit: input.importLimit,
+      connection,
     });
   } catch {
     return {

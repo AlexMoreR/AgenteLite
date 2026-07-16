@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 type ChatsAutoRefreshProps = {
@@ -86,12 +86,80 @@ export function ChatsAutoRefresh({
     return () => window.removeEventListener("chat-live-update", handleLiveUpdate as EventListener);
   }, []);
 
+  // Refresca el chat activo (fetch dirigido + dispatch de los window events) o hace
+  // router.refresh() para chats oficiales / sin seleccion. Reutilizado por el poll y por
+  // el "poke" del realtime SSE (disparo instantaneo para AMBOS gateways).
+  const refreshNow = useCallback(async () => {
+    const chatKey = selectedConversationKeyRef.current?.trim() ?? "";
+
+    if (chatKey.startsWith("agent:")) {
+      if (inFlightRef.current) return;
+
+      inFlightRef.current = true;
+      try {
+        const [liveResponse, summaryResponse] = await Promise.all([
+          fetch(`/api/cliente/chats/live?chatKey=${encodeURIComponent(chatKey)}`, {
+            credentials: "same-origin",
+            cache: "no-store",
+          }),
+          fetch(`/api/cliente/chats/summary?chatKey=${encodeURIComponent(chatKey)}`, {
+            credentials: "same-origin",
+            cache: "no-store",
+          }),
+        ]);
+
+        if (liveResponse.ok) {
+          const livePayload = (await liveResponse.json().catch(() => null)) as
+            | { ok?: boolean; conversation?: unknown }
+            | null;
+
+          if (livePayload?.ok && livePayload.conversation) {
+            const conversation = hydrateConversationSnapshot(livePayload.conversation);
+
+            if (conversation) {
+              window.dispatchEvent(
+                new CustomEvent("chat-live-update", { detail: { conversation, chatKey } }),
+              );
+            }
+          }
+        }
+
+        if (summaryResponse.ok) {
+          const summaryPayload = (await summaryResponse.json().catch(() => null)) as
+            | { ok?: boolean; conversation?: unknown }
+            | null;
+
+          if (summaryPayload?.ok && summaryPayload.conversation) {
+            const summaryConversation = hydrateConversationListSnapshot(summaryPayload.conversation);
+            if (summaryConversation) {
+              window.dispatchEvent(
+                new CustomEvent("chat-list-update", { detail: { conversation: summaryConversation } }),
+              );
+            }
+          }
+        }
+      } catch {
+        // Network error: the next tick / poke will retry.
+      } finally {
+        inFlightRef.current = false;
+      }
+
+      return;
+    }
+
+    // Official API chat or no selection: router.refresh() is still necessary.
+    startTransition(() => {
+      router.refresh();
+    });
+  }, [router, startTransition]);
+
+  // Poll periodico (red de seguridad, funciona para cualquier gateway).
   useEffect(() => {
     if (!enabled || !isVisible) {
       return;
     }
 
-    const timer = window.setInterval(async () => {
+    const timer = window.setInterval(() => {
       const chatKey = selectedConversationKeyRef.current?.trim() ?? "";
 
       if (chatKey.startsWith("agent:")) {
@@ -100,76 +168,33 @@ export function ChatsAutoRefresh({
           Date.now() - lastLiveUpdateAtRef.current < intervalMs;
 
         // Aunque exista realtime, mantenemos un fallback de polling.
-        // Si el websocket falla o no emite el evento esperado, esto evita
+        // Si el websocket/SSE falla o no emite el evento esperado, esto evita
         // que la conversación quede congelada sin refrescarse.
         if (realtimeEnabled && wasRecentlyUpdated) {
           return;
         }
-
-        // Targeted fetch, no router.refresh() / RSC re-render.
-        if (inFlightRef.current) return;
-
-        inFlightRef.current = true;
-        try {
-          const [liveResponse, summaryResponse] = await Promise.all([
-            fetch(`/api/cliente/chats/live?chatKey=${encodeURIComponent(chatKey)}`, {
-              credentials: "same-origin",
-              cache: "no-store",
-            }),
-            fetch(`/api/cliente/chats/summary?chatKey=${encodeURIComponent(chatKey)}`, {
-              credentials: "same-origin",
-              cache: "no-store",
-            }),
-          ]);
-
-          if (liveResponse.ok) {
-            const livePayload = (await liveResponse.json().catch(() => null)) as
-              | { ok?: boolean; conversation?: unknown }
-              | null;
-
-            if (livePayload?.ok && livePayload.conversation) {
-              const conversation = hydrateConversationSnapshot(livePayload.conversation);
-
-              if (conversation) {
-                window.dispatchEvent(
-                  new CustomEvent("chat-live-update", { detail: { conversation, chatKey } }),
-                );
-              }
-            }
-          }
-
-          if (summaryResponse.ok) {
-            const summaryPayload = (await summaryResponse.json().catch(() => null)) as
-              | { ok?: boolean; conversation?: unknown }
-              | null;
-
-            if (summaryPayload?.ok && summaryPayload.conversation) {
-              const summaryConversation = hydrateConversationListSnapshot(summaryPayload.conversation);
-              if (summaryConversation) {
-                window.dispatchEvent(
-                  new CustomEvent("chat-list-update", { detail: { conversation: summaryConversation } }),
-                );
-              }
-            }
-          }
-        } catch {
-          // Network error: the next tick will retry.
-        } finally {
-          inFlightRef.current = false;
-        }
-
-        return;
       }
 
-      // Official API chat or no selection: router.refresh() is still necessary.
-      startTransition(() => {
-        router.refresh();
-      });
+      void refreshNow();
     }, intervalMs);
 
     return () => window.clearInterval(timer);
     // The interval should not reset when the active chat changes.
-  }, [enabled, isVisible, intervalMs, realtimeEnabled, router, startTransition]);
+  }, [enabled, isVisible, intervalMs, realtimeEnabled, refreshNow]);
+
+  // Disparo instantaneo desde el realtime SSE (webhook -> servidor empuja -> poke).
+  useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+
+    function handlePoke() {
+      void refreshNow();
+    }
+
+    window.addEventListener("chat-realtime-poke", handlePoke as EventListener);
+    return () => window.removeEventListener("chat-realtime-poke", handlePoke as EventListener);
+  }, [enabled, refreshNow]);
 
   return null;
 }
