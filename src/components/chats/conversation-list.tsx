@@ -226,7 +226,7 @@ const ConversationListItem = memo(function ConversationListItem({
         </div>
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0 flex flex-1 items-center gap-1.5">
-            <p className="min-w-0 flex-1 truncate text-[14px] font-normal leading-[1.12] text-black md:text-[14px] dark:text-foreground">
+            <p className="min-w-0 flex-1 truncate text-[14px] font-semibold leading-[1.12] text-black md:text-[14px] dark:text-foreground">
               {conversation.label}
             </p>
           </div>
