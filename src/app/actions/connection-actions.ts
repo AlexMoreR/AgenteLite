@@ -104,16 +104,29 @@ export async function createConnectionChannelAction(formData: FormData): Promise
       redirect("/cliente/conexion?error=La+conexion+elegida+ya+no+existe");
     }
 
-    const created = await createEvolutionChannel({
-      workspaceId: membership.workspace.id,
-      name: parsed.data.name,
-      agentId,
-      gateway: {
-        kind: gateway.kind,
-        baseUrl: gateway.baseUrl,
-        apiKey: gateway.apiKey,
-      },
-    });
+    // Provisionar contra el gateway puede fallar (servidor caido, apikey mala, dialecto
+    // distinto...). Sin este catch la excepcion sube y Next pinta la pantalla de
+    // "Application error" en vez de decir que paso.
+    let created: { channelId: string; instanceName: string | null };
+    try {
+      created = await createEvolutionChannel({
+        workspaceId: membership.workspace.id,
+        name: parsed.data.name,
+        agentId,
+        gateway: {
+          kind: gateway.kind,
+          baseUrl: gateway.baseUrl,
+          apiKey: gateway.apiKey,
+        },
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      redirect(
+        `/cliente/conexion?error=${encodeURIComponent(
+          `No se pudo crear el canal en ${gateway.baseUrl}: ${detail.slice(0, 300)}`,
+        )}`,
+      );
+    }
 
     revalidatePath("/cliente/conexion");
     revalidatePath("/cliente/conexion/whatsapp-business");
