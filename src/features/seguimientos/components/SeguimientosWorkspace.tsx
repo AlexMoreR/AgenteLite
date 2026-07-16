@@ -167,6 +167,20 @@ function normalizePhoneHref(phoneNumber: string) {
   return digits ? `tel:+${digits}` : "";
 }
 
+// Intervalo compacto para el badge: "15m", "1h", "2d" (en vez de "cada 15 minutes").
+function formatFollowInterval(timeValue: number, timeType: string) {
+  const suffix =
+    timeType.toUpperCase() === "MINUTES"
+      ? "m"
+      : timeType.toUpperCase() === "HOURS"
+        ? "h"
+        : timeType.toUpperCase() === "DAYS"
+          ? "d"
+          : "";
+
+  return suffix ? `${timeValue}${suffix}` : `${timeValue} ${timeType.toLowerCase()}`;
+}
+
 // Link al chat del seguimiento: abre la conversación donde se ejecutó (o se va a ejecutar).
 function buildFollowChatHref(follow: FollowRow) {
   if (!follow.conversationId) {
@@ -306,9 +320,9 @@ export function SeguimientosWorkspace({
                       <Badge variant={rule.isActive ? "secondary" : "outline"}>
                         {rule.isActive ? "Activa" : "Pausada"}
                       </Badge>
-                      <Badge variant="outline">
+                      <Badge variant="outline" title={`Cada ${rule.timeValue} ${rule.timeType.toLowerCase()}`}>
                         <Clock3 className="h-3 w-3" />
-                        cada {rule.timeValue} {rule.timeType.toLowerCase()}
+                        {formatFollowInterval(rule.timeValue, rule.timeType)}
                       </Badge>
                     </ItemTitle>
                     <ItemDescription>
