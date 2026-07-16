@@ -10,6 +10,10 @@ type ChatsAutoRefreshProps = {
   // Active conversation key (for example: "agent:xxx" or "official:xxx").
   // For Evolution chats we use /live instead of router.refresh().
   selectedConversationKey?: string | null;
+  // Canal que se esta viendo (filtro "connection"). Si esta puesto, ignoramos los eventos
+  // realtime de OTROS canales: si no, un chat del canal B se colaria en la lista del A.
+  // Vacio = bandeja unificada (sin filtro) → se aceptan todos.
+  selectedChannelId?: string | null;
 };
 
 function hydrateConversationSnapshot(value: unknown) {
@@ -42,6 +46,7 @@ export function ChatsAutoRefresh({
   enabled = true,
   realtimeEnabled = true,
   selectedConversationKey = null,
+  selectedChannelId = null,
 }: ChatsAutoRefreshProps) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -57,6 +62,8 @@ export function ChatsAutoRefresh({
   // Stable ref so the interval always reads the latest active conversation.
   const selectedConversationKeyRef = useRef(selectedConversationKey);
   selectedConversationKeyRef.current = selectedConversationKey;
+  const selectedChannelIdRef = useRef(selectedChannelId);
+  selectedChannelIdRef.current = selectedChannelId;
 
   useEffect(() => {
     function handleVisibilityChange() {
@@ -247,7 +254,17 @@ export function ChatsAutoRefresh({
     }
 
     function handlePoke(event: Event) {
-      const chatKey = (event as CustomEvent<{ chatKey?: string | null }>).detail?.chatKey?.trim() || "";
+      const detail = (event as CustomEvent<{ chatKey?: string | null; channelId?: string | null }>).detail;
+      const chatKey = detail?.chatKey?.trim() || "";
+      const channelId = detail?.channelId?.trim() || "";
+      const selectedChannel = selectedChannelIdRef.current?.trim() || "";
+
+      // Estamos viendo un canal concreto y el evento es de OTRO: ignorarlo. Si no, un chat
+      // del canal B aparecería en la lista del canal A. Sin filtro de canal (bandeja
+      // unificada) se acepta todo.
+      if (selectedChannel && channelId && channelId !== selectedChannel) {
+        return;
+      }
 
       // Con chatKey: refresco dirigido (sin recargar). Sin el, caemos al refresco normal.
       if (chatKey) {

@@ -20,18 +20,21 @@ export function ChatsSseSync({ enabled = true }: ChatsSseSyncProps) {
     let source: EventSource | null = null;
     let closedByCleanup = false;
 
-    // Reenvia el chatKey del evento para que el refresco sea DIRIGIDO a ese chat
-    // (actualizar su fila) en vez de recargar la pagina entera.
+    // Reenvia chatKey (para refrescar SOLO ese chat, sin recargar la pagina) y channelId
+    // (para poder ignorar eventos de un canal que no es el que se esta viendo).
     const poke = (event: MessageEvent) => {
       let chatKey: string | null = null;
+      let channelId: string | null = null;
       try {
-        const parsed = JSON.parse(event.data) as { chatKey?: string | null };
+        const parsed = JSON.parse(event.data) as { chatKey?: string | null; channelId?: string | null };
         chatKey = typeof parsed?.chatKey === "string" ? parsed.chatKey : null;
+        channelId = typeof parsed?.channelId === "string" ? parsed.channelId : null;
       } catch {
         chatKey = null;
+        channelId = null;
       }
 
-      window.dispatchEvent(new CustomEvent("chat-realtime-poke", { detail: { chatKey } }));
+      window.dispatchEvent(new CustomEvent("chat-realtime-poke", { detail: { chatKey, channelId } }));
     };
 
     const connect = () => {
