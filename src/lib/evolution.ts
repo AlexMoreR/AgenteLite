@@ -1530,6 +1530,34 @@ export async function provisionEvolutionInstance(
       }
     }
 
+    // El WebSocket de Evolution API se habilita POR INSTANCIA, aparte del WEBSOCKET_ENABLED
+    // global del stack. Sin esto la instancia nace con el websocket en null: el navegador
+    // conecta al namespace y el socket dice CONECTADO, pero Evolution nunca le emite un
+    // evento. Se veia como "Evolution API no tiene realtime" (y se culpo a Baileys de ser
+    // lento) cuando en realidad los mensajes solo llegaban por el webhook.
+    //
+    // Verificado contra el gateway: /websocket/find de una instancia recien creada devolvia
+    // null, y este POST la deja en {enabled:true, events:[...]}.
+    //
+    // Solo Evolution API: evogo no expone este endpoint y no lo necesita, su WebSocket nativo
+    // emite sin configuracion previa.
+    if (isEvolutionApi) {
+      try {
+        await evolutionRequest(`/websocket/set/${instanceName}`, {
+          method: "POST",
+          body: JSON.stringify({
+            websocket: {
+              enabled: true,
+              events: ["MESSAGES_UPSERT", "MESSAGES_UPDATE", "SEND_MESSAGE", "CONNECTION_UPDATE"],
+            },
+          }),
+        }, { connection });
+      } catch {
+        // Best-effort, igual que el webhook: sin esto el canal se crea igual, solo que sin
+        // realtime hasta que se active.
+      }
+    }
+
     return {
       instanceName,
       instanceId: createdInstanceId,
