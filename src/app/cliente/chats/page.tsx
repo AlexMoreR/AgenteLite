@@ -13,7 +13,6 @@ import { loadAgentConversationDetail } from "@/lib/chat-message-loader";
 import { SharedInbox } from "@/components/chats/shared-inbox";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { dedupeAndSortConversationListRows } from "@/lib/chat-conversation-list";
-import { fetchEvolutionProfilePictureUrl } from "@/lib/evolution";
 import {
   extractEvolutionMessageText,
   extractEvolutionPushName,
@@ -549,35 +548,12 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     ? selectedConnectionParam.slice("channel:".length)
     : "";
 
-  // Fetch avatars only for contacts without cached avatarUrl (max 10 per load)
-  // Selected conversation contact gets priority so it always appears in the list
-  const uncachedConversations = activeAgentConversations.filter((c) => !c.contact.avatarUrl);
-  const selectedUncached = selectedAgentConversation && !selectedAgentConversation.contact.avatarUrl
-    ? [selectedAgentConversation]
-    : [];
-  const restUncached = uncachedConversations
-    .filter((c) => c.id !== selectedAgentConversation?.id)
-    .slice(0, 10 - selectedUncached.length);
-  const uncachedAvatarLookups = [...selectedUncached, ...restUncached]
-    .flatMap((conversation) => {
-      const linkedChannel = conversation.channelId ? channelsById.get(conversation.channelId) || null : null;
-      const instanceName = linkedChannel?.evolutionInstanceName?.trim();
-      const phoneNumber = conversation.contact.phoneNumber?.trim();
-      return instanceName && phoneNumber
-        ? [{ contactId: conversation.contact.id, instanceName, phoneNumber }]
-        : [];
-    });
-
-  if (uncachedAvatarLookups.length > 0) {
-    void Promise.all(
-      uncachedAvatarLookups.map(async ({ contactId, instanceName, phoneNumber }) => {
-        const url = await fetchEvolutionProfilePictureUrl({ instanceName, phoneNumber });
-        if (url) {
-          await prisma.contact.update({ where: { id: contactId }, data: { avatarUrl: url } });
-        }
-      }),
-    ).catch(() => null);
-  }
+  // Los avatares NO se piden aquí: este bloque disparaba hasta 10 fetches EN
+  // PARALELO por carga (sin timeout ni cortacircuitos), y con varias pestañas
+  // abiertas saturaba a evogo (cada /user/avatar cuelga ~75s cuando WhatsApp
+  // rate-limitea). El refresco de fotos lo maneja SOLO el sistema throttled
+  // `scheduleContactAvatarRefresh` (máx 4, timeout 8s, cortacircuitos) que se
+  // dispara desde el route de la lista de chats. Ver [[contact-avatars-on-demand]].
 
   const agentRows: UnifiedConversation[] = activeAgentConversations.map((conversation) => {
     const linkedChannel = conversation.channelId ? channelsById.get(conversation.channelId) || null : null;
