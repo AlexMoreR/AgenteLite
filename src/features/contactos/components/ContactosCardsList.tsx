@@ -290,7 +290,8 @@ export function ContactosCardsList({ contacts }: { contacts: ContactosCardItem[]
           <DialogTitle className="sr-only">Detalle del contacto</DialogTitle>
           {selected ? (
             <>
-              <div className="flex shrink-0 items-center gap-3 border-b p-4">
+              <div className="flex shrink-0 flex-col gap-3 border-b p-4">
+                <div className="flex items-center gap-3">
                 <ContactAvatar
                   avatarUrl={selected.avatarUrl}
                   label={getDisplayName(selected)}
@@ -333,10 +334,11 @@ export function ContactosCardsList({ contacts }: { contacts: ContactosCardItem[]
                     </button>
                   </div>
                 </div>
-              </div>
+                </div>
 
-              <div className="min-h-32 flex-1 space-y-4 overflow-y-auto p-4">
-                <div className="inline-flex max-w-full items-center gap-0.5 overflow-x-auto rounded-full bg-muted p-1">
+                {/* Las pestañas viven en el header fijo: quedan siempre visibles aunque el
+                    contenido de abajo se desplace. */}
+                <div className="inline-flex max-w-full items-center gap-0.5 self-start overflow-x-auto rounded-full bg-muted p-1">
                   {DETAIL_TABS.map((tab) => {
                     const Icon = tab.icon;
                     return (
@@ -357,7 +359,9 @@ export function ContactosCardsList({ contacts }: { contacts: ContactosCardItem[]
                     );
                   })}
                 </div>
+              </div>
 
+              <div className="min-h-32 flex-1 space-y-4 overflow-y-auto p-4">
                 {activeTab === "editar" ? <ContactEditForm key={selected.id} contact={selected} /> : null}
               </div>
 
