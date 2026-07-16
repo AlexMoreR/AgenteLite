@@ -4,7 +4,7 @@ import * as React from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { TAG_BADGE_CLASS } from "@/lib/tag-badge";
+import { TAG_BADGE_CLASS, getTagBadgeColors } from "@/lib/tag-badge";
 import { Button } from "@/components/ui/button";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { updateCrmCollapsedAction, updateCrmStageAction } from "@/app/actions/crm-actions";
@@ -35,14 +35,6 @@ function formatCrmDateTime(value: string) {
   })
     .format(new Date(value))
     .replace(/\u00A0/g, " ");
-}
-
-function getTagStyle(color?: string | null) {
-  const normalized = color?.trim();
-
-  return {
-    backgroundColor: normalized || "var(--primary)",
-  };
 }
 
 function KanbanCard({
@@ -82,8 +74,8 @@ function KanbanCard({
                     {record.tags.map((tag) => (
                       <span
                         key={`${record.id}:${tag.label}`}
-                        className={`inline-flex max-w-full items-center text-white shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)] ${TAG_BADGE_CLASS}`}
-                        style={getTagStyle(tag.color)}
+                        className={`inline-flex max-w-full items-center ${TAG_BADGE_CLASS}`}
+                        style={getTagBadgeColors(tag.color)}
                       >
                         {tag.label}
                       </span>

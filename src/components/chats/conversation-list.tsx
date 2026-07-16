@@ -6,7 +6,7 @@ import Link from "next/link";
 import { BadgeCheck, Facebook, FileText, Image as ImageIcon, Instagram, LoaderCircle, Mic, Sticker, UserRound, Video } from "lucide-react";
 import { WhatsAppGlyph } from "@/components/icons/whatsapp-glyph";
 import { Badge } from "@/components/ui/badge";
-import { TAG_BADGE_CLASS } from "@/lib/tag-badge";
+import { TAG_BADGE_CLASS, getTagBadgeColors } from "@/lib/tag-badge";
 import { ContactAvatar } from "./contact-avatar";
 import { warmConversationCache } from "./chat-conversation-warmup";
 import { setPendingConversationSelection } from "./chat-selection-store";
@@ -107,25 +107,6 @@ function renderConversationPreview(conversation: SharedInboxConversationItem) {
   return getConversationPreview(conversation);
 }
 
-function getConversationTagBadgeStyle(color?: string | null) {
-  const normalized = color?.trim();
-  if (!normalized) {
-    return {
-      backgroundColor: "var(--primary)",
-    };
-  }
-
-  if (/^(#|rgb\(|hsl\(|oklch\(|var\(|color\()/i.test(normalized)) {
-    return {
-      backgroundColor: normalized,
-    };
-  }
-
-  return {
-    backgroundColor: "var(--primary)",
-  };
-}
-
 function getConversationAvatarClassName() {
   return "size-10 after:border-0";
 }
@@ -151,11 +132,8 @@ function ConversationTagsRow({
         {visibleTags.map((tag) => (
           <Badge
             key={`${conversationId}:${tag.label}`}
-            className={`min-w-0 shrink max-w-[140px] shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)] ${TAG_BADGE_CLASS}`}
-            style={{
-              ...getConversationTagBadgeStyle(tag.color),
-              color: "#ffffff",
-            }}
+            className={`min-w-0 shrink max-w-[140px] border-transparent shadow-none ${TAG_BADGE_CLASS}`}
+            style={getTagBadgeColors(tag.color)}
             title={tag.label}
           >
             <span className="min-w-0 truncate">{tag.label}</span>

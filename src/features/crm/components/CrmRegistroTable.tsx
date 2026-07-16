@@ -5,7 +5,7 @@ import * as React from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown, CalendarDays, ChartNoAxesCombined, Copy, Eraser, Eye, FileText, Globe2, Hash, MoreHorizontal, Search, Tag, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { TAG_BADGE_CLASS } from "@/lib/tag-badge";
+import { TAG_BADGE_CLASS, getTagBadgeColors } from "@/lib/tag-badge";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -107,13 +107,6 @@ function getRecordOriginLabel(record: CrmRecord) {
   return getCrmOriginLabel(record.origin);
 }
 
-function getTagStyle(color?: string | null) {
-  const normalized = color?.trim();
-
-  return {
-    backgroundColor: normalized || "var(--primary)",
-  };
-}
 
 function downloadTextFile(filename: string, content: string, mimeType: string) {
   const blob = new Blob([content], { type: mimeType });
@@ -426,7 +419,7 @@ export function CrmRegistroTable({
                     <Badge
                       key={`${record.id}:${tag.label}`}
                       className={`shrink-0 max-w-[140px] shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)] ${TAG_BADGE_CLASS}`}
-                      style={{ ...getTagStyle(tag.color), color: "#ffffff" }}
+                      style={getTagBadgeColors(tag.color)}
                       title={tag.label}
                     >
                       <span className="truncate">{tag.label}</span>
@@ -576,7 +569,7 @@ export function CrmRegistroTable({
                           <Badge
                             key={`${record.id}:${tag.label}`}
                             className={`shrink-0 max-w-[140px] shadow-[0_8px_16px_-12px_rgba(15,23,42,0.45)] ${TAG_BADGE_CLASS}`}
-                            style={{ ...getTagStyle(tag.color), color: "#ffffff" }}
+                            style={getTagBadgeColors(tag.color)}
                             title={tag.label}
                           >
                             <span className="truncate">{tag.label}</span>

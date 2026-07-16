@@ -13,7 +13,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { TAG_BADGE_CLASS } from "@/lib/tag-badge";
+import { TAG_BADGE_CLASS, getTagBadgeColors } from "@/lib/tag-badge";
 import { cn } from "@/lib/utils";
 
 export type ContactosCardProfile = {
@@ -317,8 +317,8 @@ export function ContactosCardsList({ contacts }: { contacts: ContactosCardItem[]
                     {selected.tags.map((tag) => (
                       <Badge
                         key={`${selected.id}:${tag.label}`}
-                        className={`max-w-full border-transparent text-white shadow-none ${TAG_BADGE_CLASS}`}
-                        style={{ backgroundColor: tag.color?.trim() || "var(--primary)" }}
+                        className={`max-w-full border-transparent shadow-none ${TAG_BADGE_CLASS}`}
+                        style={getTagBadgeColors(tag.color)}
                         title={tag.label}
                       >
                         <span className="truncate">{tag.label}</span>

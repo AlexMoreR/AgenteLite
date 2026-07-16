@@ -6,7 +6,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { BsFillTagFill } from "react-icons/bs";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
-import { TAG_BADGE_CLASS } from "@/lib/tag-badge";
+import { TAG_BADGE_CLASS, TAG_PRESET_COLORS, getTagBadgeColors } from "@/lib/tag-badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -19,11 +19,7 @@ import {
   type EtiquetaItem,
 } from "@/app/actions/chats-actions";
 
-const PRESET_COLORS = [
-  "#6366f1", "#8b5cf6", "#ec4899", "#ef4444",
-  "#f97316", "#eab308", "#22c55e", "#14b8a6",
-  "#3b82f6", "#64748b",
-];
+const PRESET_COLORS = TAG_PRESET_COLORS;
 
 type DisplayTag = { label: string; color: string };
 
@@ -222,8 +218,8 @@ export function ChatTagsControl({
           aria-label={`Etiqueta ${tag.label}`}
         >
           <Badge
-            className={`max-w-full cursor-pointer ${TAG_BADGE_CLASS} transition hover:opacity-90 ${badgeClassName}`}
-            style={{ backgroundColor: tag.color, color: "#ffffff" }}
+            className={`max-w-full cursor-pointer border-transparent shadow-none ${TAG_BADGE_CLASS} transition hover:opacity-90 ${badgeClassName}`}
+            style={getTagBadgeColors(tag.color)}
           >
             <span className="truncate">{tag.label}</span>
           </Badge>
@@ -298,7 +294,7 @@ export function ChatTagsControl({
                         disabled={!contactId || busy}
                         className="flex min-w-0 flex-1 items-center gap-2.5 rounded-xl px-2 py-2 transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
                       >
-                        <BsFillTagFill className="h-3.5 w-3.5 shrink-0" style={{ color: tag.color }} />
+                        <BsFillTagFill className="h-3.5 w-3.5 shrink-0" style={{ color: getTagBadgeColors(tag.color).color }} />
                         <span className="flex-1 truncate text-left text-[13px] text-foreground">{tag.name}</span>
                         {isAssigned ? <Check className="h-3.5 w-3.5 shrink-0 text-[var(--primary)]" /> : null}
                       </button>
@@ -362,10 +358,10 @@ export function ChatTagsControl({
                       key={color}
                       type="button"
                       onClick={() => setSelectedColor(color)}
-                      className="h-6 w-6 rounded-full transition-transform hover:scale-110"
+                      className="h-6 w-6 rounded-full border border-black/10 transition-transform hover:scale-110"
                       style={{
                         backgroundColor: color,
-                        outline: selectedColor === color ? `2px solid ${color}` : "none",
+                        outline: selectedColor === color ? "2px solid #334155" : "none",
                         outlineOffset: "2px",
                       }}
                       aria-label={color}

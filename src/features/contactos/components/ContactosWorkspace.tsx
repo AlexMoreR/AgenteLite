@@ -27,7 +27,7 @@ import {
 } from "lucide-react";
 import type { ContactosContact, ContactosData } from "../types";
 import { cn } from "@/lib/utils";
-import { TAG_BADGE_CLASS } from "@/lib/tag-badge";
+import { TAG_BADGE_CLASS, getTagBadgeColors } from "@/lib/tag-badge";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
@@ -214,12 +214,6 @@ function getContactosListHref(data: ContactosData) {
   });
 }
 
-function getTagBadgeStyle(color?: string | null) {
-  const normalized = color?.trim();
-  return {
-    backgroundColor: normalized || "var(--primary)",
-  };
-}
 
 function getMatchSourceLabel(sourceType: "KNOWLEDGE" | "FLOW" | "QUICK_RESPONSE" | "AI") {
   switch (sourceType) {
@@ -754,8 +748,8 @@ export function ContactosWorkspace({ data, activeView }: { data: ContactosData; 
                           {selectedContact.tags.map((tag) => (
                             <Badge
                               key={`${selectedContact.id}:${tag.label}`}
-                              className={`max-w-full border-transparent text-white shadow-none ${TAG_BADGE_CLASS}`}
-                              style={getTagBadgeStyle(tag.color)}
+                              className={`max-w-full border-transparent shadow-none ${TAG_BADGE_CLASS}`}
+                              style={getTagBadgeColors(tag.color)}
                               title={tag.label}
                             >
                               <span className="truncate">{tag.label}</span>

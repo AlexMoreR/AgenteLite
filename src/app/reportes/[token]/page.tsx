@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { FiInbox, FiSend, FiUserPlus, FiThumbsUp, FiThumbsDown } from "react-icons/fi";
 
 import { stageLabel, type DailyReportRow } from "@/features/reportes/services/daily-report";
+import { getTagBadgeColors } from "@/lib/tag-badge";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -123,8 +124,8 @@ export default async function DailyReportPublicPage({ params }: PageProps) {
                             row.tags.map((tag) => (
                               <span
                                 key={tag.name}
-                                className="rounded-[4px] px-2 py-0.5 text-[10px] font-normal uppercase tracking-wide text-white"
-                                style={{ backgroundColor: tag.color || "var(--primary)" }}
+                                className="rounded-[4px] px-1 py-0.5 text-[10px] font-normal uppercase tracking-wide"
+                                style={getTagBadgeColors(tag.color)}
                               >
                                 {tag.name}
                               </span>
