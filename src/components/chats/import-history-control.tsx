@@ -35,6 +35,15 @@ export function ImportHistoryControl({ conversationId, withLabel = false }: Impo
         return;
       }
 
+      // Evolution GO responde asincrono: el pedido sale, y los mensajes llegan segundos despues
+      // por el webhook. No sabemos cuantos son todavia, asi que no se promete un numero.
+      if (result.imported === null) {
+        toast.success("Pidiendo el historial, va a aparecer en unos segundos");
+        // El refresh tardio los muestra sin que tenga que recargar a mano.
+        setTimeout(() => router.refresh(), 6000);
+        return;
+      }
+
       // Importa solo lo que falta: si no trajo nada, el chat ya estaba completo. Decirlo
       // explicitamente evita que se quede probando de nuevo pensando que no funcionó.
       if (result.imported === 0) {

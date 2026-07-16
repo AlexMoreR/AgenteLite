@@ -712,14 +712,14 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
 
     return gateways;
   })();
-  // Solo Evolution API guarda historial: evogo no lo expone (/chat/findMessages da 404) porque
-  // no guarda mensajes. `provider` no distingue —los dos son "EVOLUTION"—, la diferencia esta en
-  // el gateway. Sin esto el boton de traer historial aparece en canales evogo y falla en la cara
-  // de la asesora.
+  // Los dos gateways de WhatsApp traen historial, cada uno a su manera (Evolution API lee su
+  // base y responde en el momento; evogo se lo pide al celular del usuario y contesta despues,
+  // por el evento HISTORYSYNC). La API oficial no tiene historial que traer, y ese caso ya lo
+  // filtra `source === "agent"` mas abajo.
   const selectedChannelKeepsHistory = (() => {
     const channelId = selectedUnified?.source === "agent" ? selectedUnified.channelId : null;
     const channel = channelId ? channelsById.get(channelId) : null;
-    return readGatewayConnection(channel?.metadata)?.kind === "EVOLUTION_API";
+    return Boolean(channel?.evolutionInstanceName);
   })();
   const chatListHref = `/cliente/chats${
     selectedConnectionKey || searchQuery || assignedFilter !== "all" || statusFilter !== "open"

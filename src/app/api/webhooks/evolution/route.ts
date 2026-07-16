@@ -84,7 +84,7 @@ import {
   sendNotificarAsesorNotification,
 } from "@/features/agent-actions";
 import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
-import { syncEvolutionMessagesSince } from "@/lib/evolution-chat-sync";
+import { persistEvolutionHistorySync, syncEvolutionMessagesSince } from "@/lib/evolution-chat-sync";
 import { persistChatMediaFromDataUrl } from "@/lib/chat-media-storage";
 
 function mapChannelStatus(eventName: string | null, rawState: string | null) {
@@ -1005,6 +1005,43 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       ok: true,
       message: "Channel state updated",
+      instanceName,
+      event: eventName,
+    });
+  }
+
+  // Historial pedido a mano (evogo responde el POST /chat/history-sync con este evento). Se
+  // atiende ANTES del camino de mensajes y se corta aca a proposito: si siguiera de largo, el
+  // agente le contestaria a conversaciones de hace semanas. Es el mismo daño que hacia el
+  // backfill automatico que se quito, y la razon por la que estos mensajes se guardan por
+  // separado (persistEvolutionHistorySync) en vez de reusar el pipeline normal.
+  if ((eventName ?? "").toUpperCase().replace(/[^A-Z]/g, "").includes("HISTORYSYNC")) {
+    const historyChannel = channel;
+    after(async () => {
+      try {
+        const result = await persistEvolutionHistorySync({
+          workspaceId: historyChannel.workspaceId,
+          channelId: historyChannel.id,
+          payload,
+        });
+        console.log("[EVOLUTION] history_sync", {
+          instanceName,
+          channelId: historyChannel.id,
+          chats: result.chats,
+          mensajes: result.imported,
+        });
+      } catch (error) {
+        console.error("[EVOLUTION] history_sync_error", {
+          instanceName,
+          channelId: historyChannel.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    });
+
+    return NextResponse.json({
+      ok: true,
+      message: "History sync received",
       instanceName,
       event: eventName,
     });

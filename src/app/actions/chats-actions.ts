@@ -12,7 +12,7 @@ import { getConversationAutomationPaused, setConversationAutomationPaused } from
 import { recordConversationActivity } from "@/lib/conversation-activity";
 import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
 import { backfillEvolutionMessagesByPhone } from "@/lib/evolution-chat-sync";
-import { deleteEvolutionMessageForEveryone, fetchEvolutionProfilePictureUrl, readGatewayConnection, sendEvolutionTextMessage } from "@/lib/evolution";
+import { buildEvolutionGoHistoryAnchor, deleteEvolutionMessageForEveryone, fetchEvolutionProfilePictureUrl, readGatewayConnection, requestEvolutionGoHistorySync, sendEvolutionTextMessage } from "@/lib/evolution";
 import { normalizeInternalPath } from "@/lib/app-url";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import {
@@ -1709,7 +1709,9 @@ const importConversationHistorySchema = z.object({
  */
 export async function importConversationHistoryAction(input: {
   conversationId: string;
-}): Promise<{ ok: true; imported: number } | { error: string }> {
+  // `imported: null` = el pedido salio pero los mensajes llegan despues (Evolution GO responde
+  // asincrono, por el evento HISTORYSYNC). Con Evolution API sabemos el numero en el momento.
+}): Promise<{ ok: true; imported: number | null } | { error: string }> {
   const session = await auth();
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     return { error: "No autorizado" };
@@ -1746,26 +1748,55 @@ export async function importConversationHistoryAction(input: {
     return { error: "Este canal no permite traer historial de WhatsApp" };
   }
 
-  // Solo Evolution API guarda historial. Evolution GO no lo expone (probado: /chat/findMessages
-  // y /chat/findChats dan 404) porque no guarda mensajes: es mas rapido, pero lo que pasa
-  // mientras esta caido no se puede recuperar de ninguna forma. `provider` no alcanza para
-  // distinguirlos: los dos son "EVOLUTION", la diferencia esta en el gateway.
+  // Los dos gateways traen historial, pero de forma distinta, y eso se nota hasta en el aviso
+  // que ve la asesora:
+  //
+  //   Evolution API -> lee los mensajes de SU base y los devuelve en el momento. Sabemos
+  //                    cuantos trajo.
+  //   Evolution GO  -> no guarda nada: le pide el historial al celular del usuario, y la
+  //                    respuesta llega despues, asincrona, como un evento HISTORYSYNC que
+  //                    persiste el webhook. Aca solo sabemos que el pedido salio.
   const gateway = readGatewayConnection(conversation.channel.metadata);
-  if (gateway?.kind !== "EVOLUTION_API") {
-    return { error: "Este canal no guarda historial en el servidor, no hay nada que traer" };
+
+  if (gateway?.kind === "EVOLUTION_API") {
+    const result = await backfillEvolutionMessagesByPhone({
+      workspaceId: membership.workspace.id,
+      channelId: conversation.channel.id,
+      phoneNumber: conversation.contact.phoneNumber,
+    });
+
+    if (!result.ok) {
+      return { error: `No se pudo traer el historial: ${result.reason}` };
+    }
+
+    revalidatePath("/cliente/chats");
+    return { ok: true, imported: result.imported };
   }
 
-  const result = await backfillEvolutionMessagesByPhone({
-    workspaceId: membership.workspace.id,
-    channelId: conversation.channel.id,
-    phoneNumber: conversation.contact.phoneNumber,
+  // Evolution GO: hace falta un mensaje ancla, porque WhatsApp devuelve los ANTERIORES a el.
+  // Se usa el mas viejo que tengamos de este chat, que es justo donde se corta el historial.
+  const oldest = await prisma.message.findFirst({
+    where: { conversationId: conversation.id },
+    select: { rawPayload: true },
+    orderBy: { createdAt: "asc" },
   });
 
-  if (!result.ok) {
-    return { error: `No se pudo traer el historial: ${result.reason}` };
+  const anchor = buildEvolutionGoHistoryAnchor(oldest?.rawPayload);
+  if (!anchor) {
+    return { error: "Este chat no tiene un mensaje desde el cual pedir historial" };
   }
 
-  revalidatePath("/cliente/chats");
+  try {
+    await requestEvolutionGoHistorySync({
+      instanceName: conversation.channel.evolutionInstanceName,
+      messageInfo: anchor,
+    });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return { error: `No se pudo pedir el historial: ${detail}` };
+  }
 
-  return { ok: true, imported: result.imported };
+  // `imported: null` = el pedido salio pero los mensajes llegan despues. La UI lo dice distinto:
+  // prometer "se trajeron N" seria mentir, y no decir nada se lee como que fallo.
+  return { ok: true, imported: null };
 }

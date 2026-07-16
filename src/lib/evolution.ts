@@ -2509,3 +2509,66 @@ function extractProfilePictureUrl(response: unknown): string | null {
 
   return visit(response, 0);
 }
+
+/**
+ * Pide a WhatsApp los mensajes anteriores a `messageInfo` (solo Evolution GO).
+ *
+ * evogo no guarda mensajes ni expone /chat/findMessages (da 404): el historial se lo pide al
+ * dispositivo primario del usuario —su celular, que es quien lo tiene— y la respuesta NO vuelve
+ * por aca. Llega despues, asincrona, como un evento HISTORYSYNC al webhook, que es quien la
+ * persiste (persistEvolutionHistorySync).
+ *
+ * Por eso esta funcion solo confirma que el pedido salio, no cuantos mensajes trajo.
+ *
+ * `messageInfo` es el ancla: se arma con la Info de whatsmeow del mensaje mas viejo que tengamos
+ * de ese chat (rawPayload.data.Info), mapeada a camelCase.
+ */
+export async function requestEvolutionGoHistorySync(input: {
+  instanceName: string;
+  messageInfo: Record<string, unknown>;
+  count?: number;
+}) {
+  return evolutionInstanceRequest<{ data?: { ID?: string } }>({
+    instanceName: input.instanceName,
+    path: "/chat/history-sync",
+    method: "POST",
+    body: {
+      // 50 es lo que recomienda whatsmeow por pedido.
+      count: input.count ?? 50,
+      messageInfo: input.messageInfo,
+    },
+  });
+}
+
+/**
+ * Arma el `messageInfo` que pide /chat/history-sync a partir del rawPayload de un mensaje nuestro.
+ *
+ * whatsmeow serializa la Info con mayusculas (Chat, ID, IsFromMe) y la API la espera en camelCase.
+ * El payload guarda la Info en `data.Info`, salvo los mensajes que entraron por otros caminos,
+ * que la tienen bajo `evolution.data.Info`.
+ */
+export function buildEvolutionGoHistoryAnchor(rawPayload: unknown): Record<string, unknown> | null {
+  const record = asRecord(rawPayload);
+  const info =
+    asRecord(asRecord(record?.data)?.Info) ?? asRecord(asRecord(asRecord(record?.evolution)?.data)?.Info);
+
+  if (!info || !readString(info.ID) || !readString(info.Chat)) {
+    return null;
+  }
+
+  return {
+    chat: info.Chat,
+    id: info.ID,
+    isFromMe: info.IsFromMe === true,
+    isGroup: info.IsGroup === true,
+    sender: info.Sender,
+    senderAlt: info.SenderAlt,
+    pushName: info.PushName,
+    timestamp: info.Timestamp,
+    type: info.Type,
+    category: info.Category,
+    addressingMode: info.AddressingMode,
+    mediaType: info.MediaType,
+    serverID: info.ServerID,
+  };
+}

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import {
   ensureEvolutionInstanceFullHistory,
@@ -1829,4 +1830,131 @@ export async function syncEvolutionMessagesSince(input: {
   }
 
   return { ok: true, chats: phones.length, imported };
+}
+
+/** Tipos de contenido de whatsmeow que sabemos mapear desde un HISTORYSYNC. */
+function readHistorySyncMessageType(message: Record<string, unknown> | null) {
+  if (!message) return "TEXT" as const;
+  if (asRecord(message.imageMessage)) return "IMAGE" as const;
+  if (asRecord(message.videoMessage)) return "VIDEO" as const;
+  if (asRecord(message.audioMessage)) return "AUDIO" as const;
+  if (asRecord(message.documentMessage)) return "DOCUMENT" as const;
+  if (asRecord(message.stickerMessage)) return "STICKER" as const;
+  if (asRecord(message.locationMessage)) return "LOCATION" as const;
+  return "TEXT" as const;
+}
+
+function readHistorySyncText(message: Record<string, unknown> | null) {
+  if (!message) return null;
+  const direct = readString(message.conversation);
+  if (direct) return direct;
+
+  for (const key of ["extendedTextMessage", "imageMessage", "videoMessage", "documentMessage"]) {
+    const inner = asRecord(message[key]);
+    const text = readString(inner?.text) || readString(inner?.caption);
+    if (text) return text;
+  }
+
+  return null;
+}
+
+/**
+ * Guarda los mensajes que llegan en un evento HISTORYSYNC de Evolution GO.
+ *
+ * Se dispara con POST /chat/history-sync (ver el boton de traer historial). El payload trae
+ * `data.Data.conversations[].messages[].message`, cada uno un WebMessageInfo de whatsmeow.
+ *
+ * Dos decisiones que importan:
+ *
+ * 1. **No despierta al agente.** Estos mensajes NO pasan por el camino normal del webhook: si lo
+ *    hicieran, el bot le contestaria a conversaciones de hace semanas. Ese fue exactamente el
+ *    daño del backfill automatico que se quito (revivia chats y mataba la bienvenida).
+ *
+ * 2. **No crea contactos ni conversaciones.** Solo rellena chats que YA existen. Un history sync
+ *    puede traer conversaciones enteras que nadie pidio, y crear contactos de ahi es lo que
+ *    llenó el CRM de 26 leads que nunca escribieron. Si el chat no esta, se ignora.
+ */
+export async function persistEvolutionHistorySync(input: {
+  workspaceId: string;
+  channelId: string;
+  payload: unknown;
+}): Promise<{ imported: number; chats: number }> {
+  const root = asRecord(input.payload);
+  const conversations = asRecord(asRecord(root?.data)?.Data)?.conversations;
+  if (!Array.isArray(conversations)) {
+    return { imported: 0, chats: 0 };
+  }
+
+  let imported = 0;
+  let chats = 0;
+
+  for (const rawConversation of conversations) {
+    const conversationRecord = asRecord(rawConversation);
+    const phoneNumber = getComparablePhoneFromString(readString(conversationRecord?.ID) ?? "");
+    const rawMessages = conversationRecord?.messages;
+    if (!phoneNumber || !Array.isArray(rawMessages) || !rawMessages.length) {
+      continue;
+    }
+
+    // Solo chats que ya existen: ver el punto 2 del comentario de arriba.
+    const conversation = await prisma.conversation.findFirst({
+      where: {
+        workspaceId: input.workspaceId,
+        channelId: input.channelId,
+        contact: { phoneNumber: { in: buildPhoneVariants(phoneNumber) } },
+      },
+      select: { id: true, contactId: true },
+    });
+
+    if (!conversation) {
+      continue;
+    }
+
+    chats += 1;
+
+    for (const rawItem of rawMessages) {
+      const webMessage = asRecord(asRecord(rawItem)?.message);
+      const key = asRecord(webMessage?.key);
+      const externalId = readString(key?.ID);
+      if (!webMessage || !externalId) {
+        continue;
+      }
+
+      const content = asRecord(webMessage.message);
+      const timestampSeconds = Number(webMessage.messageTimestamp);
+      const createdAt = Number.isFinite(timestampSeconds) && timestampSeconds > 0
+        ? new Date(timestampSeconds * 1000)
+        : new Date();
+
+      try {
+        // El unique (channelId, externalId) hace de deduplicador: un mensaje que ya teniamos
+        // choca aca y se saltea, asi que el import es idempotente y se puede repetir.
+        await prisma.message.create({
+          data: {
+            workspaceId: input.workspaceId,
+            conversationId: conversation.id,
+            channelId: input.channelId,
+            contactId: conversation.contactId,
+            externalId,
+            direction: key?.fromMe === true ? "OUTBOUND" : "INBOUND",
+            type: readHistorySyncMessageType(content),
+            status: key?.fromMe === true ? "SENT" : "RECEIVED",
+            content: readHistorySyncText(content),
+            createdAt,
+            sentAt: key?.fromMe === true ? createdAt : null,
+            rawPayload: { source: "evogo-history-sync", evolution: webMessage } as never,
+          },
+        });
+        imported += 1;
+      } catch (error) {
+        const isDuplicate =
+          error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+        if (!isDuplicate) {
+          throw error;
+        }
+      }
+    }
+  }
+
+  return { imported, chats };
 }
