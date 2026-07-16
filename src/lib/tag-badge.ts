@@ -9,7 +9,7 @@ export const TAG_BADGE_CLASS =
 // el texto se deriva por este mapa. Los swatches del selector usan estos `bg`.
 export const TAG_COLOR_PAIRS: Array<{ bg: string; text: string }> = [
   { bg: "#CAECFA", text: "#074B6A" }, // Azul
-  { bg: "#D2ECFB", text: "#0B4A73" }, // Azul cielo
+  { bg: "#B6D9FE", text: "#092642" }, // Azul oscuro
   { bg: "#C9F0D8", text: "#0B5B2E" }, // Verde
   { bg: "#C7F0EC", text: "#0A5B54" }, // Teal
   { bg: "#FBD7D1", text: "#7A1C12" }, // Rojo
