@@ -248,7 +248,7 @@ export function AppSidebar({
                   aria-current={isActive ? "page" : undefined}
                   className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1 text-[13px] font-medium transition ${
                     isActive
-                      ? "border-transparent bg-emerald-100 text-emerald-700"
+                      ? "border-transparent bg-emerald-100 text-black"
                       : "border-border text-muted-foreground hover:bg-muted"
                   }`}
                 >
@@ -256,7 +256,7 @@ export function AppSidebar({
                   {countLabel != null ? (
                     <span
                       className={`text-[11px] font-semibold leading-none ${
-                        isActive ? "text-emerald-700" : "text-muted-foreground"
+                        isActive ? "text-black" : "text-muted-foreground"
                       }`}
                     >
                       {countLabel}
