@@ -18,9 +18,15 @@ type ConversationCacheStore = {
   conversations: Record<string, CachedConversation>;
 };
 
-const STORAGE_KEY = "aglite:chat-history-cache:v1";
+// v2: la v1 guardaba los adjuntos en base64 (ver stripBase64Attachments). Se cambia la clave
+// para no arrastrar esas entradas infladas; la v1 se borra al arrancar para liberar su espacio.
+const STORAGE_KEY = "aglite:chat-history-cache:v2";
+const LEGACY_STORAGE_KEYS = ["aglite:chat-history-cache:v1"];
 const VISITED_STORAGE_KEY = "aglite:chat-visited:v1";
-const MAX_CACHE_ENTRIES = 20;
+// Sin el base64 cada chat pesa unos pocos KB en vez de cientos, asi que entran todos y dejamos
+// de desalojar. Con el limite viejo (20) y 37 chats, abrir uno echaba a otro y reabrirlo
+// obligaba a pedirlo de nuevo al servidor.
+const MAX_CACHE_ENTRIES = 80;
 const MAX_VISITED_ENTRIES = 200;
 const CACHE_SAVE_DEBOUNCE_MS = 120;
 
@@ -63,6 +69,15 @@ function readStore(): ConversationCacheStore {
     return { version: 1, conversations: {} };
   }
 
+  // La cache v1 quedaria ocupando espacio muerto (medido: 1.3 MB) sin que nadie la lea.
+  for (const legacyKey of LEGACY_STORAGE_KEYS) {
+    try {
+      window.localStorage.removeItem(legacyKey);
+    } catch {
+      // Sin permisos de storage no hay nada que limpiar.
+    }
+  }
+
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) {
@@ -90,8 +105,14 @@ function writeStore(store: ConversationCacheStore) {
 
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
-  } catch {
-    // Ignore storage quota or serialization failures.
+  } catch (error) {
+    // Si esto falla, la cache deja de guardar y TODOS los chats vuelven a pedirse al servidor.
+    // Callarlo hacia que el sintoma (abrir un chat va lento) no tuviera ninguna pista.
+    console.warn("[chat-cache] no se pudo guardar la cache de chats", {
+      chats: Object.keys(store.conversations).length,
+      kb: Math.round(JSON.stringify(store).length / 1024),
+      motivo: String(error),
+    });
   }
 }
 
@@ -210,11 +231,46 @@ function normalizeSerializableDate(value: Date | string | null | undefined) {
   return typeof value === "string" ? value : value.toISOString();
 }
 
+/**
+ * Saca del rawPayload el archivo adjunto en base64 antes de guardarlo en localStorage.
+ *
+ * Evolution manda el archivo COMPLETO codificado dentro del payload
+ * (`evolution.data.Message.base64`). Medido en produccion: 296 KB en un solo mensaje, 352 de
+ * los 360 KB que ocupaba ese chat. El navegador nunca lo lee —los adjuntos se muestran con
+ * `mediaUrl` y las miniaturas con `jpegThumbnail`— pero se cacheaba igual, inflando la cache
+ * ~170x. Con 1.3 MB ocupados solo entraban 20 de los 37 chats, asi que abrir un chat
+ * desalojaba a otro y reabrirlo obligaba a pedirlo de nuevo al servidor: por eso algunos
+ * chats abrian al instante y otros no.
+ *
+ * OJO: `jpegThumbnail` NO se toca, se usa para la vista previa (ver chat-inbox-media.ts).
+ */
+function stripBase64Attachments(value: unknown, depth = 0): unknown {
+  if (depth > 8 || value === null || typeof value !== "object") {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => stripBase64Attachments(item, depth + 1));
+  }
+
+  const result: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    // Solo el adjunto crudo: la miniatura (jpegThumbnail) tiene otra clave y se conserva.
+    if (key === "base64" && typeof item === "string") {
+      continue;
+    }
+    result[key] = stripBase64Attachments(item, depth + 1);
+  }
+
+  return result;
+}
+
 function serializeConversation(conversation: SharedInboxSelectedConversation): CachedConversation {
   return {
     ...conversation,
     messages: conversation.messages.map((message) => ({
       ...message,
+      rawPayload: stripBase64Attachments(message.rawPayload),
       createdAt: normalizeSerializableDate(message.createdAt) ?? new Date().toISOString(),
       editedAt: normalizeSerializableDate(message.editedAt),
       deletedAt: normalizeSerializableDate(message.deletedAt),
@@ -242,6 +298,8 @@ function toCachedMessageItem(
 ): CachedMessageItem {
   return {
     ...message,
+    // Los mensajes que entran en vivo pasan por aca: sin esto el base64 se vuelve a colar.
+    rawPayload: stripBase64Attachments(message.rawPayload),
     createdAt: typeof message.createdAt === "string" ? message.createdAt : message.createdAt.toISOString(),
     editedAt:
       "editedAt" in message && message.editedAt
