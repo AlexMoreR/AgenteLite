@@ -96,7 +96,13 @@ export function scheduleSingleContactAvatarRefresh(target: ContactAvatarTarget) 
 
   after(async () => {
     try {
-      await refreshContactAvatars([target], { noPhotoRetryMs: SINGLE_NO_PHOTO_RETRY_MS, maxPerRun: 1 });
+      // bypassCircuit: al abrir un chat queremos intentar SU foto aunque el cortacircuitos
+      // global esté en pausa (es 1 solo contacto, bajo costo) y sin afectar ese contador.
+      await refreshContactAvatars([target], {
+        noPhotoRetryMs: SINGLE_NO_PHOTO_RETRY_MS,
+        maxPerRun: 1,
+        bypassCircuit: true,
+      });
     } catch {
       // best-effort
     }
@@ -105,10 +111,11 @@ export function scheduleSingleContactAvatarRefresh(target: ContactAvatarTarget) 
 
 async function refreshContactAvatars(
   targets: ContactAvatarTarget[],
-  options: { noPhotoRetryMs?: number; maxPerRun?: number } = {},
+  options: { noPhotoRetryMs?: number; maxPerRun?: number; bypassCircuit?: boolean } = {},
 ) {
   const noPhotoRetryMs = options.noPhotoRetryMs ?? AVATAR_RETRY_MS;
   const maxPerRun = options.maxPerRun ?? MAX_PER_RUN;
+  const bypassCircuit = options.bypassCircuit ?? false;
   const byId = new Map<string, ContactAvatarTarget>();
   for (const target of targets) {
     if (target.contactId && target.phoneNumber && target.instanceName && !byId.has(target.contactId)) {
@@ -122,7 +129,8 @@ async function refreshContactAvatars(
   }
 
   // Cortacircuitos: si evogo viene fallando en /user/avatar, no insistimos por un rato.
-  if (Date.now() < avatarCircuitPausedUntil) {
+  // El refresco de UN contacto (abrir chat) lo salta: es barato y es lo que el usuario mira.
+  if (!bypassCircuit && Date.now() < avatarCircuitPausedUntil) {
     return;
   }
 
@@ -156,7 +164,11 @@ async function refreshContactAvatars(
 
     if (!result.ok) {
       // Falla/timeout de evogo: NO marcamos fetchedAt (para reintentar cuando reabra el
-      // circuito) y contamos para el cortacircuitos.
+      // circuito). Un intento de UN contacto (bypassCircuit) no cuenta para el cortacircuitos
+      // global — así abrir un chat no pausa todo el sistema.
+      if (bypassCircuit) {
+        continue;
+      }
       avatarConsecutiveFailures += 1;
       if (avatarConsecutiveFailures >= CIRCUIT_FAILURE_THRESHOLD) {
         avatarConsecutiveFailures = 0;
@@ -166,7 +178,9 @@ async function refreshContactAvatars(
       continue;
     }
 
-    avatarConsecutiveFailures = 0;
+    if (!bypassCircuit) {
+      avatarConsecutiveFailures = 0;
+    }
     const meta = readMetadataObject(contact.metadata);
     const nextMetadata = { ...meta, avatarFetchedAt: new Date(now).toISOString() };
 

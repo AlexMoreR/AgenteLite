@@ -518,6 +518,9 @@ async function evolutionInstanceRequest<T>(input: {
   body?: unknown;
   legacyPath?: string;
   legacyBody?: unknown;
+  // Opcional: aborta el fetch (p. ej. la foto de perfil, que evogo cuelga ~75s cuando
+  // WhatsApp rate-limitea). Solo lo usan los callers que lo necesiten.
+  signal?: AbortSignal;
 }) {
   const instance = await resolveEvolutionInstance(input.instanceName);
   const normalizedPath = normalizeEvolutionPath(input.path);
@@ -528,6 +531,7 @@ async function evolutionInstanceRequest<T>(input: {
       return await evolutionRequest<T>(normalizedPath, {
         method,
         headers: buildInstanceHeaders(instance, { useInstanceApiKey: true }),
+        ...(input.signal ? { signal: input.signal } : {}),
         ...(typeof input.body === "undefined" ? {} : { body: JSON.stringify(input.body) }),
       });
     } catch (error) {
@@ -544,6 +548,7 @@ async function evolutionInstanceRequest<T>(input: {
   const legacyRequestBody = input.legacyBody ?? input.body;
   return evolutionRequest<T>(normalizeEvolutionPath(input.legacyPath), {
     method,
+    ...(input.signal ? { signal: input.signal } : {}),
     ...(typeof legacyRequestBody === "undefined" ? {} : { body: JSON.stringify(legacyRequestBody) }),
   });
 }
@@ -2019,10 +2024,13 @@ export async function fetchEvolutionProfilePictureUrl(input: {
   }
 
   try {
+    // Aborta a los 6s: /user/avatar cuelga ~75s en evogo cuando WhatsApp rate-limitea
+    // las consultas de foto. Sin este abort, cada intento retiene una conexion a evogo.
     const response = await evolutionInstanceRequest<Record<string, unknown>>({
       instanceName: input.instanceName,
       path: "/user/avatar",
       legacyPath: `/chat/fetchProfilePictureUrl/${input.instanceName}`,
+      signal: AbortSignal.timeout(6000),
       body: {
         number: input.phoneNumber,
         preview: true,
