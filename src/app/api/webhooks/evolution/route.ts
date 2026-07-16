@@ -15,7 +15,6 @@ import { getConversationAutomationPaused, setConversationAutomationPaused } from
 import { recordConversationActivity } from "@/lib/conversation-activity";
 import { prisma } from "@/lib/prisma";
 import { sendChatPushToWorkspace } from "@/lib/web-push";
-import { publishChatEvent } from "@/lib/chat-events";
 import {
   cancelPendingFollowsByContact,
   createFollowsFromRulesForSource,
@@ -1493,18 +1492,6 @@ export async function POST(request: NextRequest) {
       },
     });
   }
-
-  // Realtime unificado (SSE): avisa a los navegadores del workspace que este chat cambio.
-  // Cubre AMBOS gateways (API y GO); en GO el WS nativo tambien dispara, pero emitir aqui
-  // no molesta (el refresco esta protegido contra concurrencia). Best-effort.
-  publishChatEvent({
-    type: "message",
-    workspaceId: channel.workspaceId,
-    chatKey: `agent:${conversation.id}`,
-    phoneNumber: contact.phoneNumber ?? null,
-    channelId: channel.id,
-    at: Date.now(),
-  });
 
   const resolvedCurrentMediaUrl =
     messageType === "IMAGE" || messageType === "STICKER" || messageType === "AUDIO"
