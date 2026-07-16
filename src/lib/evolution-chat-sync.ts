@@ -8,6 +8,7 @@ import {
   type EvolutionConnection,
 } from "@/lib/evolution";
 import { persistChatMediaFromDataUrl } from "@/lib/chat-media-storage";
+import { fetchEvolutionGoMediaDataUrl } from "@/lib/evolution";
 import { getEvolutionSettings } from "@/lib/system-settings";
 import {
   extractEvolutionFromMe,
@@ -1877,16 +1878,18 @@ function readHistorySyncText(message: Record<string, unknown> | null) {
 export async function persistEvolutionHistorySync(input: {
   workspaceId: string;
   channelId: string;
+  instanceName: string;
   payload: unknown;
-}): Promise<{ imported: number; chats: number }> {
+}): Promise<{ imported: number; chats: number; media: number }> {
   const root = asRecord(input.payload);
   const conversations = asRecord(asRecord(root?.data)?.Data)?.conversations;
   if (!Array.isArray(conversations)) {
-    return { imported: 0, chats: 0 };
+    return { imported: 0, chats: 0, media: 0 };
   }
 
   let imported = 0;
   let chats = 0;
+  let media = 0;
 
   for (const rawConversation of conversations) {
     const conversationRecord = asRecord(rawConversation);
@@ -1926,6 +1929,24 @@ export async function persistEvolutionHistorySync(input: {
         ? new Date(timestampSeconds * 1000)
         : new Date();
 
+      // Los adjuntos hay que bajarlos aparte: WhatsApp los guarda cifrados y evogo no expone
+      // una URL, asi que sin esto quedaria el tipo (IMAGE/DOCUMENT/AUDIO) sin archivo, o sea una
+      // burbuja rota. Se persiste en nuestro servidor —no se guarda el data URL en la BD— para
+      // que el catalogo siga abriendo dentro de un año.
+      const messageType = readHistorySyncMessageType(content);
+      let mediaUrl: string | null = null;
+      if (messageType === "IMAGE" || messageType === "VIDEO" || messageType === "AUDIO" || messageType === "DOCUMENT" || messageType === "STICKER") {
+        const dataUrl = await fetchEvolutionGoMediaDataUrl({
+          instanceName: input.instanceName,
+          message: content,
+        });
+
+        mediaUrl = await persistChatMediaFromDataUrl({ dataUrl, mediaType: messageType });
+        if (mediaUrl) {
+          media += 1;
+        }
+      }
+
       try {
         // El unique (channelId, externalId) hace de deduplicador: un mensaje que ya teniamos
         // choca aca y se saltea, asi que el import es idempotente y se puede repetir.
@@ -1937,9 +1958,10 @@ export async function persistEvolutionHistorySync(input: {
             contactId: conversation.contactId,
             externalId,
             direction: key?.fromMe === true ? "OUTBOUND" : "INBOUND",
-            type: readHistorySyncMessageType(content),
+            type: messageType,
             status: key?.fromMe === true ? "SENT" : "RECEIVED",
             content: readHistorySyncText(content),
+            mediaUrl,
             createdAt,
             sentAt: key?.fromMe === true ? createdAt : null,
             rawPayload: { source: "evogo-history-sync", evolution: webMessage } as never,
@@ -1956,5 +1978,5 @@ export async function persistEvolutionHistorySync(input: {
     }
   }
 
-  return { imported, chats };
+  return { imported, chats, media };
 }

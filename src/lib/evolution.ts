@@ -2572,3 +2572,31 @@ export function buildEvolutionGoHistoryAnchor(rawPayload: unknown): Record<strin
     serverID: info.ServerID,
   };
 }
+
+/**
+ * Descarga un adjunto de un mensaje de Evolution GO y lo devuelve como data URL.
+ *
+ * evogo no expone URLs de los archivos: hay que pedirle que los baje y los descifre (WhatsApp
+ * los guarda cifrados). Se le pasa el objeto `message` del WebMessageInfo —el que trae
+ * imageMessage/documentMessage/audioMessage— y responde { data: { base64: "data:...;base64,..." } }.
+ *
+ * Devuelve null si no se pudo: un adjunto que falla no debe abortar la importacion del resto.
+ */
+export async function fetchEvolutionGoMediaDataUrl(input: {
+  instanceName: string;
+  message: unknown;
+}): Promise<string | null> {
+  try {
+    const response = await evolutionInstanceRequest<{ data?: { base64?: string } }>({
+      instanceName: input.instanceName,
+      path: "/message/downloadmedia",
+      method: "POST",
+      body: { message: input.message },
+    });
+
+    const base64 = readString(asRecord(asRecord(response)?.data)?.base64);
+    return base64 && base64.startsWith("data:") ? base64 : null;
+  } catch {
+    return null;
+  }
+}

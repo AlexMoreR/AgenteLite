@@ -1022,6 +1022,7 @@ export async function POST(request: NextRequest) {
         const result = await persistEvolutionHistorySync({
           workspaceId: historyChannel.workspaceId,
           channelId: historyChannel.id,
+          instanceName: historyChannel.evolutionInstanceName ?? instanceName ?? "",
           payload,
         });
         console.log("[EVOLUTION] history_sync", {
@@ -1029,6 +1030,7 @@ export async function POST(request: NextRequest) {
           channelId: historyChannel.id,
           chats: result.chats,
           mensajes: result.imported,
+          adjuntos: result.media,
         });
       } catch (error) {
         console.error("[EVOLUTION] history_sync_error", {
