@@ -1,5 +1,29 @@
 # Plan — Doble gateway WhatsApp: Evolution API + Evolution GO
 
+> **ESTADO (implementado en la rama `feat/dual-gateway-evolution-api-go`, PR #2):**
+> Fases 1-5 completas. Verificación automática ✓ (`tsc`, `eslint`, `next build`).
+> Falta solo la prueba manual con QR real + deploy (checklist al final).
+
+## Checklist para mañana (tú)
+
+1. **Merge del PR #2** en GitHub y **deploy en Portainer** (build de `main`).
+2. **Canal API nuevo**: Conexión → Nuevo canal → WhatsApp QR Code → elige **Evolution API**,
+   pon la **URL base** (+ apikey si tu servidor la pide) → Crear → **escanea el QR**.
+3. **Realtime**: manda un WhatsApp a ese número → debe aparecer **al instante** en Chats (SSE).
+   Responde desde el CRM → debe salir. Prueba también que el **agente IA** responda.
+4. **Rellenado**: en el detalle del canal → "Sincronizar chats" → por número → confirma que trae
+   el historial.
+5. **Avatar**: abre un chat y trae la foto de perfil.
+6. **Conectar API a "ventas"**: en el detalle de "ventas" → "Conectar este canal a Evolution API"
+   → URL + apikey → escanea el QR nuevo → confirma que los **chats viejos siguen ahí**.
+7. **No-regresión**: confirma que un canal **evogo** existente sigue funcionando igual.
+
+Si algo falla, el realtime tiene **doble red de seguridad** (WS de evogo + poll de 60s), así que
+los mensajes igual llegan aunque el SSE tenga un problema.
+
+---
+
+
 ## Objetivo
 
 Que el CRM soporte **las dos conexiones a la vez**, con **paridad total**:
