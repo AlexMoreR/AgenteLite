@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { AlertCircle, CheckCircle2, History, Loader2, RefreshCw, Users } from "lucide-react";
+import { AlertCircle, AlertTriangle, CheckCircle2, History, Loader2, RefreshCw, Users } from "lucide-react";
 import { toast } from "sonner";
 import {
   applyEvolutionChatSyncAction,
@@ -443,15 +443,31 @@ export function EvolutionChatSyncDialog({ channelId }: EvolutionChatSyncDialogPr
             </div>
 
             {state.phase === "batch" ? (
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={isPending}>
-                  Ignorar
-                </Button>
-                <Button type="button" onClick={runApply} disabled={isPending}>
-                  {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  Agregar
-                </Button>
-              </DialogFooter>
+              <>
+                {/* "Todas" trae el historial COMPLETO del chat: en un cliente viejo son miles
+                    de mensajes, y cada foto y PDF se descarga al servidor. El resto de las
+                    opciones tienen techo. Se avisa solo en ese caso para que el aviso
+                    signifique algo y no se vuelva ruido que nadie lee. */}
+                {importLimit === "all" ? (
+                  <p className="flex items-start gap-2 rounded-xl bg-amber-50 p-3 text-[13px] text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+                    <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+                    <span>
+                      Vas a traer <strong>todo el historial</strong> de este chat. Si es un cliente antiguo pueden
+                      ser miles de mensajes, y sus fotos y PDF se descargan al servidor. Para completar un chat
+                      alcanza con las últimas 50 o 100.
+                    </span>
+                  </p>
+                ) : null}
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={isPending}>
+                    Ignorar
+                  </Button>
+                  <Button type="button" onClick={runApply} disabled={isPending}>
+                    {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    Agregar
+                  </Button>
+                </DialogFooter>
+              </>
             ) : state.phase === "none" ? (
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setOpen(false)}>
