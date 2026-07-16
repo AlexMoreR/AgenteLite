@@ -4,7 +4,7 @@ import { auth } from "@/auth";
 import { WhatsAppConnectionsSettings } from "@/components/admin/whatsapp-connections-settings";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { hasAdminModuleAccess } from "@/lib/admin-module-access";
-import { getEvolutionSettings } from "@/lib/system-settings";
+import { getEvolutionGateways, getEvolutionSettings } from "@/lib/system-settings";
 
 type PageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -24,7 +24,7 @@ export default async function AdminConfiguracionWhatsAppPage({ searchParams }: P
   const params = await searchParams;
   const okMessage = typeof params.ok === "string" ? params.ok : "";
   const errorMessage = typeof params.error === "string" ? params.error : "";
-  const settings = await getEvolutionSettings();
+  const [settings, gateways] = await Promise.all([getEvolutionSettings(), getEvolutionGateways()]);
 
   return (
     <section className="w-full space-y-5">
@@ -40,12 +40,9 @@ export default async function AdminConfiguracionWhatsAppPage({ searchParams }: P
           <MessageSquareMore className="h-4 w-4 text-slate-500" />
           <span>Configuracion WhatsApp</span>
         </h1>
-        <p className="mt-1 text-xs text-slate-600">
-          Administra por separado la conexion heredada de Evolution y la configuracion activa de Evolution Go.
-        </p>
       </div>
 
-      <WhatsAppConnectionsSettings settings={settings} />
+      <WhatsAppConnectionsSettings gateways={gateways} webhookUrl={settings.webhookBaseUrl} />
     </section>
   );
 }

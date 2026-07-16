@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   IconCircleCheckFilled,
 } from "@tabler/icons-react"
@@ -91,6 +92,7 @@ type FollowRuleRow = {
 type FollowRow = {
   id: string;
   contactId: string;
+  conversationId?: string | null;
   name: string | null;
   timeType: string;
   timeValue: number;
@@ -163,6 +165,20 @@ function followStatusLabel(status: string) {
 function normalizePhoneHref(phoneNumber: string) {
   const digits = phoneNumber.replace(/\D/g, "");
   return digits ? `tel:+${digits}` : "";
+}
+
+// Link al chat del seguimiento: abre la conversación donde se ejecutó (o se va a ejecutar).
+function buildFollowChatHref(follow: FollowRow) {
+  if (!follow.conversationId) {
+    return "";
+  }
+
+  const params = new URLSearchParams({ chatKey: `agent:${follow.conversationId}` });
+  if (follow.channel?.id) {
+    params.set("connection", `channel:${follow.channel.id}`);
+  }
+
+  return `/cliente/chats?${params.toString()}`;
 }
 
 function toEditFollowRule(rule: FollowRuleRow): EditFollowRule {
@@ -374,12 +390,28 @@ export function SeguimientosWorkspace({
                     <div className="inline-flex items-center gap-1.5 truncate text-xs text-muted-foreground">
                       <Phone className="h-3 w-3 shrink-0" />
                       {contactPhoneById.get(follow.contactId) ? (
-                        <a
-                          href={normalizePhoneHref(contactPhoneById.get(follow.contactId) || "")}
-                          className="font-medium no-underline hover:text-foreground"
-                        >
-                          {contactPhoneById.get(follow.contactId)}
-                        </a>
+                        (() => {
+                          const chatHref = buildFollowChatHref(follow);
+                          const phone = contactPhoneById.get(follow.contactId) || "";
+                          // Si hay conversación, el número abre el chat donde se ejecuta/ejecutó
+                          // el seguimiento. Si no la hay, cae al marcador del teléfono.
+                          return chatHref ? (
+                            <Link
+                              href={chatHref}
+                              title="Abrir el chat de este seguimiento"
+                              className="font-medium no-underline hover:text-foreground hover:underline"
+                            >
+                              {phone}
+                            </Link>
+                          ) : (
+                            <a
+                              href={normalizePhoneHref(phone)}
+                              className="font-medium no-underline hover:text-foreground"
+                            >
+                              {phone}
+                            </a>
+                          );
+                        })()
                       ) : (
                         follow.contactId
                       )}

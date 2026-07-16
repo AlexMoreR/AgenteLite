@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { WhatsAppBusinessConnectionWorkspace, getWhatsAppBusinessConnectionDetail } from "@/features/conexion";
 import { getPublicBaseUrl } from "@/lib/app-url";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
-import { getOfficialApiProviderSettings } from "@/lib/system-settings";
+import { getEvolutionGateways, getOfficialApiProviderSettings } from "@/lib/system-settings";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -64,7 +64,7 @@ async function ConnectionDetailContent({
   errorMessage: string;
 }) {
   const detail = await getWhatsAppBusinessConnectionDetail(workspaceId, agentId);
-  const [availableAgents, workspaceMembers, providerSettings] = await Promise.all([
+  const [availableAgents, workspaceMembers, providerSettings, evolutionGateways] = await Promise.all([
     prisma.agent.findMany({
       where: {
         workspaceId,
@@ -87,6 +87,7 @@ async function ConnectionDetailContent({
       orderBy: { createdAt: "asc" },
     }),
     getOfficialApiProviderSettings(),
+    getEvolutionGateways(),
   ]);
 
   if (!detail) {
@@ -126,6 +127,9 @@ async function ConnectionDetailContent({
       availableAgents={availableAgents}
       collaboratorMembers={collaboratorMembers}
       collaboratorIds={collaboratorIds}
+      evolutionApiGateways={evolutionGateways
+        .filter((gateway) => gateway.kind === "EVOLUTION_API")
+        .map((gateway) => ({ id: gateway.id, baseUrl: gateway.baseUrl }))}
     />
   );
 }
