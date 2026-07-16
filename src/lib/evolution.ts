@@ -620,13 +620,34 @@ async function evolutionInstanceRequest<T>(input: {
   // WhatsApp rate-limitea). Solo lo usan los callers que lo necesiten.
   signal?: AbortSignal;
 }) {
-  const instance = await resolveEvolutionInstance(input.instanceName);
+  // resolveEvolutionInstance enumera las instancias del gateway (otra llamada HTTP) para
+  // traer el `raw`, que aqui no usamos: solo hacen falta id/token, y ya estan en nuestra
+  // BD. En canales Evolution API nos saltamos esa enumeracion (enviar pasa de 3 llamadas
+  // a 1). El camino de evogo se deja intacto para no arriesgar lo que ya funciona.
+  const storedAuth = await getStoredEvolutionInstanceAuth(input.instanceName);
+  const instance: EvolutionResolvedInstance | null =
+    storedAuth?.connection?.kind === "EVOLUTION_API" && storedAuth.token
+      ? {
+          id: storedAuth.id,
+          name: input.instanceName,
+          token: storedAuth.token,
+          raw: null,
+          connection: storedAuth.connection,
+        }
+      : await resolveEvolutionInstance(input.instanceName);
+
   const normalizedPath = normalizeEvolutionPath(input.path);
   const method = input.method ?? "POST";
 
   const connection = instance?.connection ?? null;
 
-  if (instance?.id || instance?.token) {
+  // `path` son los endpoints de Evolution GO y `legacyPath` los de Evolution API. En un
+  // canal API, intentar `path` es un 404 GARANTIZADO antes de cada operacion: enviar
+  // costaba 3 llamadas en vez de 2 (de ahi que se sintiera mas lento que evogo al enviar,
+  // subir medios o traer fotos). Si el canal es API y hay legacyPath, vamos directo a el.
+  const skipGoPath = connection?.kind === "EVOLUTION_API" && Boolean(input.legacyPath);
+
+  if (!skipGoPath && (instance?.id || instance?.token)) {
     try {
       return await evolutionRequest<T>(normalizedPath, {
         method,
@@ -2357,25 +2378,19 @@ export async function fetchEvolutionProfilePictureUrl(input: {
   }
 
   try {
-    // /user/avatar es de evogo: en Evolution API da 404 y recien ahi se usaba su
-    // endpoint. Eso es una llamada perdida POR CADA contacto (y el CRM refresca fotos en
-    // lote), asi que los canales API van directo al suyo.
-    const connection = (await getStoredEvolutionInstanceAuth(input.instanceName))?.connection ?? null;
-    const isEvolutionApi = connection?.kind === "EVOLUTION_API";
-
     // Aborta a los 6s: /user/avatar cuelga ~75s en evogo cuando WhatsApp rate-limitea
     // las consultas de foto. Sin este abort, cada intento retiene una conexion a evogo.
+    // (En canales Evolution API, evolutionInstanceRequest salta /user/avatar y usa
+    // directamente el legacyPath, sin el 404 previo.)
     const response = await evolutionInstanceRequest<Record<string, unknown>>({
       instanceName: input.instanceName,
-      path: isEvolutionApi ? `/chat/fetchProfilePictureUrl/${input.instanceName}` : "/user/avatar",
-      ...(isEvolutionApi ? {} : { legacyPath: `/chat/fetchProfilePictureUrl/${input.instanceName}` }),
+      path: "/user/avatar",
+      legacyPath: `/chat/fetchProfilePictureUrl/${input.instanceName}`,
       signal: AbortSignal.timeout(6000),
-      body: isEvolutionApi
-        ? { number: input.phoneNumber }
-        : {
-            number: input.phoneNumber,
-            preview: true,
-          },
+      body: {
+        number: input.phoneNumber,
+        preview: true,
+      },
       legacyBody: {
         number: input.phoneNumber,
       },
