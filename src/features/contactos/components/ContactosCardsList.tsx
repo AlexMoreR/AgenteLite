@@ -397,21 +397,16 @@ export function ContactosCardsList({ contacts }: { contacts: ContactosCardItem[]
                   className="border-destructive/30 text-destructive hover:bg-destructive/5 hover:text-destructive"
                 >
                   <Trash2 className="h-4 w-4" />
-                  Eliminar permanentemente
+                  Eliminar
                 </Button>
-                <div className="flex items-center gap-2">
-                  <Button type="button" variant="outline" onClick={() => setSelected(null)}>
-                    Cerrar
+                {/* Fuera del <form>: lo envia por su atributo `form`. Asi la accion
+                    principal queda siempre visible sin tener que bajar el scroll. */}
+                {activeTab === "editar" ? (
+                  <Button type="submit" form={CONTACT_EDIT_FORM_ID} disabled={isSavingContact}>
+                    {isSavingContact ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                    Guardar
                   </Button>
-                  {/* Fuera del <form>: lo envia por su atributo `form`. Asi la accion
-                      principal queda siempre visible sin tener que bajar el scroll. */}
-                  {activeTab === "editar" ? (
-                    <Button type="submit" form={CONTACT_EDIT_FORM_ID} disabled={isSavingContact}>
-                      {isSavingContact ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                      Guardar cambios
-                    </Button>
-                  ) : null}
-                </div>
+                ) : null}
               </div>
             </>
           ) : null}
