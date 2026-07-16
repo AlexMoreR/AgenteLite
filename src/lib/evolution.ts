@@ -446,16 +446,21 @@ async function evolutionRawRequest(
 }
 
 async function fetchEvolutionInstances(connection?: EvolutionConnection | null) {
-  try {
-    const response = await evolutionRequest<EvolutionInstanceRecord[] | EvolutionInstanceRecord>("/instance/all", {
-      method: "GET",
-    }, { connection });
-    const records = extractInstancePayloadList(response);
-    if (records.length > 0) {
-      return records;
+  // /instance/all es de evogo: en Evolution API siempre da 404. Probarlo ahi es una ida
+  // y vuelta desperdiciada en CADA resolucion de instancia (y esto se llama al abrir un
+  // chat, enviar, resolver medios...), asi que vamos directo a su endpoint.
+  if (connection?.kind !== "EVOLUTION_API") {
+    try {
+      const response = await evolutionRequest<EvolutionInstanceRecord[] | EvolutionInstanceRecord>("/instance/all", {
+        method: "GET",
+      }, { connection });
+      const records = extractInstancePayloadList(response);
+      if (records.length > 0) {
+        return records;
+      }
+    } catch {
+      // Fall back to Evolution API legacy endpoint below.
     }
-  } catch {
-    // Fall back to Evolution API legacy endpoint below.
   }
 
   const legacyResponse = await evolutionRequest<EvolutionInstanceRecord[] | EvolutionInstanceRecord>("/instance/fetchInstances", {
