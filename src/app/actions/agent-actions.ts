@@ -3063,7 +3063,12 @@ export async function sendChatAudioReplyAction(input: {
   if (safeReturnTo) {
     revalidatePath(safeReturnTo.split("?")[0]);
   }
-  revalidatePath(`/cliente/agentes/${parsed.data.agentId}/chats`);
+  // Sin agente esto armaba /cliente/agentes/undefined/chats. No rompia el envio, pero es la
+  // misma inconsistencia que el resto: el agente es opcional en todo este camino.
+  const revalidateAgentId = parsed.data.agentId?.trim() || conversation.agentId;
+  if (revalidateAgentId) {
+    revalidatePath(`/cliente/agentes/${revalidateAgentId}/chats`);
+  }
 
   return { ok: true };
 }
