@@ -127,9 +127,6 @@ export function WhatsAppConnectionsSettings({ gateways, webhookUrl }: WhatsAppCo
                       )}
                     >
                       {KIND_LABEL[option]}
-                      <span className="mt-0.5 block text-xs font-normal text-slate-500">
-                        {option === "EVOLUTION_GO" ? "Realtime" : "Historial + rellenado"}
-                      </span>
                     </button>
                   ))}
                 </div>
