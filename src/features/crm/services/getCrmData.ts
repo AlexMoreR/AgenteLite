@@ -137,6 +137,7 @@ export async function getCrmData({ workspaceId, workspaceName }: GetCrmDataInput
       id: true,
       name: true,
       phoneNumber: true,
+      avatarUrl: true,
       notes: true,
       aiSummary: true,
       metadata: true,
@@ -176,6 +177,7 @@ export async function getCrmData({ workspaceId, workspaceName }: GetCrmDataInput
   const records: CrmRecord[] = rawContacts.map((contact) => ({
     id: contact.id,
     number: contact.phoneNumber,
+    avatarUrl: contact.avatarUrl,
     name: getContactDisplayName(contact),
     date: getContactLastActivity(contact).toISOString(),
     tags: getContactTags(contact.ContactTag.map((item) => item.Tag)),
@@ -217,6 +219,7 @@ export async function getCrmKanbanData({ workspaceId, workspaceName }: GetCrmDat
       id: true,
       name: true,
       phoneNumber: true,
+      avatarUrl: true,
       notes: true,
       aiSummary: true,
       metadata: true,
@@ -255,6 +258,7 @@ export async function getCrmKanbanData({ workspaceId, workspaceName }: GetCrmDat
   const records: CrmRecord[] = rawContacts.map((contact) => ({
     id: contact.id,
     number: contact.phoneNumber,
+    avatarUrl: contact.avatarUrl,
     name: getContactDisplayName(contact),
     date: getContactLastActivity(contact).toISOString(),
     tags: getContactTags(contact.ContactTag.map((item) => item.Tag)),

@@ -10,6 +10,7 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/h
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ContactAvatar } from "@/components/chats/contact-avatar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { updateCrmStageAction } from "@/app/actions/crm-actions";
 import { CRM_STAGE_ORDER, getCrmOriginLabel, getCrmOriginMeta, getCrmStageMeta, getCrmStageLabel } from "../domain/crm-config";
@@ -394,7 +395,14 @@ export function CrmRegistroTable({
                 return (
                   <article key={record.id} className="rounded-xl border border-border bg-card p-3">
                     <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
+                      <div className="flex min-w-0 items-start gap-2">
+                        <ContactAvatar
+                          avatarUrl={record.avatarUrl}
+                          label={record.name}
+                          className="h-9 w-9 shrink-0 rounded-full"
+                          fallbackClassName="rounded-full"
+                        />
+                        <div className="min-w-0">
                         <p className="truncate text-[13px] font-semibold text-foreground">{record.name}</p>
                         <p className="mt-0.5 text-[13px] text-muted-foreground">{record.number}</p>
                         <div className="mt-1">
@@ -404,6 +412,7 @@ export function CrmRegistroTable({
                           >
                             {originMeta.label}
                           </Badge>
+                        </div>
                         </div>
                       </div>
                   <Badge
@@ -554,7 +563,17 @@ export function CrmRegistroTable({
                       </HoverCard>
                     </TableCell>
                     <TableCell className="px-1.5 py-0.5 text-[13px] font-medium text-foreground">{record.number}</TableCell>
-                    <TableCell className="px-1.5 py-0.5 text-[13px] text-foreground">{record.name}</TableCell>
+                    <TableCell className="px-1.5 py-0.5 text-[13px] text-foreground">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <ContactAvatar
+                          avatarUrl={record.avatarUrl}
+                          label={record.name}
+                          className="h-7 w-7 shrink-0 rounded-full"
+                          fallbackClassName="rounded-full text-[10px]"
+                        />
+                        <span className="truncate">{record.name}</span>
+                      </div>
+                    </TableCell>
                     <TableCell className="px-1.5 py-0.5">
                       <Badge
                         variant="outline"

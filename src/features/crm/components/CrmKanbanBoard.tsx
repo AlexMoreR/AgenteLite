@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { TAG_BADGE_CLASS, getTagBadgeColors } from "@/lib/tag-badge";
 import { Button } from "@/components/ui/button";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
+import { ContactAvatar } from "@/components/chats/contact-avatar";
 import { updateCrmCollapsedAction, updateCrmStageAction } from "@/app/actions/crm-actions";
 import type { CrmColumn, CrmRecord } from "../types";
 import { getCrmStageMeta } from "../domain/crm-config";
@@ -63,7 +64,13 @@ function KanbanCard({
           <div draggable onDragStart={(event) => onDragStart(event, record.id)} onDragEnd={onDragEnd}>
             <div className={isCollapsed ? "space-y-0.5" : "space-y-1"}>
               <div className="flex items-start justify-between gap-1.5 pr-6">
-                <div className="min-w-0">
+                <div className="flex min-w-0 items-center gap-2">
+                  <ContactAvatar
+                    avatarUrl={record.avatarUrl}
+                    label={record.name}
+                    className="h-7 w-7 shrink-0 rounded-full"
+                    fallbackClassName="rounded-full text-[10px]"
+                  />
                   <p className="truncate text-[13px] font-semibold leading-4 text-foreground">{record.name}</p>
                 </div>
               </div>

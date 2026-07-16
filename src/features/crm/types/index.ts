@@ -17,6 +17,7 @@ export type CrmRecord = {
   id: string;
   number: string;
   name: string;
+  avatarUrl: string | null;
   date: string;
   origin: CrmOrigin;
   tags: CrmTag[];
