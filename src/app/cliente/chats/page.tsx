@@ -712,6 +712,15 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
 
     return gateways;
   })();
+  // Solo Evolution API guarda historial: evogo no lo expone (/chat/findMessages da 404) porque
+  // no guarda mensajes. `provider` no distingue —los dos son "EVOLUTION"—, la diferencia esta en
+  // el gateway. Sin esto el boton de traer historial aparece en canales evogo y falla en la cara
+  // de la asesora.
+  const selectedChannelKeepsHistory = (() => {
+    const channelId = selectedUnified?.source === "agent" ? selectedUnified.channelId : null;
+    const channel = channelId ? channelsById.get(channelId) : null;
+    return readGatewayConnection(channel?.metadata)?.kind === "EVOLUTION_API";
+  })();
   const chatListHref = `/cliente/chats${
     selectedConnectionKey || searchQuery || assignedFilter !== "all" || statusFilter !== "open"
       ? `?${new URLSearchParams([
@@ -985,6 +994,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
               status={selectedAgentConversation?.status ?? "OPEN"}
               returnTo={selectedChatHref}
               toggleAutomationAction={toggleConversationAutomationAction}
+              canImportHistory={selectedChannelKeepsHistory}
             />
           ) : selectedUnified?.source === "official" && selectedConversation ? (
             <ChatHeaderActions

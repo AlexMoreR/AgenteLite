@@ -12,7 +12,7 @@ import { getConversationAutomationPaused, setConversationAutomationPaused } from
 import { recordConversationActivity } from "@/lib/conversation-activity";
 import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
 import { backfillEvolutionMessagesByPhone } from "@/lib/evolution-chat-sync";
-import { deleteEvolutionMessageForEveryone, fetchEvolutionProfilePictureUrl, sendEvolutionTextMessage } from "@/lib/evolution";
+import { deleteEvolutionMessageForEveryone, fetchEvolutionProfilePictureUrl, readGatewayConnection, sendEvolutionTextMessage } from "@/lib/evolution";
 import { normalizeInternalPath } from "@/lib/app-url";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import {
@@ -1734,7 +1734,7 @@ export async function importConversationHistoryAction(input: {
     select: {
       id: true,
       contact: { select: { phoneNumber: true } },
-      channel: { select: { id: true, provider: true, evolutionInstanceName: true } },
+      channel: { select: { id: true, provider: true, evolutionInstanceName: true, metadata: true } },
     },
   });
 
@@ -1744,6 +1744,15 @@ export async function importConversationHistoryAction(input: {
 
   if (conversation.channel.provider !== "EVOLUTION" || !conversation.channel.evolutionInstanceName) {
     return { error: "Este canal no permite traer historial de WhatsApp" };
+  }
+
+  // Solo Evolution API guarda historial. Evolution GO no lo expone (probado: /chat/findMessages
+  // y /chat/findChats dan 404) porque no guarda mensajes: es mas rapido, pero lo que pasa
+  // mientras esta caido no se puede recuperar de ninguna forma. `provider` no alcanza para
+  // distinguirlos: los dos son "EVOLUTION", la diferencia esta en el gateway.
+  const gateway = readGatewayConnection(conversation.channel.metadata);
+  if (gateway?.kind !== "EVOLUTION_API") {
+    return { error: "Este canal no guarda historial en el servidor, no hay nada que traer" };
   }
 
   const result = await backfillEvolutionMessagesByPhone({

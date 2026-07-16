@@ -18,6 +18,9 @@ type ChatHeaderActionsProps = {
   returnTo: string;
   toggleAutomationAction: (formData: FormData) => void | Promise<void>;
   source?: "agent" | "official";
+  // Solo los canales Evolution API guardan historial: evogo no lo expone (404) porque no
+  // guarda mensajes. Sin esto el boton aparece en Ventas y falla en la cara de la asesora.
+  canImportHistory?: boolean;
 };
 
 // Acciones de la cabecera del chat (Etapa CRM, pausar agente IA, resolver).
@@ -32,6 +35,7 @@ export function ChatHeaderActions({
   returnTo,
   toggleAutomationAction,
   source = "agent",
+  canImportHistory = false,
 }: ChatHeaderActionsProps) {
   const isMobile = useIsMobile();
 
@@ -52,7 +56,7 @@ export function ChatHeaderActions({
           hiddenFields={switchHiddenFields}
         />
         {/* Solo WhatsApp: la API oficial no expone historial para traer. */}
-        {source === "agent" ? <ImportHistoryControl conversationId={conversationId} /> : null}
+        {source === "agent" && canImportHistory ? <ImportHistoryControl conversationId={conversationId} /> : null}
         <ResolveChatControl conversationId={conversationId} status={status} source={source} />
       </div>
     );
@@ -92,7 +96,7 @@ export function ChatHeaderActions({
               hiddenFields={switchHiddenFields}
             />
           </div>
-          {source === "agent" ? (
+          {source === "agent" && canImportHistory ? (
             <div className="flex items-center justify-between gap-2 rounded-xl px-2 py-2">
               <span className="text-[13px] font-medium text-foreground">Historial de WhatsApp</span>
               <ImportHistoryControl conversationId={conversationId} withLabel />
