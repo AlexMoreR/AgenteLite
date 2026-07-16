@@ -11,6 +11,9 @@ export type FlowTargetItem = {
   href: string;
   badge: string;
   isConnected: boolean;
+  // Un canal con agente vinculado es un canal ya configurado (donde viven los flujos).
+  // Se usa para no mandar al usuario a un canal recien creado y vacio.
+  hasAgent: boolean;
 };
 
 export async function getFlowTargets(input: {
@@ -52,6 +55,7 @@ export async function getFlowTargets(input: {
       href: "/cliente/flujos?sourceType=official-api",
       badge: isConnected ? "Meta" : "Pendiente",
       isConnected,
+      hasAgent: false,
     });
   }
 
@@ -66,6 +70,7 @@ export async function getFlowTargets(input: {
       href: `/cliente/flujos?sourceType=evolution&sourceId=${channel.id}`,
       badge: "Evolution",
       isConnected: channel.status === "CONNECTED" || channel.status === "QRCODE",
+      hasAgent: Boolean(channel.agent?.name),
     });
   }
 

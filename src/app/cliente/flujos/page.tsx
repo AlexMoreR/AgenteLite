@@ -44,9 +44,14 @@ export default async function ClientFlowsPage({ searchParams }: PageProps) {
       );
     }
 
+    // Los targets vienen del mas nuevo al mas viejo, asi que un canal recien creado
+    // secuestraba el destino por defecto y mandaba al usuario a Flujos vacio (parecia que
+    // se habian borrado). Preferimos un canal ya configurado: conectado Y con agente.
     const preferredTarget =
       targets.find((target) => target.sourceType === "official-api" && target.isConnected) ??
       targets.find((target) => target.sourceType === "official-api") ??
+      targets.find((target) => target.sourceType === "evolution" && target.isConnected && target.hasAgent) ??
+      targets.find((target) => target.sourceType === "evolution" && target.hasAgent) ??
       targets.find((target) => target.sourceType === "evolution" && target.isConnected) ??
       targets[0];
 
