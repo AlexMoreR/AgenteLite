@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useFormStatus } from "react-dom";
 import { Activity, AlarmClock, BarChart3, Facebook, Instagram, Loader2, Music2, Plus, SquarePen, StickyNote, Trash2 } from "lucide-react";
@@ -87,12 +87,30 @@ const COUNTRY_OPTIONS = [
   "Venezuela",
 ];
 
+// Id del form de edicion: lo comparten el <form> del cuerpo y el boton de guardar del
+// footer (que lo envia por su atributo `form`).
+const CONTACT_EDIT_FORM_ID = "contact-edit-form";
+
 // Formulario de la pestaña Editar: nombre/apellido/correo/ciudad/país + redes.
 // El teléfono es solo lectura (es la identidad de WhatsApp del contacto).
-function ContactEditForm({ contact }: { contact: ContactosCardItem }) {
+// El boton de guardar NO vive aqui: esta en el footer fijo del modal y envia este form
+// por su atributo `form={formId}`. Por eso avisamos el estado de guardado hacia arriba.
+function ContactEditForm({
+  contact,
+  formId,
+  onPendingChange,
+}: {
+  contact: ContactosCardItem;
+  formId: string;
+  onPendingChange: (pending: boolean) => void;
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [feedback, setFeedback] = useState<{ ok: boolean; message: string } | null>(null);
+
+  useEffect(() => {
+    onPendingChange(pending);
+  }, [pending, onPendingChange]);
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -110,7 +128,7 @@ function ContactEditForm({ contact }: { contact: ContactosCardItem }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-5">
+    <form id={formId} onSubmit={handleSubmit} className="space-y-5">
       <input type="hidden" name="contactId" value={contact.id} />
 
       <div className="space-y-2.5">
@@ -201,15 +219,11 @@ function ContactEditForm({ contact }: { contact: ContactosCardItem }) {
         </div>
       </div>
 
-      <div className="flex items-center justify-end gap-3">
-        {feedback ? (
-          <p className={cn("text-xs", feedback.ok ? "text-emerald-600" : "text-destructive")}>{feedback.message}</p>
-        ) : null}
-        <Button type="submit" disabled={pending}>
-          {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-          Guardar cambios
-        </Button>
-      </div>
+      {feedback ? (
+        <p className={cn("text-right text-xs", feedback.ok ? "text-emerald-600" : "text-destructive")}>
+          {feedback.message}
+        </p>
+      ) : null}
     </form>
   );
 }
@@ -241,6 +255,9 @@ export function ContactosCardsList({ contacts }: { contacts: ContactosCardItem[]
   const [selected, setSelected] = useState<ContactosCardItem | null>(null);
   const [activeTab, setActiveTab] = useState<DetailTabKey>("editar");
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  // El boton "Guardar cambios" vive en el footer, fuera del form, asi que el estado de
+  // guardado lo reporta el form hacia aqui.
+  const [isSavingContact, setIsSavingContact] = useState(false);
 
   function openContact(contact: ContactosCardItem) {
     setSelected(contact);
@@ -362,7 +379,14 @@ export function ContactosCardsList({ contacts }: { contacts: ContactosCardItem[]
               </div>
 
               <div className="min-h-32 flex-1 space-y-4 overflow-y-auto p-4">
-                {activeTab === "editar" ? <ContactEditForm key={selected.id} contact={selected} /> : null}
+                {activeTab === "editar" ? (
+                  <ContactEditForm
+                    key={selected.id}
+                    contact={selected}
+                    formId={CONTACT_EDIT_FORM_ID}
+                    onPendingChange={setIsSavingContact}
+                  />
+                ) : null}
               </div>
 
               <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t p-4">
@@ -375,9 +399,19 @@ export function ContactosCardsList({ contacts }: { contacts: ContactosCardItem[]
                   <Trash2 className="h-4 w-4" />
                   Eliminar permanentemente
                 </Button>
-                <Button type="button" variant="outline" onClick={() => setSelected(null)}>
-                  Cerrar
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button type="button" variant="outline" onClick={() => setSelected(null)}>
+                    Cerrar
+                  </Button>
+                  {/* Fuera del <form>: lo envia por su atributo `form`. Asi la accion
+                      principal queda siempre visible sin tener que bajar el scroll. */}
+                  {activeTab === "editar" ? (
+                    <Button type="submit" form={CONTACT_EDIT_FORM_ID} disabled={isSavingContact}>
+                      {isSavingContact ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                      Guardar cambios
+                    </Button>
+                  ) : null}
+                </div>
               </div>
             </>
           ) : null}
