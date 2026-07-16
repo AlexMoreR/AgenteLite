@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, Save, Trash2 } from "lucide-react";
+import { Globe2, KeyRound, Plus, Save, Server, Trash2, Webhook } from "lucide-react";
 import {
   adminCreateEvolutionGatewayAction,
   adminDeleteEvolutionGatewayAction,
@@ -54,11 +54,31 @@ export function WhatsAppConnectionsSettings({ gateways, webhookUrl }: WhatsAppCo
         <table className="w-full min-w-[46rem] border-collapse text-sm">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50 text-left">
-              <th className="px-4 py-3 text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">Tipo</th>
-              <th className="px-4 py-3 text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">URL base</th>
-              <th className="px-4 py-3 text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">Apikey</th>
-              <th className="px-4 py-3 text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">Webhook</th>
-              <th className="px-4 py-3" />
+              <th className="px-4 py-2 font-normal">
+                <span className="inline-flex items-center gap-2 text-[13px] font-normal text-muted-foreground">
+                  <Server className="h-3.5 w-3.5 text-muted-foreground" />
+                  Tipo
+                </span>
+              </th>
+              <th className="px-4 py-2 font-normal">
+                <span className="inline-flex items-center gap-2 text-[13px] font-normal text-muted-foreground">
+                  <Globe2 className="h-3.5 w-3.5 text-muted-foreground" />
+                  URL base
+                </span>
+              </th>
+              <th className="px-4 py-2 font-normal">
+                <span className="inline-flex items-center gap-2 text-[13px] font-normal text-muted-foreground">
+                  <KeyRound className="h-3.5 w-3.5 text-muted-foreground" />
+                  Apikey
+                </span>
+              </th>
+              <th className="px-4 py-2 font-normal">
+                <span className="inline-flex items-center gap-2 text-[13px] font-normal text-muted-foreground">
+                  <Webhook className="h-3.5 w-3.5 text-muted-foreground" />
+                  Webhook
+                </span>
+              </th>
+              <th className="px-4 py-2" />
             </tr>
           </thead>
           <tbody>
