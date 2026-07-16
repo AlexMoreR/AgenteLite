@@ -232,7 +232,7 @@ const ConversationListItem = memo(function ConversationListItem({
           </div>
           <span
             className={`shrink-0 text-[10px] md:text-[10px] ${
-              incomingCountLabel ? "font-semibold text-[#25D366]" : "text-muted-foreground"
+              incomingCountLabel ? "text-[#1DDA61]" : "text-muted-foreground"
             }`}
           >
             {conversation.lastMessageAt ? formatConversationTime(conversation.lastMessageAt) : ""}
@@ -246,7 +246,7 @@ const ConversationListItem = memo(function ConversationListItem({
             {previewText}
           </p>
           {incomingCountLabel ? (
-            <span className="inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-[#25D366] px-1.5">
+            <span className="inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-[#1DDA61] px-1.5">
               <span className="text-[10px] font-semibold leading-none text-white">
                 {incomingCountLabel}
               </span>
