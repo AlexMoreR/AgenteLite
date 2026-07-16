@@ -132,11 +132,11 @@ function ConversationTagsRow({
         {visibleTags.map((tag) => (
           <Badge
             key={`${conversationId}:${tag.label}`}
-            className={`min-w-0 shrink max-w-[140px] border-transparent shadow-none ${TAG_BADGE_CLASS}`}
+            className={`shrink-0 max-w-[140px] border-transparent shadow-none ${TAG_BADGE_CLASS}`}
             style={getTagBadgeColors(tag.color)}
             title={tag.label}
           >
-            <span className="min-w-0 truncate">{tag.label}</span>
+            <span className="truncate">{tag.label}</span>
           </Badge>
         ))}
         {hidden > 0 ? (
