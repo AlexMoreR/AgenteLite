@@ -2547,13 +2547,49 @@ export async function requestEvolutionGoHistorySync(input: {
  * El payload guarda la Info en `data.Info`, salvo los mensajes que entraron por otros caminos,
  * que la tienen bajo `evolution.data.Info`.
  */
+/**
+ * Ancla a partir de un mensaje que ya vino de un history sync.
+ *
+ * Esos se guardan como { source, evolution: WebMessageInfo } y no traen la Info de whatsmeow:
+ * hay que reconstruirla desde `evolution.key` y `messageTimestamp` (epoch en segundos, que la
+ * API espera como fecha ISO).
+ */
+function buildHistoryAnchorFromImportedMessage(record: Record<string, unknown> | null): Record<string, unknown> | null {
+  const webMessage = asRecord(record?.evolution);
+  const key = asRecord(webMessage?.key);
+  const id = readString(key?.ID) || readString(key?.id);
+  const chat = readString(key?.remoteJID) || readString(key?.remoteJid);
+
+  if (!id || !chat) {
+    return null;
+  }
+
+  const timestampSeconds = Number(webMessage?.messageTimestamp);
+  if (!Number.isFinite(timestampSeconds) || timestampSeconds <= 0) {
+    return null;
+  }
+
+  return {
+    chat,
+    id,
+    isFromMe: key?.fromMe === true,
+    isGroup: chat.endsWith("@g.us"),
+    timestamp: new Date(timestampSeconds * 1000).toISOString(),
+  };
+}
+
 export function buildEvolutionGoHistoryAnchor(rawPayload: unknown): Record<string, unknown> | null {
   const record = asRecord(rawPayload);
   const info =
     asRecord(asRecord(record?.data)?.Info) ?? asRecord(asRecord(asRecord(record?.evolution)?.data)?.Info);
 
   if (!info || !readString(info.ID) || !readString(info.Chat)) {
-    return null;
+    // Un mensaje que YA vino de un history sync se guarda con otra forma (evolution.key +
+    // messageTimestamp), sin la Info de whatsmeow. Y es justo el mensaje mas viejo del chat
+    // despues del primer import, o sea el ancla del siguiente: sin esto el boton anda una vez
+    // y despues falla con "este chat no tiene un mensaje desde el cual pedir historial",
+    // que es cuando el usuario quiere seguir yendo hacia atras.
+    return buildHistoryAnchorFromImportedMessage(record);
   }
 
   return {
