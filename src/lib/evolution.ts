@@ -1226,6 +1226,22 @@ export async function getEvolutionConnectionQr(instanceName: string) {
     const instance = await resolveEvolutionInstance(instanceName);
     const connection = instance?.connection ?? null;
 
+    // Evolution API entrega el QR en /instance/connect/{instancia} (los endpoints de
+    // evogo, /instance/qr y /instance/{name}/qrcode, no existen ahi). Sin esta rama el
+    // canal API nunca mostraria QR para parear.
+    if (connection?.kind === "EVOLUTION_API") {
+      const response = await evolutionRequest<EvolutionConnectResponse & { qrCode?: string; qrcode?: string }>(
+        `/instance/connect/${instanceName}`,
+        { method: "GET" },
+        { connection },
+      ).catch(() => ({}) as EvolutionConnectResponse);
+
+      return {
+        qrCode: extractEvolutionConnectQrCode(response) || extractEvolutionConnectQrCode(extractCreateResponseQrPayload(response)),
+        pairingCode: extractEvolutionPairingCode(response),
+      };
+    }
+
     if (instance?.id || instance?.token) {
       // Si la instancia ya existe pero aun no genero QR, no debemos disparar
       // /instance/connect en cada poll de la UI; eso termina saturando Evolution.
