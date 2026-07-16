@@ -1740,3 +1740,93 @@ export async function backfillEvolutionMessagesByPhone(input: {
     created: Boolean(result.createdContact || result.createdConversation),
   };
 }
+
+/** Tope de seguridad: no rellenar huecos mas viejos que esto. */
+const GAP_SYNC_MAX_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+/** Tope de chats por reconexion, para no golpear al gateway si el hueco fue enorme. */
+const GAP_SYNC_MAX_CHATS = 40;
+
+/**
+ * Rellena los mensajes que entraron mientras el canal estuvo caido.
+ *
+ * El problema real que resuelve: si el gateway se desconecta, los mensajes llegan a WhatsApp
+ * pero nunca al CRM, y NADIE se entera — un mensaje que no llego no deja hueco visible. Por eso
+ * las asesoras terminan abriendo WhatsApp para verificar, y mientras tengan que verificar, no
+ * confian en el CRM.
+ *
+ * Antes existia un backfill automatico que tapaba esto de casualidad, pero era CIEGO: importaba
+ * ante cualquier evento de contacto, sin saber si faltaba algo. Revivia chats borrados, mataba
+ * la bienvenida y llenaba el CRM de contactos que nunca escribieron (26 en un solo dia).
+ *
+ * Este es el mismo objetivo, pero mirando: `findChats` devuelve `updatedAt` por chat, asi que se
+ * traen SOLO los chats con movimiento dentro del hueco. Un chat viejo y quieto no se toca.
+ */
+export async function syncEvolutionMessagesSince(input: {
+  workspaceId: string;
+  channelId: string;
+  since: Date;
+}): Promise<
+  | { ok: true; chats: number; imported: number; skippedTooOld?: true }
+  | { ok: false; reason: string }
+> {
+  const channel = await prisma.whatsAppChannel.findFirst({
+    where: { id: input.channelId, workspaceId: input.workspaceId, provider: "EVOLUTION" },
+    select: { id: true, evolutionInstanceName: true, metadata: true },
+  });
+
+  if (!channel?.evolutionInstanceName) {
+    return { ok: false, reason: "canal sin instancia Evolution" };
+  }
+
+  // Un hueco de semanas no es una desconexion: es un canal que estuvo apagado. Rellenarlo
+  // solo traeria ruido viejo, que es justo lo que queremos evitar. Eso lo decide un humano
+  // desde Conexion.
+  const gapMs = Date.now() - input.since.getTime();
+  if (gapMs > GAP_SYNC_MAX_WINDOW_MS) {
+    return { ok: true, chats: 0, imported: 0, skippedTooOld: true };
+  }
+
+  const connection = readGatewayConnection(channel.metadata);
+  const remoteChats = await fetchEvolutionChats(channel.evolutionInstanceName, connection);
+
+  // Solo los chats que se movieron durante el hueco. `updatedAt` lo trae findChats.
+  const sinceMs = input.since.getTime();
+  const touched: Array<{ phone: string; at: number }> = [];
+  for (const item of remoteChats) {
+    const record = asRecord(item);
+    if (!record) continue;
+
+    const rawUpdatedAt = record.updatedAt ?? record.updated_at;
+    const updatedAtMs = typeof rawUpdatedAt === "string" ? new Date(rawUpdatedAt).getTime() : NaN;
+    if (!Number.isFinite(updatedAtMs) || updatedAtMs < sinceMs) {
+      continue;
+    }
+
+    const phone = extractComparablePhone(record);
+    if (phone) {
+      touched.push({ phone, at: updatedAtMs });
+    }
+  }
+
+  // Los mas recientes primero: si hay que recortar, que sobrevivan los que importan.
+  touched.sort((left, right) => right.at - left.at);
+  const phones = Array.from(new Set(touched.map((item) => item.phone))).slice(0, GAP_SYNC_MAX_CHATS);
+
+  let imported = 0;
+  for (const phone of phones) {
+    try {
+      const result = await backfillEvolutionMessagesByPhone({
+        workspaceId: input.workspaceId,
+        channelId: channel.id,
+        phoneNumber: phone,
+      });
+      if (result.ok) {
+        imported += result.imported;
+      }
+    } catch {
+      // Un chat que falla no puede abortar el resto del rescate.
+    }
+  }
+
+  return { ok: true, chats: phones.length, imported };
+}

@@ -84,6 +84,7 @@ import {
   sendNotificarAsesorNotification,
 } from "@/features/agent-actions";
 import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
+import { syncEvolutionMessagesSince } from "@/lib/evolution-chat-sync";
 import { persistChatMediaFromDataUrl } from "@/lib/chat-media-storage";
 
 function mapChannelStatus(eventName: string | null, rawState: string | null) {
@@ -809,6 +810,8 @@ export async function POST(request: NextRequest) {
     status: true,
     phoneNumber: true,
     qrCode: true,
+    // Para saber desde cuando rellenar cuando el canal vuelve (ver el gap sync mas abajo).
+    lastDisconnectionAt: true,
   } as const;
 
   let channel = instanceKey
@@ -897,6 +900,73 @@ export async function POST(request: NextRequest) {
           : {}),
       },
     });
+
+    // El canal VOLVIO despues de estar caido: rellenar lo que entro mientras no estabamos.
+    //
+    // Este es el hueco por el que se pierden los chats, y es la razon de fondo por la que las
+    // asesoras no confian en el CRM y abren WhatsApp para verificar: un mensaje que nunca llego
+    // no deja rastro, asi que nadie puede pedirlo a mano (el boton del chat solo sirve cuando
+    // alguien NOTA que falta algo).
+    //
+    // Solo se traen los chats con movimiento dentro del hueco (findChats trae updatedAt), asi
+    // que no revive conversaciones viejas ni ensucia el CRM como hacia el backfill ciego que se
+    // quito. Se marca el hueco ya rellenado para no repetirlo en cada reconexion.
+    if (nextStatus === "CONNECTED" && channel.lastDisconnectionAt) {
+      const disconnectedAt = channel.lastDisconnectionAt;
+      const alreadySyncedRaw = channelMetadata?.gapSyncedAt;
+      const alreadySyncedMs =
+        typeof alreadySyncedRaw === "string" ? new Date(alreadySyncedRaw).getTime() : 0;
+
+      if (!Number.isFinite(alreadySyncedMs) || alreadySyncedMs < disconnectedAt.getTime()) {
+        const gapChannel = channel;
+        after(async () => {
+          try {
+            const result = await syncEvolutionMessagesSince({
+              workspaceId: gapChannel.workspaceId,
+              channelId: gapChannel.id,
+              since: disconnectedAt,
+            });
+
+            if (result.ok) {
+              console.log("[EVOLUTION] gap_sync", {
+                instanceName,
+                channelId: gapChannel.id,
+                desde: disconnectedAt.toISOString(),
+                chats: result.chats,
+                mensajes: result.imported,
+                ...(result.skippedTooOld ? { omitido: "hueco mayor a 7 dias" } : {}),
+              });
+            } else {
+              console.warn("[EVOLUTION] gap_sync_failed", {
+                instanceName,
+                channelId: gapChannel.id,
+                reason: result.reason,
+              });
+            }
+
+            // Se marca aunque haya fallado: si el gateway no responde, reintentar en cada
+            // reconexion solo lo golpearia mas. Queda el boton manual como salida.
+            await prisma.whatsAppChannel.update({
+              where: { id: gapChannel.id },
+              data: {
+                metadata: {
+                  ...(gapChannel.metadata && typeof gapChannel.metadata === "object" && !Array.isArray(gapChannel.metadata)
+                    ? (gapChannel.metadata as Record<string, unknown>)
+                    : {}),
+                  gapSyncedAt: disconnectedAt.toISOString(),
+                },
+              },
+            });
+          } catch (error) {
+            console.error("[EVOLUTION] gap_sync_error", {
+              instanceName,
+              channelId: gapChannel.id,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        });
+      }
+    }
 
     return NextResponse.json({
       ok: true,
