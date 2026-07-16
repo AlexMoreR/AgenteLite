@@ -54,6 +54,9 @@ export function ChatsAutoRefresh({
   // If a live update already refreshed the active chat recently, skip one poll tick.
   const lastLiveUpdateAtRef = useRef(0);
   const lastLiveUpdateKeyRef = useRef<string | null>(null);
+  // Ultima vez que el realtime actualizo la LISTA. Si el websocket esta vivo y trayendo
+  // cambios, el refresco de la lista sobra: la lista ya se actualiza sola, fila por fila.
+  const lastListUpdateAtRef = useRef(0);
   // Stable ref so the interval always reads the latest active conversation.
   const selectedConversationKeyRef = useRef(selectedConversationKey);
   selectedConversationKeyRef.current = selectedConversationKey;
@@ -82,8 +85,17 @@ export function ChatsAutoRefresh({
       lastLiveUpdateKeyRef.current = chatKey;
     }
 
+    // Cualquier actualizacion de la lista significa que el realtime esta vivo.
+    function handleListUpdate() {
+      lastListUpdateAtRef.current = Date.now();
+    }
+
     window.addEventListener("chat-live-update", handleLiveUpdate as EventListener);
-    return () => window.removeEventListener("chat-live-update", handleLiveUpdate as EventListener);
+    window.addEventListener("chat-list-update", handleListUpdate as EventListener);
+    return () => {
+      window.removeEventListener("chat-live-update", handleLiveUpdate as EventListener);
+      window.removeEventListener("chat-list-update", handleListUpdate as EventListener);
+    };
   }, []);
 
   useEffect(() => {
@@ -161,7 +173,16 @@ export function ChatsAutoRefresh({
         return;
       }
 
-      // Official API chat or no selection: router.refresh() is still necessary.
+      // Sin chat abierto (o chat de API oficial) el unico refresco posible es router.refresh().
+      // Pero si el realtime acaba de actualizar la lista, el websocket esta vivo y ya la
+      // mantiene fila por fila: refrescar seria repintar la pagina para nada. Solo entra
+      // cuando el realtime lleva un intervalo entero sin dar señales (o no hay realtime,
+      // como en API oficial), que es justo cuando hace falta la red de seguridad.
+      const listWasRecentlyUpdated = Date.now() - lastListUpdateAtRef.current < intervalMs;
+      if (realtimeEnabled && listWasRecentlyUpdated) {
+        return;
+      }
+
       startTransition(() => {
         router.refresh();
       });
