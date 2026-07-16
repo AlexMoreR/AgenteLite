@@ -2,6 +2,9 @@ import { prisma } from "@/lib/prisma";
 
 export type ChatConversationSummary = {
   id: string;
+  // Canal al que pertenece la conversacion. La lista lo usa para NO aceptar por realtime
+  // chats de un canal que no es el que se esta viendo (se colaban los de otra conexion).
+  channelId: string | null;
   label: string;
   secondaryLabel: string;
   tags: Array<{
@@ -77,6 +80,7 @@ export async function getAgentConversationSummaryByConversationId(input: {
     },
     select: {
       id: true,
+      channelId: true,
       contact: {
         select: {
           id: true,
@@ -133,6 +137,7 @@ export async function getAgentConversationSummaryByConversationId(input: {
 
   return {
     id: conversation.id,
+    channelId: conversation.channelId ?? null,
     label: getAgentContactLabel({
       name: contact.name,
       phoneNumber: contact.phoneNumber,
@@ -252,6 +257,7 @@ export async function getAgentConversationSummaryByPhoneNumber(input: {
 
   return {
     id: conversation.id,
+    channelId: channel.id,
     label: getAgentContactLabel({
       name: contact.name,
       phoneNumber: contact.phoneNumber,

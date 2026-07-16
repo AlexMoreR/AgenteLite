@@ -2621,6 +2621,7 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
           instanceName: conversation.channel!.evolutionInstanceName!,
           phoneNumber: conversation.contact!.phoneNumber!,
           text: step.content,
+          delayMs: 0,
         });
 
         await prisma.message.create({
@@ -2648,6 +2649,7 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
           phoneNumber: conversation.contact!.phoneNumber!,
           imageUrl: step.url,
           caption: step.caption,
+          delayMs: 0,
         });
 
         await prisma.message.create({
@@ -2676,6 +2678,7 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
           phoneNumber: conversation.contact!.phoneNumber!,
           audioUrl: step.url,
           caption: step.caption,
+          delayMs: 0,
         });
 
         await prisma.message.create({
@@ -2733,6 +2736,7 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
           documentUrl: step.url,
           caption: step.caption,
           fileName: step.fileName,
+          delayMs: 0,
         });
 
         await prisma.message.create({
@@ -2871,6 +2875,10 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
       instanceName: conversation.channel.evolutionInstanceName,
       phoneNumber: sendRecipient,
       text: parsed.data.message,
+      // Sin "escribiendo…": lo escribió una persona, no el bot. El default (1200ms) lo
+      // respeta Evolution API y hacía que el envío manual saliera ~1,2s más lento que en
+      // Evolution GO (que ignora el delay).
+      delayMs: 0,
       quoted: quotedKey
         ? { id: quotedKey.id, remoteJid: quotedKey.remoteJid, fromMe: quotedKey.fromMe, text: replyTo?.content ?? "" }
         : null,

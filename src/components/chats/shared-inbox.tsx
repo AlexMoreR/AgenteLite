@@ -782,11 +782,23 @@ export function SharedInbox({
     return () => window.removeEventListener("chat-live-update", handleLiveUpdate as EventListener);
   }, [normalizeRealtimeConversationItem, pendingConversation?.chatKey, selectedConversationId]);
 
+  // Canal que se esta viendo (filtro "connection"). Vacio = bandeja unificada.
+  const selectedChannelIdFilter = selectedConnectionKey.trim().startsWith("channel:")
+    ? selectedConnectionKey.trim().slice("channel:".length)
+    : "";
+
   useEffect(() => {
     function handleListUpdate(event: Event) {
       const customEvent = event as CustomEvent<{ conversation?: unknown }>;
       const snapshot = normalizeLiveConversationListSnapshot(customEvent.detail?.conversation);
       if (!snapshot) {
+        return;
+      }
+
+      // El realtime escucha TODAS las instancias del workspace, asi que aqui pueden caer
+      // chats de otro canal. Si estamos filtrando por una conexion, no deben entrar en la
+      // lista (si no, viendo un canal aparecen chats del otro).
+      if (selectedChannelIdFilter && snapshot.channelId && snapshot.channelId !== selectedChannelIdFilter) {
         return;
       }
 
@@ -806,7 +818,7 @@ export function SharedInbox({
 
     window.addEventListener("chat-list-update", handleListUpdate as EventListener);
     return () => window.removeEventListener("chat-list-update", handleListUpdate as EventListener);
-  }, [normalizeRealtimeConversationItem, pendingConversation?.chatKey, selectedConversationId]);
+  }, [normalizeRealtimeConversationItem, pendingConversation?.chatKey, selectedConversationId, selectedChannelIdFilter]);
 
   useEffect(() => {
     function handleContactUpdate(event: Event) {

@@ -12,6 +12,9 @@ export type SharedInboxConversationItem = {
   id: string;
   source: "agent" | "official";
   agentId?: string | null;
+  // Canal de la conversacion. Se usa para descartar los chats que llegan por realtime de
+  // un canal distinto al que se esta viendo (se colaban en la lista filtrada).
+  channelId?: string | null;
   contactId?: string | null;
   label: string;
   secondaryLabel: string;
