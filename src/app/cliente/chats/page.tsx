@@ -893,6 +893,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           instanceName={selectedApiGateway.instanceName}
           apiKey={selectedApiGateway.apiKey}
           selectedConversationKey={selectedUnified?.key ?? null}
+          selectedConversationPhoneNumber={selectedUnified?.source === "agent" ? selectedUnified.secondaryLabel : null}
         />
       ) : null}
       <ChatIncomingNotifier enabled={chatsRealtimeSyncEnabled} />

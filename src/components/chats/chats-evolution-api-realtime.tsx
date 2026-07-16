@@ -2,7 +2,13 @@
 
 import { useEffect, useRef } from "react";
 import { io, type Socket } from "socket.io-client";
-import { extractEvolutionRemoteJid, normalizePhoneFromJid } from "@/lib/evolution-webhook";
+import {
+  extractEvolutionFromMe,
+  extractEvolutionMessageText,
+  extractEvolutionMessageType,
+  extractEvolutionRemoteJid,
+  normalizePhoneFromJid,
+} from "@/lib/evolution-webhook";
 
 type ChatsEvolutionApiRealtimeProps = {
   enabled?: boolean;
@@ -11,6 +17,7 @@ type ChatsEvolutionApiRealtimeProps = {
   instanceName: string;
   apiKey?: string | null;
   selectedConversationKey?: string | null;
+  selectedConversationPhoneNumber?: string | null;
 };
 
 // Eventos de Evolution API que implican cambios en un chat. El socket.io de Evolution
@@ -66,6 +73,7 @@ export function ChatsEvolutionApiRealtime({
   instanceName,
   apiKey = null,
   selectedConversationKey = null,
+  selectedConversationPhoneNumber = null,
 }: ChatsEvolutionApiRealtimeProps) {
   // Ref para que el handler del socket lea siempre el chat abierto actual sin tener que
   // reconectar cada vez que cambia.
@@ -73,6 +81,10 @@ export function ChatsEvolutionApiRealtime({
   useEffect(() => {
     selectedConversationKeyRef.current = selectedConversationKey;
   }, [selectedConversationKey]);
+  const selectedConversationPhoneNumberRef = useRef(selectedConversationPhoneNumber);
+  useEffect(() => {
+    selectedConversationPhoneNumberRef.current = selectedConversationPhoneNumber;
+  }, [selectedConversationPhoneNumber]);
 
   useEffect(() => {
     if (!enabled || !baseUrl.trim() || !instanceName.trim()) {
@@ -86,6 +98,32 @@ export function ChatsEvolutionApiRealtime({
       const phoneNumber = normalizePhoneFromJid(extractEvolutionRemoteJid(payload));
       if (!phoneNumber) {
         return;
+      }
+
+      // OPTIMISTA (igual que Evolution GO): el evento YA trae el mensaje, así que lo pintamos
+      // al instante en vez de esperar el ida y vuelta al servidor. El fetch de abajo reconcilia
+      // después con los datos reales. Solo aplica al chat ABIERTO, que es donde se nota la demora
+      // (para los demás no tenemos su conversationId hasta que responde /summary).
+      const selectedKey = selectedConversationKeyRef.current;
+      const selectedPhone = normalizePhoneFromJid(selectedConversationPhoneNumberRef.current ?? "");
+      if (selectedKey && selectedPhone && selectedPhone === phoneNumber) {
+        const optimisticText = extractEvolutionMessageText(payload)?.trim() || null;
+        const optimisticIsOutbound = extractEvolutionFromMe(payload);
+        window.dispatchEvent(
+          new CustomEvent("chat-list-update", {
+            detail: {
+              conversation: {
+                id: selectedKey,
+                channelType: "whatsapp",
+                lastMessage: optimisticText,
+                lastMessageType: extractEvolutionMessageType(payload),
+                lastMessageDirection: optimisticIsOutbound ? "OUTBOUND" : "INBOUND",
+                lastMessageAt: new Date().toISOString(),
+                incomingCount: 0,
+              },
+            },
+          }),
+        );
       }
 
       try {
