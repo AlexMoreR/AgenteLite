@@ -664,20 +664,53 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       evolutionSettings.apiToken,
   );
 
-  // Realtime del canal seleccionado cuando es Evolution API: usa SU socket.io, aparte del
-  // WebSocket nativo de evogo (que sigue manejando ChatsRealtimeSync sin cambios).
-  const selectedApiGateway = (() => {
-    const channel = selectedConnectionChannelId ? channelsById.get(selectedConnectionChannelId) : null;
-    const gateway = readGatewayConnection(channel?.metadata);
-    if (!channel?.evolutionInstanceName || gateway?.kind !== "EVOLUTION_API") {
-      return null;
+  // Realtime de los canales Evolution API: cada uno usa SU socket.io, aparte del WebSocket
+  // nativo de evogo (que sigue manejando ChatsRealtimeSync sin cambios).
+  //
+  // Antes esto se montaba SOLO para el canal seleccionado en el filtro, asi que un canal
+  // Evolution API que no estuvieras mirando de frente no tenia realtime: sus mensajes recien
+  // aparecian cuando pasaba el poll de respaldo (medido: el evento nunca llegaba y la fila se
+  // actualizaba ~8s despues por /list). Se veia como "evoapi es mas lento que evogo", pero no
+  // era el gateway: era que no habia socket escuchando.
+  //
+  // Se sigue la misma politica que evogo (ver realtimeInstanceNames): los managers escuchan
+  // todos los canales; los empleados solo el del chat que tienen abierto.
+  const realtimeApiChannelIds = isManager
+    ? channels.map((channel) => channel.id)
+    : selectedUnified?.source === "agent" && selectedUnified.channelId
+      ? [selectedUnified.channelId]
+      : [];
+  const apiGateways = (() => {
+    const seenInstanceNames = new Set<string>();
+    const gateways: Array<{ key: string; baseUrl: string; instanceName: string; apiKey: string | null }> = [];
+
+    for (const channelId of realtimeApiChannelIds) {
+      const channel = channelsById.get(channelId);
+      if (!channel) {
+        continue;
+      }
+
+      const gateway = readGatewayConnection(channel.metadata);
+      const instanceName = channel.evolutionInstanceName?.trim();
+      if (!instanceName || gateway?.kind !== "EVOLUTION_API") {
+        continue;
+      }
+
+      // Dos canales pueden apuntar a la misma instancia: un solo socket alcanza.
+      if (seenInstanceNames.has(instanceName)) {
+        continue;
+      }
+      seenInstanceNames.add(instanceName);
+
+      gateways.push({
+        key: channel.id,
+        baseUrl: gateway.baseUrl,
+        instanceName,
+        apiKey: gateway.apiToken || null,
+      });
     }
 
-    return {
-      baseUrl: gateway.baseUrl,
-      instanceName: channel.evolutionInstanceName,
-      apiKey: gateway.apiToken || null,
-    };
+    return gateways;
   })();
   const chatListHref = `/cliente/chats${
     selectedConnectionKey || searchQuery || assignedFilter !== "all" || statusFilter !== "open"
@@ -886,16 +919,17 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         selectedConversationPhoneNumber={selectedUnified?.source === "agent" ? selectedUnified.secondaryLabel : null}
         globalEventsEnabled={realtimeGlobalEventsEnabled}
       />
-      {selectedApiGateway ? (
+      {apiGateways.map((gateway) => (
         <ChatsEvolutionApiRealtime
+          key={gateway.key}
           enabled
-          baseUrl={selectedApiGateway.baseUrl}
-          instanceName={selectedApiGateway.instanceName}
-          apiKey={selectedApiGateway.apiKey}
+          baseUrl={gateway.baseUrl}
+          instanceName={gateway.instanceName}
+          apiKey={gateway.apiKey}
           selectedConversationKey={selectedUnified?.key ?? null}
           selectedConversationPhoneNumber={selectedUnified?.source === "agent" ? selectedUnified.secondaryLabel : null}
         />
-      ) : null}
+      ))}
       <ChatIncomingNotifier enabled={chatsRealtimeSyncEnabled} />
       <PushSubscriptionManager enabled={chatsRealtimeSyncEnabled} />
       <QueryFeedbackToast
