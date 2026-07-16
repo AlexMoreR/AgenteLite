@@ -3071,7 +3071,12 @@ export async function sendChatAudioReplyAction(input: {
 const sendChatMediaReplySchema = z.object({
   source: z.string(),
   conversationId: z.string().min(1),
-  agentId: z.string().min(1),
+  // Opcional, igual que en el envio de audio: mandar una foto A MANO no necesita un agente de
+  // IA. Un canal sin agente (medido: las 31 conversaciones de Venta1 tienen agentId NULL)
+  // manda agentId="" desde el compositor, y con min(1) el envio moria en "Datos invalidos".
+  // El texto y el audio salian igual, por eso el sintoma era "solo fallan las imagenes".
+  // El canal no se resuelve por aca sino por la conversacion, asi que no hace falta.
+  agentId: z.string().optional(),
   mediaUrl: z.string().min(1),
   mediaType: z.enum(["IMAGE", "VIDEO", "DOCUMENT"]),
   fileName: z.string().min(1),
@@ -3083,7 +3088,7 @@ const sendChatMediaReplySchema = z.object({
 export async function sendChatMediaReplyAction(input: {
   source: string;
   conversationId: string;
-  agentId: string;
+  agentId?: string;
   mediaUrl: string;
   mediaType: "IMAGE" | "VIDEO" | "DOCUMENT";
   fileName: string;
@@ -3171,7 +3176,9 @@ export async function sendChatMediaReplyAction(input: {
       conversationId: conversation.id,
       channelId: conversation.channel.id,
       contactId: conversation.contact.id,
-      agentId: parsed.data.agentId,
+      // Mismo respaldo que el envio de audio: si el compositor no manda agente, se usa el de
+      // la conversacion, y si tampoco hay (canal sin agente) queda en null.
+      agentId: parsed.data.agentId?.trim() || conversation.agentId || null,
       externalId: outbound.externalId,
       direction: "OUTBOUND",
       type: parsed.data.mediaType,
@@ -3209,7 +3216,10 @@ export async function sendChatMediaReplyAction(input: {
   if (safeReturnTo) {
     revalidatePath(safeReturnTo.split("?")[0]);
   }
-  revalidatePath(`/cliente/agentes/${parsed.data.agentId}/chats`);
+  const revalidateAgentId = parsed.data.agentId?.trim() || conversation.agentId;
+  if (revalidateAgentId) {
+    revalidatePath(`/cliente/agentes/${revalidateAgentId}/chats`);
+  }
 
   return { ok: true };
 }
