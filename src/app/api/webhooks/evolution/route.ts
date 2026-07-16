@@ -831,6 +831,11 @@ export async function POST(request: NextRequest) {
     });
   }
 
+  // Rescate: la instancia del evento no existe en nuestra BD, asi que buscamos el canal por el
+  // telefono. Sirve para no perder MENSAJES cuando el instanceName no cuadra, pero es un match
+  // debil: dos instancias pueden compartir el mismo numero de WhatsApp (justo lo que pasa al
+  // migrar de gateway, o al dejar la instancia vieja viva). Por eso se marca.
+  let channelMatchedByPhoneOnly = false;
   if (!channel && channelPhoneNumber) {
     channel = await prisma.whatsAppChannel.findFirst({
       where: {
@@ -840,6 +845,7 @@ export async function POST(request: NextRequest) {
       orderBy: [{ updatedAt: "desc" }],
       select: channelSelect,
     });
+    channelMatchedByPhoneOnly = Boolean(channel);
   }
 
   await prisma.webhookEventLog.create({
@@ -870,6 +876,34 @@ export async function POST(request: NextRequest) {
   }
 
   if (isConnectionEvent) {
+    // Un aviso de conexion habla de UNA instancia. Si al canal solo lo encontramos por telefono,
+    // el evento puede venir de otra instancia que comparte ese numero, y aplicarselo lo marca
+    // conectado/desconectado por algo que no le paso.
+    //
+    // Paso de verdad el 16-jul-2026: al borrar una instancia vieja de Evolution API que tenia el
+    // numero de Ventas, su CONNECTION_UPDATE cayo aca, no encontro esa instancia, hizo match por
+    // telefono con Ventas (que ya estaba en otra instancia, en evogo, y andando) y lo dejo en
+    // DISCONNECTED. El canal funcionaba; la app decia que no.
+    //
+    // El rescate por telefono se conserva para los MENSAJES, que es donde salva datos: perder un
+    // mensaje es peor que anotarlo en el canal equivocado. Un estado de conexion mentiroso, no.
+    if (channelMatchedByPhoneOnly) {
+      console.warn("[EVOLUTION] connection_event_ignorado_match_debil", {
+        eventName,
+        instanceName,
+        canal: channel.name,
+        instanciaDelCanal: channel.evolutionInstanceName,
+        motivo: "el evento es de otra instancia que comparte el numero",
+      });
+
+      return NextResponse.json({
+        ok: true,
+        message: "Connection event ignored: channel matched by phone only",
+        instanceName,
+        event: eventName,
+      });
+    }
+
     const qrCode = extractEvolutionQrCode(payload);
     const pairingCode = extractEvolutionPairingCode(payload);
     const phoneNumber = normalizePhoneFromJid(extractEvolutionPhoneNumber(payload));
