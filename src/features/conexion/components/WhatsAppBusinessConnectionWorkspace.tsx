@@ -63,6 +63,8 @@ type WhatsAppBusinessConnectionWorkspaceProps = {
   collaboratorIds?: string[];
   // Conexiones Evolution API del catalogo del admin (sin apikey).
   evolutionApiGateways?: Array<{ id: string; baseUrl: string }>;
+  // Solo para canales que AUN no estan en Evolution API (migrar evogo -> API).
+  canConnectEvolutionApi?: boolean;
 };
 
 export function WhatsAppBusinessConnectionWorkspace({
@@ -82,6 +84,7 @@ export function WhatsAppBusinessConnectionWorkspace({
   collaboratorMembers = [],
   collaboratorIds = [],
   evolutionApiGateways = [],
+  canConnectEvolutionApi = false,
 }: WhatsAppBusinessConnectionWorkspaceProps) {
   const effectiveErrorMessage = hasQrCode || channelStatus === "QRCODE" || isConnected ? "" : errorMessage;
   const providerLabel =
@@ -250,7 +253,7 @@ export function WhatsAppBusinessConnectionWorkspace({
 
       {connection.provider === "EVOLUTION" ? <EvolutionChatSyncDialog channelId={connection.id} /> : null}
 
-      {connection.provider === "EVOLUTION" ? (
+      {connection.provider === "EVOLUTION" && canConnectEvolutionApi ? (
         <ConnectEvolutionApiCard channelId={connection.id} gateways={evolutionApiGateways} />
       ) : null}
     </div>

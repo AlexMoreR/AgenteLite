@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { WhatsAppBusinessConnectionWorkspace, getWhatsAppBusinessConnectionDetail } from "@/features/conexion";
 import { getPublicBaseUrl } from "@/lib/app-url";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
+import { readGatewayConnection } from "@/lib/evolution";
 import { getEvolutionGateways, getOfficialApiProviderSettings } from "@/lib/system-settings";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { Card, CardContent } from "@/components/ui/card";
@@ -110,6 +111,11 @@ async function ConnectionDetailContent({
 
   const webhookCallbackUrl = `${getPublicBaseUrl()}/api/webhooks/meta/official-api`;
 
+  // "Conectar Evolution API" sirve para MIGRAR un canal de evogo a Evolution API. Si el
+  // canal ya esta en Evolution API no aplica: ofrecerlo solo confunde y regeneraria un QR
+  // sin motivo.
+  const isChannelAlreadyEvolutionApi = readGatewayConnection(detail.channel?.metadata)?.kind === "EVOLUTION_API";
+
   return (
     <WhatsAppBusinessConnectionWorkspace
       connection={detail.connection}
@@ -127,6 +133,7 @@ async function ConnectionDetailContent({
       availableAgents={availableAgents}
       collaboratorMembers={collaboratorMembers}
       collaboratorIds={collaboratorIds}
+      canConnectEvolutionApi={!isChannelAlreadyEvolutionApi}
       evolutionApiGateways={evolutionGateways
         .filter((gateway) => gateway.kind === "EVOLUTION_API")
         .map((gateway) => ({ id: gateway.id, baseUrl: gateway.baseUrl }))}
