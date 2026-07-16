@@ -43,6 +43,7 @@ import {
   sendEvolutionMediaUrl,
   sendEvolutionPresence,
   sendEvolutionTextMessage,
+  sendEvolutionTextMessageWithReconnect,
   sendEvolutionVideoMessage,
 } from "@/lib/evolution";
 import { getPublicBaseUrl } from "@/lib/app-url";
@@ -2863,7 +2864,10 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
 
   let outbound: Awaited<ReturnType<typeof sendEvolutionTextMessage>>;
   try {
-    outbound = await sendEvolutionTextMessage({
+    // Con reconexión: si evogo tiene la WS caída un momento (pasa con la inestabilidad de
+    // whatsmeow), el envío MANUAL de la asesora también se recupera, como el del bot. Antes el
+    // manual no reconectaba y fallaba ("No se pudo enviar el mensaje") aunque el número fuera válido.
+    outbound = await sendEvolutionTextMessageWithReconnect({
       instanceName: conversation.channel.evolutionInstanceName,
       phoneNumber: sendRecipient,
       text: parsed.data.message,
@@ -2872,7 +2876,7 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
         : null,
     });
   } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
+    const detail = error instanceof Error ? error.message || error.name : String(error);
     console.error("[sendManualAgentReplyAction] evolution_text_send_failed", {
       workspaceId: membership.workspace.id,
       conversationId: conversation.id,
@@ -2880,7 +2884,9 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
       contactId: conversation.contact.id,
       instanceName: conversation.channel.evolutionInstanceName,
       phoneNumber: conversation.contact.phoneNumber,
+      sendRecipient,
       error: detail,
+      stack: error instanceof Error ? error.stack : undefined,
     });
     return {
       ok: false,

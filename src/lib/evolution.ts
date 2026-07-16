@@ -1971,6 +1971,7 @@ export async function sendEvolutionTextMessageWithReconnect(input: {
   phoneNumber: string;
   text: string;
   delayMs?: number;
+  quoted?: { id: string; remoteJid?: string; fromMe?: boolean; text?: string } | null;
 }) {
   try {
     return await sendEvolutionTextMessage(input);
