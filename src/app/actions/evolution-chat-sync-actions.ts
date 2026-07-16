@@ -18,7 +18,15 @@ async function requireWorkspace() {
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     return null;
   }
-  await requireClientWorkspaceAccess("chats");
+  // "connection", no "chats": estas son las acciones del panel de Conexion, y la mas pesada
+  // del sistema (applyEvolutionChatSyncAction con importLimit: null trae el historial COMPLETO
+  // de un canal, crea contactos y golpea al gateway). La pantalla ya exige "connection", pero
+  // eso solo esconde el boton: la accion quedaba invocable por cualquiera con acceso a Chats.
+  //
+  // La sincronizacion que SI tienen las asesoras es la de un contacto suelto desde el chat
+  // (importConversationHistoryAction en chats-actions.ts), que pide "chats" y esta acotada a
+  // una conversacion.
+  await requireClientWorkspaceAccess("connection");
 
   return getPrimaryWorkspaceForUser(session.user.id);
 }
