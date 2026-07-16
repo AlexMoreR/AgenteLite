@@ -2357,17 +2357,25 @@ export async function fetchEvolutionProfilePictureUrl(input: {
   }
 
   try {
+    // /user/avatar es de evogo: en Evolution API da 404 y recien ahi se usaba su
+    // endpoint. Eso es una llamada perdida POR CADA contacto (y el CRM refresca fotos en
+    // lote), asi que los canales API van directo al suyo.
+    const connection = (await getStoredEvolutionInstanceAuth(input.instanceName))?.connection ?? null;
+    const isEvolutionApi = connection?.kind === "EVOLUTION_API";
+
     // Aborta a los 6s: /user/avatar cuelga ~75s en evogo cuando WhatsApp rate-limitea
     // las consultas de foto. Sin este abort, cada intento retiene una conexion a evogo.
     const response = await evolutionInstanceRequest<Record<string, unknown>>({
       instanceName: input.instanceName,
-      path: "/user/avatar",
-      legacyPath: `/chat/fetchProfilePictureUrl/${input.instanceName}`,
+      path: isEvolutionApi ? `/chat/fetchProfilePictureUrl/${input.instanceName}` : "/user/avatar",
+      ...(isEvolutionApi ? {} : { legacyPath: `/chat/fetchProfilePictureUrl/${input.instanceName}` }),
       signal: AbortSignal.timeout(6000),
-      body: {
-        number: input.phoneNumber,
-        preview: true,
-      },
+      body: isEvolutionApi
+        ? { number: input.phoneNumber }
+        : {
+            number: input.phoneNumber,
+            preview: true,
+          },
       legacyBody: {
         number: input.phoneNumber,
       },
