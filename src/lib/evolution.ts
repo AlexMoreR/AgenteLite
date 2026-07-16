@@ -2052,14 +2052,24 @@ export async function fetchEvolutionProfilePictureUrl(input: {
   }
 }
 
-// La respuesta de /user/avatar en Evolution GO es un mapa generico (gin.H) y la clave de la
-// URL varia (whatsmeow usa `URL` en mayuscula; Evolution API usa `profilePictureUrl`). Buscamos
-// la primera URL http(s) bajo claves conocidas o, en su defecto, en profundidad.
+// La respuesta de /user/avatar varía según la versión de Evolution GO:
+//  - Versiones viejas: una URL http(s) (whatsmeow bajo `URL`, Evolution API `profilePictureUrl`).
+//  - 0.7.x: `{ success: true, avatar: "<base64>" }` (la foto ya viene en base64, NO como URL).
+// Devolvemos algo usable directo en <img src>: la URL, o el base64 envuelto como data: URL.
 function extractProfilePictureUrl(response: unknown): string | null {
   const isHttpUrl = (value: unknown): value is string =>
     typeof value === "string" && /^https?:\/\//i.test(value.trim());
+  const isDataUrl = (value: unknown): value is string =>
+    typeof value === "string" && /^data:image\//i.test(value.trim());
+  // Base64 "crudo": cadena larga solo con caracteres base64 (sin http ni espacios de URL).
+  const looksLikeBase64Image = (value: unknown): value is string => {
+    if (typeof value !== "string") return false;
+    const cleaned = value.trim().replace(/\s+/g, "");
+    return cleaned.length > 100 && /^[A-Za-z0-9+/]+={0,2}$/.test(cleaned);
+  };
+  const toDataUrl = (base64: string) => `data:image/jpeg;base64,${base64.trim().replace(/\s+/g, "")}`;
 
-  const KNOWN_KEYS = [
+  const URL_KEYS = [
     "URL",
     "url",
     "profilePictureUrl",
@@ -2072,23 +2082,38 @@ function extractProfilePictureUrl(response: unknown): string | null {
     "image",
     "imageUrl",
   ];
+  // Claves donde 0.7.x devuelve la foto en base64.
+  const BASE64_KEYS = ["avatar", "base64", "image", "picture", "profilePicture", "data"];
 
   const visit = (node: unknown, depth: number): string | null => {
     if (node == null || depth > 4) {
       return null;
     }
-    if (isHttpUrl(node)) {
+    if (isHttpUrl(node) || isDataUrl(node)) {
       return node.trim();
     }
     if (typeof node !== "object") {
       return null;
     }
     const obj = node as Record<string, unknown>;
-    for (const key of KNOWN_KEYS) {
-      if (isHttpUrl(obj[key])) {
-        return (obj[key] as string).trim();
+    // 1) URL http(s) o data: bajo claves conocidas.
+    for (const key of URL_KEYS) {
+      const value = obj[key];
+      if (isHttpUrl(value) || isDataUrl(value)) {
+        return (value as string).trim();
       }
     }
+    // 2) Foto en base64 (0.7.x) bajo claves conocidas → la envolvemos como data: URL.
+    for (const key of BASE64_KEYS) {
+      const value = obj[key];
+      if (isDataUrl(value)) {
+        return (value as string).trim();
+      }
+      if (looksLikeBase64Image(value)) {
+        return toDataUrl(value);
+      }
+    }
+    // 3) Búsqueda en profundidad.
     for (const value of Object.values(obj)) {
       const found = visit(value, depth + 1);
       if (found) {
