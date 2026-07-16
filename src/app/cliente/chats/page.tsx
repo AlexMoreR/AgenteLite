@@ -7,6 +7,7 @@ import { ChatHeaderActions } from "@/components/chats/chat-header-actions";
 import type { CrmStage } from "@/features/crm/types";
 import { ChatsAutoRefresh } from "@/components/agents/chats-auto-refresh";
 import { ChatsRealtimeSync } from "@/components/chats/chats-realtime-sync";
+import { ChatsEvolutionApiRealtime } from "@/components/chats/chats-evolution-api-realtime";
 import { ChatIncomingNotifier } from "@/components/chats/chat-incoming-notifier";
 import { PushSubscriptionManager } from "@/components/chats/push-subscription-manager";
 import { loadAgentConversationDetail } from "@/lib/chat-message-loader";
@@ -18,6 +19,7 @@ import {
   extractEvolutionPushName,
 } from "@/lib/evolution-webhook";
 import { getOfficialApiChatsData } from "@/features/official-api/services/getOfficialApiChatsData";
+import { readGatewayConnection } from "@/lib/evolution";
 import { getEvolutionSettings } from "@/lib/system-settings";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
@@ -303,6 +305,9 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         phoneNumber: true,
         status: true,
         evolutionInstanceName: true,
+        // Para saber si el canal es Evolution API (metadata.gateway) y, en ese caso,
+        // conectar su realtime propio.
+        metadata: true,
         agent: {
           select: {
             id: true,
@@ -658,6 +663,22 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     evolutionSettings.apiBaseUrl &&
       evolutionSettings.apiToken,
   );
+
+  // Realtime del canal seleccionado cuando es Evolution API: usa SU socket.io, aparte del
+  // WebSocket nativo de evogo (que sigue manejando ChatsRealtimeSync sin cambios).
+  const selectedApiGateway = (() => {
+    const channel = selectedConnectionChannelId ? channelsById.get(selectedConnectionChannelId) : null;
+    const gateway = readGatewayConnection(channel?.metadata);
+    if (!channel?.evolutionInstanceName || gateway?.kind !== "EVOLUTION_API") {
+      return null;
+    }
+
+    return {
+      baseUrl: gateway.baseUrl,
+      instanceName: channel.evolutionInstanceName,
+      apiKey: gateway.apiToken || null,
+    };
+  })();
   const chatListHref = `/cliente/chats${
     selectedConnectionKey || searchQuery || assignedFilter !== "all" || statusFilter !== "open"
       ? `?${new URLSearchParams([
@@ -865,6 +886,15 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         selectedConversationPhoneNumber={selectedUnified?.source === "agent" ? selectedUnified.secondaryLabel : null}
         globalEventsEnabled={realtimeGlobalEventsEnabled}
       />
+      {selectedApiGateway ? (
+        <ChatsEvolutionApiRealtime
+          enabled
+          baseUrl={selectedApiGateway.baseUrl}
+          instanceName={selectedApiGateway.instanceName}
+          apiKey={selectedApiGateway.apiKey}
+          selectedConversationKey={selectedUnified?.key ?? null}
+        />
+      ) : null}
       <ChatIncomingNotifier enabled={chatsRealtimeSyncEnabled} />
       <PushSubscriptionManager enabled={chatsRealtimeSyncEnabled} />
       <QueryFeedbackToast
