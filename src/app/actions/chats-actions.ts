@@ -11,6 +11,7 @@ import { createFollowsFromRulesForSource } from "@/features/seguimientos/service
 import { getConversationAutomationPaused, setConversationAutomationPaused } from "@/lib/conversation-automation";
 import { recordConversationActivity } from "@/lib/conversation-activity";
 import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
+import { backfillEvolutionMessagesByPhone } from "@/lib/evolution-chat-sync";
 import { deleteEvolutionMessageForEveryone, fetchEvolutionProfilePictureUrl, sendEvolutionTextMessage } from "@/lib/evolution";
 import { normalizeInternalPath } from "@/lib/app-url";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
@@ -1688,4 +1689,74 @@ export async function updateChannelCollaboratorsAction(input: {
 
   revalidatePath(`/cliente/conexion/whatsapp-business/${channelId}`);
   return {};
+}
+
+const importConversationHistorySchema = z.object({
+  conversationId: z.string().trim().min(1),
+});
+
+/**
+ * Trae de WhatsApp los mensajes recientes de UN contacto y rellena lo que falte en su chat.
+ *
+ * Existe porque la importacion automatica se quito a proposito (revivia chats viejos y
+ * suprimia la bienvenida, ver el webhook de Evolution). El hueco que eso deja se tapa aca:
+ * cuando una asesora ve un historial cortado, lo pide ella misma, para ese contacto y en ese
+ * momento. Por eso pide permiso de "chats" y no de "connection": el problema aparece en el
+ * chat, y hacer que dependan de un administrador frena la venta.
+ *
+ * Alcance acotado a proposito: un solo contacto y solo los mensajes recientes. La importacion
+ * masiva de un canal entero sigue viviendo en Conexion, para administradores.
+ */
+export async function importConversationHistoryAction(input: {
+  conversationId: string;
+}): Promise<{ ok: true; imported: number } | { error: string }> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
+    return { error: "No autorizado" };
+  }
+  await requireClientWorkspaceAccess("chats");
+
+  const parsed = importConversationHistorySchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: "Datos invalidos" };
+  }
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    return { error: "Debes configurar tu negocio primero" };
+  }
+
+  const conversation = await prisma.conversation.findFirst({
+    where: {
+      id: parsed.data.conversationId,
+      workspaceId: membership.workspace.id,
+    },
+    select: {
+      id: true,
+      contact: { select: { phoneNumber: true } },
+      channel: { select: { id: true, provider: true, evolutionInstanceName: true } },
+    },
+  });
+
+  if (!conversation?.contact?.phoneNumber || !conversation.channel) {
+    return { error: "No se encontro el chat" };
+  }
+
+  if (conversation.channel.provider !== "EVOLUTION" || !conversation.channel.evolutionInstanceName) {
+    return { error: "Este canal no permite traer historial de WhatsApp" };
+  }
+
+  const result = await backfillEvolutionMessagesByPhone({
+    workspaceId: membership.workspace.id,
+    channelId: conversation.channel.id,
+    phoneNumber: conversation.contact.phoneNumber,
+  });
+
+  if (!result.ok) {
+    return { error: `No se pudo traer el historial: ${result.reason}` };
+  }
+
+  revalidatePath("/cliente/chats");
+
+  return { ok: true, imported: result.imported };
 }

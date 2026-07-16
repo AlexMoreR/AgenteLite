@@ -5,6 +5,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { FormActionSwitch } from "@/components/ui/form-action-switch";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { CrmStageControl } from "./crm-stage-control";
+import { ImportHistoryControl } from "./import-history-control";
 import { ResolveChatControl } from "./resolve-chat-control";
 import type { CrmStage } from "@/features/crm/types";
 
@@ -50,6 +51,8 @@ export function ChatHeaderActions({
           ariaLabel={switchAriaLabel}
           hiddenFields={switchHiddenFields}
         />
+        {/* Solo WhatsApp: la API oficial no expone historial para traer. */}
+        {source === "agent" ? <ImportHistoryControl conversationId={conversationId} /> : null}
         <ResolveChatControl conversationId={conversationId} status={status} source={source} />
       </div>
     );
@@ -89,6 +92,12 @@ export function ChatHeaderActions({
               hiddenFields={switchHiddenFields}
             />
           </div>
+          {source === "agent" ? (
+            <div className="flex items-center justify-between gap-2 rounded-xl px-2 py-2">
+              <span className="text-[13px] font-medium text-foreground">Historial de WhatsApp</span>
+              <ImportHistoryControl conversationId={conversationId} withLabel />
+            </div>
+          ) : null}
           <div className="flex items-center justify-between gap-2 rounded-xl px-2 py-2">
             <span className="text-[13px] font-medium text-foreground">Conversación</span>
             <ResolveChatControl conversationId={conversationId} status={status} source={source} />
