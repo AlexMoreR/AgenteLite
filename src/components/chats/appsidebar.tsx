@@ -233,7 +233,9 @@ export function AppSidebar({
             </div>
           </div>
 
-          <div className="mt-1 flex items-center gap-1 rounded-xl bg-muted p-0.5">
+          {/* Filtros tipo WhatsApp: pildoras separadas, activa en verde y las
+              inactivas con borde/texto gris. */}
+          <div className="mt-1 flex flex-wrap items-center gap-2">
             {visibleTabs.map((tab) => {
               const isActive = assignedFilter === tab.value;
               const count = assignedCounts ? assignedCounts[tab.value] : null;
@@ -244,15 +246,19 @@ export function AppSidebar({
                   href={buildFilterHref(tab.value)}
                   scroll={false}
                   aria-current={isActive ? "page" : undefined}
-                  className={`flex flex-1 items-center justify-center gap-1 whitespace-nowrap rounded-lg px-1.5 py-1 text-center text-[13px] font-medium transition ${
+                  className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1 text-[13px] font-medium transition ${
                     isActive
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
+                      ? "border-transparent bg-emerald-100 text-emerald-700"
+                      : "border-border text-muted-foreground hover:bg-muted"
                   }`}
                 >
                   <span className="whitespace-nowrap">{tab.label}</span>
                   {countLabel != null ? (
-                    <span className="text-[10px] font-semibold leading-none text-foreground">
+                    <span
+                      className={`text-[11px] font-semibold leading-none ${
+                        isActive ? "text-emerald-700" : "text-muted-foreground"
+                      }`}
+                    >
                       {countLabel}
                     </span>
                   ) : null}
