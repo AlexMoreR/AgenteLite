@@ -15,13 +15,6 @@ export default async function AdminConfiguracionPage() {
 
   return (
     <section className="w-full space-y-6">
-      <div className="space-y-1">
-        <h1 className="text-lg font-semibold tracking-tight text-slate-900 md:text-xl">Configuracion</h1>
-        <p className="text-[13px] leading-5 text-slate-600">
-          Elige el apartado que quieres administrar.
-        </p>
-      </div>
-
       <div className="grid gap-4 lg:grid-cols-2">
         {moduleAccess.config_users ? (
           <Link href="/admin/configuracion/usuarios" className="group">
