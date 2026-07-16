@@ -39,11 +39,9 @@ import {
   extractEvolutionPushName,
   extractEvolutionQrCode,
   extractEvolutionRemoteJid,
-  extractEvolutionContactSyncPhones,
   hasEvolutionCallPayload,
   hasEvolutionDeletedMessagePayload,
   hasEvolutionEditedMessagePayload,
-  isEvolutionContactSyncEvent,
   isEvolutionStatusBroadcastPayload,
   isInboundMessageEvent,
   normalizePhoneFromJid,
@@ -86,7 +84,6 @@ import {
   sendNotificarAsesorNotification,
 } from "@/features/agent-actions";
 import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
-import { backfillEvolutionMessagesByPhone } from "@/lib/evolution-chat-sync";
 import { persistChatMediaFromDataUrl } from "@/lib/chat-media-storage";
 
 function mapChannelStatus(eventName: string | null, rawState: string | null) {
@@ -763,32 +760,6 @@ async function autoAssignConversationToCollaborator(args: {
   });
 }
 
-// Throttle en memoria para el rescate de mensajes por evento de contacto/chat.
-// Evita rafagas de llamadas a la API de Evolution cuando llegan muchos eventos
-// seguidos del mismo chat. El import es idempotente, asi que esto solo limita costo.
-const CONTACT_SYNC_BACKFILL_THROTTLE_MS = 15_000;
-const contactSyncBackfillThrottle = new Map<string, number>();
-
-function shouldRunContactSyncBackfill(key: string, now: number) {
-  const last = contactSyncBackfillThrottle.get(key);
-  if (last !== undefined && now - last < CONTACT_SYNC_BACKFILL_THROTTLE_MS) {
-    return false;
-  }
-
-  contactSyncBackfillThrottle.set(key, now);
-
-  // Limpieza oportunista para que el Map no crezca sin limite.
-  if (contactSyncBackfillThrottle.size > 5000) {
-    for (const [entryKey, entryTime] of contactSyncBackfillThrottle) {
-      if (now - entryTime >= CONTACT_SYNC_BACKFILL_THROTTLE_MS) {
-        contactSyncBackfillThrottle.delete(entryKey);
-      }
-    }
-  }
-
-  return true;
-}
-
 export async function POST(request: NextRequest) {
   const payload = await request.json().catch(() => null);
 
@@ -942,57 +913,19 @@ export async function POST(request: NextRequest) {
     hasEvolutionDeletedMessagePayload(payload);
 
   if (!isMessageEvent) {
-    // Rescate: llego un evento de contacto/chat pero no un MESSAGES_UPSERT. A veces
-    // Evolution no emite (o se pierde) el upsert del mensaje con foto. Usamos la API de
-    // Evolution para traer los mensajes recientes de ese chat y rellenar lo que falte.
-    if (isEvolutionContactSyncEvent(eventName) && channel.evolutionInstanceName) {
-      const syncChannel = channel;
-      const now = Date.now();
-      const phonesToBackfill = extractEvolutionContactSyncPhones(payload).filter((phone) =>
-        shouldRunContactSyncBackfill(`${syncChannel.id}:${phone}`, now),
-      );
-
-      if (phonesToBackfill.length > 0) {
-        after(async () => {
-          for (const phone of phonesToBackfill) {
-            try {
-              const result = await backfillEvolutionMessagesByPhone({
-                workspaceId: syncChannel.workspaceId,
-                channelId: syncChannel.id,
-                phoneNumber: phone,
-              });
-
-              if (result.ok && result.imported > 0) {
-                console.log("[EVOLUTION] contact_sync_backfill", {
-                  eventName,
-                  instanceName,
-                  channelId: syncChannel.id,
-                  phone,
-                  imported: result.imported,
-                  created: result.created,
-                });
-              } else if (!result.ok) {
-                console.warn("[EVOLUTION] contact_sync_backfill_failed", {
-                  eventName,
-                  instanceName,
-                  channelId: syncChannel.id,
-                  phone,
-                  reason: result.reason,
-                });
-              }
-            } catch (error) {
-              console.error("[EVOLUTION] contact_sync_backfill_error", {
-                eventName,
-                instanceName,
-                channelId: syncChannel.id,
-                phone,
-                error: error instanceof Error ? error.message : String(error),
-              });
-            }
-          }
-        });
-      }
-    }
+    // Aca vivia un backfill AUTOMATICO: ante un evento de contacto/chat de Evolution se pedia
+    // el historial reciente de ese numero para rellenar huecos. Se quito a proposito.
+    //
+    // El costo era peor que el beneficio: importaba conversaciones viejas sin que nadie lo
+    // pidiera, revivia chats que se habian borrado y hacia que una conversacion nueva
+    // pareciera "ya contestada", suprimiendo el mensaje de bienvenida.
+    //
+    // La importacion de historial ahora es SIEMPRE manual y deliberada:
+    //   - por contacto, desde el chat (lo usan las asesoras cuando ven el historial cortado)
+    //   - masiva por canal, desde Conexion (solo administradores)
+    //
+    // Contrapartida asumida: si el webhook se pierde un mensaje (servidor caido, gateway
+    // reiniciandose), ese hueco ya no se rellena solo. Hay que sincronizar el contacto a mano.
 
     return NextResponse.json({
       ok: true,
