@@ -2205,26 +2205,44 @@ export async function sendEvolutionMediaUrl(input: {
   delayMs?: number;
 }) {
   const normalizedCaption = input.caption?.trim() || "";
-  return sendEvolutionMediaRequest({
-    instanceName: input.instanceName,
-    phoneNumber: input.phoneNumber,
-    type: input.mediatype,
-    media: input.url,
-    mediaSource: "url",
-    fileName: input.fileName,
-    mimetype: input.mimetype,
+
+  const buildLegacyBody = (media: string) => ({
+    number: normalizeEvolutionSendNumber(input.phoneNumber),
+    mediatype: input.mediatype,
+    ...(input.mimetype?.trim() ? { mimetype: input.mimetype.trim() } : {}),
     caption: normalizedCaption,
-    delayMs: input.delayMs,
-    legacyBody: {
-      number: normalizeEvolutionSendNumber(input.phoneNumber),
-      mediatype: input.mediatype,
-      ...(input.mimetype?.trim() ? { mimetype: input.mimetype.trim() } : {}),
-      caption: normalizedCaption,
-      media: input.base64Fallback || input.url,
-      fileName: input.fileName,
-      delay: input.delayMs ?? 1200,
-    },
+    media,
+    fileName: input.fileName,
+    delay: input.delayMs ?? 1200,
   });
+
+  const send = (legacyMedia: string) =>
+    sendEvolutionMediaRequest({
+      instanceName: input.instanceName,
+      phoneNumber: input.phoneNumber,
+      type: input.mediatype,
+      media: input.url,
+      mediaSource: "url",
+      fileName: input.fileName,
+      mimetype: input.mimetype,
+      caption: normalizedCaption,
+      delayMs: input.delayMs,
+      legacyBody: buildLegacyBody(legacyMedia),
+    });
+
+  // Mandamos la URL publica: el gateway la descarga (payload liviano). Antes se enviaba
+  // el archivo entero en base64 dentro del JSON —pensado para Evolution API v1—, lo que
+  // en v2 hace fallar TODO medio (imagen/video/pdf) por tamaño del payload, mientras el
+  // texto pasaba sin problema. El base64 queda solo como reintento si la URL falla.
+  try {
+    return await send(input.url);
+  } catch (error) {
+    if (!input.base64Fallback?.trim()) {
+      throw error;
+    }
+
+    return await send(input.base64Fallback);
+  }
 }
 
 export async function sendEvolutionMediaBase64(input: {
