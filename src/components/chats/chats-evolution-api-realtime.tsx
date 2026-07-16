@@ -184,6 +184,11 @@ export function ChatsEvolutionApiRealtime({
     }
 
     const handleEvent = (payload: unknown) => {
+      console.info("[evoapi realtime] evento recibido", {
+        instanceName,
+        remoteJid: extractEvolutionRemoteJid(payload),
+        texto: extractEvolutionMessageText(payload)?.slice(0, 40),
+      });
       void refreshFromPayload(payload);
     };
 
@@ -194,13 +199,27 @@ export function ChatsEvolutionApiRealtime({
       // así que el socket nunca conectaba. `auth` no alcanza: socket.io lo manda recién en el
       // handshake interno, después de esa validación. Se deja también por compatibilidad.
       const trimmedApiKey = apiKey?.trim() || "";
+      if (!trimmedApiKey) {
+        // Sin apikey el servidor RECHAZA el handshake (probado: con apikey conecta, sin ella
+        // da error). Conectar igual seria fallar en silencio, asi que avisamos.
+        console.error("[evoapi realtime] sin apiKey: el socket seria rechazado", { instanceName });
+      }
+
+      console.info("[evoapi realtime] conectando", { baseUrl: normalizedBaseUrl, instanceName, tieneApiKey: Boolean(trimmedApiKey) });
       socket = io(`${normalizedBaseUrl}/${instanceName}`, {
         transports: ["websocket"],
         ...(trimmedApiKey
           ? { query: { apikey: trimmedApiKey }, auth: { apikey: trimmedApiKey } }
           : {}),
       });
-    } catch {
+
+      // Sin estos handlers el socket fallaba MUDO: se montaba, no conectaba, y nadie se
+      // enteraba nunca. Diagnosticar "por que no llega el realtime" era imposible.
+      socket.on("connect", () => console.info("[evoapi realtime] CONECTADO", { instanceName }));
+      socket.on("connect_error", (error) => console.error("[evoapi realtime] ERROR DE CONEXION", { instanceName, motivo: String(error?.message || error) }));
+      socket.on("disconnect", (reason) => console.warn("[evoapi realtime] desconectado", { instanceName, reason }));
+    } catch (error) {
+      console.error("[evoapi realtime] no se pudo crear el socket", { instanceName, error: String(error) });
       return;
     }
 
