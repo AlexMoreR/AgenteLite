@@ -6,6 +6,9 @@ export type FlowSourceType = "official-api" | "evolution";
 export type FlowTargetItem = {
   id: string;
   sourceType: FlowSourceType;
+  // Nombre del canal ("Ventas", "Venta1"...). `title` es generico ("API no oficial") y no
+  // sirve para distinguir un canal de otro en el selector.
+  name: string;
   title: string;
   description: string;
   href: string;
@@ -48,6 +51,7 @@ export async function getFlowTargets(input: {
     items.push({
       id: "official-api",
       sourceType: "official-api",
+      name: "API oficial",
       title: "API oficial",
       description: isConnected
         ? "Constructor central para automatizaciones del numero oficial de WhatsApp."
@@ -63,6 +67,7 @@ export async function getFlowTargets(input: {
     items.push({
       id: channel.id,
       sourceType: "evolution",
+      name: channel.name,
       title: "API no oficial",
       description: channel.agent?.name
         ? `Canal no oficial con Evolution vinculado a ${channel.agent.name}.`

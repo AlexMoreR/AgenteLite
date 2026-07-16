@@ -7,6 +7,7 @@ import { canAccessOfficialApiModule } from "@/lib/admin-module-access";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { PageHeader } from "@/components/ui/page-header";
+import { FlowTargetSelector } from "@/features/flows/components/FlowTargetSelector";
 
 type PageProps = {
   searchParams: Promise<{
@@ -26,11 +27,22 @@ export default async function ClientFlowsPage({ searchParams }: PageProps) {
   const query = await searchParams;
   const canUseOfficialApi = await canAccessOfficialApiModule(access.userId, access.role);
 
+  // Opciones para el selector: los flujos viven dentro de cada canal, asi que hay que
+  // poder elegir cual estas editando (antes la pantalla lo adivinaba y no dejaba cambiar).
+  const flowTargets = await getFlowTargets({
+    workspaceId: membership.workspace.id,
+    includeOfficialApi: canUseOfficialApi,
+  });
+  const flowTargetOptions = flowTargets.map((target) => ({
+    id: target.id,
+    name: target.name,
+    href: target.href,
+    isConnected: target.isConnected,
+    hasAgent: target.hasAgent,
+  }));
+
   if (!query.sourceType) {
-    const targets = await getFlowTargets({
-      workspaceId: membership.workspace.id,
-      includeOfficialApi: canUseOfficialApi,
-    });
+    const targets = flowTargets;
 
     if (!targets.length) {
       return (
@@ -69,7 +81,9 @@ export default async function ClientFlowsPage({ searchParams }: PageProps) {
     }
 
     return (
-      <section>
+      <section className="space-y-4">
+        <FlowTargetSelector targets={flowTargetOptions} currentId="official-api" />
+
         <OfficialApiChatbotWorkspace
           key="flows-official"
           data={data}
@@ -92,7 +106,9 @@ export default async function ClientFlowsPage({ searchParams }: PageProps) {
     const routeQuery = `?sourceType=evolution&sourceId=${encodeURIComponent(query.sourceId)}`;
 
     return (
-      <section>
+      <section className="space-y-4">
+        <FlowTargetSelector targets={flowTargetOptions} currentId={query.sourceId} />
+
         <OfficialApiChatbotWorkspace
           key={`flows-evolution-${query.sourceId}`}
           data={data}
