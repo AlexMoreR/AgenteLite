@@ -815,6 +815,20 @@ export async function POST(request: NextRequest) {
   const instanceName = extractEvolutionInstanceName(payload);
   const instanceKey = extractEvolutionInstanceKey(payload);
   const channelPhoneNumber = normalizePhoneFromJid(extractEvolutionPhoneNumber(payload));
+
+  // FASE 1 (diagnóstico temporal): capturamos el payload crudo del evento HistorySync para
+  // conocer su formato exacto antes de escribir el parser que rellena chats incompletos.
+  // Se quita cuando el parser esté listo.
+  if (eventName === "HISTORYSYNC" || eventName === "HISTORY_SYNC") {
+    try {
+      const raw = JSON.stringify(payload);
+      console.log(`[HISTORY_SYNC_CAPTURE] instance=${instanceName ?? "?"} len=${raw.length} sample=${raw.slice(0, 3500)}`);
+    } catch {
+      console.log("[HISTORY_SYNC_CAPTURE] (payload no serializable)");
+    }
+    return NextResponse.json({ ok: true, message: "history-sync captured" });
+  }
+
   const isConnectionEvent =
     eventName === "QRCODE_UPDATED" ||
     eventName === "CONNECTION_UPDATE" ||
