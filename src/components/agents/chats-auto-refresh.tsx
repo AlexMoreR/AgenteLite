@@ -182,19 +182,85 @@ export function ChatsAutoRefresh({
     // The interval should not reset when the active chat changes.
   }, [enabled, isVisible, intervalMs, realtimeEnabled, refreshNow]);
 
+  // Refresco DIRIGIDO al chat que cambio: actualiza su fila de la lista (y el detalle si
+  // es el que esta abierto). Nunca hace router.refresh(), que recargaria la pagina entera
+  // en cada mensaje entrante.
+  const refreshChat = useCallback(async (chatKey: string) => {
+    if (!chatKey.startsWith("agent:")) {
+      return;
+    }
+
+    const isSelected = chatKey === (selectedConversationKeyRef.current?.trim() ?? "");
+
+    try {
+      const summaryResponse = await fetch(`/api/cliente/chats/summary?chatKey=${encodeURIComponent(chatKey)}`, {
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+
+      if (summaryResponse.ok) {
+        const summaryPayload = (await summaryResponse.json().catch(() => null)) as
+          | { ok?: boolean; conversation?: unknown }
+          | null;
+
+        if (summaryPayload?.ok && summaryPayload.conversation) {
+          const summaryConversation = hydrateConversationListSnapshot(summaryPayload.conversation);
+          if (summaryConversation) {
+            window.dispatchEvent(
+              new CustomEvent("chat-list-update", { detail: { conversation: summaryConversation } }),
+            );
+          }
+        }
+      }
+
+      // El detalle solo hace falta si ese chat es el que el usuario tiene abierto.
+      if (!isSelected) {
+        return;
+      }
+
+      const liveResponse = await fetch(`/api/cliente/chats/live?chatKey=${encodeURIComponent(chatKey)}`, {
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+
+      if (liveResponse.ok) {
+        const livePayload = (await liveResponse.json().catch(() => null)) as
+          | { ok?: boolean; conversation?: unknown }
+          | null;
+
+        if (livePayload?.ok && livePayload.conversation) {
+          const conversation = hydrateConversationSnapshot(livePayload.conversation);
+          if (conversation) {
+            window.dispatchEvent(new CustomEvent("chat-live-update", { detail: { conversation, chatKey } }));
+          }
+        }
+      }
+    } catch {
+      // Error de red: el poll de respaldo lo recoge en el siguiente tick.
+    }
+  }, []);
+
   // Disparo instantaneo desde el realtime SSE (webhook -> servidor empuja -> poke).
   useEffect(() => {
     if (!enabled) {
       return;
     }
 
-    function handlePoke() {
+    function handlePoke(event: Event) {
+      const chatKey = (event as CustomEvent<{ chatKey?: string | null }>).detail?.chatKey?.trim() || "";
+
+      // Con chatKey: refresco dirigido (sin recargar). Sin el, caemos al refresco normal.
+      if (chatKey) {
+        void refreshChat(chatKey);
+        return;
+      }
+
       void refreshNow();
     }
 
     window.addEventListener("chat-realtime-poke", handlePoke as EventListener);
     return () => window.removeEventListener("chat-realtime-poke", handlePoke as EventListener);
-  }, [enabled, refreshNow]);
+  }, [enabled, refreshChat, refreshNow]);
 
   return null;
 }

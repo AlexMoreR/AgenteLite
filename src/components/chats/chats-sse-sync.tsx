@@ -20,8 +20,18 @@ export function ChatsSseSync({ enabled = true }: ChatsSseSyncProps) {
     let source: EventSource | null = null;
     let closedByCleanup = false;
 
-    const poke = () => {
-      window.dispatchEvent(new CustomEvent("chat-realtime-poke"));
+    // Reenvia el chatKey del evento para que el refresco sea DIRIGIDO a ese chat
+    // (actualizar su fila) en vez de recargar la pagina entera.
+    const poke = (event: MessageEvent) => {
+      let chatKey: string | null = null;
+      try {
+        const parsed = JSON.parse(event.data) as { chatKey?: string | null };
+        chatKey = typeof parsed?.chatKey === "string" ? parsed.chatKey : null;
+      } catch {
+        chatKey = null;
+      }
+
+      window.dispatchEvent(new CustomEvent("chat-realtime-poke", { detail: { chatKey } }));
     };
 
     const connect = () => {
