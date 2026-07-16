@@ -11,7 +11,7 @@ import { createFollowsFromRulesForSource } from "@/features/seguimientos/service
 import { getConversationAutomationPaused, setConversationAutomationPaused } from "@/lib/conversation-automation";
 import { recordConversationActivity } from "@/lib/conversation-activity";
 import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
-import { deleteEvolutionMessageForEveryone, sendEvolutionTextMessage } from "@/lib/evolution";
+import { deleteEvolutionMessageForEveryone, fetchEvolutionProfilePictureUrl, sendEvolutionTextMessage } from "@/lib/evolution";
 import { normalizeInternalPath } from "@/lib/app-url";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import {
@@ -401,6 +401,76 @@ export async function deleteContactAction(formData: FormData): Promise<void> {
 
   const safeReturnTo = normalizeInternalPath(parsed.data.returnTo, "/cliente/contactos");
   redirect(`${safeReturnTo}${safeReturnTo.includes("?") ? "&" : "?"}ok=Contacto+eliminado`);
+}
+
+// Trae la foto de perfil de UN contacto AL INSTANTE (acción manual del usuario desde
+// el panel de contacto). Es 1 sola petición deliberada: no floodea, y sirve para el
+// contacto que el usuario está mirando, mientras el refresco automático llena el resto
+// de a poquitas. Usa el fetch con abort (6s), así que si WhatsApp está limitando, corta
+// rápido y devuelve un error claro.
+export async function refreshContactAvatarNowAction(
+  contactId: string,
+): Promise<{ ok: true; avatarUrl: string | null } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
+    return { ok: false, error: "No autorizado" };
+  }
+  await requireClientWorkspaceAccess("chats");
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership?.workspace.id) {
+    return { ok: false, error: "Workspace no encontrado" };
+  }
+
+  const contact = await prisma.contact.findFirst({
+    where: { id: contactId, workspaceId: membership.workspace.id },
+    select: {
+      id: true,
+      phoneNumber: true,
+      metadata: true,
+      conversations: {
+        where: { channel: { provider: "EVOLUTION", evolutionInstanceName: { not: null } } },
+        orderBy: [{ lastMessageAt: "desc" }, { updatedAt: "desc" }],
+        take: 1,
+        select: { channel: { select: { evolutionInstanceName: true } } },
+      },
+    },
+  });
+
+  if (!contact) {
+    return { ok: false, error: "Contacto no encontrado" };
+  }
+
+  const instanceName = contact.conversations[0]?.channel?.evolutionInstanceName?.trim();
+  if (!instanceName || !contact.phoneNumber) {
+    return { ok: false, error: "Este contacto no tiene una conexión de WhatsApp válida." };
+  }
+
+  const url = await fetchEvolutionProfilePictureUrl({ instanceName, phoneNumber: contact.phoneNumber });
+
+  if (!url) {
+    return {
+      ok: false,
+      error: "No se pudo obtener la foto (el contacto puede no tener foto o WhatsApp está limitando las consultas). Intenta más tarde.",
+    };
+  }
+
+  const existingMetadata =
+    contact.metadata && typeof contact.metadata === "object" && !Array.isArray(contact.metadata)
+      ? (contact.metadata as Record<string, unknown>)
+      : {};
+
+  await prisma.contact.update({
+    where: { id: contact.id },
+    data: {
+      avatarUrl: url,
+      metadata: { ...existingMetadata, avatarFetchedAt: new Date().toISOString() } as Prisma.InputJsonValue,
+    },
+  });
+
+  revalidatePath("/cliente/chats");
+  revalidatePath("/cliente/contactos");
+  return { ok: true, avatarUrl: url };
 }
 
 // Oculta (o vuelve a mostrar) un contacto del CRM sin borrarlo. Los contactos

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   ArrowLeft,
+  Camera,
   ChevronUp,
   Copy,
   FileText,
@@ -25,7 +26,7 @@ import {
 } from "lucide-react";
 import { ChatScrollAnchor } from "@/components/agents/chat-scroll-anchor";
 import { ContactAvatar } from "@/components/chats/contact-avatar";
-import { getContactDetailsAction, generateSuggestedReplyAction } from "@/app/actions/chats-actions";
+import { getContactDetailsAction, generateSuggestedReplyAction, refreshContactAvatarNowAction } from "@/app/actions/chats-actions";
 import { ChatTagsControl } from "@/components/chats/chat-tags-control";
 import { QuickRepliesDialog } from "@/components/chats/quick-replies-dialog";
 import { MediaPreviewDialog } from "@/components/chats/media-preview-dialog";
@@ -136,10 +137,33 @@ export const ConversationPanel = memo(function ConversationPanel({
   const composerTextAreaRef = useRef<HTMLTextAreaElement | null>(null);
   const composerSelectionRef = useRef({ start: 0, end: 0 });
   const composerRouter = useRouter();
+  const [isRefreshingAvatar, setIsRefreshingAvatar] = useState(false);
   const [composerHasText, setComposerHasText] = useState(false);
   const [isRecordingAudio, setIsRecordingAudio] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const [isSendingAudio, setIsSendingAudio] = useState(false);
+
+  // Trae la foto de perfil del contacto abierto AL INSTANTE (acción manual del usuario).
+  const handleRefreshAvatar = useCallback(async () => {
+    const contactId = renderedConversation?.contactId;
+    if (!contactId || isRefreshingAvatar) {
+      return;
+    }
+    setIsRefreshingAvatar(true);
+    try {
+      const result = await refreshContactAvatarNowAction(contactId);
+      if (result.ok) {
+        toast.success("Foto actualizada");
+        composerRouter.refresh();
+      } else {
+        toast.error(result.error);
+      }
+    } catch {
+      toast.error("No se pudo traer la foto");
+    } finally {
+      setIsRefreshingAvatar(false);
+    }
+  }, [renderedConversation?.contactId, isRefreshingAvatar, composerRouter]);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -1181,12 +1205,30 @@ export const ConversationPanel = memo(function ConversationPanel({
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
               <div className="flex items-center gap-3">
-                <ContactAvatar
-                  avatarUrl={renderedConversation.avatarUrl}
-                  label={renderedConversation.label}
-                  className="h-12 w-12 shrink-0 rounded-full border border-border bg-muted text-muted-foreground"
-                  fallbackClassName="rounded-full bg-muted text-muted-foreground"
-                />
+                <div className="relative shrink-0">
+                  <ContactAvatar
+                    avatarUrl={renderedConversation.avatarUrl}
+                    label={renderedConversation.label}
+                    className="h-12 w-12 rounded-full border border-border bg-muted text-muted-foreground"
+                    fallbackClassName="rounded-full bg-muted text-muted-foreground"
+                  />
+                  {renderedConversation.contactId ? (
+                    <button
+                      type="button"
+                      onClick={handleRefreshAvatar}
+                      disabled={isRefreshingAvatar}
+                      aria-label="Traer foto de perfil"
+                      title="Traer foto de perfil de WhatsApp"
+                      className="absolute -bottom-1 -right-1 inline-flex h-6 w-6 items-center justify-center rounded-full border border-background bg-[var(--primary)] text-white shadow-sm transition hover:opacity-90 disabled:opacity-60"
+                    >
+                      {isRefreshingAvatar ? (
+                        <LoaderCircle className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Camera className="h-3 w-3" />
+                      )}
+                    </button>
+                  ) : null}
+                </div>
                 <div className="min-w-0 flex-1 space-y-0.5">
                   <div className="flex items-center gap-1.5">
                     <p className="truncate text-sm font-semibold text-foreground">
