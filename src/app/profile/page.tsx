@@ -19,7 +19,7 @@ export default async function ProfilePage() {
 
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
-    select: { name: true, image: true, email: true, role: true },
+    select: { name: true, image: true, email: true, role: true, chatSignature: true },
   });
 
   if (!user) {
@@ -34,6 +34,7 @@ export default async function ProfilePage() {
         defaultImage={user.image ?? ""}
         email={user.email}
         role={user.role}
+        defaultChatSignature={user.chatSignature ?? ""}
       />
       </div>
     </section>

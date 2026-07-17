@@ -23,6 +23,10 @@ model User {
   neighborhood         String?
   department           String?
   city                 String?
+  // Firma que se agrega al final de los mensajes que esta persona escribe A MANO en los chats.
+  // No aplica a los mensajes del agente: el bot no es una persona y firmar sus respuestas
+  // confundiria al cliente sobre con quien esta hablando.
+  chatSignature        String?
   emailAuthTokens      EmailAuthToken[]
   quotesAsClient       Quote[]           @relation("QuoteClient")
   quotesCreated        Quote[]           @relation("QuoteCreatedBy")

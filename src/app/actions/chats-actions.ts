@@ -630,6 +630,45 @@ const toggleConversationAutomationSchema = z.object({
   returnTo: z.string().trim().min(1).max(500),
 });
 
+/**
+ * Agrega la firma de quien escribe al final del mensaje.
+ *
+ * Solo para mensajes manuales: el agente no pasa por aca (ver sendUnifiedChatReplyAction).
+ *
+ * Es a prueba de fallos a proposito: si no hay sesion, no hay firma configurada, o la consulta
+ * falla, devuelve el mensaje tal cual. Un mensaje sin firma es un detalle; un mensaje que no sale
+ * porque la firma reventó es una venta perdida.
+ */
+async function appendUserChatSignature(message: string): Promise<string> {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return message;
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { chatSignature: true },
+    });
+
+    const signature = user?.chatSignature?.trim();
+    if (!signature) {
+      return message;
+    }
+
+    // Si ya la escribio a mano (o esta reenviando algo firmado), no duplicarla.
+    if (message.trimEnd().endsWith(signature)) {
+      return message;
+    }
+
+    // Linea en blanco de por medio: en WhatsApp la firma pegada al texto se lee como parte del
+    // mensaje.
+    return `${message.trimEnd()}\n\n${signature}`;
+  } catch {
+    return message;
+  }
+}
+
 export async function sendUnifiedChatReplyAction(formData: FormData): Promise<SendChatReplyResult> {
   const parsed = sendUnifiedChatReplySchema.safeParse({
     source: formData.get("source"),
@@ -648,6 +687,14 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
   }
 
   const safeReturnTo = normalizeInternalPath(parsed.data.returnTo, "");
+
+  // La firma se agrega ACA, antes de que los dos caminos (WhatsApp y API oficial) se separen:
+  // asi vale para ambos y hay un solo lugar donde puede fallar.
+  //
+  // Solo en mensajes escritos por una PERSONA. El agente no pasa por esta accion: firmar sus
+  // respuestas con "— Ingrid" le haria creer al cliente que le escribio ella, y cuando Ingrid
+  // entrara de verdad no habria diferencia entre el bot y la persona.
+  const messageWithSignature = await appendUserChatSignature(parsed.data.message);
 
   if (parsed.data.source === "official") {
     const session = await auth();
@@ -693,7 +740,7 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
       conversationId: conversation.id,
       contactId: conversation.contactId,
       to: conversation.contactWaId,
-      message: parsed.data.message,
+      message: messageWithSignature,
       source: "manual",
     });
 
@@ -729,7 +776,7 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
     nextData.set("agentId", parsed.data.agentId);
   }
   nextData.set("conversationId", parsed.data.conversationId);
-  nextData.set("message", parsed.data.message);
+  nextData.set("message", messageWithSignature);
   nextData.set("returnTo", safeReturnTo || `/cliente/chats?chatKey=agent:${parsed.data.conversationId}`);
   if (parsed.data.quotedMessageId) {
     nextData.set("quotedMessageId", parsed.data.quotedMessageId);

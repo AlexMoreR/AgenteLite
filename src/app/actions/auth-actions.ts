@@ -193,6 +193,7 @@ export async function updateProfileAction(
     name: formData.get("name"),
     email: formData.get("email"),
     image: formData.get("image"),
+    chatSignature: formData.get("chatSignature") ?? undefined,
   });
 
   if (!parsed.success) {
@@ -221,6 +222,8 @@ export async function updateProfileAction(
       name: parsed.data.name,
       email: parsed.data.email,
       image: parsed.data.image || null,
+      // Vacio = sin firma. Se guarda null y los mensajes salen como siempre.
+      chatSignature: parsed.data.chatSignature?.trim() || null,
     },
     select: {
       name: true,

@@ -16,6 +16,10 @@ export const profileSchema = z.object({
   name: z.string().min(2, "Nombre muy corto").max(100, "Nombre muy largo"),
   email: z.string().email("Correo invalido"),
   image: z.union([z.string().url("URL invalida"), z.literal("")]),
+  // Firma que se agrega a los mensajes que la persona escribe a mano en los chats.
+  // Opcional: quien no la configure sigue enviando sin firma, como hasta ahora.
+  // El tope de 160 es para que no se coma el mensaje: va en CADA respuesta al cliente.
+  chatSignature: z.string().max(160, "La firma es muy larga").optional(),
 });
 
 export const changePasswordSchema = z
