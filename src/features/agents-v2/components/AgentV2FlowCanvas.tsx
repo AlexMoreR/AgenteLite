@@ -88,6 +88,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 
 const AGENT_NODE_ID = "agent-root";
@@ -1217,6 +1218,7 @@ function RulePopover({
   onSubmit: (matchType: MatchType, keywords: string[], intent: string) => void;
   trigger: ReactNode;
 }) {
+  const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
   const [matchType, setMatchType] = useState<MatchType>(initialMatchType);
   const [keywords, setKeywords] = useState<string[]>(initialKeywords);
@@ -1251,9 +1253,14 @@ function RulePopover({
     >
       <PopoverTrigger asChild>{trigger}</PopoverTrigger>
       <PopoverContent
-        align="start"
-        side="right"
-        className="nodrag w-72 space-y-3 rounded-2xl border border-border bg-background p-4 text-foreground"
+        // En escritorio se abre a la derecha, donde sobra lienzo. En movil eso lo tira fuera de
+        // la pantalla: el disparador vive dentro de un modal que ya ocupa casi todo el ancho, asi
+        // que 288px mas hacia la derecha quedan cortados y la regla no se puede editar (que es
+        // justo lo que decide si un lead se vende o se escala). Abajo siempre hay lugar.
+        align={isMobile ? "center" : "start"}
+        side={isMobile ? "bottom" : "right"}
+        // El ancho fijo w-72 tampoco entra en pantallas angostas.
+        className="nodrag w-[min(18rem,calc(100vw-2rem))] space-y-3 rounded-2xl border border-border bg-background p-4 text-foreground"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="space-y-1.5">
