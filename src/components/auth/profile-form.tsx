@@ -145,12 +145,13 @@ export function ProfileForm({
                 defaultValue={defaultChatSignature}
                 rows={2}
                 maxLength={160}
-                placeholder="Ej: — Ingrid · Magilus"
+                placeholder="Ej: 👩‍💻 *Ingrid Sánchez*"
                 className="min-h-16 w-full resize-y rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm leading-6 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-[var(--primary)] focus:ring-4 focus:ring-[color-mix(in_srgb,var(--primary)_12%,white)]"
               />
               <span className="text-xs leading-5 text-slate-500">
-                Se agrega al final de los mensajes que escribas a mano en los chats. El agente de
-                IA no la usa: sus respuestas no llevan firma. Dejalo vacío para enviar sin firma.
+                Se agrega <strong>arriba</strong> de los mensajes que escribas a mano, como
+                encabezado. Podés usar formato de WhatsApp: <code>*negrita*</code> para el nombre.
+                El agente de IA no la usa. Dejalo vacío para enviar sin firma.
               </span>
             </label>
             <div className="pt-1">

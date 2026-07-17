@@ -639,7 +639,7 @@ const toggleConversationAutomationSchema = z.object({
  * falla, devuelve el mensaje tal cual. Un mensaje sin firma es un detalle; un mensaje que no sale
  * porque la firma reventó es una venta perdida.
  */
-async function appendUserChatSignature(message: string): Promise<string> {
+async function prependUserChatSignature(message: string): Promise<string> {
   try {
     const session = await auth();
     if (!session?.user?.id) {
@@ -656,14 +656,18 @@ async function appendUserChatSignature(message: string): Promise<string> {
       return message;
     }
 
-    // Si ya la escribio a mano (o esta reenviando algo firmado), no duplicarla.
-    if (message.trimEnd().endsWith(signature)) {
+    // La firma va ARRIBA, como encabezado de quien escribe, y el mensaje debajo:
+    //   👩‍💻 *Ingrid Sánchez*
+    //   Hola
+    // Asi el cliente ve de entrada con quien habla, sin tener que llegar al final.
+    const body = message.replace(/^\s+/, "");
+
+    // Si ya empieza con la firma (la escribio a mano, o esta reenviando algo firmado), no duplicar.
+    if (body.startsWith(signature)) {
       return message;
     }
 
-    // Linea en blanco de por medio: en WhatsApp la firma pegada al texto se lee como parte del
-    // mensaje.
-    return `${message.trimEnd()}\n\n${signature}`;
+    return `${signature}\n${body}`;
   } catch {
     return message;
   }
@@ -694,7 +698,7 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
   // Solo en mensajes escritos por una PERSONA. El agente no pasa por esta accion: firmar sus
   // respuestas con "— Ingrid" le haria creer al cliente que le escribio ella, y cuando Ingrid
   // entrara de verdad no habria diferencia entre el bot y la persona.
-  const messageWithSignature = await appendUserChatSignature(parsed.data.message);
+  const messageWithSignature = await prependUserChatSignature(parsed.data.message);
 
   if (parsed.data.source === "official") {
     const session = await auth();
