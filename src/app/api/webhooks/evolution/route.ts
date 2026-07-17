@@ -76,6 +76,8 @@ import { buildHandoffMessage, parseAgentTrainingConfig } from "@/lib/agent-train
 import {
   CONSULTAR_FLUJOS_TOOL,
   CONSULTAR_PRODUCTOS_TOOL,
+  ENVIAR_FLUJO_TOOL,
+  resolveEnviarFlujoTool,
   resolveNotifyHumanAction,
   resolveUnknownProductNotifyAction,
   NOTIFICAR_ASESOR_TOOL,
@@ -83,6 +85,7 @@ import {
   executeConsultarProductosTool,
   sendNotificarAsesorNotification,
 } from "@/features/agent-actions";
+import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowItems";
 import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
 import { persistEvolutionHistorySync, syncEvolutionMessagesSince } from "@/lib/evolution-chat-sync";
 import { persistChatMediaFromDataUrl } from "@/lib/chat-media-storage";
@@ -2153,7 +2156,13 @@ export async function POST(request: NextRequest) {
       const previousCommercialContext = parseCommercialConversationContext(conversation.commercialContext);
       const previousActiveProductContext = (existingConversation?.activeProductContext as ActiveProductContext | null | undefined) ?? null;
 
-      const hardFlowResolution = shouldHandoffToHuman || quickResponseFlow
+      // Motor IA-primero: con aiDrivenFlows prendido se APAGA el disparo automatico de flujos.
+      // El motor deterministico deja de elegir/mandar catalogos por su cuenta; esa decision pasa
+      // a la IA (tool enviar_flujo). La EJECUCION de flujos no cambia: enviar_flujo reusa la misma
+      // maquina (getFlowReply + el enviador de pasos). Con el flag apagado (default) todo sigue
+      // igual que hasta ahora.
+      const aiDrivenFlows = agentTraining?.aiDrivenFlows === true;
+      const hardFlowResolution = shouldHandoffToHuman || quickResponseFlow || aiDrivenFlows
         ? null
         : await resolveAgentProductFlowReply({
             agentId: agent.id,
@@ -2454,6 +2463,72 @@ export async function POST(request: NextRequest) {
 
             return result ?? { found: false, matches: [], bestMatch: null, recommendation: "No hay coincidencias suficientes." };
           },
+          // Solo existe con aiDrivenFlows: la IA MANDA el flujo (catalogo/fotos/PDFs). Reusa la
+          // misma maquina de ejecucion del motor (getFlowReply + sendAndPersist...), solo cambia
+          // quien la dispara. Valida contra los flujos permitidos: la IA no puede mandar un id que
+          // no corresponde.
+          enviar_flujo: async (args: Record<string, unknown>) => {
+            if (!channel.evolutionInstanceName) {
+              return { enviados: [], error: "El canal no esta disponible para enviar." };
+            }
+
+            // Flujos permitidos + sus titulos, cargados aca (solo cuando la IA usa la tool).
+            const flowItems = await getCreatedFlowItems({
+              workspaceId: channel.workspaceId,
+              includeOfficialApi: true,
+            });
+            const selectedIds = agentTraining?.knowledgeFlowIds?.length
+              ? new Set(agentTraining.knowledgeFlowIds)
+              : null; // null = todos permitidos (config V1)
+            const allowedFlowIds = new Set(
+              flowItems
+                .filter((item) => !selectedIds || selectedIds.has(item.id))
+                .map((item) => item.id),
+            );
+            const flowTitleById = new Map(flowItems.map((item) => [item.id, item.title] as const));
+
+            const resolution = await resolveEnviarFlujoTool({
+              workspaceId: channel.workspaceId,
+              includeOfficialApi: true,
+              toolInput: args,
+              allowedFlowIds,
+              flowTitleById,
+            });
+
+            // Enviar de verdad, paso por paso, con la maquina del motor.
+            const enviados: string[] = [];
+            for (const flow of resolution.toSend) {
+              let allOk = true;
+              for (const [stepIndex, step] of flow.steps.entries()) {
+                if (stepIndex > 0) {
+                  const isMediaStep = step.kind === "document" || step.kind === "image" || step.kind === "video" || step.kind === "audio";
+                  await sleep(isMediaStep ? 3000 : 700);
+                }
+                const ok = await sendAndPersistEvolutionFlowStepResilient({
+                  step,
+                  workspaceId: channel.workspaceId,
+                  conversationId: conversation.id,
+                  channelId: channel.id,
+                  contactId: contact.id,
+                  agentId: agent.id,
+                  instanceName: channel.evolutionInstanceName,
+                  phoneNumber,
+                });
+                if (!ok) allOk = false;
+              }
+              if (allOk) enviados.push(flow.title || flow.flowId);
+            }
+
+            return {
+              enviados,
+              rechazados: resolution.rejected,
+              // Le decimos a la IA que ya se enviaron, para que arme su texto (p.ej. preguntar cual)
+              // sin volver a describir el catalogo ni reenviarlo.
+              nota: enviados.length
+                ? "Los flujos ya fueron ENVIADOS al cliente. No los describas de nuevo ni los reenvies; solo continua la conversacion (p.ej. pregunta cual le interesa si enviaste varios)."
+                : "No se envio ningun flujo. Revisa los flow_id o continua sin enviar.",
+            };
+          },
         } satisfies Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
         // Los toggles "Consultar productos/flujos" (Agente V2) deciden qué tools se
         // ofrecen. En V1/configs antiguas ambos flags son true => se ofrecen las tres.
@@ -2461,6 +2536,8 @@ export async function POST(request: NextRequest) {
           NOTIFICAR_ASESOR_TOOL,
           ...(agentTraining?.enableProductLookup !== false ? [CONSULTAR_PRODUCTOS_TOOL] : []),
           ...(agentTraining?.enableFlowLookup !== false ? [CONSULTAR_FLUJOS_TOOL] : []),
+          // enviar_flujo solo cuando la IA maneja los flujos (aiDrivenFlows).
+          ...(aiDrivenFlows ? [ENVIAR_FLUJO_TOOL] : []),
         ];
         replyText = await generateAgentReply({
           model: agent.model,

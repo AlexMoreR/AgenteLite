@@ -8,10 +8,12 @@ export { resolveUnknownProductNotifyAction } from "./services/resolve-unknown-pr
 export {
   CONSULTAR_FLUJOS_TOOL,
   CONSULTAR_PRODUCTOS_TOOL,
+  ENVIAR_FLUJO_TOOL,
   NOTIFICAR_ASESOR_TOOL,
   buildNotificarAsesorMessage,
   executeConsultarFlujosTool,
   executeConsultarProductosTool,
   executeNotificarAsesorTool,
+  resolveEnviarFlujoTool,
 } from "./tools";
 export { sendNotificarAsesorNotification } from "./services/send-notificar-asesor-notification";

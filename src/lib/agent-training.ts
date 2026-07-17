@@ -108,6 +108,12 @@ export type AgentTrainingConfig = {
   // Ausente/undefined => true (preserva el comportamiento de V1, que siempre las tiene).
   enableProductLookup: boolean;
   enableFlowLookup: boolean;
+  // Motor IA-primero: cuando es true, se apaga el DISPARO AUTOMÁTICO de flujos (el motor
+  // determinístico deja de elegir/mandar catálogos por su cuenta) y la IA decide, usando la
+  // tool enviar_flujo. La EJECUCIÓN de flujos (getFlowReply + envío de pasos) NO cambia: es la
+  // misma máquina, solo que ahora la dispara la IA. Ausente/undefined => false: el disparo
+  // automático sigue como hasta ahora, sin cambios.
+  aiDrivenFlows?: boolean;
   actions: AgentActionsConfig;
   useCustomPrompt: boolean;
   customSystemPrompt: string;
@@ -185,6 +191,7 @@ export const defaultAgentTrainingConfig: AgentTrainingConfig = {
   knowledgeFlowIds: [],
   enableProductLookup: true,
   enableFlowLookup: true,
+  aiDrivenFlows: false,
   actions: {
     notify: {
       enabled: false,
@@ -257,6 +264,7 @@ export function buildAgentTrainingConfig(
     knowledgeFlowIds: input.knowledgeFlowIds.filter((value, index, array) => Boolean(value) && array.indexOf(value) === index),
     enableProductLookup: input.enableProductLookup !== false,
     enableFlowLookup: input.enableFlowLookup !== false,
+    aiDrivenFlows: input.aiDrivenFlows === true,
     actions: {
       notify: {
         enabled: Boolean(notify.enabled),
@@ -670,6 +678,7 @@ export function parseAgentTrainingConfig(value: unknown): AgentTrainingConfig | 
     knowledgeFlowIds,
     enableProductLookup: data.enableProductLookup !== false,
     enableFlowLookup: data.enableFlowLookup !== false,
+    aiDrivenFlows: data.aiDrivenFlows === true,
     actions: normalizeAgentActionsConfig(data.actions),
     useCustomPrompt: Boolean(data.useCustomPrompt),
     customSystemPrompt: typeof data.customSystemPrompt === "string" ? data.customSystemPrompt : "",
