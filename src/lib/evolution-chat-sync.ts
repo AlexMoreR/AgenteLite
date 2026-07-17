@@ -1929,13 +1929,33 @@ export async function persistEvolutionHistorySync(input: {
         ? new Date(timestampSeconds * 1000)
         : new Date();
 
+      const messageType = readHistorySyncMessageType(content);
+      const isMedia =
+        messageType === "IMAGE" ||
+        messageType === "VIDEO" ||
+        messageType === "AUDIO" ||
+        messageType === "DOCUMENT" ||
+        messageType === "STICKER";
+
+      // Se pregunta ANTES de bajar nada. El boton se aprieta varias veces (cada una va mas atras
+      // en el historial) y WhatsApp reenvia mensajes que ya teniamos: bajar sus adjuntos otra vez
+      // seria descargar los catalogos de 7-15 MB en cada intento y duplicar archivos en disco.
+      const existing = await prisma.message.findFirst({
+        where: { channelId: input.channelId, externalId },
+        select: { id: true, mediaUrl: true },
+      });
+
+      // Ya esta completo: nada que hacer.
+      if (existing && (!isMedia || existing.mediaUrl)) {
+        continue;
+      }
+
       // Los adjuntos hay que bajarlos aparte: WhatsApp los guarda cifrados y evogo no expone
       // una URL, asi que sin esto quedaria el tipo (IMAGE/DOCUMENT/AUDIO) sin archivo, o sea una
       // burbuja rota. Se persiste en nuestro servidor —no se guarda el data URL en la BD— para
       // que el catalogo siga abriendo dentro de un año.
-      const messageType = readHistorySyncMessageType(content);
       let mediaUrl: string | null = null;
-      if (messageType === "IMAGE" || messageType === "VIDEO" || messageType === "AUDIO" || messageType === "DOCUMENT" || messageType === "STICKER") {
+      if (isMedia) {
         const dataUrl = await fetchEvolutionGoMediaDataUrl({
           instanceName: input.instanceName,
           message: content,
@@ -1945,6 +1965,15 @@ export async function persistEvolutionHistorySync(input: {
         if (mediaUrl) {
           media += 1;
         }
+      }
+
+      // Estaba guardado pero sin archivo (fallo la descarga, o se importo antes de que
+      // supieramos bajar adjuntos): se completa en vez de dejarlo roto para siempre.
+      if (existing) {
+        if (mediaUrl) {
+          await prisma.message.update({ where: { id: existing.id }, data: { mediaUrl } });
+        }
+        continue;
       }
 
       try {
@@ -1969,6 +1998,9 @@ export async function persistEvolutionHistorySync(input: {
         });
         imported += 1;
       } catch (error) {
+        // El chequeo de arriba ya filtra los que existen; aca solo cae una carrera (dos
+        // importaciones del mismo chat a la vez). El unique (channelId, externalId) la corta y
+        // no hay nada mas que hacer.
         const isDuplicate =
           error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
         if (!isDuplicate) {
