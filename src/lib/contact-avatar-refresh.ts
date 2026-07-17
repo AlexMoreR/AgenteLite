@@ -2,11 +2,21 @@ import { after } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { fetchEvolutionProfilePictureUrl } from "@/lib/evolution";
+import { isPersistedChatMediaUrl, persistChatMediaFromDataUrl } from "@/lib/chat-media-storage";
 
 // Cache "on-demand" de las fotos de perfil de WhatsApp por contacto.
-// Las URLs de foto de Evolution/WhatsApp son temporales (expiran), por eso guardamos
-// cuándo se pidió la última vez en Contact.metadata.avatarFetchedAt y refrescamos por TTL.
-const AVATAR_TTL_MS = 12 * 60 * 60 * 1000; // con foto: refresca cada 12h (las URLs de Meta expiran)
+//
+// Antes se guardaba la URL que devuelve WhatsApp (pps.whatsapp.net/...), que trae un `oe=` con
+// fecha de vencimiento: la foto se rompía sola a las pocas semanas. Medido el 16-jul-2026: de 10
+// contactos con foto, una ya estaba vencida hacía 21 días y las otras 9 vencían todas el mismo
+// día. Por eso existía el TTL de 12h: no era para "actualizar la foto", era para tapar que el
+// enlace caducaba.
+//
+// Ahora la imagen se descarga y se persiste en nuestro servidor (como los adjuntos del chat), y
+// eso resuelve las dos cosas: la foto no vence, y no hay que volver a pedirla NUNCA. Ese refresco
+// cada 12h de todos los contactos era el grueso de las consultas a WhatsApp, y WhatsApp
+// rate-limitea fuerte las consultas de foto (GetProfilePictureInfo se cuelga 75s sin responder).
+const AVATAR_TTL_MS = 12 * 60 * 60 * 1000; // solo aplica a fotos viejas aun no persistidas
 const AVATAR_RETRY_MS = 3 * 60 * 60 * 1000; // sin foto todavía / fallo: reintenta cada 3h
 const MAX_PER_RUN = 4; // pocas por ejecución: Evolution GO es sensible a la carga en su Postgres
 // Cooldown global (por instancia del server): aunque la lista se refresque muy seguido, el
@@ -48,6 +58,39 @@ export type ContactAvatarTarget = {
   phoneNumber: string;
   instanceName: string;
 };
+
+/**
+ * Baja la foto desde la URL temporal de WhatsApp y la guarda en nuestro servidor.
+ *
+ * Es lo que corta el ciclo: sin esto guardabamos el enlace de pps.whatsapp.net, que vence, y
+ * habia que volver a pedirlo cada 12h — justo la consulta que WhatsApp rate-limitea.
+ *
+ * Si la descarga falla se devuelve la URL original: una foto que funciona unas semanas es mejor
+ * que ninguna, y el proximo intento la persiste.
+ */
+async function persistAvatarUrl(remoteUrl: string): Promise<string> {
+  try {
+    const response = await fetch(remoteUrl, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+    if (!response.ok) {
+      return remoteUrl;
+    }
+
+    const contentType = response.headers.get("content-type") || "image/jpeg";
+    if (!contentType.startsWith("image/")) {
+      return remoteUrl;
+    }
+
+    const base64 = Buffer.from(await response.arrayBuffer()).toString("base64");
+    const persisted = await persistChatMediaFromDataUrl({
+      dataUrl: `data:${contentType};base64,${base64}`,
+      mediaType: "IMAGE",
+    });
+
+    return persisted ?? remoteUrl;
+  } catch {
+    return remoteUrl;
+  }
+}
 
 function readMetadataObject(value: Prisma.JsonValue | null): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -142,13 +185,23 @@ async function refreshContactAvatars(
   const now = Date.now();
   const stale = contacts
     .filter((contact) => {
+      // Foto ya persistida en nuestro servidor: no vence, asi que no hay NADA que refrescar.
+      // Este corte es el que baja las consultas a WhatsApp: antes se re-pedian las 38 fotos cada
+      // 12h aunque ya las tuvieramos, y eso es lo que mantiene el rate limit encendido. Si el
+      // contacto cambia su foto, se vera al reimportar o cuando lo pidamos por otra via: no vale
+      // molestar a WhatsApp cada medio dia por eso.
+      if (isPersistedChatMediaUrl(contact.avatarUrl)) {
+        return false;
+      }
+
       const meta = readMetadataObject(contact.metadata);
       const fetchedAtRaw = meta.avatarFetchedAt;
       const fetchedAt = typeof fetchedAtRaw === "string" ? Date.parse(fetchedAtRaw) : NaN;
       if (Number.isNaN(fetchedAt)) {
         return true; // nunca se intentó
       }
-      // Si ya tiene foto, refrescamos cada 12h; si aún no, según el TTL de reintento.
+      // Foto vieja sin persistir (URL de WhatsApp, que vence): se refresca para persistirla.
+      // Si aún no tiene foto, segun el TTL de reintento.
       const ttl = contact.avatarUrl ? AVATAR_TTL_MS : noPhotoRetryMs;
       return now - fetchedAt > ttl;
     })
@@ -184,12 +237,15 @@ async function refreshContactAvatars(
     const meta = readMetadataObject(contact.metadata);
     const nextMetadata = { ...meta, avatarFetchedAt: new Date(now).toISOString() };
 
+    // Se guarda la IMAGEN, no el enlace de WhatsApp: ese vence y obligaba a re-pedirla.
+    const avatarUrl = result.url ? await persistAvatarUrl(result.url) : null;
+
     await prisma.contact.update({
       where: { id: contact.id },
       // Solo sobreescribimos la foto si conseguimos una nueva; si no (sin foto), mantenemos la
       // anterior y solo marcamos el intento para respetar el TTL.
-      data: result.url
-        ? { avatarUrl: result.url, metadata: nextMetadata as Prisma.InputJsonValue }
+      data: avatarUrl
+        ? { avatarUrl, metadata: nextMetadata as Prisma.InputJsonValue }
         : { metadata: nextMetadata as Prisma.InputJsonValue },
     });
   }
