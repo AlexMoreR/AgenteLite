@@ -1242,13 +1242,22 @@ export function SharedInbox({
     }
   }, [renderedConversation, selectedConversation, selectedConversationId]);
 
+  // El mensaje optimista lleva el texto que la persona escribio; el persistido puede tener la
+  // firma del usuario agregada ARRIBA en el servidor (prependUserChatSignature). Por eso no se
+  // comparan por igualdad exacta —quedarian como dos mensajes distintos y se veria duplicado
+  // hasta recargar— sino aceptando que el real TERMINE con el texto optimista.
+  const optimisticOutgoingContent = optimisticOutgoingMessage?.content?.trim() ?? "";
+  const persistedMatchesOptimisticContent = (persisted: string | null | undefined) => {
+    const value = persisted?.trim() ?? "";
+    return value === optimisticOutgoingContent || value.endsWith(optimisticOutgoingContent);
+  };
   const optimisticDraftMatchesLatestMessage =
     Boolean(
       optimisticOutgoingMessage &&
         renderedConversation &&
         renderedConversation.id === optimisticOutgoingMessage.conversationId &&
         renderedConversation.messages.at(-1)?.direction === "OUTBOUND" &&
-        renderedConversation.messages.at(-1)?.content?.trim() === optimisticOutgoingMessage.content?.trim(),
+        persistedMatchesOptimisticContent(renderedConversation.messages.at(-1)?.content),
     );
   const optimisticDraftHasPersistedMatch =
     Boolean(
@@ -1258,7 +1267,7 @@ export function SharedInbox({
         renderedConversation.messages.some((message) =>
           message.direction === "OUTBOUND" &&
           message.type === optimisticOutgoingMessage.type &&
-          message.content?.trim() === optimisticOutgoingMessage.content?.trim() &&
+          persistedMatchesOptimisticContent(message.content) &&
           Math.abs(message.createdAt.getTime() - optimisticOutgoingMessage.createdAt.getTime()) < 120_000,
         ),
     );
