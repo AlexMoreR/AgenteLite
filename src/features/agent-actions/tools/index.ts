@@ -9,3 +9,9 @@ export {
 export type { ConsultFlowMatch, ConsultFlowResult, ConsultarFlujosToolInput } from "../services/consult-flujos";
 export type { ConsultProductMatch, ConsultProductResult, ConsultarProductosToolInput } from "../services/consult-productos";
 export type { NotificarAsesorToolExecution, NotificarAsesorToolInput } from "./notificar-asesor";
+export {
+  ENVIAR_FLUJO_TOOL,
+  resolveEnviarFlujoTool,
+  type EnviarFlujoResolved,
+  type EnviarFlujoResolution,
+} from "./enviar-flujo";

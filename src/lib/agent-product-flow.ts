@@ -36,6 +36,8 @@ type FlowReplyPayload = {
   aiFollowUpEnabled: boolean;
 };
 
+export type { FlowReplyPayload };
+
 export type ActiveProductContext = {
   productId: string;
   productName: string;
@@ -366,7 +368,7 @@ function scoreFlowIntentMatch(input: {
 
 const FLOW_MATCH_THRESHOLD = 9;
 
-async function getFlowReply(input: {
+export async function getFlowReply(input: {
   workspaceId: string;
   flowId: string;
   includeOfficialApi: boolean;
