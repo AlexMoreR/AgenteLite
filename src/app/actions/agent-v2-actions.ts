@@ -280,7 +280,7 @@ export async function publishAgentV2Action(input: {
 
   const agent = await prisma.agent.findFirst({
     where: { id: input.agentId, workspaceId, agentType: "V2" },
-    select: { id: true, name: true, graph: true },
+    select: { id: true, name: true, graph: true, trainingConfig: true },
   });
   if (!agent) {
     return { ok: false, error: "Agente no encontrado" };
@@ -664,6 +664,10 @@ export async function publishAgentV2Action(input: {
     // Toggles "Consultar productos/flujos": apagados => el motor no ofrece la tool.
     enableProductLookup: consultProducts,
     enableFlowLookup: consultFlows,
+    // Motor IA-primero: aun no hay toggle en la UI, asi que el publish PRESERVA el valor actual
+    // del agente (si no, cada publicacion lo apagaria y volveria al motor deterministico).
+    aiDrivenFlows:
+      (agent.trainingConfig as { aiDrivenFlows?: boolean } | null)?.aiDrivenFlows === true,
     // Nodo "Notificar asesor": habilita la herramienta Notificar_asesor con el número
     // e instrucción configurados. Sin nodo (o sin número) => deshabilitada.
     actions: {
