@@ -163,7 +163,15 @@ function getProductScore(input: { query: string; row: ProductRow }) {
   if (name && query === name) {
     score += 50;
     reasons.push("Coincidencia exacta por nombre");
-  } else if (activationMode !== "chatbot" && name && (name.includes(query) || query.includes(name))) {
+  } else if (
+    activationMode !== "chatbot" &&
+    name &&
+    // Exigimos al menos un TOKEN real (>=3 letras, sin stopwords) antes de un match difuso por
+    // substring. Sin esto, un "Si" suelto (2 letras) matchea "*Si*lla" dentro del nombre
+    // "Combo Lavacabezas+Silla" y secuestra el producto activo. Mismo bug que "que" ⊂ "peluquería".
+    queryTokens.length > 0 &&
+    (name.includes(query) || query.includes(name))
+  ) {
     score += 32;
     reasons.push("Coincidencia fuerte por nombre");
   }
@@ -224,12 +232,12 @@ function getProductScore(input: { query: string; row: ProductRow }) {
     }
   }
 
-  if (activationMode !== "chatbot" && query && category && category.includes(query)) {
+  if (activationMode !== "chatbot" && queryTokens.length > 0 && category && category.includes(query)) {
     score += 8;
     reasons.push("Coincidencia por categoria completa");
   }
 
-  if (activationMode !== "chatbot" && query && description && description.includes(query)) {
+  if (activationMode !== "chatbot" && queryTokens.length > 0 && description && description.includes(query)) {
     score += activationMode === "default" ? 18 : 10;
     reasons.push("Coincidencia por descripcion completa");
   }
