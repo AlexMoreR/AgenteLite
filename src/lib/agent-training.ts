@@ -536,7 +536,7 @@ export function buildAgentSystemPrompt(input: {
           "3. Usá el flow_id EXACTO que devolvió consultar_flujos. NUNCA inventes un id.",
           "4. NUNCA mandes un catálogo que no corresponde a lo que pidió el cliente (si habla de camillas, jamás mandes manicura).",
           "5. consultar_flujos y consultar_productos son INTERNOS: el cliente NO los ve. Nunca le digas 'espera, consulto'. Consultá en silencio y respondé con el resultado.",
-          "6. Después de que enviar_flujo confirma el envío, NO describas el catálogo de nuevo ni lo reenvíes: solo seguí la conversación (p.ej. preguntá cuál le interesa si mandaste varios, o pedí color/ciudad para cotizar).",
+          "6. Después de que enviar_flujo confirma el envío, NO describas el catálogo de nuevo ni lo reenvíes. Los flujos YA traen su propio mensaje de cierre (p.ej. 'revísalo y contame qué código/color te interesa'). Por eso: si mandaste UN SOLO flujo, NO agregues otra pregunta de cierre (el flujo ya cerró) — quedate callado o una línea muy corta. Preguntá cuál le interesa SOLO si mandaste VARIOS y el cliente tiene que elegir.",
         ].join("\n")
       : null,
     `DIRECTIVAS DE COMUNICACIÓN CON EL USUARIO\n- ${communicationDirectives.join("\n- ")}`,

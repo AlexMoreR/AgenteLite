@@ -650,6 +650,11 @@ export async function resolveAgentProductFlowReply(input: {
   includeOfficialApi: boolean;
   commercialContext?: CommercialConversationContext | null;
   activeProductContext?: ActiveProductContext | null;
+  // Motor IA-primero (híbrido): cuando es true se CONSERVA lo determinístico —activación por
+  // keyword (chatbot) y las condiciones cableadas Condición→Flujo—, pero se SALTA el
+  // selectFlowByAI que ADIVINA un catálogo ante algo ambiguo (el que mandaba manicura). En ese
+  // caso devuelve null para que la IA maneje el hueco con la tool enviar_flujo.
+  aiDrivenFlows?: boolean;
 }): Promise<ProductFlowResolution | null> {
   const latestText = input.latestUserMessage?.trim() || "";
   if (!latestText) {
@@ -869,7 +874,11 @@ export async function resolveAgentProductFlowReply(input: {
       // el turno. Si hay un FLUJO de catálogo que corresponde a lo que pidió el cliente, ese
       // flujo GANA (muestra el catálogo) y NO activamos el embudo del producto. Así "lavacabezas"
       // muestra el catálogo en vez de arrancar la calificación del combo.
-      const iaFlowCandidatesForProduct = availableFlowCandidates.filter((flow) => flow.flowType === "ia");
+      // Con aiDrivenFlows NO adivinamos el catálogo con selectFlowByAI: eso es lo que mandaba el
+      // producto equivocado (manicura). Se deja que la IA elija y mande con enviar_flujo.
+      const iaFlowCandidatesForProduct = input.aiDrivenFlows
+        ? []
+        : availableFlowCandidates.filter((flow) => flow.flowType === "ia");
       if (iaFlowCandidatesForProduct.length > 0) {
         const selectedFlowId = await selectFlowByAI({
           flows: iaFlowCandidatesForProduct.map((flow) => ({ id: flow.id, title: flow.title, intent: flow.intent })),
@@ -1064,7 +1073,11 @@ export async function resolveAgentProductFlowReply(input: {
   // el mensaje del cliente corresponde a la intención de algún flujo IA, y lo ejecuta.
   // Si no hay coincidencia clara responde "ninguno" y no dispara nada (sin falsos
   // positivos). Así un "Si" se resuelve según de qué se estaba hablando.
-  const iaFlowCandidates = availableFlowCandidates.filter((flow) => flow.flowType === "ia");
+  // Con aiDrivenFlows NO corre este clasificador que adivina un flujo IA: es el otro punto donde
+  // el motor elegía mal. Sin candidatos, no dispara y la IA maneja con enviar_flujo.
+  const iaFlowCandidates = input.aiDrivenFlows
+    ? []
+    : availableFlowCandidates.filter((flow) => flow.flowType === "ia");
   if (iaFlowCandidates.length > 0) {
     const selectedFlowId = await selectFlowByAI({
       flows: iaFlowCandidates.map((flow) => ({ id: flow.id, title: flow.title, intent: flow.intent })),

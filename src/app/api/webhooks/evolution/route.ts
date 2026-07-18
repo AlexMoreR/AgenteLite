@@ -2156,13 +2156,12 @@ export async function POST(request: NextRequest) {
       const previousCommercialContext = parseCommercialConversationContext(conversation.commercialContext);
       const previousActiveProductContext = (existingConversation?.activeProductContext as ActiveProductContext | null | undefined) ?? null;
 
-      // Motor IA-primero: con aiDrivenFlows prendido se APAGA el disparo automatico de flujos.
-      // El motor deterministico deja de elegir/mandar catalogos por su cuenta; esa decision pasa
-      // a la IA (tool enviar_flujo). La EJECUCION de flujos no cambia: enviar_flujo reusa la misma
-      // maquina (getFlowReply + el enviador de pasos). Con el flag apagado (default) todo sigue
-      // igual que hasta ahora.
+      // Motor IA-primero (HÍBRIDO): con aiDrivenFlows el motor SIGUE corriendo para lo
+      // determinístico —activación por KEYWORD (chatbot, la pauta) y las CONDICIONES cableadas—,
+      // pero adentro NO adivina catálogos con selectFlowByAI. Ese hueco (lo ambiguo) lo maneja la
+      // IA con la tool enviar_flujo. NO se apaga el motor entero: eso rompía la pauta.
       const aiDrivenFlows = agentTraining?.aiDrivenFlows === true;
-      const hardFlowResolution = shouldHandoffToHuman || quickResponseFlow || aiDrivenFlows
+      const hardFlowResolution = shouldHandoffToHuman || quickResponseFlow
         ? null
         : await resolveAgentProductFlowReply({
             agentId: agent.id,
@@ -2172,6 +2171,7 @@ export async function POST(request: NextRequest) {
             includeOfficialApi: true,
             commercialContext: previousCommercialContext,
             activeProductContext: previousActiveProductContext,
+            aiDrivenFlows,
           });
       let hardFlowReply = hardFlowResolution?.steps
         ? hardFlowResolution
@@ -2536,8 +2536,10 @@ export async function POST(request: NextRequest) {
           NOTIFICAR_ASESOR_TOOL,
           ...(agentTraining?.enableProductLookup !== false ? [CONSULTAR_PRODUCTOS_TOOL] : []),
           ...(agentTraining?.enableFlowLookup !== false ? [CONSULTAR_FLUJOS_TOOL] : []),
-          // enviar_flujo solo cuando la IA maneja los flujos (aiDrivenFlows).
-          ...(aiDrivenFlows ? [ENVIAR_FLUJO_TOOL] : []),
+          // enviar_flujo solo cuando la IA maneja los flujos Y el motor NO disparó un flujo este
+          // turno (keyword/condición). Si el motor ya mandó el embudo, la IA no debe reenviar:
+          // evita el doble envío.
+          ...(aiDrivenFlows && !hardFlowReply ? [ENVIAR_FLUJO_TOOL] : []),
         ];
         replyText = await generateAgentReply({
           model: agent.model,
