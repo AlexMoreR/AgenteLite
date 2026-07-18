@@ -557,6 +557,7 @@ async function resolveFlowBranchForActiveProduct(input: {
   flowTitleById: Map<string, string>;
   candidateFlowIds: Set<string>;
   model?: string | null;
+  aiDrivenFlows?: boolean;
 }): Promise<{ flowId: string; flowTitle: string } | null> {
   const nodeById = new Map(input.nodes.map((n) => [n.id, n] as const));
   // Condiciones alcanzables hacia adelante desde el producto.
@@ -623,7 +624,16 @@ async function resolveFlowBranchForActiveProduct(input: {
           // clasificador y disparaba el flujo de fotos de OTRO producto (lavacabezas en camillas).
           matched = true;
         } else if (looksAffirmative(input.normalizedMessage)) {
-          matched = false;
+          // Un afirmativo suelto ("Si", "ok", "dale") normalmente se defería a selectFlowByAI
+          // (el clasificador con historial). Con el motor IA-primero (aiDrivenFlows) ese
+          // clasificador está APAGADO: si no arbitramos acá, el "Si" cae en la IA libre
+          // (enviar_flujo), que se pasa y manda catálogos de más (p.ej. manicura en una charla
+          // de camillas). La condición del producto ACTIVO es justo la que responde al
+          // "¿te comparto fotos?" que el embudo acaba de ofrecer, así que dejamos que el juez IA
+          // decida contra el intent de la rama (que suele listar "si/ok/quiero ver fotos").
+          matched = input.aiDrivenFlows
+            ? await evaluateIaIntentMatch({ intent, message: input.message, model: input.model })
+            : false;
         } else {
           matched = await evaluateIaIntentMatch({ intent, message: input.message, model: input.model });
         }
@@ -795,6 +805,7 @@ export async function resolveAgentProductFlowReply(input: {
         // seleccionado (p.ej. "Foto de combo de camilla") se descartaba y la IA improvisaba.
         candidateFlowIds: new Set(flowTargets.map((flow) => flow.id)),
         model: agent.model,
+        aiDrivenFlows: input.aiDrivenFlows,
       });
       if (branch) {
         const reply = await getFlowReply({
