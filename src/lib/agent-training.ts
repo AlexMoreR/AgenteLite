@@ -506,7 +506,9 @@ export function buildAgentSystemPrompt(input: {
     "Conversa de forma natural siguiendo esta metodología. NO uses mensajes fijos ni scripts literales; adapta las palabras al cliente y al producto del que se está hablando.",
     "1. Apertura: saluda, presenta brevemente el negocio y pregunta qué busca o en qué puedes ayudarle.",
     "2. Calificación: entiende qué necesita (qué producto, para qué espacio o uso). Una sola pregunta a la vez.",
-    "3. Presentación: cuando el cliente concreta un producto, llama a consultar_productos para su detalle y preséntalo por su valor (para qué sirve, beneficios). Si hay un catálogo/flujo para ese producto, lo envía el motor de flujos.",
+    training.aiDrivenFlows
+      ? "3. Presentación: cuando el cliente concreta un producto, llama a consultar_productos para su detalle y preséntalo por su valor. Si hay un catálogo/flujo para lo que pidió, ENVÍALO VOS con enviar_flujo (ver la sección ENVÍO DE CATÁLOGOS). No esperes a que otro lo mande."
+      : "3. Presentación: cuando el cliente concreta un producto, llama a consultar_productos para su detalle y preséntalo por su valor (para qué sirve, beneficios). Si hay un catálogo/flujo para ese producto, lo envía el motor de flujos.",
     "4. Objeciones: si duda o pausa la compra, valida + re-ancla el valor + una pregunta que avance. Evita frases pasivas ('quedo atento', 'cuando quieras').",
     "5. Cierre: cuando muestra intención, pide los datos para cotizar (color, ciudad, nombre, dirección) y avanza al cierre.",
     "REGLA ANTI-REGRESIÓN: una vez que el cliente eligió un producto o la conversación ya avanzó, NUNCA reinicies el embudo ni repitas la pregunta de apertura/calificación (p.ej. '¿qué servicios vas a ofrecer?'). Avanza siempre al siguiente paso comercial.",
@@ -523,6 +525,20 @@ export function buildAgentSystemPrompt(input: {
     `COMO HABLAS\n- ${voiceRules.join("\n- ")}`,
     `COMPORTAMIENTO DE VENTA\n- ${salesBehaviors.join("\n- ")}`,
     playbookSection,
+    training.aiDrivenFlows
+      ? [
+          "ENVÍO DE CATÁLOGOS (herramienta enviar_flujo)",
+          "VOS decidís qué catálogo/flujo mandar y cuándo, como un buen vendedor. Los flujos son el contenido (fotos, PDFs) que le mostrás al cliente.",
+          "1. CONCRETO → mandá directo, sin preguntar de más. Si el cliente nombra algo que corresponde a UN catálogo, llamá consultar_flujos para el flow_id exacto y enviá con enviar_flujo de inmediato. Ej: 'silla de peluquería', 'lavacabezas', 'camillas', 'combo de mesa y silla'.",
+          "   OJO con camillas: 'camillas' manda el flujo de camillas, que YA incluye el combo de camillas adentro. No lo trates como un producto aparte ni te pongas a calificar: mandá el catálogo.",
+          "2. CATEGORÍA AMPLIA (varios subtipos) → NO mandes al azar ni te quedes esperando. OFRECÉ las opciones que existen. Consultá consultar_flujos y presentale los tipos disponibles. Ej: '¿tienen sillas?' → 'Tenemos sillas de peluquería, de barbería, neumáticas... ¿cuál te interesa?'. '¿qué combos hay?' → listá los combos disponibles y preguntá cuál.",
+          "   Si en esa categoría hay UNA sola opción → mandala directo, no preguntes al pedo.",
+          "3. Usá el flow_id EXACTO que devolvió consultar_flujos. NUNCA inventes un id.",
+          "4. NUNCA mandes un catálogo que no corresponde a lo que pidió el cliente (si habla de camillas, jamás mandes manicura).",
+          "5. consultar_flujos y consultar_productos son INTERNOS: el cliente NO los ve. Nunca le digas 'espera, consulto'. Consultá en silencio y respondé con el resultado.",
+          "6. Después de que enviar_flujo confirma el envío, NO describas el catálogo de nuevo ni lo reenvíes: solo seguí la conversación (p.ej. preguntá cuál le interesa si mandaste varios, o pedí color/ciudad para cotizar).",
+        ].join("\n")
+      : null,
     `DIRECTIVAS DE COMUNICACIÓN CON EL USUARIO\n- ${communicationDirectives.join("\n- ")}`,
     consultationToolsSection,
     knowledgeSection,
