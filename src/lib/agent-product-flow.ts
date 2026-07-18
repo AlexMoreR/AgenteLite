@@ -512,6 +512,26 @@ function looksAffirmative(normalizedMessage: string): boolean {
   return AFFIRMATIVE_RESPONSES.has(firstWord);
 }
 
+// Afirmativos FUERTES para detectar si el intent de una rama ACEPTA un "Si" del cliente.
+// A propósito NO incluye "si"/"va": en los intents el prefijo es "Si responde..." (el "si"
+// condicional), así que "si" aparece SIEMPRE y no distingue. Estos, en cambio, solo aparecen
+// cuando el usuario configuró la rama para reaccionar a un afirmativo/interés
+// (p.ej. "quiero ver fotos", "ok", "si por favor").
+const STRONG_AFFIRMATIVE_INTENT = new Set([
+  "ok", "oka", "okey", "okay", "dale", "listo", "claro", "quiero", "muestrame",
+  "muestra", "envia", "enviame", "porfa", "porfavor", "favor", "adelante", "obvio",
+  "perfecto", "vale", "simon", "interesa",
+]);
+
+// ¿El texto del intent de la rama LISTA afirmativos? Si sí, un "Si" del cliente coincide de
+// forma DETERMINÍSTICA, sin depender de un juez LLM (que a veces devuelve NO y hace que el "Si"
+// caiga en la IA libre, que manda catálogos de más).
+function intentAcceptsAffirmative(intent: string): boolean {
+  return normalizeText(intent)
+    .split(/[\s,.;:/]+/)
+    .some((word) => STRONG_AFFIRMATIVE_INTENT.has(word));
+}
+
 const INTENT_STOPWORDS = new Set([
   "si", "responde", "con", "que", "de", "el", "la", "los", "las", "un", "una",
   "ver", "quiero", "tienes", "alguna", "sobre", "esta", "cliente", "por", "intencion",
@@ -629,11 +649,19 @@ async function resolveFlowBranchForActiveProduct(input: {
           // clasificador está APAGADO: si no arbitramos acá, el "Si" cae en la IA libre
           // (enviar_flujo), que se pasa y manda catálogos de más (p.ej. manicura en una charla
           // de camillas). La condición del producto ACTIVO es justo la que responde al
-          // "¿te comparto fotos?" que el embudo acaba de ofrecer, así que dejamos que el juez IA
-          // decida contra el intent de la rama (que suele listar "si/ok/quiero ver fotos").
-          matched = input.aiDrivenFlows
-            ? await evaluateIaIntentMatch({ intent, message: input.message, model: input.model })
-            : false;
+          // "¿te comparto fotos?" que el embudo acaba de ofrecer.
+          if (!input.aiDrivenFlows) {
+            matched = false;
+          } else if (intentAcceptsAffirmative(intent)) {
+            // La rama LISTA afirmativos ("Si, quiero ver fotos, ok, si por favor..."): un "Si"
+            // coincide de forma DETERMINÍSTICA, sin juez LLM. El juez es un llamado a un modelo
+            // que a veces devuelve NO (o falla) y hacía que el "Si" cayera en la IA libre → manicura
+            // de vuelta, de forma INTERMITENTE. Determinístico = mismo resultado siempre.
+            matched = true;
+          } else {
+            // La rama no lista afirmativos explícitos: recién ahí preguntamos al juez.
+            matched = await evaluateIaIntentMatch({ intent, message: input.message, model: input.model });
+          }
         } else {
           matched = await evaluateIaIntentMatch({ intent, message: input.message, model: input.model });
         }
