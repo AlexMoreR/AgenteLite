@@ -134,7 +134,7 @@ function buildComposerHiddenFields(
 
 export function SharedInbox({
   searchAction,
-  selectedConversationId,
+  selectedConversationId: selectedConversationIdFromUrl,
   mobileConversationActive = false,
   searchQuery,
   selectedConnectionKey = "",
@@ -550,6 +550,16 @@ export function SharedInbox({
   ]);
 
   const pendingConversation = usePendingConversationSelection();
+
+  // Id EFECTIVO del chat abierto. Abrir un chat ya no navega al servidor (se resuelve en el
+  // cliente para que el cambio sea instantaneo), asi que el prop que llega de la URL se queda
+  // congelado en el chat con el que cargo la pagina: la seleccion real vive en
+  // pendingConversation. Se deriva una sola vez aca —y no en cada uso— porque todo el resto del
+  // componente ya estaba escrito contra `selectedConversationId` asumiendo que la navegacion lo
+  // mantenia al dia. Sin esto, cosas como effectiveLiveConversation comparaban el chat recien
+  // cargado contra el id viejo, no coincidian, y descartaban el contenido (el chat quedaba
+  // "cargando" para siempre).
+  const selectedConversationId = (pendingConversation?.chatKey ?? selectedConversationIdFromUrl).trim();
 
   useEffect(() => {
     if (selectedConversation && !selectedConversation.isPreview) {

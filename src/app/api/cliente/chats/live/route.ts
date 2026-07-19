@@ -15,7 +15,17 @@ const HISTORY_MESSAGE_BATCH_SIZE = 10;
 // aparezca rápido, y terminamos de resolver/persistir en segundo plano (`after`) para que
 // la PRÓXIMA apertura ya lo tenga listo. Antes el endpoint bloqueaba la respuesta entera
 // (incluido el texto) hasta descargar TODOS los binarios → apertura de 8-9s.
-const MEDIA_RESOLVE_RESPONSE_BUDGET_MS = 3500;
+// Presupuesto para resolver un medio DENTRO de la respuesta. Es deliberadamente corto: los
+// medios YA persistidos (/uploads) se resuelven por fast-path sin red, asi que entran de sobra;
+// lo que este limite corta es la descarga contra Evolution, que puede tardar segundos.
+//
+// Estuvo en 3500ms cuando el chat lo pintaba el SSR de la pagina y /live solo refrescaba por
+// detras (la espera no se veia). Ahora abrir un chat NO navega al servidor, asi que /live es la
+// PRIMERA pintada de un chat sin cache: esperar ahi bloquea el texto tambien, y con ~455 medios
+// sin persistir bastaba con abrir un chat con una foto vieja para comerse los 3,5s enteros.
+// Los medios lentos se resuelven/persisten en segundo plano y el cliente los recoge con un
+// refetch (ver mediaPending abajo).
+const MEDIA_RESOLVE_RESPONSE_BUDGET_MS = 300;
 
 type ResolvableMediaType = "IMAGE" | "AUDIO" | "VIDEO" | "STICKER";
 
@@ -198,6 +208,10 @@ export async function GET(request: Request) {
 
   return NextResponse.json({
     ok: true,
+    // Hubo medios que no entraron en el presupuesto: se estan resolviendo y persistiendo en
+    // segundo plano. El cliente usa esta senal para pedir /live una sola vez mas y mostrar las
+    // fotos ya curadas, en vez de dejar el placeholder hasta que reabras el chat.
+    mediaPending: backgroundMediaTasks.length > 0,
     conversation: {
       ...conversation,
       label: conversation.contact.name?.trim() || conversation.contact.phoneNumber,
