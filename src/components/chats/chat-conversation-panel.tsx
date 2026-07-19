@@ -27,7 +27,6 @@ import {
 import { ChatScrollAnchor } from "@/components/agents/chat-scroll-anchor";
 import { ContactAvatar } from "@/components/chats/contact-avatar";
 import { getContactDetailsAction, generateSuggestedReplyAction, refreshContactAvatarNowAction } from "@/app/actions/chats-actions";
-import { clearPendingConversationSelection } from "@/components/chats/chat-selection-store";
 import { ChatTagsControl } from "@/components/chats/chat-tags-control";
 import { QuickRepliesDialog } from "@/components/chats/quick-replies-dialog";
 import { MediaPreviewDialog } from "@/components/chats/media-preview-dialog";
@@ -720,20 +719,6 @@ export const ConversationPanel = memo(function ConversationPanel({
               <div className="flex min-w-0 flex-1 items-center gap-3">
                 <Link
                   href={backHref}
-                  prefetch={false}
-                  onClick={(event) => {
-                    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) {
-                      return;
-                    }
-
-                    // Volver a la lista tampoco navega: alcanza con cerrar el chat en la fuente
-                    // unica (es lo que decide que vista se ve en movil) y devolver la URL.
-                    // Navegando se re-ejecutarian las consultas caras de la pagina solo para
-                    // pintar la lista que ya esta en memoria.
-                    event.preventDefault();
-                    clearPendingConversationSelection();
-                    window.history.pushState(null, "", backHref);
-                  }}
                   className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground transition hover:bg-muted md:hidden"
                   aria-label="Volver a chats"
                 >
