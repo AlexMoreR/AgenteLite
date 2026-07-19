@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { BadgeCheck, ChevronRight, MessageCircle, MessageSquareText } from "lucide-react";
 import {
@@ -135,7 +135,8 @@ function buildComposerHiddenFields(
 export function SharedInbox({
   searchAction,
   selectedConversationId: selectedConversationIdFromUrl,
-  mobileConversationActive = false,
+  // mobileConversationActive ya no se desestructura: se deriva abajo de la URL (useSearchParams)
+  // + la seleccion del cliente, porque el valor del servidor se congela al no navegar.
   searchQuery,
   selectedConnectionKey = "",
   assignedFilter = "all",
@@ -560,6 +561,18 @@ export function SharedInbox({
   // cargado contra el id viejo, no coincidian, y descartaban el contenido (el chat quedaba
   // "cargando" para siempre).
   const selectedConversationId = (pendingConversation?.chatKey ?? selectedConversationIdFromUrl).trim();
+
+  // En movil la lista y el chat son dos vistas: esta bandera decide cual se ve. Venia SOLO del
+  // servidor (Boolean(chatKey) de la URL), asi que al dejar de navegar se quedaba congelada en
+  // false y el panel del chat no se abria nunca al hacer click —se veia el item resaltado y nada
+  // mas—, aunque recargando si aparecia (ahi el servidor si lee el chatKey).
+  //
+  // Se lee de useSearchParams, que el App Router mantiene sincronizado con history.pushState:
+  // asi vale tanto al entrar por deep link como al abrir/cerrar un chat sin navegar. Usar el
+  // prop del servidor aca no alcanzaba: entrando por deep link quedaba en true para siempre y
+  // el boton "volver" no podia cerrar el panel.
+  const urlChatKey = (useSearchParams().get("chatKey") ?? "").trim();
+  const mobileConversationActive = Boolean(urlChatKey) || Boolean(pendingConversation?.chatKey?.trim());
 
   useEffect(() => {
     if (selectedConversation && !selectedConversation.isPreview) {

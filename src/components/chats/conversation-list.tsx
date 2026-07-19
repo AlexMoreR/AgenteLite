@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { TAG_BADGE_CLASS, getTagBadgeColors } from "@/lib/tag-badge";
 import { ContactAvatar } from "./contact-avatar";
 import { warmConversationCache } from "./chat-conversation-warmup";
-import { setPendingConversationSelection } from "./chat-selection-store";
+import { clearPendingConversationSelection, setPendingConversationSelection } from "./chat-selection-store";
 import { readConversationFromCache } from "./chat-history-cache";
 import type { SharedInboxConversationItem } from "./shared-inbox";
 
@@ -371,7 +371,11 @@ export function ConversationList({
     function syncSelectionFromUrl() {
       const chatKey = new URL(window.location.href).searchParams.get("chatKey")?.trim() || "";
       if (!chatKey) {
+        // Volvimos a la lista: hay que SOLTAR la seleccion, no solo el resaltado. En movil es
+        // la seleccion la que mantiene abierta la vista del chat, asi que sin esto el boton
+        // atras cambiaba la URL y dejaba el chat abierto igual.
         setPendingId(null);
+        clearPendingConversationSelection();
         return;
       }
 
