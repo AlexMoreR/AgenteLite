@@ -4,6 +4,7 @@ import { after } from "next/server";
 import { NextRequest, NextResponse } from "next/server";
 import { analyzeImageForAgent, generateAgentReply, transcribeAudioForAgent } from "@/lib/agent-ai";
 import { summarizeContactHistory } from "@/lib/contact-summary";
+import { syncCrmStageFromCommercialStage } from "@/lib/crm-stage-sync";
 import {
   buildActiveProductContextNote,
   resolveAgentProductFlowReply,
@@ -2202,6 +2203,21 @@ export async function POST(request: NextRequest) {
       await prisma.conversation.update({
         where: { id: conversation.id },
         data: conversationUpdateData,
+      });
+
+      // Puente embudo del bot -> embudo del CRM. El bot ya venia clasificando la etapa comercial
+      // y guardandola, pero nadie la llevaba a Contact.crmStage: lo unico que lo escribia era el
+      // arrastre manual del kanban, y por eso el 92% de los leads quedaba en NUEVO aunque ya se
+      // les hubiera mandado catalogo y precio. Con after() para no demorar la respuesta al
+      // cliente; el helper solo avanza y nunca toca un lead ya cerrado por una persona.
+      after(async () => {
+        await syncCrmStageFromCommercialStage({
+          workspaceId: channel.workspaceId,
+          contactId: contact.id,
+          conversationId: conversation.id,
+          channelId: channel.id,
+          commercialContext: commercialConversationContext,
+        }).catch(() => {});
       });
 
       // Agente V2: al llegar el lead a una etapa nueva (con el producto activo),
