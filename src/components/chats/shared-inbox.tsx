@@ -13,6 +13,7 @@ import {
 import { EditContactModal } from "@/components/chats/edit-contact-modal";
 import {
   clearPendingConversationSelection,
+  resetConversationSelection,
   useOpenChatKey,
   usePendingConversationSelection,
   type PendingChatSelection,
@@ -135,8 +136,10 @@ function buildComposerHiddenFields(
 
 export function SharedInbox({
   searchAction,
-  selectedConversationId,
-  mobileConversationActive = false,
+  selectedConversationId: selectedConversationIdFromUrl,
+  // mobileConversationActive del servidor ya no se usa: se deriva abajo del chat abierto, porque
+  // el valor del servidor se congela al no navegar (era la causa de que en movil el chat no se
+  // abriera al hacer click y si al recargar).
   searchQuery,
   selectedConnectionKey = "",
   assignedFilter = "all",
@@ -552,6 +555,19 @@ export function SharedInbox({
 
   const pendingConversation = usePendingConversationSelection();
 
+  // Chat abierto: UNICA fuente de verdad para todo el componente (ver useOpenChatKey). Todo lo
+  // que necesite saber "que chat esta abierto" lee de aca. Va ANTES de cualquier uso: hay
+  // efectos mas abajo que dependen de esto.
+  //
+  // `selectedConversationId` SOMBREA al prop de la URL a proposito: abrir un chat ya no navega,
+  // asi que el prop se congela en el chat con el que cargo la pagina. Los ~15 usos que quedaban
+  // leyendolo crudo apuntarian al chat viejo; sombreandolo pasan todos a la fuente unica.
+  const selectedConversationKey = useOpenChatKey(selectedConversationIdFromUrl);
+  const selectedConversationId = selectedConversationKey;
+  // En movil la lista y el chat son dos vistas y esta bandera decide cual se ve. Sale del chat
+  // abierto (misma fuente unica), no del servidor: hay chat abierto => se ve el chat.
+  const mobileConversationActive = Boolean(selectedConversationKey);
+
   useEffect(() => {
     if (selectedConversation && !selectedConversation.isPreview) {
       saveConversationToCache(selectedConversation);
@@ -611,17 +627,17 @@ export function SharedInbox({
     }
   }, [liveConversation, pendingConversation?.id, selectedConversationId]);
 
+  // Al salir de la bandeja se RESETEA (no se "cierra"): el store es de modulo y sobrevive al
+  // desmontaje. Marcarlo como cerrado haria que al volver por un link con ?chatKey= ese chat
+  // se ignore.
   useEffect(() => {
     return () => {
-      clearPendingConversationSelection();
+      resetConversationSelection();
     };
   }, []);
 
   // Clave efectiva del chat activo. Sirve para sincronizar el panel y para
   // evitar que el listado se reordene cuando el evento pertenece al chat abierto.
-  // Chat abierto: UNICA fuente de verdad para todo el componente (ver useOpenChatKey). Todo lo
-  // que necesite saber "que chat esta abierto" debe leer de aca, no rearmar la expresion.
-  const selectedConversationKey = useOpenChatKey(selectedConversationId);
   const selectedConversationCache = useMemo(
     () =>
       hasHydrated && selectedConversationKey
@@ -1087,7 +1103,15 @@ export function SharedInbox({
     if (
       liveOrCachedConversation &&
       liveOrCachedConversation.messages.length > 0 &&
-      (!pendingConversationPreview || pendingConversationPreview.id === liveOrCachedConversation.id)
+      // Comparar con conversationIdMatchesKey y NO con ===: los dos ids tienen formato distinto.
+      // El del preview es la CLAVE del chat ("agent:cmxxx") y el del contenido real es el id
+      // pelado ("cmxxx"), asi que === nunca daba verdadero. Antes no se notaba porque la
+      // seleccion pendiente se borraba al completarse la navegacion y entonces mandaba el
+      // "!pendingConversationPreview". Al pasar la seleccion a ser la fuente de verdad (ya no se
+      // borra), esta comparacion rota quedaba siempre en falso: el chat se quedaba en preview
+      // con el spinner "Cargando conversacion" para siempre, aunque /live ya hubiera respondido.
+      (!pendingConversationPreview ||
+        conversationIdMatchesKey(pendingConversationPreview.id, liveOrCachedConversation.id))
     ) {
       return liveOrCachedConversation;
     }
@@ -1116,8 +1140,17 @@ export function SharedInbox({
     return computed;
   }, [computedRenderedConversation, selectedConversationKey]);
 
+  // Cuando el chat abierto ya tiene su contenido real, reiniciamos el estado de scroll/historial
+  // y soltamos el preview optimista.
+  //
+  // Antes esto se disparaba con `pendingConversation.id === selectedConversationId`, o sea
+  // "la navegacion alcanzo a la seleccion", y ahi ADEMAS borraba la seleccion para pasarle la
+  // posta a la URL. Ese relevo ya no existe: abrir un chat no navega, asi que la seleccion ES
+  // el chat abierto y borrarla lo cerraria. Peor: con el id sombreado la comparacion daria
+  // siempre verdadera y lo cerraria apenas se abre. Ahora depende de que el contenido cargo,
+  // que es lo que de verdad importaba, y NO toca la seleccion.
   useEffect(() => {
-    if (!pendingConversation?.id || pendingConversation.id !== selectedConversationId) {
+    if (!selectedConversationKey) {
       return;
     }
 
@@ -1126,10 +1159,9 @@ export function SharedInbox({
     setIsLoadingOlderMessages(false);
 
     if (hasLoadedSelectedConversationContent) {
-      clearPendingConversationSelection();
       setOptimisticConversation(null);
     }
-  }, [hasLoadedSelectedConversationContent, pendingConversation?.id, selectedConversationId]);
+  }, [hasLoadedSelectedConversationContent, selectedConversationKey]);
 
   // Red de seguridad: si una seleccion pendiente nunca llega a resolverse (p. ej. el
   // servidor no devuelve el chat porque ya no esta asignado a este usuario), el overlay
@@ -1141,7 +1173,10 @@ export function SharedInbox({
       return;
     }
 
-    if (pendingConversation.id === selectedConversationId || hasLoadedSelectedConversationContent) {
+    // Se quita el `pendingConversation.id === selectedConversationId` (significaba "la navegacion
+    // alcanzo, ya esta"): sin navegacion daria siempre verdadero y la red nunca actuaria. Lo que
+    // de verdad indica que la seleccion se resolvio es que el contenido cargo.
+    if (hasLoadedSelectedConversationContent) {
       return;
     }
 
@@ -1498,7 +1533,15 @@ export function SharedInbox({
   useEffect(() => {
     setReplyTarget(null);
   }, [selectedConversationId]);
-  const hasSettledConversation = Boolean(renderedConversation && currentSelectedConversation && renderedConversation.id === currentSelectedConversation.id);
+  // "El chat ya esta asentado" = tenemos el contenido real del chat abierto, no el preview.
+  // Antes se comprobaba contra currentSelectedConversation, que sale del prop del SERVIDOR: al
+  // no navegar ese prop se congela en el chat con el que cargo la pagina y esto quedaba siempre
+  // en falso, escondiendo los botones del encabezado (etapa del CRM, etiquetas, acciones).
+  const hasSettledConversation = Boolean(
+    renderedConversation &&
+      !renderedConversation.isPreview &&
+      conversationIdMatchesKey(selectedConversationKey, renderedConversation.id),
+  );
   const canLoadOlderMessages = Boolean(renderedConversation?.loadMoreCursor && renderedConversation.hasMoreMessages);
   const loadOlderMessagesRef = useRef(loadOlderMessages);
   loadOlderMessagesRef.current = loadOlderMessages;
@@ -1508,10 +1551,19 @@ export function SharedInbox({
   loadMoreHrefRef.current = renderedConversation?.loadMoreHref ?? null;
   const messageScrollBehaviorRef = useRef(messageScrollBehavior);
   messageScrollBehaviorRef.current = messageScrollBehavior;
+  // OJO: comparar con conversationIdMatchesKey y no con ===. pendingConversation.id es la CLAVE
+  // ("agent:cmxxx") y renderedConversation.id es el id pelado ("cmxxx"), asi que === siempre da
+  // falso. Y esto no es cosmetico: buildComposerHiddenFields es lo que reescribe el
+  // conversationId del formulario de envio. Si no entra, el formulario se queda con los campos
+  // del servidor —congelados en el chat con el que cargo la pagina— y el mensaje se le manda AL
+  // CLIENTE EQUIVOCADO. Antes quedaba tapado porque la seleccion pendiente se borraba al
+  // completarse la navegacion y ahi el chat renderizado ya era el del servidor.
   const composerHiddenFields = composer
     ? buildComposerHiddenFields(
         composer.hiddenFields,
-        pendingConversation && pendingConversation.id === renderedConversation?.id ? pendingConversation : null,
+        pendingConversation && conversationIdMatchesKey(pendingConversation.id, renderedConversation?.id ?? "")
+          ? pendingConversation
+          : null,
       )
     : [];
   // Refs para mantener estable handleRetryFailedMessage (asi MessageBubble no
