@@ -1,7 +1,7 @@
 "use client";
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
-
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useTransition, type RefObject } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { BadgeCheck, Facebook, FileText, Image as ImageIcon, Instagram, LoaderCircle, Mic, Sticker, UserRound, Video } from "lucide-react";
 import { WhatsAppGlyph } from "@/components/icons/whatsapp-glyph";
@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { TAG_BADGE_CLASS, getTagBadgeColors } from "@/lib/tag-badge";
 import { ContactAvatar } from "./contact-avatar";
 import { warmConversationCache } from "./chat-conversation-warmup";
-import { clearPendingConversationSelection, setPendingConversationSelection } from "./chat-selection-store";
+import { setPendingConversationSelection } from "./chat-selection-store";
 import { readConversationFromCache } from "./chat-history-cache";
 import type { SharedInboxConversationItem } from "./shared-inbox";
 
@@ -168,11 +168,6 @@ const ConversationListItem = memo(function ConversationListItem({
   return (
     <Link
       href={conversation.href}
-      // Sigue siendo un <a> real (accesibilidad, abrir en pestana nueva con ctrl/cmd), pero
-      // sin el prefetch automatico de Next: al entrar en viewport precargaria el server
-      // component de /cliente/chats —la parte cara— por CADA chat visible de la lista, y
-      // como abrir un chat ya no navega, ese trabajo no se usa nunca.
-      prefetch={false}
       onPointerDown={(event) => {
         if ("button" in event && event.button !== 0) {
           return;
@@ -286,21 +281,16 @@ export function ConversationList({
   onLoadMoreConversations?: () => void | Promise<void>;
 }) {
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
   const [viewportHeight, setViewportHeight] = useState(0);
   const [scrollTop, setScrollTop] = useState(0);
   const navigationFrameRef = useRef<number | null>(null);
   const scrollFrameRef = useRef<number | null>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
   const prefetchedHrefsRef = useRef(new Set<string>());
-  // Lista siempre fresca para el listener de popstate, sin re-suscribirlo en cada cambio.
-  const conversationsRef = useRef(conversations);
   const loadMoreRequestedForCountRef = useRef<number | null>(null);
-  // El resaltado del chat activo sale del click (pendingId) y NO del prop del servidor:
-  // como abrir un chat ya no navega, selectedConversationId se queda en el chat con el que
-  // cargo la pagina. Antes esto era `isPending && pendingId`, atado a la transicion de
-  // router.push; sin navegacion isPending nunca seria true y el resaltado se quedaba pegado
-  // en el chat inicial.
-  const effectiveSelectedId = pendingId ?? selectedConversationId;
+  const router = useRouter();
+  const effectiveSelectedId = isPending && pendingId ? pendingId : selectedConversationId;
 
   const handlePreviewSelect = useCallback((conversation: SharedInboxConversationItem) => {
     setPendingId(conversation.id);
@@ -329,23 +319,15 @@ export function ConversationList({
     handlePreviewSelect(conversation);
     if (navigationFrameRef.current !== null) {
       window.cancelAnimationFrame(navigationFrameRef.current);
-      navigationFrameRef.current = null;
     }
 
-    // Abrir un chat NO navega al servidor. Antes se hacia router.push(href), y como
-    // /cliente/chats es force-dynamic eso re-ejecutaba ~10 consultas (lista completa,
-    // canales, tags, contadores, ultimos mensajes) para pintar una lista que YA estaba
-    // en pantalla: el unico dato nuevo era el detalle del chat. El cliente ya sabe
-    // cargar ese detalle solo (cache local + /api/cliente/chats/live) y toda la seleccion
-    // se resuelve con pendingConversation, asi que solo actualizamos la URL de forma
-    // shallow. history.pushState es la via soportada por el App Router para cambiar la
-    // URL sin pedir el server component; useSearchParams se sincroniza igual, y el
-    // deep-link (entrar pegando la URL) sigue funcionando porque ahi si hay SSR.
-    const href = conversation.href.trim();
-    if (href) {
-      window.history.pushState(null, "", href);
-    }
-  }, [handlePreviewSelect]);
+    navigationFrameRef.current = window.requestAnimationFrame(() => {
+      startTransition(() => {
+        router.push(conversation.href, { scroll: false });
+      });
+      navigationFrameRef.current = null;
+    });
+  }, [handlePreviewSelect, router, startTransition]);
 
   const handlePrefetch = useCallback((conversation: SharedInboxConversationItem) => {
     const href = conversation.href.trim();
@@ -354,45 +336,9 @@ export function ConversationList({
     }
 
     prefetchedHrefsRef.current.add(href);
-    // Ya NO hacemos router.prefetch(href): abrir un chat no navega al servidor, asi que
-    // precargar el server component solo dispararia las consultas caras de la pagina con
-    // solo pasar el mouse por la lista. Lo util es calentar el chat en si.
+    router.prefetch(href);
     void warmConversationCache(conversation.id);
-  }, []);
-
-  // Atras/adelante del navegador. Como abrir un chat usa history.pushState (sin navegacion),
-  // Next no re-renderiza al volver: escuchamos popstate y reconstruimos la seleccion desde la
-  // URL. Sin esto, el boton atras cambiaba la URL pero la pantalla seguia en el mismo chat.
-  useEffect(() => {
-    conversationsRef.current = conversations;
-  }, [conversations]);
-
-  useEffect(() => {
-    function syncSelectionFromUrl() {
-      const chatKey = new URL(window.location.href).searchParams.get("chatKey")?.trim() || "";
-      if (!chatKey) {
-        // Volvimos a la lista: hay que SOLTAR la seleccion, no solo el resaltado. En movil es
-        // la seleccion la que mantiene abierta la vista del chat, asi que sin esto el boton
-        // atras cambiaba la URL y dejaba el chat abierto igual.
-        setPendingId(null);
-        clearPendingConversationSelection();
-        return;
-      }
-
-      const match = conversationsRef.current.find((item) => item.id === chatKey);
-      if (!match) {
-        // El chat no esta en la lista cargada (p.ej. se volvio a un filtro distinto):
-        // dejamos que el id de la URL mande y no forzamos una seleccion invalida.
-        setPendingId(null);
-        return;
-      }
-
-      handlePreviewSelect(match);
-    }
-
-    window.addEventListener("popstate", syncSelectionFromUrl);
-    return () => window.removeEventListener("popstate", syncSelectionFromUrl);
-  }, [handlePreviewSelect]);
+  }, [router]);
 
   useEffect(() => {
     const container = scrollContainerRef?.current;

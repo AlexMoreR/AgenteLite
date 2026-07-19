@@ -15,17 +15,7 @@ const HISTORY_MESSAGE_BATCH_SIZE = 10;
 // aparezca rápido, y terminamos de resolver/persistir en segundo plano (`after`) para que
 // la PRÓXIMA apertura ya lo tenga listo. Antes el endpoint bloqueaba la respuesta entera
 // (incluido el texto) hasta descargar TODOS los binarios → apertura de 8-9s.
-// Presupuesto para resolver un medio DENTRO de la respuesta. Es deliberadamente corto: los
-// medios YA persistidos (/uploads) se resuelven por fast-path sin red, asi que entran de sobra;
-// lo que este limite corta es la descarga contra Evolution, que puede tardar segundos.
-//
-// Estuvo en 3500ms cuando el chat lo pintaba el SSR de la pagina y /live solo refrescaba por
-// detras (la espera no se veia). Ahora abrir un chat NO navega al servidor, asi que /live es la
-// PRIMERA pintada de un chat sin cache: esperar ahi bloquea el texto tambien, y con ~455 medios
-// sin persistir bastaba con abrir un chat con una foto vieja para comerse los 3,5s enteros.
-// Los medios lentos se resuelven/persisten en segundo plano y el cliente los recoge con un
-// refetch (ver mediaPending abajo).
-const MEDIA_RESOLVE_RESPONSE_BUDGET_MS = 300;
+const MEDIA_RESOLVE_RESPONSE_BUDGET_MS = 3500;
 
 type ResolvableMediaType = "IMAGE" | "AUDIO" | "VIDEO" | "STICKER";
 
@@ -107,31 +97,6 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false, error: "Conversacion no encontrada" }, { status: 404 });
   }
 
-  // Marcar como leidos los entrantes al ABRIR el chat. Antes lo hacia el server component de
-  // /cliente/chats, pero abrir un chat ya no navega al servidor (se resuelve en el cliente para
-  // que el cambio de chat sea instantaneo), asi que el marcado vive aca: este endpoint es el
-  // que se llama al abrir. Solo en la carga INICIAL (sin beforeMessageId): paginar historial
-  // hacia arriba no debe marcar nada. Diferido con after() para no bloquear la respuesta.
-  if (!beforeMessageId) {
-    const conversationIdForRead = parsed.conversationId;
-    const workspaceIdForRead = membership.workspace.id;
-    after(async () => {
-      try {
-        await prisma.message.updateMany({
-          where: {
-            workspaceId: workspaceIdForRead,
-            conversationId: conversationIdForRead,
-            direction: "INBOUND",
-            readAt: null,
-          },
-          data: { readAt: new Date() },
-        });
-      } catch {
-        // Si falla, el badge se recalcula en la proxima carga: no rompemos la apertura del chat.
-      }
-    });
-  }
-
   const instanceName = conversation.channel?.evolutionInstanceName?.trim() || null;
   // Saneos de BD (mediaUrl → ruta persistida) y resoluciones lentas que se terminan
   // después de responder, para que la próxima apertura del chat sea instantánea.
@@ -208,10 +173,6 @@ export async function GET(request: Request) {
 
   return NextResponse.json({
     ok: true,
-    // Hubo medios que no entraron en el presupuesto: se estan resolviendo y persistiendo en
-    // segundo plano. El cliente usa esta senal para pedir /live una sola vez mas y mostrar las
-    // fotos ya curadas, en vez de dejar el placeholder hasta que reabras el chat.
-    mediaPending: backgroundMediaTasks.length > 0,
     conversation: {
       ...conversation,
       label: conversation.contact.name?.trim() || conversation.contact.phoneNumber,
