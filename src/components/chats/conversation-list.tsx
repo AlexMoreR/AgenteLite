@@ -151,13 +151,11 @@ function ConversationTagsRow({
 const ConversationListItem = memo(function ConversationListItem({
   conversation,
   isSelected,
-  onPreviewSelect,
   onSelect,
   onPrefetch,
 }: {
   conversation: SharedInboxConversationItem;
   isSelected: boolean;
-  onPreviewSelect: (conversation: SharedInboxConversationItem) => void;
   onSelect: (conversation: SharedInboxConversationItem) => void;
   onPrefetch: (conversation: SharedInboxConversationItem) => void;
 }) {
@@ -176,7 +174,12 @@ const ConversationListItem = memo(function ConversationListItem({
           return;
         }
 
-        onPreviewSelect(conversation);
+        // Solo CALENTAR el chat, nunca abrirlo. Antes aca se llamaba a onPreviewSelect para
+        // adelantar la apertura, y era inofensivo porque la vista no cambiaba hasta que
+        // terminaba la navegacion (en el click). Ahora la seleccion ES el chat abierto, asi
+        // que hacerlo en pointerdown abria el chat con solo apoyar el dedo: en el celular no
+        // se podia scrollear la lista. El chat se abre en onClick, que NO dispara si el dedo
+        // arrastra para scrollear. El calentado igual conserva la velocidad.
         onPrefetch(conversation);
       }}
       onClick={(event) => {
@@ -543,7 +546,6 @@ export function ConversationList({
           key={conversation.id || conversation.href}
           conversation={conversation}
           isSelected={effectiveSelectedId === conversation.id}
-          onPreviewSelect={handlePreviewSelect}
           onSelect={handleSelect}
           onPrefetch={handlePrefetch}
         />
