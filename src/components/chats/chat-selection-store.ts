@@ -28,6 +28,11 @@ export type PendingChatSelection = {
 type Listener = () => void;
 
 let pendingSelection: PendingChatSelection | null = null;
+// El usuario CERRO el chat explicitamente (boton volver, atras del navegador) o la seleccion se
+// descarto por no resolverse. Hace falta distinguirlo de "todavia no eligio nada": abrir un chat
+// ya no navega, asi que el chatKey de la URL que llego en el primer render queda congelado; sin
+// esta bandera, cerrar el chat volveria a caer en ese valor viejo y el chat se reabriria solo.
+let selectionClosed = false;
 const listeners = new Set<Listener>();
 
 function areSelectionsEqual(left: PendingChatSelection | null, right: PendingChatSelection | null) {
@@ -96,7 +101,11 @@ function notify() {
 }
 
 export function setPendingConversationSelection(nextSelection: PendingChatSelection | null) {
-  if (areSelectionsEqual(pendingSelection, nextSelection)) {
+  const wasClosed = selectionClosed;
+  // Elegir un chat cancela el "cerrado": volvemos a tener un chat abierto.
+  selectionClosed = false;
+
+  if (areSelectionsEqual(pendingSelection, nextSelection) && !wasClosed) {
     return;
   }
 
@@ -104,17 +113,38 @@ export function setPendingConversationSelection(nextSelection: PendingChatSelect
   notify();
 }
 
+/** Cierra el chat abierto: vuelve al estado vacio (movil: a la lista). */
 export function clearPendingConversationSelection() {
-  if (pendingSelection === null) {
+  if (pendingSelection === null && selectionClosed) {
     return;
   }
 
   pendingSelection = null;
+  selectionClosed = true;
   notify();
 }
 
 export function getPendingConversationSelection() {
   return pendingSelection;
+}
+
+export function getSelectionClosed() {
+  return selectionClosed;
+}
+
+/**
+ * Vuelve al estado neutro: sin seleccion y SIN marcar "cerrado". Para el desmontaje de la
+ * bandeja. Usar clearPendingConversationSelection() ahi dejaria el store en "cerrado", y al
+ * volver a entrar a chats por un link con ?chatKey= ese chat se ignoraria.
+ */
+export function resetConversationSelection() {
+  if (pendingSelection === null && !selectionClosed) {
+    return;
+  }
+
+  pendingSelection = null;
+  selectionClosed = false;
+  notify();
 }
 
 function subscribe(listener: Listener) {
@@ -143,5 +173,16 @@ export function usePendingConversationSelection() {
  */
 export function useOpenChatKey(urlChatKey: string) {
   const pending = usePendingConversationSelection();
-  return (pending?.chatKey ?? urlChatKey).trim();
+  // Snapshot booleano aparte: si solo cambia "cerrado" y la seleccion ya era null, el snapshot
+  // de la seleccion no cambia y useSyncExternalStore no re-renderiza. Sin esto, cerrar el chat
+  // no se veria en pantalla.
+  const closed = useSyncExternalStore(subscribe, getSelectionClosed, () => false);
+
+  if (pending?.chatKey) {
+    return pending.chatKey.trim();
+  }
+
+  // Cerrado explicitamente: NO caemos al chatKey de la URL, que quedo congelado del primer
+  // render (abrir un chat ya no navega). Si cayeramos, el chat se reabriria solo al cerrarlo.
+  return closed ? "" : urlChatKey.trim();
 }
