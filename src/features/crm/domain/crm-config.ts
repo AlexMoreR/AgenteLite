@@ -109,6 +109,33 @@ export function groupCrmRecordsByStage(records: CrmRecord[]) {
   }));
 }
 
+/**
+ * Razones por las que se pierde un lead. Se guardan como texto en Contact.lostReason (ver el
+ * comentario del campo en schema.prisma): son razones de NEGOCIO y cambian con el tiempo, asi que
+ * agregar una debe ser editar esta lista y nada mas, sin migrar la base de produccion.
+ *
+ * El orden es el que ve la vendedora al cerrar: primero las mas frecuentes, "Otro" al final.
+ */
+export const CRM_LOST_REASONS = [
+  { value: "precio", label: "Precio" },
+  { value: "no_responde", label: "No responde" },
+  { value: "comparando", label: "Está comparando" },
+  { value: "sin_dinero", label: "Sin dinero hoy" },
+  { value: "decide_otro", label: "Decide otra persona" },
+  { value: "desconfianza", label: "Desconfianza" },
+  { value: "otro", label: "Otro" },
+] as const;
+
+export type CrmLostReason = (typeof CRM_LOST_REASONS)[number]["value"];
+
+export function getCrmLostReasonLabel(value: string | null | undefined) {
+  if (!value) {
+    return null;
+  }
+
+  return CRM_LOST_REASONS.find((reason) => reason.value === value)?.label ?? value;
+}
+
 export function sortCrmRecords(records: CrmRecord[]) {
   return [...records].sort((left, right) => {
     const stageDiff = CRM_STAGE_ORDER.indexOf(left.status) - CRM_STAGE_ORDER.indexOf(right.status);

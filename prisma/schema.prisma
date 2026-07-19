@@ -195,6 +195,11 @@ model Contact {
   excludedFromCrm Boolean      @default(false)
   metadata      Json?
   crmStage      CrmStage       @default(NUEVO)
+  // Por que se perdio el lead. Solo tiene sentido con crmStage = PERDIDO. Es texto y no enum a
+  // proposito: las razones son de negocio y cambian (hoy precio/desconfianza/sin dinero/decide
+  // otro/comparando/no responde/otro), y un enum obligaria a migrar la BD de produccion cada vez
+  // que Alex quiera agregar una. Los valores validos viven en crm-config.
+  lostReason    String?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   avatarUrl     String?

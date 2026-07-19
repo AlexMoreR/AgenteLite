@@ -8,12 +8,15 @@ import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { createFollowsFromRulesForSource } from "@/features/seguimientos/services/follows";
 import { recordConversationActivity } from "@/lib/conversation-activity";
-import { CRM_STAGE_META } from "@/features/crm/domain/crm-config";
+import { CRM_STAGE_META, getCrmLostReasonLabel } from "@/features/crm/domain/crm-config";
 import type { CrmStage } from "@/features/crm/types";
 
 const updateCrmStageSchema = z.object({
   contactId: z.string().trim().min(1),
   status: z.enum(["NUEVO", "CALIFICADO", "PROPUESTA", "NEGOCIACION", "GANADO", "PERDIDO"]),
+  // Solo se guarda al cerrar como PERDIDO. Es el unico dato del CRM que la maquina NO puede
+  // deducir: por que se cayo la venta lo sabe la vendedora y nadie mas.
+  lostReason: z.string().trim().min(1).max(60).optional(),
 });
 
 const updateCrmCollapsedSchema = z.object({
@@ -21,7 +24,11 @@ const updateCrmCollapsedSchema = z.object({
   collapsed: z.boolean(),
 });
 
-export async function updateCrmStageAction(input: { contactId: string; status: CrmStage }) {
+export async function updateCrmStageAction(input: {
+  contactId: string;
+  status: CrmStage;
+  lostReason?: string;
+}) {
   const session = await auth();
 
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
@@ -53,9 +60,15 @@ export async function updateCrmStageAction(input: { contactId: string; status: C
     return { error: "Contacto no encontrado" };
   }
 
+  // La razon solo aplica a PERDIDO. Al mover el lead a cualquier otra etapa se limpia: si se
+  // cerro por error y se reabre, no puede quedar arrastrando un motivo de perdida viejo que
+  // despues ensucie el informe de razones.
+  const lostReason = parsed.data.status === "PERDIDO" ? parsed.data.lostReason ?? null : null;
+
   await prisma.$executeRaw`
     UPDATE "Contact"
     SET "crmStage" = ${parsed.data.status},
+        "lostReason" = ${lostReason},
         "updatedAt" = NOW()
     WHERE "id" = ${contact.id}
   `;
@@ -76,13 +89,16 @@ export async function updateCrmStageAction(input: { contactId: string; status: C
   if (recentConversation) {
     const actorName = session.user.name?.trim() || "Alguien";
     const stageLabel = CRM_STAGE_META[parsed.data.status]?.label ?? parsed.data.status;
+    const reasonLabel = getCrmLostReasonLabel(lostReason);
     await recordConversationActivity({
       workspaceId: membership.workspace.id,
       conversationId: recentConversation.id,
       channelId: recentConversation.channelId,
       contactId: contact.id,
       kind: "stage_changed",
-      text: `${actorName} cambió la etapa a "${stageLabel}"`,
+      text: reasonLabel
+        ? `${actorName} cambió la etapa a "${stageLabel}" (motivo: ${reasonLabel})`
+        : `${actorName} cambió la etapa a "${stageLabel}"`,
     });
   }
 
