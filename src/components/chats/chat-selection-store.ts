@@ -127,3 +127,21 @@ function subscribe(listener: Listener) {
 export function usePendingConversationSelection() {
   return useSyncExternalStore(subscribe, getPendingConversationSelection, () => null);
 }
+
+/**
+ * FUENTE UNICA DE VERDAD de "que chat esta abierto".
+ *
+ * El dato vive hoy en dos lados: la seleccion del cliente (este store, que se setea al hacer
+ * click y hace que el chat aparezca al instante) y el chatKey de la URL, que llega como prop
+ * desde el server component. La regla es: **manda la seleccion del cliente; la URL es el
+ * respaldo** (primer render y deep links).
+ *
+ * Antes esta misma expresion estaba repetida en ~6 lugares de shared-inbox. Cada copia era una
+ * chance de que un consumidor mirara una fuente distinta que el resto: exactamente el bug que
+ * dejo chats roto (el chat cargaba pero se comparaba contra el id viejo y se descartaba). Si
+ * manana cambia de donde sale el chat abierto, se cambia ACA y no en cada uso.
+ */
+export function useOpenChatKey(urlChatKey: string) {
+  const pending = usePendingConversationSelection();
+  return (pending?.chatKey ?? urlChatKey).trim();
+}

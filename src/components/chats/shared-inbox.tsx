@@ -13,6 +13,7 @@ import {
 import { EditContactModal } from "@/components/chats/edit-contact-modal";
 import {
   clearPendingConversationSelection,
+  useOpenChatKey,
   usePendingConversationSelection,
   type PendingChatSelection,
 } from "./chat-selection-store";
@@ -618,7 +619,9 @@ export function SharedInbox({
 
   // Clave efectiva del chat activo. Sirve para sincronizar el panel y para
   // evitar que el listado se reordene cuando el evento pertenece al chat abierto.
-  const selectedConversationKey = (pendingConversation?.chatKey ?? selectedConversationId).trim();
+  // Chat abierto: UNICA fuente de verdad para todo el componente (ver useOpenChatKey). Todo lo
+  // que necesite saber "que chat esta abierto" debe leer de aca, no rearmar la expresion.
+  const selectedConversationKey = useOpenChatKey(selectedConversationId);
   const selectedConversationCache = useMemo(
     () =>
       hasHydrated && selectedConversationKey
@@ -689,7 +692,7 @@ export function SharedInbox({
   );
 
   const refreshSelectedConversationFromServer = useCallback(async () => {
-    const chatKey = (pendingConversation?.chatKey ?? selectedConversationId).trim();
+    const chatKey = selectedConversationKey;
     if (!chatKey.startsWith("agent:")) {
       return;
     }
@@ -741,7 +744,7 @@ export function SharedInbox({
     } catch {
       // Si falla este respaldo, el polling/realtime siguiente vuelve a intentar.
     }
-  }, [pendingConversation?.chatKey, selectedConversationId]);
+  }, [selectedConversationKey]);
 
   const scheduleConversationRefreshAfterSend = useCallback(() => {
     const retryDelays = [700, 1800, 3600];
@@ -756,7 +759,7 @@ export function SharedInbox({
     function handleLiveUpdate(event: Event) {
       const customEvent = event as CustomEvent<{ conversation?: unknown }>;
       const snapshot = normalizeLiveConversationSnapshot(customEvent.detail?.conversation);
-      const effectiveSelectedKey = pendingConversation?.chatKey ?? selectedConversationId;
+      const effectiveSelectedKey = selectedConversationKey;
 
       if (!snapshot || !conversationIdMatchesKey(effectiveSelectedKey, snapshot.id)) {
         return;
@@ -780,7 +783,7 @@ export function SharedInbox({
 
     window.addEventListener("chat-live-update", handleLiveUpdate as EventListener);
     return () => window.removeEventListener("chat-live-update", handleLiveUpdate as EventListener);
-  }, [normalizeRealtimeConversationItem, pendingConversation?.chatKey, selectedConversationId]);
+  }, [normalizeRealtimeConversationItem, selectedConversationKey]);
 
   // Canal que se esta viendo (filtro "connection"). Vacio = bandeja unificada.
   const selectedChannelIdFilter = selectedConnectionKey.trim().startsWith("channel:")
@@ -806,7 +809,7 @@ export function SharedInbox({
         const currentItem = findConversationItemBySnapshotId(current, snapshot.id) ?? undefined;
         const baseItem = buildConversationItemFromListSnapshot(snapshot, currentItem);
         const mergedItem = mergeConversationListItem(baseItem, currentItem);
-        const effectiveSelectedKey = pendingConversation?.chatKey ?? selectedConversationId;
+        const effectiveSelectedKey = selectedConversationKey;
         const updatedItem = normalizeRealtimeConversationItem(
           conversationIdMatchesKey(effectiveSelectedKey, snapshot.id)
             ? { ...mergedItem, incomingCount: 0 }
@@ -818,7 +821,7 @@ export function SharedInbox({
 
     window.addEventListener("chat-list-update", handleListUpdate as EventListener);
     return () => window.removeEventListener("chat-list-update", handleListUpdate as EventListener);
-  }, [normalizeRealtimeConversationItem, pendingConversation?.chatKey, selectedConversationId, selectedChannelIdFilter]);
+  }, [normalizeRealtimeConversationItem, selectedConversationKey, selectedChannelIdFilter]);
 
   useEffect(() => {
     function handleContactUpdate(event: Event) {
@@ -924,7 +927,7 @@ export function SharedInbox({
   }, []);
 
   useEffect(() => {
-    const normalizedSelectedConversationId = (pendingConversation?.chatKey ?? selectedConversationId).trim();
+    const normalizedSelectedConversationId = selectedConversationKey;
 
     if (!normalizedSelectedConversationId.startsWith("agent:")) {
       return;
@@ -1000,7 +1003,7 @@ export function SharedInbox({
   }, [selectedConversationKey]);
 
   useEffect(() => {
-    const normalizedSelectedConversationId = (pendingConversation?.chatKey ?? selectedConversationId).trim();
+    const normalizedSelectedConversationId = selectedConversationKey;
 
     if (!normalizedSelectedConversationId.startsWith("agent:")) {
       return;
@@ -1041,7 +1044,7 @@ export function SharedInbox({
         selectedConversationDetailFollowUpTimerRef.current = null;
       }
     };
-  }, [pendingConversation?.chatKey, selectedConversationId]);
+  }, [selectedConversationKey]);
 
   const effectiveLiveConversation =
     liveConversation && conversationIdMatchesKey(selectedConversationId, liveConversation.id) ? liveConversation : null;
