@@ -97,6 +97,31 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false, error: "Conversacion no encontrada" }, { status: 404 });
   }
 
+  // Marcar como leidos los entrantes al ABRIR el chat. Antes lo hacia el server component de
+  // /cliente/chats, pero abrir un chat ya no navega al servidor (se resuelve en el cliente para
+  // que el cambio de chat sea instantaneo), asi que el marcado vive aca: este endpoint es el
+  // que se llama al abrir. Solo en la carga INICIAL (sin beforeMessageId): paginar historial
+  // hacia arriba no debe marcar nada. Diferido con after() para no bloquear la respuesta.
+  if (!beforeMessageId) {
+    const conversationIdForRead = parsed.conversationId;
+    const workspaceIdForRead = membership.workspace.id;
+    after(async () => {
+      try {
+        await prisma.message.updateMany({
+          where: {
+            workspaceId: workspaceIdForRead,
+            conversationId: conversationIdForRead,
+            direction: "INBOUND",
+            readAt: null,
+          },
+          data: { readAt: new Date() },
+        });
+      } catch {
+        // Si falla, el badge se recalcula en la proxima carga: no rompemos la apertura del chat.
+      }
+    });
+  }
+
   const instanceName = conversation.channel?.evolutionInstanceName?.trim() || null;
   // Saneos de BD (mediaUrl → ruta persistida) y resoluciones lentas que se terminan
   // después de responder, para que la próxima apertura del chat sea instantánea.
