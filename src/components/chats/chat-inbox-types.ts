@@ -60,6 +60,13 @@ export type SharedInboxSelectedConversation = {
   contactName?: string | null;
   messages: SharedInboxMessageItem[];
   automationPaused?: boolean;
+  // Datos de los controles de la cabecera (etapa, resolver, asignar, importar historial). Los
+  // trae /api/cliente/chats/live para poder dibujar esos botones en el CLIENTE: antes los armaba
+  // el servidor por chat y, al abrir un chat sin navegar, quedaban congelados o desaparecian.
+  crmStage?: string | null;
+  status?: "OPEN" | "PENDING" | "CLOSED" | "ARCHIVED" | null;
+  assignedTo?: { id: string; name: string | null; email: string | null } | null;
+  canImportHistory?: boolean;
   loadMoreHref?: string | null;
   loadMoreCursor?: string | null;
   hasMoreMessages?: boolean;

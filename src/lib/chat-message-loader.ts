@@ -66,12 +66,21 @@ export async function loadAgentConversationDetail(input: {
         id: true,
         agentId: true,
         automationPaused: true,
+        // Datos que necesitan los controles de la cabecera (etapa del CRM, resolver, asignar).
+        // Antes solo los tenia el server component de /cliente/chats, asi que esos botones se
+        // armaban en el servidor por chat. Al abrir un chat sin navegar quedaban congelados en
+        // el chat con el que cargo la pagina —o directamente no aparecian—, y la vendedora
+        // perdia justo los botones que usa. Viajando aca se pueden dibujar en el cliente.
+        status: true,
+        assignedToUserId: true,
+        assignedTo: { select: { id: true, name: true, email: true } },
         contact: {
           select: {
             id: true,
             name: true,
             phoneNumber: true,
             avatarUrl: true,
+            crmStage: true,
           },
         },
         channel: {
