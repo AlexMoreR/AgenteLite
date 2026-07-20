@@ -15,16 +15,7 @@ const HISTORY_MESSAGE_BATCH_SIZE = 10;
 // aparezca rápido, y terminamos de resolver/persistir en segundo plano (`after`) para que
 // la PRÓXIMA apertura ya lo tenga listo. Antes el endpoint bloqueaba la respuesta entera
 // (incluido el texto) hasta descargar TODOS los binarios → apertura de 8-9s.
-// Presupuesto para resolver un medio DENTRO de la respuesta. Es corto a proposito: los medios ya
-// persistidos (/uploads) se resuelven por fast-path sin red y entran de sobra; lo que este limite
-// corta es la descarga contra Evolution, que puede tardar segundos.
-//
-// Estuvo en 3500ms cuando el chat lo pintaba el SSR de la pagina y /live solo refrescaba por
-// detras (la espera no se veia). Ahora abrir un chat no navega, asi que /live es la PRIMERA
-// pintada de un chat sin cache: esperar ahi bloquea tambien el texto, y con cientos de medios sin
-// persistir bastaba abrir un chat con una foto vieja para comerse los 3,5s. Los lentos se
-// resuelven/persisten en segundo plano y el refetch de seguimiento (2,5s) los recoge.
-const MEDIA_RESOLVE_RESPONSE_BUDGET_MS = 300;
+const MEDIA_RESOLVE_RESPONSE_BUDGET_MS = 3500;
 
 type ResolvableMediaType = "IMAGE" | "AUDIO" | "VIDEO" | "STICKER";
 
@@ -104,30 +95,6 @@ export async function GET(request: Request) {
 
   if (!conversation) {
     return NextResponse.json({ ok: false, error: "Conversacion no encontrada" }, { status: 404 });
-  }
-
-  // Marcar como leidos los entrantes al ABRIR el chat. Antes lo hacia el server component de
-  // /cliente/chats, pero abrir un chat ya no navega alli, asi que el marcado vive aca: este
-  // endpoint es el que se llama al abrir. Solo en la carga INICIAL (sin beforeMessageId):
-  // paginar historial hacia arriba no debe marcar nada. Diferido con after() para no bloquear.
-  if (!beforeMessageId) {
-    const conversationIdForRead = parsed.conversationId;
-    const workspaceIdForRead = membership.workspace.id;
-    after(async () => {
-      try {
-        await prisma.message.updateMany({
-          where: {
-            workspaceId: workspaceIdForRead,
-            conversationId: conversationIdForRead,
-            direction: "INBOUND",
-            readAt: null,
-          },
-          data: { readAt: new Date() },
-        });
-      } catch {
-        // Si falla, el badge se recalcula en la proxima carga: no rompemos la apertura del chat.
-      }
-    });
   }
 
   const instanceName = conversation.channel?.evolutionInstanceName?.trim() || null;
