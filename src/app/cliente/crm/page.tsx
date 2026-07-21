@@ -5,8 +5,10 @@ type PageProps = {
 };
 
 function resolveCrmView(value: string | string[] | undefined) {
-  const normalized = (Array.isArray(value) ? value[0] : value)?.trim().toLowerCase() || "registro";
-  return normalized === "kanban" || normalized === "informe" ? normalized : "registro";
+  // Por defecto abre en "Mi día": es la vista que dispara la adopcion de la vendedora (a quien
+  // contactar hoy). El dueno tiene "Informe" a un click para sus metricas.
+  const normalized = (Array.isArray(value) ? value[0] : value)?.trim().toLowerCase() || "mi-dia";
+  return normalized === "kanban" || normalized === "informe" || normalized === "registro" ? normalized : "mi-dia";
 }
 
 export default async function ClienteCrmPage({ searchParams }: PageProps) {

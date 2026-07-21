@@ -154,7 +154,9 @@ export function AppSidebar({
                     ? "informe"
                     : pathname.startsWith("/cliente/crm/kanban")
                       ? "kanban"
-                      : "registro"
+                      : pathname.startsWith("/cliente/crm/registro")
+                        ? "registro"
+                        : "mi-dia"
                 }
                 isCrmRoute={pathname.startsWith("/cliente/crm")}
               />
