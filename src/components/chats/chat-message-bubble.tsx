@@ -12,6 +12,7 @@ import {
   Facebook,
   Forward,
   LoaderCircle,
+  MapPin,
   MessageCircle,
   Pencil,
   Pin,
@@ -23,6 +24,7 @@ import {
   UserRound,
   X,
 } from "lucide-react";
+import { extractEvolutionLocation } from "@/lib/evolution-webhook";
 import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
@@ -274,6 +276,12 @@ export const MessageBubble = memo(function MessageBubble({
   );
   const documentMeta = useMemo(
     () => (message.type === "DOCUMENT" ? getDocumentMetaFromMessage(message) : null),
+    [message],
+  );
+  // Ubicacion compartida: se lee del payload crudo y se muestra como tarjeta con enlace
+  // al mapa (antes caia al fallback y la burbuja salia con un "-").
+  const locationInfo = useMemo(
+    () => (message.type === "LOCATION" ? extractEvolutionLocation(message.rawPayload) : null),
     [message],
   );
   // Mensaje de archivo aún enviándose (burbuja optimista): muestra spinner en vez de hora.
@@ -645,6 +653,28 @@ export const MessageBubble = memo(function MessageBubble({
                 ? renderMessageText(message.content)
                 : null}
             </div>
+          ) : locationInfo ? (
+            <a
+              href={`https://www.google.com/maps/search/?api=1&query=${locationInfo.latitude},${locationInfo.longitude}`}
+              target="_blank"
+              rel="noreferrer"
+              title="Abrir ubicacion en el mapa"
+              className={`flex max-w-[min(230px,68vw)] items-center gap-2 rounded-xl p-1.5 pr-3 transition ${
+                outbound ? "bg-black/[0.06] hover:bg-black/10" : "bg-background hover:bg-muted"
+              }`}
+            >
+              <MapPin className={`size-8 shrink-0 ${outbound ? "text-[#111b21]" : "text-primary"}`} />
+              <span className="flex min-w-0 flex-col">
+                <span className={`truncate text-[13px] font-normal leading-tight ${outbound ? "text-[#111b21]" : "text-foreground"}`}>
+                  {locationInfo.name || locationInfo.address || "Ubicacion"}
+                </span>
+                <span className={`truncate text-[11px] leading-tight ${outbound ? "text-black/50" : "text-muted-foreground"}`}>
+                  {locationInfo.name && locationInfo.address
+                    ? locationInfo.address
+                    : `${locationInfo.latitude.toFixed(5)}, ${locationInfo.longitude.toFixed(5)}`}
+                </span>
+              </span>
+            </a>
           ) : mediaPreviewLabel ? (
             <div className="space-y-2">
               <div

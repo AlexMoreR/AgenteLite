@@ -61,6 +61,7 @@ function getConversationPreview(conversation: SharedInboxConversationItem) {
   if (conversation.lastMessageType === "VIDEO") return "Video";
   if (conversation.lastMessageType === "STICKER") return "Sticker";
   if (conversation.lastMessageType === "DOCUMENT") return "Documento";
+  if (conversation.lastMessageType === "LOCATION") return "Ubicacion";
   return "Sin mensajes visibles aun.";
 }
 

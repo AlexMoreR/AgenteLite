@@ -250,6 +250,10 @@ async function getAgentConversationList(input: {
         ORDER BY ct."createdAt" ASC
       `
     : Promise.resolve([] as Array<{ contactId: string; name: string; color: string }>);
+  // El ultimo mensaje de cada chat SIN traer rawPayload. rawPayload es el payload completo de
+  // WhatsApp (JSON grande): traerlo de las 40 filas eran ~776 KB y 1150ms por pagina; sin el son
+  // ~6 KB y 177ms. Solo se usa como FALLBACK (texto del preview si content esta vacio, nombre de
+  // WhatsApp si el contacto no tiene nombre guardado), asi que se pide aparte solo para esas pocas.
   const latestAgentMessageRowsPromise = activeAgentConversationIds.length
       ? prisma.$queryRaw<Array<{
           conversationId: string;
@@ -258,7 +262,6 @@ async function getAgentConversationList(input: {
           createdAt: Date;
           deletedAt: Date | null;
           type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
-          rawPayload: unknown;
         }>>`
         SELECT DISTINCT ON (m."conversationId")
           m."conversationId" AS "conversationId",
@@ -266,8 +269,7 @@ async function getAgentConversationList(input: {
           m."direction" AS "direction",
           m."createdAt" AS "createdAt",
           m."deletedAt" AS "deletedAt",
-          m."type" AS "type",
-          m."rawPayload" AS "rawPayload"
+          m."type" AS "type"
         FROM "Message" m
         WHERE m."workspaceId" = ${input.workspaceId}
           AND m."conversationId" IN (${Prisma.join(activeAgentConversationIds)})
@@ -283,7 +285,6 @@ async function getAgentConversationList(input: {
         createdAt: Date;
         deletedAt: Date | null;
         type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
-        rawPayload: unknown;
       }>);
 
   const agentIncomingCountRowsPromise = activeAgentConversationIds.length
@@ -336,6 +337,43 @@ async function getAgentConversationList(input: {
   const latestAgentMessageByConversationId = new Map(
     latestAgentMessageRows.map((row) => [row.conversationId, row]),
   );
+
+  // rawPayload SOLO para las conversaciones que lo van a usar de fallback: el ultimo mensaje no
+  // tiene texto (content vacio) o el contacto no tiene nombre guardado (se saca el pushName del
+  // payload). Asi evitamos traer el JSON grande de las 40; normalmente son un puñado por pagina.
+  const contactNameByConversationId = new Map(
+    activeAgentConversations.map((conversation) => [conversation.id, conversation.contact.name?.trim() ?? ""]),
+  );
+  const conversationIdsNeedingPayload = latestAgentMessageRows
+    .filter(
+      (row) =>
+        !row.content?.trim() || !(contactNameByConversationId.get(row.conversationId) ?? ""),
+    )
+    .map((row) => row.conversationId);
+
+  const payloadByConversationId = new Map<string, unknown>();
+  if (conversationIdsNeedingPayload.length > 0) {
+    try {
+      const payloadRows = await prisma.$queryRaw<Array<{ conversationId: string; rawPayload: unknown }>>`
+        SELECT DISTINCT ON (m."conversationId")
+          m."conversationId" AS "conversationId",
+          m."rawPayload" AS "rawPayload"
+        FROM "Message" m
+        WHERE m."workspaceId" = ${input.workspaceId}
+          AND m."conversationId" IN (${Prisma.join(conversationIdsNeedingPayload)})
+          AND m."isStatusBroadcast" = false
+          AND (m."rawPayload"->>'source') IS DISTINCT FROM 'activity'
+          AND m."type" IS DISTINCT FROM 'SYSTEM'
+        ORDER BY m."conversationId", m."createdAt" DESC, m."id" DESC
+      `;
+      for (const row of payloadRows) {
+        payloadByConversationId.set(row.conversationId, row.rawPayload);
+      }
+    } catch {
+      // Si falla, se cae a phone/type-label: no rompemos la lista por un fallback.
+    }
+  }
+
   const agentIncomingCountById = new Map(agentIncomingCountRows.map((row) => [row.conversationId, row.incomingCount]));
   const contactTagsByContactId = new Map<string, Array<{ label: string; color: string }>>();
   for (const row of contactTagRows) {
@@ -370,7 +408,7 @@ async function getAgentConversationList(input: {
         ? resolveStoredAgentContactLabel({
             contactName: conversation.contact.name,
             phoneNumber: conversation.contact.phoneNumber,
-            rawPayload: latestMessage.rawPayload,
+            rawPayload: payloadByConversationId.get(conversation.id),
           })
         : getAgentContactLabel(conversation.contact),
       secondaryLabel: conversation.contact.phoneNumber,
@@ -379,7 +417,11 @@ async function getAgentConversationList(input: {
       avatarUrl: conversation.contact.avatarUrl ?? null,
       incomingCount: agentIncomingCountById.get(conversation.id) ?? 0,
       lastMessage: latestMessage
-        ? resolveStoredAgentMessagePreview(latestMessage)
+        ? resolveStoredAgentMessagePreview({
+            content: latestMessage.content,
+            deletedAt: latestMessage.deletedAt,
+            rawPayload: payloadByConversationId.get(conversation.id),
+          })
         : null,
       lastMessageType: latestMessage?.type ?? null,
       lastMessageDirection: latestMessage?.direction ?? null,

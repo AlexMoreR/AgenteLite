@@ -389,11 +389,26 @@ export function extractEvolutionMessageText(payload: unknown): string | null {
   const editedMessage = getEditedMessageRecord(payload);
   const data = asRecord(getPrimaryPayloadRoot(payload)?.data);
 
-  return (
+  const text =
     extractMessageTextFromRecord(editedMessage) ||
     extractMessageTextFromRecord(message) ||
-    pickString(data, ["text", "body"])
-  );
+    pickString(data, ["text", "body"]);
+
+  if (text) {
+    return text;
+  }
+
+  // Una ubicacion no trae texto: usamos su nombre/direccion o las coordenadas, para que
+  // el chat y la vista previa de la lista no queden en blanco.
+  const location = extractEvolutionLocation(payload);
+  if (location) {
+    return (
+      [location.name, location.address].filter(Boolean).join(" · ") ||
+      `${location.latitude}, ${location.longitude}`
+    );
+  }
+
+  return null;
 }
 
 export function extractEvolutionMessageType(payload: unknown) {
@@ -421,7 +436,54 @@ export function extractEvolutionMessageType(payload: unknown) {
     return "DOCUMENT" as const;
   }
 
+  // Ubicacion: WhatsApp la manda como locationMessage (fija) o liveLocationMessage
+  // (en vivo). Sin esto caia en TEXT y, al no tener texto, el chat la mostraba vacia.
+  if (asRecord(target?.locationMessage) || asRecord(target?.liveLocationMessage)) {
+    return "LOCATION" as const;
+  }
+
   return "TEXT" as const;
+}
+
+// Extrae las coordenadas (y nombre/direccion si vienen) de un mensaje de ubicacion.
+export function extractEvolutionLocation(payload: unknown): {
+  latitude: number;
+  longitude: number;
+  name: string | null;
+  address: string | null;
+} | null {
+  const message = getMessageRecord(payload);
+  const editedMessage = getEditedMessageRecord(payload);
+  const target = editedMessage ?? message;
+  const location = asRecord(target?.locationMessage) ?? asRecord(target?.liveLocationMessage);
+
+  if (!location) {
+    return null;
+  }
+
+  const readNumber = (value: unknown) => {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string" && value.trim()) {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
+  };
+
+  // whatsmeow usa mayuscula inicial (DegreesLatitude); Baileys, minuscula.
+  const latitude = readNumber(location.degreesLatitude) ?? readNumber(location.DegreesLatitude);
+  const longitude = readNumber(location.degreesLongitude) ?? readNumber(location.DegreesLongitude);
+
+  if (latitude === null || longitude === null) {
+    return null;
+  }
+
+  return {
+    latitude,
+    longitude,
+    name: pickString(location, ["name", "Name"]),
+    address: pickString(location, ["address", "Address"]),
+  };
 }
 
 export function extractEvolutionMediaUrl(payload: unknown): string | null {
