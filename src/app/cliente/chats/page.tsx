@@ -294,7 +294,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     ],
   };
 
-  const [evolutionSettings, channels, agentConversationsRaw, officialChatsData] = await Promise.all([
+  const [evolutionSettings, channels, agentConversationsRaw, selectedAgentConversationRow, officialChatsData] = await Promise.all([
     getEvolutionSettings(),
     prisma.whatsAppChannel.findMany({
       where: { workspaceId: membership.workspace.id },
@@ -341,6 +341,28 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         },
       },
     }),
+    // El chat seleccionado se carga TAMBIEN por su id, aparte de la lista. Sin esto, un deep-link
+    // (p.ej. desde "Mi día") a un chat que NO esta en los ultimos 40 caia en "Selecciona un chat":
+    // selectedAgentConversation se buscaba solo dentro de la lista cargada. Los links de Mi día
+    // apuntan a leads viejos (dias sin actividad) que casi nunca estan en ese lote.
+    selectedChatRef?.source === "agent"
+      ? prisma.conversation.findFirst({
+          where: { id: selectedChatRef.conversationId, workspaceId: membership.workspace.id },
+          select: {
+            id: true,
+            agentId: true,
+            channelId: true,
+            automationPaused: true,
+            status: true,
+            assignedToUserId: true,
+            assignedTo: { select: { id: true, name: true, email: true } },
+            activeProductContext: true,
+            contact: {
+              select: { id: true, name: true, phoneNumber: true, avatarUrl: true, crmStage: true },
+            },
+          },
+        })
+      : Promise.resolve(null),
     getOfficialApiChatsData({
       workspaceId: membership.workspace.id,
       conversationId: selectedChatRef?.source === "official" ? selectedChatRef.conversationId : undefined,
@@ -360,7 +382,14 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
 
   // Excluir conversaciones cuyo canal fue eliminado
   const hasMoreConversationItems = agentConversationsRaw.length > conversationListTake;
-  const agentConversations = agentConversationsRaw.slice(0, conversationListTake);
+  const agentConversationsBase = agentConversationsRaw.slice(0, conversationListTake);
+  // Si el chat seleccionado (deep-link) no vino en el lote de la lista, lo agregamos para que el
+  // panel lo abra. Va primero para que quede visible arriba al aterrizar desde Mi día.
+  const agentConversations =
+    selectedAgentConversationRow &&
+    !agentConversationsBase.some((conversation) => conversation.id === selectedAgentConversationRow.id)
+      ? [selectedAgentConversationRow, ...agentConversationsBase]
+      : agentConversationsBase;
 
   const activeAgentConversations = agentConversations.filter((conv) => {
     if (!conv.channelId) return true;
