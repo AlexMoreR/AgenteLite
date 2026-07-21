@@ -95,7 +95,10 @@ export async function getMiDiaData(input: { workspaceId: string }): Promise<MiDi
       await Promise.all(
         conversations.map(async (conversation) => {
           const message = await prisma.message.findFirst({
-            where: { conversationId: conversation.id, isStatusBroadcast: false },
+            // type SYSTEM se excluye: son notas internas (p.ej. "el agente movió la etapa a
+            // Caliente") que se guardan como mensaje. Sin esto aparecian como el "ultimo mensaje"
+            // del lead y, peor, contaminaban la senal de "te escribio" (van como OUTBOUND).
+            where: { conversationId: conversation.id, isStatusBroadcast: false, type: { not: "SYSTEM" } },
             orderBy: [{ createdAt: "desc" }, { id: "desc" }],
             select: { content: true, direction: true, type: true, rawPayload: true },
           });
