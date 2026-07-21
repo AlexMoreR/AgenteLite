@@ -229,6 +229,7 @@ async function getAgentConversationList(input: {
             name: true,
             phoneNumber: true,
             avatarUrl: true,
+            crmStage: true,
           },
         },
       },
@@ -373,6 +374,7 @@ async function getAgentConversationList(input: {
           })
         : getAgentContactLabel(conversation.contact),
       secondaryLabel: conversation.contact.phoneNumber,
+      crmStage: conversation.contact.crmStage ?? null,
       tags,
       avatarUrl: conversation.contact.avatarUrl ?? null,
       incomingCount: agentIncomingCountById.get(conversation.id) ?? 0,

@@ -336,6 +336,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
             name: true,
             phoneNumber: true,
             avatarUrl: true,
+            crmStage: true,
           },
         },
       },
@@ -587,6 +588,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       secondaryLabel: conversation.contact.phoneNumber,
       tags,
       avatarUrl,
+      crmStage: conversation.contact.crmStage ?? null,
       assignedToName: conversation.assignedTo?.name?.trim() || conversation.assignedTo?.email || null,
       // El chat abierto se marca como leído (vía after()); su badge va a 0 de inmediato.
       incomingCount:

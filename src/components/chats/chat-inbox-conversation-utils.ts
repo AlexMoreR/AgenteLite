@@ -319,12 +319,17 @@ export function mergeConversationListItem(
   const existingAt = getConversationLastMessageTimestamp(existing.lastMessageAt);
   const nextAt = getConversationLastMessageTimestamp(next.lastMessageAt);
 
+  // La etapa del CRM no viaja en los snapshots de realtime; si el update entrante no la trae,
+  // conservamos la que ya teniamos para que el badge no desaparezca hasta la proxima carga.
+  const crmStage = next.crmStage ?? existing.crmStage ?? null;
+
   if (existingAt <= nextAt) {
-    return next;
+    return { ...next, crmStage };
   }
 
   return {
     ...next,
+    crmStage,
     incomingCount: Math.max(existing.incomingCount ?? 0, next.incomingCount ?? 0),
     // Si ya tenemos una versión más reciente del preview en memoria, debemos
     // conservarla completa para no mezclar contenido viejo con timestamps nuevos.

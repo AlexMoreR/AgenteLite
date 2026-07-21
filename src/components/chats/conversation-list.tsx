@@ -10,6 +10,8 @@ import { ContactAvatar } from "./contact-avatar";
 import { warmConversationCache } from "./chat-conversation-warmup";
 import { clearPendingConversationSelection, setPendingConversationSelection } from "./chat-selection-store";
 import { readConversationFromCache } from "./chat-history-cache";
+import { CRM_STAGE_META } from "@/features/crm/domain/crm-config";
+import type { CrmStage } from "@/features/crm/types";
 import type { SharedInboxConversationItem } from "./shared-inbox";
 
 // Logs de depuración desactivados (ensuciaban la consola en desarrollo).
@@ -107,7 +109,27 @@ function renderConversationPreview(conversation: SharedInboxConversationItem) {
 }
 
 function getConversationAvatarClassName() {
-  return "size-10 after:border-0";
+  return "size-12 after:border-0";
+}
+
+// Badge de etapa del CRM debajo del avatar. Estilo tag (mismo idioma visual que las etiquetas),
+// con el color de la etapa. whitespace-nowrap para que la palabra quede COMPLETA aunque sea
+// ancha ("Descartado"): la columna del avatar se hizo mas ancha a proposito para que entre.
+function renderStageBadge(crmStage?: string | null) {
+  const stage = (crmStage ?? "").trim() as CrmStage;
+  const meta = CRM_STAGE_META[stage];
+  if (!meta) {
+    return null;
+  }
+
+  return (
+    <span
+      className={`inline-flex max-w-full items-center whitespace-nowrap rounded-full border px-1.5 py-[1px] text-[9px] font-semibold leading-[1.3] ${meta.borderClassName} ${meta.backgroundClassName} ${meta.accentClassName}`}
+      title={`Etapa: ${meta.label}`}
+    >
+      {meta.label}
+    </span>
+  );
 }
 
 // Cuántas etiquetas mostrar como máximo en la fila antes del contador "+N".
@@ -192,7 +214,7 @@ const ConversationListItem = memo(function ConversationListItem({
       }}
       onMouseEnter={() => onPrefetch(conversation)}
       onFocus={() => onPrefetch(conversation)}
-      className={`group relative grid w-full grid-cols-[40px_minmax(0,1fr)] items-start gap-2 overflow-hidden px-3 py-2.5 transition-[background-color,box-shadow,transform] duration-200 md:grid-cols-[40px_minmax(0,1fr)] md:px-3 md:py-3 ${
+      className={`group relative grid w-full grid-cols-[68px_minmax(0,1fr)] items-start gap-2 overflow-hidden px-3 py-2.5 transition-[background-color,box-shadow,transform] duration-200 md:grid-cols-[68px_minmax(0,1fr)] md:px-3 md:py-3 ${
         isSelected
           ? "bg-primary/10"
           : "hover:bg-muted/50 hover:shadow-[inset_0_0_0_1px_rgba(16,185,129,0.08)]"
@@ -204,19 +226,23 @@ const ConversationListItem = memo(function ConversationListItem({
         }`}
       />
 
-      <div className="relative size-10 shrink-0">
-        <ContactAvatar
-          avatarUrl={conversation.avatarUrl}
-          label={conversation.label ?? conversation.secondaryLabel ?? ""}
-          className={getConversationAvatarClassName()}
-          fallbackClassName="rounded-full bg-muted text-muted-foreground"
-        />
+      <div className="flex flex-col items-center gap-1">
+        <div className="relative size-12 shrink-0">
+          <ContactAvatar
+            avatarUrl={conversation.avatarUrl}
+            label={conversation.label ?? conversation.secondaryLabel ?? ""}
+            className={getConversationAvatarClassName()}
+            fallbackClassName="rounded-full bg-muted text-muted-foreground"
+          />
 
-        {conversation.channelType ? (
-          <span className="absolute -bottom-1 -right-1 inline-flex h-[18px] w-[18px] items-center justify-center rounded-full bg-[#25D366] text-white shadow-[0_1px_4px_rgba(15,23,42,0.18)]">
-            {renderChannelBadgeIcon(conversation.channelType)}
-          </span>
-        ) : null}
+          {conversation.channelType ? (
+            <span className="absolute -bottom-1 -right-1 inline-flex h-[18px] w-[18px] items-center justify-center rounded-full bg-[#25D366] text-white shadow-[0_1px_4px_rgba(15,23,42,0.18)]">
+              {renderChannelBadgeIcon(conversation.channelType)}
+            </span>
+          ) : null}
+        </div>
+
+        {renderStageBadge(conversation.crmStage)}
       </div>
 
       <div className="min-w-0 space-y-[1px] overflow-hidden">

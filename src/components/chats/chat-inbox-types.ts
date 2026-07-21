@@ -26,6 +26,8 @@ export type SharedInboxConversationItem = {
   incomingCount?: number | null;
   avatarUrl?: string | null;
   assignedToName?: string | null;
+  // Etapa del CRM del contacto, para mostrar el badge de etapa en la fila de la lista.
+  crmStage?: string | null;
   lastMessage: string | null;
   lastMessageType?: SharedInboxMessageItem["type"] | null;
   lastMessageDirection?: "INBOUND" | "OUTBOUND" | null;
