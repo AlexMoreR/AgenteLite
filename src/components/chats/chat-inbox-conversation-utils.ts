@@ -377,6 +377,9 @@ export function areConversationListItemsEqual(
     left.secondaryLabel === right.secondaryLabel &&
     left.avatarUrl === right.avatarUrl &&
     left.assignedToName === right.assignedToName &&
+    // Sin esto, un cambio de etapa que no toca el ultimo mensaje se considera "igual" y el badge
+    // no se refresca hasta recargar.
+    (left.crmStage ?? null) === (right.crmStage ?? null) &&
     left.lastMessage === right.lastMessage &&
     left.lastMessageType === right.lastMessageType &&
     left.lastMessageDirection === right.lastMessageDirection &&
