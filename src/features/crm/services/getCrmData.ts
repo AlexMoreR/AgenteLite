@@ -142,6 +142,7 @@ export async function getCrmData({ workspaceId, workspaceName }: GetCrmDataInput
       aiSummary: true,
       metadata: true,
       crmStage: true,
+      lostReason: true,
       createdAt: true,
       updatedAt: true,
       ContactTag: {
@@ -183,6 +184,7 @@ export async function getCrmData({ workspaceId, workspaceName }: GetCrmDataInput
     tags: getContactTags(contact.ContactTag.map((item) => item.Tag)),
     detail: getContactDetail(contact),
     status: (contact.crmStage as CrmRecord["status"]) ?? "NUEVO",
+    lostReason: contact.lostReason ?? null,
     isCollapsed: getContactCollapsedState(contact.metadata),
     origin: getContactOriginFromMetadata(contact.metadata),
   }));
@@ -224,6 +226,7 @@ export async function getCrmKanbanData({ workspaceId, workspaceName }: GetCrmDat
       aiSummary: true,
       metadata: true,
       crmStage: true,
+      lostReason: true,
       updatedAt: true,
       ContactTag: {
         select: {
@@ -264,6 +267,7 @@ export async function getCrmKanbanData({ workspaceId, workspaceName }: GetCrmDat
     tags: getContactTags(contact.ContactTag.map((item) => item.Tag)),
     detail: getContactDetail(contact),
     status: (contact.crmStage as CrmRecord["status"]) ?? "NUEVO",
+    lostReason: contact.lostReason ?? null,
     isCollapsed: getContactCollapsedState(contact.metadata),
     origin: getContactOriginFromMetadata(contact.metadata),
   }));

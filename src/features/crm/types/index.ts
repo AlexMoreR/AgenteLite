@@ -23,6 +23,9 @@ export type CrmRecord = {
   tags: CrmTag[];
   detail: string;
   status: CrmStage;
+  // Motivo de perdida (solo tiene valor cuando status === "PERDIDO"). Alimenta el top de razones
+  // del informe del dueno.
+  lostReason: string | null;
   isCollapsed: boolean;
 };
 

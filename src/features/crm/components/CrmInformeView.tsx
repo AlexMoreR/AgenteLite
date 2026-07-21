@@ -7,6 +7,7 @@ import { CRM_STAGE_ORDER, getCrmStageLabel } from "../domain/crm-config";
 import type { CrmData, CrmRecord } from "../types";
 import { CrmReportCards, CrmReportStatsCards } from "./CrmPagePrimitives";
 import { CrmTodayChart } from "./CrmReportCharts";
+import { CrmConversionFunnel, CrmLostReasons } from "./CrmOwnerCharts";
 
 type DateRange = "1" | "7" | "15" | "30" | "__all__";
 
@@ -56,7 +57,9 @@ function CrmTodayCard({ data }: { data: CrmData }) {
 }
 
 export function CrmInformeView({ data }: { data: CrmData }) {
-  const [dateRange, setDateRange] = React.useState<DateRange>("1");
+  // Abre en "Todos": el informe del dueno es acumulado (el embudo completo, dónde se caen las
+  // ventas). El rango sigue disponible para acotar a un periodo.
+  const [dateRange, setDateRange] = React.useState<DateRange>("__all__");
 
   const filteredData = React.useMemo<CrmData>(() => {
     const maxAgeDays = dateRange === "__all__" ? null : Number(dateRange);
@@ -118,6 +121,11 @@ export function CrmInformeView({ data }: { data: CrmData }) {
             </SelectContent>
           </Select>
         </div>
+      </div>
+
+      <div className="grid gap-3 xl:grid-cols-2">
+        <CrmConversionFunnel records={filteredData.records} />
+        <CrmLostReasons records={filteredData.records} />
       </div>
 
       <CrmReportCards data={filteredData} />
