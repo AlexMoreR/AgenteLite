@@ -734,10 +734,10 @@ export const ConversationPanel = memo(function ConversationPanel({
                     clearPendingConversationSelection();
                     window.history.pushState(null, "", backHref);
                   }}
-                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground transition hover:bg-muted md:hidden"
+                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center text-black transition hover:opacity-70 md:hidden"
                   aria-label="Volver a chats"
                 >
-                  <ArrowLeft className="h-4 w-4" />
+                  <ArrowLeft className="h-7 w-7" />
                 </Link>
                 <div
                   className={`flex min-w-0 items-center gap-3 transition-opacity duration-200 ease-out ${
