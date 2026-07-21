@@ -10,7 +10,8 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/h
 import { ContactAvatar } from "@/components/chats/contact-avatar";
 import { updateCrmCollapsedAction, updateCrmStageAction } from "@/app/actions/crm-actions";
 import type { CrmColumn, CrmRecord } from "../types";
-import { getCrmStageMeta } from "../domain/crm-config";
+import { CRM_LOST_REASONS, getCrmStageMeta } from "../domain/crm-config";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 
 const CRM_STAGE_DARK_SURFACE_CLASS: Record<CrmColumn["stage"], string> = {
   NUEVO: "dark:border-violet-500/25 dark:bg-violet-500/10",
@@ -131,6 +132,9 @@ export function CrmKanbanBoard({ columns }: { columns: CrmColumn[] }) {
   const [draggedRecordId, setDraggedRecordId] = React.useState<string | null>(null);
   const [savingRecordIds, setSavingRecordIds] = React.useState<Record<string, boolean>>({});
   const [dropTargetStage, setDropTargetStage] = React.useState<CrmColumn["stage"] | null>(null);
+  // Arrastre a Descartado en espera del motivo (mismo flujo que el selector del chat): guardamos
+  // a quien mover y abrimos el dialogo de razon en vez de cerrar de una.
+  const [pendingLostRecordId, setPendingLostRecordId] = React.useState<string | null>(null);
   const [collapsedRecordIds, setCollapsedRecordIds] = React.useState<Record<string, boolean>>(() =>
     Object.fromEntries(
       columns.flatMap((column) =>
@@ -153,7 +157,11 @@ export function CrmKanbanBoard({ columns }: { columns: CrmColumn[] }) {
     );
   }, [columns]);
 
-  const handleDrop = async (recordId: string, nextStage: CrmColumn["stage"]) => {
+  const commitStageChange = async (
+    recordId: string,
+    nextStage: CrmColumn["stage"],
+    lostReason?: string,
+  ) => {
     const currentRecord = localColumns.flatMap((column) => column.records).find((record) => record.id === recordId);
 
     if (!currentRecord || currentRecord.status === nextStage) {
@@ -178,6 +186,7 @@ export function CrmKanbanBoard({ columns }: { columns: CrmColumn[] }) {
     const result = await updateCrmStageAction({
       contactId: recordId,
       status: nextStage,
+      lostReason,
     });
 
     setSavingRecordIds((current) => ({ ...current, [recordId]: false }));
@@ -187,6 +196,26 @@ export function CrmKanbanBoard({ columns }: { columns: CrmColumn[] }) {
     if ("error" in result) {
       setLocalColumns(previousColumns);
     }
+  };
+
+  const handleDrop = async (recordId: string, nextStage: CrmColumn["stage"]) => {
+    const currentRecord = localColumns.flatMap((column) => column.records).find((record) => record.id === recordId);
+
+    if (!currentRecord || currentRecord.status === nextStage) {
+      return;
+    }
+
+    // Descartar pide el motivo antes de mover, igual que el selector del chat. Sin el motivo el
+    // informe de razones de perdida queda vacio, y ese "por que" es el unico dato que la maquina
+    // no puede deducir. Se limpia el estado de arrastre para que la tarjeta no quede "pegada".
+    if (nextStage === "PERDIDO") {
+      setDraggedRecordId(null);
+      setDropTargetStage(null);
+      setPendingLostRecordId(recordId);
+      return;
+    }
+
+    await commitStageChange(recordId, nextStage);
   };
 
   const handleToggleCollapse = async (recordId: string) => {
@@ -284,6 +313,37 @@ export function CrmKanbanBoard({ columns }: { columns: CrmColumn[] }) {
           );
         })}
       </div>
+
+      <Dialog
+        open={Boolean(pendingLostRecordId)}
+        onOpenChange={(next) => {
+          if (!next) setPendingLostRecordId(null);
+        }}
+      >
+        <DialogContent showCloseButton={false} className="w-[calc(100vw-2rem)] max-w-sm gap-0 overflow-hidden p-0">
+          <div className="border-b border-border px-4 py-3">
+            <DialogTitle className="text-[13px] font-semibold text-foreground">¿Por qué se perdió?</DialogTitle>
+          </div>
+          <div className="py-1">
+            {CRM_LOST_REASONS.map((reason) => (
+              <button
+                key={reason.value}
+                type="button"
+                onClick={() => {
+                  const recordId = pendingLostRecordId;
+                  setPendingLostRecordId(null);
+                  if (recordId) {
+                    void commitStageChange(recordId, "PERDIDO", reason.value);
+                  }
+                }}
+                className="flex w-full items-center px-4 py-2.5 text-left text-[13px] text-foreground transition hover:bg-muted"
+              >
+                {reason.label}
+              </button>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
