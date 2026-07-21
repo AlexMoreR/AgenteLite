@@ -63,6 +63,17 @@ function previewFromMessage(content: string | null, rawPayload: unknown, type: s
 }
 
 export async function getMiDiaData(input: { workspaceId: string }): Promise<MiDiaData> {
+  try {
+    return await computeMiDiaData(input);
+  } catch (error) {
+    // Una vista de trabajo no debe tumbar la pantalla si la consulta falla (timeout, etc.):
+    // preferimos mostrar el estado vacio antes que un 500 en toda la seccion CRM.
+    console.error("[mi-dia] fallo al calcular la lista de prioridad:", error);
+    return { generatedAt: new Date().toISOString(), leads: [] };
+  }
+}
+
+async function computeMiDiaData(input: { workspaceId: string }): Promise<MiDiaData> {
   const now = Date.now();
   const maxAge = new Date(now - MAX_DAYS_SINCE_CONTACT * 24 * 60 * 60 * 1000);
   const minAge = new Date(now - MIN_HOURS_SINCE_CONTACT * 60 * 60 * 1000);
@@ -88,25 +99,30 @@ export async function getMiDiaData(input: { workspaceId: string }): Promise<MiDi
     return { generatedAt: new Date(now).toISOString(), leads: [] };
   }
 
-  // Ultimo mensaje real de cada conversacion (para el preview y saber quien hablo ultimo). Se pide
-  // en una sola consulta por conversacion pero en paralelo; el volumen aca es chico (embudo activo).
-  const latestByConversation = new Map(
-    (
-      await Promise.all(
-        conversations.map(async (conversation) => {
-          const message = await prisma.message.findFirst({
-            // type SYSTEM se excluye: son notas internas (p.ej. "el agente movió la etapa a
-            // Caliente") que se guardan como mensaje. Sin esto aparecian como el "ultimo mensaje"
-            // del lead y, peor, contaminaban la senal de "te escribio" (van como OUTBOUND).
-            where: { conversationId: conversation.id, isStatusBroadcast: false, type: { not: "SYSTEM" } },
-            orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-            select: { content: true, direction: true, type: true, rawPayload: true },
-          });
-          return [conversation.id, message] as const;
-        }),
-      )
-    ).filter(([, message]) => message !== null),
+  // Ultimo mensaje real de cada conversacion (preview + quien hablo ultimo), en UNA sola consulta
+  // con DISTINCT ON. Antes era una findFirst por conversacion en paralelo (N+1): con ~40 leads
+  // saturaba el pool de conexiones y la pagina daba 500 intermitente. type SYSTEM se excluye: son
+  // notas internas ("el agente movió la etapa a Caliente") que se guardan como mensaje y se colaban
+  // como ultimo mensaje, ademas de contaminar la senal de "te escribio" (van como OUTBOUND).
+  type LastMessageRow = {
+    conversationId: string;
+    content: string | null;
+    direction: "INBOUND" | "OUTBOUND";
+    type: string | null;
+    rawPayload: unknown;
+  };
+  const conversationIds = conversations.map((conversation) => conversation.id);
+  const lastMessageRows = await prisma.$queryRawUnsafe<LastMessageRow[]>(
+    `SELECT DISTINCT ON (m."conversationId")
+        m."conversationId", m."content", m."direction"::text AS "direction", m."type"::text AS "type", m."rawPayload"
+     FROM "Message" m
+     WHERE m."conversationId" = ANY($1::text[])
+       AND m."isStatusBroadcast" = false
+       AND (m."type" IS NULL OR m."type"::text <> 'SYSTEM')
+     ORDER BY m."conversationId", m."createdAt" DESC, m."id" DESC`,
+    conversationIds,
   );
+  const latestByConversation = new Map(lastMessageRows.map((row) => [row.conversationId, row] as const));
 
   const leads: MiDiaLead[] = conversations.map((conversation) => {
     const lastMessageAt = conversation.lastMessageAt ?? new Date(now);
