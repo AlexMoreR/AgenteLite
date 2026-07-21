@@ -411,6 +411,9 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         ORDER BY ct."createdAt" ASC
       `
     : Promise.resolve([] as Array<{ contactId: string; name: string; color: string }>);
+  // Ver la misma optimizacion en /api/cliente/chats/list: NO traer rawPayload (payload completo de
+  // WhatsApp, ~776 KB para 40 filas). Solo se usa de fallback (texto del preview / nombre de
+  // WhatsApp); se pide aparte para las pocas filas que lo necesitan.
   const latestAgentMessageRowsPromise = activeAgentConversationIds.length
       ? prisma.$queryRaw<Array<{
           conversationId: string;
@@ -419,7 +422,6 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           createdAt: Date;
           deletedAt: Date | null;
           type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
-          rawPayload: unknown;
         }>>`
         SELECT DISTINCT ON (m."conversationId")
           m."conversationId" AS "conversationId",
@@ -427,8 +429,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           m."direction" AS "direction",
           m."createdAt" AS "createdAt",
           m."deletedAt" AS "deletedAt",
-          m."type" AS "type",
-          m."rawPayload" AS "rawPayload"
+          m."type" AS "type"
         FROM "Message" m
         WHERE m."workspaceId" = ${membership.workspace.id}
           AND m."conversationId" IN (${Prisma.join(activeAgentConversationIds)})
@@ -443,7 +444,6 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         createdAt: Date;
         deletedAt: Date | null;
         type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
-        rawPayload: unknown;
       }>);
   if (autoTagNewLeads && contactIds.length > 0) {
     after(async () => {
@@ -562,6 +562,36 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     latestAgentMessageRows.map((row) => [row.conversationId, row]),
   );
 
+  // rawPayload SOLO para las filas que lo usan de fallback (preview sin content o contacto sin
+  // nombre). Se pide aparte para no traer el JSON grande de todas. Mismo patron que la API de lista.
+  const contactNameByConversationIdSsr = new Map(
+    agentConversations.map((conversation) => [conversation.id, conversation.contact.name?.trim() ?? ""]),
+  );
+  const conversationIdsNeedingPayloadSsr = latestAgentMessageRows
+    .filter((row) => !row.content?.trim() || !(contactNameByConversationIdSsr.get(row.conversationId) ?? ""))
+    .map((row) => row.conversationId);
+  const payloadByConversationIdSsr = new Map<string, unknown>();
+  if (conversationIdsNeedingPayloadSsr.length > 0) {
+    try {
+      const payloadRows = await prisma.$queryRaw<Array<{ conversationId: string; rawPayload: unknown }>>`
+        SELECT DISTINCT ON (m."conversationId")
+          m."conversationId" AS "conversationId",
+          m."rawPayload" AS "rawPayload"
+        FROM "Message" m
+        WHERE m."workspaceId" = ${membership.workspace.id}
+          AND m."conversationId" IN (${Prisma.join(conversationIdsNeedingPayloadSsr)})
+          AND m."isStatusBroadcast" = false
+          AND (m."rawPayload"->>'source') IS DISTINCT FROM 'activity'
+        ORDER BY m."conversationId", m."createdAt" DESC, m."id" DESC
+      `;
+      for (const row of payloadRows) {
+        payloadByConversationIdSsr.set(row.conversationId, row.rawPayload);
+      }
+    } catch {
+      // Si falla, cae a phone/type-label: no rompemos el render por un fallback.
+    }
+  }
+
   const agentIncomingCountById = new Map(agentIncomingCountRows.map((row) => [row.conversationId, row.incomingCount]));
   const contactTagsByContactId = new Map<string, Array<{ label: string; color: string }>>();
   for (const row of contactTagRows) {
@@ -611,7 +641,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         ? resolveStoredAgentContactLabel({
             contactName: conversation.contact.name,
             phoneNumber: conversation.contact.phoneNumber,
-            rawPayload: latestMessage.rawPayload,
+            rawPayload: payloadByConversationIdSsr.get(conversation.id),
           })
         : getAgentContactLabel(conversation.contact),
       secondaryLabel: conversation.contact.phoneNumber,
@@ -625,7 +655,11 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           ? 0
           : agentIncomingCountById.get(conversation.id) ?? 0,
       lastMessage: latestMessage
-        ? resolveStoredAgentMessagePreview(latestMessage)
+        ? resolveStoredAgentMessagePreview({
+            content: latestMessage.content,
+            deletedAt: latestMessage.deletedAt,
+            rawPayload: payloadByConversationIdSsr.get(conversation.id),
+          })
         : null,
       lastMessageType: latestMessage?.type ?? null,
       lastMessageDirection: latestMessage?.direction ?? null,
