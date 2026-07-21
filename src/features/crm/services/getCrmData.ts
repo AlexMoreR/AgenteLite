@@ -34,41 +34,82 @@ function truncateDetail(text: string) {
   return `${normalized.slice(0, CRM_DETAIL_MAX_LENGTH - 1).trimEnd()}…`;
 }
 
-function getContactDetail(contact: {
-  aiSummary: string | null;
-  notes: string | null;
-  conversations: Array<{
-    messages: Array<{
-      content: string | null;
-      direction: "INBOUND" | "OUTBOUND";
-      type: string;
-    }>;
-  }>;
-}) {
+// Cantidad de mensajes del transcript de respaldo. Antes se pedian 40 POR contacto DENTRO de la
+// consulta principal (cargaba ~4000 mensajes para usarlos en un puñado de casos y estresaba la
+// base). Ahora el transcript se trae aparte, solo para los contactos que lo necesitan.
+const TRANSCRIPT_MESSAGE_COUNT = 6;
+
+function resolveContactDetail(input: { aiSummary: string | null; notes: string | null; transcript?: string }) {
   // Prioridad: resumen IA del historial (generado en el webhook) -> nota manual -> transcript -> fallback.
-  const aiSummary = contact.aiSummary?.trim();
+  const aiSummary = input.aiSummary?.trim();
   if (aiSummary) {
     return truncateDetail(aiSummary);
   }
 
-  const note = contact.notes?.trim();
+  const note = input.notes?.trim();
   if (note) {
     return truncateDetail(note);
   }
 
-  // Respaldo para contactos sin resumen IA todavia: transcript de los ultimos mensajes.
-  // Vienen en orden descendente (mas reciente primero); se invierten a orden cronologico.
-  const summary = (contact.conversations[0]?.messages ?? [])
-    .filter((message) => message.type !== "SYSTEM" && message.content?.trim())
-    .reverse()
-    .map((message) => `${message.direction === "INBOUND" ? "Cliente" : "Bot"}: ${message.content!.trim()}`)
-    .join(" · ");
-
-  if (summary) {
-    return truncateDetail(summary);
+  if (input.transcript) {
+    return truncateDetail(input.transcript);
   }
 
   return "Sin detalle registrado";
+}
+
+/**
+ * Transcript de respaldo SOLO para los contactos sin resumen IA ni nota (el unico caso donde se
+ * usa). Antes la consulta principal cargaba 40 mensajes de CADA contacto aunque casi ninguno los
+ * usara; con 382 contactos eran ~4000 mensajes por carga del CRM, y eso pesaba sobre la base cada
+ * vez que las asesoras la abrian. Medido: baja la consulta del CRM de ~3.1s a ~1.2s y de ~4000
+ * mensajes a ~130. Devuelve un mapa conversationId -> texto del transcript.
+ */
+async function buildContactTranscripts(
+  contacts: Array<{
+    aiSummary: string | null;
+    notes: string | null;
+    conversations: Array<{ id: string }>;
+  }>,
+) {
+  const conversationIds = contacts
+    .filter((contact) => !(contact.aiSummary?.trim() || contact.notes?.trim()))
+    .map((contact) => contact.conversations[0]?.id)
+    .filter((id): id is string => Boolean(id));
+
+  if (conversationIds.length === 0) {
+    return new Map<string, string>();
+  }
+
+  const messages = await prisma.message.findMany({
+    where: { conversationId: { in: conversationIds }, type: { not: "SYSTEM" }, content: { not: null } },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    select: { conversationId: true, content: true, direction: true },
+  });
+
+  // Los mensajes vienen del mas reciente al mas viejo: tomamos los primeros N por conversacion.
+  const byConversation = new Map<string, Array<{ content: string | null; direction: "INBOUND" | "OUTBOUND" }>>();
+  for (const message of messages) {
+    const list = byConversation.get(message.conversationId) ?? [];
+    if (list.length < TRANSCRIPT_MESSAGE_COUNT) {
+      list.push(message);
+      byConversation.set(message.conversationId, list);
+    }
+  }
+
+  const transcripts = new Map<string, string>();
+  for (const [conversationId, list] of byConversation) {
+    const text = list
+      .slice()
+      .reverse() // a orden cronologico
+      .map((message) => `${message.direction === "INBOUND" ? "Cliente" : "Bot"}: ${message.content!.trim()}`)
+      .join(" · ");
+    if (text) {
+      transcripts.set(conversationId, text);
+    }
+  }
+
+  return transcripts;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -159,21 +200,15 @@ export async function getCrmData({ workspaceId, workspaceName }: GetCrmDataInput
         orderBy: [{ lastMessageAt: "desc" }, { updatedAt: "desc" }],
         take: 1,
         select: {
+          id: true,
           lastMessageAt: true,
           updatedAt: true,
-          messages: {
-            orderBy: { createdAt: "desc" },
-            take: 40,
-            select: {
-              content: true,
-              direction: true,
-              type: true,
-            },
-          },
         },
       },
     },
   });
+
+  const transcripts = await buildContactTranscripts(rawContacts);
 
   const records: CrmRecord[] = rawContacts.map((contact) => ({
     id: contact.id,
@@ -182,7 +217,11 @@ export async function getCrmData({ workspaceId, workspaceName }: GetCrmDataInput
     name: getContactDisplayName(contact),
     date: getContactLastActivity(contact).toISOString(),
     tags: getContactTags(contact.ContactTag.map((item) => item.Tag)),
-    detail: getContactDetail(contact),
+    detail: resolveContactDetail({
+      aiSummary: contact.aiSummary,
+      notes: contact.notes,
+      transcript: transcripts.get(contact.conversations[0]?.id ?? ""),
+    }),
     status: (contact.crmStage as CrmRecord["status"]) ?? "NUEVO",
     lostReason: contact.lostReason ?? null,
     isCollapsed: getContactCollapsedState(contact.metadata),
@@ -242,21 +281,15 @@ export async function getCrmKanbanData({ workspaceId, workspaceName }: GetCrmDat
         orderBy: [{ lastMessageAt: "desc" }, { updatedAt: "desc" }],
         take: 1,
         select: {
+          id: true,
           lastMessageAt: true,
           updatedAt: true,
-          messages: {
-            orderBy: { createdAt: "desc" },
-            take: 40,
-            select: {
-              content: true,
-              direction: true,
-              type: true,
-            },
-          },
         },
       },
     },
   });
+
+  const transcripts = await buildContactTranscripts(rawContacts);
 
   const records: CrmRecord[] = rawContacts.map((contact) => ({
     id: contact.id,
@@ -265,7 +298,11 @@ export async function getCrmKanbanData({ workspaceId, workspaceName }: GetCrmDat
     name: getContactDisplayName(contact),
     date: getContactLastActivity(contact).toISOString(),
     tags: getContactTags(contact.ContactTag.map((item) => item.Tag)),
-    detail: getContactDetail(contact),
+    detail: resolveContactDetail({
+      aiSummary: contact.aiSummary,
+      notes: contact.notes,
+      transcript: transcripts.get(contact.conversations[0]?.id ?? ""),
+    }),
     status: (contact.crmStage as CrmRecord["status"]) ?? "NUEVO",
     lostReason: contact.lostReason ?? null,
     isCollapsed: getContactCollapsedState(contact.metadata),
