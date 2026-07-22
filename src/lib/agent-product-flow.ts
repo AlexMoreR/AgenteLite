@@ -680,6 +680,72 @@ async function resolveFlowBranchForActiveProduct(input: {
   return null;
 }
 
+/**
+ * ¿El mensaje justifica CAMBIAR del producto activo a otro producto?
+ *
+ * Raíz medida (22-jul-2026, chat de camillas que terminó en lavacabezas): el matcher recalcula el
+ * producto en CADA mensaje. Un mensaje de seguimiento con una palabra genérica —"silla",
+ * "espaldar"— que el producto activo YA incluye hacía saltar el contexto a otro producto (el combo
+ * de camillas incluye "silla auxiliar" y "espaldar", y "silla" hacía ganar al "Combo
+ * Lavacabezas+Silla"). Resultado: el bot presentaba lavacabezas en una charla de camillas.
+ *
+ * Regla (validada con datos reales): solo se acepta el cambio si el mensaje trae al menos un token
+ * que apunta al NUEVO producto y que NO está explicado por el nombre/descripción del producto
+ * ACTIVO. "silla con espaldar" (explicado por el combo de camillas) NO cambia; "quiero un
+ * lavacabezas" (token distintivo "lavacabezas") SÍ cambia. Erra a favor de MANTENER el activo: es
+ * más seguro que saltar mal (la IA puede seguir conversando igual).
+ */
+function isProductSwitchJustified(input: {
+  active: ActiveProductContext;
+  next: { name: string; description: string | null };
+  message: string;
+}): boolean {
+  const activeTokens = new Set(tokenize(`${input.active.productName} ${input.active.description ?? ""}`));
+  const nextTokens = tokenize(`${input.next.name} ${input.next.description ?? ""}`);
+  const messageTokens = tokenize(input.message);
+
+  return messageTokens.some((token) => {
+    const pointsToNext = nextTokens.some((nt) => nt === token || nt.includes(token) || token.includes(nt));
+    if (!pointsToNext) {
+      return false;
+    }
+    const explainedByActive = [...activeTokens].some((at) => at === token || at.includes(token) || token.includes(at));
+    return !explainedByActive;
+  });
+}
+
+/**
+ * Aplica la pegajosidad: si hay un producto activo y el matcher propone OTRO producto sin evidencia
+ * distintiva en el mensaje, se mantiene el activo (devuelve null = "sin match nuevo este turno", que
+ * el motor ya maneja usando el activeProductContext).
+ */
+function applyActiveProductStickiness<T extends { productId: string; name: string; description: string | null }>(input: {
+  rawMatchedProduct: T | null;
+  activeProductContext: ActiveProductContext | null;
+  message: string;
+  agentId: string;
+}): T | null {
+  const { rawMatchedProduct, activeProductContext } = input;
+  if (!rawMatchedProduct || !activeProductContext) {
+    return rawMatchedProduct;
+  }
+  if (rawMatchedProduct.productId === activeProductContext.productId) {
+    return rawMatchedProduct;
+  }
+  if (isProductSwitchJustified({ active: activeProductContext, next: rawMatchedProduct, message: input.message })) {
+    return rawMatchedProduct;
+  }
+  if (process.env.NODE_ENV !== "production") {
+    console.info("[agent-product-flow] sticky-product-kept", {
+      agentId: input.agentId,
+      active: activeProductContext.productName,
+      proposed: rawMatchedProduct.name,
+      message: input.message,
+    });
+  }
+  return null;
+}
+
 export async function resolveAgentProductFlowReply(input: {
   agentId: string;
   workspaceId: string;
@@ -774,7 +840,7 @@ export async function resolveAgentProductFlowReply(input: {
   );
   // Agente V2: si "Consultar productos" está apagado, no consultamos el catálogo
   // del agente (evita el match de embudo y la llamada/ log innecesarios).
-  const matchedProduct =
+  const rawMatchedProduct =
     training.enableProductLookup === false
       ? null
       : (
@@ -784,6 +850,15 @@ export async function resolveAgentProductFlowReply(input: {
             limit: 3,
           })
         ).bestMatch;
+  // Pegajosidad del producto activo: no saltar a otro producto por un token genérico que el
+  // producto activo ya incluye (raíz medida del "lavacabezas en charla de camillas"). Si el cambio
+  // no está justificado, se trata como "sin match nuevo" y se conserva el activeProductContext.
+  const matchedProduct = applyActiveProductStickiness({
+    rawMatchedProduct,
+    activeProductContext: input.activeProductContext ?? null,
+    message: latestText,
+    agentId: input.agentId,
+  });
   const candidateFlowIds = new Set(flowCandidates.map((flow) => flow.id));
   const availableFlowCandidates = flowCandidates.filter(
     (flow) => !flow.isChildFlow || enabledChildFlowIds.has(flow.id),
