@@ -352,6 +352,37 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// Normaliza un texto para comparar repeticiones: sin acentos, minúsculas, sin emojis/puntuación/
+// asteriscos de WhatsApp, espacios colapsados. Así "¡Perfecto! ¿Qué *servicios*...?" y una segunda
+// versión idéntica caen al mismo string aunque cambie algún signo.
+function normalizeForRepeatCheck(text: string): string {
+  return text
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// ¿El texto a enviar es (casi) idéntico a un mensaje que el bot YA mandó hace poco? Compara contra
+// los últimos mensajes SALIENTES de texto. Ignora textos muy cortos ("ok", "listo") para no marcar
+// confirmaciones legítimas como repeticiones.
+function isDuplicateBotReply(
+  reply: string,
+  recentMessages: Array<{ direction: "INBOUND" | "OUTBOUND"; content: string | null; type?: string | undefined }>,
+): boolean {
+  const normReply = normalizeForRepeatCheck(reply);
+  if (normReply.length < 12) {
+    return false;
+  }
+  const recentBotTexts = recentMessages
+    .filter((m) => m.direction === "OUTBOUND" && m.type !== "SYSTEM" && (m.content || "").trim().length > 0)
+    .slice(-6)
+    .map((m) => normalizeForRepeatCheck(m.content || ""));
+  return recentBotTexts.some((prev) => prev.length >= 12 && prev === normReply);
+}
+
 // Envía un paso del flujo con resiliencia: si evogo cierra la WS a mitad de un medio pesado
 // (p.ej. un PDF de 14MB), reconecta y reintenta ESE paso una vez; si aun asi falla, lo marca
 // FAILED y devuelve false — pero NUNCA lanza, para que un paso caido no aborte el flujo entero.
@@ -2583,6 +2614,65 @@ export async function POST(request: NextRequest) {
           // Eso evita volver a anteponer el saludo si la conversación ya tuvo una respuesta del bot.
           hasConversationHistory: Boolean(existingOutbound),
         });
+      }
+
+      // GUARDA ANTI-REPETICIÓN (determinística). La regla del prompt ("NUNCA repitas un mensaje ya
+      // enviado") a veces no la respeta la IA: el bot manda la MISMA pregunta/mensaje otra vez y el
+      // cliente se va con sensación de "bot roto" (visto en chats de camillas: repetía "¿qué
+      // servicios ofreces?" sin avanzar). Si el texto que vamos a enviar es casi idéntico a uno que
+      // el bot YA mandó hace poco, NO lo repetimos: escalamos a un asesor (regla no-negociable de
+      // Alex: "no repitas, escala"). Solo en la ruta IA (no en handoff/flujo, que ya son deterministas).
+      if (
+        !shouldHandoffToHuman &&
+        !quickResponseFlow &&
+        !hardFlowReply &&
+        replyText &&
+        agentTraining?.actions.notify.enabled &&
+        channel.evolutionInstanceName &&
+        isDuplicateBotReply(replyText, recentMessages)
+      ) {
+        const escalation = await sendNotificarAsesorNotification({
+          trainingConfig: agent.trainingConfig,
+          agentName: agent.name,
+          customerPhoneNumber: phoneNumber,
+          customerName: contact.name,
+          latestUserMessage: inboundTextForProcessing,
+          toolInput: {
+            motivo: "El bot se estaba repitiendo (iba a mandar el mismo mensaje otra vez) sin poder avanzar el embudo",
+            prioridad: "alta",
+            resumen_cliente: inboundTextForProcessing,
+            ultimo_mensaje: inboundTextForProcessing,
+          },
+          sendMessage: async (destinationPhoneNumber, text) => {
+            if (!channel.evolutionInstanceName) {
+              throw new Error("La instancia de Evolution no esta disponible");
+            }
+            return sendEvolutionTextMessageWithReconnect({
+              instanceName: channel.evolutionInstanceName,
+              phoneNumber: destinationPhoneNumber,
+              text,
+              delayMs: 0,
+            });
+          },
+        }).catch((error) => {
+          console.warn("[EVOLUTION] repeat_escalation_failed", {
+            conversationId: conversation.id,
+            agentId: agent.id,
+            phoneNumber,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          return null;
+        });
+
+        if (escalation?.ok) {
+          // En vez del repetido, le avisamos al cliente que un asesor lo atiende, y pausamos la IA.
+          replyText = "👨🏻‍💻 Un asesor te atenderá en breve ⏰";
+          await setConversationAutomationPaused({ conversationId: conversation.id, paused: true }).catch(() => {});
+          console.log("[EVOLUTION] repeat_guard_escalated", {
+            conversationId: conversation.id,
+            agentId: agent.id,
+          });
+        }
       }
 
       console.log("[EVOLUTION] auto_reply_mode", {
