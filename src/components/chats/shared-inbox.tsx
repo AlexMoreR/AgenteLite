@@ -675,7 +675,17 @@ export function SharedInbox({
     }
 
     const cacheKey = pendingConversation.cacheKey || pendingConversation.id;
-    const cachedConversation = readConversationFromCache(cacheKey, { ignoreFreshness: true });
+    const rawCachedConversation = readConversationFromCache(cacheKey, { ignoreFreshness: true });
+
+    // La caché se consulta con varias formas de la clave (con y sin prefijo "agent:"), asi
+    // que puede devolver una conversacion que NO es la que se esta abriendo. Sin esta
+    // comprobacion se pintaba el historial de OTRO contacto por un instante, hasta que
+    // llegaba el real (se veia al recargar o al abrir un chat desde el buscador).
+    // La otra lectura de cache, la del chat ya seleccionado, si valida asi.
+    const cachedConversation =
+      rawCachedConversation && conversationIdMatchesKey(cacheKey, rawCachedConversation.id)
+        ? rawCachedConversation
+        : null;
 
     startSelectionTransition(() => {
       setLiveConversation(null);

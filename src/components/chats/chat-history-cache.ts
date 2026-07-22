@@ -611,10 +611,13 @@ export function readConversationFromCache(
 
   const store = readStore();
   const normalizedConversationId = normalizeConversationCacheKey(conversationId);
+  // Se busca por la clave tal cual y por la version sin prefijo ("agent:xxx" -> "xxx").
+  // Habia un tercer intento con `split(":").slice(1).join(":")` que era redundante con el
+  // anterior cuando el id trae prefijo y, cuando NO lo trae, producia cadena vacia: una
+  // busqueda por clave "" que solo podia devolver una entrada equivocada.
   const cached =
     store.conversations[conversationId] ??
     store.conversations[normalizedConversationId] ??
-    store.conversations[conversationId.split(":").slice(1).join(":")] ??
     null;
 
   if (!cached) {
