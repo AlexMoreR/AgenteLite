@@ -7,6 +7,7 @@ import { summarizeContactHistory } from "@/lib/contact-summary";
 import { syncCrmStageFromCommercialStage } from "@/lib/crm-stage-sync";
 import {
   buildActiveProductContextNote,
+  collectFlowIdsByProduct,
   resolveAgentProductFlowReply,
   type ActiveProductContext,
   type FlowStep,
@@ -2503,12 +2504,37 @@ export async function POST(request: NextRequest) {
             );
             const flowTitleById = new Map(flowItems.map((item) => [item.id, item.title] as const));
 
+            // Candado de un-solo-producto (LISTA BLANCA): cuando hay un producto ACTIVO, la IA solo
+            // puede mandar flujos de ESE producto. Impide que un "Si"/"Asi" suelto haga que mande el
+            // catálogo de otro producto o uno suelto (p.ej. manicura en una charla de camillas).
+            // Fail-safe: el guard solo se arma cuando conocemos con certeza los flujos del producto
+            // activo (no vacío). Sin producto activo, o producto sin flujos cableados, no se frena
+            // nada (las rutas correctas van por el motor determinístico, no por aca).
+            const lockedProductId = (
+              hardFlowResolution?.activeProductContext?.productId ??
+              previousActiveProductContext?.productId ??
+              ""
+            ).trim();
+            const lockedProductName =
+              hardFlowResolution?.activeProductContext?.productName ??
+              previousActiveProductContext?.productName ??
+              "";
+            let productGuard: { activeProductFlowIds: Set<string> } | null = null;
+            if (lockedProductId && agent.graph) {
+              const activeProductFlowIds =
+                collectFlowIdsByProduct(agent.graph).get(lockedProductId) ?? new Set<string>();
+              if (activeProductFlowIds.size > 0) {
+                productGuard = { activeProductFlowIds };
+              }
+            }
+
             const resolution = await resolveEnviarFlujoTool({
               workspaceId: channel.workspaceId,
               includeOfficialApi: true,
               toolInput: args,
               allowedFlowIds,
               flowTitleById,
+              productGuard,
             });
 
             // Enviar de verdad, paso por paso, con la maquina del motor.
@@ -2535,14 +2561,39 @@ export async function POST(request: NextRequest) {
               if (allOk) enviados.push(flow.title || flow.flowId);
             }
 
+            // Candado de un-solo-producto: si la IA quiso mandar el catálogo de OTRO producto,
+            // no se envió. Se le pide que confirme con el cliente antes de cambiar de producto.
+            const otherProductBlocked = resolution.rejectedOtherProduct;
+            if (otherProductBlocked.length > 0) {
+              console.log("[EVOLUTION] enviar_flujo_bloqueo_otro_producto", {
+                conversationId: conversation.id,
+                agentId: agent.id,
+                lockedProductId,
+                lockedProductName,
+                bloqueados: otherProductBlocked.map((f) => f.title || f.flowId),
+              });
+            }
+            const notaOtroProducto =
+              otherProductBlocked.length > 0
+                ? ` NO envié ${otherProductBlocked
+                    .map((f) => `"${f.title || f.flowId}"`)
+                    .join(", ")}: es de OTRO producto distinto al que estamos viendo${
+                    lockedProductName ? ` (${lockedProductName})` : ""
+                  }. NO lo mandes. Si el cliente quiere ver ese otro producto, PREGUNTALE primero para confirmar antes de cambiar; no cambies de producto por tu cuenta.`
+                : "";
+
+            const notaEnviados = enviados.length
+              ? "Los flujos ya fueron ENVIADOS al cliente. No los describas de nuevo ni los reenvies; solo continua la conversacion (p.ej. pregunta cual le interesa si enviaste varios)."
+              : otherProductBlocked.length > 0
+                ? "No se envio ningun flujo."
+                : "No se envio ningun flujo. Revisa los flow_id o continua sin enviar.";
+
             return {
               enviados,
               rechazados: resolution.rejected,
               // Le decimos a la IA que ya se enviaron, para que arme su texto (p.ej. preguntar cual)
               // sin volver a describir el catalogo ni reenviarlo.
-              nota: enviados.length
-                ? "Los flujos ya fueron ENVIADOS al cliente. No los describas de nuevo ni los reenvies; solo continua la conversacion (p.ej. pregunta cual le interesa si enviaste varios)."
-                : "No se envio ningun flujo. Revisa los flow_id o continua sin enviar.",
+              nota: `${notaEnviados}${notaOtroProducto}`,
             };
           },
         } satisfies Record<string, (args: Record<string, unknown>) => Promise<unknown>>;

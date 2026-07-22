@@ -51,6 +51,28 @@ export type EnviarFlujoResolved = {
 export type EnviarFlujoResolution = {
   toSend: EnviarFlujoResolved[];
   rejected: string[]; // flowIds pedidos que no estaban permitidos o no tenían contenido
+  // Flujos frenados por el candado de un-solo-producto: son de OTRO producto distinto al activo.
+  // No se envían; el caller le dice a la IA que confirme con el cliente antes de cambiar de producto.
+  rejectedOtherProduct: Array<{ flowId: string; title: string }>;
+};
+
+/**
+ * Candado de un-solo-producto (LISTA BLANCA). Cuando hay un producto ACTIVO en la conversación,
+ * la IA solo puede mandar flujos de ESE producto (`activeProductFlowIds`). Cualquier otro flujo
+ * —sea de otro producto O un flujo suelto sin producto (p.ej. los PDFs de manicura, que no están
+ * cableados a ningún producto en el grafo)— se frena y se le pide a la IA confirmar con el cliente
+ * antes de cambiar de producto.
+ *
+ * Se usa LISTA BLANCA a propósito: bloquear "solo lo que es de otro producto" dejaría pasar los
+ * flujos sueltos (justo el bug real: un "Asi" hacía que mandara el catálogo de manicura, que no
+ * cuelga de ningún producto). Por eso: solo pasa lo que es del producto activo.
+ *
+ * Fail-safe: el caller SOLO arma este guard cuando conoce con certeza el conjunto de flujos del
+ * producto activo (no vacío). Si no hay producto activo, o el producto no tiene flujos cableados,
+ * no se pasa guard y no se frena nada (las rutas correctas van por el motor determinístico).
+ */
+export type EnviarFlujoProductGuard = {
+  activeProductFlowIds: Set<string>;
 };
 
 function parseFlowIds(toolInput: unknown): string[] {
@@ -78,10 +100,13 @@ export async function resolveEnviarFlujoTool(input: {
   toolInput: unknown;
   allowedFlowIds: Set<string>;
   flowTitleById: Map<string, string>;
+  // Candado de un-solo-producto. Opcional: si no viene (o no hay producto activo), no se aplica.
+  productGuard?: EnviarFlujoProductGuard | null;
 }): Promise<EnviarFlujoResolution> {
   const requested = parseFlowIds(input.toolInput);
   const toSend: EnviarFlujoResolved[] = [];
   const rejected: string[] = [];
+  const rejectedOtherProduct: Array<{ flowId: string; title: string }> = [];
   const seen = new Set<string>();
 
   for (const flowId of requested) {
@@ -93,6 +118,14 @@ export async function resolveEnviarFlujoTool(input: {
     // La IA solo puede enviar flujos autorizados. Un id no permitido se rechaza, no se envía.
     if (!input.allowedFlowIds.has(flowId)) {
       rejected.push(flowId);
+      continue;
+    }
+
+    // Candado de un-solo-producto (lista blanca): con producto activo, solo pasan los flujos de
+    // ESE producto. Todo lo demás (otro producto o flujo suelto, p.ej. manicura) se frena y se
+    // pide confirmar antes de cambiar.
+    if (input.productGuard && !input.productGuard.activeProductFlowIds.has(flowId)) {
+      rejectedOtherProduct.push({ flowId, title: input.flowTitleById.get(flowId) ?? "" });
       continue;
     }
 
@@ -114,5 +147,5 @@ export async function resolveEnviarFlujoTool(input: {
     });
   }
 
-  return { toSend, rejected };
+  return { toSend, rejected, rejectedOtherProduct };
 }
