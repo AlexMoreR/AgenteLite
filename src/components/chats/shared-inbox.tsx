@@ -812,6 +812,15 @@ export function SharedInbox({
     }
   }, [refreshSelectedConversationFromServer]);
 
+  // Mientras hay busqueda activa, los resultados se CONGELAN: el realtime no debe mutar la
+  // lista. El filtro de busqueda incluye por ULTIMO MENSAJE, asi que un mensaje nuevo
+  // cambiaba el preview/orden del resultado "como fantasma". El detalle del chat abierto SI
+  // se sigue actualizando. Al limpiar la busqueda, el servidor devuelve la lista fresca.
+  const isSearchActiveRef = useRef(false);
+  useEffect(() => {
+    isSearchActiveRef.current = Boolean(searchInputValue.trim());
+  }, [searchInputValue]);
+
   useEffect(() => {
     function handleLiveUpdate(event: Event) {
       const customEvent = event as CustomEvent<{ conversation?: unknown }>;
@@ -831,11 +840,15 @@ export function SharedInbox({
           : (selectedConversationRef.current ?? null);
         return mergeConversationSnapshotIfChanged(base, snapshot);
       });
-      setConversationItems((current) => {
-        const currentItem = findConversationItemBySnapshotId(current, snapshot.id) ?? undefined;
-        const updatedItem = normalizeRealtimeConversationItem(buildConversationItemFromSnapshot(snapshot, currentItem));
-        return updateConversationItemInSortedList(current, snapshot.id, updatedItem);
-      });
+      // El detalle (setLiveConversation, arriba) SI se actualiza aunque haya busqueda; solo
+      // la LISTA se congela para que el resultado no cambie de preview/orden en vivo.
+      if (!isSearchActiveRef.current) {
+        setConversationItems((current) => {
+          const currentItem = findConversationItemBySnapshotId(current, snapshot.id) ?? undefined;
+          const updatedItem = normalizeRealtimeConversationItem(buildConversationItemFromSnapshot(snapshot, currentItem));
+          return updateConversationItemInSortedList(current, snapshot.id, updatedItem);
+        });
+      }
     }
 
     window.addEventListener("chat-live-update", handleLiveUpdate as EventListener);
@@ -849,6 +862,12 @@ export function SharedInbox({
 
   useEffect(() => {
     function handleListUpdate(event: Event) {
+      // Busqueda activa: resultados congelados (el filtro mira el ultimo mensaje y un
+      // mensaje nuevo cambiaba el preview/orden "como fantasma").
+      if (isSearchActiveRef.current) {
+        return;
+      }
+
       const customEvent = event as CustomEvent<{ conversation?: unknown }>;
       const snapshot = normalizeLiveConversationListSnapshot(customEvent.detail?.conversation);
       if (!snapshot) {
