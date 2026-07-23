@@ -47,7 +47,7 @@ type ProductsDataTableProps = {
   onOpenProduct?: (productId: string) => void;
 };
 
-type SortKey = "producto" | "categoria" | "costo" | "detal" | "acciones";
+type SortKey = "producto" | "categoria" | "detal" | "acciones";
 type SortDirection = "asc" | "desc";
 
 const PAGE_SIZE = 12;
@@ -155,8 +155,6 @@ export function ProductsDataTable({ products, currency, onOpenProduct }: Product
           return textCompare(a.name, b.name) * directionFactor;
         case "categoria":
           return textCompare(a.categoryName ?? "Sin categoria", b.categoryName ?? "Sin categoria") * directionFactor;
-        case "costo":
-          return (a.baseCost - b.baseCost) * directionFactor;
         case "detal":
           return (a.price - b.price) * directionFactor;
         default:
@@ -303,7 +301,7 @@ export function ProductsDataTable({ products, currency, onOpenProduct }: Product
                         {product.categoryName ?? "Sin categoria"}
                       </span>
                       <span className="text-[11px] leading-none font-semibold text-slate-700">
-                        {formatMoney(product.baseCost, currency)}
+                        {formatMoney(product.price, currency)}
                       </span>
                     </div>
                   </div>
@@ -367,16 +365,6 @@ export function ProductsDataTable({ products, currency, onOpenProduct }: Product
               </TableHead>
               <TableHead className="normal-case tracking-normal">
                 <HeaderLabel
-                  active={sortKey === "costo"}
-                  direction={sortDirection}
-                  onClick={() => toggleSort("costo")}
-                  icon={<CircleDollarSign className="h-3.5 w-3.5" />}
-                >
-                  Costo
-                </HeaderLabel>
-              </TableHead>
-              <TableHead className="normal-case tracking-normal">
-                <HeaderLabel
                   active={sortKey === "detal"}
                   direction={sortDirection}
                   onClick={() => toggleSort("detal")}
@@ -432,9 +420,6 @@ export function ProductsDataTable({ products, currency, onOpenProduct }: Product
                     <span className="inline-flex rounded-md border border-[var(--line)] bg-slate-50 px-2 py-1 text-xs">
                       {product.categoryName ?? "Sin categoria"}
                     </span>
-                  </TableCell>
-                  <TableCell className="text-sm font-medium text-slate-700">
-                    {formatMoney(product.baseCost, currency)}
                   </TableCell>
                   <TableCell className="text-sm font-semibold text-slate-800">
                     {formatMoney(product.price, currency)}
