@@ -48,7 +48,6 @@ type EditProductFormProps = {
 
 export function EditProductForm({
   categories,
-  suppliers,
   currency,
   initialData,
 }: EditProductFormProps) {
@@ -427,17 +426,6 @@ export function EditProductForm({
                   {categories.map((category) => (
                     <option key={category.id} value={category.id}>
                       {category.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="space-y-1.5 md:col-span-2">
-                <span className="text-sm font-medium text-slate-700">🚚 Proveedor principal</span>
-                <select name="supplierId" className="field-select" defaultValue={initialData.supplierId ?? ""}>
-                  <option value="">Sin proveedor</option>
-                  {suppliers.map((supplier) => (
-                    <option key={supplier.id} value={supplier.id}>
-                      {supplier.name}
                     </option>
                   ))}
                 </select>

@@ -13,7 +13,6 @@ import {
   Search,
   Tag,
   Trash2,
-  Truck,
   X,
 } from "lucide-react";
 import { adminDeleteProductAction } from "@/app/actions/product-actions";
@@ -48,7 +47,7 @@ type ProductsDataTableProps = {
   onOpenProduct?: (productId: string) => void;
 };
 
-type SortKey = "producto" | "categoria" | "proveedor" | "costo" | "detal" | "acciones";
+type SortKey = "producto" | "categoria" | "costo" | "detal" | "acciones";
 type SortDirection = "asc" | "desc";
 
 const PAGE_SIZE = 12;
@@ -129,7 +128,6 @@ export function ProductsDataTable({ products, currency, onOpenProduct }: Product
         product.name,
         product.code ?? "",
         product.categoryName ?? "",
-        product.supplierName ?? "",
       ]
         .join(" ")
         .toLowerCase();
@@ -157,8 +155,6 @@ export function ProductsDataTable({ products, currency, onOpenProduct }: Product
           return textCompare(a.name, b.name) * directionFactor;
         case "categoria":
           return textCompare(a.categoryName ?? "Sin categoria", b.categoryName ?? "Sin categoria") * directionFactor;
-        case "proveedor":
-          return textCompare(a.supplierName ?? "Sin proveedor", b.supplierName ?? "Sin proveedor") * directionFactor;
         case "costo":
           return (a.baseCost - b.baseCost) * directionFactor;
         case "detal":
@@ -231,7 +227,7 @@ export function ProductsDataTable({ products, currency, onOpenProduct }: Product
           <Input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Buscar por nombre, codigo, categoria o proveedor"
+            placeholder="Buscar por nombre, codigo o categoria"
             className="h-9 pr-9 pl-9 text-sm"
           />
           {query ? (
@@ -371,16 +367,6 @@ export function ProductsDataTable({ products, currency, onOpenProduct }: Product
               </TableHead>
               <TableHead className="normal-case tracking-normal">
                 <HeaderLabel
-                  active={sortKey === "proveedor"}
-                  direction={sortDirection}
-                  onClick={() => toggleSort("proveedor")}
-                  icon={<Truck className="h-3.5 w-3.5" />}
-                >
-                  Proveedor
-                </HeaderLabel>
-              </TableHead>
-              <TableHead className="normal-case tracking-normal">
-                <HeaderLabel
                   active={sortKey === "costo"}
                   direction={sortDirection}
                   onClick={() => toggleSort("costo")}
@@ -445,11 +431,6 @@ export function ProductsDataTable({ products, currency, onOpenProduct }: Product
                   <TableCell className="text-sm text-slate-600">
                     <span className="inline-flex rounded-md border border-[var(--line)] bg-slate-50 px-2 py-1 text-xs">
                       {product.categoryName ?? "Sin categoria"}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-sm text-slate-600">
-                    <span className="inline-flex rounded-md border border-[var(--line)] bg-slate-50 px-2 py-1 text-xs">
-                      {product.supplierName ?? "Sin proveedor"}
                     </span>
                   </TableCell>
                   <TableCell className="text-sm font-medium text-slate-700">
