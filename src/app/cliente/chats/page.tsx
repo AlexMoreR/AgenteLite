@@ -711,6 +711,22 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   const selectedUnified = selectedChatKeyParam
     ? merged.find((item) => item.key === selectedChatKeyParam) || null
     : null;
+
+  // Un chat abierto desde el buscador o un deep-link puede NO estar en el lote cargado
+  // (merged), asi que selectedUnified queda null y el compositor perdia el boton de
+  // adjuntar (+) y el de audio. selectedChatRef SIEMPRE trae source+id de la clave del
+  // chat, asi que sirve de respaldo para que el compositor no dependa de que la
+  // conversacion este en la lista.
+  const agentComposerConversationId =
+    selectedUnified?.source === "agent"
+      ? selectedUnified.conversationId
+      : selectedChatRef?.source === "agent"
+        ? selectedChatRef.conversationId
+        : null;
+  const agentComposerAgentId =
+    (selectedUnified?.source === "agent" ? selectedUnified.agentId : null) ??
+    selectedAgentConversation?.agentId ??
+    "";
   const selectedEvolutionInstanceName =
     selectedUnified?.source === "agent" && selectedUnified.channelId
       ? channelsById.get(selectedUnified.channelId)?.evolutionInstanceName?.trim() || null
@@ -1094,28 +1110,26 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
                 ...(selectedChatHref ? [{ name: "returnTo", value: selectedChatHref }] : []),
               ]
             : [],
-          audio:
-            selectedUnified && selectedUnified.source === "agent"
-              ? {
-                  uploadPath: "/api/cliente/chats/upload-audio",
-                  source: selectedUnified.source,
-                  conversationId: selectedUnified.conversationId,
-                  agentId: selectedUnified.agentId ?? "",
-                  returnTo: selectedChatHref ?? "",
-                  sendAction: sendChatAudioReplyAction,
-                }
-              : undefined,
-          media:
-            selectedUnified && selectedUnified.source === "agent"
-              ? {
-                  uploadPath: "/api/cliente/chats/upload-media",
-                  source: selectedUnified.source,
-                  conversationId: selectedUnified.conversationId,
-                  agentId: selectedUnified.agentId ?? "",
-                  returnTo: selectedChatHref ?? "",
-                  sendAction: sendChatMediaReplyAction,
-                }
-              : undefined,
+          audio: agentComposerConversationId
+            ? {
+                uploadPath: "/api/cliente/chats/upload-audio",
+                source: "agent",
+                conversationId: agentComposerConversationId,
+                agentId: agentComposerAgentId,
+                returnTo: selectedChatHref ?? "",
+                sendAction: sendChatAudioReplyAction,
+              }
+            : undefined,
+          media: agentComposerConversationId
+            ? {
+                uploadPath: "/api/cliente/chats/upload-media",
+                source: "agent",
+                conversationId: agentComposerConversationId,
+                agentId: agentComposerAgentId,
+                returnTo: selectedChatHref ?? "",
+                sendAction: sendChatMediaReplyAction,
+              }
+            : undefined,
         }}
         emptyListTitle="Aun no hay conversaciones"
         emptyListDescription="Cuando lleguen mensajes por tus canales, apareceran aqui en una sola bandeja."

@@ -1344,9 +1344,17 @@ export function SharedInbox({
   // firma del usuario agregada ARRIBA en el servidor (prependUserChatSignature). Por eso no se
   // comparan por igualdad exacta —quedarian como dos mensajes distintos y se veria duplicado
   // hasta recargar— sino aceptando que el real TERMINE con el texto optimista.
-  const optimisticOutgoingContent = optimisticOutgoingMessage?.content?.trim() ?? "";
+  // Normaliza para comparar: colapsa saltos de linea/espacios a uno solo. La firma se une
+  // con "\n" en el servidor y el texto optimista puede tener otros espacios, asi que sin
+  // esto el endsWith fallaba por un salto de linea y el mensaje se veia DUPLICADO hasta
+  // recargar (la burbuja optimista no se reemplazaba por la real).
+  const normalizeForOutgoingMatch = (value: string) => value.replace(/\s+/g, " ").trim();
+  const optimisticOutgoingContent = normalizeForOutgoingMatch(optimisticOutgoingMessage?.content ?? "");
   const persistedMatchesOptimisticContent = (persisted: string | null | undefined) => {
-    const value = persisted?.trim() ?? "";
+    if (!optimisticOutgoingContent) {
+      return false;
+    }
+    const value = normalizeForOutgoingMatch(persisted ?? "");
     return value === optimisticOutgoingContent || value.endsWith(optimisticOutgoingContent);
   };
   const optimisticDraftMatchesLatestMessage =
