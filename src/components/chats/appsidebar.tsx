@@ -239,7 +239,8 @@ export function AppSidebar({
             {visibleTabs.map((tab) => {
               const isActive = assignedFilter === tab.value;
               const count = assignedCounts ? assignedCounts[tab.value] : null;
-              const countLabel = count != null ? (count > 99 ? "99+" : String(count)) : null;
+              // Número real (sin cap "99+"): el conteo del servidor es exacto y Alex quiere el dato real.
+              const countLabel = count != null ? String(count) : null;
               return (
                 <Link
                   key={tab.value}
