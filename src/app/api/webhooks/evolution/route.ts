@@ -8,6 +8,7 @@ import { syncCrmStageFromCommercialStage } from "@/lib/crm-stage-sync";
 import {
   buildActiveProductContextNote,
   resolveAgentProductFlowReply,
+  resolveProductScopedFlowIds,
   type ActiveProductContext,
   type FlowStep,
 } from "@/lib/agent-product-flow";
@@ -2534,13 +2535,54 @@ export async function POST(request: NextRequest) {
             );
             const flowTitleById = new Map(flowItems.map((item) => [item.id, item.title] as const));
 
+            // Candado de un-solo-producto (señal CONFIABLE: títulos de flujo). Con un producto
+            // activo, la IA solo puede mandar SUS flujos (los que en su título/intención traen la
+            // palabra distintiva del producto, p.ej. "camilla"); frena el catálogo de otro producto
+            // (p.ej. manicura en una charla de camillas) y le pide confirmar. Fail-safe: si no hay
+            // producto activo o no tiene palabra distintiva, no frena nada.
+            const lockActiveProduct =
+              hardFlowResolution?.activeProductContext ?? previousActiveProductContext ?? null;
+            let productScopedFlowIds: Set<string> | null = null;
+            let lockedProductName = "";
+            if (lockActiveProduct?.productName) {
+              lockedProductName = lockActiveProduct.productName;
+              const productRows = await prisma.agentKnowledgeProduct.findMany({
+                where: { agentId: agent.id },
+                select: { product: { select: { name: true } } },
+              });
+              const otherProductNames = [
+                ...new Set(
+                  productRows
+                    .map((row) => row.product?.name?.trim() || "")
+                    .filter((name) => name && name !== lockActiveProduct.productName),
+                ),
+              ];
+              productScopedFlowIds = resolveProductScopedFlowIds({
+                activeProductName: lockActiveProduct.productName,
+                otherProductNames,
+                followUpFlowId: lockActiveProduct.followUpFlowId,
+                flows: flowItems.map((item) => ({ id: item.id, title: item.title, intent: item.intent })),
+              });
+            }
+
             const resolution = await resolveEnviarFlujoTool({
               workspaceId: channel.workspaceId,
               includeOfficialApi: true,
               toolInput: args,
               allowedFlowIds,
               flowTitleById,
+              productScopedFlowIds,
             });
+
+            const otherProductBlocked = resolution.rejectedOtherProduct;
+            if (otherProductBlocked.length > 0) {
+              console.log("[EVOLUTION] enviar_flujo_bloqueo_otro_producto", {
+                conversationId: conversation.id,
+                agentId: agent.id,
+                lockedProductName,
+                bloqueados: otherProductBlocked.map((f) => f.title || f.flowId),
+              });
+            }
 
             // Enviar de verdad, paso por paso, con la maquina del motor.
             const enviados: string[] = [];
@@ -2566,14 +2608,26 @@ export async function POST(request: NextRequest) {
               if (allOk) enviados.push(flow.title || flow.flowId);
             }
 
+            const notaOtroProducto =
+              otherProductBlocked.length > 0
+                ? ` NO envié ${otherProductBlocked
+                    .map((f) => `"${f.title || f.flowId}"`)
+                    .join(", ")}: es de OTRO producto distinto al que estamos viendo${
+                    lockedProductName ? ` (${lockedProductName})` : ""
+                  }. NO lo mandes. Si el cliente quiere ver ese otro producto, PREGUNTALE primero para confirmar antes de cambiar; no cambies de producto por tu cuenta.`
+                : "";
+            const notaEnviados = enviados.length
+              ? "Los flujos ya fueron ENVIADOS al cliente. No los describas de nuevo ni los reenvies; solo continua la conversacion (p.ej. pregunta cual le interesa si enviaste varios)."
+              : otherProductBlocked.length > 0
+                ? "No se envio ningun flujo."
+                : "No se envio ningun flujo. Revisa los flow_id o continua sin enviar.";
+
             return {
               enviados,
               rechazados: resolution.rejected,
               // Le decimos a la IA que ya se enviaron, para que arme su texto (p.ej. preguntar cual)
               // sin volver a describir el catalogo ni reenviarlo.
-              nota: enviados.length
-                ? "Los flujos ya fueron ENVIADOS al cliente. No los describas de nuevo ni los reenvies; solo continua la conversacion (p.ej. pregunta cual le interesa si enviaste varios)."
-                : "No se envio ningun flujo. Revisa los flow_id o continua sin enviar.",
+              nota: `${notaEnviados}${notaOtroProducto}`,
             };
           },
         } satisfies Record<string, (args: Record<string, unknown>) => Promise<unknown>>;

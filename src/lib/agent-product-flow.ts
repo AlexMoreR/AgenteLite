@@ -746,6 +746,49 @@ function applyActiveProductStickiness<T extends { productId: string; name: strin
   return null;
 }
 
+/**
+ * Candado de un-solo-producto para `enviar_flujo`, con señal CONFIABLE (títulos de flujo).
+ *
+ * Devuelve el set de flowIds que la IA PUEDE enviar cuando el producto activo es `activeProductName`:
+ * los flujos cuyo título/intención contienen una palabra DISTINTIVA del producto activo (una que no
+ * comparte con otros productos del agente), más el `followUpFlowId` del producto. Si el producto no
+ * tiene ninguna palabra distintiva, devuelve `null` (no se puede acotar → NO se aplica candado).
+ *
+ * Reemplaza el intento anterior (lista blanca desde el GRAFO), que estaba viejo/incompleto y
+ * bloqueaba envíos buenos (fotos reales del producto). Los títulos de los flujos son dato vivo.
+ * Medido con datos reales: con producto activo "Combo Camillas" permite los 2 flujos de camillas y
+ * bloquea el catálogo de manicura (el bug real); con "Lavacabezas" permite sus flujos (incl. fotos).
+ */
+export function resolveProductScopedFlowIds(input: {
+  activeProductName: string;
+  otherProductNames: string[];
+  followUpFlowId?: string | null;
+  flows: Array<{ id: string; title: string; intent?: string | null }>;
+}): Set<string> | null {
+  const mineTokens = tokenize(input.activeProductName);
+  const otherTokens = new Set(input.otherProductNames.flatMap((name) => tokenize(name)));
+  const distinctive = mineTokens.filter(
+    (token) => ![...otherTokens].some((other) => other === token || other.includes(token) || token.includes(other)),
+  );
+  if (distinctive.length === 0) {
+    return null;
+  }
+
+  const allowed = new Set<string>();
+  const follow = input.followUpFlowId?.trim();
+  if (follow) {
+    allowed.add(follow);
+  }
+  for (const flow of input.flows) {
+    const hay = tokenize(`${flow.title} ${flow.intent ?? ""}`);
+    const belongsToActive = distinctive.some((d) => hay.some((h) => h === d || h.includes(d) || d.includes(h)));
+    if (belongsToActive) {
+      allowed.add(flow.id);
+    }
+  }
+  return allowed;
+}
+
 export async function resolveAgentProductFlowReply(input: {
   agentId: string;
   workspaceId: string;

@@ -51,6 +51,9 @@ export type EnviarFlujoResolved = {
 export type EnviarFlujoResolution = {
   toSend: EnviarFlujoResolved[];
   rejected: string[]; // flowIds pedidos que no estaban permitidos o no tenían contenido
+  // Flujos frenados por el candado de un-solo-producto: son de OTRO producto distinto al activo.
+  // No se envían; el caller le pide a la IA que confirme con el cliente antes de cambiar de producto.
+  rejectedOtherProduct: Array<{ flowId: string; title: string }>;
 };
 
 function parseFlowIds(toolInput: unknown): string[] {
@@ -78,10 +81,14 @@ export async function resolveEnviarFlujoTool(input: {
   toolInput: unknown;
   allowedFlowIds: Set<string>;
   flowTitleById: Map<string, string>;
+  // Candado de un-solo-producto: flujos permitidos para el producto ACTIVO (título/intención con su
+  // palabra distintiva + su followUpFlowId). Si es null, no hay producto activo acotable → no frena.
+  productScopedFlowIds?: Set<string> | null;
 }): Promise<EnviarFlujoResolution> {
   const requested = parseFlowIds(input.toolInput);
   const toSend: EnviarFlujoResolved[] = [];
   const rejected: string[] = [];
+  const rejectedOtherProduct: Array<{ flowId: string; title: string }> = [];
   const seen = new Set<string>();
 
   for (const flowId of requested) {
@@ -93,6 +100,13 @@ export async function resolveEnviarFlujoTool(input: {
     // La IA solo puede enviar flujos autorizados. Un id no permitido se rechaza, no se envía.
     if (!input.allowedFlowIds.has(flowId)) {
       rejected.push(flowId);
+      continue;
+    }
+
+    // Candado de un-solo-producto: con un producto activo acotable, solo pasan sus flujos. Un flujo
+    // de otro producto (p.ej. manicura en una charla de camillas) se frena y se pide confirmar.
+    if (input.productScopedFlowIds && !input.productScopedFlowIds.has(flowId)) {
+      rejectedOtherProduct.push({ flowId, title: input.flowTitleById.get(flowId) ?? "" });
       continue;
     }
 
@@ -114,5 +128,5 @@ export async function resolveEnviarFlujoTool(input: {
     });
   }
 
-  return { toSend, rejected };
+  return { toSend, rejected, rejectedOtherProduct };
 }
