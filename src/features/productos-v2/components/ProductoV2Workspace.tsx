@@ -8,6 +8,8 @@ function formatPrice(price: number | null): string {
   return `$ ${price.toLocaleString("es-CO")}`;
 }
 
+type View = { mode: "list" } | { mode: "editor"; productId: string | null };
+
 export function ProductoV2Workspace({
   products,
   allFlows,
@@ -15,8 +17,13 @@ export function ProductoV2Workspace({
   products: ProductoV2Item[];
   allFlows: ProductoV2Flow[];
 }) {
-  const [selectedId, setSelectedId] = useState<string>(products[0]?.id ?? "");
-  const selected = products.find((product) => product.id === selectedId) ?? products[0] ?? null;
+  const [view, setView] = useState<View>({ mode: "list" });
+
+  const selected =
+    view.mode === "editor" && view.productId
+      ? products.find((product) => product.id === view.productId) ?? null
+      : null;
+  const isNew = view.mode === "editor" && view.productId === null;
 
   return (
     <div className="pv2-root">
@@ -24,134 +31,171 @@ export function ProductoV2Workspace({
 
       <div className="pv2-crumb">
         Aizenbot · <b>Producto V2</b>
+        {view.mode === "editor" ? <> · {isNew ? "Nuevo" : "Editar"}</> : null}
       </div>
-      <div className="pv2-title-row">
-        <h1 className="pv2-h1">{selected ? selected.name : "Productos"}</h1>
-        <span className="pv2-badge">Vista previa · guardar próximamente</span>
-      </div>
-      <p className="pv2-intro">
-        Un producto es un contenedor: le anclás flujos y decís cuándo corre cada uno. El precio es
-        opcional. Esta primera versión muestra tus productos reales; la edición y el guardado llegan
-        en el siguiente paso.
-      </p>
 
-      {products.length === 0 ? (
-        <div className="pv2-empty">
-          Todavía no hay productos. Se crearán acá cuando esté lista la edición.
-        </div>
-      ) : (
+      {view.mode === "list" ? (
+        /* ---------- LISTA ---------- */
         <>
-          <div className="pv2-tabs">
-            {products.map((product) => (
-              <button
-                key={product.id}
-                type="button"
-                onClick={() => setSelectedId(product.id)}
-                className={`pv2-tab ${product.id === selectedId ? "on" : ""} ${product.sells ? "sell" : "cat"}`}
-              >
-                <span className="pv2-dot" />
-                {product.name}
-              </button>
-            ))}
-            <span className="pv2-tab add" aria-disabled="true">+ Nuevo producto</span>
+          <div className="pv2-title-row">
+            <h1 className="pv2-h1">Productos</h1>
+            <span className="pv2-count">{products.length}</span>
+            <button type="button" className="pv2-new-btn" onClick={() => setView({ mode: "editor", productId: null })}>
+              + Nuevo producto
+            </button>
+          </div>
+          <p className="pv2-intro">
+            Cada producto es un contenedor: le anclás flujos y decís cuándo corre cada uno. El precio
+            es opcional. Tocá un producto para verlo, o creá uno nuevo. <b>Vista previa:</b> la edición
+            y el guardado llegan en el siguiente paso.
+          </p>
+
+          {products.length === 0 ? (
+            <div className="pv2-empty">Todavía no hay productos. Tocá "Nuevo producto" para crear el primero.</div>
+          ) : (
+            <div className="pv2-list">
+              {products.map((product) => (
+                <button
+                  key={product.id}
+                  type="button"
+                  className="pv2-row"
+                  onClick={() => setView({ mode: "editor", productId: product.id })}
+                >
+                  <span className={`pv2-avatar ${product.sells ? "sell" : "cat"}`}>
+                    {product.sells ? "🛒" : "📄"}
+                  </span>
+                  <span className="pv2-row-main">
+                    <span className="pv2-row-name">{product.name}</span>
+                    <span className="pv2-row-meta">
+                      <span className={`pv2-pill ${product.sells ? "sell" : "cat"}`}>
+                        {product.sells ? "Vende" : "Solo catálogo"}
+                      </span>
+                      {product.price ? <span className="pv2-price">{formatPrice(product.price)}</span> : null}
+                      {product.anchoredFlowTitle ? (
+                        <span className="pv2-row-flow">📎 {product.anchoredFlowTitle}</span>
+                      ) : (
+                        <span className="pv2-row-flow off">sin flujo anclado</span>
+                      )}
+                    </span>
+                  </span>
+                  <span className="pv2-chevron">›</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      ) : (
+        /* ---------- EDITOR ---------- */
+        <>
+          <div className="pv2-title-row">
+            <button type="button" className="pv2-back" onClick={() => setView({ mode: "list" })}>
+              ← Productos
+            </button>
+          </div>
+          <div className="pv2-title-row" style={{ marginTop: 6 }}>
+            <h1 className="pv2-h1">{isNew ? "Nuevo producto" : selected?.name}</h1>
+            <span className="pv2-badge">Vista previa · guardar próximamente</span>
           </div>
 
-          {selected ? (
-            <div className="pv2-card">
-              {/* Identidad */}
-              <div className="pv2-sec">
-                <div className="pv2-sec-h">
-                  <span className="pv2-k">Identidad</span>
-                  <span className="pv2-req">Obligatorio</span>
-                </div>
-                <label className="pv2-f">Nombre del producto</label>
-                <input className="pv2-inp big" value={selected.name} readOnly />
-                <div className="pv2-mt14">
-                  <label className="pv2-f">
-                    Palabra distintiva <span className="pv2-faint">(la usa el candado para no confundirlo)</span>
-                  </label>
+          <div className="pv2-card">
+            {/* Identidad */}
+            <div className="pv2-sec">
+              <div className="pv2-sec-h">
+                <span className="pv2-k">Identidad</span>
+                <span className="pv2-req">Obligatorio</span>
+              </div>
+              <label className="pv2-f">Nombre del producto</label>
+              <input
+                className="pv2-inp big"
+                value={selected?.name ?? ""}
+                placeholder="Ej. Combo de camillas"
+                readOnly
+              />
+              <div className="pv2-mt14">
+                <label className="pv2-f">
+                  Palabra distintiva <span className="pv2-faint">(la usa el candado para no confundirlo)</span>
+                </label>
+                {selected ? (
                   <span className="pv2-chip-dist"># {selected.distinctiveWord}</span>
-                  <p className="pv2-hint">Se saca del nombre. Es lo que separa este producto de los demás.</p>
-                </div>
-              </div>
-
-              {/* Tipo */}
-              <div className="pv2-sec">
-                <div className="pv2-sec-h">
-                  <span className="pv2-k">Tipo</span>
-                </div>
-                <div className="pv2-segs">
-                  <div className={`pv2-seg ${selected.sells ? "on" : ""}`}>
-                    <div className="pv2-st">🛒 Vende <span className="pv2-rd" /></div>
-                    <div className="pv2-sd">Tiene precio y cierre. Es lo que se ancla desde el anuncio.</div>
-                  </div>
-                  <div className={`pv2-seg ${selected.sells ? "" : "on"}`}>
-                    <div className="pv2-st">📄 Solo catálogo <span className="pv2-rd" /></div>
-                    <div className="pv2-sd">Solo muestra opciones, sin precio.</div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Flujos anclados */}
-              <div className="pv2-sec">
-                <div className="pv2-sec-h">
-                  <span className="pv2-k">Flujos anclados</span>
-                  <span className="pv2-req">Obligatorio</span>
-                </div>
-                <div className="pv2-flows">
-                  {selected.anchoredFlowTitle ? (
-                    <div className="pv2-flow">
-                      <div className="pv2-ic">📎</div>
-                      <div>
-                        <div className="pv2-nm">{selected.anchoredFlowTitle}</div>
-                        <div className="pv2-when">
-                          se ejecuta <span className="pv2-cond">cuando el cliente lo pide</span>
-                        </div>
-                      </div>
-                      <div className="pv2-grip">⋮⋮</div>
-                    </div>
-                  ) : (
-                    <div className="pv2-flow-empty">Este producto todavía no tiene un flujo anclado.</div>
-                  )}
-                  <div className="pv2-add-flow" aria-disabled="true">
-                    + Anclar un flujo · y elegir cuándo se ejecuta
-                  </div>
-                </div>
-                <p className="pv2-hint">
-                  Hay {allFlows.length} flujos disponibles para anclar. Un mismo flujo se puede anclar a
-                  varios productos — así se comparte.
-                </p>
-              </div>
-
-              {/* Precio */}
-              <div className="pv2-sec">
-                <div className="pv2-sec-h">
-                  <span className="pv2-k">Precio y cierre</span>
-                  <span className="pv2-req opt">Opcional · solo si vende</span>
-                </div>
-                {selected.sells ? (
-                  <>
-                    <label className="pv2-f">Precio</label>
-                    <input className="pv2-inp" value={formatPrice(selected.price)} readOnly />
-                  </>
                 ) : (
-                  <p className="pv2-disabled">Este producto es "solo catálogo" — no tiene precio.</p>
+                  <span className="pv2-disabled">Se saca sola del nombre al escribirlo.</span>
                 )}
               </div>
+            </div>
 
-              {/* Anuncios */}
-              <div className="pv2-sec">
-                <div className="pv2-sec-h">
-                  <span className="pv2-k">Anuncios que traen a este producto</span>
-                  <span className="pv2-req opt">Opcional</span>
+            {/* Tipo */}
+            <div className="pv2-sec">
+              <div className="pv2-sec-h">
+                <span className="pv2-k">Tipo</span>
+              </div>
+              <div className="pv2-segs">
+                <div className={`pv2-seg ${selected?.sells ? "on" : ""}`}>
+                  <div className="pv2-st">🛒 Vende <span className="pv2-rd" /></div>
+                  <div className="pv2-sd">Tiene precio y cierre. Es lo que se ancla desde el anuncio.</div>
                 </div>
-                <p className="pv2-disabled">
-                  Todavía no configurados. Acá vas a listar los anuncios de Meta que traen a este
-                  producto, para que el lead quede anclado desde el primer mensaje.
-                </p>
+                <div className={`pv2-seg ${selected && !selected.sells ? "on" : ""}`}>
+                  <div className="pv2-st">📄 Solo catálogo <span className="pv2-rd" /></div>
+                  <div className="pv2-sd">Solo muestra opciones, sin precio.</div>
+                </div>
               </div>
             </div>
-          ) : null}
+
+            {/* Flujos anclados */}
+            <div className="pv2-sec">
+              <div className="pv2-sec-h">
+                <span className="pv2-k">Flujos anclados</span>
+                <span className="pv2-req">Obligatorio</span>
+              </div>
+              <div className="pv2-flows">
+                {selected?.anchoredFlowTitle ? (
+                  <div className="pv2-flow">
+                    <div className="pv2-ic">📎</div>
+                    <div>
+                      <div className="pv2-nm">{selected.anchoredFlowTitle}</div>
+                      <div className="pv2-when">
+                        se ejecuta <span className="pv2-cond">cuando el cliente lo pide</span>
+                      </div>
+                    </div>
+                    <div className="pv2-grip">⋮⋮</div>
+                  </div>
+                ) : (
+                  <div className="pv2-flow-empty">Todavía no hay un flujo anclado.</div>
+                )}
+                <div className="pv2-add-flow" aria-disabled="true">+ Anclar un flujo · y elegir cuándo se ejecuta</div>
+              </div>
+              <p className="pv2-hint">Hay {allFlows.length} flujos disponibles para anclar. Un mismo flujo se puede anclar a varios productos.</p>
+            </div>
+
+            {/* Precio */}
+            <div className="pv2-sec">
+              <div className="pv2-sec-h">
+                <span className="pv2-k">Precio y cierre</span>
+                <span className="pv2-req opt">Opcional · solo si vende</span>
+              </div>
+              {selected?.sells ? (
+                <>
+                  <label className="pv2-f">Precio</label>
+                  <input className="pv2-inp" value={formatPrice(selected.price)} readOnly />
+                </>
+              ) : (
+                <p className="pv2-disabled">
+                  {selected ? 'Este producto es "solo catálogo" — no tiene precio.' : "Solo si el producto vende."}
+                </p>
+              )}
+            </div>
+
+            {/* Anuncios */}
+            <div className="pv2-sec">
+              <div className="pv2-sec-h">
+                <span className="pv2-k">Anuncios que traen a este producto</span>
+                <span className="pv2-req opt">Opcional</span>
+              </div>
+              <p className="pv2-disabled">
+                Todavía no configurados. Acá vas a listar los anuncios de Meta que traen a este producto,
+                para que el lead quede anclado desde el primer mensaje.
+              </p>
+            </div>
+          </div>
         </>
       )}
     </div>
@@ -161,33 +205,51 @@ export function ProductoV2Workspace({
 const PV2_STYLES = `
 .pv2-root { --pv2-surface:#fff; --pv2-surface2:#f8f9fc; --pv2-ink:#1b1e29; --pv2-muted:#6b7280;
   --pv2-faint:#9aa1ad; --pv2-hair:#e7e9ef; --pv2-hair2:#dfe2ea; --pv2-accent:#5b52e0; --pv2-accent-ink:#4a41c8;
-  --pv2-accent-soft:#edecfc; --pv2-green:#12805c; --pv2-amber:#9a6410; --pv2-amber-soft:#f6ebd7;
+  --pv2-accent-soft:#edecfc; --pv2-green:#12805c; --pv2-green-soft:#dcf1e8; --pv2-amber:#9a6410; --pv2-amber-soft:#f6ebd7;
   --pv2-mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
   max-width:880px; margin:0 auto; padding:8px 2px 60px; color:var(--pv2-ink);
   font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; line-height:1.5; }
 @media (prefers-color-scheme:dark){ .pv2-root { --pv2-surface:#181b22; --pv2-surface2:#1e222b; --pv2-ink:#e9ebf0;
   --pv2-muted:#9aa2b1; --pv2-faint:#6d7583; --pv2-hair:#282d37; --pv2-hair2:#333a46; --pv2-accent:#8078f0;
-  --pv2-accent-ink:#a49ef6; --pv2-accent-soft:#20203a; --pv2-green:#4cbd8e; --pv2-amber:#d29a4e; --pv2-amber-soft:#2f2611; } }
+  --pv2-accent-ink:#a49ef6; --pv2-accent-soft:#20203a; --pv2-green:#4cbd8e; --pv2-green-soft:#132a22;
+  --pv2-amber:#d29a4e; --pv2-amber-soft:#2f2611; } }
 .pv2-root *{ box-sizing:border-box; }
 .pv2-crumb{ font-family:var(--pv2-mono); font-size:12px; color:var(--pv2-faint); }
 .pv2-crumb b{ color:var(--pv2-accent); }
 .pv2-title-row{ display:flex; align-items:center; gap:12px; margin-top:8px; flex-wrap:wrap; }
 .pv2-h1{ font-size:clamp(21px,4vw,27px); letter-spacing:-.02em; margin:0; font-weight:750; }
+.pv2-count{ font-family:var(--pv2-mono); font-size:12px; color:var(--pv2-muted); background:var(--pv2-surface2);
+  border:1px solid var(--pv2-hair); border-radius:20px; padding:2px 10px; font-weight:600; }
+.pv2-new-btn{ margin-left:auto; height:38px; padding:0 16px; border-radius:11px; border:none; cursor:pointer;
+  background:var(--pv2-accent); color:#fff; font-weight:650; font-size:13.5px; font-family:inherit; }
+.pv2-back{ background:none; border:none; color:var(--pv2-accent); font-weight:600; font-size:14px; cursor:pointer;
+  padding:0; font-family:inherit; }
 .pv2-badge{ font-family:var(--pv2-mono); font-size:10.5px; letter-spacing:.06em; text-transform:uppercase;
   color:var(--pv2-accent-ink); background:var(--pv2-accent-soft); padding:3px 9px; border-radius:20px; font-weight:600; }
-.pv2-intro{ color:var(--pv2-muted); font-size:14px; margin:10px 0 0; max-width:62ch; }
+.pv2-intro{ color:var(--pv2-muted); font-size:14px; margin:10px 0 0; max-width:64ch; }
 .pv2-empty{ margin-top:22px; padding:28px; text-align:center; color:var(--pv2-muted); background:var(--pv2-surface2);
   border:1px solid var(--pv2-hair); border-radius:14px; }
-.pv2-tabs{ display:flex; gap:8px; margin-top:22px; flex-wrap:wrap; }
-.pv2-tab{ font-size:13.5px; padding:8px 14px; border-radius:10px; border:1px solid var(--pv2-hair2);
-  background:var(--pv2-surface); color:var(--pv2-muted); cursor:pointer; display:inline-flex; align-items:center; gap:7px;
-  font-family:inherit; }
-.pv2-tab .pv2-dot{ width:7px; height:7px; border-radius:50%; background:var(--pv2-faint); }
-.pv2-tab.sell .pv2-dot{ background:var(--pv2-green); }
-.pv2-tab.cat .pv2-dot{ background:var(--pv2-amber); }
-.pv2-tab.on{ background:var(--pv2-accent); border-color:var(--pv2-accent); color:#fff; font-weight:600; }
-.pv2-tab.on .pv2-dot{ background:#fff; }
-.pv2-tab.add{ border-style:dashed; color:var(--pv2-accent); cursor:default; }
+/* lista */
+.pv2-list{ margin-top:20px; display:flex; flex-direction:column; gap:10px; }
+.pv2-row{ display:flex; align-items:center; gap:14px; width:100%; text-align:left; cursor:pointer;
+  background:var(--pv2-surface); border:1px solid var(--pv2-hair); border-radius:14px; padding:14px 16px; font-family:inherit;
+  transition:border-color .12s, box-shadow .12s; }
+.pv2-row:hover{ border-color:var(--pv2-accent); box-shadow:0 8px 22px -16px rgba(20,24,40,.35); }
+.pv2-avatar{ width:44px; height:44px; border-radius:12px; display:flex; align-items:center; justify-content:center;
+  font-size:20px; flex-shrink:0; }
+.pv2-avatar.sell{ background:var(--pv2-green-soft); }
+.pv2-avatar.cat{ background:var(--pv2-amber-soft); }
+.pv2-row-main{ min-width:0; flex:1; display:flex; flex-direction:column; gap:5px; }
+.pv2-row-name{ font-weight:650; font-size:15.5px; color:var(--pv2-ink); }
+.pv2-row-meta{ display:flex; align-items:center; gap:9px; flex-wrap:wrap; }
+.pv2-pill{ font-size:11.5px; font-weight:600; padding:2px 9px; border-radius:20px; }
+.pv2-pill.sell{ color:var(--pv2-green); background:var(--pv2-green-soft); }
+.pv2-pill.cat{ color:var(--pv2-amber); background:var(--pv2-amber-soft); }
+.pv2-price{ font-family:var(--pv2-mono); font-size:12.5px; color:var(--pv2-ink); font-weight:600; }
+.pv2-row-flow{ font-size:12.5px; color:var(--pv2-muted); }
+.pv2-row-flow.off{ color:var(--pv2-faint); font-style:italic; }
+.pv2-chevron{ color:var(--pv2-faint); font-size:22px; line-height:1; flex-shrink:0; }
+/* editor */
 .pv2-card{ background:var(--pv2-surface); border:1px solid var(--pv2-hair); border-radius:16px; margin-top:16px;
   overflow:hidden; box-shadow:0 14px 32px -22px rgba(20,24,40,.3); }
 .pv2-sec{ padding:20px 22px; border-top:1px solid var(--pv2-hair); }
