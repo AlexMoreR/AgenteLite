@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState, useTransition, type FormEvent } from "react";
 import { LoaderCircle, MessageSquareText, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   createQuickReplyAction,
   deleteQuickReplyAction,
@@ -22,25 +22,39 @@ type Props = {
 export function QuickRepliesDialog({ open, onClose, onSelect }: Props) {
   const [items, setItems] = useState<QuickReplyItem[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [mode, setMode] = useState<"list" | "form">("list");
   const [editing, setEditing] = useState<QuickReplyItem | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [busy, startTransition] = useTransition();
 
-  const load = useCallback(async () => {
-    const result = await getQuickRepliesAction();
-    return result.items ?? [];
+  // Carga robusta: SIEMPRE termina (loaded=true) aunque la acción falle o lance. Antes, si
+  // getQuickRepliesAction lanzaba (o había un bache), no había catch y el diálogo giraba para
+  // siempre sin reintentar. Ahora, ante error, se muestra un aviso con botón de reintento.
+  const refresh = useCallback(async () => {
+    setLoadError(null);
+    try {
+      const result = await getQuickRepliesAction();
+      if (result.error) {
+        setLoadError(result.error);
+        setItems([]);
+      } else {
+        setItems(result.items ?? []);
+      }
+    } catch {
+      setLoadError("No se pudieron cargar las respuestas rápidas.");
+      setItems([]);
+    } finally {
+      setLoaded(true);
+    }
   }, []);
 
   useEffect(() => {
     if (!open) return;
-    // Los resets de modo/edición se hacen al cerrar (onOpenChange), no acá, para no llamar
-    // setState síncrono dentro del efecto. Acá solo cargamos los datos (async).
-    void load().then((next) => {
-      setItems(next);
-      setLoaded(true);
-    });
-  }, [open, load]);
+    setLoaded(false);
+    setLoadError(null);
+    void refresh();
+  }, [open, refresh]);
 
   const handleSave = useCallback(
     (event: FormEvent<HTMLFormElement>) => {
@@ -56,13 +70,12 @@ export function QuickRepliesDialog({ open, onClose, onSelect }: Props) {
           setFormError(result.error);
           return;
         }
-        const next = await load();
-        setItems(next);
+        await refresh();
         setMode("list");
         setEditing(null);
       });
     },
-    [editing, load],
+    [editing, refresh],
   );
 
   const handleDelete = useCallback(
@@ -94,9 +107,6 @@ export function QuickRepliesDialog({ open, onClose, onSelect }: Props) {
       <DialogContent className="w-[min(94vw,30rem)] max-w-none gap-0 overflow-hidden border border-border bg-popover p-0 shadow-[0_30px_80px_-36px_rgba(15,23,42,0.45)]">
         <DialogHeader className="border-b border-border px-5 py-4 text-left">
           <DialogTitle className="text-sm">Respuestas rápidas</DialogTitle>
-          <DialogDescription className="text-xs">
-            Mensajes guardados para insertar en el chat con un click. Compartidos por todo el equipo.
-          </DialogDescription>
         </DialogHeader>
 
         {mode === "list" ? (
@@ -105,6 +115,20 @@ export function QuickRepliesDialog({ open, onClose, onSelect }: Props) {
               {!loaded ? (
                 <div className="flex justify-center py-8">
                   <LoaderCircle className="h-5 w-5 animate-spin text-muted-foreground" />
+                </div>
+              ) : loadError ? (
+                <div className="flex flex-col items-center gap-2 px-4 py-8 text-center">
+                  <p className="text-sm font-medium text-foreground">{loadError}</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLoaded(false);
+                      void refresh();
+                    }}
+                    className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-muted"
+                  >
+                    Reintentar
+                  </button>
                 </div>
               ) : items.length === 0 ? (
                 <div className="flex flex-col items-center gap-2 px-4 py-8 text-center">

@@ -1320,13 +1320,20 @@ export async function getQuickRepliesAction(): Promise<{ items?: QuickReplyItem[
   const membership = await getPrimaryWorkspaceForUser(session.user.id);
   if (!membership) return { error: "Workspace no encontrado" };
 
-  const rows = await prisma.quickReply.findMany({
-    where: { workspaceId: membership.workspace.id },
-    orderBy: { createdAt: "asc" },
-    select: { id: true, title: true, content: true },
-  });
-
-  return { items: rows };
+  // Nunca lanzar: si la consulta falla (bache de la base), devolvemos un error manejable en vez de
+  // reventar el server action. Antes, si esto lanzaba, el diálogo del cliente se quedaba girando
+  // para siempre (sin catch ni reintento).
+  try {
+    const rows = await prisma.quickReply.findMany({
+      where: { workspaceId: membership.workspace.id },
+      orderBy: { createdAt: "asc" },
+      select: { id: true, title: true, content: true },
+    });
+    return { items: rows };
+  } catch (error) {
+    console.error("[getQuickRepliesAction] error", error);
+    return { error: "No se pudieron cargar las respuestas rápidas." };
+  }
 }
 
 export async function createQuickReplyAction(
