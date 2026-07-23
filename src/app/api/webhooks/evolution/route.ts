@@ -353,6 +353,54 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// F0 — Origen del lead desde un anuncio (Click-to-WhatsApp). El dato del anuncio (externalAdReply)
+// viene ANIDADO en el payload, no en la raíz: lo buscamos recursivamente.
+function findExternalAdReply(value: unknown, depth = 0): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || depth > 8) {
+    return null;
+  }
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    if (/externalAdReply/i.test(key) && child && typeof child === "object" && !Array.isArray(child)) {
+      return child as Record<string, unknown>;
+    }
+    if (child && typeof child === "object") {
+      const found = findExternalAdReply(child, depth + 1);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+type AdLeadOrigin = {
+  title: string;
+  sourceApp: string; // facebook | instagram
+  ctwaClid: string;
+  sourceId: string;
+  sourceUrl: string;
+};
+
+// Devuelve el origen del anuncio si el mensaje entró por un anuncio; null si no.
+function extractAdLeadOrigin(payload: unknown): AdLeadOrigin | null {
+  const ad = findExternalAdReply(payload);
+  if (!ad) {
+    return null;
+  }
+  const s = (value: unknown) => (typeof value === "string" ? value.trim() : "");
+  const title = s(ad.title) || s(ad.Title);
+  const sourceType = (s(ad.sourceType) || s(ad.SourceType)).toLowerCase();
+  // Solo cuenta como anuncio si trae título o sourceType "ad".
+  if (!title && sourceType !== "ad") {
+    return null;
+  }
+  return {
+    title,
+    sourceApp: (s(ad.sourceApp) || s(ad.SourceApp)).toLowerCase(),
+    ctwaClid: s(ad.ctwaClid),
+    sourceId: s(ad.sourceID) || s(ad.sourceId),
+    sourceUrl: s(ad.sourceURL) || s(ad.sourceUrl),
+  };
+}
+
 // Normaliza un texto para comparar repeticiones: sin acentos, minúsculas, sin emojis/puntuación/
 // asteriscos de WhatsApp, espacios colapsados. Así "¡Perfecto! ¿Qué *servicios*...?" y una segunda
 // versión idéntica caen al mismo string aunque cambie algún signo.
@@ -1344,6 +1392,58 @@ export async function POST(request: NextRequest) {
       },
       { status: 500 },
     );
+  }
+
+  // F0 — Origen del lead (CRM): si el mensaje entró desde un anuncio de Meta (Click-to-WhatsApp),
+  // guardamos de qué anuncio/red vino, UNA sola vez (primer toque). Alimenta el origen del CRM
+  // ("de dónde vienen los leads"). En after() best-effort: no demora ni bloquea la respuesta.
+  const adLeadOrigin = extractAdLeadOrigin(payload);
+  if (adLeadOrigin) {
+    const adOriginContactId = contact.id;
+    after(async () => {
+      try {
+        const existing = await prisma.contact.findUnique({
+          where: { id: adOriginContactId },
+          select: { metadata: true },
+        });
+        const meta =
+          existing?.metadata && typeof existing.metadata === "object" && !Array.isArray(existing.metadata)
+            ? (existing.metadata as Record<string, unknown>)
+            : {};
+        // No re-escribir: solo el primer toque del anuncio define el origen.
+        if (meta.adCapturedAt) {
+          return;
+        }
+        await prisma.contact.update({
+          where: { id: adOriginContactId },
+          data: {
+            metadata: {
+              ...meta,
+              // getContactOriginFromMetadata mapea "meta ads" -> FACEBOOK (bucket Meta: fb + ig).
+              source: "meta ads",
+              sourceType: "ad",
+              campaign: adLeadOrigin.title,
+              adTitle: adLeadOrigin.title,
+              adSourceApp: adLeadOrigin.sourceApp,
+              adCtwaClid: adLeadOrigin.ctwaClid,
+              adSourceId: adLeadOrigin.sourceId,
+              adSourceUrl: adLeadOrigin.sourceUrl,
+              adCapturedAt: new Date().toISOString(),
+            } as Prisma.InputJsonValue,
+          },
+        });
+        console.log("[EVOLUTION] ad_origin_captured", {
+          contactId: adOriginContactId,
+          adTitle: adLeadOrigin.title,
+          sourceApp: adLeadOrigin.sourceApp,
+        });
+      } catch (error) {
+        console.warn("[EVOLUTION] ad_origin_capture_failed", {
+          contactId: adOriginContactId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    });
   }
 
   let existingConversation = callFallbackConversation
