@@ -103,7 +103,18 @@ function readMetadataObject(value: Prisma.JsonValue | null): Record<string, unkn
  * contactos visibles que no tengan foto o cuya foto esté vencida. Es best-effort: si algo
  * falla, se ignora silenciosamente y la UI sigue mostrando el avatar genérico.
  */
+// APAGADO a propósito: cada /user/avatar cuelga ~75s en evogo cuando WhatsApp rate-limitea
+// las fotos, y el goteo automático saturaba el gateway (500 en bucle) hasta bloquear los
+// ENVÍOS. La foto es cosmética; el envío no. El botón manual de "traer foto" NO pasa por
+// aquí (llama a fetchEvolutionProfilePictureUrl directo), así que sigue disponible.
+// Cambiar a true para reactivar el refresco automático en segundo plano.
+const AVATAR_AUTO_REFRESH_ENABLED = false;
+
 export function scheduleContactAvatarRefresh(targets: ContactAvatarTarget[]) {
+  if (!AVATAR_AUTO_REFRESH_ENABLED) {
+    return;
+  }
+
   if (!targets.length) {
     return;
   }
@@ -133,6 +144,10 @@ const SINGLE_NO_PHOTO_RETRY_MS = 15 * 60 * 1000;
  * Bajo costo (un solo contacto) y con TTL corto para que la foto se vea pronto en el CRM.
  */
 export function scheduleSingleContactAvatarRefresh(target: ContactAvatarTarget) {
+  if (!AVATAR_AUTO_REFRESH_ENABLED) {
+    return;
+  }
+
   if (!target.contactId || !target.phoneNumber || !target.instanceName) {
     return;
   }
