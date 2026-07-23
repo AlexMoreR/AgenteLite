@@ -11,6 +11,7 @@ export const clientAssignableModuleKeys = [
   "connection",
   "agents",
   "agents_v2",
+  "products_v2",
   "client_official_api",
 ] as const satisfies readonly AdminModuleKey[];
 

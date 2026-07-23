@@ -126,6 +126,13 @@ export const adminModuleDefinitions = [
     group: "Cliente",
   },
   {
+    key: "products_v2",
+    label: "Producto V2",
+    description: "Editor de productos: contenedor con flujos anclados, precio opcional y anuncios.",
+    path: "/cliente/productos-v2",
+    group: "Cliente",
+  },
+  {
     key: "client_official_api",
     label: "Api oficial (Cliente)",
     description: "Permite ver y operar el modulo Api oficial en el area cliente.",

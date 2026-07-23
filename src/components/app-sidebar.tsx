@@ -64,6 +64,7 @@ const moduleIconMap: Record<AdminModuleKey, React.ComponentType> = {
   connection: Cable,
   agents: Bot,
   agents_v2: Workflow,
+  products_v2: Package,
   client_official_api: MessageSquare,
   client_team: Users,
 }
