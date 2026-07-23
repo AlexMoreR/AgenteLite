@@ -20,6 +20,7 @@ import {
   Upload,
   Plus,
   Save,
+  Search,
   Settings2,
   Split,
   Trash2,
@@ -1065,6 +1066,8 @@ export function OfficialApiChatbotWorkspace({
   const [scenarios, setScenarios] = useState<OfficialApiChatbotScenario[]>(
     data.defaults.scenarios,
   );
+  // Filtro del listado de flujos por nombre.
+  const [scenarioQuery, setScenarioQuery] = useState("");
   const [selectedScenarioId, setSelectedScenarioId] = useState(initialSelectedScenarioId);
   const [botEnabled] = useState(data.defaults.isBotEnabled);
   const [captureLeadEnabled, setCaptureLeadEnabled] = useState(data.defaults.captureLeadEnabled);
@@ -2417,14 +2420,35 @@ export function OfficialApiChatbotWorkspace({
       {hasWorkflows && !hasSelectedFlow ? (
         <div className="space-y-4 p-4 md:p-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <PageHeader icon={Workflow} title="Flujos" />
+            <div className="relative min-w-0 flex-1 sm:max-w-sm">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                type="search"
+                value={scenarioQuery}
+                onChange={(event) => setScenarioQuery(event.target.value)}
+                placeholder="Buscar flujo..."
+                className="pl-9"
+                aria-label="Buscar flujo"
+              />
+            </div>
             <Button type="button" size="sm" onClick={openCreateWorkflowModal}>
               <Plus className="h-4 w-4" />
               Crear
             </Button>
           </div>
           <div className="space-y-3">
-            {scenarios.map((scenario) => (
+            {scenarios.filter((scenario) =>
+              (scenario.title ?? "").toLowerCase().includes(scenarioQuery.trim().toLowerCase()),
+            ).length === 0 ? (
+              <p className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+                No hay flujos que coincidan con &quot;{scenarioQuery.trim()}&quot;.
+              </p>
+            ) : null}
+            {scenarios
+              .filter((scenario) =>
+                (scenario.title ?? "").toLowerCase().includes(scenarioQuery.trim().toLowerCase()),
+              )
+              .map((scenario) => (
               <Card
                 key={scenario.id}
                 role="button"
