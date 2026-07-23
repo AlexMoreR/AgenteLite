@@ -406,15 +406,31 @@ export function SharedInbox({
     [conversationListApiPath, searchAction, selectedConnectionKey, assignedFilter, statusFilter],
   );
 
+  // Si la URL tiene `q` (p.ej. se buscó y luego se abrió un chat: el href del chat arrastra el `q`),
+  // la lista base viene FILTRADA del servidor. Al borrar el buscador hay que quitar `q` de la URL
+  // para que el servidor devuelva la lista COMPLETA otra vez; si no, el input queda vacío pero la
+  // lista sigue mostrando solo los resultados de la búsqueda anterior (y "Todas" no coincide).
+  const clearSearchUrlParam = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has("q")) return;
+    url.searchParams.delete("q");
+    router.replace(`${url.pathname}${url.search}${url.hash}`);
+  }, [router]);
+
   const handleSearchChange = useCallback(
     (value: string) => {
       setSearchInputValue(value);
       if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+      // Se vació el buscador (borrando a mano): restaurar la lista completa quitando `q` de la URL.
+      if (!value.trim()) {
+        clearSearchUrlParam();
+      }
       searchDebounceRef.current = setTimeout(() => {
         void runSearchAugmentation(value);
       }, 250);
     },
-    [runSearchAugmentation],
+    [runSearchAugmentation, clearSearchUrlParam],
   );
 
   const handleSearchClear = useCallback(() => {
@@ -423,8 +439,9 @@ export function SharedInbox({
     searchAugmentAbortRef.current?.abort();
     searchAugmentAbortRef.current = null;
     setSearchMatchIds(null);
+    clearSearchUrlParam();
     searchInputRef.current?.focus();
-  }, []);
+  }, [clearSearchUrlParam]);
 
   // Lista que se muestra: filtrado LOCAL e instantáneo de los chats ya cargados por nombre,
   // teléfono o último mensaje (sin tildes/mayúsculas), más los que el servidor marcó como
