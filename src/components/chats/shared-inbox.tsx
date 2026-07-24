@@ -1187,17 +1187,27 @@ export function SharedInbox({
   const stickyRenderedConversationRef = useRef<SharedInboxSelectedConversation | null>(null);
   const renderedConversation = useMemo(() => {
     const computed = computedRenderedConversation;
-    if (computed && computed.messages.length > 0) {
+    // INVARIANTE: solo se muestra contenido del chat SELECCIONADO. Sin esto, al cambiar de chat con
+    // clic (sin recargar) quedaban pegados los mensajes del chat anterior: el `computed` seguía
+    // siendo la conversación previa (con mensajes) y se devolvía tal cual, mientras el encabezado ya
+    // mostraba el chat nuevo. Reproducido: mis-amores → clic Karen mostraba los mensajes de mis-amores.
+    const matchesSelection = (conversation: SharedInboxSelectedConversation | null) =>
+      Boolean(conversation && conversationIdMatchesKey(selectedConversationKey, conversation.id));
+
+    if (computed && matchesSelection(computed) && computed.messages.length > 0) {
       stickyRenderedConversationRef.current = computed;
       return computed;
     }
 
+    // Anti-parpadeo, pero SOLO dentro de la MISMA conversación seleccionada.
     const sticky = stickyRenderedConversationRef.current;
     if (sticky && conversationIdMatchesKey(selectedConversationKey, sticky.id)) {
       return sticky;
     }
 
-    return computed;
+    // Si el `computed` es de OTRA conversación (contenido pegado del chat anterior), no se muestra:
+    // se deja vacío/cargando hasta que llegue el contenido del chat correcto.
+    return matchesSelection(computed) ? computed : null;
   }, [computedRenderedConversation, selectedConversationKey]);
 
   // Cuando el chat abierto ya tiene su contenido real, reiniciamos el estado de scroll/historial
