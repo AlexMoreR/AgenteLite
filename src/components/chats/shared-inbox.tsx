@@ -834,10 +834,13 @@ export function SharedInbox({
       setLiveConversation((current) => {
         // Si current pertenece a una conversación diferente (liveConversation nunca se
         // resetea al navegar), usarlo como base haría que mergeCachedMessages concatene
-        // mensajes de dos chats distintos. Solo se usa current si es del mismo chat.
+        // mensajes de dos chats distintos. Solo se usa una base cuyo id COINCIDA con el snapshot;
+        // el fallback también se valida (antes caía en la conversación anterior → mismo cruce).
         const base = (current && current.id === snapshot.id)
           ? current
-          : (selectedConversationRef.current ?? null);
+          : (selectedConversationRef.current && selectedConversationRef.current.id === snapshot.id
+              ? selectedConversationRef.current
+              : null);
         return mergeConversationSnapshotIfChanged(base, snapshot);
       });
       // El detalle (setLiveConversation, arriba) SI se actualiza aunque haya busqueda; solo
@@ -1048,11 +1051,13 @@ export function SharedInbox({
         }
 
         setLiveConversation((current) => {
+          // Base = solo una conversación cuyo id coincide con el snapshot; si no, `null` (limpio).
+          // Antes caía en la conversación anterior y le mergeaba el snapshot nuevo → cruce.
           const base = current && conversationIdMatchesKey(current.id, snapshot.id)
             ? current
             : (selectedConversationRef.current && conversationIdMatchesKey(selectedConversationRef.current.id, snapshot.id)
                 ? selectedConversationRef.current
-                : selectedConversationRef.current ?? null);
+                : null);
           return mergeConversationSnapshotIfChanged(base, snapshot);
         });
       } catch {
@@ -1103,11 +1108,17 @@ export function SharedInbox({
           }
 
           setLiveConversation((current) => {
+            // La base para mergear el snapshot de /live SOLO puede ser una conversación cuyo id
+            // COINCIDA con el snapshot. Si ni la actual ni la seleccionada coinciden, la base es
+            // `null` (arranca limpio con solo el snapshot). Antes caía en
+            // `selectedConversationRef.current` (la conversación ANTERIOR) y le mergeaba el snapshot
+            // nuevo encima → los mensajes del chat viejo quedaban bajo el chat nuevo (el cruce real:
+            // mis-amores bajo Vanessa/Karen). El servidor devolvía bien; el mix era este merge.
             const base = current && conversationIdMatchesKey(current.id, snapshot.id)
               ? current
               : (selectedConversationRef.current && conversationIdMatchesKey(selectedConversationRef.current.id, snapshot.id)
                   ? selectedConversationRef.current
-                  : selectedConversationRef.current ?? null);
+                  : null);
             return mergeConversationSnapshotIfChanged(base, snapshot);
           });
         })
@@ -1333,11 +1344,13 @@ export function SharedInbox({
 
       shouldRestoreScroll = true;
       setLiveConversation((current) => {
+        // Base = solo una conversación cuyo id coincide con el snapshot; si no, `null` (no mergear
+        // sobre la conversación anterior, que era el cruce).
         const base = current && conversationIdMatchesKey(current.id, snapshot.id)
           ? current
           : (selectedConversationRef.current && conversationIdMatchesKey(selectedConversationRef.current.id, snapshot.id)
               ? selectedConversationRef.current
-              : selectedConversation ?? null);
+              : null);
         return mergeConversationSnapshotIfChanged(base, snapshot);
       });
     } catch {
