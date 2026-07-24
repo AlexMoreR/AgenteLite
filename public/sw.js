@@ -1,4 +1,4 @@
-const CACHE_NAME = "agente-lite-v3";
+const CACHE_NAME = "agente-lite-v4";
 const APP_SHELL = ["/", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
@@ -43,37 +43,50 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  if (request.mode === "navigate") {
+  // /_next/static/ son archivos con HASH en el nombre: inmutables (el hash cambia en cada deploy).
+  // Ahí cache-first es correcto Y rápido, y nunca sirve una versión vieja porque el HTML nuevo
+  // referencia hashes nuevos.
+  if (url.pathname.startsWith("/_next/static/")) {
     event.respondWith(
-      fetch(request)
-        .then((response) => {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone)).catch(() => undefined);
-          return response;
-        })
-        .catch(async () => {
-          const cached = await caches.match(request);
-          if (cached) {
-            return cached;
+      caches.match(request).then((cached) => {
+        if (cached) {
+          return cached;
+        }
+        return fetch(request).then((response) => {
+          if (response && response.ok) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone)).catch(() => undefined);
           }
-          return caches.match("/");
-        }),
+          return response;
+        });
+      }),
     );
     return;
   }
 
+  // TODO lo demás (HTML/navegación y assets sin hash): NETWORK-FIRST. Siempre trae la última
+  // versión desplegada; el cache es SOLO respaldo offline. Antes esto era cache-first y el
+  // Service Worker servía JS/HTML viejos para SIEMPRE aunque se desplegara: el equipo quedaba
+  // corriendo código viejo ("los cambios no salen") con bugs ya arreglados sin enterarse.
   event.respondWith(
-    caches.match(request).then((cached) => {
-      if (cached) {
-        return cached;
-      }
-
-      return fetch(request).then((response) => {
-        const clone = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(request, clone)).catch(() => undefined);
+    fetch(request)
+      .then((response) => {
+        if (response && response.ok) {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone)).catch(() => undefined);
+        }
         return response;
-      });
-    }),
+      })
+      .catch(async () => {
+        const cached = await caches.match(request);
+        if (cached) {
+          return cached;
+        }
+        if (request.mode === "navigate") {
+          return caches.match("/");
+        }
+        return Response.error();
+      }),
   );
 });
 
