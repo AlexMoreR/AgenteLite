@@ -95,6 +95,22 @@ export function hasEvolutionDeletedMessagePayload(payload: unknown) {
   );
 }
 
+// ¿El mensaje es un `protocolMessage` de WhatsApp? Son eventos de PROTOCOLO/sistema (ajuste de
+// mensajes temporales/ephemeral, sincronización, etc.), NO mensajes de chat. Los REVOKE (borrar)
+// también son protocolMessage pero se manejan por el camino de borrado; el resto no trae contenido
+// y no debe guardarse ni renderizarse como una burbuja vacía.
+export function hasEvolutionProtocolMessage(payload: unknown): boolean {
+  const message = getMessageRecord(payload);
+  const payloadRoot = getPrimaryPayloadRoot(payload);
+  const update = asRecord(payloadRoot?.update);
+  const updateMessage = asRecord(update?.message) ?? asRecord(update?.Message);
+  return Boolean(
+    asRecord(message?.protocolMessage) ||
+      asRecord(updateMessage?.protocolMessage) ||
+      asRecord(payloadRoot?.protocolMessage),
+  );
+}
+
 function extractMessageTextFromRecord(message: UnknownRecord | null): string | null {
   const extendedText = asRecord(message?.extendedTextMessage);
   const buttonsResponseMessage = asRecord(message?.buttonsResponseMessage);

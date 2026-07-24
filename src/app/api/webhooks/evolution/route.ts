@@ -44,6 +44,7 @@ import {
   hasEvolutionCallPayload,
   hasEvolutionDeletedMessagePayload,
   hasEvolutionEditedMessagePayload,
+  hasEvolutionProtocolMessage,
   isEvolutionStatusBroadcastPayload,
   isInboundMessageEvent,
   normalizePhoneFromJid,
@@ -1205,6 +1206,32 @@ export async function POST(request: NextRequest) {
   });
   const messageWasEdited = hasEvolutionEditedMessagePayload(payload);
   const messageWasDeleted = hasEvolutionDeletedMessagePayload(payload);
+
+  // Mensaje de PROTOCOLO sin contenido (p.ej. ajuste de "mensajes temporales"/ephemeral, sync):
+  // NO es un mensaje de chat. Se ignora para no guardarlo como una burbuja vacía ni dispararle una
+  // respuesta. Los borrados (REVOKE) y ediciones siguen su propio camino y no entran acá.
+  if (
+    !isCallEvent &&
+    !messageWasDeleted &&
+    !messageWasEdited &&
+    hasEvolutionProtocolMessage(payload) &&
+    !(messageText && messageText.trim()) &&
+    !mediaUrl
+  ) {
+    console.log("[EVOLUTION] protocol_message_ignored", {
+      instanceName,
+      event: eventName,
+      channelId: channel.id,
+      phoneNumber,
+    });
+    return NextResponse.json({
+      ok: true,
+      message: "Protocol message ignored",
+      instanceName,
+      event: eventName,
+    });
+  }
+
   let shouldTouchConversation = !messageWasEdited && !messageWasDeleted;
 
   if (messageType === "STICKER") {
