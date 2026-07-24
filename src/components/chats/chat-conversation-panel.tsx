@@ -194,11 +194,17 @@ export const ConversationPanel = memo(function ConversationPanel({
   const [isContactPanelOpen, setIsContactPanelOpen] = useState(false);
   const isMobile = useIsMobile();
   const [contactCity, setContactCity] = useState("");
+  // Etiquetas REALES del contacto para el panel. renderedConversation.tags viene del detalle
+  // (loader + /live), que NO incluye tags → al abrir un chat con clic el panel salía vacío
+  // aunque la lista sí mostraba "Lead". Las traemos de getContactDetailsAction (ContactTag real)
+  // y las mantenemos en sync con el evento global al agregar/quitar.
+  const [contactPanelTags, setContactPanelTags] = useState<Array<{ label: string; color: string }> | null>(null);
 
   const panelContactId = renderedConversation?.contactId ?? null;
   useEffect(() => {
     if (!isContactPanelOpen || !panelContactId) {
       setContactCity("");
+      setContactPanelTags(null);
       return;
     }
 
@@ -207,6 +213,7 @@ export const ConversationPanel = memo(function ConversationPanel({
       if (cancelled) return;
       if ("details" in result) {
         setContactCity(result.details.city);
+        setContactPanelTags(result.details.tags.map((tag) => ({ label: tag.name, color: tag.color })));
       }
     });
 
@@ -214,6 +221,22 @@ export const ConversationPanel = memo(function ConversationPanel({
       cancelled = true;
     };
   }, [isContactPanelOpen, panelContactId]);
+
+  // Sincroniza las etiquetas del panel cuando se agregan/quitan (ChatTagsControl emite este
+  // evento). Sin esto, mostrar contactPanelTags (que preferimos sobre renderedConversation.tags)
+  // dejaría el badge "pegado" tras quitar una etiqueta.
+  useEffect(() => {
+    if (!panelContactId) return;
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent).detail as
+        | { contactId?: string; tags?: Array<{ label: string; color: string }> }
+        | undefined;
+      if (!detail || detail.contactId !== panelContactId) return;
+      setContactPanelTags(detail.tags ?? []);
+    };
+    window.addEventListener("chat-tags-updated", handler as EventListener);
+    return () => window.removeEventListener("chat-tags-updated", handler as EventListener);
+  }, [panelContactId]);
 
   // Sube y envía UN archivo; devuelve true si se envió. No toca el estado de carga global
   // (eso lo maneja el batch) para poder reutilizarlo al enviar varios en secuencia.
@@ -690,7 +713,7 @@ export const ConversationPanel = memo(function ConversationPanel({
         <ChatTagsControl
           contactId={renderedConversation.contactId}
           conversationId={renderedConversation.id}
-          tags={renderedConversation.tags ?? []}
+          tags={contactPanelTags ?? renderedConversation.tags ?? []}
           canDelete={canDeleteTags}
         />
       </div>
