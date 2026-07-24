@@ -1128,14 +1128,15 @@ export function SharedInbox({
     () =>
       mergeConversationSnapshots(
         currentSelectedConversation ?? null,
-        effectiveLiveConversation ?? selectedConversationCache ?? cachedConversationForCurrentSelection,
+        // OJO: se usa `cachedConversationForCurrentSelection` (el cache VALIDADO por id), NO
+        // `selectedConversationCache` a secas. El `readConversationFromCache(selectedKey)` hace un
+        // lookup laxo (con y sin prefijo "agent:") y PUEDE devolver otra conversación; usarlo sin
+        // validar acá era el cruce real: al cambiar de chat con clic, el cuerpo quedaba con los
+        // mensajes del chat anterior (mis-amores bajo Karen/Vanessa). La versión validada es null
+        // cuando el cache no corresponde al chat seleccionado.
+        effectiveLiveConversation ?? cachedConversationForCurrentSelection,
       ),
-    [
-      cachedConversationForCurrentSelection,
-      currentSelectedConversation,
-      effectiveLiveConversation,
-      selectedConversationCache,
-    ],
+    [cachedConversationForCurrentSelection, currentSelectedConversation, effectiveLiveConversation],
   );
   const hasLoadedSelectedConversationContent = Boolean(
     liveOrCachedConversation &&
