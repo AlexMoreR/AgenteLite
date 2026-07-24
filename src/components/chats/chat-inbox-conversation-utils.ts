@@ -93,6 +93,11 @@ export function normalizeConversationItem(item: SharedInboxConversationItemLike,
     lastMessage: item.lastMessage ?? null,
     href: item.href?.trim() || fallbackHref,
     lastMessageAt: lastMessageAt && Number.isFinite(lastMessageAt.getTime()) ? lastMessageAt : null,
+    // El badge del canal (glifo verde de WhatsApp) depende de channelType. La lista base y la
+    // paginación vienen de /api/cliente/chats/list, que NO envía channelType → el badge
+    // desaparecía y solo reaparecía en los chats tocados por realtime (que sí lo infieren).
+    // Lo inferimos acá, el único funnel por el que pasan TODOS los items del cliente.
+    channelType: item.channelType ?? inferChannelTypeFromId(resolvedId),
   };
 }
 
