@@ -195,7 +195,7 @@ function MessageActionsMenu({
           aria-label="Opciones del mensaje"
           className={`absolute right-0.5 top-0.5 z-10 inline-flex size-6 items-center justify-center rounded-full opacity-0 shadow-sm transition group-hover/bubble:opacity-100 focus-visible:opacity-100 data-[popup-open]:opacity-100 ${
             outbound
-              ? "bg-[var(--primary)] text-white hover:brightness-110"
+              ? "bg-black/[0.06] text-black/60 hover:bg-black/10"
               : "bg-card text-muted-foreground hover:bg-muted"
           }`}
         >
