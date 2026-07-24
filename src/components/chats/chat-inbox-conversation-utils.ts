@@ -203,6 +203,9 @@ export function buildConversationItemFromSnapshot(
     secondaryLabel: snapshot.secondaryLabel ?? existing?.secondaryLabel ?? "",
     tags: snapshot.tags ?? existing?.tags ?? [],
     channelType: existing?.channelType ?? inferChannelTypeFromId(resolvedId),
+    // Preservar la etapa del CRM: sin esto, un update de realtime reconstruía el item SIN
+    // crmStage y la pastillita "Frío/Tibio" de la fila desaparecía al cambiar de etapa.
+    crmStage: snapshot.crmStage ?? existing?.crmStage ?? null,
     assignedToName: existing?.assignedToName ?? null,
     // Esta funcion solo actualiza la conversacion abierta: el usuario la esta viendo,
     // asi que no hay mensajes sin leer.
@@ -239,6 +242,9 @@ export function buildConversationItemFromListSnapshot(
     secondaryLabel: snapshot.secondaryLabel ?? existing?.secondaryLabel ?? "",
     tags: snapshot.tags ?? existing?.tags ?? [],
     channelType: snapshot.channelType ?? existing?.channelType ?? inferChannelTypeFromId(existing?.id ?? snapshot.id),
+    // Preservar/actualizar la etapa del CRM: el snapshot la trae fresca (p.ej. al cambiar a
+    // "Tibio") y, si no, se conserva la del existing en vez de perder la pastillita de la fila.
+    crmStage: snapshot.crmStage ?? existing?.crmStage ?? null,
     assignedToName: snapshot.assignedToName ?? existing?.assignedToName ?? null,
     incomingCount: snapshot.incomingCount ?? existing?.incomingCount ?? 0,
     avatarUrl: snapshot.avatarUrl ?? existing?.avatarUrl ?? null,
