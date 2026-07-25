@@ -65,6 +65,9 @@ type EmployeeRow = {
   id: string;
   name: string;
   email: string;
+  // "admin" = administrador del negocio (acceso total, sin restriccion de modulos);
+  // "employee" = empleado con modulos asignados.
+  role: "admin" | "employee";
   status: "pending" | "active" | "inactive";
   statusLabel: string;
   modules: ClientAssignableModuleKey[];
@@ -321,7 +324,9 @@ export function ClientTeamWorkspace({ employees }: ClientTeamWorkspaceProps) {
                   </TableCell>
                   <TableCell>
                     <div className="flex max-w-md flex-wrap gap-1.5">
-                      {employee.modules.length === 0 ? (
+                      {employee.role === "admin" ? (
+                        <Badge variant="default">Administrador · acceso total</Badge>
+                      ) : employee.modules.length === 0 ? (
                         <span className="text-muted-foreground">Sin modulos</span>
                       ) : (
                         employee.modules.map((module) => {
@@ -342,7 +347,13 @@ export function ClientTeamWorkspace({ employees }: ClientTeamWorkspaceProps) {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <EmployeeActions employee={employee} />
+                    {/* Las acciones (editar modulos, desactivar) solo aplican a empleados;
+                        un administrador tiene acceso total y no se gestiona por modulos. */}
+                    {employee.role === "admin" ? (
+                      <span className="flex justify-end pr-2 text-muted-foreground">—</span>
+                    ) : (
+                      <EmployeeActions employee={employee} />
+                    )}
                   </TableCell>
                 </TableRow>
               ))

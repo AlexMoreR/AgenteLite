@@ -33,17 +33,20 @@ export default async function ClienteEquipoPage({ searchParams }: PageProps) {
   const okMessage = typeof params.ok === "string" ? params.ok : "";
   const errorMessage = typeof params.error === "string" ? params.error : "";
 
+  // Muestra empleados (AGENT/EMPLEADO) Y administradores (ADMIN) del negocio. El dueno
+  // (OWNER) no se lista aqui: es el titular de la cuenta, no un miembro gestionable.
   const employees = await prisma.workspaceMember.findMany({
     where: {
       workspaceId: access.workspaceId,
-      role: "AGENT",
+      role: { in: ["AGENT", "ADMIN"] },
       user: {
-        role: "EMPLEADO",
+        role: { in: ["EMPLEADO", "ADMIN"] },
       },
     },
     orderBy: { createdAt: "desc" },
     select: {
       id: true,
+      role: true,
       moduleAccess: true,
       isActive: true,
       invitedAt: true,
@@ -76,6 +79,7 @@ export default async function ClienteEquipoPage({ searchParams }: PageProps) {
             id: employee.id,
             name: employee.user.name ?? "Empleado",
             email: employee.user.email,
+            role: employee.role === "ADMIN" ? ("admin" as const) : ("employee" as const),
             status,
             statusLabel:
               status === "inactive" ? "Inactivo" : status === "active" ? "Activo" : "Pendiente",
