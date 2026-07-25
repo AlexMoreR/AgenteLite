@@ -117,24 +117,82 @@ export function groupCrmRecordsByStage(records: CrmRecord[]) {
  * El orden es el que ve la vendedora al cerrar: primero las mas frecuentes, "Otro" al final.
  */
 export const CRM_LOST_REASONS = [
-  { value: "precio", label: "Precio" },
-  { value: "no_responde", label: "No responde" },
-  { value: "comparando", label: "Está comparando" },
-  { value: "sin_dinero", label: "Sin dinero hoy" },
-  { value: "decide_otro", label: "Decide otra persona" },
-  { value: "desconfianza", label: "Desconfianza" },
+  { value: "compro_competencia", label: "Compró a competencia" },
+  { value: "sin_presupuesto", label: "Sin presupuesto" },
+  { value: "solo_curioseando", label: "Solo curioseando" },
+  { value: "precio_alto", label: "Precio muy alto" },
+  { value: "sin_respuesta", label: "Sin respuesta" },
   { value: "otro", label: "Otro" },
 ] as const;
 
 export type CrmLostReason = (typeof CRM_LOST_REASONS)[number]["value"];
+
+// Etiquetas de motivos VIEJOS (lista previa al Playbook v1.0). Ya NO son seleccionables; solo
+// sirven para MOSTRAR con nombre legible los contactos PERDIDO que ya se guardaron con esos
+// valores, para que el informe de razones no muestre "decide_otro" crudo.
+const LEGACY_LOST_REASON_LABELS: Record<string, string> = {
+  precio: "Precio",
+  no_responde: "No responde",
+  comparando: "Está comparando",
+  sin_dinero: "Sin dinero hoy",
+  decide_otro: "Decide otra persona",
+  desconfianza: "Desconfianza",
+};
 
 export function getCrmLostReasonLabel(value: string | null | undefined) {
   if (!value) {
     return null;
   }
 
-  return CRM_LOST_REASONS.find((reason) => reason.value === value)?.label ?? value;
+  return (
+    CRM_LOST_REASONS.find((reason) => reason.value === value)?.label ??
+    LEGACY_LOST_REASON_LABELS[value] ??
+    value
+  );
 }
+
+/**
+ * Resultado de un intento de llamada (módulo de Llamadas). Lista FIJA — no enum ni texto libre —
+ * para poder MEDIR. Se guarda como texto en CallAttempt.result (mismo patrón que lostReason: los
+ * valores son de negocio y agregar uno debe ser editar esta lista, sin migrar la BD). El orden es
+ * el que ve la vendedora al registrar.
+ */
+export const CALL_RESULTS = [
+  { value: "interesada", label: "Contactado - interesada" },
+  { value: "lo_piensa", label: "Contactado - lo piensa" },
+  { value: "no_interesada", label: "Contactado - no interesada" },
+  { value: "sin_definir", label: "Contactado - sin respuesta (dijo algo pero no definió)" },
+  { value: "no_contesto", label: "No contestó - reintentar" },
+  { value: "ganado", label: "Cerrado - Ganado" },
+  { value: "perdido", label: "Cerrado - Perdido" },
+] as const;
+
+export type CallResult = (typeof CALL_RESULTS)[number]["value"];
+
+export function getCallResultLabel(value: string | null | undefined) {
+  if (!value) {
+    return null;
+  }
+  return CALL_RESULTS.find((result) => result.value === value)?.label ?? value;
+}
+
+// El resultado "Cerrado - Perdido" EXIGE motivo (no se puede guardar sin él).
+export const CALL_RESULT_LOST: CallResult = "perdido";
+
+/**
+ * Efecto de un resultado sobre la etapa del CRM (reglas del Playbook v1.0 — no inventar otras):
+ *  - "lo piensa"         → Tibio (PROPUESTA) inmediato.
+ *  - "Cerrado - Ganado"  → GANADO.
+ *  - "Cerrado - Perdido" → PERDIDO (requiere motivo).
+ * Los demás resultados NO cambian la etapa. En especial "No contestó" NO baja la temperatura.
+ * La baja a Tibio por "3 intentos + 5 días + cero respuesta" NO está acá: es una evaluación
+ * temporal (se agenda/evalúa aparte), no un efecto directo del resultado registrado.
+ */
+export const CALL_RESULT_STAGE_EFFECT: Partial<Record<CallResult, CrmStage>> = {
+  lo_piensa: "PROPUESTA",
+  ganado: "GANADO",
+  perdido: "PERDIDO",
+};
 
 export function sortCrmRecords(records: CrmRecord[]) {
   return [...records].sort((left, right) => {

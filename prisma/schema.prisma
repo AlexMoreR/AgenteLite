@@ -34,6 +34,7 @@ model User {
   workspaceMemberships WorkspaceMember[]
   assignedConversations Conversation[]   @relation("ConversationAssignee")
   webPushSubscriptions WebPushSubscription[]
+  callAttempts         CallAttempt[]     @relation("CallAttemptCaller")
 }
 
 model EmailAuthToken {
@@ -86,6 +87,7 @@ model Workspace {
   owner                User?                    @relation("WorkspaceOwner", fields: [ownerId], references: [id])
   memberships          WorkspaceMember[]
   webPushSubscriptions WebPushSubscription[]
+  callAttempts         CallAttempt[]
 
   @@index([ownerId])
 }
@@ -209,6 +211,7 @@ model Contact {
   conversations Conversation[]
   messages      Message[]
   follows       Follow[]
+  callAttempts  CallAttempt[]
 
   @@unique([workspaceId, phoneNumber])
   @@index([workspaceId, createdAt])
@@ -1006,4 +1009,39 @@ model WebPushSubscription {
 
   @@index([workspaceId])
   @@index([userId])
+}
+
+// Intento de llamada a un lead. Cada llamada es un EVENTO con historial (no un campo unico en
+// Contact): guarda que paso y cuando volver a intentar. Alimenta la vista de la vendedora
+// ("a quien llamo hoy y que paso la ultima vez") y el tablero del dueno. Reemplaza el Google
+// Sheet temporal de registro de llamadas de Ingrid.
+model CallAttempt {
+  id             String    @id @default(cuid())
+  workspaceId    String
+  contactId      String
+  // Quien llamo (Ingrid/Alexander/Carlos). Opcional: puede quedar nulo en registros retroactivos.
+  calledByUserId String?
+  // Numero de intento por lead (1,2,3...). Se calcula al registrar (conteo previo + 1).
+  attemptNumber  Int
+  // Resultado de la llamada. Lista FIJA definida en crm-config (no enum ni texto libre): mismo
+  // patron que Contact.lostReason, para poder medir sin migrar la BD de produccion al agregar uno.
+  result         String
+  // Resumen breve de lo que dijo el cliente (una linea).
+  summary        String?
+  // Cuando volver a intentar. Alimenta la priorizacion de la vista de la vendedora.
+  nextContactAt  DateTime?
+  // Obligatorio SOLO cuando result = "Cerrado - Perdido". Valores validos en crm-config.
+  lostReason     String?
+  // Fecha real de la llamada. EDITABLE (default now) para registrar llamadas retroactivas hechas
+  // antes de lanzar el modulo (migracion del Google Sheet).
+  calledAt       DateTime  @default(now())
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contact        Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  calledBy       User?     @relation("CallAttemptCaller", fields: [calledByUserId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, contactId, calledAt])
+  @@index([workspaceId, calledAt])
+  @@index([workspaceId, nextContactAt])
 }

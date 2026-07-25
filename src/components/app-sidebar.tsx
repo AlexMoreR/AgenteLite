@@ -15,6 +15,7 @@ import {
   MessageSquare,
   MessageSquareMore,
   Package,
+  PhoneCall,
   Tags,
   Truck,
   UserCog,
@@ -65,6 +66,7 @@ const moduleIconMap: Record<AdminModuleKey, React.ComponentType> = {
   agents: Bot,
   agents_v2: Workflow,
   products_v2: Package,
+  llamadas: PhoneCall,
   client_official_api: MessageSquare,
   client_team: Users,
 }

@@ -133,6 +133,13 @@ export const adminModuleDefinitions = [
     group: "Cliente",
   },
   {
+    key: "llamadas",
+    label: "Llamadas",
+    description: "Registro de llamadas por lead: a quien llamar hoy, resultado y proximo contacto.",
+    path: "/cliente/llamadas",
+    group: "Cliente",
+  },
+  {
     key: "client_official_api",
     label: "Api oficial (Cliente)",
     description: "Permite ver y operar el modulo Api oficial en el area cliente.",
