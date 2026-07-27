@@ -21,7 +21,9 @@
   --info-bg: #eff6ff;
   --info-line: #bfdbfe;
   --info-fg: #1e3a8a;
-  --background: oklch(1 0 0);
+  /* Lienzo del body en gris slate muy claro para que el menu, el header y las
+     tarjetas (blanco puro) resalten con calma, sin saturar de color. */
+  --background: #f4f6f9;
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
@@ -43,7 +45,7 @@
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
   --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
+  --sidebar: #ffffff;
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: oklch(0.205 0 0);
   --sidebar-primary-foreground: oklch(0.985 0 0);
