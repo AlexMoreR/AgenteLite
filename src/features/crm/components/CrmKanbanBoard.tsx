@@ -73,14 +73,19 @@ function KanbanCard({
           <div draggable onDragStart={(event) => onDragStart(event, record.id)} onDragEnd={onDragEnd}>
             <div className={isCollapsed ? "space-y-0.5" : "space-y-1"}>
               <div className="flex items-start justify-between gap-1.5 pr-6">
-                <div className="flex min-w-0 items-center gap-2">
+                <div className="flex min-w-0 items-center gap-2.5">
                   <ContactAvatar
                     avatarUrl={record.avatarUrl}
                     label={record.name}
-                    className="h-7 w-7 shrink-0 rounded-full"
-                    fallbackClassName="rounded-full text-[10px]"
+                    className="h-11 w-11 shrink-0 rounded-full"
+                    fallbackClassName="rounded-full text-[13px]"
                   />
-                  <p className="truncate text-[13px] font-semibold leading-4 text-foreground">{record.name}</p>
+                  <div className="flex min-w-0 flex-col">
+                    <p className="truncate text-[13px] font-semibold leading-4 text-foreground">{record.name}</p>
+                    {record.number && record.number !== record.name ? (
+                      <p className="truncate text-[12px] leading-4 text-muted-foreground">{record.number}</p>
+                    ) : null}
+                  </div>
                 </div>
               </div>
 
