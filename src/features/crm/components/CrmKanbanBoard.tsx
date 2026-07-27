@@ -344,11 +344,13 @@ export function CrmKanbanBoard({ columns }: { columns: CrmColumn[] }) {
                   void handleDrop(recordId, column.stage);
                 }
               }}
-              className={`rounded-[4px] border ${meta.borderClassName} ${meta.backgroundClassName} ${CRM_STAGE_DARK_SURFACE_CLASS[column.stage]} p-2 transition ${
+              className={`rounded-[4px] border ${meta.borderClassName} ${meta.backgroundClassName} ${CRM_STAGE_DARK_SURFACE_CLASS[column.stage]} py-2 transition ${
                 isDropTarget ? "ring-2 ring-offset-2 ring-offset-background" : ""
               }`}
             >
-              <div className="flex items-center justify-between gap-2">
+              {/* Solo el header lleva margen horizontal; las tarjetas ocupan todo el
+                  ancho de la columna y se alinean solas contra los bordes. */}
+              <div className="flex items-center justify-between gap-2 px-2">
                 <div>
                   <h3 className="text-sm font-semibold text-foreground">{column.title}</h3>
                 </div>
@@ -384,7 +386,7 @@ export function CrmKanbanBoard({ columns }: { columns: CrmColumn[] }) {
                     />
                   ))
                 ) : (
-                <div className="rounded-[12px] border border-dashed border-border/70 bg-background/60 px-4 py-8 text-center text-sm text-muted-foreground">
+                <div className="mx-2 rounded-[12px] border border-dashed border-border/70 bg-background/60 px-4 py-8 text-center text-sm text-muted-foreground">
                     Sin registros en esta columna.
                   </div>
                 )}
