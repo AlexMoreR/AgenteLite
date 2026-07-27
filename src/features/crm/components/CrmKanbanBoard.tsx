@@ -77,8 +77,8 @@ function KanbanCard({
                   <ContactAvatar
                     avatarUrl={record.avatarUrl}
                     label={record.name}
-                    className="h-11 w-11 shrink-0 rounded-full"
-                    fallbackClassName="rounded-full text-[13px]"
+                    className="h-8 w-8 shrink-0 rounded-full"
+                    fallbackClassName="rounded-full text-[11px]"
                   />
                   <div className="flex min-w-0 flex-col">
                     <p className="truncate text-[13px] font-semibold leading-4 text-foreground">{record.name}</p>
