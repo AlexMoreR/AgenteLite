@@ -196,24 +196,27 @@ function KanbanDetailModal({
       <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] max-w-md overflow-y-auto">
         <DialogTitle className="sr-only">Detalle del lead</DialogTitle>
         <div className="space-y-3">
-          <div className="flex items-center gap-3">
+          {/* pr-8: deja libre la esquina superior derecha, donde el diálogo dibuja la X. */}
+          <div className="flex items-start gap-3 pr-8">
             <ContactAvatar
               avatarUrl={record.avatarUrl}
               label={record.name}
               className="h-11 w-11 shrink-0 rounded-full"
               fallbackClassName="rounded-full"
             />
-            <div className="min-w-0">
+            {/* El badge de etapa va DEBAJO del nombre, no pegado al borde derecho: ahí vive la X
+                de cerrar del diálogo y se encimaban (sobre todo en pantallas angostas). */}
+            <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-semibold text-foreground">{record.name}</p>
               <p className="truncate text-xs text-muted-foreground">{record.number}</p>
+              {meta ? (
+                <span
+                  className={`mt-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${meta.backgroundClassName} ${meta.borderClassName} ${meta.accentClassName}`}
+                >
+                  {meta.label}
+                </span>
+              ) : null}
             </div>
-            {meta ? (
-              <span
-                className={`ml-auto inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${meta.backgroundClassName} ${meta.borderClassName} ${meta.accentClassName}`}
-              >
-                {meta.label}
-              </span>
-            ) : null}
           </div>
 
           <div className="space-y-1 text-xs text-muted-foreground">
