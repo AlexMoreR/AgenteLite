@@ -14,6 +14,8 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TAG_BADGE_CLASS, getTagBadgeColors } from "@/lib/tag-badge";
+import { getCrmStageMeta } from "@/features/crm/domain/crm-config";
+import type { CrmStage } from "@/features/crm/types";
 import { cn } from "@/lib/utils";
 
 export type ContactosCardProfile = {
@@ -35,6 +37,9 @@ export type ContactosCardItem = {
   profile: ContactosCardProfile;
   createdAt: string;
   lastActivityAt: string | null;
+  // Etapa del CRM (badge de solo lectura) y fecha real de venta si está Ganado.
+  crmStage: string;
+  wonAt: string | null;
   tags: Array<{
     label: string;
     color: string;
@@ -330,6 +335,27 @@ export function ContactosCardsList({ contacts }: { contacts: ContactosCardItem[]
                       {formatRelative(selected.lastActivityAt) ?? "sin registro"}
                     </span>
                   </p>
+
+                  {/* Etapa del CRM (solo lectura). Para Ganado muestra la fecha real de la venta.
+                      La etapa se cambia desde el CRM/Kanban o Llamadas, no desde esta ficha. */}
+                  {(() => {
+                    const meta = getCrmStageMeta(selected.crmStage as CrmStage);
+                    if (!meta) {
+                      return null;
+                    }
+                    const wonLabel =
+                      selected.crmStage === "GANADO" && selected.wonAt
+                        ? ` · ${new Intl.DateTimeFormat("es-CO", { dateStyle: "medium" }).format(new Date(selected.wonAt))}`
+                        : "";
+                    return (
+                      <span
+                        className={`inline-flex w-fit items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${meta.backgroundClassName} ${meta.borderClassName} ${meta.accentClassName}`}
+                      >
+                        {meta.label}
+                        {wonLabel}
+                      </span>
+                    );
+                  })()}
 
                   <div className="flex flex-wrap items-center gap-1.5">
                     {selected.tags.map((tag) => (

@@ -46,6 +46,10 @@ export type ContactosContact = {
   avatarUrl: string | null;
   profile: ContactosContactProfile;
   excludedFromCrm: boolean;
+  // Etapa del CRM (para mostrar un badge de solo lectura en la ficha) y fecha real de venta si
+  // está Ganado. Se editan desde el CRM/Kanban o Llamadas, no desde la ficha de contacto.
+  crmStage: string;
+  wonAt: string | null;
   tags: Array<{
     label: string;
     color: string;
