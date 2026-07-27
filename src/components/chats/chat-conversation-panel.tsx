@@ -895,7 +895,7 @@ export const ConversationPanel = memo(function ConversationPanel({
             </div>
 
             {composer && renderedConversation ? (
-              <div className="chat-composer z-20 shrink-0 bg-transparent px-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 md:px-2 md:py-2">
+              <div className="chat-composer z-20 shrink-0 border-t border-border bg-card px-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 md:px-2 md:py-2">
                 <form
                   className="mx-auto w-full max-w-5xl"
                   onSubmit={(event: FormEvent<HTMLFormElement>) => {
@@ -975,7 +975,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                         </div>
                       </div>
                     ) : (
-                      <div className="flex min-h-[44px] min-w-0 flex-1 items-center gap-0.5 rounded-2xl border border-border bg-background px-1.5 shadow-[0_1px_6px_#0000001f] transition focus-within:border-[var(--primary)] focus-within:bg-background focus-within:ring-2 focus-within:ring-ring/50 md:min-h-[40px]">
+                      <div className="flex min-h-[44px] min-w-0 flex-1 items-center gap-0.5 rounded-2xl border border-border bg-card px-1.5 shadow-[0_1px_6px_#0000001f] transition focus-within:border-[var(--primary)] focus-within:bg-card focus-within:ring-2 focus-within:ring-ring/50 md:min-h-[40px]">
                         {mediaConfig ? (
                           <>
                             <input
