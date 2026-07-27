@@ -3,7 +3,6 @@
 import * as React from "react";
 import { ChevronDown, ChevronUp, Pencil } from "lucide-react";
 import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { TAG_BADGE_CLASS, getTagBadgeColors } from "@/lib/tag-badge";
 import { Button } from "@/components/ui/button";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
@@ -345,12 +344,9 @@ export function CrmKanbanBoard({ columns }: { columns: CrmColumn[] }) {
                 <div>
                   <h3 className="text-sm font-semibold text-foreground">{column.title}</h3>
                 </div>
-                <Badge
-                  variant="outline"
-                  className={`h-auto rounded-full border px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] ${meta.borderClassName} bg-background/90 ${meta.accentClassName}`}
-                >
+                <span className={`text-sm font-semibold tabular-nums ${meta.accentClassName}`}>
                   {column.records.length}
-                </Badge>
+                </span>
               </div>
 
               <div className="mt-2 space-y-2">
