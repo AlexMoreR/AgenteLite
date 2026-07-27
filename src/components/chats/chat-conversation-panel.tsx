@@ -27,6 +27,7 @@ import {
 import { ChatScrollAnchor } from "@/components/agents/chat-scroll-anchor";
 import { ContactAvatar } from "@/components/chats/contact-avatar";
 import { getContactDetailsAction, generateSuggestedReplyAction, refreshContactAvatarNowAction } from "@/app/actions/chats-actions";
+import { sendChatLocationReplyAction } from "@/app/actions/agent-actions";
 import { clearPendingConversationSelection } from "@/components/chats/chat-selection-store";
 import { ChatTagsControl } from "@/components/chats/chat-tags-control";
 import { QuickRepliesDialog } from "@/components/chats/quick-replies-dialog";
@@ -175,6 +176,7 @@ export const ConversationPanel = memo(function ConversationPanel({
   const mediaFileInputRef = useRef<HTMLInputElement | null>(null);
   const documentFileInputRef = useRef<HTMLInputElement | null>(null);
   const [isSendingMedia, setIsSendingMedia] = useState(false);
+  const [isSendingLocation, setIsSendingLocation] = useState(false);
   // Mensajes optimistas de archivos en envío: el documento/imagen aparece en el chat con un
   // spinner mientras se envía (estilo WhatsApp), SIN bloquear el composer. Se ocultan solos
   // cuando llega el mensaje real (se deduplican por mediaUrl en el render).
@@ -237,6 +239,34 @@ export const ConversationPanel = memo(function ConversationPanel({
     window.addEventListener("chat-tags-updated", handler as EventListener);
     return () => window.removeEventListener("chat-tags-updated", handler as EventListener);
   }, [panelContactId]);
+
+  // Manda la ubicación del local con un toque. Las coordenadas viven en la configuración de
+  // Negocio (no las elige quien envía), así que acá solo hace falta saber a qué chat va.
+  const handleSendLocation = useCallback(async () => {
+    const conversationId = mediaConfig?.conversationId ?? audioConfig?.conversationId;
+    if (!conversationId || isSendingLocation) {
+      return;
+    }
+
+    setIsSendingLocation(true);
+    try {
+      const result = await sendChatLocationReplyAction({
+        conversationId,
+        agentId: mediaConfig?.agentId ?? audioConfig?.agentId ?? undefined,
+        returnTo: mediaConfig?.returnTo ?? audioConfig?.returnTo ?? undefined,
+      });
+      if ("error" in result) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success("Ubicación enviada");
+      onScrollToBottom?.();
+    } catch {
+      toast.error("No se pudo enviar la ubicación");
+    } finally {
+      setIsSendingLocation(false);
+    }
+  }, [mediaConfig, audioConfig, isSendingLocation, onScrollToBottom]);
 
   // Sube y envía UN archivo; devuelve true si se envió. No toca el estado de carga global
   // (eso lo maneja el batch) para poder reutilizarlo al enviar varios en secuencia.
@@ -767,31 +797,51 @@ export const ConversationPanel = memo(function ConversationPanel({
                     hasSettledConversation ? "opacity-100" : "opacity-80"
                   }`}
                 >
-                  <TooltipProvider delayDuration={300}>
-                    <Tooltip>
-                      <TooltipTrigger
+                  <div className="relative shrink-0">
+                    <TooltipProvider delayDuration={300}>
+                      <Tooltip>
+                        <TooltipTrigger
+                          type="button"
+                          onClick={() => setIsContactPanelOpen((open) => !open)}
+                          className="group relative shrink-0 rounded-[22px] transition focus:outline-none focus:ring-2 focus:ring-ring/50"
+                          aria-label={isContactPanelOpen ? "Cerrar detalles del contacto" : "Abrir detalles del contacto"}
+                          title="Contacto"
+                        >
+                          <span className="relative block">
+                            <ContactAvatar
+                              avatarUrl={renderedConversation.avatarUrl}
+                              label={renderedConversation.label}
+                              className="h-10 w-10 rounded-[18px] border-0 bg-muted text-muted-foreground after:border-0 transition"
+                              fallbackClassName="rounded-[18px] bg-muted text-muted-foreground"
+                            />
+                          </span>
+                        </TooltipTrigger>
+                        {renderedConversation.secondaryLabel ? (
+                          <TooltipContent side="right">
+                            {renderedConversation.secondaryLabel}
+                          </TooltipContent>
+                        ) : null}
+                      </Tooltip>
+                    </TooltipProvider>
+                    {/* Traer la foto de WhatsApp de ESTE contacto: 1 sola peticion manual,
+                        deliberada. El refresco automatico masivo sigue apagado (saturaba evogo). */}
+                    {renderedConversation.contactId ? (
+                      <button
                         type="button"
-                        onClick={() => setIsContactPanelOpen((open) => !open)}
-                        className="group relative shrink-0 rounded-[22px] transition focus:outline-none focus:ring-2 focus:ring-ring/50"
-                        aria-label={isContactPanelOpen ? "Cerrar detalles del contacto" : "Abrir detalles del contacto"}
-                        title="Contacto"
+                        onClick={handleRefreshAvatar}
+                        disabled={isRefreshingAvatar}
+                        aria-label="Traer foto de perfil de WhatsApp"
+                        title="Traer foto de perfil de WhatsApp"
+                        className="absolute -bottom-1 -right-1 inline-flex h-5 w-5 items-center justify-center rounded-full border border-background bg-[var(--primary)] text-white shadow-sm transition hover:opacity-90 disabled:opacity-60"
                       >
-                        <span className="relative block">
-                          <ContactAvatar
-                            avatarUrl={renderedConversation.avatarUrl}
-                            label={renderedConversation.label}
-                            className="h-10 w-10 rounded-[18px] border-0 bg-muted text-muted-foreground after:border-0 transition"
-                            fallbackClassName="rounded-[18px] bg-muted text-muted-foreground"
-                          />
-                        </span>
-                      </TooltipTrigger>
-                      {renderedConversation.secondaryLabel ? (
-                        <TooltipContent side="right">
-                          {renderedConversation.secondaryLabel}
-                        </TooltipContent>
-                      ) : null}
-                    </Tooltip>
-                  </TooltipProvider>
+                        {isRefreshingAvatar ? (
+                          <LoaderCircle className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Camera className="h-3 w-3" />
+                        )}
+                      </button>
+                    ) : null}
+                  </div>
                   <div className="min-w-0 space-y-0.5">
                     <h2 className="truncate text-[13px] font-semibold text-foreground md:text-sm">
                       {renderedConversation.label}
@@ -1061,6 +1111,21 @@ export const ConversationPanel = memo(function ConversationPanel({
                                 >
                                   <ImageIcon className="size-5 shrink-0 text-[#2f9bff]" />
                                   <span>Fotos y videos</span>
+                                </Button>
+                                {/* Ubicación del local con UN toque: las coordenadas salen de la
+                                    configuración de Negocio, la asesora no tiene que buscar nada. */}
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  disabled={isSendingLocation}
+                                  onClick={() => {
+                                    setIsAttachMenuOpen(false);
+                                    void handleSendLocation();
+                                  }}
+                                  className="flex h-auto w-full items-center justify-start gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-normal text-foreground transition hover:bg-muted focus:outline-none focus-visible:bg-muted"
+                                >
+                                  <MapPin className="size-5 shrink-0 text-[#ef4444]" />
+                                  <span>{isSendingLocation ? "Enviando ubicación…" : "Ubicación del local"}</span>
                                 </Button>
                                 {audioConfig ? (
                                   <Button
