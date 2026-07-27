@@ -1631,9 +1631,18 @@ export function SharedInbox({
   // una foto desde un chat abierto con click se la enviaria AL CLIENTE EQUIVOCADO. Se reapunta al
   // chat cargado, igual que los campos ocultos.
   const effectiveComposer = useMemo(() => {
-    const targetId = renderedConversation && !renderedConversation.isPreview ? renderedConversation.id : null;
-    if (!composer || !targetId) {
+    if (!composer) {
       return composer;
+    }
+
+    const targetId = renderedConversation && !renderedConversation.isPreview ? renderedConversation.id : null;
+    // El servidor manda audio/media SIEMPRE como plantilla (ver page.tsx). Aca se decide si el
+    // chat abierto puede usarlos: hace falta un chat cargado de verdad (no el preview) y que sea
+    // un chat de WhatsApp por agente. En los de la API oficial se apagan: el "+" subiria el
+    // archivo al endpoint equivocado.
+    const isOfficialChat = selectedConversationId.startsWith("official:");
+    if (!targetId || isOfficialChat) {
+      return { ...composer, audio: undefined, media: undefined };
     }
 
     return {
@@ -1641,7 +1650,7 @@ export function SharedInbox({
       audio: composer.audio ? { ...composer.audio, conversationId: targetId } : undefined,
       media: composer.media ? { ...composer.media, conversationId: targetId } : undefined,
     };
-  }, [composer, renderedConversation]);
+  }, [composer, renderedConversation, selectedConversationId]);
 
   // Controles de la cabecera (etapa del CRM, pausar la IA, resolver, importar historial) armados
   // en el CLIENTE con los datos que trae /live.

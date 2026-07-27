@@ -1110,26 +1110,31 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
                 ...(selectedChatHref ? [{ name: "returnTo", value: selectedChatHref }] : []),
               ]
             : [],
-          audio: agentComposerConversationId
-            ? {
-                uploadPath: "/api/cliente/chats/upload-audio",
-                source: "agent",
-                conversationId: agentComposerConversationId,
-                agentId: agentComposerAgentId,
-                returnTo: selectedChatHref ?? "",
-                sendAction: sendChatAudioReplyAction,
-              }
-            : undefined,
-          media: agentComposerConversationId
-            ? {
-                uploadPath: "/api/cliente/chats/upload-media",
-                source: "agent",
-                conversationId: agentComposerConversationId,
-                agentId: agentComposerAgentId,
-                returnTo: selectedChatHref ?? "",
-                sendAction: sendChatMediaReplyAction,
-              }
-            : undefined,
+          // OJO: audio y media se mandan SIEMPRE, aunque al cargar la pagina no hubiera ningun
+          // chat en la URL. Son la plantilla (a que endpoint subir y que accion ejecutar); el
+          // conversationId real lo reapunta el cliente al chat abierto (effectiveComposer en
+          // shared-inbox), que tambien los apaga en los chats de la API oficial.
+          //
+          // Antes iban condicionados a que el SERVIDOR ya conociera el chat, asi que en el flujo
+          // normal (entrar a Chats y hacer CLICK en una conversacion) nunca se creaban: el "+"
+          // de adjuntar y el microfono no aparecian y no se podian mandar catalogos ni fotos
+          // hasta recargar la pagina.
+          audio: {
+            uploadPath: "/api/cliente/chats/upload-audio",
+            source: "agent",
+            conversationId: agentComposerConversationId ?? "",
+            agentId: agentComposerAgentId,
+            returnTo: selectedChatHref ?? "",
+            sendAction: sendChatAudioReplyAction,
+          },
+          media: {
+            uploadPath: "/api/cliente/chats/upload-media",
+            source: "agent",
+            conversationId: agentComposerConversationId ?? "",
+            agentId: agentComposerAgentId,
+            returnTo: selectedChatHref ?? "",
+            sendAction: sendChatMediaReplyAction,
+          },
         }}
         emptyListTitle="Aun no hay conversaciones"
         emptyListDescription="Cuando lleguen mensajes por tus canales, apareceran aqui en una sola bandeja."
