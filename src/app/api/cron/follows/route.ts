@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { executePendingFollows } from "@/features/seguimientos/services/follows";
+import { demoteUnresponsiveStaleLeads } from "@/features/llamadas/services/lead-cooldown";
 
 function resolveCronSecret() {
   return process.env.FOLLOW_CRON_SECRET?.trim() || process.env.EVOLUTION_WEBHOOK_SECRET?.trim() || "";
@@ -36,9 +37,22 @@ async function handleCron(request: Request) {
     limit: 50,
   });
 
+  // Enfriamiento de leads (Playbook: 3 intentos + 5 días + cero respuesta → Tibio). Va colgado
+  // de este cron para no montar otro. Throttle: solo cada ~5 min (el cron corre cada 60s), porque
+  // el cruce de la condición no cambia minuto a minuto. Best-effort: si falla, no rompe los envíos.
+  let cooldown: { demoted: number } | null = null;
+  if (new Date().getMinutes() % 5 === 0) {
+    try {
+      cooldown = await demoteUnresponsiveStaleLeads();
+    } catch (error) {
+      console.error("[cron/follows] cooldown error", error);
+    }
+  }
+
   return NextResponse.json({
     ok: true,
     ...result,
+    cooldown,
   });
 }
 
