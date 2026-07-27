@@ -40,6 +40,7 @@ import {
   extractEvolutionPhoneNumber,
   extractEvolutionPushName,
   extractEvolutionQrCode,
+  extractEvolutionReaction,
   extractEvolutionRemoteJid,
   hasEvolutionCallPayload,
   hasEvolutionDeletedMessagePayload,
@@ -1227,6 +1228,44 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       ok: true,
       message: "Protocol message ignored",
+      instanceName,
+      event: eventName,
+    });
+  }
+
+  // REACCION (👍 ❤️ …) del cliente sobre un mensaje ya enviado. WhatsApp la manda como si fuera un
+  // mensaje mas pero sin texto: guardarla asi dejaba una burbuja vacia y la lista mostraba "Sin
+  // mensajes visibles aun". Se pega a la burbuja del mensaje reaccionado (como WhatsApp) y se
+  // corta el flujo: NO es un mensaje nuevo, no mueve la conversacion ni despierta al agente.
+  const reaction = !isCallEvent && !messageWasDeleted && !messageWasEdited
+    ? extractEvolutionReaction(payload)
+    : null;
+  if (reaction) {
+    if (!fromMe) {
+      // Emoji vacio = el cliente quito la reaccion.
+      const nextEmoji = reaction.emoji.trim() || null;
+      await prisma.message
+        .updateMany({
+          where: { channelId: channel.id, externalId: reaction.targetExternalId },
+          data: { reactionEmoji: nextEmoji },
+        })
+        .catch((error) => {
+          console.error("[EVOLUTION] reaction_update_failed", error);
+        });
+    }
+
+    console.log("[EVOLUTION] reaction_received", {
+      instanceName,
+      event: eventName,
+      channelId: channel.id,
+      phoneNumber,
+      fromMe,
+      emoji: reaction.emoji,
+    });
+
+    return NextResponse.json({
+      ok: true,
+      message: "Reaction handled",
       instanceName,
       event: eventName,
     });

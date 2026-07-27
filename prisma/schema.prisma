@@ -433,6 +433,9 @@ model Message {
   mediaUrl       String?
   editedAt       DateTime?
   deletedAt      DateTime?
+  // Reaccion del CLIENTE sobre este mensaje (👍 ❤️ …), como la muestra WhatsApp: pegada a la
+  // burbuja, no como un mensaje aparte. Null = sin reaccion (o la quito).
+  reactionEmoji  String?
   rawPayload     Json?
   isStatusBroadcast Boolean        @default(false)
   sentAt         DateTime?

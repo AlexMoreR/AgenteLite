@@ -11,6 +11,8 @@ export type AgentConversationMessageRecord = {
   deletedAt: Date | null;
   type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
   mediaUrl: string | null;
+  // Reaccion del cliente sobre ESTE mensaje (se dibuja pegada a la burbuja, como en WhatsApp).
+  reactionEmoji: string | null;
   rawPayload: unknown;
 };
 
@@ -131,6 +133,7 @@ export async function loadAgentConversationDetail(input: {
       rawPayload: true,
       type: true,
       mediaUrl: true,
+      reactionEmoji: true,
     },
   });
 

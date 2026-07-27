@@ -750,6 +750,17 @@ export const MessageBubble = memo(function MessageBubble({
             ) : null}
           </div>
           </div>
+
+          {/* Reaccion del cliente (👍 ❤️ …): circulito pegado abajo a la derecha de la burbuja,
+              como en WhatsApp. No es un mensaje aparte; antes llegaba como burbuja vacia. */}
+          {message.reactionEmoji ? (
+            <span
+              className="absolute -bottom-2.5 right-2 inline-flex h-[22px] min-w-[22px] items-center justify-center rounded-full border border-border bg-card px-1 text-[13px] leading-none shadow-[0_1px_3px_rgba(15,23,42,0.2)]"
+              title="Reacción del cliente"
+            >
+              {message.reactionEmoji}
+            </span>
+          ) : null}
         </div>
       </div>
       )}

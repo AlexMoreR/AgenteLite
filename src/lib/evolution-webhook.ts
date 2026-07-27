@@ -99,6 +99,44 @@ export function hasEvolutionDeletedMessagePayload(payload: unknown) {
 // mensajes temporales/ephemeral, sincronización, etc.), NO mensajes de chat. Los REVOKE (borrar)
 // también son protocolMessage pero se manejan por el camino de borrado; el resto no trae contenido
 // y no debe guardarse ni renderizarse como una burbuja vacía.
+/**
+ * Reaccion (👍 ❤️ …) que el cliente pone SOBRE un mensaje ya enviado.
+ *
+ * WhatsApp la manda como si fuera un mensaje mas, pero sin texto: si se guarda tal cual queda una
+ * burbuja vacia en el chat y la lista muestra "Sin mensajes visibles aun". Aca se extrae el emoji
+ * y el id del mensaje reaccionado (`key.id`, que es el `externalId` con el que guardamos ese
+ * mensaje) para pegarsela a la burbuja correcta, como hace WhatsApp.
+ *
+ * `text` vacio = el cliente QUITO la reaccion.
+ */
+export function extractEvolutionReaction(
+  payload: unknown,
+): { emoji: string; targetExternalId: string } | null {
+  const message = getMessageRecord(payload);
+  const payloadRoot = getPrimaryPayloadRoot(payload);
+  const update = asRecord(payloadRoot?.update);
+  const updateMessage = asRecord(update?.message) ?? asRecord(update?.Message);
+  const reaction =
+    asRecord(message?.reactionMessage) ??
+    asRecord(message?.ReactionMessage) ??
+    asRecord(updateMessage?.reactionMessage) ??
+    asRecord(payloadRoot?.reactionMessage);
+
+  if (!reaction) {
+    return null;
+  }
+
+  const key = asRecord(reaction.key) ?? asRecord(reaction.Key);
+  const targetExternalId = pickString(key, ["id", "ID", "Id"]);
+  if (!targetExternalId) {
+    return null;
+  }
+
+  // El emoji puede venir vacio (quitar reaccion): se devuelve "" y quien llama lo interpreta.
+  const emoji = pickString(reaction, ["text", "Text", "emoji"]) ?? "";
+  return { emoji, targetExternalId };
+}
+
 export function hasEvolutionProtocolMessage(payload: unknown): boolean {
   const message = getMessageRecord(payload);
   const payloadRoot = getPrimaryPayloadRoot(payload);

@@ -882,6 +882,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       outboundStatusLabel: null,
       type: (message.type ?? "TEXT") as NonNullable<UnifiedConversation["lastMessageType"]>,
       mediaUrl: message.mediaUrl,
+      reactionEmoji: message.reactionEmoji,
       rawPayload: message.rawPayload,
     }));
 

@@ -368,6 +368,9 @@ function areMergedMessagesEqual(
     left.outboundStatusLabel === right.outboundStatusLabel &&
     left.type === right.type &&
     left.mediaUrl === right.mediaUrl &&
+    // La reaccion cambia un mensaje que YA existe: sin compararla, el merge daba los dos mensajes
+    // por iguales, se quedaba con el viejo y el emoji no aparecia hasta recargar.
+    (left.reactionEmoji ?? null) === (right.reactionEmoji ?? null) &&
     getMessageCreatedAtTime(left) === getMessageCreatedAtTime(right) &&
     getMessageEditedAtTime(left) === getMessageEditedAtTime(right) &&
     getMessageDeletedAtTime(left) === getMessageDeletedAtTime(right)
