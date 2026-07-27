@@ -98,27 +98,30 @@ function KanbanCard({
                     ))}
                   </div>
 
-                  <div className="flex items-center justify-between gap-2 pt-0">
-                    <span className="text-xs text-muted-foreground">
-                      {record.status === "GANADO" ? "Venta: " : ""}
-                      {formatCrmDate(record.date)}
-                    </span>
-                    {record.status === "GANADO" && onEditWonDate ? (
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onEditWonDate(record.id, record.date);
-                        }}
-                        onPointerDown={(event) => event.stopPropagation()}
-                        className="inline-flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground"
-                        aria-label="Editar fecha de venta"
-                        title="Editar fecha de venta"
-                      >
-                        <Pencil className="h-3 w-3" />
-                      </button>
-                    ) : null}
-                  </div>
+                  {/* Solo mostramos fecha en los Ganados: ahi es la fecha real de venta
+                      (editable con el lapiz). En el resto de tarjetas se oculta. */}
+                  {record.status === "GANADO" ? (
+                    <div className="flex items-center justify-between gap-2 pt-0">
+                      <span className="text-xs text-muted-foreground">
+                        Venta: {formatCrmDate(record.date)}
+                      </span>
+                      {onEditWonDate ? (
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onEditWonDate(record.id, record.date);
+                          }}
+                          onPointerDown={(event) => event.stopPropagation()}
+                          className="inline-flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                          aria-label="Editar fecha de venta"
+                          title="Editar fecha de venta"
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </>
               ) : null}
             </div>
