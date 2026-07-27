@@ -23,7 +23,7 @@
   --info-fg: #1e3a8a;
   /* Lienzo del body en gris slate muy claro para que el menu, el header y las
      tarjetas (blanco puro) resalten con calma, sin saturar de color. */
-  --background: #f4f6f9;
+  --background: #e9edf3;
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
