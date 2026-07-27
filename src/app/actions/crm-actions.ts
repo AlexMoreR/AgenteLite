@@ -17,7 +17,18 @@ const updateCrmStageSchema = z.object({
   // Solo se guarda al cerrar como PERDIDO. Es el unico dato del CRM que la maquina NO puede
   // deducir: por que se cayo la venta lo sabe la vendedora y nadie mas.
   lostReason: z.string().trim().min(1).max(60).optional(),
+  // Fecha real de la venta. Solo aplica a GANADO. Si no viene, se usa la fecha de hoy. Editable
+  // para poder corregir ventas mal fechadas o cargar ventas viejas con su dia real.
+  wonAt: z.string().trim().min(1).optional(),
 });
+
+function parseWonAt(value: string | undefined): Date {
+  if (!value) {
+    return new Date();
+  }
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date : new Date();
+}
 
 const updateCrmCollapsedSchema = z.object({
   contactId: z.string().trim().min(1),
@@ -28,6 +39,7 @@ export async function updateCrmStageAction(input: {
   contactId: string;
   status: CrmStage;
   lostReason?: string;
+  wonAt?: string;
 }) {
   const session = await auth();
 
@@ -65,10 +77,15 @@ export async function updateCrmStageAction(input: {
   // despues ensucie el informe de razones.
   const lostReason = parsed.data.status === "PERDIDO" ? parsed.data.lostReason ?? null : null;
 
+  // wonAt solo aplica a GANADO: la fecha real de la venta. Si no viene, hoy. Al mover el lead a
+  // cualquier otra etapa se limpia (igual que lostReason) para que no ensucie el reporte.
+  const wonAt = parsed.data.status === "GANADO" ? parseWonAt(parsed.data.wonAt) : null;
+
   await prisma.$executeRaw`
     UPDATE "Contact"
     SET "crmStage" = ${parsed.data.status},
         "lostReason" = ${lostReason},
+        "wonAt" = ${wonAt},
         "updatedAt" = NOW()
     WHERE "id" = ${contact.id}
   `;

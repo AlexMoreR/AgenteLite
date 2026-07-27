@@ -110,7 +110,17 @@ export async function computeDailyMetrics(
         select: contactSelect,
       }),
       prisma.contact.findMany({
-        where: { workspaceId, crmStage: { in: ["GANADO", "PERDIDO"] }, updatedAt: range },
+        // Ganado se cuenta por la FECHA REAL de la venta (wonAt), no por updatedAt: un lead ganado
+        // hace días pero tocado hoy ya no infla el "ganado de hoy". Perdido sigue por updatedAt
+        // (no hay fecha de pérdida). Los GANADO sin wonAt (históricos) no entran: su fecha real no
+        // se conoce y contarlos por updatedAt era justo lo que hacía el reporte poco confiable.
+        where: {
+          workspaceId,
+          OR: [
+            { crmStage: "GANADO", wonAt: range },
+            { crmStage: "PERDIDO", updatedAt: range },
+          ],
+        },
         orderBy: { updatedAt: "desc" },
         select: contactSelect,
       }),

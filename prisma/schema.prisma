@@ -197,6 +197,11 @@ model Contact {
   excludedFromCrm Boolean      @default(false)
   metadata      Json?
   crmStage      CrmStage       @default(NUEVO)
+  // Fecha REAL de la venta (dia del pago). Solo tiene sentido con crmStage = GANADO. Se setea al
+  // marcar Ganado (desde Llamadas = la fecha del intento que lo cerro, o desde el kanban = la
+  // fecha elegida). Es la fuente de verdad para "ganado hoy" en el reporte y para la tarjeta del
+  // kanban, en vez de deducirlo de updatedAt/ultima actividad (que fechaba mal las ventas).
+  wonAt         DateTime?
   // Por que se perdio el lead. Solo tiene sentido con crmStage = PERDIDO. Es texto y no enum a
   // proposito: las razones son de negocio y cambian (hoy precio/desconfianza/sin dinero/decide
   // otro/comparando/no responde/otro), y un enum obligaria a migrar la BD de produccion cada vez

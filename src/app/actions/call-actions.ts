@@ -108,6 +108,9 @@ export async function registerCallAttemptAction(input: RegisterCallInput) {
       contactId: contact.id,
       status: stageEffect,
       lostReason: isLost ? lostReason ?? undefined : undefined,
+      // Playbook: "Ganado el día del pago, ligado al intento que lo cerró" → la fecha de venta
+      // es la fecha de ESTA llamada (calledAt, editable para registro retroactivo).
+      wonAt: stageEffect === "GANADO" ? calledAt.toISOString() : undefined,
     });
   }
 

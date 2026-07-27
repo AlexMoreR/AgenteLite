@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown, ChevronUp, Pencil } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { TAG_BADGE_CLASS, getTagBadgeColors } from "@/lib/tag-badge";
@@ -21,6 +21,13 @@ const CRM_STAGE_DARK_SURFACE_CLASS: Record<CrmColumn["stage"], string> = {
   GANADO: "dark:border-emerald-500/25 dark:bg-emerald-500/10",
   PERDIDO: "dark:border-violet-500/25 dark:bg-violet-500/10",
 };
+
+// Valor "YYYY-MM-DD" (para <input type="date">) a partir de una fecha, en hora local.
+function toDateInputValue(value: string | Date) {
+  const date = value instanceof Date ? value : new Date(value);
+  const offset = date.getTimezoneOffset() * 60 * 1000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 10);
+}
 
 function formatCrmDate(value: string) {
   return new Intl.DateTimeFormat("es-CO", {
@@ -46,6 +53,7 @@ function KanbanCard({
   onToggleCollapse,
   onDragStart,
   onDragEnd,
+  onEditWonDate,
 }: {
   record: CrmRecord;
   isDragging: boolean;
@@ -53,6 +61,7 @@ function KanbanCard({
   onToggleCollapse: (recordId: string) => void;
   onDragStart: (event: React.DragEvent<HTMLDivElement>, recordId: string) => void;
   onDragEnd: () => void;
+  onEditWonDate?: (recordId: string, dateISO: string) => void;
 }) {
   return (
     <Card
@@ -91,7 +100,25 @@ function KanbanCard({
                   </div>
 
                   <div className="flex items-center justify-between gap-2 pt-0">
-                    <span className="text-xs text-muted-foreground">{formatCrmDate(record.date)}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {record.status === "GANADO" ? "Venta: " : ""}
+                      {formatCrmDate(record.date)}
+                    </span>
+                    {record.status === "GANADO" && onEditWonDate ? (
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onEditWonDate(record.id, record.date);
+                        }}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        className="inline-flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                        aria-label="Editar fecha de venta"
+                        title="Editar fecha de venta"
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </button>
+                    ) : null}
                   </div>
                 </>
               ) : null}
@@ -135,6 +162,10 @@ export function CrmKanbanBoard({ columns }: { columns: CrmColumn[] }) {
   // Arrastre a Descartado en espera del motivo (mismo flujo que el selector del chat): guardamos
   // a quien mover y abrimos el dialogo de razon en vez de cerrar de una.
   const [pendingLostRecordId, setPendingLostRecordId] = React.useState<string | null>(null);
+  // Arrastre a Ganado / edición de la fecha de venta: guardamos a quién y la fecha elegida (por
+  // defecto hoy), y abrimos el diálogo para confirmar el DÍA REAL de la venta antes de guardar.
+  const [pendingWonRecordId, setPendingWonRecordId] = React.useState<string | null>(null);
+  const [wonDateValue, setWonDateValue] = React.useState<string>("");
   const [collapsedRecordIds, setCollapsedRecordIds] = React.useState<Record<string, boolean>>(() =>
     Object.fromEntries(
       columns.flatMap((column) =>
@@ -215,7 +246,48 @@ export function CrmKanbanBoard({ columns }: { columns: CrmColumn[] }) {
       return;
     }
 
+    // Ganado pide la FECHA REAL de la venta antes de mover (Playbook: "el día del pago"). Sin esto
+    // la venta quedaba fechada con la última actividad (hoy), y el reporte de "ganado hoy" mentía.
+    if (nextStage === "GANADO") {
+      setDraggedRecordId(null);
+      setDropTargetStage(null);
+      setWonDateValue(toDateInputValue(new Date()));
+      setPendingWonRecordId(recordId);
+      return;
+    }
+
     await commitStageChange(recordId, nextStage);
+  };
+
+  // Confirma/edita la fecha de venta y deja el lead en Ganado. Sirve para el arrastre a Ganado y
+  // para corregir la fecha desde el lápiz de la tarjeta (mismo diálogo).
+  const confirmWonDate = async (recordId: string, dateStr: string) => {
+    const wonAtIso = new Date(`${dateStr}T12:00:00`).toISOString();
+    const currentRecord = localColumns.flatMap((column) => column.records).find((record) => record.id === recordId);
+    if (!currentRecord) {
+      return;
+    }
+
+    const previousColumns = localColumns;
+    setSavingRecordIds((current) => ({ ...current, [recordId]: true }));
+
+    setLocalColumns((current) =>
+      current.map((column) => {
+        const withoutRecord = column.records.filter((record) => record.id !== recordId);
+        if (column.stage === "GANADO") {
+          return { ...column, records: [...withoutRecord, { ...currentRecord, status: "GANADO", date: wonAtIso }] };
+        }
+        return { ...column, records: withoutRecord };
+      }),
+    );
+
+    const result = await updateCrmStageAction({ contactId: recordId, status: "GANADO", wonAt: wonAtIso });
+
+    setSavingRecordIds((current) => ({ ...current, [recordId]: false }));
+
+    if ("error" in result) {
+      setLocalColumns(previousColumns);
+    }
   };
 
   const handleToggleCollapse = async (recordId: string) => {
@@ -301,6 +373,10 @@ export function CrmKanbanBoard({ columns }: { columns: CrmColumn[] }) {
                         setDraggedRecordId(null);
                         setDropTargetStage(null);
                       }}
+                      onEditWonDate={(recordId, dateISO) => {
+                        setWonDateValue(toDateInputValue(dateISO));
+                        setPendingWonRecordId(recordId);
+                      }}
                     />
                   ))
                 ) : (
@@ -341,6 +417,48 @@ export function CrmKanbanBoard({ columns }: { columns: CrmColumn[] }) {
                 {reason.label}
               </button>
             ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(pendingWonRecordId)}
+        onOpenChange={(next) => {
+          if (!next) setPendingWonRecordId(null);
+        }}
+      >
+        <DialogContent showCloseButton={false} className="w-[calc(100vw-2rem)] max-w-sm gap-0 overflow-hidden p-0">
+          <div className="border-b border-border px-4 py-3">
+            <DialogTitle className="text-[13px] font-semibold text-foreground">Fecha de la venta</DialogTitle>
+          </div>
+          <div className="space-y-3 px-4 py-4">
+            <p className="text-[12px] text-muted-foreground">
+              ¿Qué día se cerró la venta (el pago)? Podés poner una fecha pasada.
+            </p>
+            <input
+              type="date"
+              value={wonDateValue}
+              onChange={(event) => setWonDateValue(event.target.value)}
+              className="h-9 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+            />
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setPendingWonRecordId(null)}>
+                Cancelar
+              </Button>
+              <Button
+                size="sm"
+                disabled={!wonDateValue}
+                onClick={() => {
+                  const recordId = pendingWonRecordId;
+                  setPendingWonRecordId(null);
+                  if (recordId && wonDateValue) {
+                    void confirmWonDate(recordId, wonDateValue);
+                  }
+                }}
+              >
+                Guardar
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
