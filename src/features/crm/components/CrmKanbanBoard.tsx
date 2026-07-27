@@ -64,7 +64,7 @@ function KanbanCard({
 }) {
   return (
     <Card
-      className={`relative rounded-[8px] border border-[var(--line)] p-1.5 shadow-[0_14px_30px_-24px_rgba(15,23,42,0.14)] transition hover:-translate-y-0.5 hover:shadow-[0_18px_34px_-26px_rgba(15,23,42,0.16)] ${
+      className={`relative rounded-[8px] border-0 p-1.5 shadow-none transition ${
         isDragging ? "cursor-grabbing opacity-60" : "cursor-grab"
       } bg-card`}
     >
