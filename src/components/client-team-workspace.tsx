@@ -1,10 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { Mail, MoreHorizontal, Pencil, Power, RotateCcw, Save, Send, UserPlus } from "lucide-react";
+import { Mail, MoreHorizontal, Pencil, Power, RotateCcw, Save, Send, ShieldCheck, UserMinus, UserPlus } from "lucide-react";
 import {
   clientDeactivateEmployeeAction,
+  clientDemoteAdminToEmployeeAction,
   clientInviteEmployeeAction,
+  clientPromoteEmployeeToAdminAction,
   clientReactivateEmployeeAction,
   clientResendEmployeeInviteAction,
   clientUpdateEmployeeModulesAction,
@@ -226,8 +228,58 @@ function EmployeeStatusBadge({ status, label }: { status: EmployeeRow["status"];
   return <Badge variant={variant}>{label}</Badge>;
 }
 
+// Acciones de un ADMINISTRADOR del negocio. Antes esta columna mostraba "—" y no habia forma de
+// revertirlo: lo unico que se puede hacer es bajarlo a empleado (sus modulos NO se gestionan
+// porque tiene acceso total).
+function AdminActions({ employee }: { employee: EmployeeRow }) {
+  const [confirmOpen, setConfirmOpen] = React.useState(false);
+
+  return (
+    <div className="flex justify-end">
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <Button type="button" variant="ghost" size="icon-sm">
+              <MoreHorizontal />
+              <span className="sr-only">Acciones</span>
+            </Button>
+          }
+        />
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onClick={() => setConfirmOpen(true)}>
+            <UserMinus />
+            Pasar a empleado
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>¿Pasar a {employee.name} a empleado?</DialogTitle>
+            <DialogDescription>
+              Dejará de ser administrador y perderá el acceso total. Quedará como empleado con los
+              módulos básicos (Chats, Contactos y CRM); después podés ajustarle los módulos.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConfirmOpen(false)}>
+              Cancelar
+            </Button>
+            <form action={clientDemoteAdminToEmployeeAction}>
+              <input type="hidden" name="memberId" value={employee.id} />
+              <Button type="submit">Pasar a empleado</Button>
+            </form>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
 function EmployeeActions({ employee }: { employee: EmployeeRow }) {
   const [editOpen, setEditOpen] = React.useState(false);
+  const [promoteOpen, setPromoteOpen] = React.useState(false);
 
   return (
     <div className="flex justify-end">
@@ -244,6 +296,11 @@ function EmployeeActions({ employee }: { employee: EmployeeRow }) {
           <DropdownMenuItem onClick={() => setEditOpen(true)}>
             <Pencil />
             Editar
+          </DropdownMenuItem>
+
+          <DropdownMenuItem onClick={() => setPromoteOpen(true)}>
+            <ShieldCheck />
+            Hacer administrador
           </DropdownMenuItem>
 
           <DropdownMenuSeparator />
@@ -279,6 +336,30 @@ function EmployeeActions({ employee }: { employee: EmployeeRow }) {
       </DropdownMenu>
 
       <EditModulesDialog employee={employee} open={editOpen} onOpenChange={setEditOpen} />
+
+      {/* Confirmacion explicita: hacer administrador da acceso TOTAL (incluye el area de
+          administracion), asi que no puede quedar a un clic distraido en un menu. */}
+      <Dialog open={promoteOpen} onOpenChange={setPromoteOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>¿Hacer administrador a {employee.name}?</DialogTitle>
+            <DialogDescription>
+              Tendrá <strong>acceso total</strong>: todos los módulos del negocio y además el área de
+              administración (catálogo, configuración, permisos y usuarios). Ya no se le gestionan
+              módulos uno por uno. Podés revertirlo cuando quieras.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setPromoteOpen(false)}>
+              Cancelar
+            </Button>
+            <form action={clientPromoteEmployeeToAdminAction}>
+              <input type="hidden" name="memberId" value={employee.id} />
+              <Button type="submit">Sí, hacer administrador</Button>
+            </form>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -347,10 +428,10 @@ export function ClientTeamWorkspace({ employees }: ClientTeamWorkspaceProps) {
                     </div>
                   </TableCell>
                   <TableCell>
-                    {/* Las acciones (editar modulos, desactivar) solo aplican a empleados;
-                        un administrador tiene acceso total y no se gestiona por modulos. */}
+                    {/* Editar modulos / desactivar solo aplican a empleados: un administrador
+                        tiene acceso total. Para el admin la unica accion es volverlo empleado. */}
                     {employee.role === "admin" ? (
-                      <span className="flex justify-end pr-2 text-muted-foreground">—</span>
+                      <AdminActions employee={employee} />
                     ) : (
                       <EmployeeActions employee={employee} />
                     )}

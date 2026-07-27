@@ -10,7 +10,7 @@ import { sendEmployeeInviteEmail } from "@/lib/mailer";
 import { getPublicBaseUrl } from "@/lib/app-url";
 import { prisma } from "@/lib/prisma";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
-import { sanitizeClientModuleAccess } from "@/lib/client-workspace-modules";
+import { defaultClientEmployeeModuleKeys, sanitizeClientModuleAccess } from "@/lib/client-workspace-modules";
 
 const teamBasePath = "/cliente/equipo";
 
@@ -268,6 +268,86 @@ export async function clientReactivateEmployeeAction(formData: FormData): Promis
 
   revalidatePath(teamBasePath);
   redirectWithMessage("ok", "Empleado reactivado");
+}
+
+/**
+ * Promueve un empleado a ADMINISTRADOR del negocio (acceso total, sin restriccion de modulos).
+ *
+ * OJO: esto sube al usuario a rol ADMIN de la aplicacion, no solo "todo el negocio": le abre el
+ * area /admin (catalogo, configuracion, permisos, usuarios). Por eso la accion es SOLO del dueno
+ * (requireTeamOwner) y en la UI se confirma antes. Es reversible con clientDemoteAdminAction.
+ */
+export async function clientPromoteEmployeeToAdminAction(formData: FormData): Promise<void> {
+  const access = await requireTeamOwner();
+  const parsed = memberIdSchema.safeParse({
+    memberId: formData.get("memberId"),
+  });
+
+  if (!parsed.success) {
+    redirectWithMessage("error", "Empleado invalido");
+  }
+
+  const member = await prisma.workspaceMember.findFirst({
+    where: {
+      id: parsed.data.memberId,
+      workspaceId: access.workspaceId,
+      role: "AGENT",
+      user: { role: "EMPLEADO" },
+    },
+    select: { id: true, userId: true },
+  });
+
+  if (!member) {
+    redirectWithMessage("error", "Empleado no encontrado");
+  }
+
+  // Los dos cambios van juntos: el rol del usuario (acceso a la app) y el de su membresia
+  // (como se lista y se resuelve el acceso dentro del negocio).
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: member.userId }, data: { role: "ADMIN" } }),
+    prisma.workspaceMember.update({ where: { id: member.id }, data: { role: "ADMIN" } }),
+  ]);
+
+  revalidatePath(teamBasePath);
+  redirectWithMessage("ok", "Ahora es administrador");
+}
+
+/** Revierte un administrador a empleado con modulos. Solo el dueno. */
+export async function clientDemoteAdminToEmployeeAction(formData: FormData): Promise<void> {
+  const access = await requireTeamOwner();
+  const parsed = memberIdSchema.safeParse({
+    memberId: formData.get("memberId"),
+  });
+
+  if (!parsed.success) {
+    redirectWithMessage("error", "Administrador invalido");
+  }
+
+  const member = await prisma.workspaceMember.findFirst({
+    where: {
+      id: parsed.data.memberId,
+      workspaceId: access.workspaceId,
+      role: "ADMIN",
+      user: { role: "ADMIN" },
+    },
+    select: { id: true, userId: true },
+  });
+
+  if (!member) {
+    redirectWithMessage("error", "Administrador no encontrado");
+  }
+
+  // Al bajarlo queda como empleado con los modulos por defecto; el dueno los ajusta despues.
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: member.userId }, data: { role: "EMPLEADO" } }),
+    prisma.workspaceMember.update({
+      where: { id: member.id },
+      data: { role: "AGENT", moduleAccess: [...defaultClientEmployeeModuleKeys] },
+    }),
+  ]);
+
+  revalidatePath(teamBasePath);
+  redirectWithMessage("ok", "Ahora es empleado");
 }
 
 export async function clientResendEmployeeInviteAction(formData: FormData): Promise<void> {
