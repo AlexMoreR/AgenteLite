@@ -895,7 +895,7 @@ export const ConversationPanel = memo(function ConversationPanel({
             </div>
 
             {composer && renderedConversation ? (
-              <div className="chat-composer z-20 shrink-0 border-t border-border bg-card px-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 md:px-2 md:py-2">
+              <div className="chat-composer z-20 shrink-0 bg-transparent px-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 md:px-2 md:py-2">
                 <form
                   className="mx-auto w-full max-w-5xl"
                   onSubmit={(event: FormEvent<HTMLFormElement>) => {
