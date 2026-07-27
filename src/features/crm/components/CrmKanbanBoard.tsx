@@ -12,15 +12,6 @@ import type { CrmColumn, CrmRecord } from "../types";
 import { CRM_LOST_REASONS, getCrmStageMeta } from "../domain/crm-config";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 
-const CRM_STAGE_DARK_SURFACE_CLASS: Record<CrmColumn["stage"], string> = {
-  NUEVO: "dark:border-violet-500/25 dark:bg-violet-500/10",
-  CALIFICADO: "dark:border-cyan-500/25 dark:bg-cyan-500/10",
-  PROPUESTA: "dark:border-amber-500/25 dark:bg-amber-500/10",
-  NEGOCIACION: "dark:border-rose-500/25 dark:bg-rose-500/10",
-  GANADO: "dark:border-emerald-500/25 dark:bg-emerald-500/10",
-  PERDIDO: "dark:border-violet-500/25 dark:bg-violet-500/10",
-};
-
 // Valor "YYYY-MM-DD" (para <input type="date">) a partir de una fecha, en hora local.
 function toDateInputValue(value: string | Date) {
   const date = value instanceof Date ? value : new Date(value);
@@ -321,7 +312,7 @@ export function CrmKanbanBoard({ columns }: { columns: CrmColumn[] }) {
 
   return (
     <div className="overflow-x-auto pb-2">
-      <div className="grid min-w-[1320px] grid-cols-6 gap-0">
+      <div className="grid min-w-[1320px] grid-cols-6 gap-3">
         {localColumns.map((column) => {
           const meta = getCrmStageMeta(column.stage);
           const isDropTarget = dropTargetStage === column.stage;
@@ -344,13 +335,15 @@ export function CrmKanbanBoard({ columns }: { columns: CrmColumn[] }) {
                   void handleDrop(recordId, column.stage);
                 }
               }}
-              className={`rounded-[4px] border ${meta.borderClassName} ${meta.backgroundClassName} ${CRM_STAGE_DARK_SURFACE_CLASS[column.stage]} py-2 transition ${
-                isDropTarget ? "ring-2 ring-offset-2 ring-offset-background" : ""
+              className={`rounded-[4px] py-2 transition ${
+                isDropTarget ? "bg-muted/40 ring-1 ring-[var(--line)]" : ""
               }`}
             >
-              {/* Solo el header lleva margen horizontal; las tarjetas ocupan todo el
-                  ancho de la columna y se alinean solas contra los bordes. */}
-              <div className="flex items-center justify-between gap-2 px-2">
+              {/* Sin contenedor de color: la columna es transparente y solo el header
+                  lleva un acento sutil. Las tarjetas ocupan todo el ancho. */}
+              <div
+                className={`flex items-center justify-between gap-2 border-b-2 ${meta.borderClassName} px-2 pb-2`}
+              >
                 <div>
                   <h3 className="text-sm font-semibold text-foreground">{column.title}</h3>
                 </div>
