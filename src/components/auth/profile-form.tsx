@@ -1,8 +1,8 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
-import { KeyRound, Mail, ShieldCheck, UserPen, X } from "lucide-react";
+import { Camera, KeyRound, Loader2, Mail, ShieldCheck, Trash2, UserPen, X } from "lucide-react";
 import { toast } from "sonner";
 import {
   changePasswordAction,
@@ -34,6 +34,38 @@ export function ProfileForm({
 }: ProfileFormProps) {
   const { update } = useSession();
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [imageUrl, setImageUrl] = useState(defaultImage);
+  const [isUploading, setIsUploading] = useState(false);
+
+  async function handlePhotoChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    // Reseteamos el input para poder volver a elegir el mismo archivo si hace falta.
+    event.target.value = "";
+    if (!file) return;
+
+    setIsUploading(true);
+    try {
+      const body = new FormData();
+      body.append("file", file);
+      const response = await fetch("/api/profile/upload-photo", { method: "POST", body });
+      const result = (await response.json().catch(() => null)) as
+        | { ok?: boolean; url?: string; error?: string }
+        | null;
+
+      if (!response.ok || !result?.ok || !result.url) {
+        toast.error(result?.error ?? "No se pudo subir la foto.");
+        return;
+      }
+
+      setImageUrl(result.url);
+      toast.success("Foto lista. Guarda el perfil para aplicarla.");
+    } catch {
+      toast.error("No se pudo subir la foto. Revisa tu conexion.");
+    } finally {
+      setIsUploading(false);
+    }
+  }
   const [profileState, profileAction, profilePending] = useActionState(
     updateProfileAction,
     initialState,
@@ -133,11 +165,58 @@ export function ProfileForm({
               placeholder="correo@empresa.com"
               required
             />
-            <Input
-              name="image"
-              defaultValue={defaultImage}
-              placeholder="URL de foto de perfil"
-            />
+            {/* La foto se sube desde el dispositivo: guardamos la URL resultante en un
+                input oculto para que updateProfileAction la persista igual que antes. */}
+            <input type="hidden" name="image" value={imageUrl} />
+            <div className="flex items-center gap-3">
+              <Avatar className="h-16 w-16 rounded-xl border border-[var(--line)]">
+                <AvatarImage src={imageUrl} alt={defaultName || email} />
+                <AvatarFallback className="rounded-xl bg-slate-800 text-sm">
+                  {initials}
+                </AvatarFallback>
+              </Avatar>
+              <div className="flex flex-col gap-1.5">
+                <span className="text-sm font-medium text-slate-900">Foto de perfil</span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isUploading}
+                  >
+                    {isUploading ? (
+                      <Loader2 className="h-4 w-4 animate-spin" data-icon="inline-start" />
+                    ) : (
+                      <Camera className="h-4 w-4" data-icon="inline-start" />
+                    )}
+                    {isUploading ? "Subiendo..." : "Subir foto"}
+                  </Button>
+                  {imageUrl ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setImageUrl("")}
+                      disabled={isUploading}
+                    >
+                      <Trash2 className="h-4 w-4" data-icon="inline-start" />
+                      Quitar
+                    </Button>
+                  ) : null}
+                </div>
+                <span className="text-xs leading-5 text-slate-500">
+                  JPG, PNG, WEBP o GIF. Maximo 8 MB.
+                </span>
+              </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                className="hidden"
+                onChange={handlePhotoChange}
+              />
+            </div>
             <label className="grid gap-1.5">
               <span className="text-sm font-medium text-slate-900">Firma en los chats</span>
               <textarea
