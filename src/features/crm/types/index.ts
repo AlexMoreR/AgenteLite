@@ -26,6 +26,9 @@ export type CrmRecord = {
   // Motivo de perdida (solo tiene valor cuando status === "PERDIDO"). Alimenta el top de razones
   // del informe del dueno.
   lostReason: string | null;
+  // Conversacion mas reciente del contacto, para abrir su chat desde el CRM. Null si nunca
+  // hablo por WhatsApp (contacto cargado a mano, sin conversacion).
+  conversationId: string | null;
   isCollapsed: boolean;
 };
 

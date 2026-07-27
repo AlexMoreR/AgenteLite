@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { ChevronDown, ChevronUp, Pencil } from "lucide-react";
+import Link from "next/link";
+import { ChevronDown, ChevronUp, MessageCircle, Pencil, Phone } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { TAG_BADGE_CLASS, getTagBadgeColors } from "@/lib/tag-badge";
 import { Button } from "@/components/ui/button";
@@ -217,6 +218,28 @@ function KanbanDetailModal({
                 </span>
               ) : null}
             </div>
+          </div>
+
+          {/* Accesos directos: abrir el chat de esa persona (ahí también queda la nota de quién
+              movió la etapa y por qué) y llamarla desde el celular. */}
+          <div className="flex items-center gap-2">
+            {record.conversationId ? (
+              <Link
+                href={`/cliente/chats?chatKey=${encodeURIComponent(`agent:${record.conversationId}`)}`}
+                className="flex-1"
+              >
+                <Button size="sm" className="w-full gap-1.5">
+                  <MessageCircle className="h-4 w-4" />
+                  Abrir chat
+                </Button>
+              </Link>
+            ) : null}
+            <a href={`tel:${record.number.replace(/[^0-9+]/g, "")}`} aria-label="Llamar">
+              <Button variant="outline" size="sm" className="gap-1.5">
+                <Phone className="h-4 w-4" />
+                Llamar
+              </Button>
+            </a>
           </div>
 
           <div className="space-y-1 text-xs text-muted-foreground">

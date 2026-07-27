@@ -227,6 +227,7 @@ export async function getCrmData({ workspaceId, workspaceName }: GetCrmDataInput
     }),
     status: (contact.crmStage as CrmRecord["status"]) ?? "NUEVO",
     lostReason: contact.lostReason ?? null,
+    conversationId: contact.conversations[0]?.id ?? null,
     isCollapsed: getContactCollapsedState(contact.metadata),
     origin: getContactOriginFromMetadata(contact.metadata),
   }));
@@ -311,6 +312,7 @@ export async function getCrmKanbanData({ workspaceId, workspaceName }: GetCrmDat
     }),
     status: (contact.crmStage as CrmRecord["status"]) ?? "NUEVO",
     lostReason: contact.lostReason ?? null,
+    conversationId: contact.conversations[0]?.id ?? null,
     isCollapsed: getContactCollapsedState(contact.metadata),
     origin: getContactOriginFromMetadata(contact.metadata),
   }));
