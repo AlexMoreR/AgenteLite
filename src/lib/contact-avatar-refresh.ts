@@ -68,7 +68,7 @@ export type ContactAvatarTarget = {
  * Si la descarga falla se devuelve la URL original: una foto que funciona unas semanas es mejor
  * que ninguna, y el proximo intento la persiste.
  */
-async function persistAvatarUrl(remoteUrl: string): Promise<string> {
+export async function persistAvatarUrl(remoteUrl: string): Promise<string> {
   try {
     const response = await fetch(remoteUrl, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
     if (!response.ok) {

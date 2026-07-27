@@ -11,6 +11,7 @@ import { createFollowsFromRulesForSource } from "@/features/seguimientos/service
 import { getConversationAutomationPaused, setConversationAutomationPaused } from "@/lib/conversation-automation";
 import { recordConversationActivity } from "@/lib/conversation-activity";
 import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
+import { persistAvatarUrl } from "@/lib/contact-avatar-refresh";
 import { backfillEvolutionMessagesByPhone } from "@/lib/evolution-chat-sync";
 import { buildEvolutionGoHistoryAnchor, deleteEvolutionMessageForEveryone, fetchEvolutionProfilePictureUrl, readGatewayConnection, requestEvolutionGoHistorySync, sendEvolutionTextMessage } from "@/lib/evolution";
 import { normalizeInternalPath } from "@/lib/app-url";
@@ -456,6 +457,10 @@ export async function refreshContactAvatarNowAction(
     };
   }
 
+  // La descargamos y guardamos en NUESTRO servidor: el enlace de WhatsApp (pps.whatsapp.net)
+  // vence a las pocas semanas y obligaria a re-pedirla. Persistida, no se pide nunca mas.
+  const persistedUrl = await persistAvatarUrl(url);
+
   const existingMetadata =
     contact.metadata && typeof contact.metadata === "object" && !Array.isArray(contact.metadata)
       ? (contact.metadata as Record<string, unknown>)
@@ -464,14 +469,14 @@ export async function refreshContactAvatarNowAction(
   await prisma.contact.update({
     where: { id: contact.id },
     data: {
-      avatarUrl: url,
+      avatarUrl: persistedUrl,
       metadata: { ...existingMetadata, avatarFetchedAt: new Date().toISOString() } as Prisma.InputJsonValue,
     },
   });
 
   revalidatePath("/cliente/chats");
   revalidatePath("/cliente/contactos");
-  return { ok: true, avatarUrl: url };
+  return { ok: true, avatarUrl: persistedUrl };
 }
 
 // Oculta (o vuelve a mostrar) un contacto del CRM sin borrarlo. Los contactos
