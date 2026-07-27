@@ -1941,6 +1941,46 @@ export async function sendEvolutionTextMessage(input: {
   };
 }
 
+/**
+ * Envia una UBICACION (el pin de WhatsApp, con su mapita). La usa el boton "Ubicacion" del
+ * compositor para mandar la direccion del local con un toque, que es lo que piden los clientes
+ * ("mandame la ubicacion") y antes habia que resolver por fuera del CRM.
+ */
+export async function sendEvolutionLocationMessage(input: {
+  instanceName: string;
+  phoneNumber: string;
+  latitude: number;
+  longitude: number;
+  name?: string | null;
+  address?: string | null;
+  delayMs?: number;
+}) {
+  const sendNumber = normalizeEvolutionSendNumber(input.phoneNumber);
+  const name = input.name?.trim() || "";
+  const address = input.address?.trim() || "";
+  const body = {
+    number: sendNumber,
+    name,
+    address,
+    latitude: input.latitude,
+    longitude: input.longitude,
+    delay: input.delayMs ?? 1200,
+  };
+
+  const response = await evolutionInstanceRequest<EvolutionSendTextResponse>({
+    instanceName: input.instanceName,
+    path: "/send/location",
+    legacyPath: `/message/sendLocation/${input.instanceName}`,
+    body,
+    legacyBody: body,
+  });
+
+  return {
+    externalId: extractEvolutionExternalId(response),
+    raw: response,
+  };
+}
+
 export async function deleteEvolutionMessageForEveryone(input: {
   instanceName: string;
   key: { id: string; remoteJid: string; fromMe: boolean; participant?: string };

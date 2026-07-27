@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { Save, Tag } from "lucide-react";
+import { MapPin, Save, Tag } from "lucide-react";
 import { auth } from "@/auth";
 import { saveWorkspaceBusinessConfigAction } from "@/app/actions/workspace-actions";
 import { BusinessChatsCleanupMenu } from "./BusinessChatsCleanupMenu";
@@ -62,6 +62,9 @@ export default async function MiNegocioPage({ searchParams }: PageProps) {
       <NegocioEquipoTabs />
 
       <form action={saveWorkspaceBusinessConfigAction} className="space-y-5">
+        {/* La accion exige el nombre del negocio; este formulario no lo edita, asi que va oculto
+            con el valor actual (sin esto, guardar desde aca fallaba con "Nombre invalido"). */}
+        <input type="hidden" name="businessName" value={workspace.name} />
 
         <div className="space-y-3">
           <SectionHeader title="Automatizaciones base" />
@@ -99,6 +102,71 @@ export default async function MiNegocioPage({ searchParams }: PageProps) {
                   </p>
                 </div>
                 <Switch id="autoTagNewLeads" name="autoTagNewLeads" defaultChecked={config.autoTagNewLeads} />
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Ubicacion del local: se carga UNA vez y despues las asesoras la mandan desde el chat
+            con un toque (menu "+" → "Ubicacion del local"). WhatsApp necesita coordenadas, por eso
+            se pide el link de Google Maps y no solo la direccion escrita. */}
+        <div className="space-y-3">
+          <SectionHeader title="Ubicación del local" />
+          <Card>
+            <CardHeader>
+              <div className="flex items-start gap-3">
+                <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <MapPin className="size-4" />
+                </span>
+                <div className="space-y-1">
+                  <CardTitle>Enviar ubicación por WhatsApp</CardTitle>
+                  <CardDescription>
+                    Pegá el link de Google Maps de tu local. Después, en cualquier chat, con el
+                    botón <span className="font-medium text-foreground">+ → Ubicación del local</span> se
+                    envía el pin al cliente en un toque.
+                  </CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="locationMaps">Link de Google Maps (o coordenadas)</Label>
+                <Input
+                  id="locationMaps"
+                  name="locationMaps"
+                  defaultValue={
+                    config.locationLatitude && config.locationLongitude
+                      ? `${config.locationLatitude}, ${config.locationLongitude}`
+                      : ""
+                  }
+                  placeholder="Ej. https://maps.app.goo.gl/... o 10.9878, -74.7889"
+                />
+                <p className="text-sm text-muted-foreground">
+                  {config.locationLatitude && config.locationLongitude
+                    ? "✅ Ubicación cargada. Podés pegar otro link para cambiarla, o vaciar el campo para quitarla."
+                    : "Todavía no hay ubicación cargada: el botón del chat va a pedir que la configures acá."}
+                </p>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="locationLabel">Nombre que ve el cliente</Label>
+                  <Input
+                    id="locationLabel"
+                    name="locationLabel"
+                    defaultValue={config.locationLabel}
+                    placeholder={workspace.name}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="locationAddress">Dirección que ve el cliente</Label>
+                  <Input
+                    id="locationAddress"
+                    name="locationAddress"
+                    defaultValue={config.locationAddress}
+                    placeholder="Ej. Carrera 27 #72x-25"
+                  />
+                </div>
               </div>
             </CardContent>
           </Card>

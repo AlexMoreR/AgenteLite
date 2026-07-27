@@ -9,6 +9,7 @@ import { prisma } from "@/lib/prisma";
 import { clearEvolutionGhostChats } from "@/lib/evolution-chat-cleanup";
 import { generateUniqueWorkspaceSlug } from "@/lib/workspace";
 import { targetAudienceOptions } from "@/lib/agent-training";
+import { parseLatLngFromText, parseWorkspaceBusinessConfig } from "@/lib/workspace-business-config";
 
 const workspaceOnboardingSchema = z.object({
   businessName: z.string().trim().min(2, "Nombre del negocio invalido").max(120, "Nombre demasiado largo"),
@@ -135,6 +136,63 @@ export async function saveWorkspaceBusinessConfigAction(formData: FormData): Pro
     (v): v is string => typeof v === "string" && (targetAudienceOptions as readonly string[]).includes(v),
   );
 
+  // Ubicacion del local para el boton "Ubicacion" del chat. Se pega un link de Google Maps (o
+  // "lat, lng") y se guardan las COORDENADAS, que es lo que necesita WhatsApp. Los links CORTOS
+  // (maps.app.goo.gl) no las traen: se sigue la redireccion para sacarlas. Si no se puede leer,
+  // se avisa en vez de guardar una ubicacion rota.
+  const currentWorkspace = await prisma.workspace.findUnique({
+    where: { id: membership.workspace.id },
+    select: { businessConfig: true },
+  });
+  const currentConfig = parseWorkspaceBusinessConfig(currentWorkspace?.businessConfig);
+
+  const locationMapsInput = (formData.get("locationMaps") as string | null)?.trim() ?? "";
+  // Si el formulario que guarda NO trae el campo de ubicacion (hay varios formularios que
+  // escriben esta misma config), se conservan las coordenadas ya cargadas en vez de borrarlas.
+  let locationCoordinates: {
+    locationLatitude: string;
+    locationLongitude: string;
+    locationLabel: string;
+    locationAddress: string;
+  } = {
+    locationLatitude: currentConfig.locationLatitude,
+    locationLongitude: currentConfig.locationLongitude,
+    locationLabel: formData.has("locationLabel")
+      ? ((formData.get("locationLabel") as string | null)?.trim() ?? "")
+      : currentConfig.locationLabel,
+    locationAddress: formData.has("locationAddress")
+      ? ((formData.get("locationAddress") as string | null)?.trim() ?? "")
+      : currentConfig.locationAddress,
+  };
+
+  // Campo presente pero vacio = el usuario borro la ubicacion a proposito.
+  if (formData.has("locationMaps") && !locationMapsInput) {
+    locationCoordinates = { ...locationCoordinates, locationLatitude: "", locationLongitude: "" };
+  }
+
+  if (locationMapsInput) {
+    let coordinates = parseLatLngFromText(locationMapsInput);
+
+    if (!coordinates && /^https?:\/\//i.test(locationMapsInput)) {
+      try {
+        const response = await fetch(locationMapsInput, { redirect: "follow" });
+        coordinates = parseLatLngFromText(response.url) ?? parseLatLngFromText(await response.text());
+      } catch {
+        coordinates = null;
+      }
+    }
+
+    if (!coordinates) {
+      redirect("/cliente/negocio?error=No+pudimos+leer+la+ubicacion.+Pega+el+link+de+Google+Maps+o+escribe+las+coordenadas+(lat,+lng)");
+    }
+
+    locationCoordinates = {
+      ...locationCoordinates,
+      locationLatitude: String(coordinates.latitude),
+      locationLongitude: String(coordinates.longitude),
+    };
+  }
+
   const config = {
     businessDescription: (formData.get("businessDescription") as string | null)?.trim() ?? "",
     sectorRubro: (formData.get("sectorRubro") as string | null)?.trim() ?? "",
@@ -151,6 +209,7 @@ export async function saveWorkspaceBusinessConfigAction(formData: FormData): Pro
     youtube: (formData.get("youtube") as string | null)?.trim() ?? "",
     newLeadTagName: (formData.get("newLeadTagName") as string | null)?.trim() ?? "",
     autoTagNewLeads: formData.get("autoTagNewLeads") === "on",
+    ...locationCoordinates,
   };
 
   await prisma.workspace.update({

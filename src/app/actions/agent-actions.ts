@@ -40,6 +40,7 @@ import {
   sendEvolutionAudioMessage,
   sendEvolutionDocumentMessage,
   sendEvolutionImageMessage,
+  sendEvolutionLocationMessage,
   sendEvolutionMediaUrl,
   sendEvolutionPresence,
   sendEvolutionTextMessage,
@@ -47,6 +48,7 @@ import {
   sendEvolutionVideoMessage,
 } from "@/lib/evolution";
 import { getPublicBaseUrl } from "@/lib/app-url";
+import { parseWorkspaceBusinessConfig } from "@/lib/workspace-business-config";
 import { setConversationAutomationPaused } from "@/lib/conversation-automation";
 import { buildDefaultWorkspacePlan } from "@/lib/plans";
 import { prisma } from "@/lib/prisma";
@@ -3224,6 +3226,123 @@ export async function sendChatMediaReplyAction(input: {
   const revalidateAgentId = parsed.data.agentId?.trim() || conversation.agentId;
   if (revalidateAgentId) {
     revalidatePath(`/cliente/agentes/${revalidateAgentId}/chats`);
+  }
+
+  return { ok: true };
+}
+
+/**
+ * Manda la UBICACION DEL LOCAL por WhatsApp con un toque (boton "Ubicacion" del compositor).
+ *
+ * Las coordenadas NO las elige quien envia: salen de la configuracion del negocio, que se carga
+ * una sola vez pegando el link de Google Maps en Negocio. Asi la asesora no tiene que buscar nada
+ * y siempre se manda la misma direccion correcta.
+ */
+export async function sendChatLocationReplyAction(input: {
+  conversationId: string;
+  agentId?: string;
+  returnTo?: string;
+}): Promise<{ ok: true } | { error: string }> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
+    return { error: "No autorizado" };
+  }
+  await requireClientWorkspaceAccess("chats");
+
+  const conversationId = input.conversationId?.trim();
+  if (!conversationId) {
+    return { error: "Datos invalidos" };
+  }
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    return { error: "Debes configurar tu negocio primero" };
+  }
+
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: membership.workspace.id },
+    select: { name: true, businessConfig: true },
+  });
+  const businessConfig = parseWorkspaceBusinessConfig(workspace?.businessConfig);
+  const latitude = Number(businessConfig.locationLatitude);
+  const longitude = Number(businessConfig.locationLongitude);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || (!latitude && !longitude)) {
+    return { error: "Primero cargá la ubicación del local en Negocio (pegando el link de Google Maps)." };
+  }
+
+  const conversation = await prisma.conversation.findFirst({
+    where: { id: conversationId, workspaceId: membership.workspace.id },
+    include: {
+      contact: { select: { id: true, phoneNumber: true } },
+      channel: { select: { id: true, provider: true, evolutionInstanceName: true } },
+    },
+  });
+
+  if (
+    !conversation ||
+    conversation.channel?.provider !== "EVOLUTION" ||
+    !conversation.channel.evolutionInstanceName ||
+    !conversation.contact?.phoneNumber
+  ) {
+    return { error: "No se encontro el canal o contacto" };
+  }
+
+  const name = businessConfig.locationLabel.trim() || workspace?.name?.trim() || "Ubicación";
+  const address = businessConfig.locationAddress.trim() || businessConfig.location.trim() || "";
+
+  let outbound;
+  try {
+    outbound = await sendEvolutionLocationMessage({
+      instanceName: conversation.channel.evolutionInstanceName,
+      phoneNumber: conversation.contact.phoneNumber,
+      latitude,
+      longitude,
+      name,
+      address,
+    });
+  } catch (locationError) {
+    const detail = locationError instanceof Error ? locationError.message : "";
+    return { error: detail ? `No se pudo enviar la ubicación: ${detail}` : "No se pudo enviar la ubicación" };
+  }
+
+  const now = new Date();
+  await prisma.message.create({
+    data: {
+      workspaceId: membership.workspace.id,
+      conversationId: conversation.id,
+      channelId: conversation.channel.id,
+      contactId: conversation.contact.id,
+      agentId: input.agentId?.trim() || conversation.agentId || null,
+      externalId: outbound.externalId,
+      direction: "OUTBOUND",
+      type: "LOCATION",
+      status: "SENT",
+      content: [name, address].filter(Boolean).join(" · ") || null,
+      sentAt: now,
+      rawPayload: {
+        source: "manual",
+        location: { latitude, longitude, name, address },
+        evolution: outbound.raw,
+      } as never,
+    },
+  });
+
+  await syncLeadLifecycleForContact({
+    workspaceId: membership.workspace.id,
+    contactId: conversation.contact.id,
+    hasHistory: true,
+  });
+
+  await prisma.conversation.update({
+    where: { id: conversation.id },
+    data: { lastMessageAt: now, status: "OPEN" },
+  });
+
+  await setConversationAutomationPaused({ conversationId: conversation.id, paused: true });
+
+  const safeReturnTo = normalizeInternalPath(input.returnTo ?? "", "");
+  if (safeReturnTo) {
+    revalidatePath(safeReturnTo.split("?")[0]);
   }
 
   return { ok: true };
