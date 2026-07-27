@@ -8,8 +8,9 @@ import { Button } from "@/components/ui/button";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { ContactAvatar } from "@/components/chats/contact-avatar";
 import { updateCrmCollapsedAction, updateCrmStageAction } from "@/app/actions/crm-actions";
+import { getContactCallHistoryAction, type CallHistoryItem } from "@/app/actions/call-actions";
 import type { CrmColumn, CrmRecord } from "../types";
-import { CRM_LOST_REASONS, getCrmStageMeta } from "../domain/crm-config";
+import { CRM_LOST_REASONS, getCrmStageMeta, getCrmLostReasonLabel } from "../domain/crm-config";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 
 // Valor "YYYY-MM-DD" (para <input type="date">) a partir de una fecha, en hora local.
@@ -44,6 +45,7 @@ function KanbanCard({
   onDragStart,
   onDragEnd,
   onEditWonDate,
+  onOpenDetail,
 }: {
   record: CrmRecord;
   isDragging: boolean;
@@ -52,6 +54,7 @@ function KanbanCard({
   onDragStart: (event: React.DragEvent<HTMLDivElement>, recordId: string) => void;
   onDragEnd: () => void;
   onEditWonDate?: (recordId: string, dateISO: string) => void;
+  onOpenDetail?: (record: CrmRecord) => void;
 }) {
   return (
     <Card
@@ -61,7 +64,12 @@ function KanbanCard({
     >
       <HoverCard>
         <HoverCardTrigger className="block">
-          <div draggable onDragStart={(event) => onDragStart(event, record.id)} onDragEnd={onDragEnd}>
+          <div
+            draggable
+            onDragStart={(event) => onDragStart(event, record.id)}
+            onDragEnd={onDragEnd}
+            onClick={() => onOpenDetail?.(record)}
+          >
             <div className={isCollapsed ? "space-y-0.5" : "space-y-1"}>
               <div className="flex items-start justify-between gap-1.5 pr-6">
                 <div className="flex min-w-0 items-center gap-2.5">
@@ -152,6 +160,147 @@ function KanbanCard({
   );
 }
 
+// Modal de detalle del lead: se abre al hacer CLIC en una tarjeta (el hover solo servía en
+// escritorio y en móvil no mostraba nada). Reúne la info del Kanban + el historial de llamadas.
+function KanbanDetailModal({
+  record,
+  onClose,
+  onEditWonDate,
+}: {
+  record: CrmRecord;
+  onClose: () => void;
+  onEditWonDate: (recordId: string, dateISO: string) => void;
+}) {
+  const meta = getCrmStageMeta(record.status);
+  const [history, setHistory] = React.useState<CallHistoryItem[] | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    setHistory(null);
+    getContactCallHistoryAction(record.id)
+      .then((res) => {
+        if (!cancelled) setHistory(res.items);
+      })
+      .catch(() => {
+        if (!cancelled) setHistory([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [record.id]);
+
+  const nextContact = history?.find((item) => item.nextContactAt)?.nextContactAt ?? null;
+
+  return (
+    <Dialog open onOpenChange={(next) => (!next ? onClose() : undefined)}>
+      <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] max-w-md overflow-y-auto">
+        <DialogTitle className="sr-only">Detalle del lead</DialogTitle>
+        <div className="space-y-3">
+          <div className="flex items-center gap-3">
+            <ContactAvatar
+              avatarUrl={record.avatarUrl}
+              label={record.name}
+              className="h-11 w-11 shrink-0 rounded-full"
+              fallbackClassName="rounded-full"
+            />
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-foreground">{record.name}</p>
+              <p className="truncate text-xs text-muted-foreground">{record.number}</p>
+            </div>
+            {meta ? (
+              <span
+                className={`ml-auto inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${meta.backgroundClassName} ${meta.borderClassName} ${meta.accentClassName}`}
+              >
+                {meta.label}
+              </span>
+            ) : null}
+          </div>
+
+          <div className="space-y-1 text-xs text-muted-foreground">
+            {record.status === "GANADO" ? (
+              <div className="flex items-center gap-2">
+                <span>
+                  Venta: <b className="text-foreground">{formatCrmDate(record.date)}</b>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onEditWonDate(record.id, record.date)}
+                  className="inline-flex h-5 items-center gap-1 rounded-full px-1.5 text-[11px] text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                >
+                  <Pencil className="h-3 w-3" /> editar
+                </button>
+              </div>
+            ) : (
+              <p>
+                Última actividad: <span className="text-foreground">{formatCrmDate(record.date)}</span>
+              </p>
+            )}
+            {record.status === "PERDIDO" && record.lostReason ? (
+              <p>
+                Motivo de pérdida: <span className="text-foreground">{getCrmLostReasonLabel(record.lostReason)}</span>
+              </p>
+            ) : null}
+            {nextContact ? (
+              <p>
+                Próximo contacto: <span className="text-foreground">{formatCrmDate(nextContact)}</span>
+              </p>
+            ) : null}
+          </div>
+
+          {record.tags.length > 0 ? (
+            <div className="flex flex-wrap gap-1.5">
+              {record.tags.map((tag) => (
+                <span
+                  key={`${record.id}:${tag.label}`}
+                  className={`inline-flex max-w-full items-center ${TAG_BADGE_CLASS}`}
+                  style={getTagBadgeColors(tag.color)}
+                >
+                  {tag.label}
+                </span>
+              ))}
+            </div>
+          ) : null}
+
+          {record.detail ? (
+            <div>
+              <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Resumen</p>
+              <p className="whitespace-pre-wrap text-[13px] leading-5 text-foreground/80">{record.detail}</p>
+            </div>
+          ) : null}
+
+          <div>
+            <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Historial de llamadas
+            </p>
+            {history === null ? (
+              <p className="text-xs text-muted-foreground">Cargando…</p>
+            ) : history.length === 0 ? (
+              <p className="text-xs text-muted-foreground">Sin llamadas registradas.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {history.map((item) => (
+                  <div key={item.id} className="rounded-lg border border-border px-2.5 py-1.5 text-xs">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="min-w-0 truncate font-medium text-foreground">
+                        #{item.attemptNumber} · {item.resultLabel}
+                      </span>
+                      <span className="shrink-0 text-muted-foreground">{formatCrmDate(item.calledAt)}</span>
+                    </div>
+                    {item.summary ? <p className="mt-0.5 text-foreground/70">{item.summary}</p> : null}
+                    {item.calledByName ? (
+                      <p className="mt-0.5 text-[11px] text-muted-foreground">por {item.calledByName}</p>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function CrmKanbanBoard({ columns }: { columns: CrmColumn[] }) {
   const [localColumns, setLocalColumns] = React.useState(columns);
   const [draggedRecordId, setDraggedRecordId] = React.useState<string | null>(null);
@@ -164,6 +313,8 @@ export function CrmKanbanBoard({ columns }: { columns: CrmColumn[] }) {
   // defecto hoy), y abrimos el diálogo para confirmar el DÍA REAL de la venta antes de guardar.
   const [pendingWonRecordId, setPendingWonRecordId] = React.useState<string | null>(null);
   const [wonDateValue, setWonDateValue] = React.useState<string>("");
+  // Lead abierto en el modal de detalle (al hacer clic en una tarjeta).
+  const [detailRecord, setDetailRecord] = React.useState<CrmRecord | null>(null);
   const [collapsedRecordIds, setCollapsedRecordIds] = React.useState<Record<string, boolean>>(() =>
     Object.fromEntries(
       columns.flatMap((column) =>
@@ -376,6 +527,7 @@ export function CrmKanbanBoard({ columns }: { columns: CrmColumn[] }) {
                         setWonDateValue(toDateInputValue(dateISO));
                         setPendingWonRecordId(recordId);
                       }}
+                      onOpenDetail={(nextRecord) => setDetailRecord(nextRecord)}
                     />
                   ))
                 ) : (
@@ -461,6 +613,18 @@ export function CrmKanbanBoard({ columns }: { columns: CrmColumn[] }) {
           </div>
         </DialogContent>
       </Dialog>
+
+      {detailRecord ? (
+        <KanbanDetailModal
+          record={detailRecord}
+          onClose={() => setDetailRecord(null)}
+          onEditWonDate={(recordId, dateISO) => {
+            setDetailRecord(null);
+            setWonDateValue(toDateInputValue(dateISO));
+            setPendingWonRecordId(recordId);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

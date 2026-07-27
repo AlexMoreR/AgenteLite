@@ -10,6 +10,7 @@ import {
   CALL_RESULTS,
   CALL_RESULT_LOST,
   CALL_RESULT_STAGE_EFFECT,
+  getCallResultLabel,
   type CallResult,
 } from "@/features/crm/domain/crm-config";
 import { updateCrmStageAction } from "@/app/actions/crm-actions";
@@ -170,6 +171,60 @@ export async function searchContactsForCallAction(query: string): Promise<{ item
       phoneNumber: contact.phoneNumber,
       avatarUrl: contact.avatarUrl,
       stage: contact.crmStage,
+    })),
+  };
+}
+
+export type CallHistoryItem = {
+  id: string;
+  attemptNumber: number;
+  resultLabel: string;
+  summary: string | null;
+  calledAt: string;
+  nextContactAt: string | null;
+  calledByName: string | null;
+};
+
+/**
+ * Historial de intentos de llamada de un contacto, para el modal del lead en el Kanban
+ * ("qué pasó la última vez"). Se gatea con "crm" porque lo consume el Kanban del CRM.
+ */
+export async function getContactCallHistoryAction(contactId: string): Promise<{ items: CallHistoryItem[] }> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { items: [] };
+  }
+  await requireClientWorkspaceAccess("crm");
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    return { items: [] };
+  }
+
+  const attempts = await prisma.callAttempt.findMany({
+    where: { workspaceId: membership.workspace.id, contactId },
+    orderBy: { calledAt: "desc" },
+    take: 20,
+    select: {
+      id: true,
+      attemptNumber: true,
+      result: true,
+      summary: true,
+      calledAt: true,
+      nextContactAt: true,
+      calledBy: { select: { name: true, email: true } },
+    },
+  });
+
+  return {
+    items: attempts.map((attempt) => ({
+      id: attempt.id,
+      attemptNumber: attempt.attemptNumber,
+      resultLabel: getCallResultLabel(attempt.result) ?? attempt.result,
+      summary: attempt.summary,
+      calledAt: attempt.calledAt.toISOString(),
+      nextContactAt: attempt.nextContactAt?.toISOString() ?? null,
+      calledByName: attempt.calledBy?.name?.trim() || attempt.calledBy?.email || null,
     })),
   };
 }

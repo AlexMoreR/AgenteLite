@@ -120,7 +120,7 @@ export function ConnectionsWorkspaceV2({
                   <CardContent className="relative flex flex-col gap-3 py-3.5 pl-5 sm:flex-row sm:items-center sm:justify-between">
                       <div className="min-w-0 sm:flex-1">
                         <div className="flex min-w-0 flex-1 items-center gap-3 rounded-md">
-                          <span className="inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100">
+                          <span className="inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-muted text-emerald-600 ring-1 ring-border">
                             <WhatsAppGlyph className="size-6" />
                           </span>
 

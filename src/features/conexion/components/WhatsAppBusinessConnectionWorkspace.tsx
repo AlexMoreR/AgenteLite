@@ -102,11 +102,11 @@ export function WhatsAppBusinessConnectionWorkspace({
       />
       <CardContent className="relative flex flex-col gap-3 py-3.5 pl-5 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-center gap-3">
-          <Avatar className="size-11 shrink-0 rounded-full ring-1 ring-emerald-100">
+          <Avatar className="size-11 shrink-0 rounded-full ring-1 ring-border">
             {connection.logoUrl ? (
               <AvatarImage src={connection.logoUrl} alt={`Logo de ${connection.name}`} className="rounded-full object-cover" />
             ) : null}
-            <AvatarFallback className="rounded-full bg-emerald-50 text-emerald-600">
+            <AvatarFallback className="rounded-full bg-muted text-emerald-600">
               <WhatsAppGlyph className="size-6" />
             </AvatarFallback>
           </Avatar>
