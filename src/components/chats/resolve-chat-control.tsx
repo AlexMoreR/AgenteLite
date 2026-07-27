@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
@@ -17,7 +17,29 @@ export function ResolveChatControl({ conversationId, status, source = "agent" }:
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   // Estado optimista para que el botón cambie al instante.
-  const [resolved, setResolved] = useState(status === "CLOSED" || status === "ARCHIVED");
+  const serverResolved = status === "CLOSED" || status === "ARCHIVED";
+  const [resolved, setResolved] = useState(serverResolved);
+
+  // El estado se fijaba SOLO al montar (useState no relee la prop), así que el botón se quedaba
+  // pegado: si otra persona resolvía la conversación, o si cambiabas de chat sin recargar, seguía
+  // diciendo "Resolver" sobre un chat ya resuelto. Ahora se sincroniza, pero SIN pisar el clic
+  // optimista: solo cuando cambia el chat, o cuando el servidor reporta un estado distinto al
+  // último que nos había reportado.
+  const lastServerResolvedRef = useRef(serverResolved);
+  const lastConversationIdRef = useRef(conversationId);
+  useEffect(() => {
+    if (lastConversationIdRef.current !== conversationId) {
+      lastConversationIdRef.current = conversationId;
+      lastServerResolvedRef.current = serverResolved;
+      setResolved(serverResolved);
+      return;
+    }
+
+    if (lastServerResolvedRef.current !== serverResolved) {
+      lastServerResolvedRef.current = serverResolved;
+      setResolved(serverResolved);
+    }
+  }, [conversationId, serverResolved]);
 
   const handleClick = useCallback(() => {
     const nextResolved = !resolved;
