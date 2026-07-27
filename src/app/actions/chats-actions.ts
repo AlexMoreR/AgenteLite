@@ -619,7 +619,12 @@ const sendUnifiedChatReplySchema = z.object({
     (value) => (typeof value === "string" && value.trim() ? value.trim() : undefined),
     z.string().optional(),
   ),
-  returnTo: z.string().trim().min(1).max(500).optional(),
+  // nullish (no optional): el campo puede NO existir en el formulario y `formData.get` devuelve
+  // null, que `.optional()` rechaza. Pasaba en el flujo normal: si entrabas a Chats y abrías un
+  // chat con CLICK, el servidor nunca habia armado el campo returnTo, llegaba null, el schema
+  // fallaba entero y el mensaje quedaba en "No se envió" (con F5 sí andaba, porque ahí el
+  // servidor sí lo incluia). Tampoco se exige min(1): si viene vacio hay un returnTo por defecto.
+  returnTo: z.string().trim().max(500).nullish(),
   quotedMessageId: z.string().trim().nullish(),
   quotedContent: z.string().trim().max(4096).nullish(),
   quotedDirection: z.enum(["INBOUND", "OUTBOUND"]).nullish(),
