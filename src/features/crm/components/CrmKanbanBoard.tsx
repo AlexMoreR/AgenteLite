@@ -64,7 +64,7 @@ function KanbanCard({
 }) {
   return (
     <Card
-      className={`relative rounded-[8px] border-0 p-1.5 shadow-none transition ${
+      className={`relative rounded-[8px] border-0 p-1 shadow-none transition ${
         isDragging ? "cursor-grabbing opacity-60" : "cursor-grab"
       } bg-card`}
     >
@@ -357,7 +357,7 @@ export function CrmKanbanBoard({ columns }: { columns: CrmColumn[] }) {
                 </span>
               </div>
 
-              <div className="mt-2 space-y-2">
+              <div className="mt-2 space-y-1">
                 {column.records.length > 0 ? (
                   column.records.map((record) => (
                     <KanbanCard
