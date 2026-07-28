@@ -5,25 +5,17 @@ import {
   FiLink,
   FiMail,
   FiMessageCircle,
-  FiTrash2,
 } from "react-icons/fi";
-import { Bot, MoreHorizontal, Smartphone } from "lucide-react";
+import { Bot, Smartphone } from "lucide-react";
 import {
   assignConnectionChannelAction,
-  deleteConnectionChannelAction,
   toggleConnectionChannelStatusAction,
 } from "@/app/actions/connection-actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { FormActionSwitch } from "@/components/ui/form-action-switch";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
-import { RenameChannelMenuItem } from "./RenameChannelMenuItem";
+import { ConnectionCardMenu } from "./ConnectionCardMenu";
 
 type ConnectionsWorkspaceProps = {
   officialApiEmbeddedSignupReady: boolean;
@@ -182,26 +174,7 @@ export function ConnectionsWorkspaceV2({
                         </form>
                       ) : null}
 
-                      <DropdownMenu>
-                        <DropdownMenuTrigger
-                          className="relative z-20"
-                          render={
-                            <Button type="button" variant="ghost" size="icon-sm" aria-label={`Acciones para ${item.name}`} />
-                          }
-                        >
-                          <MoreHorizontal />
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <RenameChannelMenuItem channelId={item.id} currentName={item.name} />
-                          <form action={deleteConnectionChannelAction}>
-                            <input type="hidden" name="channelId" value={item.id} />
-                            <DropdownMenuItem variant="destructive" className="w-full" render={<button type="submit" />}>
-                              <FiTrash2 />
-                              Eliminar
-                            </DropdownMenuItem>
-                          </form>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                      <ConnectionCardMenu channelId={item.id} channelName={item.name} />
                     </div>
                   </CardContent>
                 </Card>
