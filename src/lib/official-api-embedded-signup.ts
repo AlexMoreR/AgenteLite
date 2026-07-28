@@ -106,6 +106,116 @@ export function parseEmbeddedSignupSessionResponse(rawValue: string): EmbeddedSi
   return result;
 }
 
+// --- Coexistencia -----------------------------------------------------------------------
+// El onboarding de la app de WhatsApp Business (coexistencia) trae SOLO waba_id en su evento
+// FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING; NO incluye phone_number_id (a diferencia del
+// onboarding normal). Por eso necesitamos un parser tolerante + resolver el numero aparte.
+
+export type EmbeddedSignupIds = {
+  phoneNumberId: string | null;
+  wabaId: string;
+  businessId: string | null;
+};
+
+function normalizeEmbeddedSignupIds(value: unknown): EmbeddedSignupIds | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const wabaId = getTrimmedString(record.waba_id);
+  if (!wabaId) {
+    return null;
+  }
+
+  return {
+    phoneNumberId: getTrimmedString(record.phone_number_id) || null,
+    wabaId,
+    businessId: getTrimmedString(record.business_id) || null,
+  };
+}
+
+function findEmbeddedSignupIds(value: unknown): EmbeddedSignupIds | null {
+  const direct = normalizeEmbeddedSignupIds(value);
+  if (direct) {
+    return direct;
+  }
+
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const result = findEmbeddedSignupIds(entry);
+      if (result) {
+        return result;
+      }
+    }
+    return null;
+  }
+
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  if ("data" in record) {
+    const nested = normalizeEmbeddedSignupIds(record.data);
+    if (nested) {
+      return nested;
+    }
+  }
+
+  for (const nested of Object.values(record)) {
+    const result = findEmbeddedSignupIds(nested);
+    if (result) {
+      return result;
+    }
+  }
+
+  return null;
+}
+
+// Tolerante: exige waba_id, pero phone_number_id es opcional (para coexistencia).
+export function parseEmbeddedSignupIds(rawValue: string): EmbeddedSignupIds {
+  const normalizedRawValue = rawValue.trim();
+  if (!normalizedRawValue) {
+    throw new Error("Falta la respuesta de registro de la sesion para continuar.");
+  }
+
+  let parsedValue: unknown;
+  try {
+    parsedValue = JSON.parse(normalizedRawValue);
+  } catch {
+    throw new Error("La respuesta de registro de la sesion no tiene un JSON valido.");
+  }
+
+  const result = findEmbeddedSignupIds(parsedValue);
+  if (!result) {
+    throw new Error("No se encontro waba_id dentro de la respuesta de Meta.");
+  }
+
+  return result;
+}
+
+// Trae el primer numero registrado de una WABA. En coexistencia el evento no da el
+// phone_number_id, asi que lo pedimos a Meta con el token recien intercambiado.
+export async function fetchWabaFirstPhoneNumberId(input: {
+  wabaId: string;
+  accessToken: string;
+}): Promise<string | null> {
+  const url = new URL(`https://graph.facebook.com/v25.0/${encodeURIComponent(input.wabaId)}/phone_numbers`);
+  url.searchParams.set("access_token", input.accessToken);
+
+  const response = await fetch(url.toString(), { method: "GET", cache: "no-store" });
+  const payload = (await response.json().catch(() => null)) as
+    | { data?: Array<{ id?: string }> }
+    | null;
+
+  if (!response.ok) {
+    return null;
+  }
+
+  return payload?.data?.[0]?.id?.trim() || null;
+}
+
 export async function exchangeEmbeddedSignupCodeForAccessToken(input: {
   code: string;
   appId: string;

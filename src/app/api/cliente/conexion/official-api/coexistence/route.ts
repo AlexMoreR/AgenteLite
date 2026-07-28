@@ -5,7 +5,8 @@ import { auth } from "@/auth";
 import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
 import {
   exchangeEmbeddedSignupCodeForAccessToken,
-  parseEmbeddedSignupSessionResponse,
+  fetchWabaFirstPhoneNumberId,
+  parseEmbeddedSignupIds,
 } from "@/lib/official-api-embedded-signup";
 import {
   getOfficialApiConfigByWorkspaceId,
@@ -124,10 +125,10 @@ export async function POST(request: Request) {
     );
   }
 
-  let sessionData: ReturnType<typeof parseEmbeddedSignupSessionResponse>;
+  let ids: ReturnType<typeof parseEmbeddedSignupIds>;
 
   try {
-    sessionData = parseEmbeddedSignupSessionResponse(parsed.data.sessionResponse);
+    ids = parseEmbeddedSignupIds(parsed.data.sessionResponse);
   } catch (error) {
     return NextResponse.json(
       {
@@ -141,11 +142,28 @@ export async function POST(request: Request) {
     );
   }
 
+  // Coexistencia NO trae phone_number_id en el evento (solo waba_id): lo pedimos a la WABA
+  // con el token recien intercambiado.
+  let phoneNumberId = ids.phoneNumberId;
+  if (!phoneNumberId) {
+    phoneNumberId = await fetchWabaFirstPhoneNumberId({ wabaId: ids.wabaId, accessToken });
+  }
+
+  if (!phoneNumberId) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "No se pudo obtener el numero (phone_number_id) de la cuenta de WhatsApp conectada.",
+      },
+      { status: 400 },
+    );
+  }
+
   await upsertOfficialApiConfigByWorkspaceId({
     workspaceId,
     accessToken,
-    phoneNumberId: sessionData.phoneNumberId,
-    wabaId: sessionData.wabaId,
+    phoneNumberId,
+    wabaId: ids.wabaId,
     webhookVerifyToken: providerSettings.verifyToken || undefined,
     appSecret: providerSettings.appSecret || undefined,
   });
@@ -162,7 +180,7 @@ export async function POST(request: Request) {
   // Suscribir la app al WABA: sin esto Meta NO envia webhooks al numero, o sea no entran
   // mensajes (el mismo paso que hace la ruta manual `setup`). Es lo que faltaba en coexistencia.
   const subscription = await subscribeOfficialApiAppToWaba({
-    wabaId: sessionData.wabaId,
+    wabaId: ids.wabaId,
     accessToken,
   });
 
@@ -175,7 +193,7 @@ export async function POST(request: Request) {
 
   // El numero ya esta registrado (coexistencia); solo lo traemos para mostrarlo. Si falla, no
   // bloqueamos: el canal igual queda conectado y se puede completar despues.
-  const displayNumber = await fetchOfficialApiDisplayNumber(sessionData.phoneNumberId, accessToken);
+  const displayNumber = await fetchOfficialApiDisplayNumber(phoneNumberId, accessToken);
   const resolvedPhoneNumber = displayNumber.ok && displayNumber.phoneNumber ? displayNumber.phoneNumber : null;
 
   const channel = await prisma.whatsAppChannel.create({
@@ -185,15 +203,15 @@ export async function POST(request: Request) {
       provider: "OFFICIAL_API",
       name: parsed.data.name,
       phoneNumber: resolvedPhoneNumber,
-      evolutionInstanceName: `official-${sessionData.phoneNumberId}-${randomUUID()}`,
+      evolutionInstanceName: `official-${phoneNumberId}-${randomUUID()}`,
       status: "CONNECTED",
       metadata: {
         source: "embedded-signup-coexistence",
         coexistence: true,
         officialApiConfigId: officialApiConfig.id,
-        phoneNumberId: sessionData.phoneNumberId,
-        wabaId: sessionData.wabaId,
-        businessId: sessionData.businessId,
+        phoneNumberId,
+        wabaId: ids.wabaId,
+        businessId: ids.businessId,
         subscribedAppId: subscription.appId,
       },
     },

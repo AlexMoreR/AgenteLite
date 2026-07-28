@@ -192,7 +192,12 @@ export function NewConnectionChannelModal({
       }
 
       const message = payload as EmbeddedSignupFinishPayload;
-      if (message.type !== "WA_EMBEDDED_SIGNUP" || message.event !== "FINISH") {
+      // Coexistencia (onboarding de la app de WhatsApp Business) emite el evento
+      // FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING, NO el FINISH del onboarding normal. Si solo
+      // aceptamos FINISH, la respuesta nunca se captura y el canal jamas se crea.
+      const isFinishEvent =
+        message.event === "FINISH" || message.event === "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING";
+      if (message.type !== "WA_EMBEDDED_SIGNUP" || !isFinishEvent) {
         return;
       }
 
