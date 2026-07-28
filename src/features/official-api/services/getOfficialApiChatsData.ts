@@ -1,6 +1,8 @@
+import { after } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getOfficialApiConfigByWorkspaceId, hasOfficialApiBaseCredentials } from "@/lib/official-api-config";
+import { downloadOfficialApiMedia, extractMediaRefFromRawPayload } from "@/lib/official-api-media";
 import type { OfficialApiChatsData } from "@/features/official-api/types/official-api";
 
 function normalizeSearch(value: string | undefined) {
@@ -245,6 +247,61 @@ async function loadOfficialApiChatsData(input: {
 
     if (conversationDetailRows.length === 0) {
       return null;
+    }
+
+    // AUTO-RECUPERACIÓN de archivos viejos. Los mensajes que entraron antes de que existiera la
+    // descarga quedaron sin archivo (una burbuja "Foto" cargando para siempre), pero el
+    // identificador de Meta quedó guardado y Meta conserva el archivo ~30 días. Al abrir el chat
+    // se bajan los que falten, en segundo plano (after) para no demorar la pantalla, con un tope
+    // por render para no dispararle a Graph de a cientos.
+    const pendingMedia = conversationDetailRows
+      .filter(
+        (row) =>
+          row.messageId &&
+          !row.messageMediaUrl &&
+          ["IMAGE", "AUDIO", "VIDEO", "DOCUMENT"].includes(row.messageType ?? ""),
+      )
+      .slice(0, 10);
+
+    if (pendingMedia.length > 0 && activeConfig.accessToken) {
+      const accessToken = activeConfig.accessToken;
+      const configId = activeConfig.id;
+
+      after(async () => {
+        for (const row of pendingMedia) {
+          try {
+            const externalIdRows = await prisma.$queryRaw<Array<{ externalMessageId: string | null }>>`
+              SELECT "externalMessageId" FROM "OfficialApiMessage" WHERE "id" = ${row.messageId} LIMIT 1
+            `;
+            const externalMessageId = externalIdRows[0]?.externalMessageId?.trim();
+            if (!externalMessageId) {
+              continue;
+            }
+
+            const ref = extractMediaRefFromRawPayload(row.messageRawPayload, externalMessageId);
+            if (!ref) {
+              continue;
+            }
+
+            const media = await downloadOfficialApiMedia({
+              mediaId: ref.mediaId,
+              accessToken,
+              mediaType: ref.mediaType,
+            });
+            if (!media) {
+              continue;
+            }
+
+            await prisma.$executeRaw`
+              UPDATE "OfficialApiMessage"
+              SET "mediaUrl" = ${media.mediaUrl}, "updatedAt" = CURRENT_TIMESTAMP
+              WHERE "id" = ${row.messageId} AND "configId" = ${configId}
+            `;
+          } catch (error) {
+            console.error("[OFFICIAL_API] media_backfill_failed", { messageId: row.messageId, error });
+          }
+        }
+      });
     }
 
     const firstRow = conversationDetailRows[0];

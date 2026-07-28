@@ -8,6 +8,63 @@ const MAX_MEDIA_BYTES = 60 * 1024 * 1024;
 
 export type OfficialApiMediaType = "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT" | "STICKER";
 
+type UnknownRecord = Record<string, unknown>;
+
+function asRecord(value: unknown): UnknownRecord | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as UnknownRecord) : null;
+}
+
+/**
+ * Saca el id del archivo de un mensaje YA GUARDADO, buscándolo dentro del webhook completo que
+ * quedó en rawPayload.
+ *
+ * Sirve para recuperar las fotos viejas: los mensajes que entraron antes de que existiera la
+ * descarga quedaron sin archivo, pero el identificador de Meta siempre estuvo ahí guardado.
+ */
+export function extractMediaRefFromRawPayload(
+  rawPayload: unknown,
+  externalMessageId: string,
+): { mediaId: string; mediaType: OfficialApiMediaType } | null {
+  const root = asRecord(rawPayload);
+  const entries = Array.isArray(root?.entry) ? root.entry : [];
+
+  for (const entry of entries) {
+    const changes = Array.isArray(asRecord(entry)?.changes) ? (asRecord(entry)!.changes as unknown[]) : [];
+
+    for (const change of changes) {
+      const value = asRecord(asRecord(change)?.value);
+      // Mensajes del cliente y ecos de la app del celular guardan la media igual.
+      const lists = [value?.messages, value?.message_echoes].filter(Array.isArray) as unknown[][];
+
+      for (const list of lists) {
+        for (const item of list) {
+          const message = asRecord(item);
+          if (!message || String(message.id ?? "").trim() !== externalMessageId) {
+            continue;
+          }
+
+          const candidates: Array<[string, OfficialApiMediaType]> = [
+            ["image", "IMAGE"],
+            ["video", "VIDEO"],
+            ["document", "DOCUMENT"],
+            ["audio", "AUDIO"],
+            ["sticker", "STICKER"],
+          ];
+
+          for (const [key, mediaType] of candidates) {
+            const mediaId = String(asRecord(message[key])?.id ?? "").trim();
+            if (mediaId) {
+              return { mediaId, mediaType };
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
 /**
  * Baja un media entrante de la API oficial y lo deja guardado en /uploads.
  *
