@@ -37,6 +37,8 @@ import type {
   LlamadasOwnerData,
   LlamadasVendedoraData,
 } from "@/features/llamadas/services/getLlamadasData";
+import type { ResumenDiaData } from "@/features/llamadas/services/getResumenDia";
+import { ResumenDiaView } from "@/features/llamadas/components/ResumenDiaView";
 
 type PresetContact = { contactId: string; name: string; phoneNumber?: string };
 
@@ -472,10 +474,12 @@ export function LlamadasWorkspace({
   vendedora,
   owner,
   canSeeOwner,
+  resumen,
 }: {
   vendedora: LlamadasVendedoraData;
   owner: LlamadasOwnerData | null;
   canSeeOwner: boolean;
+  resumen: ResumenDiaData;
 }) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [preset, setPreset] = useState<PresetContact | null>(null);
@@ -526,20 +530,23 @@ export function LlamadasWorkspace({
         <Button onClick={() => openRegister(null)}>Registrar llamada</Button>
       </div>
 
-      {canSeeOwner && owner ? (
-        <Tabs defaultValue="vendedora">
-          <TabsList className="mb-4">
-            <TabsTrigger value="vendedora">Mi día</TabsTrigger>
-            <TabsTrigger value="tablero">Tablero</TabsTrigger>
-          </TabsList>
-          <TabsContent value="vendedora">{vendedoraView}</TabsContent>
+      {/* "Resumen" lo ve CUALQUIERA (cada una manda el suyo); "Tablero" solo el dueño. */}
+      <Tabs defaultValue="vendedora">
+        <TabsList className="mb-4">
+          <TabsTrigger value="vendedora">Mi día</TabsTrigger>
+          <TabsTrigger value="resumen">Resumen</TabsTrigger>
+          {canSeeOwner && owner ? <TabsTrigger value="tablero">Tablero</TabsTrigger> : null}
+        </TabsList>
+        <TabsContent value="vendedora">{vendedoraView}</TabsContent>
+        <TabsContent value="resumen">
+          <ResumenDiaView data={resumen} />
+        </TabsContent>
+        {canSeeOwner && owner ? (
           <TabsContent value="tablero">
             <OwnerBoard data={owner} />
           </TabsContent>
-        </Tabs>
-      ) : (
-        vendedoraView
-      )}
+        ) : null}
+      </Tabs>
 
       <RegisterCallDialog open={dialogOpen} onOpenChange={setDialogOpen} preset={preset} />
     </div>
