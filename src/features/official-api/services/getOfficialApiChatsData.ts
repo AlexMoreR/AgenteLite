@@ -27,6 +27,24 @@ function readNestedRecord(value: unknown, key: string) {
   return isRecord(nested) ? nested : null;
 }
 
+/**
+ * Tipo del mensaje. Manda el tipo GUARDADO (el webhook ya sabe si vino una foto, un audio o un
+ * PDF); adivinar solo queda como respaldo para mensajes viejos que se guardaron sin tipo.
+ */
+function resolveOfficialApiMessageType(input: {
+  storedType: string | null;
+  rawPayload: unknown;
+  mediaUrl: string | null;
+  content: string | null;
+}): OfficialMessageType {
+  const stored = input.storedType?.trim().toUpperCase() ?? "";
+  if (stored && stored !== "TEXT") {
+    return stored as OfficialMessageType;
+  }
+
+  return inferOfficialApiMessageType(input.rawPayload, input.mediaUrl, input.content);
+}
+
 function inferOfficialApiMessageType(rawPayload: unknown, mediaUrl: string | null, content: string | null): OfficialMessageType {
   const root = readNestedRecord(rawPayload, "evolution") ?? (isRecord(rawPayload) ? rawPayload : null);
   const data = readNestedRecord(root, "data");
@@ -132,6 +150,10 @@ export async function getOfficialApiChatsData(input: {
     messageDirection: "INBOUND" | "OUTBOUND" | null;
     messageCreatedAt: Date | null;
     messageStatus: "RECEIVED" | "SENT" | "DELIVERED" | "READ" | "FAILED" | null;
+    // Tipo REAL guardado por el webhook. Antes no se leía y el tipo se adivinaba desde el
+    // rawPayload buscando claves de Evolution, que en la API oficial no existen: toda la media
+    // entrante terminaba mostrándose como texto.
+    messageType: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT" | "TEMPLATE" | "INTERACTIVE" | "SYSTEM" | null;
     messageMediaUrl: string | null;
     messageRawPayload: unknown;
   };
@@ -151,6 +173,7 @@ export async function getOfficialApiChatsData(input: {
         m."direction"::text AS "messageDirection",
         m."createdAt" AS "messageCreatedAt",
         m."status"::text AS "messageStatus",
+        m."type"::text AS "messageType",
         m."mediaUrl" AS "messageMediaUrl",
         m."rawPayload" AS "messageRawPayload"
       FROM "OfficialApiConversation" c
@@ -198,7 +221,12 @@ export async function getOfficialApiChatsData(input: {
           direction: row.messageDirection!,
           createdAt: new Date(row.messageCreatedAt!),
           status: row.messageStatus!,
-          type: inferOfficialApiMessageType(row.messageRawPayload, row.messageMediaUrl, row.messageContent),
+          type: resolveOfficialApiMessageType({
+            storedType: row.messageType,
+            rawPayload: row.messageRawPayload,
+            mediaUrl: row.messageMediaUrl,
+            content: row.messageContent,
+          }),
           mediaUrl: row.messageMediaUrl,
           rawPayload: row.messageRawPayload,
         })),

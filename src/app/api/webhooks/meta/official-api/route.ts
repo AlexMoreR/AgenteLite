@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { Prisma } from "@prisma/client";
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { randomUUID } from "node:crypto";
 import { buildActiveProductContextNote, resolveAgentProductFlowReply, type ActiveProductContext } from "@/lib/agent-product-flow";
 import { composeAgentWelcomeReply } from "@/lib/agent-reply-composer";
@@ -33,6 +33,7 @@ import { recordContactMatch } from "@/lib/contact-matches";
 import { prisma } from "@/lib/prisma";
 import { notifyRealtimeUpdate } from "@/lib/realtime-notify";
 import { normalizeMetaAppSecret } from "@/lib/official-api-graph";
+import { downloadOfficialApiMedia } from "@/lib/official-api-media";
 import { getOfficialApiProviderSettings } from "@/lib/system-settings";
 import { buildHandoffMessage, parseAgentTrainingConfig } from "@/lib/agent-training";
 import {
@@ -76,6 +77,14 @@ type MetaWebhookPayload = {
           text?: {
             body?: string;
           };
+          // Media entrante: Cloud API NO manda el archivo, manda un `id` que hay que canjear
+          // contra Graph (ver official-api-media.ts). El `caption` es el texto que el cliente
+          // escribió junto a la foto/video/documento; sin leerlo se perdía.
+          image?: { id?: string; mime_type?: string; caption?: string };
+          audio?: { id?: string; mime_type?: string; voice?: boolean };
+          video?: { id?: string; mime_type?: string; caption?: string };
+          document?: { id?: string; mime_type?: string; caption?: string; filename?: string };
+          sticker?: { id?: string; mime_type?: string };
         }>;
         // Coexistencia: mensajes que la asesora manda desde la app de WhatsApp Business
         // (no via nuestra API). Meta los "refleja" con este campo para que el CRM se entere.
@@ -135,6 +144,11 @@ type ExtractedInboundMessage = {
   type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT" | "TEMPLATE" | "INTERACTIVE" | "SYSTEM";
   createdAt: Date;
   rawPayload: MetaWebhookPayload;
+  // Id del archivo en Meta, para bajarlo despues del insert (el webhook responde primero).
+  mediaId: string | null;
+  // Tipo con el que se guarda el archivo. Los stickers se guardan como IMAGE porque el enum de
+  // la API oficial no tiene STICKER, pero el archivo igual se baja y se ve.
+  mediaKind: "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT" | "STICKER" | null;
 };
 
 async function findConfigByVerifyToken(verifyToken: string) {
@@ -400,14 +414,39 @@ function extractInboundMessages(payload: MetaWebhookPayload): ExtractedInboundMe
           return null;
         }
 
+        // Archivo adjunto (si lo hay) y el texto que lo acompaña. Antes solo se leía
+        // `text.body`, así que una foto con comentario llegaba vacía y sin archivo.
+        const attachment =
+          message.image ?? message.video ?? message.document ?? message.audio ?? message.sticker ?? null;
+        const mediaKind: ExtractedInboundMessage["mediaKind"] = message.image
+          ? "IMAGE"
+          : message.video
+            ? "VIDEO"
+            : message.document
+              ? "DOCUMENT"
+              : message.audio
+                ? "AUDIO"
+                : message.sticker
+                  ? "STICKER"
+                  : null;
+        const caption =
+          message.image?.caption?.trim() ||
+          message.video?.caption?.trim() ||
+          message.document?.caption?.trim() ||
+          // Un documento sin comentario al menos muestra su nombre en vez de quedar en blanco.
+          message.document?.filename?.trim() ||
+          null;
+
         return {
           id: messageId,
           waId,
           contactName: contactNames.get(waId) ?? null,
-          content: message.text?.body?.trim() || null,
+          content: message.text?.body?.trim() || caption,
           type: mapMessageType(message.type),
           createdAt: parseMetaTimestamp(message.timestamp),
           rawPayload: payload,
+          mediaId: attachment?.id?.trim() || null,
+          mediaKind,
         } satisfies ExtractedInboundMessage;
       })
       .filter((message): message is ExtractedInboundMessage => Boolean(message));
@@ -429,7 +468,12 @@ function mapMessageStatus(status: string | undefined) {
   }
 }
 
-async function syncInboundMessages(configId: string, payload: MetaWebhookPayload) {
+async function syncInboundMessages(
+  configId: string,
+  payload: MetaWebhookPayload,
+  accessToken?: string | null,
+  workspaceId?: string | null,
+) {
   const inboundMessages = extractInboundMessages(payload);
   const insertedMessages: Array<{
     conversationId: string;
@@ -573,6 +617,38 @@ async function syncInboundMessages(configId: string, payload: MetaWebhookPayload
         CURRENT_TIMESTAMP
       )
     `;
+
+    // El archivo se baja DESPUES de responderle a Meta (after): Cloud API espera un 200 rapido y
+    // un video de varios MB tardaria demasiado. El mensaje ya quedo guardado; cuando el archivo
+    // esta listo se le agrega el mediaUrl y aparece solo en el chat.
+    if (message.mediaId && message.mediaKind && accessToken) {
+      const mediaId = message.mediaId;
+      const mediaKind = message.mediaKind;
+      const externalMessageId = message.id;
+      const mediaConversationId = conversation.id;
+
+      after(async () => {
+        const media = await downloadOfficialApiMedia({ mediaId, accessToken, mediaType: mediaKind });
+        if (!media) {
+          return;
+        }
+
+        await prisma.$executeRaw`
+          UPDATE "OfficialApiMessage"
+          SET "mediaUrl" = ${media.mediaUrl},
+              "updatedAt" = CURRENT_TIMESTAMP
+          WHERE "configId" = ${configId}
+            AND "externalMessageId" = ${externalMessageId}
+        `;
+
+        // El navegador ya pinto el mensaje sin archivo: se avisa de nuevo para que lo repinte.
+        if (workspaceId) {
+          await notifyRealtimeUpdate({ workspaceId, conversationId: mediaConversationId }).catch(
+            () => undefined,
+          );
+        }
+      });
+    }
 
     insertedMessages.push({
       conversationId: conversation.id,
@@ -947,7 +1023,12 @@ export async function POST(request: Request) {
     await syncMessageEchoes(config.id, payload);
     await syncHistoryMessages(config.id, payload);
 
-    const insertedMessages = await syncInboundMessages(config.id, payload);
+    const insertedMessages = await syncInboundMessages(
+      config.id,
+      payload,
+      config.accessToken,
+      config.workspaceId,
+    );
     await syncMessageStatuses(config.id, payload);
 
     // Avisa al altavoz para que los navegadores abiertos pinten el cambio al instante, sin
