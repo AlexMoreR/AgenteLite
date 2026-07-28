@@ -10,6 +10,12 @@ type ChatsAutoRefreshProps = {
   // Active conversation key (for example: "agent:xxx" or "official:xxx").
   // For Evolution chats we use /live instead of router.refresh().
   selectedConversationKey?: string | null;
+  // Refresco propio para la API oficial (ms; 0 = apagado). Los canales oficiales NO tienen
+  // realtime push: Meta manda webhooks a nuestro servidor, no al navegador. Su unica via es
+  // este poll, y por eso no puede compartir el del resto: el poll general corre cada 60s y
+  // ADEMAS se cancela cuando el realtime de Evolution refresco la lista, asi que un chat
+  // oficial se quedaba congelado (el mensaje aparecia recien al recargar a mano).
+  officialRefreshMs?: number;
 };
 
 function hydrateConversationSnapshot(value: unknown) {
@@ -42,6 +48,7 @@ export function ChatsAutoRefresh({
   enabled = true,
   realtimeEnabled = true,
   selectedConversationKey = null,
+  officialRefreshMs = 0,
 }: ChatsAutoRefreshProps) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -191,6 +198,23 @@ export function ChatsAutoRefresh({
     return () => window.clearInterval(timer);
     // The interval should not reset when the active chat changes.
   }, [enabled, isVisible, intervalMs, realtimeEnabled, router, startTransition]);
+
+  // Poll propio de la API oficial: corre SIEMPRE (no lo cancela el realtime de Evolution,
+  // que no dice nada de los canales oficiales) y con su propio intervalo, mas corto que el
+  // general. Es un router.refresh() suave: re-pide el RSC, no recarga la pagina.
+  useEffect(() => {
+    if (!enabled || !isVisible || officialRefreshMs <= 0) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      startTransition(() => {
+        router.refresh();
+      });
+    }, officialRefreshMs);
+
+    return () => window.clearInterval(timer);
+  }, [enabled, isVisible, officialRefreshMs, router, startTransition]);
 
   return null;
 }

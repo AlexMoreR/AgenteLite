@@ -1001,6 +1001,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         enabled
         realtimeEnabled={chatsRealtimeSyncEnabled}
         selectedConversationKey={selectedUnified?.key ?? null}
+        officialRefreshMs={officialChatsData.conversations.length > 0 ? 8000 : 0}
       />
       <ChatsRealtimeSync
         enabled={chatsRealtimeSyncEnabled}
