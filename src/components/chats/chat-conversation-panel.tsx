@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   ArrowLeft,
+  BookOpen,
   Camera,
   ChevronUp,
   Copy,
@@ -31,6 +32,7 @@ import { sendChatLocationReplyAction } from "@/app/actions/agent-actions";
 import { clearPendingConversationSelection } from "@/components/chats/chat-selection-store";
 import { ChatTagsControl } from "@/components/chats/chat-tags-control";
 import { QuickRepliesDialog } from "@/components/chats/quick-replies-dialog";
+import { PlaybookPanelDialog } from "@/components/chats/playbook-panel-dialog";
 import { MediaPreviewDialog } from "@/components/chats/media-preview-dialog";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -129,6 +131,7 @@ export const ConversationPanel = memo(function ConversationPanel({
   const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
   const [isAttachMenuOpen, setIsAttachMenuOpen] = useState(false);
   const [isQuickRepliesOpen, setIsQuickRepliesOpen] = useState(false);
+  const [isPlaybookOpen, setIsPlaybookOpen] = useState(false);
   // Archivos elegidos pendientes de confirmar en la vista previa (con caption) antes de enviar.
   const [pendingMediaFiles, setPendingMediaFiles] = useState<File[]>([]);
   const [isSuggestingReply, setIsSuggestingReply] = useState(false);
@@ -1068,6 +1071,20 @@ export const ConversationPanel = memo(function ConversationPanel({
                                   <MessageSquareText className="size-5 shrink-0 text-[#10b981]" />
                                   <span>Respuestas rápidas</span>
                                 </Button>
+                                {/* Guion del Playbook segun la etapa de ESTE cliente: la asesora no
+                                    tiene que abrir el documento aparte ni acordarse de nada. */}
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  onClick={() => {
+                                    setIsAttachMenuOpen(false);
+                                    setIsPlaybookOpen(true);
+                                  }}
+                                  className="flex h-auto w-full items-center justify-start gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-normal text-foreground transition hover:bg-muted focus:outline-none focus-visible:bg-muted"
+                                >
+                                  <BookOpen className="size-5 shrink-0 text-[#f59e0b]" />
+                                  <span>Qué decir ahora</span>
+                                </Button>
                                 <Button
                                   type="button"
                                   variant="ghost"
@@ -1240,6 +1257,14 @@ export const ConversationPanel = memo(function ConversationPanel({
           open={isQuickRepliesOpen}
           onClose={() => setIsQuickRepliesOpen(false)}
           onSelect={insertQuickReply}
+        />
+        {/* El guion se INSERTA en el compositor (mismo mecanismo que las respuestas rápidas):
+            la asesora lo ajusta y envía cuando quiere, nunca se manda solo. */}
+        <PlaybookPanelDialog
+          open={isPlaybookOpen}
+          onClose={() => setIsPlaybookOpen(false)}
+          onSelect={insertQuickReply}
+          stage={renderedConversation?.crmStage ?? null}
         />
         {pendingMediaFiles.length > 0 ? (
           <MediaPreviewDialog

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { ChartNoAxesCombined, ChevronDown, FileText, KanbanSquare, Sun, type LucideIcon } from "lucide-react";
+import { BookOpen, ChartNoAxesCombined, ChevronDown, FileText, KanbanSquare, Sun, type LucideIcon } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -18,7 +18,7 @@ import {
   SidebarMenuSubItem,
 } from "@/components/ui/sidebar";
 
-type CrmView = "mi-dia" | "registro" | "kanban" | "informe";
+type CrmView = "mi-dia" | "registro" | "kanban" | "informe" | "guiones";
 
 const crmViews: Array<{
   title: string;
@@ -29,6 +29,7 @@ const crmViews: Array<{
   { title: "Registro", view: "registro", icon: FileText },
   { title: "Kanban", view: "kanban", icon: KanbanSquare },
   { title: "Informe", view: "informe", icon: ChartNoAxesCombined },
+  { title: "Guiones", view: "guiones", icon: BookOpen },
 ];
 
 export function NavCrm({ currentView, isCrmRoute }: { currentView: CrmView; isCrmRoute: boolean }) {

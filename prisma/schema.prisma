@@ -88,6 +88,7 @@ model Workspace {
   memberships          WorkspaceMember[]
   webPushSubscriptions WebPushSubscription[]
   callAttempts         CallAttempt[]
+  playbookScripts      PlaybookScript[]
 
   @@index([ownerId])
 }
@@ -1017,6 +1018,33 @@ model WebPushSubscription {
 
   @@index([workspaceId])
   @@index([userId])
+}
+
+// Guion del Playbook de ventas, adentro del CRM. Objetivo: que la asesora no tenga que abrir el
+// documento aparte — el chat le muestra que decir segun la etapa de ESE cliente, y el copiloto
+// responde con estos mismos textos en vez de improvisar.
+model PlaybookScript {
+  id          String    @id @default(cuid())
+  workspaceId String
+  // "STAGE" = que decir en una etapa del embudo. "OBJECTION" = que contestar a una objecion.
+  // Texto y no enum a proposito (mismo criterio que lostReason): agregar un tipo no deberia
+  // obligar a migrar la base de produccion.
+  kind        String
+  // Etapa del CRM (valor de CrmStage) cuando kind = "STAGE"; null en las objeciones.
+  stage       String?
+  title       String
+  // Texto listo para usar. El boton lo INSERTA en el compositor (no lo envia) para poder ajustarlo.
+  content     String
+  // Palabras con las que la asesora busca la objecion ("caro, precio, costoso").
+  keywords    String?
+  sortOrder   Int       @default(0)
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, kind, stage])
+  @@index([workspaceId, sortOrder])
 }
 
 // Intento de llamada a un lead. Cada llamada es un EVENTO con historial (no un campo unico en
