@@ -11,8 +11,31 @@ import {
   getOfficialApiConfigByWorkspaceId,
   upsertOfficialApiConfigByWorkspaceId,
 } from "@/lib/official-api-config";
+import { getMetaGraphErrorMessage, type MetaGraphErrorPayload } from "@/lib/official-api-graph";
+import { subscribeOfficialApiAppToWaba } from "@/lib/official-api-subscription";
 import { prisma } from "@/lib/prisma";
 import { getOfficialApiProviderSettings } from "@/lib/system-settings";
+
+// El numero ya esta registrado (coexistencia): solo lo consultamos para mostrarlo formateado.
+async function fetchOfficialApiDisplayNumber(phoneNumberId: string, accessToken: string) {
+  const response = await fetch(
+    `https://graph.facebook.com/v23.0/${encodeURIComponent(phoneNumberId)}?fields=display_phone_number`,
+    { method: "GET", headers: { Authorization: `Bearer ${accessToken}` }, cache: "no-store" },
+  );
+
+  const payload = (await response.json().catch(() => null)) as
+    | ({ display_phone_number?: string } & MetaGraphErrorPayload)
+    | null;
+
+  if (!response.ok) {
+    return {
+      ok: false as const,
+      error: getMetaGraphErrorMessage(payload, "No se pudo validar el Phone Number ID en Meta."),
+    };
+  }
+
+  return { ok: true as const, phoneNumber: payload?.display_phone_number?.replace(/\D/g, "") ?? "" };
+}
 
 const coexistenceChannelSchema = z.object({
   name: z.string().trim().min(2, "Escribe un nombre de canal valido").max(100, "El nombre del canal es demasiado largo"),
@@ -136,21 +159,42 @@ export async function POST(request: Request) {
     );
   }
 
+  // Suscribir la app al WABA: sin esto Meta NO envia webhooks al numero, o sea no entran
+  // mensajes (el mismo paso que hace la ruta manual `setup`). Es lo que faltaba en coexistencia.
+  const subscription = await subscribeOfficialApiAppToWaba({
+    wabaId: sessionData.wabaId,
+    accessToken,
+  });
+
+  if (!subscription.ok) {
+    return NextResponse.json(
+      { ok: false, error: subscription.error || "No se pudo suscribir la app oficial al WABA." },
+      { status: 400 },
+    );
+  }
+
+  // El numero ya esta registrado (coexistencia); solo lo traemos para mostrarlo. Si falla, no
+  // bloqueamos: el canal igual queda conectado y se puede completar despues.
+  const displayNumber = await fetchOfficialApiDisplayNumber(sessionData.phoneNumberId, accessToken);
+  const resolvedPhoneNumber = displayNumber.ok && displayNumber.phoneNumber ? displayNumber.phoneNumber : null;
+
   const channel = await prisma.whatsAppChannel.create({
     data: {
       workspaceId,
       agentId,
       provider: "OFFICIAL_API",
       name: parsed.data.name,
-      phoneNumber: null,
+      phoneNumber: resolvedPhoneNumber,
       evolutionInstanceName: `official-${sessionData.phoneNumberId}-${randomUUID()}`,
       status: "CONNECTED",
       metadata: {
         source: "embedded-signup-coexistence",
+        coexistence: true,
         officialApiConfigId: officialApiConfig.id,
         phoneNumberId: sessionData.phoneNumberId,
         wabaId: sessionData.wabaId,
         businessId: sessionData.businessId,
+        subscribedAppId: subscription.appId,
       },
     },
     select: {
