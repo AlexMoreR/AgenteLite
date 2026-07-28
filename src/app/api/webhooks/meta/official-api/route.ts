@@ -481,7 +481,10 @@ function buildReadableContent(message: {
     case "system":
       return message.system?.body?.trim() || null;
     case "unsupported":
-      return `⚠️ Mensaje no soportado${message.errors?.[0]?.title ? `: ${message.errors[0].title}` : ""}`;
+      // Mensaje que la API oficial de Meta no entrega (encuestas, ubicacion en vivo, etc.).
+      // No es un error nuestro y no hay nada que reintentar: se le dice a la asesora en
+      // castellano llano que lo abra en el celular, en vez del texto tecnico de Meta.
+      return "📱 Este mensaje solo se puede ver en el celular";
     default:
       return null;
   }
