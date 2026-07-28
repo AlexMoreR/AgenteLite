@@ -294,6 +294,10 @@ export const MessageBubble = memo(function MessageBubble({
   const hasImagePreview = isImageMessage && imagePreviewUrl !== null;
   const imagePreviewExhausted = isImageMessage && imagePreviewUrls.length > 0 && !hasImagePreview;
   const showInlineImageTimestamp = hasImagePreview;
+  // La hora vive en una columna aparte, a la DERECHA del contenido. Con una foto o un video
+  // verticales eso dejaba una franja blanca al lado y la hora colgada en el aire. En esos casos
+  // se dibuja encima del propio archivo, como WhatsApp, y la burbuja se ajusta al ancho real.
+  const showInlineMediaTimestamp = hasImagePreview || Boolean(videoUrl);
 
   const handleImageError = () => {
     setImagePreviewIndex((current) => {
@@ -595,12 +599,24 @@ export const MessageBubble = memo(function MessageBubble({
             </div>
           ) : videoUrl ? (
             <div className="space-y-2">
-              <video
-                src={videoUrl}
-                controls
-                preload="metadata"
-                className="max-h-[320px] w-full rounded-xl bg-black"
-              />
+              <div className="relative w-fit max-w-full overflow-hidden rounded-xl">
+                <video
+                  src={videoUrl}
+                  controls
+                  preload="metadata"
+                  className="max-h-[320px] w-auto max-w-full rounded-xl bg-black"
+                />
+                {/* Arriba y no abajo: el reproductor pone sus propios botones en el borde
+                    inferior y la hora quedaría tapada por el play y el volumen. */}
+                <div className="pointer-events-none absolute right-2 top-2 inline-flex items-center gap-1 rounded-full bg-black/45 px-1.5 py-0.5 text-[10px] leading-none text-white backdrop-blur-sm">
+                  {message.authorType === "bot" ? (
+                    <Bot className="h-3 w-3" />
+                  ) : (
+                    <UserRound className="h-3 w-3" />
+                  )}
+                  {formatChatTime(message.createdAt)}
+                </div>
+              </div>
               {renderMessageText(message.content)}
             </div>
           ) : stickerUrl ? (
@@ -716,14 +732,14 @@ export const MessageBubble = memo(function MessageBubble({
                 Editado
               </Badge>
             ) : null}
-            {!showInlineImageTimestamp ? (
+            {!showInlineMediaTimestamp ? (
               message.authorType === "bot" ? (
                 <Bot className="h-3 w-3" />
               ) : (
                 <UserRound className="h-3 w-3" />
               )
             ) : null}
-            {!showInlineImageTimestamp ? <span>{formatChatTime(message.createdAt)}</span> : null}
+            {!showInlineMediaTimestamp ? <span>{formatChatTime(message.createdAt)}</span> : null}
             {isPendingMedia ? (
               <LoaderCircle className="ml-0.5 h-3 w-3 shrink-0 animate-spin" aria-label="Enviando" />
             ) : null}
