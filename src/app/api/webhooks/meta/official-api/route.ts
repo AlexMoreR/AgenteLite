@@ -1088,9 +1088,18 @@ export async function POST(request: Request) {
         !agentProductFlowReply &&
         !agentKnowledgeBaseReply;
 
+      // Un canal SIN agente vinculado no responde NADA: la conversacion queda para una persona.
+      //
+      // Antes, sin agente, se caia igual en el chatbot basico, que sin configurar devuelve el
+      // escenario por defecto ("Hola. Soy el asistente automatico..." + "Todavia no tengo una
+      // respuesta segura para eso...") — un generico que el cliente recibia incluso al mandar una
+      // foto. Preferimos el silencio: es mejor que conteste una asesora a que conteste un robot
+      // que no sabe nada del negocio.
+      const hasLinkedAgent = Boolean(linkedAgentChannel?.agent?.id);
+
       // El chatbot basico de la API oficial solo actua cuando NO hay agente IA que responda
       // (el agente vinculado tiene prioridad y no queremos avanzar escenarios en silencio).
-      const chatbotReply = shouldHandoffToHuman || Boolean(autoUnknownProductNotifyAction) || shouldRunAgentIa
+      const chatbotReply = !hasLinkedAgent || shouldHandoffToHuman || Boolean(autoUnknownProductNotifyAction) || shouldRunAgentIa
         ? null
         : await resolveOfficialApiAutomationReply({
             configId: config.id,

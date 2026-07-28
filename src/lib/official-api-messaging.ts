@@ -27,10 +27,12 @@ export async function sendOfficialApiTypingIndicator(input: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${input.config.accessToken}`,
       },
+      // OJO: este request es "marcar como leido + escribiendo", NO un envio de mensaje. Cloud API
+      // solo acepta messaging_product, status, message_id y typing_indicator. Mandar tambien
+      // `recipient_type` y `to` (que son del envio) lo hacia fallar con "(#100) Invalid parameter",
+      // asi que el indicador NUNCA se mostraba y ademas no habia pausa antes de responder.
       body: JSON.stringify({
         messaging_product: "whatsapp",
-        recipient_type: "individual",
-        to: input.to,
         status: "read",
         message_id: input.inboundMessageId,
         typing_indicator: {
