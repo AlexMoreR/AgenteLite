@@ -186,6 +186,9 @@ export async function getOfficialApiChatsData(input: {
           msg."direction",
           msg."createdAt",
           msg."status",
+          -- El tipo REAL del mensaje: sin esto en el LATERAL, el m."type" de arriba no existe
+          -- y la consulta entera falla (pantalla de error al abrir el canal).
+          msg."type",
           msg."mediaUrl",
           msg."rawPayload"
         FROM "OfficialApiMessage" msg
