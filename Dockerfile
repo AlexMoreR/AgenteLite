@@ -31,6 +31,9 @@ COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/next.config.ts ./next.config.ts
 COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
+# Altavoz de realtime (WebSocket). Viaja en la MISMA imagen y se corre como un servicio
+# aparte con `node realtime-server.js` (ver stack). JS plano: arranca sin compilar.
+COPY --from=builder /app/realtime-server.js ./realtime-server.js
 COPY docker/entrypoint.sh ./docker/entrypoint.sh
 RUN chmod +x ./docker/entrypoint.sh
 
