@@ -1020,14 +1020,74 @@ function extractPayloadMediaDataUrl(payload: unknown, mediaType: "IMAGE" | "AUDI
   return normalizeBase64DataUrl(base64Candidate || "", mimeType);
 }
 
-export async function fetchEvolutionMediaDataUrl(input: {
+type EvolutionMediaInput = {
   instanceName: string;
   messageId: string;
   mediaType: "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT";
   mimeType?: string | null;
-}) {
+};
+
+// Evolution GO (whatsmeow) NO tiene /chat/getBase64FromMediaMessage (eso es de Baileys /
+// Evolution API): pedirlo devuelve 404 y la media queda en blanco/rota. En evogo la media
+// se baja con POST /message/downloadmedia { id }, autenticando la instancia por el header
+// apikey (no en el path). La respuesta es JSON { data: { base64: "data:<mime>;base64,..." } }
+// (un data URL ya completo). Verificado contra el codigo de evolution-foundation/evolution-go
+// (pkg/routes/routes.go + pkg/message/handler|service).
+async function fetchEvolutionGoMediaByMessageId(
+  input: EvolutionMediaInput,
+  storedAuth: EvolutionStoredInstanceAuth | null,
+  connection: EvolutionConnection | null,
+) {
+  let instanceId = storedAuth?.id ?? null;
+  let instanceToken = storedAuth?.token ?? null;
+  // Sin el apikey de la instancia, evogo no sabe a que sesion pedirle la media. Si no lo
+  // tenemos en la BD, lo resolvemos (misma via que usa el envio por evogo).
+  if (!instanceToken) {
+    const resolved = await resolveEvolutionInstance(input.instanceName);
+    instanceId = resolved?.id ?? instanceId;
+    instanceToken = resolved?.token ?? null;
+  }
+
+  const headers: Record<string, string> = {};
+  if (instanceId) {
+    headers.instanceId = instanceId;
+  }
+  if (instanceToken) {
+    headers.apikey = instanceToken;
+  }
+
+  const response = await evolutionRawRequest(
+    "/message/downloadmedia",
+    { method: "POST", headers, body: JSON.stringify({ id: input.messageId }) },
+    { connection },
+  );
+
+  const payload = await response.json().catch(() => null);
+  const root = asRecord(payload);
+  const data = asRecord(root?.data);
+  const base64 = readString(data?.base64) || readString(root?.base64) || extractBase64Candidate(payload) || "";
+
+  if (!base64) {
+    return null;
+  }
+
+  // evogo ya devuelve un data URL completo; si viniera crudo, lo normalizamos.
+  if (base64.startsWith("data:")) {
+    return base64;
+  }
+  return normalizeBase64DataUrl(base64, inferMediaMimeType(input));
+}
+
+export async function fetchEvolutionMediaDataUrl(input: EvolutionMediaInput) {
   try {
-    const connection = (await getStoredEvolutionInstanceAuth(input.instanceName))?.connection ?? null;
+    const storedAuth = await getStoredEvolutionInstanceAuth(input.instanceName);
+    const connection = storedAuth?.connection ?? null;
+
+    // evogo (whatsmeow) usa endpoint y formato propios (ver helper de arriba).
+    if (connection?.kind !== "EVOLUTION_API") {
+      return await fetchEvolutionGoMediaByMessageId(input, storedAuth, connection);
+    }
+
     const response = await evolutionRawRequest(`/chat/getBase64FromMediaMessage/${input.instanceName}`, {
       method: "POST",
       body: JSON.stringify({
