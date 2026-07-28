@@ -50,6 +50,8 @@ type UnifiedConversation = {
     color: string;
   }>;
   avatarUrl?: string | null;
+  // Etapa del CRM del contacto: alimenta la pastilla (Frío/Tibio/Caliente) de la fila de la lista.
+  crmStage?: string | null;
   incomingCount?: number | null;
   assignedToName?: string | null;
   lastMessage: string | null;
@@ -1051,6 +1053,10 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           label: item.label,
           secondaryLabel: item.secondaryLabel,
           tags: item.tags ?? [],
+          // Sin esto la pastilla de etapa de la fila quedaba vieja: al cambiar la etapa desde el
+          // chat se refresca la página, pero el item del servidor no traía crmStage, así que el
+          // merge se quedaba con el valor anterior (cambiabas a Caliente y la lista seguía en Frío).
+          crmStage: item.crmStage ?? null,
           channelType: "whatsapp",
           incomingCount: item.incomingCount ?? 0,
           avatarUrl: item.avatarUrl ?? null,
