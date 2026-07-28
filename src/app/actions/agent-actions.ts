@@ -3153,6 +3153,9 @@ async function sendOfficialApiChatFile(input: {
     contactId: conversation.contact.id,
     to: conversation.contact.waId,
     source: "manual" as const,
+    // Meta descarga desde la URL absoluta, pero en la base guardamos la ruta relativa (igual que
+    // el otro canal) para que la burbuja de "enviando" se reemplace por el mensaje real.
+    storedMediaUrl: input.mediaUrl,
   };
 
   const result =

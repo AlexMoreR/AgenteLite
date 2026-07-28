@@ -115,6 +115,18 @@ type MetaWebhookPayload = {
           timestamp?: string;
           type?: string;
           text?: { body?: string };
+          // Coexistencia: lo que la asesora manda desde SU celular. Antes solo se leía el texto,
+          // así que las fotos y los PDF que ella enviaba llegaban al CRM en blanco.
+          image?: { id?: string; mime_type?: string; caption?: string };
+          audio?: { id?: string; mime_type?: string; voice?: boolean };
+          video?: { id?: string; mime_type?: string; caption?: string };
+          document?: { id?: string; mime_type?: string; caption?: string; filename?: string };
+          sticker?: { id?: string; mime_type?: string };
+          location?: { latitude?: number; longitude?: number; name?: string; address?: string };
+          contacts?: Array<{
+            name?: { formatted_name?: string; first_name?: string };
+            phones?: Array<{ phone?: string }>;
+          }>;
         }>;
         // Coexistencia: alta/edicion de contactos guardados en la app de WhatsApp Business.
         state_sync?: Array<{
@@ -898,12 +910,36 @@ function extractMessageEchoes(payload: MetaWebhookPayload) {
           return null;
         }
 
+        // Mismo tratamiento que un mensaje entrante: archivo + texto que lo acompaña. Sin esto,
+        // la foto que la asesora mandaba desde su celular llegaba al CRM como burbuja vacía.
+        const attachment =
+          echo.image ?? echo.video ?? echo.document ?? echo.audio ?? echo.sticker ?? null;
+        const mediaKind: "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT" | "STICKER" | null = echo.image
+          ? "IMAGE"
+          : echo.video
+            ? "VIDEO"
+            : echo.document
+              ? "DOCUMENT"
+              : echo.audio
+                ? "AUDIO"
+                : echo.sticker
+                  ? "STICKER"
+                  : null;
+        const caption =
+          echo.image?.caption?.trim() ||
+          echo.video?.caption?.trim() ||
+          echo.document?.caption?.trim() ||
+          echo.document?.filename?.trim() ||
+          null;
+
         return {
           id: messageId,
           waId,
-          content: echo.text?.body?.trim() || null,
+          content: echo.text?.body?.trim() || caption || buildReadableContent(echo),
           type: mapMessageType(echo.type),
           createdAt: parseMetaTimestamp(echo.timestamp),
+          mediaId: attachment?.id?.trim() || null,
+          mediaKind,
         };
       })
       .filter((echo): echo is NonNullable<typeof echo> => Boolean(echo));
@@ -912,7 +948,12 @@ function extractMessageEchoes(payload: MetaWebhookPayload) {
 
 // Registra (sin auto-responder) los mensajes que la asesora ya envio desde la app de
 // WhatsApp Business, para que aparezcan en el historial del CRM (coexistencia real).
-async function syncMessageEchoes(configId: string, payload: MetaWebhookPayload) {
+async function syncMessageEchoes(
+  configId: string,
+  payload: MetaWebhookPayload,
+  accessToken?: string | null,
+  workspaceId?: string | null,
+) {
   const echoes = extractMessageEchoes(payload);
 
   for (const echo of echoes) {
@@ -942,7 +983,39 @@ async function syncMessageEchoes(configId: string, payload: MetaWebhookPayload) 
         'OUTBOUND'::"OfficialApiMessageDirection", ${echo.type}::"OfficialApiMessageType", 'SENT'::"OfficialApiMessageStatus",
         ${echo.content}, ${JSON.stringify(payload)}, ${echo.createdAt}, CURRENT_TIMESTAMP
       )
+      ON CONFLICT ("configId", "externalMessageId") DO NOTHING
     `;
+
+    // El archivo se baja después de responderle a Meta, igual que en los mensajes entrantes.
+    if (echo.mediaId && echo.mediaKind && accessToken) {
+      const mediaId = echo.mediaId;
+      const mediaKind = echo.mediaKind;
+      const externalMessageId = echo.id;
+      const echoConversationId = resolved.conversationId;
+
+      after(async () => {
+        try {
+          const media = await downloadOfficialApiMedia({ mediaId, accessToken, mediaType: mediaKind });
+          if (!media) {
+            return;
+          }
+
+          await prisma.$executeRaw`
+            UPDATE "OfficialApiMessage"
+            SET "mediaUrl" = ${media.mediaUrl}, "updatedAt" = CURRENT_TIMESTAMP
+            WHERE "configId" = ${configId} AND "externalMessageId" = ${externalMessageId}
+          `;
+
+          if (workspaceId) {
+            await notifyRealtimeUpdate({ workspaceId, conversationId: echoConversationId }).catch(
+              () => undefined,
+            );
+          }
+        } catch (error) {
+          console.error("[OFFICIAL_API] echo_media_failed", error);
+        }
+      });
+    }
   }
 }
 
@@ -1147,7 +1220,7 @@ export async function POST(request: Request) {
     // Coexistencia: sync de contactos, echoes (mensajes enviados desde el celu) e historial.
     // No disparan auto-respuesta, solo dejan el CRM al dia con lo que ya paso.
     await syncContactStateSync(config.id, payload);
-    await syncMessageEchoes(config.id, payload);
+    await syncMessageEchoes(config.id, payload, config.accessToken, config.workspaceId);
     await syncHistoryMessages(config.id, payload);
 
     const insertedMessages = await syncInboundMessages(

@@ -81,6 +81,10 @@ export async function sendOfficialApiAudioMessage(input: {
   contactId: string;
   to: string;
   audioUrl: string;
+  // URL que se GUARDA en la base. Meta necesita la absoluta para descargar el archivo, pero
+  // guardamos la relativa (igual que el otro canal): con la absoluta, la burbuja "enviando" no
+  // coincidia con el mensaje real y se quedaba girando para siempre.
+  storedMediaUrl?: string | null;
   caption?: string | null;
   source: "manual" | "automation";
 }) {
@@ -164,7 +168,7 @@ export async function sendOfficialApiAudioMessage(input: {
       'AUDIO'::"OfficialApiMessageType",
       'SENT'::"OfficialApiMessageStatus",
       ${normalizedCaption},
-      ${input.audioUrl},
+      ${input.storedMediaUrl ?? input.audioUrl},
       ${JSON.stringify({
         source: input.source,
         meta: payload,
@@ -380,6 +384,10 @@ export async function sendOfficialApiVideoMessage(input: {
   contactId: string;
   to: string;
   videoUrl: string;
+  // URL que se GUARDA en la base. Meta necesita la absoluta para descargar el archivo, pero
+  // guardamos la relativa (igual que el otro canal): con la absoluta, la burbuja "enviando" no
+  // coincidia con el mensaje real y se quedaba girando para siempre.
+  storedMediaUrl?: string | null;
   caption?: string | null;
   source: "manual" | "automation";
 }) {
@@ -464,7 +472,7 @@ export async function sendOfficialApiVideoMessage(input: {
       'VIDEO'::"OfficialApiMessageType",
       'SENT'::"OfficialApiMessageStatus",
       ${normalizedCaption},
-      ${input.videoUrl},
+      ${input.storedMediaUrl ?? input.videoUrl},
       ${JSON.stringify({
         source: input.source,
         meta: payload,
@@ -501,6 +509,10 @@ export async function sendOfficialApiImageMessage(input: {
   contactId: string;
   to: string;
   imageUrl: string;
+  // URL que se GUARDA en la base. Meta necesita la absoluta para descargar el archivo, pero
+  // guardamos la relativa (igual que el otro canal): con la absoluta, la burbuja "enviando" no
+  // coincidia con el mensaje real y se quedaba girando para siempre.
+  storedMediaUrl?: string | null;
   caption?: string | null;
   source: "manual" | "automation";
 }) {
@@ -585,7 +597,7 @@ export async function sendOfficialApiImageMessage(input: {
       'IMAGE'::"OfficialApiMessageType",
       'SENT'::"OfficialApiMessageStatus",
       ${normalizedCaption},
-      ${input.imageUrl},
+      ${input.storedMediaUrl ?? input.imageUrl},
       ${JSON.stringify({
         source: input.source,
         meta: payload,
@@ -629,6 +641,10 @@ export async function sendOfficialApiDocumentMessage(input: {
   contactId: string;
   to: string;
   documentUrl: string;
+  // URL que se GUARDA en la base. Meta necesita la absoluta para descargar el archivo, pero
+  // guardamos la relativa (igual que el otro canal): con la absoluta, la burbuja "enviando" no
+  // coincidia con el mensaje real y se quedaba girando para siempre.
+  storedMediaUrl?: string | null;
   fileName?: string | null;
   caption?: string | null;
   source: "manual" | "automation";
@@ -696,7 +712,7 @@ export async function sendOfficialApiDocumentMessage(input: {
       'DOCUMENT'::"OfficialApiMessageType",
       'SENT'::"OfficialApiMessageStatus",
       ${normalizedCaption ?? normalizedFileName},
-      ${input.documentUrl},
+      ${input.storedMediaUrl ?? input.documentUrl},
       ${JSON.stringify({ source: input.source, fileName: normalizedFileName, meta: payload })},
       ${now}, ${now}, ${now}
     )
