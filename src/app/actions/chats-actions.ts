@@ -330,6 +330,8 @@ export async function deleteContactAction(formData: FormData): Promise<void> {
     },
     select: {
       id: true,
+      // Hace falta para borrar tambien el chat del canal de API oficial (misma persona, otra tabla).
+      phoneNumber: true,
     },
   });
 
@@ -374,6 +376,28 @@ export async function deleteContactAction(formData: FormData): Promise<void> {
           contactId: contact.id,
         },
       });
+
+      // El chat del canal de API OFICIAL vive en tablas propias: borrar solo el contacto del CRM
+      // dejaba la conversación viva y el chat SEGUÍA APARECIENDO en la bandeja de ese canal.
+      // Se busca por teléfono porque es la misma persona vista desde el otro canal.
+      const officialPhone = contact.phoneNumber?.replace(/\D/g, "") || "";
+      if (officialPhone) {
+        const officialContacts = await tx.officialApiContact.findMany({
+          where: {
+            config: { workspaceId: membership.workspace.id },
+            OR: [{ waId: officialPhone }, { phoneNumber: officialPhone }],
+          },
+          select: { id: true },
+        });
+
+        const officialContactIds = officialContacts.map((item) => item.id);
+        if (officialContactIds.length > 0) {
+          // Orden: mensajes -> conversaciones -> contacto, para no chocar con las claves foráneas.
+          await tx.officialApiMessage.deleteMany({ where: { contactId: { in: officialContactIds } } });
+          await tx.officialApiConversation.deleteMany({ where: { contactId: { in: officialContactIds } } });
+          await tx.officialApiContact.deleteMany({ where: { id: { in: officialContactIds } } });
+        }
+      }
 
       await tx.contact.delete({
         where: {
