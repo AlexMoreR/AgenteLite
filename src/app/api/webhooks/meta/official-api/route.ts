@@ -31,6 +31,7 @@ import {
 import { resolveAgentKnowledgeBaseReply } from "@/lib/agent-knowledge-media";
 import { recordContactMatch } from "@/lib/contact-matches";
 import { prisma } from "@/lib/prisma";
+import { notifyRealtimeUpdate } from "@/lib/realtime-notify";
 import { normalizeMetaAppSecret } from "@/lib/official-api-graph";
 import { getOfficialApiProviderSettings } from "@/lib/system-settings";
 import { buildHandoffMessage, parseAgentTrainingConfig } from "@/lib/agent-training";
@@ -948,6 +949,13 @@ export async function POST(request: Request) {
 
     const insertedMessages = await syncInboundMessages(config.id, payload);
     await syncMessageStatuses(config.id, payload);
+
+    // Avisa al altavoz para que los navegadores abiertos pinten el cambio al instante, sin
+    // esperar el poll. Best-effort: no bloquea ni rompe el webhook si el altavoz no responde.
+    void notifyRealtimeUpdate({
+      workspaceId: config.workspaceId,
+      conversationId: insertedMessages[0]?.conversationId ?? null,
+    });
     const linkedAgentChannel = await findOfficialApiLinkedAgent(config.workspaceId);
 
     for (const message of insertedMessages) {

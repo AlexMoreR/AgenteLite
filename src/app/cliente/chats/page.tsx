@@ -8,6 +8,7 @@ import type { CrmStage } from "@/features/crm/types";
 import { ChatsAutoRefresh } from "@/components/agents/chats-auto-refresh";
 import { ChatsRealtimeSync } from "@/components/chats/chats-realtime-sync";
 import { ChatsEvolutionApiRealtime } from "@/components/chats/chats-evolution-api-realtime";
+import { ChatsOfficialRealtime } from "@/components/chats/chats-official-realtime";
 import { ChatIncomingNotifier } from "@/components/chats/chat-incoming-notifier";
 import { PushSubscriptionManager } from "@/components/chats/push-subscription-manager";
 import { loadAgentConversationDetail } from "@/lib/chat-message-loader";
@@ -1002,6 +1003,10 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         realtimeEnabled={chatsRealtimeSyncEnabled}
         selectedConversationKey={selectedUnified?.key ?? null}
         officialRefreshMs={officialChatsData.conversations.length > 0 ? 8000 : 0}
+      />
+      <ChatsOfficialRealtime
+        enabled={officialChatsData.conversations.length > 0}
+        workspaceId={membership.workspace.id}
       />
       <ChatsRealtimeSync
         enabled={chatsRealtimeSyncEnabled}

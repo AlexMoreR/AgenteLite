@@ -207,13 +207,31 @@ export function ChatsAutoRefresh({
       return;
     }
 
-    const timer = window.setInterval(() => {
+    const refresh = () => {
       startTransition(() => {
         router.refresh();
       });
-    }, officialRefreshMs);
+    };
 
-    return () => window.clearInterval(timer);
+    const timer = window.setInterval(refresh, officialRefreshMs);
+
+    // El altavoz (WebSocket) avisa en el instante que llega el webhook de Meta: refrescamos
+    // ya, sin esperar el tick. El intervalo queda como red de seguridad por si el socket
+    // esta caido. Se ignoran avisos muy seguidos para no repintar de mas en una rafaga.
+    let lastPokeAt = 0;
+    const handlePoke = () => {
+      const now = Date.now();
+      if (now - lastPokeAt < 1200) return;
+      lastPokeAt = now;
+      refresh();
+    };
+
+    window.addEventListener("official-realtime-poke", handlePoke);
+
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("official-realtime-poke", handlePoke);
+    };
   }, [enabled, isVisible, officialRefreshMs, router, startTransition]);
 
   return null;
