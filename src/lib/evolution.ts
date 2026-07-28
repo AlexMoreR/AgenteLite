@@ -1025,67 +1025,26 @@ type EvolutionMediaInput = {
   messageId: string;
   mediaType: "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT";
   mimeType?: string | null;
+  // Objeto del mensaje (waE2E.Message) tal como viene en el webhook/rawPayload. evogo lo
+  // NECESITA para descargar la media: su endpoint recibe el mensaje COMPLETO (con las claves
+  // de cifrado), no un id.
+  message?: unknown;
 };
-
-// Evolution GO (whatsmeow) NO tiene /chat/getBase64FromMediaMessage (eso es de Baileys /
-// Evolution API): pedirlo devuelve 404 y la media queda en blanco/rota. En evogo la media
-// se baja con POST /message/downloadmedia { id }, autenticando la instancia por el header
-// apikey (no en el path). La respuesta es JSON { data: { base64: "data:<mime>;base64,..." } }
-// (un data URL ya completo). Verificado contra el codigo de evolution-foundation/evolution-go
-// (pkg/routes/routes.go + pkg/message/handler|service).
-async function fetchEvolutionGoMediaByMessageId(
-  input: EvolutionMediaInput,
-  storedAuth: EvolutionStoredInstanceAuth | null,
-  connection: EvolutionConnection | null,
-) {
-  let instanceId = storedAuth?.id ?? null;
-  let instanceToken = storedAuth?.token ?? null;
-  // Sin el apikey de la instancia, evogo no sabe a que sesion pedirle la media. Si no lo
-  // tenemos en la BD, lo resolvemos (misma via que usa el envio por evogo).
-  if (!instanceToken) {
-    const resolved = await resolveEvolutionInstance(input.instanceName);
-    instanceId = resolved?.id ?? instanceId;
-    instanceToken = resolved?.token ?? null;
-  }
-
-  const headers: Record<string, string> = {};
-  if (instanceId) {
-    headers.instanceId = instanceId;
-  }
-  if (instanceToken) {
-    headers.apikey = instanceToken;
-  }
-
-  const response = await evolutionRawRequest(
-    "/message/downloadmedia",
-    { method: "POST", headers, body: JSON.stringify({ id: input.messageId }) },
-    { connection },
-  );
-
-  const payload = await response.json().catch(() => null);
-  const root = asRecord(payload);
-  const data = asRecord(root?.data);
-  const base64 = readString(data?.base64) || readString(root?.base64) || extractBase64Candidate(payload) || "";
-
-  if (!base64) {
-    return null;
-  }
-
-  // evogo ya devuelve un data URL completo; si viniera crudo, lo normalizamos.
-  if (base64.startsWith("data:")) {
-    return base64;
-  }
-  return normalizeBase64DataUrl(base64, inferMediaMimeType(input));
-}
 
 export async function fetchEvolutionMediaDataUrl(input: EvolutionMediaInput) {
   try {
     const storedAuth = await getStoredEvolutionInstanceAuth(input.instanceName);
     const connection = storedAuth?.connection ?? null;
 
-    // evogo (whatsmeow) usa endpoint y formato propios (ver helper de arriba).
+    // Evolution GO (whatsmeow) NO tiene /chat/getBase64FromMediaMessage (es de Baileys, da 404).
+    // Su descarga es POST /message/downloadmedia con { message: <waE2E.Message COMPLETO> } — con
+    // solo el id responde 500. Reutilizamos fetchEvolutionGoMediaDataUrl (autentica la instancia
+    // por evolutionInstanceRequest). Sin el objeto del mensaje no insistimos, para no spamear 500.
     if (connection?.kind !== "EVOLUTION_API") {
-      return await fetchEvolutionGoMediaByMessageId(input, storedAuth, connection);
+      if (!input.message) {
+        return null;
+      }
+      return await fetchEvolutionGoMediaDataUrl({ instanceName: input.instanceName, message: input.message });
     }
 
     const response = await evolutionRawRequest(`/chat/getBase64FromMediaMessage/${input.instanceName}`, {
@@ -1156,6 +1115,10 @@ export async function resolveEvolutionMessageMediaUrl(input: {
 
   const payloadMessageId = input.rawPayload ? extractEvolutionMessageIdFromPayload(input.rawPayload) : null;
   const resolvedMessageId = payloadMessageId || input.messageId?.trim() || null;
+  // evogo descarga la media con el mensaje COMPLETO (waE2E.Message), no con el id: lo sacamos
+  // del rawPayload para pasarlo a fetchEvolutionMediaDataUrl (que en evogo llama a
+  // /message/downloadmedia { message }).
+  const payloadMessage = input.rawPayload ? getEvolutionPayloadMessageRecord(input.rawPayload) : null;
   const payloadMediaDataUrl = input.rawPayload ? extractPayloadMediaDataUrl(input.rawPayload, input.mediaType) : null;
 
   if (payloadMediaDataUrl) {
@@ -1168,6 +1131,7 @@ export async function resolveEvolutionMessageMediaUrl(input: {
         instanceName: input.instanceName.trim(),
         messageId: resolvedMessageId,
         mediaType: input.mediaType,
+        message: payloadMessage ?? undefined,
       });
 
       if (resolved) {
@@ -1187,6 +1151,7 @@ export async function resolveEvolutionMessageMediaUrl(input: {
       instanceName: input.instanceName.trim(),
       messageId: resolvedMessageId,
       mediaType: input.mediaType,
+      message: payloadMessage ?? undefined,
     });
 
     if (resolved) {
@@ -1208,6 +1173,7 @@ export async function resolveEvolutionMessageMediaUrl(input: {
       instanceName: input.instanceName.trim(),
       messageId: resolvedMessageId,
       mediaType: input.mediaType,
+      message: payloadMessage ?? undefined,
     });
 
     if (resolved) {
