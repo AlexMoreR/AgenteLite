@@ -7,7 +7,18 @@ function normalizeSearch(value: string | undefined) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-type OfficialMessageType = "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT" | "TEMPLATE" | "INTERACTIVE" | "SYSTEM";
+type OfficialMessageType =
+  | "TEXT"
+  | "IMAGE"
+  | "AUDIO"
+  | "VIDEO"
+  | "DOCUMENT"
+  | "TEMPLATE"
+  | "INTERACTIVE"
+  | "SYSTEM"
+  // Ubicación y tarjeta de contacto: el cliente las manda y antes se veían como burbuja vacía.
+  | "LOCATION"
+  | "CONTACTS";
 
 type OfficialChatsCacheEntry = {
   expiresAt: number;
@@ -90,7 +101,38 @@ function buildOfficialChatsCacheKey(input: {
   });
 }
 
+/**
+ * RED DE CONTENCIÓN: si leer los chats de la API oficial falla, la bandeja NO se cae.
+ *
+ * Esta función se llama desde el Server Component de /cliente/chats sin protección, así que
+ * cualquier error suyo (una consulta mal escrita, un timeout de la base) reventaba la pantalla
+ * ENTERA con "Application error", incluidos los chats de Evolution que no tienen nada que ver —
+ * y como la página se refresca sola cada 8s, se volvía a romper una y otra vez.
+ *
+ * Ahora un fallo degrada a "no hay chats oficiales" y el resto de la bandeja sigue funcionando.
+ */
 export async function getOfficialApiChatsData(input: {
+  workspaceId: string;
+  conversationId?: string;
+  q?: string;
+  includeSelectedConversation?: boolean;
+}): Promise<OfficialApiChatsData> {
+  try {
+    return await loadOfficialApiChatsData(input);
+  } catch (error) {
+    console.error("[OFFICIAL_API] chats_data_failed", { workspaceId: input.workspaceId, error });
+    return {
+      configId: null,
+      isConnected: false,
+      conversations: [],
+      selectedConversation: null,
+      selectedConversationId: "",
+      searchQuery: normalizeSearch(input.q),
+    };
+  }
+}
+
+async function loadOfficialApiChatsData(input: {
   workspaceId: string;
   conversationId?: string;
   q?: string;
@@ -254,6 +296,7 @@ export async function getOfficialApiChatsData(input: {
         lastMessageDirection: "INBOUND" | "OUTBOUND" | null;
         lastMessageCreatedAt: Date | null;
         lastMessageStatus: "RECEIVED" | "SENT" | "DELIVERED" | "READ" | "FAILED" | null;
+        lastMessageType: string | null;
         lastMessageMediaUrl: string | null;
         lastMessageRawPayload: unknown;
       }>>`
@@ -269,6 +312,7 @@ export async function getOfficialApiChatsData(input: {
           lm."direction"::text AS "lastMessageDirection",
           lm."createdAt" AS "lastMessageCreatedAt",
           lm."status"::text AS "lastMessageStatus",
+          lm."type"::text AS "lastMessageType",
           lm."mediaUrl" AS "lastMessageMediaUrl",
           lm."rawPayload" AS "lastMessageRawPayload"
         FROM "OfficialApiConversation" c
@@ -294,6 +338,9 @@ export async function getOfficialApiChatsData(input: {
             m."direction",
             m."createdAt",
             m."status",
+            -- Se proyecta el tipo para poder previsualizar bien la última foto/audio/PDF en la
+            -- lista (antes se adivinaba y salía como texto vacío).
+            m."type",
             m."mediaUrl",
             m."rawPayload"
           FROM "OfficialApiMessage" m
@@ -318,6 +365,7 @@ export async function getOfficialApiChatsData(input: {
         lastMessageDirection: "INBOUND" | "OUTBOUND" | null;
         lastMessageCreatedAt: Date | null;
         lastMessageStatus: "RECEIVED" | "SENT" | "DELIVERED" | "READ" | "FAILED" | null;
+        lastMessageType: string | null;
         lastMessageMediaUrl: string | null;
         lastMessageRawPayload: unknown;
       }>>`
@@ -340,6 +388,7 @@ export async function getOfficialApiChatsData(input: {
             m."direction"::text AS "direction",
             m."createdAt",
             m."status"::text AS "status",
+            m."type"::text AS "type",
             m."mediaUrl",
             m."rawPayload"
           FROM "OfficialApiMessage" m
@@ -378,6 +427,7 @@ export async function getOfficialApiChatsData(input: {
           lm."direction" AS "lastMessageDirection",
           lm."createdAt" AS "lastMessageCreatedAt",
           lm."status" AS "lastMessageStatus",
+          lm."type" AS "lastMessageType",
           lm."mediaUrl" AS "lastMessageMediaUrl",
           lm."rawPayload" AS "lastMessageRawPayload"
         FROM filtered_conversations fc
@@ -406,7 +456,12 @@ export async function getOfficialApiChatsData(input: {
           direction: row.lastMessageDirection,
           createdAt: new Date(row.lastMessageCreatedAt),
           status: row.lastMessageStatus,
-          type: inferOfficialApiMessageType(row.lastMessageRawPayload, row.lastMessageMediaUrl, row.lastMessageContent),
+          type: resolveOfficialApiMessageType({
+            storedType: row.lastMessageType,
+            rawPayload: row.lastMessageRawPayload,
+            mediaUrl: row.lastMessageMediaUrl,
+            content: row.lastMessageContent,
+          }),
         }
       : null,
   }));

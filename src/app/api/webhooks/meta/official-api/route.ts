@@ -85,6 +85,26 @@ type MetaWebhookPayload = {
           video?: { id?: string; mime_type?: string; caption?: string };
           document?: { id?: string; mime_type?: string; caption?: string; filename?: string };
           sticker?: { id?: string; mime_type?: string };
+          // Tipos que antes no se leían y quedaban como burbuja vacía "-" en el chat.
+          location?: { latitude?: number; longitude?: number; name?: string; address?: string };
+          contacts?: Array<{
+            name?: { formatted_name?: string; first_name?: string };
+            phones?: Array<{ phone?: string; wa_id?: string }>;
+          }>;
+          // Respuesta a un botón de plantilla y a botones/listas interactivas: el cliente aprieta
+          // "Sí, quiero" y sin esto llegaba vacío (y la IA recibía texto en blanco).
+          button?: { text?: string; payload?: string };
+          interactive?: {
+            type?: string;
+            button_reply?: { id?: string; title?: string };
+            list_reply?: { id?: string; title?: string; description?: string };
+          };
+          // Reacción (👍): NO es un mensaje nuevo, se pega al mensaje al que reaccionó.
+          reaction?: { message_id?: string; emoji?: string };
+          // Pedido armado desde el catálogo.
+          order?: { catalog_id?: string; product_items?: Array<{ quantity?: number; item_price?: number }> };
+          system?: { body?: string; wa_id?: string };
+          errors?: Array<{ code?: number; title?: string; message?: string }>;
         }>;
         // Coexistencia: mensajes que la asesora manda desde la app de WhatsApp Business
         // (no via nuestra API). Meta los "refleja" con este campo para que el CRM se entere.
@@ -141,7 +161,7 @@ type ExtractedInboundMessage = {
   waId: string;
   contactName: string | null;
   content: string | null;
-  type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT" | "TEMPLATE" | "INTERACTIVE" | "SYSTEM";
+  type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT" | "TEMPLATE" | "INTERACTIVE" | "SYSTEM" | "LOCATION" | "CONTACTS";
   createdAt: Date;
   rawPayload: MetaWebhookPayload;
   // Id del archivo en Meta, para bajarlo despues del insert (el webhook responde primero).
@@ -369,6 +389,8 @@ function extractEventType(payload: MetaWebhookPayload) {
 function mapMessageType(value: string | undefined): ExtractedInboundMessage["type"] {
   switch (value) {
     case "image":
+    // El sticker se guarda como imagen: el enum no tiene STICKER y el archivo se ve igual.
+    case "sticker":
       return "IMAGE";
     case "audio":
       return "AUDIO";
@@ -382,8 +404,73 @@ function mapMessageType(value: string | undefined): ExtractedInboundMessage["typ
       return "INTERACTIVE";
     case "system":
       return "SYSTEM";
+    case "location":
+      return "LOCATION";
+    case "contacts":
+      return "CONTACTS";
     default:
+      // Todo lo que no conocemos (incluido lo que Meta agregue mañana) queda como texto, pero
+      // con un contenido legible armado en extractInboundMessages: nunca una burbuja vacía.
       return "TEXT";
+  }
+}
+
+/**
+ * Texto legible para los mensajes que NO son texto plano.
+ *
+ * Sin esto, todo lo que no fuera texto llegaba con contenido vacío: la asesora veía una burbuja
+ * con un guion "-" y, peor, el agente IA recibía un mensaje en blanco y contestaba cualquier cosa.
+ */
+function buildReadableContent(message: {
+  type?: string;
+  location?: { latitude?: number; longitude?: number; name?: string; address?: string };
+  contacts?: Array<{ name?: { formatted_name?: string; first_name?: string }; phones?: Array<{ phone?: string }> }>;
+  button?: { text?: string };
+  interactive?: { button_reply?: { title?: string }; list_reply?: { title?: string; description?: string } };
+  order?: { product_items?: Array<{ quantity?: number }> };
+  system?: { body?: string };
+  errors?: Array<{ title?: string; message?: string }>;
+}): string | null {
+  switch (message.type) {
+    case "location": {
+      const place = message.location?.name?.trim() || message.location?.address?.trim() || "";
+      const coords =
+        typeof message.location?.latitude === "number" && typeof message.location?.longitude === "number"
+          ? `${message.location.latitude}, ${message.location.longitude}`
+          : "";
+      return `📍 Ubicación${place ? `: ${place}` : ""}${coords ? ` (${coords})` : ""}`;
+    }
+    case "contacts": {
+      const names = (message.contacts ?? [])
+        .map((contact) => {
+          const name = contact.name?.formatted_name?.trim() || contact.name?.first_name?.trim() || "";
+          const phone = contact.phones?.[0]?.phone?.trim() || "";
+          return [name, phone].filter(Boolean).join(" ");
+        })
+        .filter(Boolean);
+      return `👤 Contacto compartido${names.length ? `: ${names.join(", ")}` : ""}`;
+    }
+    // Respuesta a un botón de plantilla o a un botón/lista interactiva: es lo que el cliente
+    // "dijo", así que va como texto normal para que la IA y la asesora lo entiendan.
+    case "button":
+      return message.button?.text?.trim() || null;
+    case "interactive":
+      return (
+        message.interactive?.button_reply?.title?.trim() ||
+        message.interactive?.list_reply?.title?.trim() ||
+        message.interactive?.list_reply?.description?.trim() ||
+        null
+      );
+    case "order": {
+      const count = message.order?.product_items?.length ?? 0;
+      return `🛒 Pedido del catálogo${count ? ` (${count} producto${count === 1 ? "" : "s"})` : ""}`;
+    }
+    case "system":
+      return message.system?.body?.trim() || null;
+    case "unsupported":
+      return `⚠️ Mensaje no soportado${message.errors?.[0]?.title ? `: ${message.errors[0].title}` : ""}`;
+    default:
+      return null;
   }
 }
 
@@ -394,6 +481,20 @@ function parseMetaTimestamp(value: string | undefined) {
   }
 
   return new Date(seconds * 1000);
+}
+
+/** Reacciones del cliente: a qué mensaje y con qué emoji ("" = la quitó). */
+function extractInboundReactions(payload: MetaWebhookPayload) {
+  const changes = payload.entry?.flatMap((entry) => entry.changes ?? []) ?? [];
+
+  return changes.flatMap((change) =>
+    (change.value?.messages ?? [])
+      .filter((message) => message.type === "reaction" && message.reaction?.message_id?.trim())
+      .map((message) => ({
+        targetMessageId: message.reaction!.message_id!.trim(),
+        emoji: message.reaction?.emoji?.trim() ?? "",
+      })),
+  );
 }
 
 function extractInboundMessages(payload: MetaWebhookPayload): ExtractedInboundMessage[] {
@@ -437,11 +538,18 @@ function extractInboundMessages(payload: MetaWebhookPayload): ExtractedInboundMe
           message.document?.filename?.trim() ||
           null;
 
+        // Una REACCIÓN (👍) no es un mensaje: es un emoji sobre un mensaje que ya existe. Antes
+        // creaba una burbuja vacía suelta Y despertaba al agente IA con un texto en blanco (el
+        // bot le contestaba a un pulgar arriba). Se procesa aparte y no entra a la lista.
+        if (message.type === "reaction") {
+          return null;
+        }
+
         return {
           id: messageId,
           waId,
           contactName: contactNames.get(waId) ?? null,
-          content: message.text?.body?.trim() || caption,
+          content: message.text?.body?.trim() || caption || buildReadableContent(message),
           type: mapMessageType(message.type),
           createdAt: parseMetaTimestamp(message.timestamp),
           rawPayload: payload,
@@ -474,6 +582,21 @@ async function syncInboundMessages(
   accessToken?: string | null,
   workspaceId?: string | null,
 ) {
+  // Reacciones (👍 ❤️): se pegan al mensaje al que reaccionó el cliente, igual que en el canal
+  // por Evolution. Emoji vacío = quitó la reacción. No generan mensaje ni despiertan al agente.
+  for (const reaction of extractInboundReactions(payload)) {
+    await prisma.$executeRaw`
+      UPDATE "OfficialApiMessage"
+      SET "reactionEmoji" = ${reaction.emoji || null},
+          "updatedAt" = CURRENT_TIMESTAMP
+      WHERE "configId" = ${configId}
+        AND "externalMessageId" = ${reaction.targetMessageId}
+    `.catch((error) => {
+      console.error("[OFFICIAL_API] reaction_update_failed", error);
+      return 0;
+    });
+  }
+
   const inboundMessages = extractInboundMessages(payload);
   const insertedMessages: Array<{
     conversationId: string;
@@ -616,6 +739,10 @@ async function syncInboundMessages(
         ${message.createdAt},
         CURRENT_TIMESTAMP
       )
+      -- Meta reintenta si tardamos (el LLM puede demorar) y el chequeo de duplicados es un SELECT
+      -- aparte: sin esto, el reintento violaba el índice único, cortaba el bucle y se perdían los
+      -- demás mensajes del mismo webhook.
+      ON CONFLICT ("configId", "externalMessageId") DO NOTHING
     `;
 
     // El archivo se baja DESPUES de responderle a Meta (after): Cloud API espera un 200 rapido y

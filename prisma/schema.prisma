@@ -533,6 +533,12 @@ model OfficialApiMessage {
   status            OfficialApiMessageStatus    @default(RECEIVED)
   content           String?
   mediaUrl          String?
+  // Reaccion del cliente sobre ESTE mensaje (👍 ❤️ …), igual que en el canal por Evolution: se
+  // pega a la burbuja en vez de crear un mensaje vacio aparte.
+  reactionEmoji     String?
+  // Motivo por el que Meta rechazo el envio (fuera de la ventana de 24h, numero invalido,
+  // plantilla pausada...). Antes quedaba FAILED sin explicacion.
+  errorDetail       String?
   rawPayload        Json?
   sentAt            DateTime?
   deliveredAt       DateTime?
@@ -751,6 +757,10 @@ enum OfficialApiMessageType {
   TEMPLATE
   INTERACTIVE
   SYSTEM
+  // El cliente puede mandar su ubicacion (direccion de entrega) y una tarjeta de contacto. Sin
+  // estos valores se guardaban como TEXT sin contenido y se veian como una burbuja vacia "-".
+  LOCATION
+  CONTACTS
 }
 
 enum OfficialApiMessageStatus {

@@ -56,7 +56,7 @@ type UnifiedConversation = {
   incomingCount?: number | null;
   assignedToName?: string | null;
   lastMessage: string | null;
-  lastMessageType?: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
+  lastMessageType?: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "CONTACTS" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
   lastMessageDirection?: "INBOUND" | "OUTBOUND" | null;
   lastMessageAt?: Date | null;
   activeProductContext?: ActiveProductContextSummary | null;
@@ -424,7 +424,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           direction: "INBOUND" | "OUTBOUND";
           createdAt: Date;
           deletedAt: Date | null;
-          type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
+          type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "CONTACTS" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
         }>>`
         SELECT DISTINCT ON (m."conversationId")
           m."conversationId" AS "conversationId",
@@ -446,7 +446,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         direction: "INBOUND" | "OUTBOUND";
         createdAt: Date;
         deletedAt: Date | null;
-        type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
+        type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "CONTACTS" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
       }>);
   if (autoTagNewLeads && contactIds.length > 0) {
     after(async () => {
@@ -851,7 +851,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         deletedAt?: Date | null;
         authorType: "user" | "bot";
         outboundStatusLabel: string | null;
-        type?: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE";
+        type?: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "CONTACTS" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE";
         mediaUrl?: string | null;
         rawPayload?: unknown;
       }>;

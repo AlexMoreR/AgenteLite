@@ -44,7 +44,7 @@ export type SharedInboxMessageItem = {
   deletedAt?: Date | null;
   authorType?: "user" | "bot";
   outboundStatusLabel?: string | null;
-  type?: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE";
+  type?: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "CONTACTS" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE";
   mediaUrl?: string | null;
   // Reaccion del cliente sobre este mensaje (👍 ❤️ …). Se dibuja pegada a la burbuja, abajo a la
   // derecha, como en WhatsApp; NO es un mensaje aparte.
