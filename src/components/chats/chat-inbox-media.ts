@@ -306,7 +306,9 @@ export function collectImagePreviewUrls(message: SharedInboxMessageItem) {
   const thumbnailBytes =
     getNestedValue(imageMessage, "jpegThumbnail") ??
     getNestedValue(imageMessage, "thumbnail") ??
-    getNestedValue(getNestedRecord(getNestedRecord(data, "contextInfo"), "externalAdReply"), "thumbnail");
+    // Miniatura del anuncio: se busca en todo el payload porque segun el gateway cuelga a
+    // distinta profundidad (la ruta fija fallaba en evogo/whatsmeow).
+    getNestedValue(findExternalAdReplyRecord(message.rawPayload), "thumbnail");
 
   const base64 = bytesLikeToBase64(thumbnailBytes);
 
@@ -321,11 +323,34 @@ export function collectImagePreviewUrls(message: SharedInboxMessageItem) {
   return previewUrls;
 }
 
+/**
+ * Busca el bloque del anuncio en cualquier parte del payload.
+ *
+ * Antes se leia una ruta FIJA (`evolution.data.contextInfo.externalAdReply`), pero segun el
+ * gateway el bloque cuelga mas adentro — en evogo/whatsmeow llega en
+ * `evolution.data.Message.extendedTextMessage.contextInfo.externalAdReply` — asi que no se
+ * encontraba y la tarjeta del anuncio no se dibujaba, aunque el dato SI estaba guardado.
+ */
+function findExternalAdReplyRecord(value: unknown, depth = 0): Record<string, unknown> | null {
+  if (depth > 8 || !isObjectRecord(value)) {
+    return null;
+  }
+
+  for (const [key, child] of Object.entries(value)) {
+    if (/^externalAdReply$/i.test(key) && isObjectRecord(child)) {
+      return child;
+    }
+    const found = findExternalAdReplyRecord(child, depth + 1);
+    if (found) {
+      return found;
+    }
+  }
+
+  return null;
+}
+
 export function extractChatAdPreview(rawPayload: unknown): ChatAdPreview | null {
-  const rootPayload = getNestedRecord(rawPayload, "evolution") ?? (isObjectRecord(rawPayload) ? rawPayload : null);
-  const data = getNestedRecord(rootPayload, "data");
-  const contextInfo = getNestedRecord(data, "contextInfo") ?? getNestedRecord(rootPayload, "contextInfo");
-  const externalAdReply = getNestedRecord(contextInfo, "externalAdReply");
+  const externalAdReply = findExternalAdReplyRecord(rawPayload);
 
   if (!externalAdReply) {
     return null;
@@ -340,8 +365,11 @@ export function extractChatAdPreview(rawPayload: unknown): ChatAdPreview | null 
   return {
     title,
     body: getNestedString(externalAdReply, "body"),
-    sourceUrl: getNestedString(externalAdReply, "sourceUrl"),
-    thumbnailUrl: getNestedString(externalAdReply, "thumbnailUrl"),
+    // Los nombres cambian de mayusculas segun el gateway (sourceURL/thumbnailURL en whatsmeow):
+    // sin las dos variantes, la tarjeta salia sin link ni imagen.
+    sourceUrl: getNestedString(externalAdReply, "sourceUrl") || getNestedString(externalAdReply, "sourceURL"),
+    thumbnailUrl:
+      getNestedString(externalAdReply, "thumbnailUrl") || getNestedString(externalAdReply, "thumbnailURL"),
     sourceApp: getNestedString(externalAdReply, "sourceApp"),
   };
 }
