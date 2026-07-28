@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import {
   AlertTriangle,
   Bot,
+  Check,
   CheckCheck,
   ChevronDown,
   Copy,
@@ -727,7 +728,18 @@ export const MessageBubble = memo(function MessageBubble({
               <LoaderCircle className="ml-0.5 h-3 w-3 shrink-0 animate-spin" aria-label="Enviando" />
             ) : null}
             {outbound && message.outboundStatusLabel ? (
-              message.outboundStatusLabel === "entregado" ? (
+              // Acuses tipo WhatsApp. La API oficial sí avisa cuando el cliente RECIBIÓ y cuando
+              // ABRIÓ el mensaje; antes se imprimía el estado crudo ("DELIVERED", "READ") como
+              // texto. El doble check azul es el que dice "lo leyó".
+              message.outboundStatusLabel === "READ" ? (
+                <CheckCheck className="ml-1 h-3 w-3 shrink-0 text-sky-500" aria-label="Leído" />
+              ) : message.outboundStatusLabel === "DELIVERED" ? (
+                <CheckCheck className="ml-1 h-3 w-3 shrink-0" aria-label="Entregado" />
+              ) : message.outboundStatusLabel === "SENT" ? (
+                <Check className="ml-1 h-3 w-3 shrink-0" aria-label="Enviado" />
+              ) : message.outboundStatusLabel === "FAILED" ? (
+                <AlertTriangle className="ml-1 h-3 w-3 shrink-0 text-amber-700" aria-label="No se envió" />
+              ) : message.outboundStatusLabel === "entregado" ? (
                 <CheckCheck className="ml-1 h-3 w-3 shrink-0" aria-hidden="true" />
               ) : message.outboundStatusLabel === "error" ? (
                 <span className="ml-1 inline-flex items-center gap-1 font-medium text-amber-700">
