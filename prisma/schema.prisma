@@ -163,6 +163,11 @@ model WhatsAppChannel {
   agentId               String?
   provider              ChannelProvider       @default(EVOLUTION)
   name                  String
+  // Para que sirve este numero. "SALES" = sus contactos entran al embudo del CRM (Kanban, Mi dia,
+  // informe). "ADMIN" = numero administrativo (proveedores, logistica, facturas): se ve el chat y
+  // la ficha, pero NO ensucia el embudo ni las metricas de venta.
+  // Texto y no enum: manana puede haber "SOPORTE" o "POSVENTA" sin migrar la base de produccion.
+  purpose               String                @default("SALES")
   phoneNumber           String?
   evolutionInstanceName String?               @unique
   evolutionExternalKey  String?
@@ -487,6 +492,10 @@ model OfficialApiContact {
   waId           String
   name           String?
   phoneNumber    String?
+  // Ficha del MISMO cliente en el CRM. Sin esto, quien escribia al canal oficial vivia en una
+  // tabla aparte: no aparecia en el Kanban, ni en Mi dia, ni en el informe, ni se le podia poner
+  // etapa o etiqueta. Es la persona, no el canal, la que entra al embudo.
+  crmContactId   String?
   metadata       Json?
   lastMessageAt  DateTime?
   createdAt      DateTime                  @default(now())

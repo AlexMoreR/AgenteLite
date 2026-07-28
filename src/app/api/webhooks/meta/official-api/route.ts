@@ -34,6 +34,7 @@ import { prisma } from "@/lib/prisma";
 import { notifyRealtimeUpdate } from "@/lib/realtime-notify";
 import { normalizeMetaAppSecret } from "@/lib/official-api-graph";
 import { downloadOfficialApiMedia } from "@/lib/official-api-media";
+import { ensureCrmContactForOfficialApi } from "@/lib/official-api-crm-bridge";
 import { getOfficialApiProviderSettings } from "@/lib/system-settings";
 import { buildHandoffMessage, parseAgentTrainingConfig } from "@/lib/agent-training";
 import {
@@ -674,6 +675,28 @@ async function syncInboundMessages(
         AND "waId" = ${message.waId}
       LIMIT 1
     `;
+    // UNIFICACION CON EL CRM: quien escribe a este canal entra al embudo como cualquier otro
+    // lead. Sin esto vivia en una tabla aparte y para el Kanban, "Mi dia", el informe y los
+    // seguimientos simplemente no existia.
+    if (contactRows[0] && workspaceId) {
+      const officialContactId = contactRows[0].id;
+      const crmContactId = await ensureCrmContactForOfficialApi({
+        workspaceId,
+        waId: message.waId,
+        name: message.contactName,
+      });
+
+      if (crmContactId) {
+        await prisma
+          .$executeRaw`
+            UPDATE "OfficialApiContact"
+            SET "crmContactId" = ${crmContactId}, "updatedAt" = CURRENT_TIMESTAMP
+            WHERE "id" = ${officialContactId}
+          `
+          .catch(() => 0);
+      }
+    }
+
     const contact = contactRows[0];
     if (!contact) {
       continue;
@@ -841,6 +864,8 @@ async function upsertOfficialApiContactAndConversation(input: {
   contactName: string | null;
   lastMessageAt: Date;
   rawPayload: MetaWebhookPayload;
+  // Hace falta para crear/enlazar la ficha del cliente en el CRM (ver official-api-crm-bridge).
+  workspaceId?: string | null;
 }): Promise<{ contactId: string; conversationId: string } | null> {
   await prisma.$executeRaw`
     INSERT INTO "OfficialApiContact" (
@@ -865,6 +890,27 @@ async function upsertOfficialApiContactAndConversation(input: {
   const contact = contactRows[0];
   if (!contact) {
     return null;
+  }
+
+  // UNIFICACION CON EL CRM: la persona es una sola aunque escriba por varios numeros. Se crea (o
+  // se encuentra) su ficha del CRM y se deja enlazada, para que entre al embudo como cualquier
+  // otro lead. Best-effort: si falla, el mensaje igual se guarda.
+  if (input.workspaceId) {
+    const crmContactId = await ensureCrmContactForOfficialApi({
+      workspaceId: input.workspaceId,
+      waId: input.waId,
+      name: input.contactName,
+    });
+
+    if (crmContactId) {
+      await prisma
+        .$executeRaw`
+          UPDATE "OfficialApiContact"
+          SET "crmContactId" = ${crmContactId}, "updatedAt" = CURRENT_TIMESTAMP
+          WHERE "id" = ${contact.id}
+        `
+        .catch(() => 0);
+    }
   }
 
   await prisma.$executeRaw`
@@ -970,6 +1016,7 @@ async function syncMessageEchoes(
       contactName: null,
       lastMessageAt: echo.createdAt,
       rawPayload: payload,
+      workspaceId,
     });
     if (!resolved) {
       continue;
