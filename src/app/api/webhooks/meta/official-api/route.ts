@@ -76,6 +76,43 @@ type MetaWebhookPayload = {
             body?: string;
           };
         }>;
+        // Coexistencia: mensajes que la asesora manda desde la app de WhatsApp Business
+        // (no via nuestra API). Meta los "refleja" con este campo para que el CRM se entere.
+        message_echoes?: Array<{
+          from?: string;
+          to?: string;
+          id?: string;
+          timestamp?: string;
+          type?: string;
+          text?: { body?: string };
+        }>;
+        // Coexistencia: alta/edicion de contactos guardados en la app de WhatsApp Business.
+        state_sync?: Array<{
+          type?: string;
+          action?: string;
+          contact?: {
+            full_name?: string;
+            first_name?: string;
+            phone_number?: string;
+          };
+        }>;
+        // Coexistencia: backfill del historial previo (ventana de 24h tras el onboarding).
+        history?: Array<{
+          metadata?: { phase?: string; chunk_order?: string; progress?: string };
+          errors?: Array<{ code?: number; title?: string; message?: string }>;
+          threads?: Array<{
+            id?: string;
+            messages?: Array<{
+              from?: string;
+              to?: string;
+              id?: string;
+              timestamp?: string;
+              type?: string;
+              text?: { body?: string };
+              history_context?: { status?: string };
+            }>;
+          }>;
+        }>;
       };
     }>;
   }>;
@@ -577,6 +614,257 @@ async function syncMessageStatuses(configId: string, payload: MetaWebhookPayload
   }
 }
 
+// --- Coexistencia: echoes, sync de contactos e historial -------------------------------
+// Comparten el mismo upsert de contacto+conversacion que usa syncInboundMessages, pero NO
+// disparan auto-respuesta del agente: son eventos que ya pasaron (mensaje ya enviado desde
+// el celu, contacto ya guardado, historial ya viejo), no un mensaje nuevo que responder.
+
+async function upsertOfficialApiContactAndConversation(input: {
+  configId: string;
+  waId: string;
+  contactName: string | null;
+  lastMessageAt: Date;
+  rawPayload: MetaWebhookPayload;
+}): Promise<{ contactId: string; conversationId: string } | null> {
+  await prisma.$executeRaw`
+    INSERT INTO "OfficialApiContact" (
+      "id", "configId", "externalUserId", "waId", "name", "phoneNumber", "metadata", "lastMessageAt", "createdAt", "updatedAt"
+    )
+    VALUES (
+      ${randomUUID()}, ${input.configId}, ${input.waId}, ${input.waId}, ${input.contactName}, ${input.waId},
+      ${JSON.stringify(input.rawPayload)}, ${input.lastMessageAt}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+    )
+    ON CONFLICT ("configId", "waId")
+    DO UPDATE SET
+      "name" = COALESCE(EXCLUDED."name", "OfficialApiContact"."name"),
+      "phoneNumber" = EXCLUDED."phoneNumber",
+      "externalUserId" = EXCLUDED."externalUserId",
+      "lastMessageAt" = EXCLUDED."lastMessageAt",
+      "updatedAt" = CURRENT_TIMESTAMP
+  `;
+
+  const contactRows = await prisma.$queryRaw<Array<{ id: string }>>`
+    SELECT "id" FROM "OfficialApiContact" WHERE "configId" = ${input.configId} AND "waId" = ${input.waId} LIMIT 1
+  `;
+  const contact = contactRows[0];
+  if (!contact) {
+    return null;
+  }
+
+  await prisma.$executeRaw`
+    INSERT INTO "OfficialApiConversation" (
+      "id", "configId", "contactId", "externalThreadId", "status", "lastMessageAt", "createdAt", "updatedAt"
+    )
+    VALUES (
+      ${randomUUID()}, ${input.configId}, ${contact.id}, ${input.waId},
+      'OPEN'::"OfficialApiConversationStatus", ${input.lastMessageAt}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+    )
+    ON CONFLICT ("configId", "externalThreadId")
+    DO UPDATE SET
+      "contactId" = EXCLUDED."contactId",
+      "lastMessageAt" = EXCLUDED."lastMessageAt",
+      "updatedAt" = CURRENT_TIMESTAMP
+  `;
+
+  const conversationRows = await prisma.$queryRaw<Array<{ id: string }>>`
+    SELECT "id" FROM "OfficialApiConversation" WHERE "configId" = ${input.configId} AND "externalThreadId" = ${input.waId} LIMIT 1
+  `;
+  const conversation = conversationRows[0];
+  if (!conversation) {
+    return null;
+  }
+
+  return { contactId: contact.id, conversationId: conversation.id };
+}
+
+function extractMessageEchoes(payload: MetaWebhookPayload) {
+  const changes = payload.entry?.flatMap((entry) => entry.changes ?? []) ?? [];
+
+  return changes.flatMap((change) => {
+    if (change.field !== "smb_message_echoes") {
+      return [];
+    }
+
+    return (change.value?.message_echoes ?? [])
+      .map((echo) => {
+        // "to" es el cliente (el negocio es "from"): la conversacion se guarda por el cliente.
+        const waId = echo.to?.trim() || "";
+        const messageId = echo.id?.trim() || "";
+        if (!waId || !messageId) {
+          return null;
+        }
+
+        return {
+          id: messageId,
+          waId,
+          content: echo.text?.body?.trim() || null,
+          type: mapMessageType(echo.type),
+          createdAt: parseMetaTimestamp(echo.timestamp),
+        };
+      })
+      .filter((echo): echo is NonNullable<typeof echo> => Boolean(echo));
+  });
+}
+
+// Registra (sin auto-responder) los mensajes que la asesora ya envio desde la app de
+// WhatsApp Business, para que aparezcan en el historial del CRM (coexistencia real).
+async function syncMessageEchoes(configId: string, payload: MetaWebhookPayload) {
+  const echoes = extractMessageEchoes(payload);
+
+  for (const echo of echoes) {
+    const existingRows = await prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT "id" FROM "OfficialApiMessage" WHERE "configId" = ${configId} AND "externalMessageId" = ${echo.id} LIMIT 1
+    `;
+    if (existingRows[0]) {
+      continue;
+    }
+
+    const resolved = await upsertOfficialApiContactAndConversation({
+      configId,
+      waId: echo.waId,
+      contactName: null,
+      lastMessageAt: echo.createdAt,
+      rawPayload: payload,
+    });
+    if (!resolved) {
+      continue;
+    }
+
+    await prisma.$executeRaw`
+      INSERT INTO "OfficialApiMessage" (
+        "id", "configId", "conversationId", "contactId", "externalMessageId", "direction", "type", "status", "content", "rawPayload", "createdAt", "updatedAt"
+      ) VALUES (
+        ${randomUUID()}, ${configId}, ${resolved.conversationId}, ${resolved.contactId}, ${echo.id},
+        'OUTBOUND'::"OfficialApiMessageDirection", ${echo.type}::"OfficialApiMessageType", 'SENT'::"OfficialApiMessageStatus",
+        ${echo.content}, ${JSON.stringify(payload)}, ${echo.createdAt}, CURRENT_TIMESTAMP
+      )
+    `;
+  }
+}
+
+function extractStateSyncContacts(payload: MetaWebhookPayload) {
+  const changes = payload.entry?.flatMap((entry) => entry.changes ?? []) ?? [];
+
+  return changes.flatMap((change) => {
+    if (change.field !== "smb_app_state_sync") {
+      return [];
+    }
+
+    return (change.value?.state_sync ?? [])
+      .filter((entry) => entry.type === "contact" && entry.action !== "remove")
+      .map((entry) => {
+        const waId = entry.contact?.phone_number?.replace(/\D/g, "") || "";
+        const name = entry.contact?.full_name?.trim() || entry.contact?.first_name?.trim() || null;
+        if (!waId || !name) {
+          return null;
+        }
+
+        return { waId, name };
+      })
+      .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+  });
+}
+
+// Solo ACTUALIZA el nombre de contactos que YA existen (tienen conversacion): no crea
+// conversaciones fantasma a partir de un contacto sincronizado sin ningun mensaje.
+async function syncContactStateSync(configId: string, payload: MetaWebhookPayload) {
+  const contacts = extractStateSyncContacts(payload);
+
+  for (const contact of contacts) {
+    await prisma.$executeRaw`
+      UPDATE "OfficialApiContact"
+      SET "name" = ${contact.name}, "updatedAt" = CURRENT_TIMESTAMP
+      WHERE "configId" = ${configId} AND "waId" = ${contact.waId}
+    `;
+  }
+}
+
+function extractHistoryMessages(payload: MetaWebhookPayload) {
+  const changes = payload.entry?.flatMap((entry) => entry.changes ?? []) ?? [];
+
+  return changes.flatMap((change) => {
+    if (change.field !== "history") {
+      return [];
+    }
+
+    const displayPhoneNumber = change.value?.metadata?.display_phone_number?.replace(/\D/g, "") || "";
+
+    return (change.value?.history ?? []).flatMap((entry) => {
+      if (entry.errors?.length) {
+        // El cliente no acepto compartir el historial (o Meta no pudo entregarlo): no hay
+        // nada que sincronizar para este chunk, solo lo dejamos anotado en el log.
+        console.warn("[official-api] history_sync_not_available", { errors: entry.errors });
+        return [];
+      }
+
+      return (entry.threads ?? []).flatMap((thread) => {
+        const waId = thread.id?.trim() || "";
+        if (!waId) {
+          return [];
+        }
+
+        return (thread.messages ?? [])
+          .map((message) => {
+            const messageId = message.id?.trim() || "";
+            if (!messageId) {
+              return null;
+            }
+
+            const fromDigits = message.from?.replace(/\D/g, "") || "";
+            const isOutbound = Boolean(displayPhoneNumber) && fromDigits === displayPhoneNumber;
+
+            return {
+              id: messageId,
+              waId,
+              content: message.text?.body?.trim() || null,
+              type: mapMessageType(message.type),
+              createdAt: parseMetaTimestamp(message.timestamp),
+              direction: (isOutbound ? "OUTBOUND" : "INBOUND") as "OUTBOUND" | "INBOUND",
+              status: mapMessageStatus(message.history_context?.status),
+            };
+          })
+          .filter((message): message is NonNullable<typeof message> => Boolean(message));
+      });
+    });
+  });
+}
+
+// Backfill del historial previo al onboarding (ventana de 24h que da Meta). Igual que los
+// echoes: se persiste tal cual, sin disparar auto-respuesta (son mensajes viejos).
+async function syncHistoryMessages(configId: string, payload: MetaWebhookPayload) {
+  const messages = extractHistoryMessages(payload);
+
+  for (const message of messages) {
+    const existingRows = await prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT "id" FROM "OfficialApiMessage" WHERE "configId" = ${configId} AND "externalMessageId" = ${message.id} LIMIT 1
+    `;
+    if (existingRows[0]) {
+      continue;
+    }
+
+    const resolved = await upsertOfficialApiContactAndConversation({
+      configId,
+      waId: message.waId,
+      contactName: null,
+      lastMessageAt: message.createdAt,
+      rawPayload: payload,
+    });
+    if (!resolved) {
+      continue;
+    }
+
+    await prisma.$executeRaw`
+      INSERT INTO "OfficialApiMessage" (
+        "id", "configId", "conversationId", "contactId", "externalMessageId", "direction", "type", "status", "content", "rawPayload", "createdAt", "updatedAt"
+      ) VALUES (
+        ${randomUUID()}, ${configId}, ${resolved.conversationId}, ${resolved.contactId}, ${message.id},
+        ${message.direction}::"OfficialApiMessageDirection", ${message.type}::"OfficialApiMessageType", ${message.status}::"OfficialApiMessageStatus",
+        ${message.content}, ${JSON.stringify(payload)}, ${message.createdAt}, CURRENT_TIMESTAMP
+      )
+    `;
+  }
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const mode = searchParams.get("hub.mode");
@@ -652,6 +940,12 @@ export async function POST(request: Request) {
   const eventType = extractEventType(payload);
 
   try {
+    // Coexistencia: sync de contactos, echoes (mensajes enviados desde el celu) e historial.
+    // No disparan auto-respuesta, solo dejan el CRM al dia con lo que ya paso.
+    await syncContactStateSync(config.id, payload);
+    await syncMessageEchoes(config.id, payload);
+    await syncHistoryMessages(config.id, payload);
+
     const insertedMessages = await syncInboundMessages(config.id, payload);
     await syncMessageStatuses(config.id, payload);
     const linkedAgentChannel = await findOfficialApiLinkedAgent(config.workspaceId);
