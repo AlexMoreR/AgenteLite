@@ -23,6 +23,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
+import { RenameChannelMenuItem } from "./RenameChannelMenuItem";
 
 type ConnectionsWorkspaceProps = {
   officialApiEmbeddedSignupReady: boolean;
@@ -191,6 +192,7 @@ export function ConnectionsWorkspaceV2({
                           <MoreHorizontal />
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
+                          <RenameChannelMenuItem channelId={item.id} currentName={item.name} />
                           <form action={deleteConnectionChannelAction}>
                             <input type="hidden" name="channelId" value={item.id} />
                             <DropdownMenuItem variant="destructive" className="w-full" render={<button type="submit" />}>

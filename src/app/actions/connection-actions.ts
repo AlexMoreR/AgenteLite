@@ -302,6 +302,54 @@ const deleteConnectionChannelSchema = z.object({
   channelId: z.string().trim().min(1, "Canal invalido"),
 });
 
+const renameConnectionChannelSchema = z.object({
+  channelId: z.string().trim().min(1, "Canal invalido"),
+  name: z.string().trim().min(2, "Escribe un nombre de canal valido").max(100, "El nombre del canal es demasiado largo"),
+});
+
+export async function renameConnectionChannelAction(formData: FormData): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
+    redirect("/unauthorized");
+  }
+  await requireClientWorkspaceAccess("connection");
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    redirect("/cliente/conexion?error=Debes+crear+tu+negocio+primero");
+  }
+
+  const parsed = renameConnectionChannelSchema.safeParse({
+    channelId: getRequiredFormValue(formData, "channelId"),
+    name: getRequiredFormValue(formData, "name"),
+  });
+
+  if (!parsed.success) {
+    redirect(`/cliente/conexion?error=${encodeURIComponent(parsed.error.issues[0]?.message || "Nombre invalido")}`);
+  }
+
+  const channel = await prisma.whatsAppChannel.findFirst({
+    where: {
+      id: parsed.data.channelId,
+      workspaceId: membership.workspace.id,
+    },
+    select: { id: true },
+  });
+
+  if (!channel) {
+    redirect("/cliente/conexion?error=Canal+no+encontrado");
+  }
+
+  await prisma.whatsAppChannel.update({
+    where: { id: channel.id },
+    data: { name: parsed.data.name },
+  });
+
+  revalidatePath("/cliente/conexion");
+  revalidatePath("/cliente/conexion/whatsapp-business");
+  redirect("/cliente/conexion?ok=Nombre+del+canal+actualizado");
+}
+
 const assignConnectionChannelSchema = z.object({
   channelId: z.string().trim().min(1, "Canal invalido"),
   agentId: z.string().trim().min(1, "Agente invalido"),
