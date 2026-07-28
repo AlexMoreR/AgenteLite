@@ -797,51 +797,31 @@ export const ConversationPanel = memo(function ConversationPanel({
                     hasSettledConversation ? "opacity-100" : "opacity-80"
                   }`}
                 >
-                  <div className="relative shrink-0">
-                    <TooltipProvider delayDuration={300}>
-                      <Tooltip>
-                        <TooltipTrigger
-                          type="button"
-                          onClick={() => setIsContactPanelOpen((open) => !open)}
-                          className="group relative shrink-0 rounded-[22px] transition focus:outline-none focus:ring-2 focus:ring-ring/50"
-                          aria-label={isContactPanelOpen ? "Cerrar detalles del contacto" : "Abrir detalles del contacto"}
-                          title="Contacto"
-                        >
-                          <span className="relative block">
-                            <ContactAvatar
-                              avatarUrl={renderedConversation.avatarUrl}
-                              label={renderedConversation.label}
-                              className="h-10 w-10 rounded-[18px] border-0 bg-muted text-muted-foreground after:border-0 transition"
-                              fallbackClassName="rounded-[18px] bg-muted text-muted-foreground"
-                            />
-                          </span>
-                        </TooltipTrigger>
-                        {renderedConversation.secondaryLabel ? (
-                          <TooltipContent side="right">
-                            {renderedConversation.secondaryLabel}
-                          </TooltipContent>
-                        ) : null}
-                      </Tooltip>
-                    </TooltipProvider>
-                    {/* Traer la foto de WhatsApp de ESTE contacto: 1 sola peticion manual,
-                        deliberada. El refresco automatico masivo sigue apagado (saturaba evogo). */}
-                    {renderedConversation.contactId ? (
-                      <button
+                  <TooltipProvider delayDuration={300}>
+                    <Tooltip>
+                      <TooltipTrigger
                         type="button"
-                        onClick={handleRefreshAvatar}
-                        disabled={isRefreshingAvatar}
-                        aria-label="Traer foto de perfil de WhatsApp"
-                        title="Traer foto de perfil de WhatsApp"
-                        className="absolute -bottom-1 -right-1 inline-flex h-5 w-5 items-center justify-center rounded-full border border-background bg-[var(--primary)] text-white shadow-sm transition hover:opacity-90 disabled:opacity-60"
+                        onClick={() => setIsContactPanelOpen((open) => !open)}
+                        className="group relative shrink-0 rounded-[22px] transition focus:outline-none focus:ring-2 focus:ring-ring/50"
+                        aria-label={isContactPanelOpen ? "Cerrar detalles del contacto" : "Abrir detalles del contacto"}
+                        title="Contacto"
                       >
-                        {isRefreshingAvatar ? (
-                          <LoaderCircle className="h-3 w-3 animate-spin" />
-                        ) : (
-                          <Camera className="h-3 w-3" />
-                        )}
-                      </button>
-                    ) : null}
-                  </div>
+                        <span className="relative block">
+                          <ContactAvatar
+                            avatarUrl={renderedConversation.avatarUrl}
+                            label={renderedConversation.label}
+                            className="h-10 w-10 rounded-[18px] border-0 bg-muted text-muted-foreground after:border-0 transition"
+                            fallbackClassName="rounded-[18px] bg-muted text-muted-foreground"
+                          />
+                        </span>
+                      </TooltipTrigger>
+                      {renderedConversation.secondaryLabel ? (
+                        <TooltipContent side="right">
+                          {renderedConversation.secondaryLabel}
+                        </TooltipContent>
+                      ) : null}
+                    </Tooltip>
+                  </TooltipProvider>
                   <div className="min-w-0 space-y-0.5">
                     <h2 className="truncate text-[13px] font-semibold text-foreground md:text-sm">
                       {renderedConversation.label}
