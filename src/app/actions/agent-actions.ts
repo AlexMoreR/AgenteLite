@@ -49,6 +49,13 @@ import {
 } from "@/lib/evolution";
 import { getPublicBaseUrl } from "@/lib/app-url";
 import { parseWorkspaceBusinessConfig } from "@/lib/workspace-business-config";
+import { getOfficialApiConfigByWorkspaceId } from "@/lib/official-api-config";
+import {
+  sendOfficialApiAudioMessage,
+  sendOfficialApiDocumentMessage,
+  sendOfficialApiImageMessage,
+  sendOfficialApiVideoMessage,
+} from "@/lib/official-api-messaging";
 import { setConversationAutomationPaused } from "@/lib/conversation-automation";
 import { buildDefaultWorkspacePlan } from "@/lib/plans";
 import { prisma } from "@/lib/prisma";
@@ -2990,6 +2997,15 @@ export async function sendChatAudioReplyAction(input: {
     return { error: "Debes configurar tu negocio primero" };
   }
 
+  if (parsed.data.source === "official") {
+    return sendOfficialApiChatFile({
+      workspaceId: membership.workspace.id,
+      conversationId: parsed.data.conversationId,
+      mediaUrl: parsed.data.audioUrl,
+      kind: "AUDIO",
+    });
+  }
+
   const conversation = await prisma.conversation.findFirst({
     where: {
       id: parsed.data.conversationId,
@@ -3092,6 +3108,75 @@ const sendChatMediaReplySchema = z.object({
   returnTo: z.string().optional(),
 });
 
+/**
+ * Envia un archivo (o un audio) por el canal de API OFICIAL.
+ *
+ * Hasta ahora las dos acciones de envio solo sabian hablar con Evolution, asi que en un chat de
+ * "Ventas 1" no se podia mandar ni una foto ni el catalogo en PDF: el boton "+" ni siquiera
+ * aparecia. Meta descarga el archivo desde una URL publica nuestra (no acepta base64), que es la
+ * misma que ya usamos para el otro canal.
+ */
+async function sendOfficialApiChatFile(input: {
+  workspaceId: string;
+  conversationId: string;
+  mediaUrl: string;
+  kind: "IMAGE" | "VIDEO" | "DOCUMENT" | "AUDIO";
+  fileName?: string;
+  caption?: string;
+}): Promise<{ ok: true } | { error: string }> {
+  const config = await getOfficialApiConfigByWorkspaceId(input.workspaceId);
+  if (!config || !config.accessToken?.trim() || !config.phoneNumberId?.trim()) {
+    return { error: "La API oficial no esta conectada." };
+  }
+
+  const conversation = await prisma.officialApiConversation.findFirst({
+    where: { id: input.conversationId, configId: config.id },
+    select: { id: true, contactId: true, contact: { select: { id: true, waId: true } } },
+  });
+
+  if (!conversation?.contact?.waId) {
+    return { error: "No se encontro el contacto de la conversacion" };
+  }
+
+  // Meta baja el archivo desde esta URL: tiene que ser publica y absoluta.
+  const publicUrl = (() => {
+    try {
+      return `${getPublicBaseUrl()}${new URL(input.mediaUrl, "http://local").pathname}`;
+    } catch {
+      return input.mediaUrl;
+    }
+  })();
+
+  const common = {
+    config,
+    conversationId: conversation.id,
+    contactId: conversation.contact.id,
+    to: conversation.contact.waId,
+    source: "manual" as const,
+  };
+
+  const result =
+    input.kind === "IMAGE"
+      ? await sendOfficialApiImageMessage({ ...common, imageUrl: publicUrl, caption: input.caption })
+      : input.kind === "VIDEO"
+        ? await sendOfficialApiVideoMessage({ ...common, videoUrl: publicUrl, caption: input.caption })
+        : input.kind === "AUDIO"
+          ? await sendOfficialApiAudioMessage({ ...common, audioUrl: publicUrl })
+          : await sendOfficialApiDocumentMessage({
+              ...common,
+              documentUrl: publicUrl,
+              fileName: input.fileName,
+              caption: input.caption,
+            });
+
+  if (!result.ok) {
+    return { error: result.error };
+  }
+
+  revalidatePath("/cliente/chats");
+  return { ok: true };
+}
+
 export async function sendChatMediaReplyAction(input: {
   source: string;
   conversationId: string;
@@ -3117,6 +3202,17 @@ export async function sendChatMediaReplyAction(input: {
   const membership = await getPrimaryWorkspaceForUser(session.user.id);
   if (!membership) {
     return { error: "Debes configurar tu negocio primero" };
+  }
+
+  if (parsed.data.source === "official") {
+    return sendOfficialApiChatFile({
+      workspaceId: membership.workspace.id,
+      conversationId: parsed.data.conversationId,
+      mediaUrl: parsed.data.mediaUrl,
+      kind: parsed.data.mediaType,
+      fileName: parsed.data.fileName,
+      caption: parsed.data.caption,
+    });
   }
 
   const conversation = await prisma.conversation.findFirst({

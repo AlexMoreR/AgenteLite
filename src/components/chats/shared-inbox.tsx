@@ -1636,19 +1636,21 @@ export function SharedInbox({
     }
 
     const targetId = renderedConversation && !renderedConversation.isPreview ? renderedConversation.id : null;
-    // El servidor manda audio/media SIEMPRE como plantilla (ver page.tsx). Aca se decide si el
-    // chat abierto puede usarlos: hace falta un chat cargado de verdad (no el preview) y que sea
-    // un chat de WhatsApp por agente. En los de la API oficial se apagan: el "+" subiria el
-    // archivo al endpoint equivocado.
-    const isOfficialChat = selectedConversationId.startsWith("official:");
-    if (!targetId || isOfficialChat) {
+    // El servidor manda audio/media SIEMPRE como plantilla (ver page.tsx). Aca se apunta al chat
+    // abierto: hace falta un chat cargado de verdad (no el preview).
+    if (!targetId) {
       return { ...composer, audio: undefined, media: undefined };
     }
 
+    // Y se marca a QUE canal va, para que la accion de envio use Meta o Evolution segun el chat.
+    // Antes en los chats de la API oficial se apagaban del todo: por eso ahi no aparecia el "+"
+    // y no se podia mandar una foto ni el catalogo en PDF.
+    const source = selectedConversationId.startsWith("official:") ? "official" : "agent";
+
     return {
       ...composer,
-      audio: composer.audio ? { ...composer.audio, conversationId: targetId } : undefined,
-      media: composer.media ? { ...composer.media, conversationId: targetId } : undefined,
+      audio: composer.audio ? { ...composer.audio, conversationId: targetId, source } : undefined,
+      media: composer.media ? { ...composer.media, conversationId: targetId, source } : undefined,
     };
   }, [composer, renderedConversation, selectedConversationId]);
 

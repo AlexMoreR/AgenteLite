@@ -654,7 +654,10 @@ export const ConversationPanel = memo(function ConversationPanel({
   }, [autoResizeComposer]);
 
   const handleSuggestReply = useCallback(async () => {
-    const conversationId = mediaConfig?.conversationId ?? audioConfig?.conversationId;
+    // Se usa el chat REALMENTE abierto y no mediaConfig: en los chats de la API oficial ese
+    // config no existía, así que el botón ✨ se veía pero al tocarlo no pasaba NADA (ni un aviso).
+    const conversationId =
+      renderedConversation?.id ?? mediaConfig?.conversationId ?? audioConfig?.conversationId;
     if (!conversationId || isSuggestingReply) {
       return;
     }
@@ -685,7 +688,7 @@ export const ConversationPanel = memo(function ConversationPanel({
     } finally {
       setIsSuggestingReply(false);
     }
-  }, [mediaConfig?.conversationId, audioConfig?.conversationId, isSuggestingReply, autoResizeComposer]);
+  }, [renderedConversation?.id, mediaConfig?.conversationId, audioConfig?.conversationId, isSuggestingReply, autoResizeComposer]);
 
   const contactPanelContent = renderedConversation ? (
     <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
