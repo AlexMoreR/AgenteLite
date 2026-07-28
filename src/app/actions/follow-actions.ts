@@ -460,6 +460,70 @@ export async function createFollowAction(formData: FormData): Promise<void> {
   revalidatePath("/cliente/chats");
 }
 
+const chatFollowUpSchema = z.object({
+  contactId: z.string().trim().min(1),
+  timeType: z.enum(["MINUTES", "HOURS", "DAYS"]),
+  timeValue: z.coerce.number().int().min(1).max(9999),
+  content: z.string().trim().min(2).max(5000),
+  cancelOnActivity: z.boolean().optional().default(true),
+});
+
+export type ChatFollowUpInput = z.input<typeof chatFollowUpSchema>;
+
+/**
+ * Agenda un seguimiento para ESTE contacto desde el chat, sin ir al modulo de Seguimientos.
+ *
+ * Usa el mismo motor que el resto (createFollow), asi que se cancela solo si el cliente responde
+ * (cancelOnActivity) y se ve en Seguimientos como cualquier otro. Es una accion MANUAL de la
+ * asesora: no lo agenda nadie automaticamente.
+ */
+export async function createChatFollowUpAction(
+  input: ChatFollowUpInput,
+): Promise<{ ok: true; executeAt: string } | { error: string }> {
+  const session = await auth();
+  if (!session?.user?.id || !isAllowedRole(session.user.role)) {
+    return { error: "No autorizado" };
+  }
+  // Se gatea con "chats": lo usa la asesora desde la conversacion, no desde el modulo.
+  await requireClientWorkspaceAccess("chats");
+
+  const parsed = chatFollowUpSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: "Escribí el mensaje y cuándo enviarlo." };
+  }
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    return { error: "Workspace no encontrado" };
+  }
+
+  const follow = await createFollow({
+    workspaceId: membership.workspace.id,
+    contactId: parsed.data.contactId,
+    name: "Seguimiento desde el chat",
+    followRuleId: null,
+    channelId: null,
+    timeType: parsed.data.timeType,
+    timeValue: parsed.data.timeValue,
+    messageType: "TEXT",
+    content: parsed.data.content,
+    mediaUrl: null,
+    actions: [{ order: 1, messageType: "TEXT", content: parsed.data.content, mediaUrl: "" }],
+    executeAt: null,
+    cancelOnActivity: parsed.data.cancelOnActivity ?? true,
+  });
+
+  if (!follow) {
+    return { error: "No se pudo agendar el seguimiento" };
+  }
+
+  revalidatePath("/cliente/seguimientos");
+  revalidatePath("/cliente/chats");
+
+  const executeAt = follow.executeAt instanceof Date ? follow.executeAt.toISOString() : String(follow.executeAt ?? "");
+  return { ok: true, executeAt };
+}
+
 export async function cancelFollowsByContactAction(formData: FormData): Promise<void> {
   const session = await auth();
   if (!session?.user?.id || !isAllowedRole(session.user.role)) {
