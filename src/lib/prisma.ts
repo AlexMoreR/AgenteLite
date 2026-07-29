@@ -46,11 +46,73 @@ function createPool() {
   return pool;
 }
 
+/**
+ * Reintento para las fallas PASAJERAS de la base.
+ *
+ * Postgres tiene un estado en el que rechaza TODA consulta por unos segundos y responde
+ * `57P03 the database system is in recovery mode`. Pasa cuando un proceso interno se cae: el
+ * servidor mata las sesiones, se recompone y sigue — sin reiniciarse (por eso la base figura
+ * con 61 días encendida aunque esto ocurra). Medido en produccion el 29-jul-2026 a las
+ * 13:54:37, el minuto exacto en que a Alex se le cayo la pantalla de chats.
+ *
+ * Mientras dura, cualquier pantalla que estuviera cargando muere. Reintentar un instante
+ * despues lo vuelve invisible: la asesora no se entera de nada.
+ *
+ * SOLO se reintenta cuando la consulta NO llego a ejecutarse (la base contesto "ahora no
+ * puedo" o ni siquiera se pudo conectar). Nunca se reintenta una consulta que pudo haber
+ * corrido a medias: duplicaria un mensaje enviado o un contacto.
+ */
+const TRANSIENT_DB_CODES = ["57P03", "57P01", "57P02", "08006", "08001", "08004"];
+const MAX_DB_RETRIES = 3;
+const DB_RETRY_DELAY_MS = 350;
+
+function isTransientDbError(error: unknown) {
+  const text = error instanceof Error ? `${error.message}` : String(error);
+  return (
+    TRANSIENT_DB_CODES.some((code) => text.includes(code)) ||
+    // Prisma no siempre expone el codigo: a veces solo trae el texto. Se cubren las dos formas.
+    /is in recovery mode|starting up|cannot connect now|Connection refused|Can't reach database server|Connection terminated unexpectedly/i.test(
+      text,
+    )
+  );
+}
+
+function withTransientRetry(client: PrismaClient) {
+  return client.$extends({
+    query: {
+      async $allOperations({ args, query }) {
+        let lastError: unknown = null;
+
+        for (let attempt = 0; attempt <= MAX_DB_RETRIES; attempt += 1) {
+          try {
+            return await query(args);
+          } catch (error) {
+            if (!isTransientDbError(error)) {
+              throw error;
+            }
+            lastError = error;
+            if (attempt < MAX_DB_RETRIES) {
+              console.warn(
+                `[prisma] la base contesto "ahora no puedo"; reintento ${attempt + 1}/${MAX_DB_RETRIES}`,
+              );
+              await new Promise((resolve) => setTimeout(resolve, DB_RETRY_DELAY_MS * (attempt + 1)));
+            }
+          }
+        }
+
+        throw lastError;
+      },
+    },
+  }) as unknown as PrismaClient;
+}
+
 function createPrismaClient() {
-  return new PrismaClient({
-    adapter: new PrismaPg(createPool()),
-    log: ["error", "warn"],
-  });
+  return withTransientRetry(
+    new PrismaClient({
+      adapter: new PrismaPg(createPool()),
+      log: ["error", "warn"],
+    }),
+  );
 }
 
 function resolvePrismaClient() {
