@@ -811,7 +811,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                       <TooltipTrigger
                         type="button"
                         onClick={() => setIsContactPanelOpen((open) => !open)}
-                        className="group relative shrink-0 rounded-[22px] transition focus:outline-none focus:ring-2 focus:ring-ring/50"
+                        className="group relative shrink-0 rounded-full transition focus:outline-none focus:ring-2 focus:ring-ring/50"
                         aria-label={isContactPanelOpen ? "Cerrar detalles del contacto" : "Abrir detalles del contacto"}
                         title="Contacto"
                       >
@@ -819,8 +819,8 @@ export const ConversationPanel = memo(function ConversationPanel({
                           <ContactAvatar
                             avatarUrl={renderedConversation.avatarUrl}
                             label={renderedConversation.label}
-                            className="h-10 w-10 rounded-[18px] border-0 bg-muted text-muted-foreground after:border-0 transition"
-                            fallbackClassName="rounded-[18px] bg-muted text-muted-foreground"
+                            className="h-10 w-10 rounded-full border-0 bg-muted text-muted-foreground after:border-0 transition"
+                            fallbackClassName="rounded-full bg-muted text-muted-foreground"
                           />
                         </span>
                       </TooltipTrigger>
