@@ -1324,6 +1324,7 @@ export async function POST(request: Request) {
       after(async () => {
         await syncOfficialApiCrmStage({
           workspaceId: config.workspaceId,
+          configId: config.id,
           conversationId: conversationIdForStage,
           latestUserMessage,
         });

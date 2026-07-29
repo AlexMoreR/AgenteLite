@@ -486,6 +486,9 @@ async function loadOfficialApiChatsData(input: {
             m."rawPayload"
           FROM "OfficialApiMessage" m
           WHERE m."conversationId" = c."id"
+            -- Las notas de actividad ("El agente movió la etapa...") no son el ultimo mensaje
+            -- del chat: si se colaran aca, taparian lo que de verdad escribio el cliente.
+            AND (m."rawPayload"->>'source') IS DISTINCT FROM 'activity'
           ORDER BY m."createdAt" DESC
           LIMIT 1
         ) lm ON true
@@ -542,6 +545,8 @@ async function loadOfficialApiChatsData(input: {
             m."rawPayload"
           FROM "OfficialApiMessage" m
           INNER JOIN filtered_conversations fc ON fc."id" = m."conversationId"
+          -- Idem: la nota de actividad no debe pisar la vista previa de la fila.
+          WHERE (m."rawPayload"->>'source') IS DISTINCT FROM 'activity'
           ORDER BY m."conversationId", m."createdAt" DESC, m."id" DESC
         ),
         outbound_times AS (

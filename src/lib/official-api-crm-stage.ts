@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import {
   buildCommercialConversationContext,
@@ -6,6 +7,7 @@ import {
   type CommercialConversationLine,
 } from "@/lib/commercial-stage";
 import { syncCrmStageFromCommercialStage } from "@/lib/crm-stage-sync";
+import { CRM_STAGE_META } from "@/features/crm/domain/crm-config";
 
 /**
  * Clasificador automatico de etapa para el canal de API OFICIAL.
@@ -30,8 +32,43 @@ function readStoredContext(value: unknown): CommercialConversationContext | null
   return value as CommercialConversationContext;
 }
 
+/**
+ * Deja la nota "El agente movió la etapa a X" DENTRO del chat, igual que en el canal viejo.
+ *
+ * El registro de actividad de siempre escribe en la tabla de mensajes del otro canal, atada a
+ * una conversacion que aca no existe: se intentaba, fallaba y se descartaba en silencio, asi
+ * que la etapa cambiaba sola y la asesora entraba al chat sin saber por que. Se guarda como
+ * mensaje SYSTEM marcado como actividad, que es lo que el chat ya dibuja como chip centrado.
+ */
+async function recordOfficialApiStageActivity(input: {
+  configId: string;
+  conversationId: string;
+  stageLabel: string;
+}) {
+  const now = new Date();
+  await prisma.$executeRaw`
+    INSERT INTO "OfficialApiMessage" (
+      "id", "configId", "conversationId", "direction", "type", "status",
+      "content", "rawPayload", "createdAt", "updatedAt"
+    )
+    VALUES (
+      ${randomUUID()},
+      ${input.configId},
+      ${input.conversationId},
+      'OUTBOUND'::"OfficialApiMessageDirection",
+      'SYSTEM'::"OfficialApiMessageType",
+      'SENT'::"OfficialApiMessageStatus",
+      ${`El agente movió la etapa a "${input.stageLabel}"`},
+      ${JSON.stringify({ source: "activity", kind: "stage_changed" })},
+      ${now},
+      ${now}
+    )
+  `;
+}
+
 export async function syncOfficialApiCrmStage(input: {
   workspaceId: string;
+  configId: string;
   conversationId: string;
   latestUserMessage: string | null;
 }): Promise<void> {
@@ -113,7 +150,8 @@ export async function syncOfficialApiCrmStage(input: {
     });
 
     // El helper solo AVANZA y nunca toca un lead que una persona ya cerro (Ganado/Descartado).
-    await syncCrmStageFromCommercialStage({
+    // Devuelve la etapa nueva, o null si no movio nada.
+    const movedTo = await syncCrmStageFromCommercialStage({
       workspaceId: input.workspaceId,
       contactId: row.crmContactId,
       conversationId: input.conversationId,
@@ -121,6 +159,14 @@ export async function syncOfficialApiCrmStage(input: {
       channelId: null,
       commercialContext: nextContext,
     });
+
+    if (movedTo) {
+      await recordOfficialApiStageActivity({
+        configId: input.configId,
+        conversationId: input.conversationId,
+        stageLabel: CRM_STAGE_META[movedTo]?.label ?? movedTo,
+      });
+    }
   } catch (error) {
     console.error("[OFFICIAL_API] crm_stage_sync_failed", {
       conversationId: input.conversationId,
