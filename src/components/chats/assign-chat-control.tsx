@@ -12,13 +12,15 @@ import {
 type AssignChatControlProps = {
   conversationId: string;
   assignee: { id: string; name: string | null; email: string } | null;
+  // De que canal es el chat: los de la API oficial se guardan en otra tabla.
+  source?: "agent" | "official";
 };
 
 function memberLabel(member: { name: string | null; email: string }) {
   return member.name?.trim() || member.email;
 }
 
-export function AssignChatControl({ conversationId, assignee }: AssignChatControlProps) {
+export function AssignChatControl({ conversationId, assignee, source = "agent" }: AssignChatControlProps) {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
@@ -71,7 +73,7 @@ export function AssignChatControl({ conversationId, assignee }: AssignChatContro
     (targetUserId: string | null) => {
       setError(null);
       startTransition(async () => {
-        const result = await assignChatAction({ conversationId, assignToUserId: targetUserId });
+        const result = await assignChatAction({ conversationId, assignToUserId: targetUserId, source });
         if (result?.error) {
           setError(result.error);
           return;
@@ -80,7 +82,7 @@ export function AssignChatControl({ conversationId, assignee }: AssignChatContro
         router.refresh();
       });
     },
-    [conversationId, router],
+    [conversationId, router, source],
   );
 
   const assignedToMe = Boolean(assignee && currentUserId && assignee.id === currentUserId);

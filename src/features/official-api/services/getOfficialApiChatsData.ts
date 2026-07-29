@@ -211,6 +211,9 @@ async function loadOfficialApiChatsData(input: {
     // cambiarle la etapa y mostraba "Nuevo" fijo, sin poder tocarlo.
     crmContactId: string | null;
     crmStage: string | null;
+    assignedToUserId: string | null;
+    assignedToName: string | null;
+    assignedToEmail: string | null;
     messageId: string | null;
     messageContent: string | null;
     messageDirection: "INBOUND" | "OUTBOUND" | null;
@@ -238,6 +241,9 @@ async function loadOfficialApiChatsData(input: {
         ct."waId" AS "contactWaId",
         ct."crmContactId" AS "crmContactId",
         crm."crmStage"::text AS "crmStage",
+        c."assignedToUserId" AS "assignedToUserId",
+        au."name" AS "assignedToName",
+        au."email" AS "assignedToEmail",
         m."id" AS "messageId",
         m."content" AS "messageContent",
         m."direction"::text AS "messageDirection",
@@ -253,6 +259,9 @@ async function loadOfficialApiChatsData(input: {
       -- La ficha del CRM puede no existir todavia (chats anteriores al puente), por eso LEFT.
       LEFT JOIN "Contact" crm
         ON crm."id" = ct."crmContactId"
+      -- Quien atiende el chat, para el selector de asignacion de la cabecera.
+      LEFT JOIN "User" au
+        ON au."id" = c."assignedToUserId"
       LEFT JOIN LATERAL (
         SELECT
           msg."id",
@@ -365,6 +374,9 @@ async function loadOfficialApiChatsData(input: {
         crmContactId: firstRow.crmContactId,
         crmStage: firstRow.crmStage,
       },
+      assignedTo: firstRow.assignedToUserId
+        ? { id: firstRow.assignedToUserId, name: firstRow.assignedToName, email: firstRow.assignedToEmail ?? "" }
+        : null,
       status: firstRow.conversationStatus,
       automationPaused: Boolean(firstRow.conversationAutomationPaused),
       messages: conversationDetailRows
@@ -402,6 +414,9 @@ async function loadOfficialApiChatsData(input: {
         contactWaId: string;
         crmContactId: string | null;
         crmStage: string | null;
+        assignedToUserId: string | null;
+        assignedToName: string | null;
+        assignedToEmail: string | null;
         incomingCount: number;
         lastMessageId: string | null;
         lastMessageContent: string | null;
@@ -420,6 +435,9 @@ async function loadOfficialApiChatsData(input: {
           ct."waId" AS "contactWaId",
           ct."crmContactId" AS "crmContactId",
           crm."crmStage"::text AS "crmStage",
+          c."assignedToUserId" AS "assignedToUserId",
+          au."name" AS "assignedToName",
+          au."email" AS "assignedToEmail",
           COALESCE(incoming."incomingCount", 0)::int AS "incomingCount",
           lm."id" AS "lastMessageId",
           lm."content" AS "lastMessageContent",
@@ -435,6 +453,9 @@ async function loadOfficialApiChatsData(input: {
         -- Etapa del embudo para pintar la chapita (Nuevo / Frio / Tibio...) en la lista.
         LEFT JOIN "Contact" crm
           ON crm."id" = ct."crmContactId"
+        -- Quien atiende el chat, para el badge de la fila.
+        LEFT JOIN "User" au
+          ON au."id" = c."assignedToUserId"
         LEFT JOIN LATERAL (
           SELECT MAX(mo."createdAt") AS "lastOutboundAt"
           FROM "OfficialApiMessage" mo
@@ -482,6 +503,9 @@ async function loadOfficialApiChatsData(input: {
         contactWaId: string;
         crmContactId: string | null;
         crmStage: string | null;
+        assignedToUserId: string | null;
+        assignedToName: string | null;
+        assignedToEmail: string | null;
         incomingCount: number;
         lastMessageId: string | null;
         lastMessageContent: string | null;
@@ -497,7 +521,8 @@ async function loadOfficialApiChatsData(input: {
             c."id",
             c."contactId",
             c."lastMessageAt",
-            c."updatedAt"
+            c."updatedAt",
+            c."assignedToUserId"
           FROM "OfficialApiConversation" c
           WHERE c."configId" = ${activeConfig.id}
             ${officialStatusFilter}
@@ -549,6 +574,9 @@ async function loadOfficialApiChatsData(input: {
           ct."waId" AS "contactWaId",
           ct."crmContactId" AS "crmContactId",
           crm."crmStage"::text AS "crmStage",
+          fc."assignedToUserId" AS "assignedToUserId",
+          au."name" AS "assignedToName",
+          au."email" AS "assignedToEmail",
           COALESCE(ic."incomingCount", 0)::int AS "incomingCount",
           lm."id" AS "lastMessageId",
           lm."content" AS "lastMessageContent",
@@ -564,6 +592,9 @@ async function loadOfficialApiChatsData(input: {
         -- Etapa del embudo para pintar la chapita (Nuevo / Frio / Tibio...) en la lista.
         LEFT JOIN "Contact" crm
           ON crm."id" = ct."crmContactId"
+        -- Quien atiende el chat, para el badge de la fila.
+        LEFT JOIN "User" au
+          ON au."id" = fc."assignedToUserId"
         LEFT JOIN incoming_counts ic
           ON ic."conversationId" = fc."id"
         LEFT JOIN last_messages lm
@@ -581,6 +612,9 @@ async function loadOfficialApiChatsData(input: {
       crmContactId: row.crmContactId,
       crmStage: row.crmStage,
     },
+    assignedTo: row.assignedToUserId
+      ? { id: row.assignedToUserId, name: row.assignedToName, email: row.assignedToEmail ?? "" }
+      : null,
     incomingCount: row.incomingCount,
     lastMessage: row.lastMessageId && row.lastMessageDirection && row.lastMessageCreatedAt && row.lastMessageStatus
       ? {
@@ -611,6 +645,7 @@ async function loadOfficialApiChatsData(input: {
     conversations: conversations.map((conversation) => ({
       id: conversation.id,
       contact: conversation.contact,
+      assignedTo: conversation.assignedTo ?? null,
       incomingCount: conversation.incomingCount,
       lastMessage: conversation.lastMessage ?? null,
     })),

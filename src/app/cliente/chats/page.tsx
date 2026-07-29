@@ -691,7 +691,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     incomingCount: selectedChatRef?.source === "official" && selectedChatRef.conversationId === conversation.id
       ? 0
       : conversation.incomingCount ?? 0,
-    assignedToName: null,
+    // El badge de quien atiende: antes iba fijo en null y toda la columna salia "---".
+    assignedToName: conversation.assignedTo?.name?.trim() || conversation.assignedTo?.email || null,
     lastMessage: conversation.lastMessage?.content ?? null,
     lastMessageType: conversation.lastMessage?.type ?? null,
     lastMessageDirection: conversation.lastMessage?.direction ?? null,
@@ -1128,6 +1129,15 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
               key={`panel-assign:${selectedConversation.id}`}
               conversationId={selectedConversation.id}
               assignee={selectedAgentConversation?.assignedTo ?? null}
+            />
+          ) : selectedUnified?.source === "official" && selectedConversation ? (
+            // Mismo selector que el canal viejo: el equipo se reparte los chats de Ventas 2
+            // igual que los de Ventas 1, sin tener que acordarse de quien iba cada uno.
+            <AssignChatControl
+              key={`panel-assign:official:${selectedConversation.id}`}
+              conversationId={selectedConversation.id}
+              assignee={officialChatsData.selectedConversation?.assignedTo ?? null}
+              source="official"
             />
           ) : null
         }

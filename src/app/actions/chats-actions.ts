@@ -1509,9 +1509,69 @@ export async function getAssignableMembersAction(): Promise<{
   };
 }
 
+/**
+ * Asignar un chat del canal de API OFICIAL. Mismas reglas que el canal viejo: OWNER/ADMIN
+ * asignan a cualquiera; una asesora solo puede tomar chats para si misma o soltar los suyos.
+ *
+ * La conversacion se busca por el config del workspace (no tiene workspaceId propio), asi
+ * nadie puede asignar chats de otro negocio pasando un id a mano.
+ */
+async function assignOfficialApiChat(input: {
+  conversationId: string;
+  targetUserId: string | null;
+  workspaceId: string;
+  role: string;
+  actorId: string;
+}): Promise<{
+  ok?: boolean;
+  error?: string;
+  assignedTo?: { id: string; name: string | null } | null;
+}> {
+  const conversation = await prisma.officialApiConversation.findFirst({
+    where: { id: input.conversationId, config: { workspaceId: input.workspaceId } },
+    select: { id: true, assignedToUserId: true },
+  });
+  if (!conversation) return { error: "Conversacion no encontrada" };
+
+  const isManager = input.role === "OWNER" || input.role === "ADMIN";
+  if (!isManager) {
+    if (input.targetUserId && input.targetUserId !== input.actorId) {
+      return { error: "Solo puedes asignarte chats a ti mismo" };
+    }
+    if (
+      !input.targetUserId &&
+      conversation.assignedToUserId &&
+      conversation.assignedToUserId !== input.actorId
+    ) {
+      return { error: "No puedes liberar un chat asignado a otra persona" };
+    }
+  }
+
+  let assignedTo: { id: string; name: string | null } | null = null;
+  if (input.targetUserId) {
+    const targetMember = await prisma.workspaceMember.findFirst({
+      where: { workspaceId: input.workspaceId, userId: input.targetUserId, isActive: true },
+      select: { user: { select: { id: true, name: true } } },
+    });
+    if (!targetMember) return { error: "El usuario no pertenece al equipo" };
+    assignedTo = targetMember.user;
+  }
+
+  await prisma.officialApiConversation.update({
+    where: { id: conversation.id },
+    data: { assignedToUserId: input.targetUserId },
+  });
+
+  revalidatePath("/cliente/chats");
+  return { ok: true, assignedTo };
+}
+
 export async function assignChatAction(input: {
   conversationId: string;
   assignToUserId: string | null;
+  // Los chats de la API oficial viven en otra tabla. Sin esto, el selector de asignacion
+  // no tenia a quien escribirle y todo el canal quedaba en "Sin asignar" para siempre.
+  source?: "agent" | "official";
 }): Promise<{
   ok?: boolean;
   error?: string;
@@ -1530,6 +1590,16 @@ export async function assignChatAction(input: {
 
   const membership = await getPrimaryWorkspaceForUser(session.user.id);
   if (!membership) return { error: "Workspace no encontrado" };
+
+  if (input?.source === "official") {
+    return assignOfficialApiChat({
+      conversationId,
+      targetUserId,
+      workspaceId: membership.workspace.id,
+      role: membership.role,
+      actorId: session.user.id,
+    });
+  }
 
   const conversation = await prisma.conversation.findFirst({
     where: { id: conversationId, workspaceId: membership.workspace.id },

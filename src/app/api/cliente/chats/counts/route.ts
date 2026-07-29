@@ -41,13 +41,15 @@ function buildBaseWhere(input: {
  * y al lado "Todas 0". Se cuentan igual que los muestra la lista: solo cuando el canal
  * elegido es el oficial (o no hay ninguno elegido).
  *
- * Ninguna cuenta como "Mia": una conversacion oficial todavia no se puede asignar a una
- * asesora, asi que todas son "Sin asignar".
+ * Se reparten igual que las del canal viejo: las que tienen asesora cuentan en "Mias" de esa
+ * persona y las que no, en "Sin asignar".
  */
 async function countOfficialConversations(input: {
   workspaceId: string;
   searchQuery: string;
   selectedConnectionKey: string;
+  userId: string;
+  assignedTo: "mine" | "unassigned" | "all";
 }): Promise<number> {
   if (input.selectedConnectionKey.startsWith("channel:")) {
     const channelId = input.selectedConnectionKey.slice("channel:".length);
@@ -76,6 +78,11 @@ async function countOfficialConversations(input: {
   return prisma.officialApiConversation.count({
     where: {
       configId: config.id,
+      ...(input.assignedTo === "mine"
+        ? { assignedToUserId: input.userId }
+        : input.assignedTo === "unassigned"
+          ? { assignedToUserId: null }
+          : {}),
       ...(normalizedSearchQuery
         ? {
             OR: [
@@ -116,14 +123,31 @@ export async function GET(request: Request) {
     selectedConnectionKey,
   });
 
-  const officialCount = await countOfficialConversations({
-    workspaceId: membership.workspace.id,
-    searchQuery,
-    selectedConnectionKey,
-  });
+  const [officialMine, officialUnassigned, officialAll] = await Promise.all([
+    countOfficialConversations({
+      workspaceId: membership.workspace.id,
+      searchQuery,
+      selectedConnectionKey,
+      userId: session.user.id,
+      assignedTo: "mine",
+    }),
+    countOfficialConversations({
+      workspaceId: membership.workspace.id,
+      searchQuery,
+      selectedConnectionKey,
+      userId: session.user.id,
+      assignedTo: "unassigned",
+    }),
+    countOfficialConversations({
+      workspaceId: membership.workspace.id,
+      searchQuery,
+      selectedConnectionKey,
+      userId: session.user.id,
+      assignedTo: "all",
+    }),
+  ]);
 
-  // Los empleados solo cuentan sus chats asignados. Los oficiales no son de nadie todavia,
-  // pero la lista se los muestra igual, asi que entran en "Todas".
+  // Los empleados solo cuentan sus chats asignados.
   if (!isManager) {
     const mine = await prisma.conversation.count({
       where: { AND: [baseWhere, { assignedToUserId: session.user.id }] },
@@ -132,7 +156,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       ok: true,
       isManager,
-      counts: { mine, unassigned: 0, all: mine + officialCount },
+      counts: { mine: mine + officialMine, unassigned: 0, all: mine + officialAll },
     });
   }
 
@@ -145,6 +169,10 @@ export async function GET(request: Request) {
   return NextResponse.json({
     ok: true,
     isManager,
-    counts: { mine, unassigned: unassigned + officialCount, all: all + officialCount },
+    counts: {
+      mine: mine + officialMine,
+      unassigned: unassigned + officialUnassigned,
+      all: all + officialAll,
+    },
   });
 }

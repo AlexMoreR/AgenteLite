@@ -521,6 +521,10 @@ model OfficialApiConversation {
   commercialContext Json?
   automationPaused   Boolean                     @default(false)
   automationPausedAt DateTime?
+  // Asesora que atiende este chat. Sin esto, todo lo que entraba por el canal oficial salia
+  // como "Sin asignar" y el equipo no se lo podia repartir como hace en el canal viejo.
+  // Se guarda el id suelto (sin relacion) porque las consultas de la bandeja son SQL crudo.
+  assignedToUserId   String?
   config           OfficialApiClientConfig       @relation(fields: [configId], references: [id], onDelete: Cascade)
   contact          OfficialApiContact            @relation(fields: [contactId], references: [id], onDelete: Cascade)
   messages         OfficialApiMessage[]
@@ -529,6 +533,7 @@ model OfficialApiConversation {
   @@index([configId, status, lastMessageAt])
   @@index([configId, lastMessageAt, updatedAt])
   @@index([contactId, lastMessageAt])
+  @@index([configId, assignedToUserId])
 }
 
 model OfficialApiMessage {

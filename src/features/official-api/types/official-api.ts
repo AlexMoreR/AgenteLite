@@ -38,6 +38,8 @@ export type OfficialApiChatConversationSummary = {
     // Etapa del embudo, para la chapita de la lista. Null en los chats sin ficha del CRM.
     crmStage: string | null;
   };
+  // Asesora que atiende el chat (null = sin asignar).
+  assignedTo: { id: string; name: string | null; email: string } | null;
   incomingCount: number;
   lastMessage: {
     id: string;
@@ -74,6 +76,8 @@ export type OfficialApiChatConversationDetail = {
     crmContactId: string | null;
     crmStage: string | null;
   };
+  // Asesora que atiende el chat (null = sin asignar).
+  assignedTo: { id: string; name: string | null; email: string } | null;
   status: "OPEN" | "PENDING" | "CLOSED" | "ARCHIVED";
   automationPaused: boolean;
   messages: OfficialApiChatMessage[];
