@@ -147,16 +147,6 @@ export function PlaybookScriptsWorkspace({ scripts }: { scripts: PlaybookScriptI
 
   return (
     <div className="space-y-6 p-4 sm:p-6">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold">Guiones de venta</h1>
-          <p className="text-sm text-muted-foreground">
-            Lo que hay acá es lo que ven las asesoras dentro del chat, según la etapa del cliente. Un
-            toque y el texto queda listo en el mensaje para ajustarlo antes de enviar.
-          </p>
-        </div>
-      </div>
-
       {/* Guiones por etapa */}
       <div className="space-y-3">
         <div className="flex items-center gap-2">

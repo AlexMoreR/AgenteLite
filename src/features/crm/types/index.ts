@@ -18,7 +18,12 @@ export type CrmRecord = {
   number: string;
   name: string;
   avatarUrl: string | null;
+  // Fecha que se MUESTRA en la ficha: ultima actividad (o la venta, si ya se gano).
   date: string;
+  // Fecha en que el lead ENTRO. Es distinta de `date` y hace falta para no contar dos veces:
+  // el informe filtraba por actividad, asi que un lead viejo al que alguien le tocaba la ficha
+  // volvia a contar como si hubiera entrado ese dia (medido: hasta +48% en un dia).
+  enteredAt: string;
   origin: CrmOrigin;
   tags: CrmTag[];
   detail: string;

@@ -219,6 +219,7 @@ export async function getCrmData({ workspaceId, workspaceName }: GetCrmDataInput
     // En GANADO la fecha mostrada es la de la VENTA (wonAt), no la última actividad. En el resto
     // de etapas sigue siendo la última actividad (cuándo se movió/habló por última vez).
     date: (contact.crmStage === "GANADO" && contact.wonAt ? contact.wonAt : getContactLastActivity(contact)).toISOString(),
+    enteredAt: contact.createdAt.toISOString(),
     tags: getContactTags(contact.ContactTag.map((item) => item.Tag)),
     detail: resolveContactDetail({
       aiSummary: contact.aiSummary,
@@ -271,6 +272,7 @@ export async function getCrmKanbanData({ workspaceId, workspaceName }: GetCrmDat
       crmStage: true,
       lostReason: true,
       wonAt: true,
+      createdAt: true,
       updatedAt: true,
       ContactTag: {
         select: {
@@ -304,6 +306,7 @@ export async function getCrmKanbanData({ workspaceId, workspaceName }: GetCrmDat
     // En GANADO la fecha mostrada es la de la VENTA (wonAt), no la última actividad. En el resto
     // de etapas sigue siendo la última actividad (cuándo se movió/habló por última vez).
     date: (contact.crmStage === "GANADO" && contact.wonAt ? contact.wonAt : getContactLastActivity(contact)).toISOString(),
+    enteredAt: contact.createdAt.toISOString(),
     tags: getContactTags(contact.ContactTag.map((item) => item.Tag)),
     detail: resolveContactDetail({
       aiSummary: contact.aiSummary,

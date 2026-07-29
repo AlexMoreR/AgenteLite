@@ -64,14 +64,15 @@ export function CrmInformeView({ data }: { data: CrmData }) {
   const filteredData = React.useMemo<CrmData>(() => {
     const maxAgeDays = dateRange === "__all__" ? null : Number(dateRange);
     const now = new Date(data.generatedAt).getTime();
+    const dentroDelRango = (iso: string) =>
+      maxAgeDays === null || (now - new Date(iso).getTime()) / (1000 * 60 * 60 * 24) <= maxAgeDays;
 
+    // El rango filtra por fecha de ENTRADA, no por ultima actividad. Antes filtraba por
+    // actividad y eso contaba el MISMO lead una vez por cada dia que alguien le tocaba la
+    // ficha: "1 Dia" mostraba hasta 48% mas leads de los que realmente habian entrado, y la
+    // conversion (ventas / leads) salia mas baja de lo que era.
     const records =
-      maxAgeDays === null
-        ? data.records
-        : data.records.filter((record) => {
-            const ageDays = (now - new Date(record.date).getTime()) / (1000 * 60 * 60 * 24);
-            return ageDays <= maxAgeDays;
-          });
+      maxAgeDays === null ? data.records : data.records.filter((record) => dentroDelRango(record.enteredAt));
 
     const countByStage = (status: CrmRecord["status"]) =>
       records.filter((record) => record.status === status).length;
@@ -98,6 +99,21 @@ export function CrmInformeView({ data }: { data: CrmData }) {
     };
   }, [data, dateRange]);
 
+  // Leads TRABAJADOS: los que tuvieron movimiento en el rango, sin importar cuando entraron.
+  // Es el numero que antes se mezclaba con el de arriba; ahora va aparte y con nombre propio,
+  // porque responde otra pregunta: no "cuantos llegaron" sino "a cuantos les pusimos la mano".
+  // Se calcula sobre TODOS los leads a proposito: casi siempre son de dias anteriores.
+  const trabajados = React.useMemo(() => {
+    const maxAgeDays = dateRange === "__all__" ? null : Number(dateRange);
+    if (maxAgeDays === null) {
+      return null;
+    }
+    const now = new Date(data.generatedAt).getTime();
+    return data.records.filter(
+      (record) => (now - new Date(record.date).getTime()) / (1000 * 60 * 60 * 24) <= maxAgeDays,
+    ).length;
+  }, [data, dateRange]);
+
   return (
     <div className="space-y-3">
       <CrmReportStatsCards data={filteredData} />
@@ -121,6 +137,15 @@ export function CrmInformeView({ data }: { data: CrmData }) {
             </SelectContent>
           </Select>
         </div>
+        {trabajados !== null ? (
+          <div className="border-t border-border px-3 py-2.5 text-[13px] leading-5 text-muted-foreground">
+            <span className="font-semibold text-foreground">{filteredData.records.length}</span>{" "}
+            {filteredData.records.length === 1 ? "lead entró" : "leads entraron"} en este rango.
+            {" "}Aparte, se le escribió o se movió la ficha de{" "}
+            <span className="font-semibold text-foreground">{trabajados}</span>{" "}
+            {trabajados === 1 ? "lead" : "leads"}, contando los que ya venían de antes.
+          </div>
+        ) : null}
       </div>
 
       <div className="grid gap-3 xl:grid-cols-2">
