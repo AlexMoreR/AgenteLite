@@ -189,6 +189,10 @@ async function loadOfficialApiChatsData(input: {
     contactName: string | null;
     contactPhoneNumber: string | null;
     contactWaId: string;
+    // Ficha del MISMO cliente en el CRM. Sin esto la cabecera del chat no tenia a quien
+    // cambiarle la etapa y mostraba "Nuevo" fijo, sin poder tocarlo.
+    crmContactId: string | null;
+    crmStage: string | null;
     messageId: string | null;
     messageContent: string | null;
     messageDirection: "INBOUND" | "OUTBOUND" | null;
@@ -212,6 +216,8 @@ async function loadOfficialApiChatsData(input: {
         ct."name" AS "contactName",
         ct."phoneNumber" AS "contactPhoneNumber",
         ct."waId" AS "contactWaId",
+        ct."crmContactId" AS "crmContactId",
+        crm."crmStage"::text AS "crmStage",
         m."id" AS "messageId",
         m."content" AS "messageContent",
         m."direction"::text AS "messageDirection",
@@ -223,6 +229,9 @@ async function loadOfficialApiChatsData(input: {
       FROM "OfficialApiConversation" c
       INNER JOIN "OfficialApiContact" ct
         ON ct."id" = c."contactId"
+      -- La ficha del CRM puede no existir todavia (chats anteriores al puente), por eso LEFT.
+      LEFT JOIN "Contact" crm
+        ON crm."id" = ct."crmContactId"
       LEFT JOIN LATERAL (
         SELECT
           msg."id",
@@ -312,6 +321,8 @@ async function loadOfficialApiChatsData(input: {
         name: firstRow.contactName,
         phoneNumber: firstRow.contactPhoneNumber,
         waId: firstRow.contactWaId,
+        crmContactId: firstRow.crmContactId,
+        crmStage: firstRow.crmStage,
       },
       status: firstRow.conversationStatus,
       automationPaused: Boolean(firstRow.conversationAutomationPaused),

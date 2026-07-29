@@ -63,6 +63,10 @@ export type OfficialApiChatConversationDetail = {
     name: string | null;
     phoneNumber: string | null;
     waId: string;
+    // Ficha del MISMO cliente en el CRM, para poder cambiarle la etapa desde el chat.
+    // Va null en los chats que entraron antes de que existiera el puente.
+    crmContactId: string | null;
+    crmStage: string | null;
   };
   status: "OPEN" | "PENDING" | "CLOSED" | "ARCHIVED";
   automationPaused: boolean;

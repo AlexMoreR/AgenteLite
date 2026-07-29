@@ -1093,8 +1093,11 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           ) : selectedUnified?.source === "official" && selectedConversation ? (
             <ChatHeaderActions
               key={`header-actions:${selectedConversation.id}:${officialChatsData.selectedConversation?.status ?? "OPEN"}`}
-              contactId={null}
-              stage={"NUEVO" as CrmStage}
+              // La ficha del CRM del mismo cliente (la enlaza el puente al entrar el mensaje).
+              // Sin ella la cabecera mostraba "Nuevo" fijo y sin poder cambiarlo: un lead que
+              // escribia al numero nuevo se quedaba sin etapa.
+              contactId={officialChatsData.selectedConversation?.contact.crmContactId ?? null}
+              stage={(officialChatsData.selectedConversation?.contact.crmStage ?? "NUEVO") as CrmStage}
               conversationId={selectedConversation.id}
               automationPaused={Boolean(selectedConversation.automationPaused)}
               status={officialChatsData.selectedConversation?.status ?? "OPEN"}
