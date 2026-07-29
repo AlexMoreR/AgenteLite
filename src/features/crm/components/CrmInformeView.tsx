@@ -13,10 +13,10 @@ import { CrmFugaPanel } from "./CrmFugaPanel";
 type DateRange = "1" | "7" | "15" | "30" | "__all__";
 
 const DATE_RANGE_LABELS: Record<DateRange, string> = {
-  "1": "1 Dia",
-  "7": "7 Dias",
-  "15": "15 Dias",
-  "30": "30 Dias",
+  "1": "Hoy",
+  "7": "Últimos 7 días",
+  "15": "Últimos 15 días",
+  "30": "Últimos 30 días",
   __all__: "Todos",
 };
 
@@ -29,6 +29,22 @@ function getBogotaDay(iso: string) {
     month: "2-digit",
     day: "2-digit",
   }).format(new Date(iso));
+}
+
+/**
+ * Desde qué momento cuenta un rango, en DÍAS DE CALENDARIO de Bogotá.
+ *
+ * Antes el rango eran "últimas N × 24 horas": a las 9 de la mañana, "1 Día" mostraba casi
+ * todo el día de ayer (28 leads) en vez de lo de hoy (1). El dueño abre el informe para ver
+ * cómo viene EL DÍA, no una ventana móvil que arrastra la noche anterior.
+ *
+ * `dias = 1` → desde la medianoche de hoy. `dias = 7` → desde la medianoche de hace 6 días,
+ * o sea hoy incluido. Colombia no tiene horario de verano: el desfase es siempre -05:00.
+ */
+function getInicioDelRango(dias: number, referenciaIso: string) {
+  const hoy = getBogotaDay(referenciaIso);
+  const medianocheDeHoy = new Date(`${hoy}T00:00:00-05:00`).getTime();
+  return medianocheDeHoy - (dias - 1) * 24 * 60 * 60 * 1000;
 }
 
 function CrmTodayCard({ data }: { data: CrmData }) {
@@ -64,9 +80,8 @@ export function CrmInformeView({ data }: { data: CrmData }) {
 
   const filteredData = React.useMemo<CrmData>(() => {
     const maxAgeDays = dateRange === "__all__" ? null : Number(dateRange);
-    const now = new Date(data.generatedAt).getTime();
-    const dentroDelRango = (iso: string) =>
-      maxAgeDays === null || (now - new Date(iso).getTime()) / (1000 * 60 * 60 * 24) <= maxAgeDays;
+    const desde = maxAgeDays === null ? null : getInicioDelRango(maxAgeDays, data.generatedAt);
+    const dentroDelRango = (iso: string) => desde === null || new Date(iso).getTime() >= desde;
 
     // El rango filtra por fecha de ENTRADA, no por ultima actividad. Antes filtraba por
     // actividad y eso contaba el MISMO lead una vez por cada dia que alguien le tocaba la
@@ -109,10 +124,8 @@ export function CrmInformeView({ data }: { data: CrmData }) {
     if (maxAgeDays === null) {
       return null;
     }
-    const now = new Date(data.generatedAt).getTime();
-    return data.records.filter(
-      (record) => (now - new Date(record.date).getTime()) / (1000 * 60 * 60 * 24) <= maxAgeDays,
-    ).length;
+    const desde = getInicioDelRango(maxAgeDays, data.generatedAt);
+    return data.records.filter((record) => new Date(record.date).getTime() >= desde).length;
   }, [data, dateRange]);
 
   return (
@@ -144,7 +157,7 @@ export function CrmInformeView({ data }: { data: CrmData }) {
                 "Descartados 1" se leia como "hoy descartamos 1" y no como "de los que entraron
                 hoy, 1 ya se descartó". */}
             <p>
-              Entraron{" "}
+              {dateRange === "1" ? "Hoy entró" : "Entraron"}{" "}
               <span className="font-semibold text-foreground">{filteredData.records.length}</span>{" "}
               {filteredData.records.length === 1 ? "lead nuevo" : "leads nuevos"}. Las cifras de
               arriba son de ellos: cuántos siguen activos, cuántos ya compraron y cuántos se
