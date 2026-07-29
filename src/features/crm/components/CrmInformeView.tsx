@@ -117,7 +117,7 @@ export function CrmInformeView({ data }: { data: CrmData }) {
 
   return (
     <div className="space-y-3">
-      <CrmReportStatsCards data={filteredData} />
+      <CrmReportStatsCards data={filteredData} isRanged={dateRange !== "__all__"} />
 
       <div className="w-full overflow-hidden rounded-lg border border-border bg-card">
         <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
@@ -139,12 +139,22 @@ export function CrmInformeView({ data }: { data: CrmData }) {
           </Select>
         </div>
         {trabajados !== null ? (
-          <div className="border-t border-border px-3 py-2.5 text-[13px] leading-5 text-muted-foreground">
-            <span className="font-semibold text-foreground">{filteredData.records.length}</span>{" "}
-            {filteredData.records.length === 1 ? "lead entró" : "leads entraron"} en este rango.
-            {" "}Aparte, se le escribió o se movió la ficha de{" "}
-            <span className="font-semibold text-foreground">{trabajados}</span>{" "}
-            {trabajados === 1 ? "lead" : "leads"}, contando los que ya venían de antes.
+          <div className="space-y-1.5 border-t border-border px-3 py-2.5 text-[13px] leading-5 text-muted-foreground">
+            {/* Las tarjetas de arriba miran SOLO a los leads que entraron en el rango. Sin decirlo,
+                "Descartados 1" se leia como "hoy descartamos 1" y no como "de los que entraron
+                hoy, 1 ya se descartó". */}
+            <p>
+              Entraron{" "}
+              <span className="font-semibold text-foreground">{filteredData.records.length}</span>{" "}
+              {filteredData.records.length === 1 ? "lead nuevo" : "leads nuevos"}. Las cifras de
+              arriba son de ellos: cuántos siguen activos, cuántos ya compraron y cuántos se
+              descartaron.
+            </p>
+            <p>
+              Aparte, se le escribió o se movió la ficha a{" "}
+              <span className="font-semibold text-foreground">{trabajados}</span>{" "}
+              {trabajados === 1 ? "lead" : "leads"}, contando los que ya venían de antes.
+            </p>
           </div>
         ) : null}
       </div>

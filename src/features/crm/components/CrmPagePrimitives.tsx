@@ -80,13 +80,19 @@ export function CrmStatsCards({ data }: { data: CrmData }) {
   );
 }
 
-export function CrmReportStatsCards({ data }: { data: CrmData }) {
+export function CrmReportStatsCards({ data, isRanged }: { data: CrmData; isRanged?: boolean }) {
   const { activeRecords, wonRecords, lostRecords } = getCrmSummaryStats(data);
 
   return (
     <div className="w-full overflow-hidden rounded-lg border border-border bg-card">
       <div className="flex flex-col divide-y divide-border sm:flex-row sm:items-center sm:divide-x sm:divide-y-0">
-        <MetricInline label="Total" value={String(data.stats.total)} icon={<Users2 className="h-3.5 w-3.5 text-blue-600" />} />
+        {/* Con un rango elegido esto ya NO es "todos los leads" sino los que entraron en ese
+            rango. Decia "Total" y no se entendia que estaba contando. */}
+        <MetricInline
+          label={isRanged ? "Leads nuevos" : "Total de leads"}
+          value={String(data.stats.total)}
+          icon={<Users2 className="h-3.5 w-3.5 text-blue-600" />}
+        />
         <MetricInline
           label="Activos"
           value={`${activeRecords} (${formatCrmPercent(activeRecords, data.stats.total)})`}
