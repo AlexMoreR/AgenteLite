@@ -8,6 +8,7 @@ import type { CrmData, CrmRecord } from "../types";
 import { CrmReportCards, CrmReportStatsCards } from "./CrmPagePrimitives";
 import { CrmTodayChart } from "./CrmReportCharts";
 import { CrmConversionFunnel, CrmLostReasons } from "./CrmOwnerCharts";
+import { CrmFugaPanel } from "./CrmFugaPanel";
 
 type DateRange = "1" | "7" | "15" | "30" | "__all__";
 
@@ -147,6 +148,10 @@ export function CrmInformeView({ data }: { data: CrmData }) {
           </div>
         ) : null}
       </div>
+
+      {/* Sobre TODOS los leads vivos, no sobre el rango: un lead que entro hace 20 dias y
+          esta parado es exactamente el que hay que ver, y el rango lo escondia. */}
+      <CrmFugaPanel records={data.records} generatedAt={data.generatedAt} />
 
       <div className="grid gap-3 xl:grid-cols-2">
         <CrmConversionFunnel records={filteredData.records} />
