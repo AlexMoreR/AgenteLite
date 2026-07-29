@@ -258,6 +258,25 @@ async function loadOfficialApiChatsData(input: {
       return null;
     }
 
+    // Marcar como leidos los entrantes al ABRIR el chat, igual que hace /live en el canal
+    // viejo. Sin esto el globo verde se quedaba pegado: la asesora entraba, leia, y el chat
+    // seguia figurando con mensajes sin ver hasta que respondia.
+    // Diferido con after() para no demorar la apertura; si falla, se reintenta al reabrir.
+    after(async () => {
+      try {
+        await prisma.$executeRaw`
+          UPDATE "OfficialApiMessage"
+          SET "readAt" = CURRENT_TIMESTAMP
+          WHERE "conversationId" = ${conversationId}
+            AND "configId" = ${activeConfig.id}
+            AND "direction" = 'INBOUND'
+            AND "readAt" IS NULL
+        `;
+      } catch (error) {
+        console.error("[OFFICIAL_API] mark_read_failed", { conversationId, error });
+      }
+    });
+
     // AUTO-RECUPERACIÓN de archivos viejos. Los mensajes que entraron antes de que existiera la
     // descarga quedaron sin archivo (una burbuja "Foto" cargando para siempre), pero el
     // identificador de Meta quedó guardado y Meta conserva el archivo ~30 días. Al abrir el chat
@@ -397,6 +416,9 @@ async function loadOfficialApiChatsData(input: {
           FROM "OfficialApiMessage" mi
           WHERE mi."conversationId" = c."id"
             AND mi."direction" = 'INBOUND'
+            -- Sin esto el globo verde solo se iba al RESPONDER: entrar al chat no lo bajaba,
+            -- porque el conteo miraba unicamente si habia un mensaje tuyo mas nuevo.
+            AND mi."readAt" IS NULL
             AND mi."createdAt" > COALESCE(lo."lastOutboundAt", TIMESTAMP '1970-01-01')
         ) incoming ON true
         LEFT JOIN LATERAL (
@@ -480,6 +502,8 @@ async function loadOfficialApiChatsData(input: {
           INNER JOIN filtered_conversations fc ON fc."id" = m."conversationId"
           LEFT JOIN outbound_times ot ON ot."conversationId" = m."conversationId"
           WHERE m."direction" = 'INBOUND'
+            -- Mismo criterio que la consulta sin busqueda: leido = no cuenta.
+            AND m."readAt" IS NULL
             AND m."createdAt" > COALESCE(ot."lastOutboundAt", TIMESTAMP '1970-01-01')
           GROUP BY m."conversationId"
         )
