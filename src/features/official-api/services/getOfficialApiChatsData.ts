@@ -22,6 +22,9 @@ type OfficialMessageType =
   | "LOCATION"
   | "CONTACTS";
 
+// Mismo juego de valores que usa la bandeja para el canal viejo.
+export type OfficialChatsStatusFilter = "all" | "open" | "resolved";
+
 type OfficialChatsCacheEntry = {
   expiresAt: number;
   value: OfficialApiChatsData;
@@ -93,6 +96,7 @@ function buildOfficialChatsCacheKey(input: {
   conversationId?: string;
   q?: string;
   includeSelectedConversation?: boolean;
+  statusFilter?: OfficialChatsStatusFilter;
 }) {
   return JSON.stringify({
     workspaceId: input.workspaceId,
@@ -100,6 +104,7 @@ function buildOfficialChatsCacheKey(input: {
     conversationId: input.conversationId?.trim() || "",
     q: normalizeSearch(input.q),
     includeSelectedConversation: input.includeSelectedConversation ?? true,
+    statusFilter: input.statusFilter ?? "open",
   });
 }
 
@@ -118,6 +123,7 @@ export async function getOfficialApiChatsData(input: {
   conversationId?: string;
   q?: string;
   includeSelectedConversation?: boolean;
+  statusFilter?: OfficialChatsStatusFilter;
 }): Promise<OfficialApiChatsData> {
   try {
     return await loadOfficialApiChatsData(input);
@@ -139,6 +145,7 @@ async function loadOfficialApiChatsData(input: {
   conversationId?: string;
   q?: string;
   includeSelectedConversation?: boolean;
+  statusFilter?: OfficialChatsStatusFilter;
 }): Promise<OfficialApiChatsData> {
   const INITIAL_MESSAGE_LIMIT = 20;
   const config = await getOfficialApiConfigByWorkspaceId(input.workspaceId);
@@ -161,6 +168,7 @@ async function loadOfficialApiChatsData(input: {
     conversationId: input.conversationId,
     q: input.q,
     includeSelectedConversation: input.includeSelectedConversation,
+    statusFilter: input.statusFilter,
   });
   const cachedEntry = officialChatsCache.get(cacheKey);
   if (cachedEntry && cachedEntry.expiresAt > Date.now()) {
@@ -180,6 +188,16 @@ async function loadOfficialApiChatsData(input: {
       )
     `
     : Prisma.empty;
+
+  // Mismo criterio que el canal viejo: por defecto la bandeja muestra SOLO las abiertas.
+  // Sin esto, darle "Resolver" a un chat oficial no lo sacaba de la lista: se resolvia de
+  // verdad (la cabecera pasaba a "Reabrir") pero seguia ahi, asi que la bandeja nunca bajaba.
+  const officialStatusFilter =
+    input.statusFilter === "resolved"
+      ? Prisma.sql`AND c."status"::text IN ('CLOSED', 'ARCHIVED')`
+      : input.statusFilter === "all"
+        ? Prisma.empty
+        : Prisma.sql`AND c."status"::text IN ('OPEN', 'PENDING')`;
 
   type OfficialConversationDetailRow = {
     conversationId: string;
@@ -377,6 +395,7 @@ async function loadOfficialApiChatsData(input: {
         contactName: string | null;
         contactPhoneNumber: string | null;
         contactWaId: string;
+        crmStage: string | null;
         incomingCount: number;
         lastMessageId: string | null;
         lastMessageContent: string | null;
@@ -393,6 +412,7 @@ async function loadOfficialApiChatsData(input: {
           ct."name" AS "contactName",
           ct."phoneNumber" AS "contactPhoneNumber",
           ct."waId" AS "contactWaId",
+          crm."crmStage"::text AS "crmStage",
           COALESCE(incoming."incomingCount", 0)::int AS "incomingCount",
           lm."id" AS "lastMessageId",
           lm."content" AS "lastMessageContent",
@@ -405,6 +425,9 @@ async function loadOfficialApiChatsData(input: {
         FROM "OfficialApiConversation" c
         INNER JOIN "OfficialApiContact" ct
           ON ct."id" = c."contactId"
+        -- Etapa del embudo para pintar la chapita (Nuevo / Frio / Tibio...) en la lista.
+        LEFT JOIN "Contact" crm
+          ON crm."id" = ct."crmContactId"
         LEFT JOIN LATERAL (
           SELECT MAX(mo."createdAt") AS "lastOutboundAt"
           FROM "OfficialApiMessage" mo
@@ -439,6 +462,7 @@ async function loadOfficialApiChatsData(input: {
           LIMIT 1
         ) lm ON true
         WHERE c."configId" = ${activeConfig.id}
+          ${officialStatusFilter}
           ${officialSearchFilter}
         ORDER BY c."lastMessageAt" DESC NULLS LAST, c."updatedAt" DESC
         LIMIT ${conversationListLimit}
@@ -449,6 +473,7 @@ async function loadOfficialApiChatsData(input: {
         contactName: string | null;
         contactPhoneNumber: string | null;
         contactWaId: string;
+        crmStage: string | null;
         incomingCount: number;
         lastMessageId: string | null;
         lastMessageContent: string | null;
@@ -467,6 +492,7 @@ async function loadOfficialApiChatsData(input: {
             c."updatedAt"
           FROM "OfficialApiConversation" c
           WHERE c."configId" = ${activeConfig.id}
+            ${officialStatusFilter}
           ORDER BY c."lastMessageAt" DESC NULLS LAST, c."updatedAt" DESC
           LIMIT ${conversationListLimit}
         ),
@@ -513,6 +539,7 @@ async function loadOfficialApiChatsData(input: {
           ct."name" AS "contactName",
           ct."phoneNumber" AS "contactPhoneNumber",
           ct."waId" AS "contactWaId",
+          crm."crmStage"::text AS "crmStage",
           COALESCE(ic."incomingCount", 0)::int AS "incomingCount",
           lm."id" AS "lastMessageId",
           lm."content" AS "lastMessageContent",
@@ -525,6 +552,9 @@ async function loadOfficialApiChatsData(input: {
         FROM filtered_conversations fc
         INNER JOIN "OfficialApiContact" ct
           ON ct."id" = fc."contactId"
+        -- Etapa del embudo para pintar la chapita (Nuevo / Frio / Tibio...) en la lista.
+        LEFT JOIN "Contact" crm
+          ON crm."id" = ct."crmContactId"
         LEFT JOIN incoming_counts ic
           ON ic."conversationId" = fc."id"
         LEFT JOIN last_messages lm
@@ -539,6 +569,7 @@ async function loadOfficialApiChatsData(input: {
       name: row.contactName,
       phoneNumber: row.contactPhoneNumber,
       waId: row.contactWaId,
+      crmStage: row.crmStage,
     },
     incomingCount: row.incomingCount,
     lastMessage: row.lastMessageId && row.lastMessageDirection && row.lastMessageCreatedAt && row.lastMessageStatus

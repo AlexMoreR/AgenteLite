@@ -33,6 +33,8 @@ export type OfficialApiChatConversationSummary = {
     name: string | null;
     phoneNumber: string | null;
     waId: string;
+    // Etapa del embudo, para la chapita de la lista. Null en los chats sin ficha del CRM.
+    crmStage: string | null;
   };
   incomingCount: number;
   lastMessage: {

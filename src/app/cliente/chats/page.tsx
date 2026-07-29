@@ -371,6 +371,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       conversationId: selectedChatRef?.source === "official" ? selectedChatRef.conversationId : undefined,
       q: searchQuery || undefined,
       includeSelectedConversation: true,
+      // Respeta el filtro de la bandeja: resolver un chat oficial ahora lo saca de la lista.
+      statusFilter,
     }),
   ]);
 
@@ -680,6 +682,9 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     contactId: conversation.contact.id,
     tags: [],
     avatarUrl: null,
+    // Chapita de etapa igual que en el canal viejo: sin esto la asesora no sabia si el chat
+    // estaba Nuevo, Frio o Tibio sin abrirlo.
+    crmStage: conversation.contact.crmStage ?? null,
     incomingCount: selectedChatRef?.source === "official" && selectedChatRef.conversationId === conversation.id
       ? 0
       : conversation.incomingCount ?? 0,
