@@ -1962,10 +1962,17 @@ export async function deleteEvolutionInstance(instanceName: string) {
 
   const instance = await resolveEvolutionInstance(instanceName);
   const connection = instance?.connection ?? null;
+
+  // Los dos gateways borran distinto, y comprobado contra evogo real:
+  //   DELETE /instance/{id}          -> 404 (esa ruta no existe)
+  //   DELETE /instance/delete/{nombre} -> 500 "invalid UUID format"
+  //   DELETE /instance/delete/{id}   -> 200 {"message":"success"}
+  // Antes se intentaban justo las dos que fallan, y como el borrado es best-effort el error
+  // se tragaba en silencio: cada "Crear cuenta nueva" dejaba la instancia vieja viva en el
+  // gateway. Evolution API (Baileys) si usa el nombre, asi que queda de respaldo.
   if (instance?.id) {
-    await evolutionRequest(`/instance/${instance.id}`, {
+    await evolutionRequest(`/instance/delete/${instance.id}`, {
       method: "DELETE",
-      headers: buildInstanceHeaders(instance),
     }, { connection }).catch(async () => {
       await evolutionRequest(`/instance/delete/${instanceName}`, {
         method: "DELETE",
