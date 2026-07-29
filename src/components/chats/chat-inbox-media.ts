@@ -149,11 +149,52 @@ export function getDocumentIcon(typeLabel: string) {
   return { Icon: FileIcon, color: "#64748b" };
 }
 
-// Extrae nombre / tipo / tamaño del documento desde el mensaje, soportando tanto el envío
-// manual (lo que guarda sendChatMediaReplyAction: fileName/mimeType/fileSize) como el
-// payload de Evolution (entrante: documentMessage.{fileName, mimetype, fileLength}).
+/**
+ * Busca el bloque `document` de la API OFICIAL de Meta dentro del mensaje guardado.
+ *
+ * Meta usa OTROS nombres que el canal viejo: `filename` en minúscula (no `fileName`) y
+ * `mime_type` con guión bajo (no `mimetype`). Y cuelga muy adentro, en rutas distintas según
+ * el mensaje sea entrante, saliente, o un eco de lo que la asesora mandó desde su celular
+ * (`entry[].changes[].value.message_echoes[].document`).
+ *
+ * Por eso se BUSCA el bloque en vez de leerlo por una ruta fija: es la misma lección de los
+ * payloads de evogo, donde leer por ruta fija hacía que la tarjeta saliera vacía.
+ *
+ * Sin esto, un PDF mandado por el canal oficial se veía como "Documento / ARCHIVO" y el
+ * nombre real quedaba colgando abajo como si fuera un mensaje de texto aparte.
+ */
+function findMetaDocumentBlock(value: unknown, depth = 0): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || depth > 12) {
+    return null;
+  }
+
+  if (!Array.isArray(value)) {
+    const doc = (value as Record<string, unknown>).document;
+    if (isObjectRecord(doc) && typeof doc.filename === "string") {
+      return doc;
+    }
+  }
+
+  for (const nested of Object.values(value as Record<string, unknown>)) {
+    const found = findMetaDocumentBlock(nested, depth + 1);
+    if (found) {
+      return found;
+    }
+  }
+
+  return null;
+}
+
+// Extrae nombre / tipo / tamaño del documento desde el mensaje, soportando el envío
+// manual (lo que guarda sendChatMediaReplyAction: fileName/mimeType/fileSize), el
+// payload de Evolution (entrante: documentMessage.{fileName, mimetype, fileLength}) y el
+// de la API oficial de Meta (document.{filename, mime_type}).
 export function getDocumentMetaFromMessage(message: SharedInboxMessageItem) {
   const raw = message.rawPayload;
+
+  const metaDoc = findMetaDocumentBlock(raw);
+  const metaName = getNestedString(metaDoc, "filename");
+  const metaMime = getNestedString(metaDoc, "mime_type");
 
   const manualName = getNestedString(raw, "fileName");
   const manualMime = getNestedString(raw, "mimeType");
@@ -178,8 +219,9 @@ export function getDocumentMetaFromMessage(message: SharedInboxMessageItem) {
         ? Number(docLengthRaw)
         : null;
 
-  const fileName = (manualName || docName || "Documento").trim() || "Documento";
-  const mimeType = manualMime || docMime || null;
+  const fileName = (manualName || docName || metaName || "Documento").trim() || "Documento";
+  const mimeType = manualMime || docMime || metaMime || null;
+  // Meta no manda el peso del archivo en el aviso, así que ahí la tarjeta muestra solo el tipo.
   const size = manualSize ?? docSize ?? null;
 
   return {
