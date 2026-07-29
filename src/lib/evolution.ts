@@ -375,7 +375,40 @@ async function ensureEvolutionInstanceConnectionSession(instance: EvolutionResol
 type EvolutionRequestOptions = {
   requireWebhookBaseUrl?: boolean;
   connection?: EvolutionConnection | null;
+  // Corta la espera. Sin esto el fetch NO tiene limite: si el gateway acepta la conexion
+  // pero no contesta (tipico cuando WhatsApp acaba de desconectar la sesion y whatsmeow
+  // esta reintentando), la promesa nunca se resuelve y la pantalla se queda girando para
+  // siempre, sin error. Solo lo usan los flujos donde el usuario esta esperando.
+  timeoutMs?: number;
 };
+
+// Mensaje util cuando el gateway no contesta a tiempo: el usuario ve por que fallo en vez
+// de un spinner eterno.
+function isAbortError(error: unknown) {
+  return error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError");
+}
+
+// Cuanto puede tardar, como maximo, el alta completa de una cuenta nueva. Medido contra el
+// gateway real: la secuencia entera (crear + conectar + QR + listar) tarda ~5s.
+const PROVISION_DEADLINE_MS = 45_000;
+
+// Corta la espera y FALLA (a diferencia del withTimeout del detalle, que devuelve un valor
+// por defecto). Aca queremos que el usuario se entere de que no se pudo.
+function withDeadline<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
 
 // Resuelve la URL base + apikey efectivas: la conexión por-canal gana; si no, el global.
 async function resolveEvolutionHttpTarget(connection?: EvolutionConnection | null) {
@@ -395,15 +428,26 @@ async function evolutionRequest<T>(
     throw new Error("La configuracion global de WhatsApp no esta completa");
   }
 
-  const response = await fetch(`${baseUrl}${path}`, {
-    ...init,
-    headers: {
-      apikey: apiToken,
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {}),
-    },
-    cache: "no-store",
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}${path}`, {
+      ...init,
+      headers: {
+        apikey: apiToken,
+        "Content-Type": "application/json",
+        ...(init?.headers ?? {}),
+      },
+      cache: "no-store",
+      ...(options.timeoutMs ? { signal: AbortSignal.timeout(options.timeoutMs) } : {}),
+    });
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw new Error(
+        `WhatsApp no respondio a tiempo (${Math.round((options.timeoutMs ?? 0) / 1000)}s). Volve a intentar en un minuto.`,
+      );
+    }
+    throw error;
+  }
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => "");
@@ -1805,7 +1849,14 @@ export async function recreateEvolutionInstanceForChannel(input: {
   }
 
   const oldInstanceName = channel.evolutionInstanceName;
-  const provisioned = await provisionEvolutionInstance();
+  // Techo duro al alta completa. Antes no habia ninguno: si el gateway se quedaba mudo a
+  // mitad del alta, el boton "Crear cuenta nueva" giraba para siempre y el usuario volvia a
+  // apretarlo, dejando una instancia huerfana por clic. Ahora falla con un mensaje claro.
+  const provisioned = await withDeadline(
+    provisionEvolutionInstance(),
+    PROVISION_DEADLINE_MS,
+    "WhatsApp no respondio a tiempo al crear la cuenta nueva. Esperá un minuto y volvé a intentar.",
+  );
 
   const baseMetadata =
     channel.metadata && typeof channel.metadata === "object" && !Array.isArray(channel.metadata)
@@ -1832,10 +1883,12 @@ export async function recreateEvolutionInstanceForChannel(input: {
     },
   });
 
-  // Borra la instancia vieja en evogo (best-effort) para no dejar huerfanos.
+  // Borra la instancia vieja en evogo (best-effort) para no dejar huerfanos. Con techo: el
+  // canal nuevo ya quedo guardado, asi que si el borrado se cuelga NO puede arrastrar al
+  // usuario; se prefiere dejar una instancia vieja suelta antes que trabar la pantalla.
   if (oldInstanceName && oldInstanceName !== provisioned.instanceName) {
     try {
-      await deleteEvolutionInstance(oldInstanceName);
+      await withDeadline(deleteEvolutionInstance(oldInstanceName), 15_000, "borrado lento");
     } catch {
       // no rompemos si ya no existe o el borrado falla
     }
