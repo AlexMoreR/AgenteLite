@@ -755,11 +755,13 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
       id: string;
       contactId: string;
       contactWaId: string | null;
+      crmContactId: string | null;
     }>>`
       SELECT
         c."id",
         ct."id" AS "contactId",
-        ct."waId" AS "contactWaId"
+        ct."waId" AS "contactWaId",
+        ct."crmContactId" AS "crmContactId"
       FROM "OfficialApiConversation" c
       INNER JOIN "OfficialApiContact" ct
         ON ct."id" = c."contactId"
@@ -786,15 +788,20 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
       return { ok: false, error: result.error };
     }
 
-    // conversation.contactId es un OfficialApiContact.id y ContactTag apunta al
-    // modelo Contact: la sincronizacion de tags falla con FK en el canal oficial.
-    // Nunca debe convertir un envio exitoso en error.
+    // Va la ficha del CRM, NO el id de la tabla oficial: ContactTag apunta a Contact, asi que
+    // con el id oficial la consulta reventaba por clave foranea en CADA respuesta enviada por
+    // este canal. El error se tragaba, pero el efecto era real: las etiquetas de ciclo de vida
+    // ("Lead", etc.) nunca se ponian en los chats del canal oficial.
+    // Puede faltar en chats viejos, anteriores al puente: en ese caso no hay nada que
+    // sincronizar y se saltea en vez de fallar.
     try {
-      await syncLeadLifecycleForContact({
-        workspaceId: membership.workspace.id,
-        contactId: conversation.contactId,
-        hasHistory: true,
-      });
+      if (conversation.crmContactId) {
+        await syncLeadLifecycleForContact({
+          workspaceId: membership.workspace.id,
+          contactId: conversation.crmContactId,
+          hasHistory: true,
+        });
+      }
     } catch (error) {
       console.error("[sendUnifiedChatReplyAction] No se pudo sincronizar tags del contacto oficial", error);
     }

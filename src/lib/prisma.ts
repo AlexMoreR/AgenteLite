@@ -9,9 +9,46 @@ function hasFollowDelegates(client: PrismaClient) {
   return "followRule" in client && "follow" in client;
 }
 
+/**
+ * Pool de conexiones a Postgres.
+ *
+ * La base es REMOTA, así que hay red en el medio y las conexiones inactivas se cortan solas
+ * (cortafuegos, NAT, el propio servidor). Eso aparecía en los logs como
+ * "prisma:error Connection terminated unexpectedly", y la pantalla que estuviera cargando en
+ * ese momento moría con "Application error". Visto en producción el 29-jul-2026.
+ *
+ * Dos cosas faltaban:
+ *
+ *  - `keepAlive`: sin esto, una conexión que estuvo quieta un rato se corta en silencio y el
+ *    pool la entrega igual; el error recién aparece al ejecutar la consulta, ya en medio de
+ *    una pantalla.
+ *
+ *  - El listener de `error`: `pg` avisa por ahí cuando se cae una conexión INACTIVA (no la
+ *    que está ejecutando algo). Si nadie escucha ese evento, Node lo trata como excepción no
+ *    controlada y **se cae el proceso entero** — con él, todas las pantallas que estuvieran
+ *    cargando en ese instante. Escucharlo y anotarlo convierte una caída del servidor en una
+ *    línea de log.
+ */
+function createPool() {
+  const pool = new Pool({
+    connectionString,
+    // Mantiene viva la conexión para que la red no la corte por quieta.
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 10_000,
+    // Si la base no atiende, fallar rápido y claro en vez de dejar la pantalla colgada.
+    connectionTimeoutMillis: 10_000,
+  });
+
+  pool.on("error", (error: unknown) => {
+    console.error("[prisma] se cayó una conexión inactiva (recuperado, no tumba el proceso)", error);
+  });
+
+  return pool;
+}
+
 function createPrismaClient() {
   return new PrismaClient({
-    adapter: new PrismaPg(new Pool({ connectionString })),
+    adapter: new PrismaPg(createPool()),
     log: ["error", "warn"],
   });
 }
