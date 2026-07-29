@@ -754,7 +754,16 @@ export const MessageBubble = memo(function MessageBubble({
               ) : message.outboundStatusLabel === "SENT" ? (
                 <Check className="ml-1 h-3 w-3 shrink-0" aria-label="Enviado" />
               ) : message.outboundStatusLabel === "FAILED" ? (
-                <AlertTriangle className="ml-1 h-3 w-3 shrink-0 text-amber-700" aria-label="No se envió" />
+                // Antes era solo un triangulito, sin texto: la asesora veia que "algo paso" y
+                // tenia que mandar el archivo a mano sin saber por que. Ahora se dice, y el
+                // motivo exacto de WhatsApp queda en el tooltip.
+                <span
+                  className="ml-1 inline-flex items-center gap-1 font-medium text-amber-700"
+                  title={message.errorDetail?.trim() || "WhatsApp rechazó el mensaje."}
+                >
+                  <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden="true" />
+                  No se envió
+                </span>
               ) : message.outboundStatusLabel === "entregado" ? (
                 <CheckCheck className="ml-1 h-3 w-3 shrink-0" aria-hidden="true" />
               ) : message.outboundStatusLabel === "error" ? (

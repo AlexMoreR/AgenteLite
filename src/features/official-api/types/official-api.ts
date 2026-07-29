@@ -58,6 +58,8 @@ export type OfficialApiChatMessage = {
   type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT" | "TEMPLATE" | "INTERACTIVE" | "SYSTEM" | "LOCATION" | "CONTACTS";
   mediaUrl: string | null;
   rawPayload: unknown;
+  // Por que WhatsApp rechazo este envio (solo en los FAILED).
+  errorDetail?: string | null;
 };
 
 export type OfficialApiChatConversationDetail = {

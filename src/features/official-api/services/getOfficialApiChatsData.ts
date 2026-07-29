@@ -222,6 +222,8 @@ async function loadOfficialApiChatsData(input: {
     messageType: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT" | "TEMPLATE" | "INTERACTIVE" | "SYSTEM" | null;
     messageMediaUrl: string | null;
     messageRawPayload: unknown;
+    // Motivo por el que WhatsApp rechazo el envio, para no dejar un triangulito mudo.
+    messageErrorDetail: string | null;
   };
 
   async function fetchConversationDetail(conversationId: string) {
@@ -243,7 +245,8 @@ async function loadOfficialApiChatsData(input: {
         m."status"::text AS "messageStatus",
         m."type"::text AS "messageType",
         m."mediaUrl" AS "messageMediaUrl",
-        m."rawPayload" AS "messageRawPayload"
+        m."rawPayload" AS "messageRawPayload",
+        m."errorDetail" AS "messageErrorDetail"
       FROM "OfficialApiConversation" c
       INNER JOIN "OfficialApiContact" ct
         ON ct."id" = c."contactId"
@@ -261,7 +264,8 @@ async function loadOfficialApiChatsData(input: {
           -- y la consulta entera falla (pantalla de error al abrir el canal).
           msg."type",
           msg."mediaUrl",
-          msg."rawPayload"
+          msg."rawPayload",
+          msg."errorDetail"
         FROM "OfficialApiMessage" msg
         WHERE msg."conversationId" = c."id"
         ORDER BY msg."createdAt" DESC
@@ -379,6 +383,7 @@ async function loadOfficialApiChatsData(input: {
           }),
           mediaUrl: row.messageMediaUrl,
           rawPayload: row.messageRawPayload,
+          errorDetail: row.messageErrorDetail,
         })),
     };
   }

@@ -69,6 +69,14 @@ type MetaWebhookPayload = {
           id?: string;
           status?: string;
           timestamp?: string;
+          // Cuando un envio falla, Meta dice POR QUE aca. No se leia, asi que en el chat
+          // quedaba un triangulito mudo y no habia forma de saber que paso.
+          errors?: Array<{
+            code?: number;
+            title?: string;
+            message?: string;
+            error_data?: { details?: string };
+          }>;
         }>;
         messages?: Array<{
           id?: string;
@@ -841,10 +849,26 @@ async function syncMessageStatuses(configId: string, payload: MetaWebhookPayload
     const nextStatus = mapMessageStatus(statusItem.status);
     const statusDate = parseMetaTimestamp(statusItem.timestamp);
 
+    // Motivo del fallo, en castellano y corto, para mostrarselo a la asesora en el chat.
+    // Meta manda algo como { code: 131053, title: "Media upload error", error_data: {...} }.
+    const failureReason =
+      nextStatus === "FAILED"
+        ? (() => {
+            const first = statusItem.errors?.[0];
+            if (!first) {
+              return "WhatsApp rechazo el mensaje y no dijo por que.";
+            }
+            const detail = first.error_data?.details?.trim() || first.message?.trim() || first.title?.trim() || "";
+            const code = first.code ? `[${first.code}] ` : "";
+            return `${code}${detail || "WhatsApp rechazo el mensaje."}`.slice(0, 500);
+          })()
+        : null;
+
     await prisma.$executeRaw`
       UPDATE "OfficialApiMessage"
       SET
         "status" = ${nextStatus}::"OfficialApiMessageStatus",
+        "errorDetail" = CASE WHEN ${nextStatus} = 'FAILED' THEN ${failureReason} ELSE "errorDetail" END,
         "sentAt" = CASE WHEN ${nextStatus} = 'SENT' THEN ${statusDate} ELSE "sentAt" END,
         "deliveredAt" = CASE WHEN ${nextStatus} = 'DELIVERED' THEN ${statusDate} ELSE "deliveredAt" END,
         "readAt" = CASE WHEN ${nextStatus} = 'READ' THEN ${statusDate} ELSE "readAt" END,

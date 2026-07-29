@@ -944,6 +944,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       type: message.type,
       mediaUrl: message.mediaUrl,
       rawPayload: message.rawPayload,
+      errorDetail: message.errorDetail ?? null,
     })) ?? [];
 
     const previewText = selectedUnified.lastMessage?.trim() || getConversationPreviewLabel(selectedUnified.lastMessageType);

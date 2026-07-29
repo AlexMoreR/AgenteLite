@@ -44,6 +44,8 @@ export type SharedInboxMessageItem = {
   deletedAt?: Date | null;
   authorType?: "user" | "bot";
   outboundStatusLabel?: string | null;
+  // Motivo del rechazo cuando el envio fallo: la burbuja lo muestra en vez de un icono mudo.
+  errorDetail?: string | null;
   type?: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "CONTACTS" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE";
   mediaUrl?: string | null;
   // Reaccion del cliente sobre este mensaje (👍 ❤️ …). Se dibuja pegada a la burbuja, abajo a la
