@@ -259,8 +259,16 @@ export function WhatsAppBusinessConnectionWorkspace({
     </div>
   );
 
+  // Las credenciales de Meta (Phone Number ID, WABA, token, verify token) son de PUESTA EN
+  // MARCHA: se cargan una vez y no se vuelven a tocar. Dejarlas a la vista en un canal que ya
+  // quedo andando solo servia para que alguien las editara sin querer y tumbara el canal, y
+  // exponia el token a cualquier colaborador que abriera la pestaña. Se muestran solo mientras
+  // falte configurar; una vez cargadas, la pestaña Ajustes queda limpia.
+  const officialApiNeedsSetup =
+    !officialApiConfig?.phoneNumberId?.trim() || !officialApiConfig?.accessToken?.trim();
+
   const settingsTabContent =
-    connection.provider === "OFFICIAL_API" ? (
+    connection.provider === "OFFICIAL_API" && officialApiNeedsSetup ? (
       <OfficialApiConnectionSetupCard
         channelId={connection.id}
         appId={officialApiProviderAppId}

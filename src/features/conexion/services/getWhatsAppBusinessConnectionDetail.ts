@@ -196,7 +196,26 @@ export async function getWhatsAppBusinessConnectionDetail(workspaceId: string, c
     channel.status = "DISCONNECTED";
   }
 
-  const isConnected = channel.provider === "OFFICIAL_API" ? channel.status === "CONNECTED" : remoteIsConnected || channel?.status === "CONNECTED";
+  // La API oficial no mantiene una sesion como el canal viejo: no hay QR ni socket que se caiga.
+  // Si Meta nos dio numero y token, el canal FUNCIONA. Se miraba channel.status, que nadie pone
+  // nunca en CONNECTED para este proveedor, asi que un numero que estaba recibiendo y enviando
+  // mensajes salia igual como "SIN CONECTAR".
+  const officialApiIsReady = Boolean(
+    officialApiConfig?.phoneNumberId?.trim() && officialApiConfig?.accessToken?.trim(),
+  );
+  const isConnected =
+    channel.provider === "OFFICIAL_API"
+      ? officialApiIsReady || channel.status === "CONNECTED"
+      : remoteIsConnected || channel?.status === "CONNECTED";
+
+  // Se deja escrito para que el resto de la app (lista de conexiones, badges) lo vea igual.
+  if (channel.provider === "OFFICIAL_API" && officialApiIsReady && channel.status !== "CONNECTED") {
+    await prisma.whatsAppChannel.update({
+      where: { id: channel.id },
+      data: { status: "CONNECTED", lastConnectionAt: new Date() },
+    });
+    channel.status = "CONNECTED";
+  }
   const persistedQrCode = typeof channel.qrCode === "string" && channel.qrCode.trim() ? channel.qrCode.trim() : null;
   const rawQrCode = isConnected ? null : remoteConnectionQr.qrCode || persistedQrCode;
   const qrDataUrl = await buildQrDataUrl(rawQrCode);
