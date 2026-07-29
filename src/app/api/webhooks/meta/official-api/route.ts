@@ -35,6 +35,7 @@ import { notifyRealtimeUpdate } from "@/lib/realtime-notify";
 import { normalizeMetaAppSecret } from "@/lib/official-api-graph";
 import { downloadOfficialApiMedia } from "@/lib/official-api-media";
 import { ensureCrmContactForOfficialApi } from "@/lib/official-api-crm-bridge";
+import { syncOfficialApiCrmStage } from "@/lib/official-api-crm-stage";
 import { getOfficialApiProviderSettings } from "@/lib/system-settings";
 import { buildHandoffMessage, parseAgentTrainingConfig } from "@/lib/agent-training";
 import {
@@ -1312,6 +1313,22 @@ export async function POST(request: Request) {
       conversationId: insertedMessages[0]?.conversationId ?? null,
     });
     const linkedAgentChannel = await findOfficialApiLinkedAgent(config.workspaceId);
+
+    // Clasificador de etapa. Va ANTES del bloque de auto-respuesta y fuera de sus cortes a
+    // proposito: no depende de que el canal tenga agente ni de que la automatizacion este
+    // activa. Aunque la asesora conteste todo a mano, las etapas se acomodan solas igual que
+    // en el canal viejo. Con after() para no demorarle la respuesta al cliente.
+    for (const message of insertedMessages) {
+      const conversationIdForStage = message.conversationId;
+      const latestUserMessage = message.content;
+      after(async () => {
+        await syncOfficialApiCrmStage({
+          workspaceId: config.workspaceId,
+          conversationId: conversationIdForStage,
+          latestUserMessage,
+        });
+      });
+    }
 
     for (const message of insertedMessages) {
       // Si el asesor pauso la automatizacion de esta conversacion, guardamos el entrante
