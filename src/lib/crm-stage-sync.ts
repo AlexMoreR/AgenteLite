@@ -91,6 +91,17 @@ export async function syncCrmStageFromCommercialStage(input: {
     CommercialConversationContext,
     "currentStage" | "shownPrice" | "shownProductMedia" | "objectionDetected"
   >;
+  /**
+   * Dejar la nota "el agente movio la etapa" en el historial del chat.
+   *
+   * Se apaga cuando el chat NO es del canal viejo: el registro de actividad escribe en la tabla
+   * Message, atada a Conversation, y un chat de la API oficial no existe ahi. Pasarlo igual
+   * hacia que Postgres rechazara el INSERT en CADA mensaje entrante de ese canal
+   * (Message_conversationId_fkey). No rompia nada porque el error se traga, pero ensuciaba el
+   * log del servidor y le hacia trabajo al vicio a la base. El canal oficial deja su propia
+   * nota en su propia tabla (ver official-api-crm-stage.ts).
+   */
+  recordActivity?: boolean;
 }): Promise<CrmStage | null> {
   const target = resolveCrmStageFromContext(input.commercialContext);
   if (!target) {
@@ -139,14 +150,16 @@ export async function syncCrmStageFromCommercialStage(input: {
   }).catch(() => {});
 
   const stageLabel = CRM_STAGE_META[target]?.label ?? target;
-  await recordConversationActivity({
-    workspaceId: input.workspaceId,
-    conversationId: input.conversationId,
-    channelId: input.channelId,
-    contactId: input.contactId,
-    kind: "stage_changed",
-    text: `El agente movió la etapa a "${stageLabel}"`,
-  }).catch(() => {});
+  if (input.recordActivity !== false) {
+    await recordConversationActivity({
+      workspaceId: input.workspaceId,
+      conversationId: input.conversationId,
+      channelId: input.channelId,
+      contactId: input.contactId,
+      kind: "stage_changed",
+      text: `El agente movió la etapa a "${stageLabel}"`,
+    }).catch(() => {});
+  }
 
   return target;
 }

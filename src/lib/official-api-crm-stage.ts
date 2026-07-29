@@ -157,6 +157,11 @@ export async function syncOfficialApiCrmStage(input: {
       conversationId: input.conversationId,
       // El canal oficial no cuelga de un WhatsAppChannel en estas tablas; el helper lo acepta.
       channelId: null,
+      // La nota la dejamos NOSOTROS, abajo, en la tabla del canal oficial. Si se dejara al
+      // helper, intentaria escribirla en la tabla del canal viejo con un id que ahi no existe
+      // y Postgres rechazaba el INSERT en cada mensaje entrante (visto en los logs el
+      // 29-jul-2026: "Message_conversationId_fkey").
+      recordActivity: false,
       commercialContext: nextContext,
     });
 
