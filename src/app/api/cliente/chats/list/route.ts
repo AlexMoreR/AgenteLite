@@ -308,7 +308,12 @@ async function getAgentConversationList(input: {
             AND m."direction" = 'INBOUND'
             AND m."readAt" IS NULL
             AND m."isStatusBroadcast" = false
-            AND (m."rawPayload"->>'source') IS DISTINCT FROM 'activity'
+            -- OJO: aca NO va el filtro de (rawPayload->>'source') <> 'activity'. Las notas de
+            -- actividad se guardan SIEMPRE como OUTBOUND (ver conversation-activity.ts), asi que
+            -- con el filtro de INBOUND de arriba ya quedan afuera: la condicion no podia
+            -- coincidir nunca. Pero obligaba a Postgres a abrir el rawPayload de cada mensaje
+            -- candidato -- que guarda el webhook ENTERO, varios KB -- solo para comprobar algo
+            -- imposible. Medido el 29-jul-2026: esta consulta tardaba 18s en devolver 20 filas.
           GROUP BY m."conversationId"
         )
         SELECT
