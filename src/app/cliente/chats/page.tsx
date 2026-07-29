@@ -679,7 +679,10 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     conversationId: conversation.id,
     label: conversation.contact.name?.trim() || conversation.contact.phoneNumber?.trim() || conversation.contact.waId,
     secondaryLabel: conversation.contact.phoneNumber?.trim() || conversation.contact.waId,
-    contactId: conversation.contact.id,
+    // OJO: va la ficha del CRM, no el id de la tabla oficial. Todo lo que cuelga del contacto
+    // (etapa, etiquetas, seguimientos, "Qué decir ahora") busca en Contact: con el id oficial
+    // no encontraba nada y el chat salía siempre como "Nuevo" y sin guion.
+    contactId: conversation.contact.crmContactId ?? undefined,
     tags: [],
     avatarUrl: null,
     // Chapita de etapa igual que en el canal viejo: sin esto la asesora no sabia si el chat
@@ -1078,7 +1081,13 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           lastMessageAt: item.lastMessageAt,
           href: `/cliente/chats?chatKey=${encodeURIComponent(item.key)}${selectedConnectionKey ? `&connection=${encodeURIComponent(selectedConnectionKey)}` : ""}${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ""}${assignedFilter !== "all" ? `&assigned=${assignedFilter}` : ""}${statusFilter !== "open" ? `&status=${statusFilter}` : ""}`,
         }))}
-        selectedConversation={selectedConversation}
+        // La etapa viaja CON la conversación abierta: es la que usa "Qué decir ahora" para
+        // elegir el guion. Sin esto el panel abría en blanco por no saber en qué etapa está.
+        selectedConversation={
+          selectedConversation
+            ? { ...selectedConversation, crmStage: selectedContactCrmStage ?? null }
+            : selectedConversation
+        }
         selectedConversationTags={selectedConversation?.tags ?? []}
         backHref={chatListHref}
         headerBadge={null}

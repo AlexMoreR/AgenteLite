@@ -33,6 +33,8 @@ export type OfficialApiChatConversationSummary = {
     name: string | null;
     phoneNumber: string | null;
     waId: string;
+    // Ficha del CRM del mismo cliente: es la que usan etapa, etiquetas y seguimientos.
+    crmContactId: string | null;
     // Etapa del embudo, para la chapita de la lista. Null en los chats sin ficha del CRM.
     crmStage: string | null;
   };

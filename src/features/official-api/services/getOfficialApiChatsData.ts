@@ -395,6 +395,7 @@ async function loadOfficialApiChatsData(input: {
         contactName: string | null;
         contactPhoneNumber: string | null;
         contactWaId: string;
+        crmContactId: string | null;
         crmStage: string | null;
         incomingCount: number;
         lastMessageId: string | null;
@@ -412,6 +413,7 @@ async function loadOfficialApiChatsData(input: {
           ct."name" AS "contactName",
           ct."phoneNumber" AS "contactPhoneNumber",
           ct."waId" AS "contactWaId",
+          ct."crmContactId" AS "crmContactId",
           crm."crmStage"::text AS "crmStage",
           COALESCE(incoming."incomingCount", 0)::int AS "incomingCount",
           lm."id" AS "lastMessageId",
@@ -473,6 +475,7 @@ async function loadOfficialApiChatsData(input: {
         contactName: string | null;
         contactPhoneNumber: string | null;
         contactWaId: string;
+        crmContactId: string | null;
         crmStage: string | null;
         incomingCount: number;
         lastMessageId: string | null;
@@ -539,6 +542,7 @@ async function loadOfficialApiChatsData(input: {
           ct."name" AS "contactName",
           ct."phoneNumber" AS "contactPhoneNumber",
           ct."waId" AS "contactWaId",
+          ct."crmContactId" AS "crmContactId",
           crm."crmStage"::text AS "crmStage",
           COALESCE(ic."incomingCount", 0)::int AS "incomingCount",
           lm."id" AS "lastMessageId",
@@ -569,6 +573,7 @@ async function loadOfficialApiChatsData(input: {
       name: row.contactName,
       phoneNumber: row.contactPhoneNumber,
       waId: row.contactWaId,
+      crmContactId: row.crmContactId,
       crmStage: row.crmStage,
     },
     incomingCount: row.incomingCount,
