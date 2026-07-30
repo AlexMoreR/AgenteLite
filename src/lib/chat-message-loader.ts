@@ -49,6 +49,45 @@ function isValidCursor(value?: string | null) {
   return Boolean(value && value.trim());
 }
 
+/**
+ * Saca del payload guardado el ARCHIVO en base64 antes de mandarlo al navegador.
+ *
+ * El webhook de Evolution esta configurado con `base64: true`, asi que cada mensaje con
+ * media guarda el archivo COMPLETO codificado dentro de `rawPayload`
+ * (`evolution.data.Message.base64`). Eso viajaba al navegador en cada apertura de chat:
+ * medido en produccion el 29-jul-2026, abrir un chat de 10 mensajes bajaba **37 MB** y
+ * tardaba **10 a 28 segundos**. Era, de lejos, lo mas lento del CRM -- y lo que las asesoras
+ * reportaban como "los chats estan lentisimos".
+ *
+ * La pantalla NUNCA lee ese campo: la foto sale de `mediaUrl` (el archivo ya guardado en
+ * /uploads) y, como respaldo, de la miniatura `jpegThumbnail`, que es chica y se conserva.
+ *
+ * Se borra solo la clave `base64` cuando pasa de 4 KB, para no tocar nada mas del payload:
+ * el resto lo usa la pantalla (texto de respaldo, nombre de archivo, tarjeta del anuncio,
+ * ubicacion, si es nota de actividad...).
+ */
+const MAX_BASE64_INLINE = 4096;
+
+function stripHeavyBase64(value: unknown, depth = 0): unknown {
+  if (depth > 8 || !value || typeof value !== "object") {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => stripHeavyBase64(item, depth + 1));
+  }
+
+  const out: Record<string, unknown> = {};
+  for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+    if (key === "base64" && typeof nested === "string" && nested.length > MAX_BASE64_INLINE) {
+      continue;
+    }
+    out[key] = stripHeavyBase64(nested, depth + 1);
+  }
+
+  return out;
+}
+
 export async function loadAgentConversationDetail(input: {
   workspaceId: string;
   conversationId: string;
@@ -148,6 +187,7 @@ export async function loadAgentConversationDetail(input: {
   }).map((message) => ({
     ...message,
     content: message.content?.trim() || extractEvolutionMessageText(message.rawPayload) || null,
+    rawPayload: stripHeavyBase64(message.rawPayload),
   }));
 
   return {
