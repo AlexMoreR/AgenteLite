@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { Bell } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -15,7 +16,18 @@ import {
 import { cn } from "@/lib/utils";
 import { NotificationPermissionInline } from "@/components/chats/notification-permission-inline";
 
-const POLL_INTERVAL_MS = 15000;
+/**
+ * Cada cuanto la campanita pregunta si hay mensajes sin leer.
+ *
+ * Estaba en 15s, y cada consulta trae la lista COMPLETA de conversaciones con su ultimo
+ * mensaje y su conteo de no leidos: es la consulta mas cara de la app (medida el 29-jul-2026:
+ * ~2s cada una). O sea que la campanita, sola, mantenia al servidor y a la base trabajando
+ * sin parar todo el dia, aunque nadie la mirara.
+ *
+ * A 60s sigue avisando a tiempo -- es una notificacion, no un cronometro -- y hace la cuarta
+ * parte del trabajo.
+ */
+const POLL_INTERVAL_MS = 60000;
 const MAX_VISIBLE_NOTIFICATIONS = 8;
 
 type NotificationConversation = {
@@ -63,8 +75,18 @@ function getInitial(label?: string) {
 export function ChatNotificationBell({ className }: { className?: string }) {
   const [conversations, setConversations] = React.useState<NotificationConversation[]>([]);
   const [hasAccess, setHasAccess] = React.useState(true);
+  const pathname = usePathname();
+
+  // Estando DENTRO de chats la campanita no aporta nada: la bandeja ya muestra los no leidos,
+  // con su propio globo verde y en tiempo real. Y era justo ahi donde mas molestaba: sumaba su
+  // consulta pesada a la de la bandeja, en la pantalla donde las asesoras pasan el dia.
+  const estaEnChats = (pathname ?? "").startsWith("/cliente/chats");
 
   React.useEffect(() => {
+    if (estaEnChats) {
+      return;
+    }
+
     let cancelled = false;
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
@@ -99,7 +121,7 @@ export function ChatNotificationBell({ className }: { className?: string }) {
       cancelled = true;
       if (timeoutId) clearTimeout(timeoutId);
     };
-  }, []);
+  }, [estaEnChats]);
 
   const unreadConversations = React.useMemo(
     () =>
