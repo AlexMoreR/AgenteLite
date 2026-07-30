@@ -33,19 +33,29 @@ export default auth((req) => {
   // y cae en "/", lo mandamos directo a su panel. Pasa sobre todo con la PWA instalada: Android
   // congela el start_url del manifest al instalar, así que las apps ya instaladas siguen
   // abriendo en "/" (la landing) aunque el manifest actual apunte a /cliente/chats.
-  // Nota: /cliente/chats ya redirige solo a /cliente si el usuario no tiene ese módulo.
+  // Todos entran por "Mi día": es la pantalla que dice A QUIÉN contactar hoy, con la primera
+  // tarea al frente. Antes se abría en Chats (una bandeja de 1.083 conversaciones donde hay que
+  // decidir por dónde empezar) y los empleados caían en la bienvenida del dueño, que les hablaba
+  // de crear agentes y conectar canales.
+  // Nota: /cliente/crm/mi-dia ya devuelve a /cliente si el usuario no tiene ese módulo.
   if (pathname === "/" && role) {
     const appHome =
       role === "ADMIN"
         ? "/admin"
         : role === "EMPLEADO" && !primaryWorkspaceId
           ? "/empleado"
-          : "/cliente/chats";
+          : "/cliente/crm/mi-dia";
     return NextResponse.redirect(new URL(appHome, nextUrl));
   }
 
   if (authPages.includes(pathname) && role) {
-    const home = role === "EMPLEADO" && primaryWorkspaceId ? "/cliente" : roleHome[role];
+    // Recien logueado: mismo destino que al entrar por "/", para que la experiencia sea una sola.
+    const home =
+      role === "ADMIN"
+        ? roleHome[role]
+        : role === "EMPLEADO" && !primaryWorkspaceId
+          ? "/empleado"
+          : "/cliente/crm/mi-dia";
     return NextResponse.redirect(new URL(home, nextUrl));
   }
 

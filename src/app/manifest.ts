@@ -11,7 +11,10 @@ export default async function manifest(): Promise<MetadataRoute.Manifest> {
     name: brandName,
     short_name: brandName,
     description: "Panel de trabajo para chats, CRM, contactos y gestion comercial.",
-    start_url: "/cliente/chats",
+    // Mismo destino que al entrar por el navegador: la app instalada abre en "Mi día".
+    // Ojo: Android CONGELA este valor al instalar, asi que las apps ya instaladas van a seguir
+    // abriendo donde abrian; por eso el middleware tambien redirige "/" (ver ahi la nota).
+    start_url: "/cliente/crm/mi-dia",
     scope: "/",
     display: "standalone",
     orientation: "portrait",

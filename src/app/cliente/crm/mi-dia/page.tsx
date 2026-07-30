@@ -13,7 +13,10 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 export default async function ClienteCrmMiDiaPage() {
-  const access = await requireClientWorkspaceAccess("crm");
+  // Mi dia es ahora la pantalla de ENTRADA de todos, asi que quien no tenga el modulo CRM no
+  // puede quedar en un "no autorizado" sin salida: se lo devuelve a /cliente, que ya sabe a
+  // donde mandarlo segun sus permisos.
+  const access = await requireClientWorkspaceAccess("crm", { redirectTo: "/cliente" });
   const data = await getMiDiaData({ workspaceId: access.workspaceId });
 
   return <MiDiaView data={data} />;
