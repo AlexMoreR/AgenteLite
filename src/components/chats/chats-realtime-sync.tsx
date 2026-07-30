@@ -855,7 +855,21 @@ export function ChatsRealtimeSync({
             followUp: shouldFollowUp,
           });
         }
-        if (canRefreshSelectedConversation && !isEditedOrDeletedPayload) {
+        // OJO: para la LISTA hace falta una coincidencia POSITIVA con el chat abierto.
+        //
+        // `canRefreshSelectedConversation` incluye `|| isOutgoingMessage`, que se agrego para que
+        // la respuesta del bot apareciera en vivo cuando el saliente no trae telefono casable. Eso
+        // esta bien para recargar /live (arriba): pedir de nuevo el chat abierto es idempotente y
+        // no puede mentir. Pero aca se armaba una vista previa PEGANDO el mensaje recibido sobre la
+        // clave del chat ABIERTO. Con un saliente de OTRO chat en la misma instancia, la fila del
+        // chat abierto mostraba un mensaje que no era suyo, y se corregia un segundo despues cuando
+        // llegaba el dato real del servidor.
+        //
+        // Reproducido y capturado en vivo el 29-jul-2026: con Celis Spa Boutique abierto, un mensaje
+        // enviado a Magilus llego en un evento con el id de Celis y el texto "Prueba2".
+        //
+        // La respuesta del bot sigue apareciendo al instante: la trae la recarga de /live de arriba.
+        if (isSelectedAgentConversation && !isEditedOrDeletedPayload) {
           window.dispatchEvent(
             new CustomEvent("chat-list-update", {
               detail: {
