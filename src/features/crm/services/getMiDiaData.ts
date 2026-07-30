@@ -113,8 +113,16 @@ async function computeMiDiaData(input: { workspaceId: string }): Promise<MiDiaDa
   };
   const conversationIds = conversations.map((conversation) => conversation.id);
   const lastMessageRows = await prisma.$queryRawUnsafe<LastMessageRow[]>(
+    // OJO con rawPayload: el webhook guarda el ARCHIVO en base64 adentro (foto, audio, video).
+    // Traerlo entero para el ultimo mensaje de hasta 300 conversaciones hacia que esta pantalla
+    // tardara ~4s -- y es la primera que ve todo el mundo al entrar. Se borra esa clave en la
+    // consulta misma, asi el archivo no viaja de la base a la app: del payload solo se necesita
+    // el texto de respaldo cuando el mensaje no trae `content`.
+    // Se limpian las dos rutas conocidas (evogo usa "Message", Evolution API "message"); borrar
+    // una ruta que no existe no hace nada.
     `SELECT DISTINCT ON (m."conversationId")
-        m."conversationId", m."content", m."direction"::text AS "direction", m."type"::text AS "type", m."rawPayload"
+        m."conversationId", m."content", m."direction"::text AS "direction", m."type"::text AS "type",
+        ((m."rawPayload" #- '{evolution,data,Message,base64}') #- '{evolution,data,message,base64}') AS "rawPayload"
      FROM "Message" m
      WHERE m."conversationId" = ANY($1::text[])
        AND m."isStatusBroadcast" = false
