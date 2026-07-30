@@ -223,9 +223,9 @@ function KanbanDetailModal({
           {/* Accesos directos: abrir el chat de esa persona (ahí también queda la nota de quién
               movió la etapa y por qué) y llamarla desde el celular. */}
           <div className="flex items-center gap-2">
-            {record.conversationId ? (
+            {record.chatKey ? (
               <Link
-                href={`/cliente/chats?chatKey=${encodeURIComponent(`agent:${record.conversationId}`)}`}
+                href={`/cliente/chats?chatKey=${encodeURIComponent(record.chatKey)}`}
                 className="flex-1"
               >
                 <Button size="sm" className="w-full gap-1.5">

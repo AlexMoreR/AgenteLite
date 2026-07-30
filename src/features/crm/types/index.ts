@@ -34,6 +34,11 @@ export type CrmRecord = {
   // Conversacion mas reciente del contacto, para abrir su chat desde el CRM. Null si nunca
   // hablo por WhatsApp (contacto cargado a mano, sin conversacion).
   conversationId: string | null;
+  // Clave LISTA para abrir el chat ("agent:xxx" o "official:xxx"). Existe aparte de
+  // conversationId porque el cliente puede haber escrito por el canal viejo o por el de la API
+  // oficial, y cada uno vive en su propia tabla: armar "agent:" + conversationId dejaba sin
+  // boton "Abrir chat" a todo el que hubiera llegado por el numero nuevo.
+  chatKey: string | null;
   isCollapsed: boolean;
 };
 

@@ -140,9 +140,9 @@ export function CrmFugaPanel({ records, generatedAt }: { records: CrmRecord[]; g
 
               return (
                 <li key={record.id}>
-                  {record.conversationId ? (
+                  {record.chatKey ? (
                     <Link
-                      href={`/cliente/chats?chatKey=${encodeURIComponent(`agent:${record.conversationId}`)}`}
+                      href={`/cliente/chats?chatKey=${encodeURIComponent(record.chatKey)}`}
                       className="flex items-center justify-between gap-3 px-3 py-2 transition hover:bg-muted"
                     >
                       {contenido}

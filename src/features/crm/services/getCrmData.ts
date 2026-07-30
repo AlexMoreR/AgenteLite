@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getContactTags } from "@/lib/chat-conversation-summary";
 import { groupCrmRecordsByStage, sortCrmRecords } from "../domain/crm-config";
@@ -166,6 +167,43 @@ function getContactCollapsedState(metadata: unknown) {
   return value === true;
 }
 
+/**
+ * Chat del canal de API OFICIAL de cada contacto, para los que NO tienen chat del canal viejo.
+ *
+ * Un cliente que escribio al numero nuevo no tiene fila en Conversation: su chat vive en
+ * OfficialApiConversation. Sin esto, su ficha en el Kanban salia sin boton "Abrir chat" -- la
+ * asesora veia el lead pero no tenia como escribirle sin ir a buscarlo a mano a la bandeja.
+ */
+async function getOfficialChatKeysByCrmContact(workspaceId: string, contactIds: string[]) {
+  const mapa = new Map<string, string>();
+  if (contactIds.length === 0) {
+    return mapa;
+  }
+
+  try {
+    const filas = await prisma.$queryRaw<Array<{ crmContactId: string; conversationId: string }>>`
+      SELECT DISTINCT ON (ct."crmContactId")
+        ct."crmContactId" AS "crmContactId",
+        c."id" AS "conversationId"
+      FROM "OfficialApiContact" ct
+      INNER JOIN "OfficialApiConversation" c ON c."contactId" = ct."id"
+      INNER JOIN "OfficialApiClientConfig" cfg ON cfg."id" = ct."configId"
+      WHERE cfg."workspaceId" = ${workspaceId}
+        AND ct."crmContactId" IN (${Prisma.join(contactIds)})
+      ORDER BY ct."crmContactId", c."lastMessageAt" DESC NULLS LAST, c."updatedAt" DESC
+    `;
+
+    for (const fila of filas) {
+      mapa.set(fila.crmContactId, fila.conversationId);
+    }
+  } catch (error) {
+    // Nunca puede tumbar el CRM: sin esto solo falta el boton de abrir chat.
+    console.error("[crm] no se pudieron resolver los chats del canal oficial", error);
+  }
+
+  return mapa;
+}
+
 export async function getCrmData({ workspaceId, workspaceName }: GetCrmDataInput): Promise<CrmData | null> {
   const rawContacts = await prisma.contact.findMany({
     where: {
@@ -210,6 +248,11 @@ export async function getCrmData({ workspaceId, workspaceName }: GetCrmDataInput
   });
 
   const transcripts = await buildContactTranscripts(rawContacts);
+  // Solo para los que NO tienen chat del canal viejo: son los unicos que pueden necesitarlo.
+  const chatsOficiales = await getOfficialChatKeysByCrmContact(
+    workspaceId,
+    rawContacts.filter((contact) => !contact.conversations[0]?.id).map((contact) => contact.id),
+  );
 
   const records: CrmRecord[] = rawContacts.map((contact) => ({
     id: contact.id,
@@ -229,6 +272,11 @@ export async function getCrmData({ workspaceId, workspaceName }: GetCrmDataInput
     status: (contact.crmStage as CrmRecord["status"]) ?? "NUEVO",
     lostReason: contact.lostReason ?? null,
     conversationId: contact.conversations[0]?.id ?? null,
+    chatKey: contact.conversations[0]?.id
+      ? `agent:${contact.conversations[0].id}`
+      : chatsOficiales.get(contact.id)
+        ? `official:${chatsOficiales.get(contact.id)}`
+        : null,
     isCollapsed: getContactCollapsedState(contact.metadata),
     origin: getContactOriginFromMetadata(contact.metadata),
   }));
@@ -297,6 +345,11 @@ export async function getCrmKanbanData({ workspaceId, workspaceName }: GetCrmDat
   });
 
   const transcripts = await buildContactTranscripts(rawContacts);
+  // Solo para los que NO tienen chat del canal viejo: son los unicos que pueden necesitarlo.
+  const chatsOficiales = await getOfficialChatKeysByCrmContact(
+    workspaceId,
+    rawContacts.filter((contact) => !contact.conversations[0]?.id).map((contact) => contact.id),
+  );
 
   const records: CrmRecord[] = rawContacts.map((contact) => ({
     id: contact.id,
@@ -316,6 +369,11 @@ export async function getCrmKanbanData({ workspaceId, workspaceName }: GetCrmDat
     status: (contact.crmStage as CrmRecord["status"]) ?? "NUEVO",
     lostReason: contact.lostReason ?? null,
     conversationId: contact.conversations[0]?.id ?? null,
+    chatKey: contact.conversations[0]?.id
+      ? `agent:${contact.conversations[0].id}`
+      : chatsOficiales.get(contact.id)
+        ? `official:${chatsOficiales.get(contact.id)}`
+        : null,
     isCollapsed: getContactCollapsedState(contact.metadata),
     origin: getContactOriginFromMetadata(contact.metadata),
   }));
