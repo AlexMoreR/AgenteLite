@@ -1,6 +1,7 @@
 import { NextResponse, after } from "next/server";
 import { auth } from "@/auth";
 import { loadAgentConversationDetail } from "@/lib/chat-message-loader";
+import { getOfficialApiChatsData } from "@/features/official-api/services/getOfficialApiChatsData";
 import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
 import { resolveEvolutionMessageMediaUrl } from "@/lib/evolution";
 import { scheduleSingleContactAvatarRefresh } from "@/lib/contact-avatar-refresh";
@@ -57,12 +58,12 @@ function parseChatKey(input: string) {
   const [source, ...rest] = input.split(":");
   const conversationId = rest.join(":");
 
-  if (source !== "agent" || !conversationId) {
+  if (!conversationId || (source !== "agent" && source !== "official")) {
     return null;
   }
 
   return {
-    source: source as "agent",
+    source: source as "agent" | "official",
     conversationId,
   };
 }
@@ -91,6 +92,70 @@ export async function GET(request: Request) {
 
   if (!parsed) {
     return NextResponse.json({ ok: false, error: "Chat invalido" }, { status: 400 });
+  }
+
+  /**
+   * Chats del canal de API OFICIAL.
+   *
+   * Este endpoint es el que se llama al hacer CLIC en un chat (abrir un chat ya no navega al
+   * servidor). Solo aceptaba claves "agent:", asi que con un chat oficial devolvia 400 y los
+   * mensajes NO llegaban por aca: aparecian recien cuando el servidor volvia a armar la
+   * pantalla entera, o sea hasta 8 segundos despues. En el canal viejo eso tarda ~300ms.
+   *
+   * Se reutiliza el MISMO cargador que usa la pantalla (getOfficialApiChatsData), no una copia:
+   * asi el chat sale igual por los dos caminos, y de paso hereda lo que ese cargador ya hace al
+   * abrir un chat (marcar leidos, recuperar fotos que falten).
+   *
+   * Paginar hacia arriba todavia no aplica aca: el cargador trae los ultimos 20 mensajes.
+   */
+  if (parsed.source === "official") {
+    const data = await getOfficialApiChatsData({
+      workspaceId: membership.workspace.id,
+      conversationId: parsed.conversationId,
+      includeSelectedConversation: true,
+    });
+
+    const detalle = data.selectedConversation;
+    if (!detalle) {
+      return NextResponse.json({ ok: false, error: "Conversacion no encontrada" }, { status: 404 });
+    }
+
+    const etiqueta =
+      detalle.contact.name?.trim() || detalle.contact.phoneNumber?.trim() || detalle.contact.waId;
+
+    return NextResponse.json({
+      ok: true,
+      conversation: {
+        id: detalle.id,
+        agentId: null,
+        status: detalle.status,
+        automationPaused: detalle.automationPaused,
+        label: etiqueta,
+        secondaryLabel: detalle.contact.phoneNumber?.trim() || detalle.contact.waId,
+        avatarUrl: null,
+        // La ficha del CRM, no la de la tabla oficial: es la que usan etapa, etiquetas y guiones.
+        contactId: detalle.contact.crmContactId ?? null,
+        crmStage: detalle.contact.crmStage ?? null,
+        // El canal oficial no guarda historial de WhatsApp: el boton no debe aparecer.
+        canImportHistory: false,
+        hasMoreMessages: false,
+        loadMoreCursor: null,
+        messages: detalle.messages.map((mensaje) => ({
+          id: mensaje.id,
+          content: mensaje.content,
+          direction: mensaje.direction,
+          createdAt: mensaje.createdAt,
+          editedAt: null,
+          deletedAt: null,
+          authorType: mensaje.direction === "OUTBOUND" ? "bot" : "user",
+          outboundStatusLabel: mensaje.direction === "OUTBOUND" ? mensaje.status : null,
+          type: mensaje.type,
+          mediaUrl: mensaje.mediaUrl,
+          rawPayload: mensaje.rawPayload,
+          errorDetail: mensaje.errorDetail ?? null,
+        })),
+      },
+    });
   }
 
   const conversation = await loadAgentConversationDetail({
