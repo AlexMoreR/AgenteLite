@@ -78,6 +78,7 @@ async function computeMiDiaData(input: { workspaceId: string }): Promise<MiDiaDa
   const maxAge = new Date(now - MAX_DAYS_SINCE_CONTACT * 24 * 60 * 60 * 1000);
   const minAge = new Date(now - MIN_HOURS_SINCE_CONTACT * 60 * 60 * 1000);
 
+  const t0 = Date.now();
   const conversations = await prisma.conversation.findMany({
     where: {
       workspaceId: input.workspaceId,
@@ -111,6 +112,7 @@ async function computeMiDiaData(input: { workspaceId: string }): Promise<MiDiaDa
     type: string | null;
     rawPayload: unknown;
   };
+  const t1 = Date.now();
   const conversationIds = conversations.map((conversation) => conversation.id);
   const lastMessageRows = await prisma.$queryRawUnsafe<LastMessageRow[]>(
     // OJO con rawPayload: el webhook guarda el ARCHIVO en base64 adentro (foto, audio, video).
@@ -122,7 +124,9 @@ async function computeMiDiaData(input: { workspaceId: string }): Promise<MiDiaDa
     // una ruta que no existe no hace nada.
     `SELECT DISTINCT ON (m."conversationId")
         m."conversationId", m."content", m."direction"::text AS "direction", m."type"::text AS "type",
-        ((m."rawPayload" #- '{evolution,data,Message,base64}') #- '{evolution,data,message,base64}') AS "rawPayload"
+        CASE WHEN COALESCE(m."content", '') = ''
+             THEN (m."rawPayload" #- '{evolution,data,Message,base64}') #- '{evolution,data,message,base64}'
+             ELSE NULL END AS "rawPayload"
      FROM "Message" m
      WHERE m."conversationId" = ANY($1::text[])
        AND m."isStatusBroadcast" = false
@@ -131,6 +135,16 @@ async function computeMiDiaData(input: { workspaceId: string }): Promise<MiDiaDa
     conversationIds,
   );
   const latestByConversation = new Map(lastMessageRows.map((row) => [row.conversationId, row] as const));
+
+  // Cronometro temporal: "Mi dia" tarda ~3s y es la primera pantalla que ve todo el equipo.
+  // Sin esto solo se puede adivinar cual de las dos consultas pesa. Se lee en los logs del
+  // contenedor y se saca cuando este resuelto.
+  console.log("[mi-dia] tiempos", {
+    conversaciones_ms: t1 - t0,
+    ultimosMensajes_ms: Date.now() - t1,
+    conversaciones: conversations.length,
+    mensajes: lastMessageRows.length,
+  });
 
   const leads: MiDiaLead[] = conversations.map((conversation) => {
     const lastMessageAt = conversation.lastMessageAt ?? new Date(now);
