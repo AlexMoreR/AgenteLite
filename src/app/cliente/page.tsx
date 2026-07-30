@@ -4,7 +4,11 @@ import Link from "next/link";
 import { ArrowRight, Sparkles } from "lucide-react";
 import { auth } from "@/auth";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
-import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
+import {
+  canAccessClientModule,
+  getClientWorkspaceAccessForUser,
+  requireClientWorkspaceAccess,
+} from "@/lib/client-workspace-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
 export const metadata: Metadata = {
@@ -26,6 +30,27 @@ export default async function ClientePage({ searchParams }: PageProps) {
 
   if (session.user.role === "EMPLEADO") {
     await requireClientWorkspaceAccess(undefined, { redirectTo: "/unauthorized" });
+
+    /**
+     * Una asesora entra a trabajar, no a configurar el negocio.
+     *
+     * Esta pantalla es la bienvenida del DUEÑO: habla de crear agentes, conectar canales y
+     * preparar Marketing IA. A una asesora no le sirve de nada -- y era lo primero que veia al
+     * iniciar sesion, teniendo que buscar a mano donde estaba su trabajo.
+     *
+     * Se la manda directo a "Mi dia", que es su lista de a quien contactar hoy ordenada por
+     * urgencia. Si no tiene ese modulo habilitado se prueba con Chats, y si tampoco, se queda
+     * aca (mejor una bienvenida inutil que un "no autorizado").
+     */
+    const access = await getClientWorkspaceAccessForUser(session.user.id);
+    if (access) {
+      if (canAccessClientModule(access, "crm")) {
+        redirect("/cliente/crm/mi-dia");
+      }
+      if (canAccessClientModule(access, "chats")) {
+        redirect("/cliente/chats");
+      }
+    }
   }
 
   const membership = await getPrimaryWorkspaceForUser(session.user.id);

@@ -29,6 +29,12 @@ function StageBadge({ stage }: { stage: CrmStage }) {
 export function MiDiaView({ data }: { data: MiDiaData }) {
   const { leads } = data;
   const waiting = leads.filter((lead) => lead.waitingOnUs).length;
+  // Desglose por etapa: la asesora ve de un golpe cuanto de lo que tiene entre manos es plata
+  // cerca de cerrarse (Caliente) y cuanto es todavia frio, sin tener que contar filas.
+  const porEtapa = (["NEGOCIACION", "PROPUESTA", "CALIFICADO"] as CrmStage[])
+    .map((stage) => ({ stage, total: leads.filter((lead) => lead.stage === stage).length }))
+    .filter((fila) => fila.total > 0);
+  const primero = leads[0] ?? null;
 
   return (
     <section className="space-y-3 p-4 md:p-6">
@@ -49,6 +55,42 @@ export function MiDiaView({ data }: { data: MiDiaData }) {
           ) : null}
         </div>
       </div>
+
+      {porEtapa.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-2">
+          {porEtapa.map(({ stage, total }) => (
+            <span key={stage} className="inline-flex items-center gap-1.5 text-[13px] text-muted-foreground">
+              <StageBadge stage={stage} />
+              {total}
+            </span>
+          ))}
+        </div>
+      ) : null}
+
+      {/* La PRIMERA tarea, destacada: sin esto la asesora abria la pantalla y tenia que decidir
+          por donde empezar. Es la misma que encabeza la lista, puesta al frente. */}
+      {primero ? (
+        <div className="rounded-xl border border-[var(--primary)]/25 bg-primary/[0.04] px-3 py-2.5">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--primary)]">
+            Empezá por acá
+          </p>
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <span className="text-sm font-semibold text-foreground">{primero.name}</span>
+            <StageBadge stage={primero.stage} />
+            <span className="text-[13px] text-muted-foreground">
+              sin contacto {formatSince(primero.hoursSinceContact)}
+              {primero.waitingOnUs ? " · está esperando respuesta" : ""}
+            </span>
+            <Link
+              href={`/cliente/chats?chatKey=${encodeURIComponent(primero.chatKey)}`}
+              className="ml-auto inline-flex items-center gap-1.5 rounded-full bg-[var(--primary)] px-3 py-1 text-[13px] font-semibold text-white transition hover:opacity-90"
+            >
+              <MessageCircle className="h-3.5 w-3.5" />
+              Escribirle
+            </Link>
+          </div>
+        </div>
+      ) : null}
 
       {leads.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border/70 bg-background/60 px-4 py-12 text-center">
