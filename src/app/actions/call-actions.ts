@@ -21,7 +21,7 @@ const registerCallSchema = z.object({
   contactId: z.string().trim().min(1),
   result: z.enum(CALL_RESULT_VALUES),
   summary: z.string().trim().max(280).optional(),
-  // ISO date del PRÓXIMO contacto (solo la fecha importa, se guarda a medianoche del día).
+  // ISO date del PRÓXIMO contacto (solo la fecha importa, se ancla al mediodía de Bogotá).
   nextContactAt: z.string().trim().min(1).optional(),
   // Obligatorio solo cuando result === "perdido".
   lostReason: z.string().trim().min(1).max(60).optional(),
@@ -31,12 +31,40 @@ const registerCallSchema = z.object({
 
 export type RegisterCallInput = z.infer<typeof registerCallSchema>;
 
+const SOLO_FECHA = /^\d{4}-\d{2}-\d{2}$/;
+
+function bogotaToday(now: Date) {
+  // en-CA da el formato "2026-07-31", igual que el <input type="date">.
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(now);
+}
+
+/**
+ * Las fechas del formulario vienen de un <input type="date">, o sea "2026-07-31" pelado.
+ *
+ * `new Date("2026-07-31")` lo lee como medianoche UTC, que en Bogotá son las SIETE DE LA TARDE
+ * DEL DÍA ANTERIOR. Por eso una llamada registrada hoy quedaba guardada ayer y el resumen del
+ * día le mostraba 0 llamadas a la asesora que sí las había cargado. Lo mismo le pasaba al
+ * próximo contacto: uno agendado para mañana caía en "llamar hoy".
+ *
+ * Se ancla al MEDIODÍA de Bogotá: bien adentro del día elegido, sin riesgo de irse al vecino.
+ */
 function parseOptionalDate(value: string | undefined): Date | null | undefined {
   if (!value) {
     return undefined;
   }
-  const date = new Date(value);
+  const date = new Date(SOLO_FECHA.test(value) ? `${value}T12:00:00-05:00` : value);
   return Number.isFinite(date.getTime()) ? date : undefined;
+}
+
+/**
+ * Cuando la llamada es de HOY se guarda la hora real, no el mediodía: así el orden de las
+ * llamadas del día es el de verdad. El mediodía queda solo para el registro retroactivo.
+ */
+function resolveCalledAt(value: string | undefined, now: Date): Date {
+  if (!value || value === bogotaToday(now)) {
+    return now;
+  }
+  return parseOptionalDate(value) ?? now;
 }
 
 /**
@@ -79,8 +107,9 @@ export async function registerCallAttemptAction(input: RegisterCallInput) {
     return { error: "Contacto no encontrado" };
   }
 
+  const now = new Date();
   const nextContactAt = parseOptionalDate(parsed.data.nextContactAt) ?? null;
-  const calledAt = parseOptionalDate(parsed.data.calledAt) ?? new Date();
+  const calledAt = resolveCalledAt(parsed.data.calledAt, now);
 
   // intento_numero = cuántas llamadas ya tiene este lead + 1.
   const previousAttempts = await prisma.callAttempt.count({
