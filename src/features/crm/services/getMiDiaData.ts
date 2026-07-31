@@ -43,6 +43,8 @@ export type MiDiaLead = {
   lastMessagePreview: string;
   // Quien hablo ultimo: si fue el cliente, es MAS urgente (esta esperando respuesta).
   waitingOnUs: boolean;
+  // Este lead es MIO (me lo asignaron) o esta sin dueno. No entran los de otra persona.
+  esMio: boolean;
 };
 
 export type MiDiaData = {
@@ -62,7 +64,7 @@ function previewFromMessage(content: string | null, rawPayload: unknown, type: s
   return "Sin mensajes visibles.";
 }
 
-export async function getMiDiaData(input: { workspaceId: string }): Promise<MiDiaData> {
+export async function getMiDiaData(input: { workspaceId: string; userId: string }): Promise<MiDiaData> {
   try {
     return await computeMiDiaData(input);
   } catch (error) {
@@ -73,7 +75,7 @@ export async function getMiDiaData(input: { workspaceId: string }): Promise<MiDi
   }
 }
 
-async function computeMiDiaData(input: { workspaceId: string }): Promise<MiDiaData> {
+async function computeMiDiaData(input: { workspaceId: string; userId: string }): Promise<MiDiaData> {
   const now = Date.now();
   const maxAge = new Date(now - MAX_DAYS_SINCE_CONTACT * 24 * 60 * 60 * 1000);
   const minAge = new Date(now - MIN_HOURS_SINCE_CONTACT * 60 * 60 * 1000);
@@ -83,12 +85,28 @@ async function computeMiDiaData(input: { workspaceId: string }): Promise<MiDiaDa
       workspaceId: input.workspaceId,
       contact: { crmStage: { in: PIPELINE_STAGES } },
       lastMessageAt: { lte: minAge, gte: maxAge },
+      /**
+       * SU dia, no el de la empresa.
+       *
+       * Antes la lista era la misma para todas: con tres personas ya se pisaban (dos le
+       * escribian al mismo cliente) y ninguna se hacia cargo del resto -- "pense que lo hacias
+       * vos". Con vendedores nuevos entrando eso se rompe del todo, y ademas hace imposible
+       * medir a nadie: si la lista es de todos, el resultado no es de nadie.
+       *
+       * Entran los MIOS y los que no tienen dueno. Los de otra persona NO: para eso esta el
+       * Kanban, que sigue mostrando el embudo completo.
+       *
+       * El filtro es por ASIGNACION, no por rol: hoy las tres figuran como "Administrador",
+       * asi que separar por rol no separaria nada.
+       */
+      OR: [{ assignedToUserId: input.userId }, { assignedToUserId: null }],
     },
     orderBy: { lastMessageAt: "desc" },
     take: 300,
     select: {
       id: true,
       lastMessageAt: true,
+      assignedToUserId: true,
       contact: {
         select: { id: true, name: true, phoneNumber: true, avatarUrl: true, crmStage: true },
       },
@@ -147,6 +165,7 @@ async function computeMiDiaData(input: { workspaceId: string }): Promise<MiDiaDa
       avatarUrl: conversation.contact.avatarUrl ?? null,
       stage: conversation.contact.crmStage as CrmStage,
       lastMessageAt: lastMessageAt.toISOString(),
+      esMio: conversation.assignedToUserId === input.userId,
       hoursSinceContact,
       lastMessagePreview: previewFromMessage(message?.content ?? null, message?.rawPayload, message?.type ?? null),
       waitingOnUs: message?.direction === "INBOUND",
@@ -156,6 +175,11 @@ async function computeMiDiaData(input: { workspaceId: string }): Promise<MiDiaDa
   // Orden: primero los que ESPERAN respuesta (el cliente escribio ultimo), luego por etapa mas
   // caliente, y dentro de eso el mas abandonado primero. Es el orden en que un vendedor atacaria.
   leads.sort((a, b) => {
+    // Lo MIO primero: es "mi dia", no la bolsa comun. Los sin dueno quedan abajo, disponibles
+    // para quien tenga hueco, pero sin empujar hacia el fondo el trabajo que ya es de uno.
+    if (a.esMio !== b.esMio) {
+      return a.esMio ? -1 : 1;
+    }
     if (a.waitingOnUs !== b.waitingOnUs) {
       return a.waitingOnUs ? -1 : 1;
     }

@@ -17,7 +17,8 @@ export default async function ClienteCrmMiDiaPage() {
   // puede quedar en un "no autorizado" sin salida: se lo devuelve a /cliente, que ya sabe a
   // donde mandarlo segun sus permisos.
   const access = await requireClientWorkspaceAccess("crm", { redirectTo: "/cliente" });
-  const data = await getMiDiaData({ workspaceId: access.workspaceId });
+  // Su dia: la lista trae SUS leads y los que no tienen dueno, no los de otra persona.
+  const data = await getMiDiaData({ workspaceId: access.workspaceId, userId: access.userId });
 
   return <MiDiaView data={data} />;
 }

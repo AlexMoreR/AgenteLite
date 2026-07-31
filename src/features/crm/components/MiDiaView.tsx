@@ -31,6 +31,8 @@ export function MiDiaView({ data }: { data: MiDiaData }) {
   const waiting = leads.filter((lead) => lead.waitingOnUs).length;
   // Desglose por etapa: la asesora ve de un golpe cuanto de lo que tiene entre manos es plata
   // cerca de cerrarse (Caliente) y cuanto es todavia frio, sin tener que contar filas.
+  const mios = leads.filter((lead) => lead.esMio).length;
+  const sinDuenio = leads.length - mios;
   const porEtapa = (["NEGOCIACION", "PROPUESTA", "CALIFICADO"] as CrmStage[])
     .map((stage) => ({ stage, total: leads.filter((lead) => lead.stage === stage).length }))
     .filter((fila) => fila.total > 0);
@@ -41,7 +43,13 @@ export function MiDiaView({ data }: { data: MiDiaData }) {
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
           <h1 className="text-lg font-semibold text-foreground">Mi día</h1>
-          <p className="text-sm text-muted-foreground">A quién contactar hoy, de más urgente a menos.</p>
+          <p className="text-sm text-muted-foreground">
+            {mios > 0 && sinDuenio > 0
+              ? `${mios} ${mios === 1 ? "tuyo" : "tuyos"} y ${sinDuenio} sin dueño. De más urgente a menos.`
+              : mios > 0
+                ? "Tus leads, de más urgente a menos."
+                : "Leads sin dueño: tomá los que puedas atender."}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-sm font-semibold text-[var(--primary)]">
@@ -121,6 +129,11 @@ export function MiDiaView({ data }: { data: MiDiaData }) {
                   <div className="flex min-w-0 items-center gap-2">
                     <p className="min-w-0 flex-1 truncate text-[14px] font-semibold text-foreground">{lead.name}</p>
                     <StageBadge stage={lead.stage} />
+                    {!lead.esMio ? (
+                      <span className="inline-flex shrink-0 items-center whitespace-nowrap rounded-full border border-dashed border-border px-2 py-[1px] text-[10px] font-medium text-muted-foreground">
+                        sin dueño
+                      </span>
+                    ) : null}
                   </div>
                   <p className="mt-0.5 truncate text-[13px] text-muted-foreground">{lead.lastMessagePreview}</p>
                   <div className="mt-1 flex items-center gap-2 text-[11px]">
