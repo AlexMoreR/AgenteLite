@@ -110,8 +110,16 @@ export function MiDiaView({ data }: { data: MiDiaData }) {
         </div>
       ) : (
         <ul className="space-y-2">
-          {leads.map((lead) => (
+          {leads.map((lead, indice) => (
             <li key={lead.conversationId}>
+              {/* Encabezado al empezar cada bloque. Va aca y no como etiqueta en cada fila
+                  porque en el celular la etiqueta le comia el nombre al cliente ("An…", "M…"),
+                  que es justo el dato que la asesora necesita leer de un vistazo. */}
+              {indice === 0 || leads[indice - 1]!.esMio !== lead.esMio ? (
+                <p className="px-1 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                  {lead.esMio ? "Tuyos" : "Sin dueño · tomá los que puedas"}
+                </p>
+              ) : null}
               <Link
                 href={`/cliente/chats?chatKey=${encodeURIComponent(lead.chatKey)}`}
                 className={`flex items-center gap-3 rounded-xl border bg-card px-3 py-2.5 transition hover:bg-muted/50 ${
@@ -129,11 +137,6 @@ export function MiDiaView({ data }: { data: MiDiaData }) {
                   <div className="flex min-w-0 items-center gap-2">
                     <p className="min-w-0 flex-1 truncate text-[14px] font-semibold text-foreground">{lead.name}</p>
                     <StageBadge stage={lead.stage} />
-                    {!lead.esMio ? (
-                      <span className="inline-flex shrink-0 items-center whitespace-nowrap rounded-full border border-dashed border-border px-2 py-[1px] text-[10px] font-medium text-muted-foreground">
-                        sin dueño
-                      </span>
-                    ) : null}
                   </div>
                   <p className="mt-0.5 truncate text-[13px] text-muted-foreground">{lead.lastMessagePreview}</p>
                   <div className="mt-1 flex items-center gap-2 text-[11px]">
