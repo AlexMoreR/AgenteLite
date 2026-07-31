@@ -153,11 +153,13 @@ function MessageActionsMenu({
   message,
   outbound,
   onReply,
+  onForward,
   onDelete,
 }: {
   message: SharedInboxMessageItem;
   outbound: boolean;
   onReply?: (message: SharedInboxMessageItem) => void;
+  onForward?: (message: SharedInboxMessageItem) => void;
   onDelete?: (message: SharedInboxMessageItem) => void;
 }) {
   // El DropdownMenu de base-ui (FloatingTree/ids/atributos) no es estable en SSR y
@@ -213,7 +215,7 @@ function MessageActionsMenu({
         <DropdownMenuItem onClick={pending("Reaccionar")}>
           <Smile className="size-4" /> Reaccionar
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={pending("Reenviar")}>
+        <DropdownMenuItem onClick={() => onForward?.(message)}>
           <Forward className="size-4" /> Reenviar
         </DropdownMenuItem>
         <DropdownMenuItem onClick={pending("Fijar")}>
@@ -239,12 +241,14 @@ export const MessageBubble = memo(function MessageBubble({
   previousMessage,
   onRetry,
   onReply,
+  onForward,
   onDelete,
 }: {
   message: SharedInboxMessageItem;
   previousMessage: SharedInboxMessageItem | undefined;
   onRetry?: () => void;
   onReply?: (message: SharedInboxMessageItem) => void;
+  onForward?: (message: SharedInboxMessageItem) => void;
   onDelete?: (message: SharedInboxMessageItem) => void;
 }) {
   const [imagePreviewIndex, setImagePreviewIndex] = useState(0);
@@ -379,7 +383,7 @@ export const MessageBubble = memo(function MessageBubble({
           }`}
         >
           {!isDeleted && !callSummary ? (
-            <MessageActionsMenu message={message} outbound={outbound} onReply={onReply} onDelete={onDelete} />
+            <MessageActionsMenu message={message} outbound={outbound} onReply={onReply} onForward={onForward} onDelete={onDelete} />
           ) : null}
           {replyPreview ? (
             <div

@@ -34,6 +34,7 @@ import { clearPendingConversationSelection } from "@/components/chats/chat-selec
 import { ChatTagsControl } from "@/components/chats/chat-tags-control";
 import { QuickRepliesDialog } from "@/components/chats/quick-replies-dialog";
 import { PlaybookPanelDialog } from "@/components/chats/playbook-panel-dialog";
+import { ForwardMessageDialog } from "@/components/chats/forward-message-dialog";
 import { FollowUpDialog } from "@/components/chats/follow-up-dialog";
 import { MediaPreviewDialog } from "@/components/chats/media-preview-dialog";
 import { Button } from "@/components/ui/button";
@@ -134,6 +135,8 @@ export const ConversationPanel = memo(function ConversationPanel({
   const [isAttachMenuOpen, setIsAttachMenuOpen] = useState(false);
   const [isQuickRepliesOpen, setIsQuickRepliesOpen] = useState(false);
   const [isPlaybookOpen, setIsPlaybookOpen] = useState(false);
+  // Mensaje que se esta reenviando (null = dialogo cerrado).
+  const [mensajeAReenviar, setMensajeAReenviar] = useState<SharedInboxMessageItem | null>(null);
   const [isFollowUpOpen, setIsFollowUpOpen] = useState(false);
   // Archivos elegidos pendientes de confirmar en la vista previa (con caption) antes de enviar.
   const [pendingMediaFiles, setPendingMediaFiles] = useState<File[]>([]);
@@ -912,6 +915,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                           message.outboundStatusLabel === "error" ? onRetryFailedMessage : undefined
                         }
                         onReply={onReplyToMessage}
+                        onForward={setMensajeAReenviar}
                         onDelete={onDeleteMessage}
                       />
                     ))}
@@ -1280,6 +1284,7 @@ export const ConversationPanel = memo(function ConversationPanel({
         />
         {/* El guion se INSERTA en el compositor (mismo mecanismo que las respuestas rápidas):
             la asesora lo ajusta y envía cuando quiere, nunca se manda solo. */}
+        <ForwardMessageDialog message={mensajeAReenviar} onClose={() => setMensajeAReenviar(null)} />
         <PlaybookPanelDialog
           open={isPlaybookOpen}
           onClose={() => setIsPlaybookOpen(false)}
