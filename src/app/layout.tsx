@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import type { CSSProperties } from "react";
 import { cookies } from "next/headers";
 import Script from "next/script";
@@ -41,11 +41,22 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+/**
+ * El color de la barra del navegador va aca, NO en generateMetadata.
+ *
+ * Estando en metadata, Next avisa en CADA render de CADA pagina ("Unsupported metadata
+ * themeColor..."). En produccion eso llenaba los logs del servidor: de 1749 lineas, 1724 eran
+ * este aviso repetido. Cuando algo se rompia de verdad, el error quedaba enterrado y los logs
+ * no servian para diagnosticar nada.
+ */
+export async function generateViewport(): Promise<Viewport> {
+  return {
+    themeColor: await getSystemPrimaryStrongColor(),
+  };
+}
+
 export async function generateMetadata(): Promise<Metadata> {
-  const [brandName, primaryStrongColor] = await Promise.all([
-    getSystemBrandName(),
-    getSystemPrimaryStrongColor(),
-  ]);
+  const brandName = await getSystemBrandName();
   const description = "La mejor solucion para su empresa";
   const socialImageUrl = getSiteUrl("/opengraph-image");
 
@@ -60,7 +71,6 @@ export async function generateMetadata(): Promise<Metadata> {
     keywords: [brandName.toLowerCase(), ...siteConfig.coreKeywords.filter((keyword) => keyword !== "magilus")],
     applicationName: brandName,
     category: "shopping",
-    themeColor: primaryStrongColor,
     appleWebApp: {
       capable: true,
       statusBarStyle: "default",
