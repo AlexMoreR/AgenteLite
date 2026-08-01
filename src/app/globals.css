@@ -106,10 +106,13 @@ body {
 }
 
 @media (max-width: 767px) {
+  /* --app-viewport-height la publica MobileKeyboardViewport y es lo unico que descuenta el
+     teclado en iPhone: con 100dvh a secas, al escribir el campo de texto queda tapado abajo y
+     las asesoras escriben sin ver. 100dvh queda de respaldo hasta que carga el JS. */
   body:has(.chat-inbox-grid) .chat-inbox-grid,
   body:has(.chat-inbox-grid) .chat-inbox-panel {
-    height: 100dvh;
-    max-height: 100dvh;
+    height: var(--app-viewport-height, 100dvh);
+    max-height: var(--app-viewport-height, 100dvh);
   }
 }
 

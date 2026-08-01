@@ -23,6 +23,7 @@ import { Separator } from "@/components/ui/separator";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { AppVersionGuard } from "@/components/app-version-guard";
+import { MobileKeyboardViewport } from "@/components/mobile-keyboard-viewport";
 import { ChatNotificationBell } from "@/components/ui/chat-notification-bell";
 import { HelpCopilotWidget } from "@/components/help/help-copilot-widget";
 import { ThemeToggleButton } from "@/components/ui/theme-toggle";
@@ -262,10 +263,11 @@ export function AppShell({
           chatSidebarItems={chatSidebarItems}
         />
         <AppVersionGuard />
+        <MobileKeyboardViewport />
         <SidebarInset
           className={cn(
             "flex min-h-screen w-full min-w-0 flex-col",
-            isChatWorkspacePath && "h-[100dvh] overflow-hidden",
+            isChatWorkspacePath && "h-[var(--app-viewport-height,100dvh)] overflow-hidden",
             isAgentWorkspacePath && "bg-[#F1F5F9]",
           )}
         >
