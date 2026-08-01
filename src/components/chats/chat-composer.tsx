@@ -25,7 +25,7 @@ export function ComposerSendButton() {
       variant="ghost"
       size="icon"
       disabled={pending}
-      className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-[var(--primary)] transition hover:bg-muted-foreground/20 disabled:cursor-not-allowed disabled:opacity-70 md:size-8"
+      className="inline-flex size-[34px] shrink-0 items-center justify-center rounded-full text-[var(--primary)] transition hover:bg-muted-foreground/20 disabled:cursor-not-allowed disabled:opacity-70 md:size-8"
       aria-label={pending ? "Enviando mensaje" : "Enviar mensaje"}
     >
       <SendHorizonal className={`size-6 ${pending ? "animate-pulse" : ""}`} />
