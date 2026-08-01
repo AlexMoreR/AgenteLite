@@ -1002,7 +1002,7 @@ export const ConversationPanel = memo(function ConversationPanel({
 
                   <div className="flex items-end gap-2 md:gap-3">
                     {isRecordingAudio ? (
-                      <div className="flex min-h-[42px] flex-1 items-center gap-2 rounded-2xl border border-border bg-muted/80 px-4 text-sm text-foreground md:min-h-[40px]">
+                      <div className="flex min-h-[36px] flex-1 items-center gap-2 rounded-2xl border border-border bg-muted/80 px-4 text-sm text-foreground md:min-h-[40px]">
                         <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-red-500" />
                         <span className="font-medium">Grabando</span>
                         <span className="tabular-nums text-muted-foreground">
@@ -1034,7 +1034,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                         </div>
                       </div>
                     ) : (
-                      <div className="flex min-h-[42px] min-w-0 flex-1 items-center gap-0.5 rounded-2xl border border-border bg-card px-1.5 shadow-[0_1px_6px_#0000001f] transition focus-within:border-[var(--primary)] focus-within:bg-card focus-within:ring-2 focus-within:ring-ring/50 md:min-h-[40px]">
+                      <div className="flex min-h-[36px] min-w-0 flex-1 items-center gap-0.5 rounded-2xl border border-border bg-card px-1.5 shadow-[0_1px_6px_#0000001f] transition focus-within:border-[var(--primary)] focus-within:bg-card focus-within:ring-2 focus-within:ring-ring/50 md:min-h-[40px]">
                         {mediaConfig ? (
                           <>
                             <input
@@ -1257,7 +1257,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                            * corrida. Ademas se lee, que era la queja: con 14px las asesoras no
                            * veian bien lo que escribian.
                            */
-                          className="min-h-[42px] min-w-0 flex-1 resize-none bg-transparent py-2.5 pr-2 text-[16px] leading-[1.35] text-foreground placeholder:text-muted-foreground outline-none disabled:opacity-70 md:min-h-[46px] md:py-3 md:text-sm"
+                          className="min-h-[30px] min-w-0 flex-1 resize-none bg-transparent py-1 pr-2 text-[16px] leading-[1.35] text-foreground placeholder:text-muted-foreground outline-none disabled:opacity-70 md:min-h-[46px] md:py-3 md:text-sm"
                         />
                         <Button
                           type="button"
