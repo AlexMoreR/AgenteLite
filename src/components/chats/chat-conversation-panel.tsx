@@ -954,7 +954,7 @@ export const ConversationPanel = memo(function ConversationPanel({
             </div>
 
             {composer && renderedConversation ? (
-              <div className="chat-composer z-20 shrink-0 bg-transparent px-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 md:px-2 md:py-2">
+              <div className="chat-composer z-20 shrink-0 bg-transparent px-1.5 pb-[calc(env(safe-area-inset-bottom)+0.375rem)] pt-1.5 md:px-2 md:py-2">
                 <form
                   className="mx-auto w-full max-w-5xl"
                   onSubmit={(event: FormEvent<HTMLFormElement>) => {
@@ -1002,7 +1002,7 @@ export const ConversationPanel = memo(function ConversationPanel({
 
                   <div className="flex items-end gap-2 md:gap-3">
                     {isRecordingAudio ? (
-                      <div className="flex min-h-[44px] flex-1 items-center gap-2 rounded-2xl border border-border bg-muted/80 px-4 text-sm text-foreground md:min-h-[40px]">
+                      <div className="flex min-h-[42px] flex-1 items-center gap-2 rounded-2xl border border-border bg-muted/80 px-4 text-sm text-foreground md:min-h-[40px]">
                         <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-red-500" />
                         <span className="font-medium">Grabando</span>
                         <span className="tabular-nums text-muted-foreground">
@@ -1034,7 +1034,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                         </div>
                       </div>
                     ) : (
-                      <div className="flex min-h-[44px] min-w-0 flex-1 items-center gap-0.5 rounded-2xl border border-border bg-card px-1.5 shadow-[0_1px_6px_#0000001f] transition focus-within:border-[var(--primary)] focus-within:bg-card focus-within:ring-2 focus-within:ring-ring/50 md:min-h-[40px]">
+                      <div className="flex min-h-[42px] min-w-0 flex-1 items-center gap-0.5 rounded-2xl border border-border bg-card px-1.5 shadow-[0_1px_6px_#0000001f] transition focus-within:border-[var(--primary)] focus-within:bg-card focus-within:ring-2 focus-within:ring-ring/50 md:min-h-[40px]">
                         {mediaConfig ? (
                           <>
                             <input
@@ -1251,7 +1251,13 @@ export const ConversationPanel = memo(function ConversationPanel({
                               setPendingMediaFiles(images);
                             }
                           }}
-                          className="min-h-[52px] min-w-0 flex-1 resize-none bg-transparent py-3.5 pr-2 text-[14px] text-foreground placeholder:text-muted-foreground outline-none disabled:opacity-70 md:min-h-[46px] md:py-3 md:text-sm"
+                          /**
+                           * 16px en el celular no es capricho: por debajo de eso el navegador
+                           * del iPhone HACE ZOOM solo al tocar el campo y deja la pantalla
+                           * corrida. Ademas se lee, que era la queja: con 14px las asesoras no
+                           * veian bien lo que escribian.
+                           */
+                          className="min-h-[42px] min-w-0 flex-1 resize-none bg-transparent py-2.5 pr-2 text-[16px] leading-[1.35] text-foreground placeholder:text-muted-foreground outline-none disabled:opacity-70 md:min-h-[46px] md:py-3 md:text-sm"
                         />
                         <Button
                           type="button"
