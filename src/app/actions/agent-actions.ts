@@ -3272,59 +3272,88 @@ export async function sendChatMediaReplyAction(input: {
     });
   } catch (mediaError) {
     const detail = mediaError instanceof Error ? mediaError.message : "";
+    // Sin esto el fallo era mudo por los dos lados: la asesora veia "No se pudo enviar X.pdf"
+    // sin motivo, y en el servidor no quedaba rastro. Se registra el POR QUE, con el peso y la
+    // instancia, que es lo primero que se necesita cuando dicen "no puedo mandar catalogos".
+    console.error("[chats] no se pudo enviar el archivo por Evolution", {
+      instancia: conversation.channel.evolutionInstanceName,
+      archivo: parsed.data.fileName,
+      tipo: mediatype,
+      pesoKb: Math.round(fileSize / 1024),
+      url: publicMediaUrl,
+      detalle: detail,
+    });
     return { error: detail ? `No se pudo enviar el archivo: ${detail}` : "No se pudo enviar el archivo" };
   }
 
   const now = new Date();
-  await prisma.message.create({
-    data: {
+
+  /**
+   * A esta altura WhatsApp YA entrego el archivo.
+   *
+   * Si algo de lo que sigue falla (guardar el mensaje, la base caida), antes se propagaba la
+   * excepcion y a la asesora le aparecia "No se pudo enviar": lo mandaba de nuevo y al cliente
+   * le llegaba el catalogo dos veces. Se deja el rastro en el log y se confirma el envio, que
+   * es lo que de verdad paso.
+   */
+  try {
+    await prisma.message.create({
+      data: {
+        workspaceId: membership.workspace.id,
+        conversationId: conversation.id,
+        channelId: conversation.channel.id,
+        contactId: conversation.contact.id,
+        // Mismo respaldo que el envio de audio: si el compositor no manda agente, se usa el de
+        // la conversacion, y si tampoco hay (canal sin agente) queda en null.
+        agentId: parsed.data.agentId?.trim() || conversation.agentId || null,
+        externalId: outbound.externalId,
+        direction: "OUTBOUND",
+        type: parsed.data.mediaType,
+        status: "SENT",
+        content: caption || null,
+        mediaUrl: parsed.data.mediaUrl,
+        sentAt: now,
+        rawPayload: {
+          source: "manual",
+          fileName: parsed.data.fileName,
+          mimeType: parsed.data.mimeType,
+          fileSize,
+          evolution: outbound.raw,
+        } as never,
+      },
+    });
+
+    await syncLeadLifecycleForContact({
       workspaceId: membership.workspace.id,
-      conversationId: conversation.id,
-      channelId: conversation.channel.id,
       contactId: conversation.contact.id,
-      // Mismo respaldo que el envio de audio: si el compositor no manda agente, se usa el de
-      // la conversacion, y si tampoco hay (canal sin agente) queda en null.
-      agentId: parsed.data.agentId?.trim() || conversation.agentId || null,
+      hasHistory: true,
+    });
+
+    await prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { lastMessageAt: now, status: "OPEN" },
+    });
+
+    await setConversationAutomationPaused({
+      conversationId: conversation.id,
+      paused: true,
+    });
+
+    const safeReturnTo = normalizeInternalPath(parsed.data.returnTo ?? "", "");
+    if (safeReturnTo) {
+      revalidatePath(safeReturnTo.split("?")[0]);
+    }
+    const revalidateAgentId = parsed.data.agentId?.trim() || conversation.agentId;
+    if (revalidateAgentId) {
+      revalidatePath(`/cliente/agentes/${revalidateAgentId}/chats`);
+    }
+  } catch (persistError) {
+    console.error("[chats] el archivo SI se envio pero no se pudo guardar en el chat", {
+      conversationId: conversation.id,
+      archivo: parsed.data.fileName,
       externalId: outbound.externalId,
-      direction: "OUTBOUND",
-      type: parsed.data.mediaType,
-      status: "SENT",
-      content: caption || null,
-      mediaUrl: parsed.data.mediaUrl,
-      sentAt: now,
-      rawPayload: {
-        source: "manual",
-        fileName: parsed.data.fileName,
-        mimeType: parsed.data.mimeType,
-        fileSize,
-        evolution: outbound.raw,
-      } as never,
-    },
-  });
-
-  await syncLeadLifecycleForContact({
-    workspaceId: membership.workspace.id,
-    contactId: conversation.contact.id,
-    hasHistory: true,
-  });
-
-  await prisma.conversation.update({
-    where: { id: conversation.id },
-    data: { lastMessageAt: now, status: "OPEN" },
-  });
-
-  await setConversationAutomationPaused({
-    conversationId: conversation.id,
-    paused: true,
-  });
-
-  const safeReturnTo = normalizeInternalPath(parsed.data.returnTo ?? "", "");
-  if (safeReturnTo) {
-    revalidatePath(safeReturnTo.split("?")[0]);
-  }
-  const revalidateAgentId = parsed.data.agentId?.trim() || conversation.agentId;
-  if (revalidateAgentId) {
-    revalidatePath(`/cliente/agentes/${revalidateAgentId}/chats`);
+      detalle: persistError instanceof Error ? persistError.message : String(persistError),
+    });
   }
 
   return { ok: true };
