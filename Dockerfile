@@ -10,6 +10,9 @@ WORKDIR /app
 ARG DEPLOYMENT_ID
 ARG NEXT_SERVER_ACTIONS_ENCRYPTION_KEY
 ENV DEPLOYMENT_ID=${DEPLOYMENT_ID}
+# La misma version, pero visible desde el navegador: con esto la app se da cuenta sola de que
+# quedo corriendo una version vieja (ver /api/version y AvisoVersionNueva).
+ENV NEXT_PUBLIC_DEPLOYMENT_ID=${DEPLOYMENT_ID}
 ENV NEXT_SERVER_ACTIONS_ENCRYPTION_KEY=${NEXT_SERVER_ACTIONS_ENCRYPTION_KEY}
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /app/node_modules ./node_modules

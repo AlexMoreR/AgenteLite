@@ -27,6 +27,7 @@ import {
   X,
 } from "lucide-react";
 import { ChatScrollAnchor } from "@/components/agents/chat-scroll-anchor";
+import { hayVersionNueva } from "@/components/app-version-guard";
 import { ContactAvatar } from "@/components/chats/contact-avatar";
 import { getContactDetailsAction, generateSuggestedReplyAction, refreshContactAvatarNowAction } from "@/app/actions/chats-actions";
 import { sendChatLocationReplyAction } from "@/app/actions/agent-actions";
@@ -346,6 +347,21 @@ export const ConversationPanel = memo(function ConversationPanel({
           const failedId = optimisticId;
           setOptimisticMediaMessages((prev) => prev.filter((message) => message.id !== failedId));
         }
+
+        /**
+         * La causa mas comun de que reviente aca no tiene nada que ver con el archivo: la app
+         * lleva horas abierta, desplegamos, y el envio le pega a una version del servidor que
+         * ya no existe. Decirle "no se pudo enviar el PDF" manda a la asesora a pelear con el
+         * archivo equivocado, asi que primero se pregunta si la pagina quedo vieja.
+         */
+        if (await hayVersionNueva()) {
+          toast.error("Actualizamos la app. Recargá y volvé a mandarlo.", {
+            duration: 15000,
+            action: { label: "Recargar", onClick: () => window.location.reload() },
+          });
+          return false;
+        }
+
         toast.error(`No se pudo enviar "${file.name}".`);
         return false;
       }

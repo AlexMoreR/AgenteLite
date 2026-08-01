@@ -22,6 +22,7 @@ import { Navbar } from "@/components/navbar";
 import { Separator } from "@/components/ui/separator";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
+import { AppVersionGuard } from "@/components/app-version-guard";
 import { ChatNotificationBell } from "@/components/ui/chat-notification-bell";
 import { HelpCopilotWidget } from "@/components/help/help-copilot-widget";
 import { ThemeToggleButton } from "@/components/ui/theme-toggle";
@@ -260,6 +261,7 @@ export function AppShell({
           currentConnectionKey={currentConnectionKey}
           chatSidebarItems={chatSidebarItems}
         />
+        <AppVersionGuard />
         <SidebarInset
           className={cn(
             "flex min-h-screen w-full min-w-0 flex-col",
