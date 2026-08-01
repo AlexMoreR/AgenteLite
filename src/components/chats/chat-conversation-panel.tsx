@@ -1257,7 +1257,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                            * corrida. Ademas se lee, que era la queja: con 14px las asesoras no
                            * veian bien lo que escribian.
                            */
-                          className="min-h-[34px] min-w-0 flex-1 resize-none bg-transparent py-1.5 pr-2 text-[16px] leading-[1.35] text-foreground placeholder:text-muted-foreground outline-none disabled:opacity-70 md:min-h-[46px] md:py-3 md:text-sm"
+                          className="min-h-[38px] min-w-0 flex-1 resize-none bg-transparent py-2 pr-2 text-[16px] leading-[1.35] text-foreground placeholder:text-muted-foreground outline-none disabled:opacity-70 md:min-h-[46px] md:py-3 md:text-sm"
                         />
                         <Button
                           type="button"
