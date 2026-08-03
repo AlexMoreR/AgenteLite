@@ -97,6 +97,43 @@ export function getCallMessageSummary(message: SharedInboxMessageItem) {
   };
 }
 
-export function formatDateDivider(date: Date) {
+const chatWeekdayFormatter = new Intl.DateTimeFormat("es-CO", {
+  weekday: "long",
+  timeZone: CHAT_TIME_ZONE,
+});
+
+const MS_POR_DIA = 24 * 60 * 60 * 1000;
+
+/**
+ * Separador de fecha del chat, como en WhatsApp: "Hoy", "Ayer", el dia de la semana dentro de
+ * la ultima semana, y la fecha completa mas atras. "3/8/2026" obliga a hacer la cuenta mental
+ * de si eso es hoy o no, justo en la conversacion que estas atendiendo.
+ *
+ * El dia se compara con `chatDateFormatter` (da YYYY-MM-DD en Bogota) y NO con getDate() del
+ * navegador: si la maquina esta en otra zona horaria, "hoy" se corre de dia.
+ */
+export function formatDateDivider(date: Date, now: Date = new Date()) {
+  const dayKey = chatDateFormatter.format(date);
+  const todayKey = chatDateFormatter.format(now);
+
+  if (dayKey === todayKey) {
+    return "Hoy";
+  }
+
+  const diffDays = Math.round(
+    (Date.parse(`${todayKey}T00:00:00Z`) - Date.parse(`${dayKey}T00:00:00Z`)) / MS_POR_DIA,
+  );
+
+  if (diffDays === 1) {
+    return "Ayer";
+  }
+
+  // Dentro de la ultima semana el dia de la semana ubica mejor que la fecha ("el jueves").
+  // Fechas futuras (reloj desfasado) caen al formato normal.
+  if (diffDays > 1 && diffDays < 7) {
+    const weekday = chatWeekdayFormatter.format(date);
+    return weekday.charAt(0).toUpperCase() + weekday.slice(1);
+  }
+
   return chatDateLabelFormatter.format(date);
 }
