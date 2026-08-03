@@ -1513,6 +1513,85 @@ export async function scanEvolutionChatSyncCandidateByPhone(input: {
   };
 }
 
+/**
+ * Importa VARIOS chats de una pasada.
+ *
+ * Existe porque el escaneo de un canal recien vinculado ofrece una docena de chats y hacerlos
+ * de a uno son doce vueltas de abrir-escanear-elegir-agregar. Cada chat se guarda por separado
+ * (transaccion propia), asi que si el pedido se corta a la mitad lo ya importado queda.
+ *
+ * En Evolution GO ademas se lee el historial UNA sola vez para todos: son payloads de cientos
+ * de KB y releerlos por chat era lo mismo doce veces.
+ */
+export async function applyEvolutionChatSyncCandidates(input: {
+  workspaceId: string;
+  channelId: string;
+  candidates: EvolutionChatSyncCandidate[];
+  importLimit?: number | null;
+}): Promise<
+  | { ok: true; chats: number; messages: number; failed: Array<{ phoneNumber: string; error: string }> }
+  | { ok: false; error: string }
+> {
+  const channel = await prisma.whatsAppChannel.findFirst({
+    where: { id: input.channelId, workspaceId: input.workspaceId, provider: "EVOLUTION" },
+    select: { id: true, agentId: true, evolutionInstanceName: true, metadata: true },
+  });
+
+  if (!channel?.evolutionInstanceName) {
+    return { ok: false, error: "El canal no tiene una instancia Evolution valida para importar mensajes." };
+  }
+
+  const isGoGateway = !supportsRemoteChatSync(readGatewayConnection(channel.metadata));
+  const historyChats = isGoGateway ? await readEvolutionGoHistoryChats(channel.evolutionInstanceName) : null;
+  // Presupuesto de adjuntos COMPARTIDO por toda la tanda: cada descarga es una llamada al
+  // gateway y un archivo en disco, y aca se importan doce chats seguidos con el usuario
+  // esperando. Sin esto, un chat lleno de PDF se come el rato de todos los demas.
+  const mediaBudget = { remaining: HISTORY_SYNC_BULK_MEDIA_LIMIT };
+
+  let chats = 0;
+  let messages = 0;
+  const failed: Array<{ phoneNumber: string; error: string }> = [];
+
+  for (const candidate of input.candidates) {
+    try {
+      const result = historyChats
+        ? await applyEvolutionGoHistoryCandidate({
+            workspaceId: input.workspaceId,
+            channel: {
+              id: channel.id,
+              agentId: channel.agentId,
+              evolutionInstanceName: channel.evolutionInstanceName,
+            },
+            candidate,
+            importLimit: input.importLimit,
+            historyChats,
+            mediaBudget,
+          })
+        : await applyEvolutionChatSyncCandidate({
+            workspaceId: input.workspaceId,
+            channelId: input.channelId,
+            candidate,
+            importLimit: input.importLimit,
+          });
+
+      if (result.ok) {
+        chats += 1;
+        messages += "messagesImported" in result ? (result.messagesImported ?? 0) : 0;
+      } else {
+        failed.push({ phoneNumber: candidate.remotePhoneNumber, error: result.error });
+      }
+    } catch (error) {
+      // Un chat que falla no puede tumbar la tanda: se anota y se sigue con el siguiente.
+      failed.push({
+        phoneNumber: candidate.remotePhoneNumber,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  return { ok: true, chats, messages, failed };
+}
+
 export async function applyEvolutionChatSyncCandidate(input: {
   workspaceId: string;
   channelId: string;
@@ -1981,6 +2060,8 @@ const HISTORY_SYNC_MAX_MESSAGES_PER_CHAT = 300;
 const HISTORY_SYNC_PREVIEW_LIMIT = 12;
 /** Tope de adjuntos por importacion: cada uno es una descarga + descifrado en el servidor. */
 const HISTORY_SYNC_MEDIA_LIMIT = 25;
+/** Tope de adjuntos para una tanda entera (importar todos): se reparte entre los chats. */
+const HISTORY_SYNC_BULK_MEDIA_LIMIT = 60;
 
 type EvolutionGoHistoryMessage = {
   externalId: string;
@@ -2357,11 +2438,15 @@ async function scanEvolutionGoHistoryCandidates(input: {
   };
 }
 
+/** Cuantos adjuntos quedan por bajar. Se comparte cuando se importan varios chats seguidos. */
+type HistoryMediaBudget = { remaining: number };
+
 /** Convierte los mensajes del history sync en el mismo borrador que usa la importacion normal. */
 async function buildEvolutionGoHistoryImportedMessages(input: {
   instanceName: string;
   channelId: string;
   messages: EvolutionGoHistoryMessage[];
+  mediaBudget?: HistoryMediaBudget;
 }): Promise<EvolutionChatSyncImportedMessageDraft[]> {
   // Los que ya estan guardados no se vuelven a armar: lo caro no es la fila, es bajar otra vez
   // sus adjuntos (WhatsApp los manda cifrados y hay que pedirle a evogo que los descifre).
@@ -2375,7 +2460,7 @@ async function buildEvolutionGoHistoryImportedMessages(input: {
   const storedIds = new Set(stored.map((message) => message.externalId));
 
   const drafts: EvolutionChatSyncImportedMessageDraft[] = [];
-  let mediaDownloaded = 0;
+  const mediaBudget = input.mediaBudget ?? { remaining: HISTORY_SYNC_MEDIA_LIMIT };
 
   for (const message of input.messages) {
     if (storedIds.has(message.externalId)) {
@@ -2386,7 +2471,7 @@ async function buildEvolutionGoHistoryImportedMessages(input: {
     const isMedia = type === "IMAGE" || type === "VIDEO" || type === "AUDIO" || type === "DOCUMENT" || type === "STICKER";
 
     let mediaUrl: string | null = null;
-    if (isMedia && message.content && mediaDownloaded < HISTORY_SYNC_MEDIA_LIMIT) {
+    if (isMedia && message.content && mediaBudget.remaining > 0) {
       try {
         const dataUrl = await fetchEvolutionGoMediaDataUrl({
           instanceName: input.instanceName,
@@ -2394,7 +2479,7 @@ async function buildEvolutionGoHistoryImportedMessages(input: {
         });
         mediaUrl = await persistChatMediaFromDataUrl({ dataUrl, mediaType: type });
         if (mediaUrl) {
-          mediaDownloaded += 1;
+          mediaBudget.remaining -= 1;
         }
       } catch {
         // WhatsApp borra los archivos viejos de sus servidores: el mensaje se guarda igual,
@@ -2425,9 +2510,13 @@ async function applyEvolutionGoHistoryCandidate(input: {
   channel: { id: string; agentId: string | null; evolutionInstanceName: string };
   candidate: EvolutionChatSyncCandidate;
   importLimit?: number | null;
+  // Historial ya leido (importar todos lo lee una vez para toda la tanda) y presupuesto de
+  // adjuntos compartido. Sin ellos se lee aca y el tope es el de un solo chat.
+  historyChats?: EvolutionGoHistoryChat[];
+  mediaBudget?: HistoryMediaBudget;
 }) {
   const phoneNumber = normalizePhoneDigits(input.candidate.remotePhoneNumber);
-  const chats = await readEvolutionGoHistoryChats(input.channel.evolutionInstanceName);
+  const chats = input.historyChats ?? (await readEvolutionGoHistoryChats(input.channel.evolutionInstanceName));
   const chat = chats.find((item) => item.phoneNumber === phoneNumber);
 
   if (!chat) {
@@ -2444,6 +2533,7 @@ async function applyEvolutionGoHistoryCandidate(input: {
     instanceName: input.channel.evolutionInstanceName,
     channelId: input.channel.id,
     messages: selected,
+    mediaBudget: input.mediaBudget,
   });
 
   return persistEvolutionChatSyncCandidate({

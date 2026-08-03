@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { AlertCircle, AlertTriangle, CheckCircle2, History, Loader2, RefreshCw, Users } from "lucide-react";
 import { toast } from "sonner";
 import {
+  applyAllEvolutionChatSyncAction,
   applyEvolutionChatSyncAction,
   scanEvolutionChatSyncAction,
   scanEvolutionChatSyncByPhoneAction,
@@ -186,6 +187,43 @@ export function EvolutionChatSyncDialog({ channelId }: EvolutionChatSyncDialogPr
           scanMessage: state.scanMessage,
           candidates: state.candidates,
           selectedFingerprint: selectedCandidate.fingerprint,
+        });
+        return;
+      }
+
+      toast.success(result.message);
+      setOpen(false);
+      router.refresh();
+    });
+  }
+
+  // Importa toda la lista de una. En un canal recien vinculado son una docena de chats, y de
+  // a uno el dialogo se cierra en cada importacion: son doce vueltas para dejar el CRM como
+  // ya estaba en el telefono.
+  function runApplyAll() {
+    if (state.phase !== "batch" || !candidateList.length) {
+      return;
+    }
+
+    setState((current) => ({
+      ...current,
+      error: null,
+    }));
+
+    startTransition(async () => {
+      const result = await applyAllEvolutionChatSyncAction({
+        channelId,
+        candidates: candidateList,
+        importLimit: importLimit === "all" ? null : Number(importLimit),
+      });
+
+      if (!result.ok) {
+        setState({
+          phase: "batch",
+          error: result.error,
+          scanMessage: state.scanMessage,
+          candidates: state.candidates,
+          selectedFingerprint: state.selectedFingerprint,
         });
         return;
       }
@@ -458,13 +496,25 @@ export function EvolutionChatSyncDialog({ channelId }: EvolutionChatSyncDialogPr
                     </span>
                   </p>
                 ) : null}
+                {isPending ? (
+                  <p className="px-1 text-[13px] text-muted-foreground">
+                    Importando… los chats con fotos y PDF tardan más porque cada archivo se descarga al
+                    servidor. No cierres esta ventana.
+                  </p>
+                ) : null}
                 <DialogFooter>
                   <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={isPending}>
                     Ignorar
                   </Button>
+                  {candidateList.length > 1 ? (
+                    <Button type="button" variant="secondary" onClick={runApplyAll} disabled={isPending}>
+                      {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                      Importar los {candidateList.length}
+                    </Button>
+                  ) : null}
                   <Button type="button" onClick={runApply} disabled={isPending}>
                     {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                    Agregar
+                    Agregar solo este
                   </Button>
                 </DialogFooter>
               </>

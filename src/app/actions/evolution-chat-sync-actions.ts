@@ -5,6 +5,7 @@ import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import {
   applyEvolutionChatSyncCandidate,
+  applyEvolutionChatSyncCandidates,
   scanEvolutionChatSyncCandidate,
   scanEvolutionChatSyncCandidateByPhone,
   type EvolutionChatSyncApplyResult,
@@ -98,31 +99,121 @@ export async function scanEvolutionChatSyncByPhoneAction(input: {
   }
 }
 
+// El candidato viaja desde el navegador, asi que se escribe entero en vez de importar el tipo
+// del lado servidor: lo que llega es JSON, no la instancia de la libreria.
+type CandidateInput = {
+  fingerprint: string;
+  kind: "CONTACT" | "CONVERSATION";
+  remotePhoneNumber: string;
+  remoteDisplayName: string | null;
+  remoteJid: string | null;
+  remoteJidAlt: string | null;
+  remoteItemId: string | null;
+  summary: string;
+  needsContact: boolean;
+  needsConversation: boolean;
+  needsMessages: boolean;
+  messagePreview: Array<{
+    id: string;
+    direction: "INBOUND" | "OUTBOUND";
+    type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM";
+    content: string | null;
+    createdAt: string;
+    mediaUrl: string | null;
+  }>;
+};
+
+// Un chat importado aparece en Chats, en Contactos y en la pantalla del canal: si no se
+// invalidan, el usuario vuelve y sigue viendo la lista de antes.
+async function revalidateAfterChatSync(input: { channelId: string; workspaceId: string }) {
+  revalidatePath("/cliente/chats");
+  revalidatePath("/cliente/contactos");
+  revalidatePath("/cliente/conexion");
+  revalidatePath(`/cliente/conexion/whatsapp-business/${input.channelId}`);
+
+  const channel = await prisma.whatsAppChannel.findFirst({
+    where: {
+      id: input.channelId,
+      workspaceId: input.workspaceId,
+    },
+    select: {
+      agentId: true,
+    },
+  });
+
+  if (channel?.agentId) {
+    revalidatePath(`/cliente/agentes/${channel.agentId}/chats`);
+    revalidatePath(`/cliente/agentes/${channel.agentId}`);
+  }
+}
+
+/**
+ * Importa TODOS los chats que ofrecio el escaneo, de una.
+ *
+ * El escaneo de un canal recien vinculado ofrece una docena de chats y el "Agregar" de a uno
+ * cierra el dialogo cada vez: doce vueltas de abrir-escanear-elegir-agregar para dejar el CRM
+ * como estaba en el telefono.
+ */
+export async function applyAllEvolutionChatSyncAction(input: {
+  channelId: string;
+  importLimit?: number | null;
+  candidates: CandidateInput[];
+}): Promise<{ ok: true; message: string; chats: number; messages: number } | { ok: false; error: string }> {
+  const membership = await requireWorkspace();
+  if (!membership) {
+    return { ok: false, error: "No autorizado" };
+  }
+
+  const candidates = (input.candidates ?? []).filter((candidate) => candidate?.remotePhoneNumber?.trim());
+  if (!input.channelId.trim() || !candidates.length) {
+    return { ok: false, error: "Datos invalidos" };
+  }
+
+  let result: Awaited<ReturnType<typeof applyEvolutionChatSyncCandidates>>;
+  try {
+    result = await applyEvolutionChatSyncCandidates({
+      workspaceId: membership.workspace.id,
+      channelId: input.channelId.trim(),
+      candidates,
+      importLimit: input.importLimit,
+    });
+  } catch (error) {
+    return describeSyncFailure(error);
+  }
+
+  if (!result.ok) {
+    return result;
+  }
+
+  await revalidateAfterChatSync({
+    channelId: input.channelId.trim(),
+    workspaceId: membership.workspace.id,
+  });
+
+  // Se informan los que fallaron en el mismo mensaje: un "listo" a secas despues de importar
+  // 9 de 12 es mentira, y nadie va a ir a buscar los 3 que faltan.
+  const failedSummary = result.failed.length
+    ? ` ${result.failed.length} ${result.failed.length === 1 ? "chat quedo" : "chats quedaron"} sin importar (${result.failed
+        .slice(0, 3)
+        .map((item) => item.phoneNumber)
+        .join(", ")}${result.failed.length > 3 ? "…" : ""}).`
+    : "";
+
+  return {
+    ok: true,
+    chats: result.chats,
+    messages: result.messages,
+    message: `Se importaron ${result.chats} ${result.chats === 1 ? "chat" : "chats"} con ${result.messages} ${
+      result.messages === 1 ? "mensaje" : "mensajes"
+    }.${failedSummary}`,
+  };
+}
+
 export async function applyEvolutionChatSyncAction(input: {
   channelId: string;
   // Cantidad de mensajes mas recientes a importar. null = todo el historial.
   importLimit?: number | null;
-  candidate: {
-    fingerprint: string;
-    kind: "CONTACT" | "CONVERSATION";
-    remotePhoneNumber: string;
-    remoteDisplayName: string | null;
-    remoteJid: string | null;
-    remoteJidAlt: string | null;
-    remoteItemId: string | null;
-    summary: string;
-    needsContact: boolean;
-    needsConversation: boolean;
-    needsMessages: boolean;
-    messagePreview: Array<{
-      id: string;
-      direction: "INBOUND" | "OUTBOUND";
-      type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM";
-      content: string | null;
-      createdAt: string;
-      mediaUrl: string | null;
-    }>;
-  };
+  candidate: CandidateInput;
 }): Promise<EvolutionChatSyncApplyResult> {
   const membership = await requireWorkspace();
   if (!membership) {
@@ -149,25 +240,10 @@ export async function applyEvolutionChatSyncAction(input: {
     return result;
   }
 
-  revalidatePath("/cliente/chats");
-  revalidatePath("/cliente/contactos");
-  revalidatePath("/cliente/conexion");
-  revalidatePath(`/cliente/conexion/whatsapp-business/${input.channelId.trim()}`);
-
-  const channel = await prisma.whatsAppChannel.findFirst({
-    where: {
-      id: input.channelId.trim(),
-      workspaceId: membership.workspace.id,
-    },
-    select: {
-      agentId: true,
-    },
+  await revalidateAfterChatSync({
+    channelId: input.channelId.trim(),
+    workspaceId: membership.workspace.id,
   });
-
-  if (channel?.agentId) {
-    revalidatePath(`/cliente/agentes/${channel.agentId}/chats`);
-    revalidatePath(`/cliente/agentes/${channel.agentId}`);
-  }
 
   return result;
 }
