@@ -6,6 +6,7 @@ import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/cl
 import { scheduleContactAvatarRefresh, type ContactAvatarTarget } from "@/lib/contact-avatar-refresh";
 import { extractEvolutionMessageText, extractEvolutionPushName } from "@/lib/evolution-webhook";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
+import { getVisibleChannelIds } from "@/lib/channel-visibility";
 import { prisma } from "@/lib/prisma";
 
 type UnifiedConversation = {
@@ -128,6 +129,8 @@ async function getAgentConversationList(input: {
   assignedFilter: "all" | "mine" | "unassigned";
   statusFilter: "all" | "open" | "resolved";
   currentUserId: string;
+  // Canales que esta persona puede ver, o null si ve todos (ver channel-visibility).
+  visibleChannelIds: string[] | null;
   offset: number;
   limit: number;
 }) {
@@ -147,6 +150,7 @@ async function getAgentConversationList(input: {
   const conversationWhere: Prisma.ConversationWhereInput = {
     workspaceId: input.workspaceId,
     AND: [
+      input.visibleChannelIds ? { channelId: { in: input.visibleChannelIds } } : {},
       input.selectedConnectionKey.startsWith("channel:")
         ? { channelId: input.selectedConnectionKey.slice("channel:".length) }
         : {},
@@ -188,7 +192,10 @@ async function getAgentConversationList(input: {
   };
 
   const channels = await prisma.whatsAppChannel.findMany({
-    where: { workspaceId: input.workspaceId },
+    where: {
+      workspaceId: input.workspaceId,
+      ...(input.visibleChannelIds ? { id: { in: input.visibleChannelIds } } : {}),
+    },
     select: {
       id: true,
       provider: true,
@@ -506,6 +513,12 @@ export async function GET(request: Request) {
   const statusFilter: "all" | "open" | "resolved" =
     requestedStatusRaw === "open" || requestedStatusRaw === "resolved" ? requestedStatusRaw : "all";
 
+  const visibleChannelIds = await getVisibleChannelIds({
+    workspaceId: membership.workspace.id,
+    userId: session.user.id,
+    esJefe: isManager,
+  });
+
   const data = await getAgentConversationList({
     workspaceId: membership.workspace.id,
     searchQuery,
@@ -513,6 +526,7 @@ export async function GET(request: Request) {
     assignedFilter,
     statusFilter,
     currentUserId: session.user.id,
+    visibleChannelIds,
     offset,
     limit,
   });

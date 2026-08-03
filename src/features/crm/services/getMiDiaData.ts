@@ -76,7 +76,11 @@ function previewFromMessage(content: string | null, rawPayload: unknown, type: s
   return "Sin mensajes visibles.";
 }
 
-export async function getMiDiaData(input: { workspaceId: string; userId: string }): Promise<MiDiaData> {
+export async function getMiDiaData(input: {
+  workspaceId: string;
+  userId: string;
+  visibleChannelIds?: string[] | null;
+}): Promise<MiDiaData> {
   try {
     return await computeMiDiaData(input);
   } catch (error) {
@@ -87,7 +91,11 @@ export async function getMiDiaData(input: { workspaceId: string; userId: string 
   }
 }
 
-async function computeMiDiaData(input: { workspaceId: string; userId: string }): Promise<MiDiaData> {
+async function computeMiDiaData(input: {
+  workspaceId: string;
+  userId: string;
+  visibleChannelIds?: string[] | null;
+}): Promise<MiDiaData> {
   const now = Date.now();
   const maxAge = new Date(now - MAX_DAYS_SINCE_CONTACT * 24 * 60 * 60 * 1000);
   const minAge = new Date(now - MIN_HOURS_SINCE_CONTACT * 60 * 60 * 1000);
@@ -112,6 +120,8 @@ async function computeMiDiaData(input: { workspaceId: string; userId: string }):
        * asi que separar por rol no separaria nada.
        */
       OR: [{ assignedToUserId: input.userId }, { assignedToUserId: null }],
+      // Canales que no puede ver (p. ej. la linea administrativa) no le meten leads en el dia.
+      ...(input.visibleChannelIds ? { channelId: { in: input.visibleChannelIds } } : {}),
     },
     orderBy: { lastMessageAt: "desc" },
     take: 300,
@@ -170,6 +180,7 @@ async function computeMiDiaData(input: { workspaceId: string; userId: string }):
         contactId: { in: faltantes },
         contact: { excludedFromCrm: false },
         OR: [{ assignedToUserId: input.userId }, { assignedToUserId: null }],
+        ...(input.visibleChannelIds ? { channelId: { in: input.visibleChannelIds } } : {}),
       },
       orderBy: { lastMessageAt: "desc" },
       select: {

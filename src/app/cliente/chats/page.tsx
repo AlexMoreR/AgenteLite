@@ -26,6 +26,7 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
+import { getVisibleChannelIds } from "@/lib/channel-visibility";
 import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
 
 export const dynamic = "force-dynamic";
@@ -254,9 +255,23 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
 
   const selectedChatRef = parseChatKey(selectedChatKeyParam);
   const conversationListTake = searchQuery || selectedChatRef ? 40 : 20;
+
+  /**
+   * Canales que esta persona puede ver (ver channel-visibility).
+   *
+   * La linea administrativa no la tiene que ver ninguna asesora: ni la conexion en la lista, ni
+   * sus chats mezclados en "Todas".
+   */
+  const canalesVisibles = await getVisibleChannelIds({
+    workspaceId: membership.workspace.id,
+    userId: access.userId,
+    esJefe: access.isOwner || access.role === "ADMIN",
+  });
+
   const conversationWhere: Prisma.ConversationWhereInput = {
     workspaceId: membership.workspace.id,
     AND: [
+      canalesVisibles ? { channelId: { in: canalesVisibles } } : {},
       selectedConnectionParam.startsWith("channel:")
         ? { channelId: selectedConnectionParam.slice("channel:".length) }
         : {},
@@ -300,7 +315,10 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   const [evolutionSettings, channels, agentConversationsRaw, selectedAgentConversationRow, officialChatsData] = await Promise.all([
     getEvolutionSettings(),
     prisma.whatsAppChannel.findMany({
-      where: { workspaceId: membership.workspace.id },
+      where: {
+        workspaceId: membership.workspace.id,
+        ...(canalesVisibles ? { id: { in: canalesVisibles } } : {}),
+      },
       select: {
         id: true,
         name: true,

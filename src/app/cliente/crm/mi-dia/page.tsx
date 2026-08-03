@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
+import { getVisibleChannelIds } from "@/lib/channel-visibility";
 import { getMiDiaData } from "@/features/crm/services/getMiDiaData";
 import { MiDiaView } from "@/features/crm/components/MiDiaView";
 
@@ -18,7 +19,17 @@ export default async function ClienteCrmMiDiaPage() {
   // donde mandarlo segun sus permisos.
   const access = await requireClientWorkspaceAccess("crm", { redirectTo: "/cliente" });
   // Su dia: la lista trae SUS leads y los que no tienen dueno, no los de otra persona.
-  const data = await getMiDiaData({ workspaceId: access.workspaceId, userId: access.userId });
+  const visibleChannelIds = await getVisibleChannelIds({
+    workspaceId: access.workspaceId,
+    userId: access.userId,
+    esJefe: access.isOwner || access.role === "ADMIN",
+  });
+
+  const data = await getMiDiaData({
+    workspaceId: access.workspaceId,
+    userId: access.userId,
+    visibleChannelIds,
+  });
 
   return <MiDiaView data={data} />;
 }
