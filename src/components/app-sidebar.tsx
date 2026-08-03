@@ -11,6 +11,7 @@ import {
   Blocks,
   FileText,
   KanbanSquare,
+  LayoutDashboard,
   Megaphone,
   MessageSquare,
   MessageSquareMore,
@@ -149,6 +150,22 @@ export function AppSidebar({
                 isChatsRoute={pathname.startsWith("/cliente/chats")}
                 chatSidebarItems={chatSidebarItems}
               />
+            ) : null}
+            {/* Aparte del CRM a proposito: el CRM es la herramienta del negocio y "Mi tablero"
+                es como viene UNA persona. Metido adentro del CRM se leia como una vista mas del
+                informe general, que es justo lo que no es. */}
+            {adminModuleAccess.crm ? (
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    render={<Link href="/cliente/mi-tablero" />}
+                    isActive={pathname.startsWith("/cliente/mi-tablero")}
+                  >
+                    <LayoutDashboard />
+                    <span>Mi tablero</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
             ) : null}
             {adminModuleAccess.crm ? (
               <NavCrm
