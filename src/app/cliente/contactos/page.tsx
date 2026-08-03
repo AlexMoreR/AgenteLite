@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { BarChart3, MoreVertical, Search, Users2 } from "lucide-react";
+import { BarChart3, MoreVertical, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -11,7 +11,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { PageHeader } from "@/components/ui/page-header";
 import { getContactosData } from "@/features/contactos";
 import { ContactosCardsList } from "@/features/contactos/components/ContactosCardsList";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
@@ -43,21 +42,21 @@ export default async function ClienteContactosPage({ searchParams }: PageProps) 
 
   return (
     <section className="space-y-4 p-4 md:p-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <PageHeader icon={Users2} title="Contactos" />
+      {/* Sin titulo: la pantalla ya dice "Contactos" en el menu y arriba. Repetirlo solo comia
+          el lugar del buscador, que es lo unico que se usa de verdad en esta pantalla. */}
+      <div className="flex items-center gap-2">
+        <form method="get" className="relative min-w-0 flex-1">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            name="q"
+            defaultValue={searchQuery}
+            placeholder="Buscar contacto"
+            className="h-9 pl-8"
+            aria-label="Buscar contactos"
+          />
+        </form>
 
-        <div className="flex min-w-0 flex-1 items-center justify-end gap-2 sm:flex-none">
-          <form method="get" className="relative w-full max-w-xs sm:w-64">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              name="q"
-              defaultValue={searchQuery}
-              placeholder="Buscar contacto"
-              className="h-9 pl-8"
-              aria-label="Buscar contactos"
-            />
-          </form>
-
+        <div className="shrink-0">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button type="button" variant="outline" size="icon" aria-label="Más opciones de contactos">
