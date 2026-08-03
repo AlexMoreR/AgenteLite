@@ -2041,17 +2041,22 @@ function readHistorySyncDisplayName(conversation: UnknownRecord | null, messages
  * FULL repiten conversaciones) y el mismo mensaje aparece en varios.
  */
 async function readEvolutionGoHistoryChats(instanceName: string): Promise<EvolutionGoHistoryChat[]> {
-  const logs = await prisma.webhookEventLog.findMany({
-    where: {
-      provider: "EVOLUTION",
-      instanceName,
-      event: { contains: "HISTORY", mode: "insensitive" },
-      createdAt: { gte: new Date(Date.now() - HISTORY_SYNC_LOOKBACK_DAYS * 24 * 60 * 60 * 1000) },
-    },
-    orderBy: { createdAt: "desc" },
-    take: HISTORY_SYNC_MAX_EVENTS,
-    select: { payload: true },
-  });
+  // Se filtra en la base por los eventos que TRAEN conversaciones, no por los mas recientes.
+  // Una vinculacion emite un chorro de eventos HISTORYSYNC y casi todos son avisos de avance
+  // ({ progress, syncType, chunkOrder }, 222 bytes): pidiendo "los ultimos 8" salian 8 de esos
+  // y el que importa —el RECENT de ~650 KB, con los chats— quedaba afuera. Asi tambien se
+  // evita traer esos payloads gigantes al servidor para descartarlos aca.
+  const since = new Date(Date.now() - HISTORY_SYNC_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+  const logs = await prisma.$queryRaw<Array<{ payload: unknown }>>`
+    SELECT "payload"
+    FROM "WebhookEventLog"
+    WHERE "provider" = 'EVOLUTION'
+      AND "instanceName" = ${instanceName}
+      AND "createdAt" >= ${since}
+      AND jsonb_typeof("payload"->'data'->'Data'->'conversations') = 'array'
+    ORDER BY "createdAt" DESC
+    LIMIT ${HISTORY_SYNC_MAX_EVENTS}
+  `;
 
   const chats = new Map<string, EvolutionGoHistoryChat>();
   const seenMessageIds = new Set<string>();
