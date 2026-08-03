@@ -1830,6 +1830,19 @@ export async function POST(request: NextRequest) {
       });
 
       if (persistedMediaUrl) {
+        /**
+         * El archivo se guardaba DOS veces: en disco (bien, es lo que lee el chat) y otra vez
+         * entero, en base64, adentro del payload del mensaje. Un catalogo de 14 MB ocupaba
+         * ~20 MB mas dentro de la base por cada envio. Eso es lo que la inflaba, y una base
+         * inflada es la que se quedaba sin memoria y ponia lento el CRM.
+         *
+         * Se borra esa copia SOLO aca, cuando `persistedMediaUrl` confirma que el archivo ya
+         * esta a salvo en disco. Si el guardado falla, no se toca nada: el base64 sigue siendo
+         * el ultimo respaldo para recuperar ese archivo.
+         *
+         * Las dos rutas conocidas: evogo guarda en "Message", Evolution API en "message".
+         * Borrar una ruta que no existe no hace nada.
+         */
         await prisma.message.update({
           where: {
             channelId_externalId: {
@@ -1839,6 +1852,23 @@ export async function POST(request: NextRequest) {
           },
           data: { mediaUrl: persistedMediaUrl },
         });
+
+        // Aparte y con su propio try: guardar la mediaUrl es lo que hace que el archivo se VEA
+        // en el chat, y no puede quedar colgado de que esta limpieza salga bien.
+        try {
+          await prisma.$executeRaw`
+            UPDATE "Message"
+            SET "rawPayload" = ("rawPayload" #- '{evolution,data,Message,base64}') #- '{evolution,data,message,base64}'
+            WHERE "channelId" = ${channel.id}
+              AND "externalId" = ${inboundExternalId}
+          `;
+        } catch (error) {
+          console.warn("[EVOLUTION] no se pudo soltar el base64 duplicado del payload", {
+            channelId: channel.id,
+            externalId: inboundExternalId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
       }
     } catch (error) {
       // No bloquear la ingesta: si falla, queda la resolucion perezosa como fallback.
