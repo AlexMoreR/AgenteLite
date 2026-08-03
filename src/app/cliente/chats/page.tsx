@@ -27,6 +27,7 @@ import { Prisma } from "@prisma/client";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { getVisibleChannelIds } from "@/lib/channel-visibility";
+import { isSnoozed } from "@/lib/lead-snooze";
 import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
 
 export const dynamic = "force-dynamic";
@@ -358,6 +359,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
             phoneNumber: true,
             avatarUrl: true,
             crmStage: true,
+            // Para saber si el lead esta pospuesto y no mostrarlo en la bandeja.
+            metadata: true,
           },
         },
       },
@@ -404,8 +407,21 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   );
 
   // Excluir conversaciones cuyo canal fue eliminado
-  const hasMoreConversationItems = agentConversationsRaw.length > conversationListTake;
-  const agentConversationsBase = agentConversationsRaw.slice(0, conversationListTake);
+  /**
+   * Un lead pospuesto tampoco aparece en la bandeja.
+   *
+   * Si solo se iba de "Mi dia" pero seguia en Chats, posponer no servia de nada: la asesora lo
+   * volvia a ver igual en la lista que mira todo el dia. Vuelve cuando se cumple el plazo o
+   * cuando el cliente escribe (ahi el webhook lo despierta).
+   *
+   * Se filtra despues de consultar y no en el WHERE: la fecha vive dentro del metadata y armar
+   * ese filtro en la consulta es fragil. Como mucho la pagina trae unas filas menos.
+   */
+  const agentConversationsVisibles = agentConversationsRaw.filter(
+    (conversation) => !isSnoozed(conversation.contact?.metadata),
+  );
+  const hasMoreConversationItems = agentConversationsVisibles.length > conversationListTake;
+  const agentConversationsBase = agentConversationsVisibles.slice(0, conversationListTake);
   // Si el chat seleccionado (deep-link) no vino en el lote de la lista, lo agregamos para que el
   // panel lo abra. Va primero para que quede visible arriba al aterrizar desde Mi día.
   const agentConversations =

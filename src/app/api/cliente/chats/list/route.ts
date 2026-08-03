@@ -7,6 +7,7 @@ import { scheduleContactAvatarRefresh, type ContactAvatarTarget } from "@/lib/co
 import { extractEvolutionMessageText, extractEvolutionPushName } from "@/lib/evolution-webhook";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { getVisibleChannelIds } from "@/lib/channel-visibility";
+import { isSnoozed } from "@/lib/lead-snooze";
 import { prisma } from "@/lib/prisma";
 
 type UnifiedConversation = {
@@ -218,7 +219,7 @@ async function getAgentConversationList(input: {
     ),
   );
 
-  const activeAgentConversations = await prisma.conversation.findMany({
+  const activeAgentConversationsRaw = await prisma.conversation.findMany({
     where: conversationWhere,
     orderBy: [{ lastMessageAt: "desc" }, { updatedAt: "desc" }],
     skip: input.offset,
@@ -237,10 +238,21 @@ async function getAgentConversationList(input: {
             phoneNumber: true,
             avatarUrl: true,
             crmStage: true,
+            // Para saber si el lead esta pospuesto y no mostrarlo en la bandeja.
+            metadata: true,
           },
         },
       },
     });
+
+  /**
+   * Un lead pospuesto no aparece en la bandeja hasta que se cumpla el plazo, o hasta que el
+   * cliente escriba (ahi el webhook lo despierta solo). Si posponer lo sacaba de "Mi dia" pero
+   * lo dejaba aca, no servia de nada: la asesora lo veia igual en la lista que mira todo el dia.
+   */
+  const activeAgentConversations = activeAgentConversationsRaw.filter(
+    (conversation) => !isSnoozed(conversation.contact?.metadata),
+  );
 
   const activeAgentConversationIds = activeAgentConversations.map((conversation) => conversation.id);
   const contactIds = Array.from(new Set(activeAgentConversations.map((conversation) => conversation.contact.id)));

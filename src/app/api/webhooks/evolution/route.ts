@@ -4,6 +4,7 @@ import { after } from "next/server";
 import { NextRequest, NextResponse } from "next/server";
 import { analyzeImageForAgent, generateAgentReply, transcribeAudioForAgent } from "@/lib/agent-ai";
 import { summarizeContactHistory } from "@/lib/contact-summary";
+import { buildSnoozeMetadata, readSnoozedUntil } from "@/lib/lead-snooze";
 import {
   CONTACT_LID_ID_METADATA_PATH,
   buildDiscoveredPhoneMetadata,
@@ -1966,6 +1967,38 @@ export async function POST(request: NextRequest) {
         }
       });
     }
+  }
+
+  /**
+   * El cliente escribio: si el lead estaba pospuesto, se despierta.
+   *
+   * Posponer es "no hay nada que hacer con esto por ahora". Que el cliente conteste es
+   * exactamente lo que cambia eso, y es el momento MAS importante para atenderlo. Dejarlo
+   * escondido hasta que se cumpla el plazo seria perder la venta por una decision que tomamos
+   * cuando todavia no habia respondido.
+   */
+  if (!fromMe && contact?.id) {
+    const contactId = contact.id;
+    after(async () => {
+      try {
+        const ficha = await prisma.contact.findUnique({
+          where: { id: contactId },
+          select: { metadata: true },
+        });
+        if (!ficha || !readSnoozedUntil(ficha.metadata)) {
+          return;
+        }
+        await prisma.contact.update({
+          where: { id: contactId },
+          data: { metadata: buildSnoozeMetadata(ficha.metadata, null) as Prisma.InputJsonValue },
+        });
+      } catch (error) {
+        console.warn("[EVOLUTION] no se pudo despertar el lead pospuesto", {
+          contactId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    });
   }
 
   /**
