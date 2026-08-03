@@ -9,6 +9,7 @@ import { snoozeLeadAction } from "@/app/actions/crm-actions";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { SNOOZE_PRESETS } from "@/lib/lead-snooze";
+import { CHAT_SNOOZED_EVENT, type ChatSnoozedDetail } from "@/components/chats/chat-inbox-types";
 
 /**
  * Posponer el lead SIN salir del chat.
@@ -20,7 +21,15 @@ import { SNOOZE_PRESETS } from "@/lib/lead-snooze";
  * Va pegado a "Resolver" porque son las dos salidas del chat: resolver es "esto se termino",
  * posponer es "esto sigue, pero no hoy".
  */
-export function SnoozeChatControl({ contactId }: { contactId: string }) {
+export function SnoozeChatControl({
+  contactId,
+  conversationId,
+  source = "agent",
+}: {
+  contactId: string;
+  conversationId: string;
+  source?: "agent" | "official";
+}) {
   const router = useRouter();
   const [menuAbierto, setMenuAbierto] = React.useState(false);
   const [dialogoAbierto, setDialogoAbierto] = React.useState(false);
@@ -38,6 +47,13 @@ export function SnoozeChatControl({ contactId }: { contactId: string }) {
       }
       toast.success("Pospuesto. Vuelve solo cuando toque.");
       setDialogoAbierto(false);
+      // La bandeja escucha esto para sacarlo de la lista al instante: su refresco solo agrega y
+      // actualiza, nunca quita, asi que sin el aviso el chat pospuesto seguia a la vista.
+      window.dispatchEvent(
+        new CustomEvent<ChatSnoozedDetail>(CHAT_SNOOZED_EVENT, {
+          detail: { conversationId, source },
+        }),
+      );
       router.refresh();
     } catch {
       toast.error("No se pudo posponer.");

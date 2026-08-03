@@ -62,7 +62,9 @@ export function ChatHeaderActions({
         <ResolveChatControl conversationId={conversationId} status={status} source={source} />
         {/* Las dos salidas del chat: resolver es "esto se termino", posponer es "sigue, pero
             no hoy". Por eso van pegados. */}
-        {contactId ? <SnoozeChatControl contactId={contactId} /> : null}
+        {contactId ? (
+          <SnoozeChatControl contactId={contactId} conversationId={conversationId} source={source} />
+        ) : null}
       </div>
 
       {/* Variante 3 PUNTOS — visible cuando la cabecera es angosta (panel abierto o móvil). */}
@@ -109,7 +111,9 @@ export function ChatHeaderActions({
               <div className="flex items-center justify-between gap-2 rounded-xl px-2 py-2">
                 <span className="text-[13px] font-medium text-foreground">Conversación</span>
                 <ResolveChatControl conversationId={conversationId} status={status} source={source} />
-                {contactId ? <SnoozeChatControl contactId={contactId} /> : null}
+                {contactId ? (
+                  <SnoozeChatControl contactId={contactId} conversationId={conversationId} source={source} />
+                ) : null}
               </div>
             </div>
           </PopoverContent>

@@ -207,3 +207,18 @@ export type ChatStatusChangedDetail = {
   source: "agent" | "official";
   resolved: boolean;
 };
+
+/**
+ * Se pospuso un chat: sale de la bandeja EN EL ACTO.
+ *
+ * Va aparte de "chat:status-changed" porque posponer NO es resolver: la conversacion sigue
+ * abierta. Y tiene que salir con cualquier filtro puesto (Abiertas, Resueltas o Todas), cosa que
+ * el evento de estado no hace — mira si el chat "ya no corresponde" al filtro, y un pospuesto
+ * sigue correspondiendo.
+ */
+export const CHAT_SNOOZED_EVENT = "chat:snoozed";
+
+export type ChatSnoozedDetail = {
+  conversationId: string;
+  source: "agent" | "official";
+};

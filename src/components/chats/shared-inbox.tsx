@@ -31,7 +31,7 @@ import type {
   SharedInboxProps,
   ChatStatusChangedDetail,
 } from "./chat-inbox-types";
-import { CHAT_STATUS_CHANGED_EVENT } from "./chat-inbox-types";
+import { CHAT_SNOOZED_EVENT, CHAT_STATUS_CHANGED_EVENT, type ChatSnoozedDetail } from "./chat-inbox-types";
 
 export type {
   SharedInboxConversationItem,
@@ -266,6 +266,23 @@ export function SharedInbox({
     window.addEventListener(CHAT_STATUS_CHANGED_EVENT, handleStatusChanged);
     return () => window.removeEventListener(CHAT_STATUS_CHANGED_EVENT, handleStatusChanged);
   }, [statusFilter]);
+
+  // Posponer tambien tiene que sacarlo EN EL ACTO, con cualquier filtro puesto: la asesora lo
+  // pospone justo para dejar de verlo, y que siguiera ahi hasta el proximo refresco la confundia
+  // ("¿lo pospuse o no?").
+  useEffect(() => {
+    const handleSnoozed = (event: Event) => {
+      const detail = (event as CustomEvent<ChatSnoozedDetail>).detail;
+      if (!detail?.conversationId) {
+        return;
+      }
+      const itemId = `${detail.source ?? "agent"}:${detail.conversationId}`;
+      setConversationItems((current) => current.filter((item) => item.id !== itemId));
+    };
+
+    window.addEventListener(CHAT_SNOOZED_EVENT, handleSnoozed);
+    return () => window.removeEventListener(CHAT_SNOOZED_EVENT, handleSnoozed);
+  }, []);
 
   // Conteos por filtro (Mías / Sin asignar / Todas) para mostrarlos junto a cada pestaña.
   useEffect(() => {
