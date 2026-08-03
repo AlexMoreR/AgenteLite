@@ -133,8 +133,14 @@ function renderStageBadge(crmStage?: string | null) {
   );
 }
 
-// Cuántas etiquetas mostrar como máximo en la fila antes del contador "+N".
-const MAX_VISIBLE_TAGS = 3;
+/**
+ * Cuántas etiquetas mostrar antes del contador "+N".
+ *
+ * Eran 3, y con exactamente 3 la cuenta daba cero: no salía el "+N" y la tercera igual se
+ * cortaba contra el borde de la tarjeta. Quedaba una etiqueta a medias y nada que dijera que
+ * había más. Con 2, la tercera en adelante se resume en el contador, que es el punto.
+ */
+const MAX_VISIBLE_TAGS = 2;
 
 // Muestra hasta MAX_VISIBLE_TAGS etiquetas en una sola fila. Se encogen y se cortan
 // (truncate) para compartir el ancho disponible; si hay más, agrega un badge "+N".
@@ -154,7 +160,7 @@ function ConversationTagsRow({
         {visibleTags.map((tag) => (
           <Badge
             key={`${conversationId}:${tag.label}`}
-            className={`shrink-0 max-w-[140px] border-transparent shadow-none ${TAG_BADGE_CLASS}`}
+            className={`min-w-0 max-w-[130px] border-transparent shadow-none ${TAG_BADGE_CLASS}`}
             style={getTagBadgeColors(tag.color)}
             title={tag.label}
           >
