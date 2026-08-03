@@ -10,11 +10,11 @@ export const metadata: Metadata = {
 };
 
 export default async function ClienteCrmInformePage() {
-  const data = await getAuthorizedCrmData();
+  const { esInformePersonal, ...data } = await getAuthorizedCrmData();
 
   return (
     <section className="space-y-3 p-6">
-      <CrmInformeView data={data} />
+      <CrmInformeView data={data} esPersonal={esInformePersonal} />
     </section>
   );
 }

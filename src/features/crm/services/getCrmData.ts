@@ -9,6 +9,12 @@ type GetCrmDataInput = {
   // Antes esto re-resolvia el workspace por su cuenta y podia diferir del resto de la app.
   workspaceId: string;
   workspaceName: string;
+  /**
+   * Cuando viene, el informe deja de ser el del NEGOCIO y pasa a ser el de esa persona: solo
+   * sus leads. Una asesora abriendo el informe veia los numeros de toda la empresa, que no le
+   * dicen nada sobre su propio trabajo (y de paso le mostraban las ventas de las demas).
+   */
+  assignedToUserId?: string | null;
 };
 
 function getContactDisplayName(contact: { name: string | null; phoneNumber: string }) {
@@ -204,12 +210,19 @@ async function getOfficialChatKeysByCrmContact(workspaceId: string, contactIds: 
   return mapa;
 }
 
-export async function getCrmData({ workspaceId, workspaceName }: GetCrmDataInput): Promise<CrmData | null> {
+export async function getCrmData({
+  workspaceId,
+  workspaceName,
+  assignedToUserId = null,
+}: GetCrmDataInput): Promise<CrmData | null> {
   const rawContacts = await prisma.contact.findMany({
     where: {
       workspaceId,
       // Los contactos marcados como ocultos (proveedores, personales, etc.) no entran al CRM.
       excludedFromCrm: false,
+      ...(assignedToUserId
+        ? { conversations: { some: { assignedToUserId } } }
+        : {}),
     },
     orderBy: [{ updatedAt: "desc" }],
     select: {

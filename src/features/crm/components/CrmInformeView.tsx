@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { CalendarDays } from "lucide-react";
+import Link from "next/link";
+import { ArrowRight, CalendarDays } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CRM_STAGE_ORDER, getCrmStageLabel } from "../domain/crm-config";
 import type { CrmData, CrmRecord } from "../types";
@@ -73,7 +74,7 @@ function CrmTodayCard({ data }: { data: CrmData }) {
   );
 }
 
-export function CrmInformeView({ data }: { data: CrmData }) {
+export function CrmInformeView({ data, esPersonal = false }: { data: CrmData; esPersonal?: boolean }) {
   // Abre en "Todos": el informe del dueno es acumulado (el embudo completo, dónde se caen las
   // ventas). El rango sigue disponible para acotar a un periodo.
   const [dateRange, setDateRange] = React.useState<DateRange>("__all__");
@@ -130,6 +131,27 @@ export function CrmInformeView({ data }: { data: CrmData }) {
 
   return (
     <div className="space-y-3">
+      {/* Para una asesora esto es SU tablero, no el del negocio. Se lo decimos (si no, lee los
+          numeros como si fueran de toda la empresa) y le dejamos a un toque la pantalla donde
+          esta lo que tiene que hacer hoy. */}
+      {esPersonal ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2.5">
+          <div className="min-w-0">
+            <p className="text-[13px] font-semibold text-foreground">Tu tablero</p>
+            <p className="text-[12px] text-muted-foreground">
+              Solo tus leads. Los números del negocio los ve el administrador.
+            </p>
+          </div>
+          <Link
+            href="/cliente/crm/mi-dia"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-[var(--primary)] px-3.5 py-2 text-[13px] font-medium text-white transition hover:brightness-110"
+          >
+            Ver qué tengo pendiente
+            <ArrowRight className="size-4" />
+          </Link>
+        </div>
+      ) : null}
+
       <CrmReportStatsCards data={filteredData} isRanged={dateRange !== "__all__"} />
 
       <div className="w-full overflow-hidden rounded-lg border border-border bg-card">
