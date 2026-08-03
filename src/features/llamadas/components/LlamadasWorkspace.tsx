@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { useCallback, useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Phone, MessageCircle, Search, Clock, AlertTriangle } from "lucide-react";
@@ -403,7 +405,20 @@ function OwnerBoard({ data }: { data: LlamadasOwnerData }) {
                 <tbody className="tabular-nums">
                   {data.equipo.map((persona) => (
                     <tr key={persona.userId ?? persona.name} className="border-b border-border/60 last:border-0">
-                      <td className="max-w-[10rem] truncate px-4 py-2 font-medium">{persona.name}</td>
+                      <td className="max-w-[10rem] truncate px-4 py-2 font-medium">
+                        {/* El nombre abre SU tablero completo: la fila resume, pero para saber
+                            por que viene floja hace falta ver sus etapas y lo que se le enfria. */}
+                        {persona.userId ? (
+                          <Link
+                            href={`/cliente/mi-tablero?userId=${encodeURIComponent(persona.userId)}`}
+                            className="text-[var(--primary)] hover:underline"
+                          >
+                            {persona.name}
+                          </Link>
+                        ) : (
+                          persona.name
+                        )}
+                      </td>
                       <td className="px-3 py-2 text-right">{persona.leadsACargo}</td>
                       <td className="px-3 py-2 text-right">{persona.conMovimientoHoy}</td>
                       <td className="px-3 py-2 text-right">{persona.llamadasHoy}</td>

@@ -1,5 +1,8 @@
+"use client";
+
 import Link from "next/link";
-import { ArrowRight, Flame, PhoneCall, Snowflake, TrendingUp, Users } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { ArrowRight, CalendarDays, Flame, PhoneCall, Snowflake, TrendingUp, Users } from "lucide-react";
 
 import { getCrmStageLabel } from "../domain/crm-config";
 import type { MiTableroData } from "../services/getMiTableroData";
@@ -11,6 +14,31 @@ import type { MiTableroData } from "../services/getMiTableroData";
  * Esta pantalla responde lo que a ella le importa —cuanto tengo, cuanto movi, cuanto cerre— y
  * termina siempre empujando a Mi dia, que es donde estan las tareas del dia.
  */
+
+/**
+ * Elegir que dia mirar. Abre en HOY: es lo que el jefe quiere ver al entrar, y para revisar un
+ * dia puntual ("¿que hizo el lunes?") cambia la fecha sin salir de la pantalla.
+ */
+function SelectorDeDia({ dia }: { dia: string }) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  return (
+    <label className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-2 text-[13px] text-muted-foreground">
+      <CalendarDays className="size-4" />
+      <input
+        type="date"
+        value={dia}
+        onChange={(evento) => {
+          const parametros = new URLSearchParams(searchParams?.toString() ?? "");
+          parametros.set("dia", evento.target.value);
+          router.push(`/cliente/mi-tablero?${parametros.toString()}`);
+        }}
+        className="bg-transparent text-foreground outline-none"
+      />
+    </label>
+  );
+}
 
 function Tarjeta({
   titulo,
@@ -43,7 +71,13 @@ function Tarjeta({
   );
 }
 
-export function MiTableroView({ data }: { data: MiTableroData }) {
+export function MiTableroView({
+  data,
+  esDeOtraPersona = false,
+}: {
+  data: MiTableroData;
+  esDeOtraPersona?: boolean;
+}) {
   const vivos = data.porEtapa.filter((fila) => !["GANADO", "PERDIDO"].includes(fila.stage));
   const maximo = Math.max(1, ...vivos.map((fila) => fila.count));
   // Solo el nombre de pila: "Hola, Angy Marcela Ortiz" suena a carta del banco.
@@ -56,38 +90,52 @@ export function MiTableroView({ data }: { data: MiTableroData }) {
             nada. Y esta es la primera pantalla del dia de la asesora — que la salude por su
             nombre cuesta lo mismo que un titulo mudo. */}
         <div>
-          <h1 className="text-xl font-semibold text-foreground">Hola, {primerNombre} 👋</h1>
-          <p className="text-sm text-muted-foreground">Así venís con tus leads.</p>
+          {/* Mirando a otra persona el saludo no va: no es su tablero, lo esta revisando. */}
+          {esDeOtraPersona ? (
+            <>
+              <h1 className="text-xl font-semibold text-foreground">{data.advisorName}</h1>
+              <p className="text-sm text-muted-foreground">Cómo viene con sus leads.</p>
+            </>
+          ) : (
+            <>
+              <h1 className="text-xl font-semibold text-foreground">Hola, {primerNombre} 👋</h1>
+              <p className="text-sm text-muted-foreground">Así venís con tus leads.</p>
+            </>
+          )}
         </div>
 
-        <Link
-          href="/cliente/crm/mi-dia"
-          className="inline-flex items-center gap-1.5 rounded-full bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white transition hover:brightness-110"
-        >
-          Ir a mi día
-          <ArrowRight className="size-4" />
-        </Link>
+        <SelectorDeDia dia={data.dia} />
+
+        {esDeOtraPersona ? null : (
+          <Link
+            href="/cliente/crm/mi-dia"
+            className="inline-flex items-center gap-1.5 rounded-full bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white transition hover:brightness-110"
+          >
+            Ir a mi día
+            <ArrowRight className="size-4" />
+          </Link>
+        )}
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Tarjeta titulo="Leads a cargo" valor={data.leadsACargo} detalle="Chats que son tuyos" Icono={Users} />
+        <Tarjeta titulo="Leads a cargo" valor={data.leadsACargo} detalle={esDeOtraPersona ? "Chats que son suyos" : "Chats que son tuyos"} Icono={Users} />
         <Tarjeta
-          titulo="Movidos hoy"
+          titulo="Movidos"
           valor={data.movidosHoy}
-          detalle="Con movimiento hoy"
+          detalle="Con movimiento ese día"
           Icono={Flame}
           acento="azul"
         />
         <Tarjeta
           titulo="Llamadas"
           valor={data.llamadasHoy}
-          detalle={`Hoy · ${data.llamadasSemana} en la semana`}
+          detalle={`Ese día · ${data.llamadasSemana} en la semana`}
           Icono={PhoneCall}
         />
         <Tarjeta
           titulo="Ventas"
-          valor={data.ventasSemana}
-          detalle="Cerradas en los últimos 7 días"
+          valor={data.ventasDelDia}
+          detalle={`Ese día · ${data.ventasSemana} en la semana`}
           Icono={TrendingUp}
           acento="verde"
         />
@@ -95,7 +143,9 @@ export function MiTableroView({ data }: { data: MiTableroData }) {
 
       <div className="grid gap-3 md:grid-cols-2">
         <div className="rounded-xl border border-border bg-card p-4">
-          <p className="text-[13px] font-medium text-foreground">Tus leads por etapa</p>
+          <p className="text-[13px] font-medium text-foreground">
+            {esDeOtraPersona ? "Sus leads por etapa" : "Tus leads por etapa"}
+          </p>
           <div className="mt-3 space-y-2">
             {vivos.map((fila) => (
               <div key={fila.stage} className="space-y-1">
@@ -119,14 +169,14 @@ export function MiTableroView({ data }: { data: MiTableroData }) {
         <div className="rounded-xl border border-border bg-card p-4">
           <div className="flex items-center gap-2 text-[13px] font-medium text-foreground">
             <Snowflake className="size-4 text-sky-500" />
-            Se te están enfriando
+            {esDeOtraPersona ? "Se le están enfriando" : "Se te están enfriando"}
           </div>
           <p className="mt-2 text-3xl font-semibold tabular-nums text-foreground">{data.enfriandose}</p>
           <p className="mt-0.5 text-[12px] leading-5 text-muted-foreground">
-            Leads tuyos, todavía vivos, con más de 5 días sin que nadie los toque. Son los que se
-            pierden sin que nadie se dé cuenta.
+            Leads {esDeOtraPersona ? "suyos" : "tuyos"}, todavía vivos, con más de 5 días sin que
+            nadie los toque. Son los que se pierden sin que nadie se dé cuenta.
           </p>
-          {data.enfriandose > 0 ? (
+          {data.enfriandose > 0 && !esDeOtraPersona ? (
             <Link
               href="/cliente/crm/mi-dia"
               className="mt-3 inline-flex items-center gap-1.5 text-[13px] font-medium text-[var(--primary)] hover:underline"
