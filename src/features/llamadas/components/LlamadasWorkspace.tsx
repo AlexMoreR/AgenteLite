@@ -277,8 +277,9 @@ function RegisterCallDialog({
 // ── Tarjeta de lead (vista vendedora) ─────────────────────────────────────────────────────────
 
 function LeadCard({ lead, mode, onRegister }: { lead: LlamadaLead; mode: "call" | "whatsapp" | "new"; onRegister: (preset: PresetContact) => void }) {
+  // WhatsApp SI funciona aunque no haya telefono: se le escribe contra su id de WhatsApp.
   const waLink = `https://wa.me/${lead.phoneNumber.replace(/[^0-9]/g, "")}`;
-  const telLink = `tel:${lead.phoneNumber.replace(/[^0-9+]/g, "")}`;
+  const telLink = lead.callablePhone ? `tel:${lead.callablePhone.replace(/[^0-9+]/g, "")}` : null;
 
   return (
     <div className="flex items-center gap-3 rounded-xl border border-border bg-card px-3 py-2.5">
@@ -293,7 +294,9 @@ function LeadCard({ lead, mode, onRegister }: { lead: LlamadaLead; mode: "call" 
           <span className="min-w-0 truncate text-sm font-semibold">{lead.name}</span>
           <StageChip stage={lead.stage} />
         </div>
-        <div className="truncate text-xs text-muted-foreground">{lead.phoneNumber}</div>
+        <div className="truncate text-xs text-muted-foreground">
+          {lead.callablePhone ?? "Sin número para llamar · escribile por WhatsApp"}
+        </div>
         <div className="mt-0.5 truncate text-xs">
           {lead.lastResultLabel ? (
             <span className="text-foreground/70">
@@ -305,7 +308,8 @@ function LeadCard({ lead, mode, onRegister }: { lead: LlamadaLead; mode: "call" 
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
-        {mode === "whatsapp" ? (
+        {/* Sin telefono no se ofrece "Llamar": se cae a WhatsApp, que es lo unico que anda. */}
+        {mode === "whatsapp" || !telLink ? (
           <a href={waLink} target="_blank" rel="noreferrer" aria-label="WhatsApp">
             <Button variant="outline" size="icon" className="h-8 w-8 text-emerald-600">
               <MessageCircle className="h-4 w-4" />

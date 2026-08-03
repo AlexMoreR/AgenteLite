@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { resolveCallablePhone } from "@/lib/whatsapp-lid";
 import { getCallResultLabel, getCrmLostReasonLabel } from "@/features/crm/domain/crm-config";
 import type { CrmStage } from "@/features/crm/types";
 
@@ -31,6 +32,14 @@ export type LlamadaLead = {
   contactId: string;
   name: string;
   phoneNumber: string;
+  /**
+   * El numero que la asesora puede MARCAR, o null si no hay ninguno.
+   *
+   * No siempre coincide con phoneNumber: cuando el cliente llega identificado solo con un LID de
+   * WhatsApp, phoneNumber guarda ese LID (hace falta para responderle por chat) pero no es un
+   * telefono. Mostrarlo como si lo fuera mandaba a Ingrid a marcar 15 digitos inexistentes.
+   */
+  callablePhone: string | null;
   avatarUrl: string | null;
   stage: CrmStage;
   // Último resultado registrado (etiqueta legible) y cuántos intentos lleva. El objetivo es que
@@ -54,6 +63,7 @@ type LatestCallRow = {
   contactId: string;
   name: string | null;
   phoneNumber: string;
+  metadata: unknown;
   avatarUrl: string | null;
   crmStage: CrmStage;
   result: string;
@@ -76,6 +86,7 @@ export async function getLlamadasVendedoraData(workspaceId: string): Promise<Lla
         ca."contactId"      AS "contactId",
         c."name"            AS "name",
         c."phoneNumber"     AS "phoneNumber",
+        c."metadata"        AS "metadata",
         c."avatarUrl"       AS "avatarUrl",
         c."crmStage"        AS "crmStage",
         ca."result"         AS "result",
@@ -92,6 +103,7 @@ export async function getLlamadasVendedoraData(workspaceId: string): Promise<Lla
       contactId: row.contactId,
       name: row.name?.trim() || row.phoneNumber,
       phoneNumber: row.phoneNumber,
+      callablePhone: resolveCallablePhone(row),
       avatarUrl: row.avatarUrl,
       stage: row.crmStage,
       lastResultLabel: getCallResultLabel(row.result),
@@ -117,12 +129,13 @@ export async function getLlamadasVendedoraData(workspaceId: string): Promise<Lla
       },
       orderBy: { createdAt: "desc" },
       take: 10,
-      select: { id: true, name: true, phoneNumber: true, avatarUrl: true, crmStage: true },
+      select: { id: true, name: true, phoneNumber: true, avatarUrl: true, crmStage: true, metadata: true },
     });
     nuevos = nuevosRows.map((contact) => ({
       contactId: contact.id,
       name: contact.name?.trim() || contact.phoneNumber,
       phoneNumber: contact.phoneNumber,
+      callablePhone: resolveCallablePhone(contact),
       avatarUrl: contact.avatarUrl,
       stage: contact.crmStage,
       lastResultLabel: null,

@@ -4,6 +4,14 @@ import { after } from "next/server";
 import { NextRequest, NextResponse } from "next/server";
 import { analyzeImageForAgent, generateAgentReply, transcribeAudioForAgent } from "@/lib/agent-ai";
 import { summarizeContactHistory } from "@/lib/contact-summary";
+import {
+  buildDiscoveredPhoneMetadata,
+  buildLidContactMetadata,
+  extractPhoneFromText,
+  isLidJid,
+  looksLikeLidNumber,
+  readDiscoveredPhone,
+} from "@/lib/whatsapp-lid";
 import { syncCrmStageFromCommercialStage } from "@/lib/crm-stage-sync";
 import {
   buildActiveProductContextNote,
@@ -1409,6 +1417,10 @@ export async function POST(request: NextRequest) {
         create: {
           workspaceId: channel.workspaceId,
           phoneNumber,
+          // Si el cliente llego identificado solo con un LID, ese "numero" NO se puede marcar.
+          // Se deja anotado en la ficha para que el CRM diga "sin numero para llamar" en vez de
+          // mostrarle a la asesora 15 digitos que no existen.
+          ...(isLidJid(remoteJid) ? { metadata: buildLidContactMetadata() as Prisma.InputJsonValue } : {}),
         },
         select: { id: true, name: true, phoneNumber: true },
       });
@@ -1880,6 +1892,50 @@ export async function POST(request: NextRequest) {
         error: error instanceof Error ? error.message : String(error),
       });
     }
+  }
+
+  /**
+   * Rescatar el telefono cuando el cliente lo escribe.
+   *
+   * Si la persona llego con un LID, WhatsApp no nos va a dar nunca su numero. La unica fuente
+   * que queda es la conversacion misma: "mi numero es 3001234567", "escribime al 300...".
+   * Se guarda la PRIMERA vez que aparece y no se vuelve a pisar, asi un numero que la asesora
+   * corrigio a mano no lo tapa despues un numero suelto que menciono el cliente.
+   *
+   * Va en after(): es un lujo, no puede demorar la entrada del mensaje ni romperla si falla.
+   */
+  if (!fromMe && messageText?.trim() && contact?.id && looksLikeLidNumber(contact.phoneNumber)) {
+    const contactId = contact.id;
+    const texto = messageText;
+    after(async () => {
+      try {
+        const telefono = extractPhoneFromText(texto);
+        if (!telefono) {
+          return;
+        }
+
+        const ficha = await prisma.contact.findUnique({
+          where: { id: contactId },
+          select: { metadata: true },
+        });
+        if (!ficha || readDiscoveredPhone(ficha.metadata)) {
+          return;
+        }
+
+        await prisma.contact.update({
+          where: { id: contactId },
+          data: {
+            metadata: buildDiscoveredPhoneMetadata(ficha.metadata, telefono) as Prisma.InputJsonValue,
+          },
+        });
+        console.log("[EVOLUTION] telefono rescatado de la conversacion", { contactId });
+      } catch (error) {
+        console.warn("[EVOLUTION] no se pudo rescatar el telefono de la conversacion", {
+          contactId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    });
   }
 
   const response = NextResponse.json({
