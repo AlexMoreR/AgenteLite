@@ -9,7 +9,9 @@ export type ConversationActivityKind =
   | "reopened"
   | "tag_added"
   | "tag_removed"
-  | "stage_changed";
+  | "stage_changed"
+  // Nota interna que escribe una asesora. No se envia al cliente: vive solo en el chat.
+  | "note";
 
 /**
  * Registra un evento de actividad como mensaje SYSTEM en la conversación.

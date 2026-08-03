@@ -23,6 +23,7 @@ import {
   SendHorizonal,
   Smile,
   Sparkles,
+  StickyNote,
   Trash2,
   Workflow,
   X,
@@ -38,6 +39,7 @@ import { QuickRepliesDialog } from "@/components/chats/quick-replies-dialog";
 import { PlaybookPanelDialog } from "@/components/chats/playbook-panel-dialog";
 import { ForwardMessageDialog } from "@/components/chats/forward-message-dialog";
 import { SendFlowDialog } from "@/components/chats/send-flow-dialog";
+import { InternalNoteDialog } from "@/components/chats/internal-note-dialog";
 import { FollowUpDialog } from "@/components/chats/follow-up-dialog";
 import { MediaPreviewDialog } from "@/components/chats/media-preview-dialog";
 import { Button } from "@/components/ui/button";
@@ -139,6 +141,7 @@ export const ConversationPanel = memo(function ConversationPanel({
   const [isQuickRepliesOpen, setIsQuickRepliesOpen] = useState(false);
   const [isPlaybookOpen, setIsPlaybookOpen] = useState(false);
   const [isSendFlowOpen, setIsSendFlowOpen] = useState(false);
+  const [isNoteOpen, setIsNoteOpen] = useState(false);
   // Mensaje que se esta reenviando (null = dialogo cerrado).
   const [mensajeAReenviar, setMensajeAReenviar] = useState<SharedInboxMessageItem | null>(null);
   const [isFollowUpOpen, setIsFollowUpOpen] = useState(false);
@@ -1143,6 +1146,21 @@ export const ConversationPanel = memo(function ConversationPanel({
                                   <Workflow className="size-5 shrink-0 text-[#0ea5e9]" />
                                   <span>Enviar flujos</span>
                                 </Button>
+                                {/* Lo que el equipo necesita saber del cliente y no se le manda
+                                    a el. Antes se lo pasaban por WhatsApp entre ellas y se
+                                    perdia. */}
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  onClick={() => {
+                                    setIsAttachMenuOpen(false);
+                                    setIsNoteOpen(true);
+                                  }}
+                                  className="flex h-auto w-full items-center justify-start gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-normal text-foreground transition hover:bg-muted focus:outline-none focus-visible:bg-muted"
+                                >
+                                  <StickyNote className="size-5 shrink-0 text-[#eab308]" />
+                                  <span>Nota interna</span>
+                                </Button>
                                 {/* Agendar el proximo toque sin salir del chat: es donde la
                                     asesora se acuerda de que hay que volver a escribirle. */}
                                 <Button
@@ -1339,6 +1357,14 @@ export const ConversationPanel = memo(function ConversationPanel({
         {/* El guion se INSERTA en el compositor (mismo mecanismo que las respuestas rápidas):
             la asesora lo ajusta y envía cuando quiere, nunca se manda solo. */}
         <ForwardMessageDialog message={mensajeAReenviar} onClose={() => setMensajeAReenviar(null)} />
+        {mediaConfig ? (
+          <InternalNoteDialog
+            open={isNoteOpen}
+            onClose={() => setIsNoteOpen(false)}
+            conversationId={mediaConfig.conversationId}
+            source={mediaConfig.source === "official" ? "official" : "agent"}
+          />
+        ) : null}
         {mediaConfig ? (
           <SendFlowDialog
             open={isSendFlowOpen}

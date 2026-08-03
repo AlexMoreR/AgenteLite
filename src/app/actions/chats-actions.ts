@@ -2005,3 +2005,101 @@ export async function importConversationHistoryAction(input: {
   // prometer "se trajeron N" seria mentir, y no decir nada se lee como que fallo.
   return { ok: true, imported: null };
 }
+
+/**
+ * Nota interna en el chat.
+ *
+ * Las asesoras se pasaban datos por WhatsApp entre ellas ("a esta ya le cotice", "pidio factura
+ * a nombre del esposo") y eso se perdia: quien tomaba el chat despues no tenia forma de saberlo.
+ * La nota vive en la conversacion, con el nombre de quien la escribio, y NO se le envia al
+ * cliente.
+ *
+ * Se guarda por el mismo camino que el resto de la actividad del chat ("resolvio", "cambio la
+ * etapa"): son mensajes SYSTEM que no mueven la conversacion en la lista ni cuentan como
+ * mensaje sin leer.
+ */
+export async function addConversationNoteAction(input: {
+  conversationId: string;
+  source?: "agent" | "official";
+  text: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
+    return { ok: false, error: "No autorizado" };
+  }
+  await requireClientWorkspaceAccess("chats");
+
+  const texto = input.text?.trim();
+  const conversationId = input.conversationId?.trim();
+  if (!texto || !conversationId) {
+    return { ok: false, error: "Escribí la nota primero." };
+  }
+  if (texto.length > 1000) {
+    return { ok: false, error: "La nota es demasiado larga (máximo 1000 caracteres)." };
+  }
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership?.workspace.id) {
+    return { ok: false, error: "Workspace no encontrado" };
+  }
+
+  const usuario = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { name: true, email: true },
+  });
+  const autor = usuario?.name?.trim() || usuario?.email || "Alguien del equipo";
+  const contenido = `📝 ${autor}: ${texto}`;
+
+  try {
+    if (input.source === "official") {
+      // El canal oficial guarda sus mensajes en OTRA tabla. Escribir aca en la del canal viejo
+      // reventaba con un error de llave foranea (ya paso con la nota de cambio de etapa).
+      const conversacion = await prisma.officialApiConversation.findFirst({
+        where: { id: conversationId, config: { workspaceId: membership.workspace.id } },
+        select: { id: true, configId: true, contactId: true },
+      });
+      if (!conversacion) {
+        return { ok: false, error: "Conversación no encontrada" };
+      }
+
+      await prisma.officialApiMessage.create({
+        data: {
+          configId: conversacion.configId,
+          conversationId: conversacion.id,
+          contactId: conversacion.contactId,
+          direction: "OUTBOUND",
+          type: "SYSTEM",
+          status: "SENT",
+          content: contenido,
+          rawPayload: { source: "activity", kind: "note" } as never,
+        },
+      });
+    } else {
+      const conversacion = await prisma.conversation.findFirst({
+        where: { id: conversationId, workspaceId: membership.workspace.id },
+        select: { id: true, channelId: true, contactId: true },
+      });
+      if (!conversacion) {
+        return { ok: false, error: "Conversación no encontrada" };
+      }
+
+      await recordConversationActivity({
+        workspaceId: membership.workspace.id,
+        conversationId: conversacion.id,
+        channelId: conversacion.channelId,
+        contactId: conversacion.contactId,
+        kind: "note",
+        text: contenido,
+      });
+    }
+  } catch (error) {
+    console.error("[chats] no se pudo guardar la nota interna", {
+      conversationId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { ok: false, error: "No se pudo guardar la nota." };
+  }
+
+  revalidatePath("/cliente/chats");
+  return { ok: true };
+}
