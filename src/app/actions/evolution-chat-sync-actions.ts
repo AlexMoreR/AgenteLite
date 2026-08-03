@@ -13,6 +13,23 @@ import {
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 
+// Cualquier fallo del gateway (timeout, 401, "404 page not found") viajaba como excepcion
+// hasta el cliente, y Next lo convertia en el error de pantalla completa "No se pudo cargar
+// esta pantalla": el usuario perdia la pantalla de Conexion entera y solo veia un codigo.
+// El dialogo ya sabe mostrar `{ ok: false, error }`, asi que aqui se traduce todo a eso.
+function describeSyncFailure(error: unknown) {
+  const raw = error instanceof Error ? error.message : String(error ?? "");
+  const detail = raw.trim().slice(0, 200);
+  console.error("[chat-sync] fallo la sincronizacion de chats", error);
+
+  return {
+    ok: false as const,
+    error: detail
+      ? `No pudimos sincronizar los chats: ${detail}`
+      : "No pudimos sincronizar los chats. Intenta de nuevo en un momento.",
+  };
+}
+
 async function requireWorkspace() {
   const session = await auth();
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
@@ -43,10 +60,14 @@ export async function scanEvolutionChatSyncAction(input: {
     return { ok: false, error: "Canal invalido" };
   }
 
-  return scanEvolutionChatSyncCandidate({
-    workspaceId: membership.workspace.id,
-    channelId: input.channelId.trim(),
-  });
+  try {
+    return await scanEvolutionChatSyncCandidate({
+      workspaceId: membership.workspace.id,
+      channelId: input.channelId.trim(),
+    });
+  } catch (error) {
+    return describeSyncFailure(error);
+  }
 }
 
 export async function scanEvolutionChatSyncByPhoneAction(input: {
@@ -66,11 +87,15 @@ export async function scanEvolutionChatSyncByPhoneAction(input: {
     return { ok: false, error: "Ingresa un numero de telefono para sincronizar." };
   }
 
-  return scanEvolutionChatSyncCandidateByPhone({
-    workspaceId: membership.workspace.id,
-    channelId: input.channelId.trim(),
-    phoneNumber: input.phoneNumber.trim(),
-  });
+  try {
+    return await scanEvolutionChatSyncCandidateByPhone({
+      workspaceId: membership.workspace.id,
+      channelId: input.channelId.trim(),
+      phoneNumber: input.phoneNumber.trim(),
+    });
+  } catch (error) {
+    return describeSyncFailure(error);
+  }
 }
 
 export async function applyEvolutionChatSyncAction(input: {
@@ -108,12 +133,17 @@ export async function applyEvolutionChatSyncAction(input: {
     return { ok: false, error: "Datos invalidos" };
   }
 
-  const result = await applyEvolutionChatSyncCandidate({
-    workspaceId: membership.workspace.id,
-    channelId: input.channelId.trim(),
-    candidate: input.candidate,
-    importLimit: input.importLimit,
-  });
+  let result: EvolutionChatSyncApplyResult;
+  try {
+    result = await applyEvolutionChatSyncCandidate({
+      workspaceId: membership.workspace.id,
+      channelId: input.channelId.trim(),
+      candidate: input.candidate,
+      importLimit: input.importLimit,
+    });
+  } catch (error) {
+    return describeSyncFailure(error);
+  }
 
   if (!result.ok) {
     return result;

@@ -1109,6 +1109,20 @@ async function evolutionSyncRequest<T>(
   }
 }
 
+// Listar chats y mensajes del telefono es exclusivo de Evolution API (Baileys): guarda el
+// historial en su propia base y lo expone por findChats/findMessages. Evolution GO (whatsmeow)
+// NO tiene esas rutas — su gateway contesta literalmente "404 page not found" — asi que este
+// escaneo no puede existir alli. Antes ese 404 subia como excepcion desde la server action y
+// tumbaba la pantalla entera de Conexion ("No se pudo cargar esta pantalla", digest 1609115967)
+// en vez de explicar lo que pasaba.
+const CHAT_SYNC_UNSUPPORTED_MESSAGE =
+  "Este canal esta conectado por Evolution GO, que no permite leer la lista de chats ni el historial guardado en el telefono. Sincronizar chats solo funciona en canales de Evolution API.";
+
+// Sin conexion por-canal se usa la configuracion global, que hoy apunta a evogo (GO).
+function supportsRemoteChatSync(connection: EvolutionConnection | null) {
+  return connection?.kind === "EVOLUTION_API";
+}
+
 async function fetchEvolutionChats(instanceName: string, connection?: EvolutionConnection | null) {
   const payload = await evolutionSyncRequest<unknown>(`/chat/findChats/${instanceName}`, {
     method: "POST",
@@ -1209,6 +1223,13 @@ export async function scanEvolutionChatSyncCandidate(input: { workspaceId: strin
   }
 
   const connection = readGatewayConnection(channel.metadata);
+  if (!supportsRemoteChatSync(connection)) {
+    return {
+      ok: false as const,
+      error: CHAT_SYNC_UNSUPPORTED_MESSAGE,
+    };
+  }
+
   const remoteChats = await fetchEvolutionChats(channel.evolutionInstanceName, connection);
 
   const remotePhones = Array.from(
@@ -1365,6 +1386,13 @@ export async function scanEvolutionChatSyncCandidateByPhone(input: {
   }
 
   const connection = readGatewayConnection(channel.metadata);
+  if (!supportsRemoteChatSync(connection)) {
+    return {
+      ok: false as const,
+      error: CHAT_SYNC_UNSUPPORTED_MESSAGE,
+    };
+  }
+
   const normalizedPhone = normalizePhoneDigits(input.phoneNumber);
   if (!normalizedPhone) {
     return {
@@ -1520,6 +1548,12 @@ export async function applyEvolutionChatSyncCandidate(input: {
   }
 
   const connection = readGatewayConnection(channel.metadata);
+  if (!supportsRemoteChatSync(connection)) {
+    return {
+      ok: false as const,
+      error: CHAT_SYNC_UNSUPPORTED_MESSAGE,
+    };
+  }
 
   await ensureEvolutionInstanceFullHistory(channel.evolutionInstanceName);
 
@@ -1800,6 +1834,11 @@ export async function syncEvolutionMessagesSince(input: {
   }
 
   const connection = readGatewayConnection(channel.metadata);
+  // En Evolution GO no hay findChats: no se puede saber que chats se movieron durante el hueco.
+  if (!supportsRemoteChatSync(connection)) {
+    return { ok: false, reason: "el gateway del canal (Evolution GO) no expone findChats" };
+  }
+
   const remoteChats = await fetchEvolutionChats(channel.evolutionInstanceName, connection);
 
   // Solo los chats que se movieron durante el hueco. `updatedAt` lo trae findChats.
