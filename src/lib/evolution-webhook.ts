@@ -611,6 +611,21 @@ export function extractEvolutionFromMe(payload: unknown): boolean {
   );
 }
 
+/**
+ * El LID de quien escribe, cuando el mensaje ademas trae su telefono real.
+ *
+ * WhatsApp manda una de dos formas: o `Chat` con el telefono y `SenderAlt` con el LID, o solo
+ * el LID y `SenderAlt` vacio. O sea que la unica oportunidad de saber que ESE LID es ESA persona
+ * es cuando llega de la primera forma. Guardar ese par es lo que despues permite reconocerla si
+ * vuelve a escribir identificada solo con el LID, en vez de abrirle una ficha nueva sin telefono.
+ */
+export function extractEvolutionSenderAltJid(payload: unknown): string | null {
+  const root = getPrimaryPayloadRoot(payload);
+  const data = asRecord(root?.data);
+  const info = asRecord(data?.Info) ?? asRecord(root?.Info);
+  return readString(info?.SenderAlt) || readString(info?.RecipientAlt) || null;
+}
+
 export function extractEvolutionRemoteJid(payload: unknown): string | null {
   const root = getPrimaryPayloadRoot(payload);
   const data = asRecord(root?.data);

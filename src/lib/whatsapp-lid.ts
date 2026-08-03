@@ -16,6 +16,14 @@
 
 const CONTACT_METADATA_LID_KEY = "whatsappLid";
 const CONTACT_METADATA_DISCOVERED_PHONE_KEY = "discoveredPhoneNumber";
+const CONTACT_METADATA_LID_ID_KEY = "whatsappLidId";
+
+/** Los digitos de un JID: "70849948319908@lid" -> "70849948319908". */
+export function lidDigits(jid: string | null | undefined): string | null {
+  if (!isLidJid(jid)) return null;
+  const digits = (jid ?? "").split("@")[0]?.replace(/\D/g, "") ?? "";
+  return digits || null;
+}
 
 /** El JID lo dice sin ambiguedad: dominio "lid" = no es un telefono. */
 export function isLidJid(jid: string | null | undefined): boolean {
@@ -56,6 +64,21 @@ export function isMarkedAsLid(metadata: unknown): boolean {
 export function buildLidContactMetadata(): Record<string, unknown> {
   return { [CONTACT_METADATA_LID_KEY]: true };
 }
+
+/** El LID guardado en la ficha, que es lo que permite reconocer a la persona mas adelante. */
+export function readLinkedLid(metadata: unknown): string | null {
+  const value = readMetadataRecord(metadata)?.[CONTACT_METADATA_LID_ID_KEY];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+export function buildLinkedLidMetadata(metadata: unknown, lid: string): Record<string, unknown> {
+  return {
+    ...(readMetadataRecord(metadata) ?? {}),
+    [CONTACT_METADATA_LID_ID_KEY]: lid,
+  };
+}
+
+export const CONTACT_LID_ID_METADATA_PATH = [CONTACT_METADATA_LID_ID_KEY];
 
 export function buildDiscoveredPhoneMetadata(
   metadata: unknown,

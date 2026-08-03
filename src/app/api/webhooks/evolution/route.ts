@@ -5,12 +5,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { analyzeImageForAgent, generateAgentReply, transcribeAudioForAgent } from "@/lib/agent-ai";
 import { summarizeContactHistory } from "@/lib/contact-summary";
 import {
+  CONTACT_LID_ID_METADATA_PATH,
   buildDiscoveredPhoneMetadata,
   buildLidContactMetadata,
+  buildLinkedLidMetadata,
   extractPhoneFromText,
   isLidJid,
+  lidDigits,
   looksLikeLidNumber,
   readDiscoveredPhone,
+  readLinkedLid,
 } from "@/lib/whatsapp-lid";
 import { syncCrmStageFromCommercialStage } from "@/lib/crm-stage-sync";
 import {
@@ -50,6 +54,7 @@ import {
   extractEvolutionQrCode,
   extractEvolutionReaction,
   extractEvolutionRemoteJid,
+  extractEvolutionSenderAltJid,
   hasEvolutionCallPayload,
   hasEvolutionDeletedMessagePayload,
   hasEvolutionEditedMessagePayload,
@@ -1192,6 +1197,38 @@ export async function POST(request: NextRequest) {
   }
 
   let phoneNumber = normalizePhoneFromJid(remoteJid);
+
+  /**
+   * Reconocer a la persona cuando vuelve identificada SOLO con su LID.
+   *
+   * WhatsApp manda una de dos formas: o el telefono en `Chat` con el LID en `SenderAlt`, o solo
+   * el LID y `SenderAlt` vacio. Si ya la vimos de la primera forma, su LID quedo anotado en la
+   * ficha (mas abajo), asi que aca se busca por ese LID y se sigue con SU telefono de siempre.
+   *
+   * Sin esto, la misma clienta terminaba con dos fichas y dos chats: uno con su numero y otro
+   * con el LID, y la asesora le escribia al que tuviera a mano sin ver la mitad de la historia.
+   */
+  const lidEntrante = lidDigits(remoteJid);
+  if (lidEntrante) {
+    try {
+      const yaConocida = await prisma.contact.findFirst({
+        where: {
+          workspaceId: channel.workspaceId,
+          metadata: { path: CONTACT_LID_ID_METADATA_PATH, equals: lidEntrante },
+        },
+        select: { phoneNumber: true },
+      });
+      if (yaConocida?.phoneNumber) {
+        phoneNumber = yaConocida.phoneNumber;
+      }
+    } catch (error) {
+      // Si la busqueda falla se sigue con el LID: peor es no guardar el mensaje.
+      console.warn("[EVOLUTION] no se pudo resolver el LID contra una ficha existente", {
+        lid: lidEntrante,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
   const callDirection = isCallEvent ? extractEvolutionCallDirection(payload) : null;
   const fromMe = extractEvolutionFromMe(payload);
   // Nombre de perfil de WhatsApp del remitente. Solo para mensajes ENTRANTES: en los
@@ -1890,6 +1927,43 @@ export async function POST(request: NextRequest) {
         externalId: inboundExternalId,
         messageType,
         error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /**
+   * Anotar el LID de esta persona mientras WhatsApp todavia nos lo esta diciendo.
+   *
+   * Es la unica ventana que hay: cuando el mensaje llega con el telefono en `Chat`, `SenderAlt`
+   * trae el LID. Si mañana esa misma clienta escribe identificada solo con el LID, esto es lo
+   * que permite reconocerla y seguir en SU chat, con su numero, en vez de abrirle una ficha
+   * nueva sin telefono. Se anota una sola vez y no se vuelve a tocar.
+   */
+  if (contact?.id && !isLidJid(remoteJid)) {
+    const lidDeLaPersona = lidDigits(extractEvolutionSenderAltJid(payload));
+    if (lidDeLaPersona) {
+      const contactId = contact.id;
+      after(async () => {
+        try {
+          const ficha = await prisma.contact.findUnique({
+            where: { id: contactId },
+            select: { metadata: true },
+          });
+          if (!ficha || readLinkedLid(ficha.metadata) === lidDeLaPersona) {
+            return;
+          }
+          await prisma.contact.update({
+            where: { id: contactId },
+            data: {
+              metadata: buildLinkedLidMetadata(ficha.metadata, lidDeLaPersona) as Prisma.InputJsonValue,
+            },
+          });
+        } catch (error) {
+          console.warn("[EVOLUTION] no se pudo anotar el LID de la ficha", {
+            contactId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
       });
     }
   }
