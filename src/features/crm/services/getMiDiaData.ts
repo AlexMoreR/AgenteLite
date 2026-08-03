@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { extractEvolutionMessageText } from "@/lib/evolution-webhook";
 import type { CrmStage } from "../types";
+import { getCallResultLabel } from "../domain/crm-config";
 
 /**
  * "Mi día" — la lista de a QUIÉN contactar HOY para la vendedora.
@@ -43,6 +44,17 @@ export type MiDiaLead = {
   lastMessagePreview: string;
   // Quien hablo ultimo: si fue el cliente, es MAS urgente (esta esperando respuesta).
   waitingOnUs: boolean;
+  /**
+   * Hay una llamada AGENDADA para hoy o ya vencida.
+   *
+   * Es lo mas urgente de la lista: la asesora se comprometio a volver a llamar ese dia. Antes
+   * eso vivia solo en el modulo de Llamadas, asi que tenia que mirar en dos pantallas para
+   * saber que le tocaba — y lo que estaba en la otra se pasaba.
+   */
+  callDue: boolean;
+  nextContactAt: string | null;
+  // Como termino la ultima llamada, para que sepa con que retomar.
+  lastCallResultLabel: string | null;
   // Este lead es MIO (me lo asignaron) o esta sin dueno. No entran los de otra persona.
   esMio: boolean;
 };
@@ -113,6 +125,65 @@ async function computeMiDiaData(input: { workspaceId: string; userId: string }):
     },
   });
 
+  /**
+   * Las llamadas AGENDADAS entran igual, aunque el lead no pase los filtros de arriba.
+   *
+   * Los filtros de la lista (etapa del embudo, no mas de 30 dias, no menos de 2 horas) tienen
+   * sentido para "a quien retomar", pero una llamada agendada es OTRA cosa: la asesora se
+   * comprometio a llamar ese dia. Si el lead quedo fuera del corte por viejo o por etapa, el
+   * compromiso desaparecia de la vista — y estaba solo en el modulo de Llamadas, que es la otra
+   * pantalla que tenia que mirar.
+   */
+  const finDeHoyBogota = (() => {
+    const OFFSET = 5 * 60 * 60 * 1000;
+    const enBogota = new Date(now - OFFSET);
+    const medianoche = Date.UTC(enBogota.getUTCFullYear(), enBogota.getUTCMonth(), enBogota.getUTCDate());
+    return new Date(medianoche + OFFSET + 24 * 60 * 60 * 1000);
+  })();
+
+  const llamadasPendientes = await prisma.$queryRaw<
+    Array<{ contactId: string; nextContactAt: Date; result: string }>
+  >`
+    SELECT DISTINCT ON (ca."contactId")
+      ca."contactId" AS "contactId",
+      ca."nextContactAt" AS "nextContactAt",
+      ca."result" AS "result"
+    FROM "CallAttempt" ca
+    WHERE ca."workspaceId" = ${input.workspaceId}
+      AND ca."nextContactAt" IS NOT NULL
+      AND ca."nextContactAt" < ${finDeHoyBogota}
+    ORDER BY ca."contactId", ca."calledAt" DESC
+  `;
+
+  const pendientePorContacto = new Map(llamadasPendientes.map((fila) => [fila.contactId, fila]));
+
+  // Los agendados que NO estaban en la lista se traen aparte, con las mismas reglas de dueño.
+  const yaEnLista = new Set(conversations.map((conversation) => conversation.contact.id));
+  const faltantes = llamadasPendientes
+    .map((fila) => fila.contactId)
+    .filter((contactId) => !yaEnLista.has(contactId));
+
+  if (faltantes.length > 0) {
+    const extra = await prisma.conversation.findMany({
+      where: {
+        workspaceId: input.workspaceId,
+        contactId: { in: faltantes },
+        contact: { excludedFromCrm: false },
+        OR: [{ assignedToUserId: input.userId }, { assignedToUserId: null }],
+      },
+      orderBy: { lastMessageAt: "desc" },
+      select: {
+        id: true,
+        lastMessageAt: true,
+        assignedToUserId: true,
+        contact: {
+          select: { id: true, name: true, phoneNumber: true, avatarUrl: true, crmStage: true },
+        },
+      },
+    });
+    conversations.push(...extra.filter((fila) => !conversations.some((c) => c.id === fila.id)));
+  }
+
   if (conversations.length === 0) {
     return { generatedAt: new Date(now).toISOString(), leads: [] };
   }
@@ -153,6 +224,7 @@ async function computeMiDiaData(input: { workspaceId: string; userId: string }):
   const latestByConversation = new Map(lastMessageRows.map((row) => [row.conversationId, row] as const));
 
   const leads: MiDiaLead[] = conversations.map((conversation) => {
+    const pendiente = pendientePorContacto.get(conversation.contact.id) ?? null;
     const lastMessageAt = conversation.lastMessageAt ?? new Date(now);
     const hoursSinceContact = Math.floor((now - lastMessageAt.getTime()) / (60 * 60 * 1000));
     const message = latestByConversation.get(conversation.id) ?? null;
@@ -169,6 +241,9 @@ async function computeMiDiaData(input: { workspaceId: string; userId: string }):
       hoursSinceContact,
       lastMessagePreview: previewFromMessage(message?.content ?? null, message?.rawPayload, message?.type ?? null),
       waitingOnUs: message?.direction === "INBOUND",
+      callDue: Boolean(pendiente),
+      nextContactAt: pendiente ? pendiente.nextContactAt.toISOString() : null,
+      lastCallResultLabel: pendiente ? getCallResultLabel(pendiente.result) ?? pendiente.result : null,
     };
   });
 
@@ -179,6 +254,10 @@ async function computeMiDiaData(input: { workspaceId: string; userId: string }):
     // para quien tenga hueco, pero sin empujar hacia el fondo el trabajo que ya es de uno.
     if (a.esMio !== b.esMio) {
       return a.esMio ? -1 : 1;
+    }
+    // Una llamada agendada gana: es un compromiso con fecha, no una corazonada de prioridad.
+    if (a.callDue !== b.callDue) {
+      return a.callDue ? -1 : 1;
     }
     if (a.waitingOnUs !== b.waitingOnUs) {
       return a.waitingOnUs ? -1 : 1;

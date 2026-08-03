@@ -1,10 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { MessageCircle, Clock, Flame } from "lucide-react";
+import { MessageCircle, Clock, Flame, PhoneCall } from "lucide-react";
 import { ContactAvatar } from "@/components/chats/contact-avatar";
 import { CRM_STAGE_META } from "../domain/crm-config";
 import type { CrmStage } from "../types";
+
+/** Ya paso la fecha en que quedo de llamar: no es "para hoy", esta atrasada. */
+function esVencida(nextContactAt: string | null) {
+  if (!nextContactAt) return false;
+  const hoy = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date());
+  const dia = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date(nextContactAt));
+  return dia < hoy;
+}
 import type { MiDiaData } from "../services/getMiDiaData";
 
 function formatSince(hours: number) {
@@ -144,7 +152,15 @@ export function MiDiaView({ data }: { data: MiDiaData }) {
                       <Clock className="h-3 w-3" />
                       {formatSince(lead.hoursSinceContact)}
                     </span>
-                    {lead.waitingOnUs ? (
+                    {/* El compromiso agendado manda: si quedo de llamar, eso es lo que tiene
+                        que hacer, mas alla de quien hablo ultimo. */}
+                    {lead.callDue ? (
+                      <span className="inline-flex items-center gap-1 font-semibold text-amber-600 dark:text-amber-400">
+                        <PhoneCall className="h-3 w-3" />
+                        {esVencida(lead.nextContactAt) ? "Llamada vencida" : "Llamar hoy"}
+                        {lead.lastCallResultLabel ? ` · ${lead.lastCallResultLabel}` : ""}
+                      </span>
+                    ) : lead.waitingOnUs ? (
                       <span className="font-semibold text-rose-600 dark:text-rose-400">Te escribió · sin responder</span>
                     ) : (
                       <span className="text-muted-foreground">Sin respuesta · hacé seguimiento</span>
