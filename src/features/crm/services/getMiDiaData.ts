@@ -162,15 +162,28 @@ async function computeMiDiaData(input: {
     FROM "CallAttempt" ca
     WHERE ca."workspaceId" = ${input.workspaceId}
       AND ca."nextContactAt" IS NOT NULL
-      AND ca."nextContactAt" < ${finDeHoyBogota}
     ORDER BY ca."contactId", ca."calledAt" DESC
   `;
 
   const pendientePorContacto = new Map(llamadasPendientes.map((fila) => [fila.contactId, fila]));
 
-  // Los agendados que NO estaban en la lista se traen aparte, con las mismas reglas de dueño.
+  /**
+   * Agendado para MAS ADELANTE = no es de hoy.
+   *
+   * La asesora llamo, no le contestaron y dejo "vuelvo a contactar mañana". Eso es trabajo hecho:
+   * ya decidio cuando sigue. Igual el lead le quedaba en el dia, asi que la lista le pedia algo
+   * que ella ya habia resuelto. Vuelve solo el dia que agendo.
+   */
+  const agendadosParaDespues = new Set(
+    llamadasPendientes
+      .filter((fila) => fila.nextContactAt.getTime() >= finDeHoyBogota.getTime())
+      .map((fila) => fila.contactId),
+  );
+
+  // Los agendados PARA HOY que no estaban en la lista se traen aparte, con las mismas reglas de dueño.
   const yaEnLista = new Set(conversations.map((conversation) => conversation.contact.id));
   const faltantes = llamadasPendientes
+    .filter((fila) => fila.nextContactAt.getTime() < finDeHoyBogota.getTime())
     .map((fila) => fila.contactId)
     .filter((contactId) => !yaEnLista.has(contactId));
 
@@ -239,6 +252,7 @@ async function computeMiDiaData(input: {
 
   const leads: MiDiaLead[] = conversations
     .filter((conversation) => !isSnoozed(conversation.contact.metadata, new Date(now)))
+    .filter((conversation) => !agendadosParaDespues.has(conversation.contact.id))
     .map((conversation) => {
     const pendiente = pendientePorContacto.get(conversation.contact.id) ?? null;
     const lastMessageAt = conversation.lastMessageAt ?? new Date(now);
@@ -257,7 +271,7 @@ async function computeMiDiaData(input: {
       hoursSinceContact,
       lastMessagePreview: previewFromMessage(message?.content ?? null, message?.rawPayload, message?.type ?? null),
       waitingOnUs: message?.direction === "INBOUND",
-      callDue: Boolean(pendiente),
+      callDue: Boolean(pendiente) && !agendadosParaDespues.has(conversation.contact.id),
       nextContactAt: pendiente ? pendiente.nextContactAt.toISOString() : null,
       lastCallResultLabel: pendiente ? getCallResultLabel(pendiente.result) ?? pendiente.result : null,
     };
