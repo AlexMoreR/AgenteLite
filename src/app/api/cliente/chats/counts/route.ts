@@ -4,6 +4,7 @@ import { auth } from "@/auth";
 import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { prisma } from "@/lib/prisma";
+import { getVisibleChannelIds } from "@/lib/channel-visibility";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +25,10 @@ function buildBaseWhere(input: {
   searchQuery: string;
   selectedConnectionKey: string;
   statusFilter: ChatsStatusFilter;
+  // Contactos con el lead pospuesto: no estan en la lista, asi que tampoco pueden estar en el
+  // numero. Si no, la asesora pospone diez chats, la bandeja se vacia y el contador sigue igual.
+  snoozedContactIds: string[];
+  visibleChannelIds: string[] | null;
 }): Prisma.ConversationWhereInput {
   const normalizedSearchQuery = input.searchQuery.trim();
 
@@ -31,6 +36,8 @@ function buildBaseWhere(input: {
     workspaceId: input.workspaceId,
     AND: [
       buildStatusWhere(input.statusFilter),
+      input.snoozedContactIds.length ? { contactId: { notIn: input.snoozedContactIds } } : {},
+      input.visibleChannelIds ? { channelId: { in: input.visibleChannelIds } } : {},
       input.selectedConnectionKey.startsWith("channel:")
         ? { channelId: input.selectedConnectionKey.slice("channel:".length) }
         : {},
@@ -141,11 +148,32 @@ export async function GET(request: Request) {
     requestedStatusRaw === "all" || requestedStatusRaw === "resolved" ? requestedStatusRaw : "open";
 
   const isManager = membership.role === "OWNER" || membership.role === "ADMIN";
+
+  /**
+   * Los contactos con el lead pospuesto, para descontarlos.
+   *
+   * Va con SQL directo porque la fecha vive dentro de metadata: como es un texto ISO, compararlo
+   * con el ahora funciona tal cual. Son pocos, asi que la lista de ids es corta.
+   */
+  const snoozedRows = await prisma.$queryRaw<Array<{ id: string }>>`
+    SELECT "id" FROM "Contact"
+    WHERE "workspaceId" = ${membership.workspace.id}
+      AND ("metadata"->>'snoozedUntil') > ${new Date().toISOString()}
+  `;
+
+  const visibleChannelIds = await getVisibleChannelIds({
+    workspaceId: membership.workspace.id,
+    userId: session.user.id,
+    esJefe: isManager,
+  });
+
   const baseWhere = buildBaseWhere({
     workspaceId: membership.workspace.id,
     searchQuery,
     selectedConnectionKey,
     statusFilter,
+    snoozedContactIds: snoozedRows.map((fila) => fila.id),
+    visibleChannelIds,
   });
 
   const [officialMine, officialUnassigned, officialAll] = await Promise.all([
