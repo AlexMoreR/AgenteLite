@@ -24,6 +24,7 @@ import {
   Smile,
   Sparkles,
   Trash2,
+  Workflow,
   X,
 } from "lucide-react";
 import { ChatScrollAnchor } from "@/components/agents/chat-scroll-anchor";
@@ -36,6 +37,7 @@ import { ChatTagsControl } from "@/components/chats/chat-tags-control";
 import { QuickRepliesDialog } from "@/components/chats/quick-replies-dialog";
 import { PlaybookPanelDialog } from "@/components/chats/playbook-panel-dialog";
 import { ForwardMessageDialog } from "@/components/chats/forward-message-dialog";
+import { SendFlowDialog } from "@/components/chats/send-flow-dialog";
 import { FollowUpDialog } from "@/components/chats/follow-up-dialog";
 import { MediaPreviewDialog } from "@/components/chats/media-preview-dialog";
 import { Button } from "@/components/ui/button";
@@ -136,6 +138,7 @@ export const ConversationPanel = memo(function ConversationPanel({
   const [isAttachMenuOpen, setIsAttachMenuOpen] = useState(false);
   const [isQuickRepliesOpen, setIsQuickRepliesOpen] = useState(false);
   const [isPlaybookOpen, setIsPlaybookOpen] = useState(false);
+  const [isSendFlowOpen, setIsSendFlowOpen] = useState(false);
   // Mensaje que se esta reenviando (null = dialogo cerrado).
   const [mensajeAReenviar, setMensajeAReenviar] = useState<SharedInboxMessageItem | null>(null);
   const [isFollowUpOpen, setIsFollowUpOpen] = useState(false);
@@ -1126,6 +1129,20 @@ export const ConversationPanel = memo(function ConversationPanel({
                                   <BookOpen className="size-5 shrink-0 text-[#f59e0b]" />
                                   <span>Qué decir ahora</span>
                                 </Button>
+                                {/* Mandar el catalogo completo con un toque, en vez de buscar el
+                                    PDF en el celular y subirlo de nuevo en cada conversacion. */}
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  onClick={() => {
+                                    setIsAttachMenuOpen(false);
+                                    setIsSendFlowOpen(true);
+                                  }}
+                                  className="flex h-auto w-full items-center justify-start gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-normal text-foreground transition hover:bg-muted focus:outline-none focus-visible:bg-muted"
+                                >
+                                  <Workflow className="size-5 shrink-0 text-[#0ea5e9]" />
+                                  <span>Enviar flujos</span>
+                                </Button>
                                 {/* Agendar el proximo toque sin salir del chat: es donde la
                                     asesora se acuerda de que hay que volver a escribirle. */}
                                 <Button
@@ -1322,6 +1339,15 @@ export const ConversationPanel = memo(function ConversationPanel({
         {/* El guion se INSERTA en el compositor (mismo mecanismo que las respuestas rápidas):
             la asesora lo ajusta y envía cuando quiere, nunca se manda solo. */}
         <ForwardMessageDialog message={mensajeAReenviar} onClose={() => setMensajeAReenviar(null)} />
+        {mediaConfig ? (
+          <SendFlowDialog
+            open={isSendFlowOpen}
+            onClose={() => setIsSendFlowOpen(false)}
+            source={mediaConfig.source === "official" ? "official" : "agent"}
+            conversationId={mediaConfig.conversationId}
+            agentId={mediaConfig.agentId ?? undefined}
+          />
+        ) : null}
         <PlaybookPanelDialog
           open={isPlaybookOpen}
           onClose={() => setIsPlaybookOpen(false)}
