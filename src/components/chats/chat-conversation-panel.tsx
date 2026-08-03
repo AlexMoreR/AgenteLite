@@ -151,6 +151,14 @@ export const ConversationPanel = memo(function ConversationPanel({
   const composerRouter = useRouter();
   const [isRefreshingAvatar, setIsRefreshingAvatar] = useState(false);
   const [composerHasText, setComposerHasText] = useState(false);
+  /**
+   * El texto del cuadro salio de una respuesta rapida.
+   *
+   * Las respuestas rapidas son mensajes YA redactados (el catalogo, la garantia, los medios de
+   * pago). Pegarles arriba "👩‍💻 Ingrid Sánchez" los arruina: quedan como si la asesora hubiera
+   * escrito un anuncio. La firma tiene sentido cuando ella escribe de su puño, no acá.
+   */
+  const [desdeRespuestaRapida, setDesdeRespuestaRapida] = useState(false);
   const [isRecordingAudio, setIsRecordingAudio] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const [isSendingAudio, setIsSendingAudio] = useState(false);
@@ -664,6 +672,7 @@ export const ConversationPanel = memo(function ConversationPanel({
     textarea.setRangeText(content, start, end, "end");
     composerSelectionRef.current = { start: nextCursor, end: nextCursor };
     setComposerHasText(textarea.value.trim().length > 0);
+    setDesdeRespuestaRapida(true);
     autoResizeComposer(textarea);
 
     window.requestAnimationFrame(() => {
@@ -967,10 +976,16 @@ export const ConversationPanel = memo(function ConversationPanel({
                       return;
                     }
 
+                    // Respuesta rapida: va tal cual, sin la firma encima.
+                    if (desdeRespuestaRapida) {
+                      formData.set("skipSignature", "1");
+                    }
+
                     // El handler externo crea la burbuja optimista y envia sin
                     // navegacion (la accion valida internamente y devuelve resultado).
                     onComposerDraft(message, formData);
                     setComposerHasText(false);
+                    setDesdeRespuestaRapida(false);
                     form.reset();
                     autoResizeComposer(composerTextAreaRef.current);
                   }}

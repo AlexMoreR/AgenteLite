@@ -658,6 +658,8 @@ const sendUnifiedChatReplySchema = z.object({
   quotedMessageId: z.string().trim().nullish(),
   quotedContent: z.string().trim().max(4096).nullish(),
   quotedDirection: z.enum(["INBOUND", "OUTBOUND"]).nullish(),
+  // "1" cuando el texto salio de una respuesta rapida: va tal cual, sin firma.
+  skipSignature: z.string().trim().nullish(),
 });
 
 const toggleConversationAutomationSchema = z.object({
@@ -713,6 +715,7 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
     source: formData.get("source"),
     conversationId: formData.get("conversationId"),
     message: formData.get("message"),
+    skipSignature: formData.get("skipSignature"),
     agentId: formData.get("agentId"),
     returnTo: formData.get("returnTo"),
     quotedMessageId: formData.get("quotedMessageId"),
@@ -733,7 +736,17 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
   // Solo en mensajes escritos por una PERSONA. El agente no pasa por esta accion: firmar sus
   // respuestas con "— Ingrid" le haria creer al cliente que le escribio ella, y cuando Ingrid
   // entrara de verdad no habria diferencia entre el bot y la persona.
-  const messageWithSignature = await prependUserChatSignature(parsed.data.message);
+  /**
+   * Las respuestas rapidas salen SIN firma.
+   *
+   * Son mensajes ya redactados (el catalogo, la garantia, los medios de pago). Pegarles arriba
+   * "👩‍💻 Ingrid Sánchez" los arruina: quedan como un anuncio firmado en vez del texto que se
+   * preparo. La firma tiene sentido cuando la asesora escribe de su puño.
+   */
+  const messageWithSignature =
+    parsed.data.skipSignature === "1"
+      ? parsed.data.message
+      : await prependUserChatSignature(parsed.data.message);
 
   if (parsed.data.source === "official") {
     const session = await auth();
