@@ -40,6 +40,12 @@ export type LlamadaLead = {
    * telefono. Mostrarlo como si lo fuera mandaba a Ingrid a marcar 15 digitos inexistentes.
    */
   callablePhone: string | null;
+  /**
+   * La conversacion de ese lead en la app. Con esto el boton de WhatsApp abre el chat ACA
+   * dentro, en vez de sacar a la asesora a WhatsApp: afuera el mensaje no queda registrado, el
+   * lead no cambia de etapa y nadie se entera de que lo trabajo.
+   */
+  conversationId: string | null;
   avatarUrl: string | null;
   stage: CrmStage;
   // Último resultado registrado (etiqueta legible) y cuántos intentos lleva. El objetivo es que
@@ -61,6 +67,7 @@ export type LlamadasVendedoraData = {
 
 type LatestCallRow = {
   contactId: string;
+  conversationId: string | null;
   name: string | null;
   phoneNumber: string;
   metadata: unknown;
@@ -102,7 +109,13 @@ export async function getLlamadasVendedoraData(
         c."crmStage"        AS "crmStage",
         ca."result"         AS "result",
         ca."attemptNumber"  AS "attemptNumber",
-        ca."nextContactAt"  AS "nextContactAt"
+        ca."nextContactAt"  AS "nextContactAt",
+        (
+          SELECT cv."id" FROM "Conversation" cv
+          WHERE cv."contactId" = c."id" AND cv."workspaceId" = ${workspaceId}
+          ORDER BY cv."lastMessageAt" DESC NULLS LAST
+          LIMIT 1
+        )                   AS "conversationId"
       FROM "CallAttempt" ca
       JOIN "Contact" c ON c."id" = ca."contactId"
       WHERE ca."workspaceId" = ${workspaceId}
@@ -121,6 +134,7 @@ export async function getLlamadasVendedoraData(
       name: row.name?.trim() || row.phoneNumber,
       phoneNumber: row.phoneNumber,
       callablePhone: resolveCallablePhone(row),
+      conversationId: row.conversationId,
       avatarUrl: row.avatarUrl,
       stage: row.crmStage,
       lastResultLabel: getCallResultLabel(row.result),
@@ -149,13 +163,26 @@ export async function getLlamadasVendedoraData(
       },
       orderBy: { createdAt: "desc" },
       take: 10,
-      select: { id: true, name: true, phoneNumber: true, avatarUrl: true, crmStage: true, metadata: true },
+      select: {
+        id: true,
+        name: true,
+        phoneNumber: true,
+        avatarUrl: true,
+        crmStage: true,
+        metadata: true,
+        conversations: {
+          select: { id: true },
+          orderBy: { lastMessageAt: "desc" },
+          take: 1,
+        },
+      },
     });
     nuevos = nuevosRows.map((contact) => ({
       contactId: contact.id,
       name: contact.name?.trim() || contact.phoneNumber,
       phoneNumber: contact.phoneNumber,
       callablePhone: resolveCallablePhone(contact),
+      conversationId: contact.conversations[0]?.id ?? null,
       avatarUrl: contact.avatarUrl,
       stage: contact.crmStage,
       lastResultLabel: null,
