@@ -192,3 +192,18 @@ export type SharedInboxProps = {
   emptySelectionDescription: string;
   messageScrollBehavior?: "bottom" | "preserve";
 };
+
+/**
+ * Aviso de que un chat se resolvio (o se reabrio) desde el panel.
+ *
+ * La lista de la bandeja solo hace upsert —nunca quita— asi que un chat resuelto seguia a la
+ * vista hasta recargar la pagina: la asesora le daba a "Resolver" y ahi seguia. El boton avisa
+ * por este evento y la bandeja lo saca si ya no corresponde al filtro que se esta viendo.
+ */
+export const CHAT_STATUS_CHANGED_EVENT = "chat:status-changed";
+
+export type ChatStatusChangedDetail = {
+  conversationId: string;
+  source: "agent" | "official";
+  resolved: boolean;
+};

@@ -6,6 +6,7 @@ import { CheckCircle2, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 
 import { updateConversationStatusAction } from "@/app/actions/chats-actions";
+import { CHAT_STATUS_CHANGED_EVENT, type ChatStatusChangedDetail } from "@/components/chats/chat-inbox-types";
 
 type ResolveChatControlProps = {
   conversationId: string;
@@ -56,6 +57,13 @@ export function ResolveChatControl({ conversationId, status, source = "agent" }:
         return;
       }
       toast.success(nextResolved ? "Conversación resuelta" : "Conversación reabierta");
+      // La bandeja escucha esto para sacar el chat de la lista al instante: su refresco solo
+      // agrega y actualiza, nunca quita, asi que sin el aviso el chat resuelto seguia ahi.
+      window.dispatchEvent(
+        new CustomEvent<ChatStatusChangedDetail>(CHAT_STATUS_CHANGED_EVENT, {
+          detail: { conversationId, source, resolved: nextResolved },
+        }),
+      );
       router.refresh();
     });
   }, [conversationId, resolved, router, source]);

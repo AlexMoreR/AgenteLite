@@ -29,7 +29,9 @@ import type {
   ConversationContactUpdateDetail,
   ConversationTagsUpdateDetail,
   SharedInboxProps,
+  ChatStatusChangedDetail,
 } from "./chat-inbox-types";
+import { CHAT_STATUS_CHANGED_EVENT } from "./chat-inbox-types";
 
 export type {
   SharedInboxConversationItem,
@@ -241,6 +243,30 @@ export function SharedInbox({
     setHasHydrated(true);
   }, []);
 
+  // Resolver un chat tiene que sacarlo de la bandeja EN EL ACTO. La lista solo hace upsert
+  // (nunca quita), asi que el chat resuelto se quedaba a la vista hasta recargar la pagina:
+  // la asesora le daba a "Resolver", veia el aviso verde, y el chat seguia ahi.
+  useEffect(() => {
+    const handleStatusChanged = (event: Event) => {
+      const detail = (event as CustomEvent<ChatStatusChangedDetail>).detail;
+      if (!detail?.conversationId) {
+        return;
+      }
+
+      const yaNoCorresponde =
+        statusFilter === "open" ? detail.resolved : statusFilter === "resolved" ? !detail.resolved : false;
+      if (!yaNoCorresponde) {
+        return;
+      }
+
+      const itemId = `${detail.source ?? "agent"}:${detail.conversationId}`;
+      setConversationItems((current) => current.filter((item) => item.id !== itemId));
+    };
+
+    window.addEventListener(CHAT_STATUS_CHANGED_EVENT, handleStatusChanged);
+    return () => window.removeEventListener(CHAT_STATUS_CHANGED_EVENT, handleStatusChanged);
+  }, [statusFilter]);
+
   // Conteos por filtro (Mías / Sin asignar / Todas) para mostrarlos junto a cada pestaña.
   useEffect(() => {
     const countsApiPath = conversationListApiPath.replace(/\/list$/, "/counts");
@@ -256,6 +282,9 @@ export function SharedInbox({
         const params = new URLSearchParams();
         if (searchQuery.trim()) params.set("q", searchQuery.trim());
         if (selectedConnectionKey.trim()) params.set("connection", selectedConnectionKey.trim());
+        // El contador tiene que contar lo mismo que se ve en la lista: si estas en "Resueltas",
+        // el numero de al lado de la pestaña es el de las resueltas.
+        if (statusFilter !== "open") params.set("status", statusFilter);
         const qs = params.toString();
 
         const response = await fetch(`${countsApiPath}${qs ? `?${qs}` : ""}`, {
@@ -287,7 +316,7 @@ export function SharedInbox({
       cancelled = true;
       if (timeoutId) clearTimeout(timeoutId);
     };
-  }, [conversationListApiPath, searchQuery, selectedConnectionKey]);
+  }, [conversationListApiPath, searchQuery, selectedConnectionKey, statusFilter]);
 
   // Al montar / cambiar de conexión o filtros, refresca la lista base desde el servidor
   // (fetch directo, cache: no-store) y hace upsert. Evita depender del RSC cacheado en

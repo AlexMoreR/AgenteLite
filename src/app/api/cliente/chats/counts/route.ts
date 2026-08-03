@@ -7,16 +7,30 @@ import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
+type ChatsStatusFilter = "all" | "open" | "resolved";
+
+// Los contadores tienen que contar LO MISMO que muestra la lista. Sin esto sumaban tambien las
+// conversaciones resueltas: la asesora resolvia un chat y su pestaña seguia diciendo "Mias 2".
+function buildStatusWhere(statusFilter: ChatsStatusFilter): Prisma.ConversationWhereInput {
+  if (statusFilter === "resolved") {
+    return { status: { in: ["CLOSED", "ARCHIVED"] } };
+  }
+
+  return statusFilter === "all" ? {} : { status: { in: ["OPEN", "PENDING"] } };
+}
+
 function buildBaseWhere(input: {
   workspaceId: string;
   searchQuery: string;
   selectedConnectionKey: string;
+  statusFilter: ChatsStatusFilter;
 }): Prisma.ConversationWhereInput {
   const normalizedSearchQuery = input.searchQuery.trim();
 
   return {
     workspaceId: input.workspaceId,
     AND: [
+      buildStatusWhere(input.statusFilter),
       input.selectedConnectionKey.startsWith("channel:")
         ? { channelId: input.selectedConnectionKey.slice("channel:".length) }
         : {},
@@ -50,6 +64,7 @@ async function countOfficialConversations(input: {
   selectedConnectionKey: string;
   userId: string;
   assignedTo: "mine" | "unassigned" | "all";
+  statusFilter: ChatsStatusFilter;
 }): Promise<number> {
   if (input.selectedConnectionKey.startsWith("channel:")) {
     const channelId = input.selectedConnectionKey.slice("channel:".length);
@@ -78,6 +93,11 @@ async function countOfficialConversations(input: {
   return prisma.officialApiConversation.count({
     where: {
       configId: config.id,
+      ...(input.statusFilter === "resolved"
+        ? { status: { in: ["CLOSED", "ARCHIVED"] } }
+        : input.statusFilter === "all"
+          ? {}
+          : { status: { in: ["OPEN", "PENDING"] } }),
       ...(input.assignedTo === "mine"
         ? { assignedToUserId: input.userId }
         : input.assignedTo === "unassigned"
@@ -115,12 +135,17 @@ export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
   const searchQuery = requestUrl.searchParams.get("q")?.trim() || "";
   const selectedConnectionKey = requestUrl.searchParams.get("connection")?.trim() || "";
+  // Mismo default que la lista y la pantalla: solo abiertas.
+  const requestedStatusRaw = requestUrl.searchParams.get("status")?.trim() || "";
+  const statusFilter: ChatsStatusFilter =
+    requestedStatusRaw === "all" || requestedStatusRaw === "resolved" ? requestedStatusRaw : "open";
 
   const isManager = membership.role === "OWNER" || membership.role === "ADMIN";
   const baseWhere = buildBaseWhere({
     workspaceId: membership.workspace.id,
     searchQuery,
     selectedConnectionKey,
+    statusFilter,
   });
 
   const [officialMine, officialUnassigned, officialAll] = await Promise.all([
@@ -130,6 +155,7 @@ export async function GET(request: Request) {
       selectedConnectionKey,
       userId: session.user.id,
       assignedTo: "mine",
+      statusFilter,
     }),
     countOfficialConversations({
       workspaceId: membership.workspace.id,
@@ -137,6 +163,7 @@ export async function GET(request: Request) {
       selectedConnectionKey,
       userId: session.user.id,
       assignedTo: "unassigned",
+      statusFilter,
     }),
     countOfficialConversations({
       workspaceId: membership.workspace.id,
@@ -144,6 +171,7 @@ export async function GET(request: Request) {
       selectedConnectionKey,
       userId: session.user.id,
       assignedTo: "all",
+      statusFilter,
     }),
   ]);
 

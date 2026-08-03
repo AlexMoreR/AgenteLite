@@ -509,9 +509,14 @@ export async function GET(request: Request) {
     assignedFilter = "mine";
   }
 
+  // Por DEFECTO solo abiertas, igual que la pantalla (src/app/cliente/chats/page.tsx). Aca el
+  // default era "all" y eso hacia que **resolver un chat no sirviera de nada**: la pantalla lo
+  // sacaba de la lista, pero la bandeja se refresca sola contra esta ruta —y el cliente no manda
+  // `status` cuando esta en "open", porque es su default— asi que el chat resuelto volvia a
+  // aparecer a los segundos. Una asesora lo resolvia y lo seguia viendo.
   const requestedStatusRaw = requestUrl.searchParams.get("status")?.trim() || "";
   const statusFilter: "all" | "open" | "resolved" =
-    requestedStatusRaw === "open" || requestedStatusRaw === "resolved" ? requestedStatusRaw : "all";
+    requestedStatusRaw === "all" || requestedStatusRaw === "resolved" ? requestedStatusRaw : "open";
 
   const visibleChannelIds = await getVisibleChannelIds({
     workspaceId: membership.workspace.id,
