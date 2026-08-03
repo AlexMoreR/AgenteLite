@@ -71,7 +71,18 @@ type LatestCallRow = {
   nextContactAt: Date | null;
 };
 
-export async function getLlamadasVendedoraData(workspaceId: string): Promise<LlamadasVendedoraData> {
+/**
+ * La lista de llamadas de UNA asesora.
+ *
+ * Antes traia los leads de TODO el negocio: a Ingrid le aparecian los de Marcela y al reves. Dos
+ * llamando al mismo cliente, y ninguna haciendose cargo del resto ("pense que lo hacias vos").
+ * Es el mismo criterio que "Mi dia": entran los MIOS y los que no tienen dueño (esos estan para
+ * que los agarre quien pueda). Los de otra persona, no.
+ */
+export async function getLlamadasVendedoraData(
+  workspaceId: string,
+  userId: string,
+): Promise<LlamadasVendedoraData> {
   const now = new Date();
   const dueBefore = endOfTodayUtc(now);
 
@@ -96,6 +107,12 @@ export async function getLlamadasVendedoraData(workspaceId: string): Promise<Lla
       JOIN "Contact" c ON c."id" = ca."contactId"
       WHERE ca."workspaceId" = ${workspaceId}
         AND c."excludedFromCrm" = false
+        AND EXISTS (
+          SELECT 1 FROM "Conversation" cv
+          WHERE cv."contactId" = c."id"
+            AND cv."workspaceId" = ${workspaceId}
+            AND (cv."assignedToUserId" = ${userId} OR cv."assignedToUserId" IS NULL)
+        )
       ORDER BY ca."contactId", ca."calledAt" DESC
     `;
 
@@ -126,6 +143,9 @@ export async function getLlamadasVendedoraData(workspaceId: string): Promise<Lla
         excludedFromCrm: false,
         crmStage: "NUEVO",
         callAttempts: { none: {} },
+        conversations: {
+          some: { OR: [{ assignedToUserId: userId }, { assignedToUserId: null }] },
+        },
       },
       orderBy: { createdAt: "desc" },
       take: 10,

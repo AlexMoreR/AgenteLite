@@ -26,7 +26,7 @@ export default async function ClienteLlamadasPage() {
   const advisorName = currentUser?.name?.trim() || currentUser?.email || "Asesora";
 
   const [vendedora, owner, resumen] = await Promise.all([
-    getLlamadasVendedoraData(access.workspaceId),
+    getLlamadasVendedoraData(access.workspaceId, access.userId),
     canSeeOwner ? getLlamadasOwnerData(access.workspaceId) : Promise.resolve(null),
     getResumenDiaData({ workspaceId: access.workspaceId, userId: access.userId, advisorName }),
   ]);
