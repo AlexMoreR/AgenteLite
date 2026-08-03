@@ -2114,14 +2114,21 @@ async function readEvolutionGoHistoryChats(instanceName: string): Promise<Evolut
   // esto solo se ve "no hay historial". Nunca hay que leer el payload de evogo por una ruta
   // fija de memoria: whatsmeow cuelga los bloques mas adentro y con otras mayusculas.
   if (!chats.size && logs.length) {
-    const root = asRecord(logs[0]?.payload);
-    const data = asRecord(root?.data);
+    const inner = asRecord(asRecord(asRecord(logs[0]?.payload)?.data)?.Data);
+    const conversations = inner?.conversations;
+    const firstConversation = Array.isArray(conversations) ? asRecord(conversations[0]) : null;
+    const firstMessage = Array.isArray(firstConversation?.messages) ? firstConversation.messages[0] : null;
+
     console.warn("[chat-sync] history_shape", {
       instanceName,
       eventos: logs.length,
-      rootKeys: root ? Object.keys(root).slice(0, 12) : null,
-      dataKeys: data ? Object.keys(data).slice(0, 12) : null,
-      dataDataKeys: asRecord(data?.Data) ? Object.keys(asRecord(data?.Data) ?? {}).slice(0, 12) : null,
+      conversaciones: Array.isArray(conversations) ? conversations.length : null,
+      conversacionKeys: firstConversation ? Object.keys(firstConversation).slice(0, 15) : null,
+      conversacionId: firstConversation ? JSON.stringify(firstConversation.ID ?? firstConversation.id) : null,
+      mensajeSample: JSON.stringify(firstMessage ?? null).slice(0, 500),
+      lidMappingSample: JSON.stringify(
+        Array.isArray(inner?.phoneNumberToLidMappings) ? inner.phoneNumberToLidMappings[0] : null,
+      ),
     });
   }
 
