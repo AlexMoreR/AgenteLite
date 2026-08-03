@@ -15,6 +15,7 @@ import { persistAvatarUrl } from "@/lib/contact-avatar-refresh";
 import { backfillEvolutionMessagesByPhone } from "@/lib/evolution-chat-sync";
 import { buildEvolutionGoHistoryAnchor, deleteEvolutionMessageForEveryone, fetchEvolutionProfilePictureUrl, readGatewayConnection, requestEvolutionGoHistorySync, sendEvolutionTextMessage } from "@/lib/evolution";
 import { normalizeInternalPath } from "@/lib/app-url";
+import { claimConversationIfUnassigned } from "@/lib/conversation-claim";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import {
   getOfficialApiConfigByWorkspaceId,
@@ -806,6 +807,13 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
       console.error("[sendUnifiedChatReplyAction] No se pudo sincronizar tags del contacto oficial", error);
     }
 
+    // Quien contesta se queda con el lead si no tenia dueño (ver conversation-claim).
+    await claimConversationIfUnassigned({
+      source: "official",
+      conversationId: parsed.data.conversationId,
+      workspaceId: membership.workspace.id,
+    });
+
     revalidatePath("/cliente/chats");
     revalidatePath("/cliente/api-oficial");
     revalidatePath("/cliente/api-oficial/chats");
@@ -832,7 +840,22 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
   if (parsed.data.quotedDirection) {
     nextData.set("quotedDirection", parsed.data.quotedDirection);
   }
-  return sendManualAgentReplyAction(nextData);
+  const resultado = await sendManualAgentReplyAction(nextData);
+
+  // Quien contesta se queda con el lead si no tenia dueño (ver conversation-claim). Va DESPUES
+  // del envio: si el mensaje no salio, la asesora no se quedo con nada.
+  if (resultado.ok) {
+    const membership = await getPrimaryWorkspaceForUser((await auth())?.user?.id ?? "");
+    if (membership?.workspace.id) {
+      await claimConversationIfUnassigned({
+        source: "agent",
+        conversationId: parsed.data.conversationId,
+        workspaceId: membership.workspace.id,
+      });
+    }
+  }
+
+  return resultado;
 }
 
 const deleteChatMessageSchema = z.object({

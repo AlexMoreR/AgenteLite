@@ -33,6 +33,7 @@ import { resolveAgentKnowledgeBaseReply } from "@/lib/agent-knowledge-media";
 import { resolveAgentProductFlowReply, type FlowStep } from "@/lib/agent-product-flow";
 import { composeAgentWelcomeReply } from "@/lib/agent-reply-composer";
 import { normalizeInternalPath } from "@/lib/app-url";
+import { claimConversationIfUnassigned } from "@/lib/conversation-claim";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
 import {
@@ -3208,7 +3209,7 @@ export async function sendChatMediaReplyAction(input: {
   }
 
   if (parsed.data.source === "official") {
-    return sendOfficialApiChatFile({
+    const enviado = await sendOfficialApiChatFile({
       workspaceId: membership.workspace.id,
       conversationId: parsed.data.conversationId,
       mediaUrl: parsed.data.mediaUrl,
@@ -3216,6 +3217,17 @@ export async function sendChatMediaReplyAction(input: {
       fileName: parsed.data.fileName,
       caption: parsed.data.caption,
     });
+
+    // Mandar el catalogo tambien es atender: quien lo hace se queda con el lead si no tenia dueño.
+    if ("ok" in enviado && enviado.ok) {
+      await claimConversationIfUnassigned({
+        source: "official",
+        conversationId: parsed.data.conversationId,
+        workspaceId: membership.workspace.id,
+      });
+    }
+
+    return enviado;
   }
 
   const conversation = await prisma.conversation.findFirst({
@@ -3355,6 +3367,13 @@ export async function sendChatMediaReplyAction(input: {
       detalle: persistError instanceof Error ? persistError.message : String(persistError),
     });
   }
+
+  // Mandar el catalogo tambien es atender: quien lo hace se queda con el lead si no tenia dueño.
+  await claimConversationIfUnassigned({
+    source: "agent",
+    conversationId: conversation.id,
+    workspaceId: membership.workspace.id,
+  });
 
   return { ok: true };
 }
