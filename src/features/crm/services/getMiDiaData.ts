@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { extractEvolutionMessageText } from "@/lib/evolution-webhook";
 import type { CrmStage } from "../types";
 import { getCallResultLabel } from "../domain/crm-config";
+import { isSnoozed } from "@/lib/lead-snooze";
 
 /**
  * "Mi día" — la lista de a QUIÉN contactar HOY para la vendedora.
@@ -130,7 +131,7 @@ async function computeMiDiaData(input: {
       lastMessageAt: true,
       assignedToUserId: true,
       contact: {
-        select: { id: true, name: true, phoneNumber: true, avatarUrl: true, crmStage: true },
+        select: { id: true, name: true, phoneNumber: true, avatarUrl: true, crmStage: true, metadata: true },
       },
     },
   });
@@ -178,7 +179,9 @@ async function computeMiDiaData(input: {
       where: {
         workspaceId: input.workspaceId,
         contactId: { in: faltantes },
-        contact: { excludedFromCrm: false },
+        // Cerrado es cerrado: una llamada agendada de un lead Ganado o Perdido no lo revive.
+        // Sin esto aparecia "Llamada vencida - Cerrado/Perdido" arriba de todo, que no se hace.
+        contact: { excludedFromCrm: false, crmStage: { notIn: ["GANADO", "PERDIDO"] } },
         OR: [{ assignedToUserId: input.userId }, { assignedToUserId: null }],
         ...(input.visibleChannelIds ? { channelId: { in: input.visibleChannelIds } } : {}),
       },
@@ -188,7 +191,7 @@ async function computeMiDiaData(input: {
         lastMessageAt: true,
         assignedToUserId: true,
         contact: {
-          select: { id: true, name: true, phoneNumber: true, avatarUrl: true, crmStage: true },
+          select: { id: true, name: true, phoneNumber: true, avatarUrl: true, crmStage: true, metadata: true },
         },
       },
     });
@@ -234,7 +237,9 @@ async function computeMiDiaData(input: {
   );
   const latestByConversation = new Map(lastMessageRows.map((row) => [row.conversationId, row] as const));
 
-  const leads: MiDiaLead[] = conversations.map((conversation) => {
+  const leads: MiDiaLead[] = conversations
+    .filter((conversation) => !isSnoozed(conversation.contact.metadata, new Date(now)))
+    .map((conversation) => {
     const pendiente = pendientePorContacto.get(conversation.contact.id) ?? null;
     const lastMessageAt = conversation.lastMessageAt ?? new Date(now);
     const hoursSinceContact = Math.floor((now - lastMessageAt.getTime()) / (60 * 60 * 1000));

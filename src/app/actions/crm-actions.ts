@@ -4,11 +4,13 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { createFollowsFromRulesForSource } from "@/features/seguimientos/services/follows";
 import { recordConversationActivity } from "@/lib/conversation-activity";
 import { claimConversationIfUnassigned } from "@/lib/conversation-claim";
+import { buildSnoozeMetadata } from "@/lib/lead-snooze";
 import { CRM_STAGE_META, getCrmLostReasonLabel } from "@/features/crm/domain/crm-config";
 import type { CrmStage } from "@/features/crm/types";
 
@@ -201,6 +203,50 @@ export async function claimLeadOnOpenAction(conversationId: string): Promise<{ o
     source: "agent",
     conversationId: conversationId.trim(),
     workspaceId: membership.workspace.id,
+  });
+
+  revalidatePath("/cliente/crm/mi-dia");
+  return { ok: true };
+}
+
+/**
+ * Posponer un lead: sacarlo de "Mi dia" hasta el momento que elija la asesora.
+ *
+ * La lista decide sola que es urgente, pero ella sabe cosas que el sistema no: que quedo de
+ * llamar despues del almuerzo, que la clienta pidio el lunes, que ya lo trabajo. Sin esto el
+ * mismo lead le queda arriba todo el dia y la lista deja de significar algo.
+ */
+export async function snoozeLeadAction(input: {
+  contactId: string;
+  hasta: string | null;
+}): Promise<{ ok: boolean; error?: string }> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { ok: false, error: "No autorizado" };
+  }
+  await requireClientWorkspaceAccess("crm");
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership?.workspace.id) {
+    return { ok: false, error: "Workspace no encontrado" };
+  }
+
+  const hasta = input.hasta ? new Date(input.hasta) : null;
+  if (input.hasta && (!hasta || !Number.isFinite(hasta.getTime()))) {
+    return { ok: false, error: "Esa fecha no es válida" };
+  }
+
+  const contacto = await prisma.contact.findFirst({
+    where: { id: input.contactId.trim(), workspaceId: membership.workspace.id },
+    select: { id: true, metadata: true },
+  });
+  if (!contacto) {
+    return { ok: false, error: "Contacto no encontrado" };
+  }
+
+  await prisma.contact.update({
+    where: { id: contacto.id },
+    data: { metadata: buildSnoozeMetadata(contacto.metadata, hasta) as Prisma.InputJsonValue },
   });
 
   revalidatePath("/cliente/crm/mi-dia");
