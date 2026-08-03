@@ -378,6 +378,53 @@ function OwnerBoard({ data }: { data: LlamadasOwnerData }) {
 
   return (
     <div className="grid gap-4 md:grid-cols-2">
+      {/* Cómo viene cada una, en una fila. Ocupa el ancho completo porque es lo primero que
+          Alex mira al abrir el tablero. */}
+      <Card className="md:col-span-2">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Cómo viene cada una</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          {data.equipo.length === 0 ? (
+            <p className="px-6 pb-4 text-xs text-muted-foreground">Todavía no hay vendedoras cargadas.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-muted-foreground">
+                    <th className="px-4 py-2 font-medium">Vendedora</th>
+                    <th className="px-3 py-2 text-right font-medium">Leads</th>
+                    <th className="px-3 py-2 text-right font-medium">Movidos hoy</th>
+                    <th className="px-3 py-2 text-right font-medium">Llamadas hoy</th>
+                    <th className="px-3 py-2 text-right font-medium">Semana</th>
+                    <th className="px-4 py-2 text-right font-medium">Ventas</th>
+                  </tr>
+                </thead>
+                <tbody className="tabular-nums">
+                  {data.equipo.map((persona) => (
+                    <tr key={persona.userId ?? persona.name} className="border-b border-border/60 last:border-0">
+                      <td className="max-w-[10rem] truncate px-4 py-2 font-medium">{persona.name}</td>
+                      <td className="px-3 py-2 text-right">{persona.leadsACargo}</td>
+                      <td className="px-3 py-2 text-right">{persona.conMovimientoHoy}</td>
+                      <td className="px-3 py-2 text-right">{persona.llamadasHoy}</td>
+                      <td className="px-3 py-2 text-right text-muted-foreground">{persona.llamadasSemana}</td>
+                      <td className="px-4 py-2 text-right font-semibold text-emerald-600">
+                        {persona.ventasSemana}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <p className="px-4 pb-3 pt-2 text-[11px] leading-4 text-muted-foreground">
+            &quot;Movidos hoy&quot; son los chats suyos con movimiento hoy — escriba ella o escriba el
+            cliente. Los mensajes no guardan quién los escribió, así que no se puede separar.
+            &quot;Ventas&quot; y &quot;Semana&quot; van de los últimos 7 días.
+          </p>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-sm">Llamadas por vendedor</CardTitle>

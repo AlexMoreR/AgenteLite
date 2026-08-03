@@ -162,6 +162,23 @@ export type LlamadasOwnerData = {
   callsThisWeek: number;
   // Llamadas por vendedor (hoy / semana).
   byUser: Array<{ userId: string | null; name: string; today: number; week: number }>;
+  /**
+   * Tablero por vendedora: como viene cada una, en una sola fila.
+   *
+   * Antes solo se veian las llamadas, que es una parte chica del trabajo. Con los leads ya
+   * repartidos (cada una se queda con el chat que contesta) se puede mostrar tambien cuantos
+   * tiene a cargo, cuantos movio hoy y cuanto cerro — que es lo que Alex necesita para saber
+   * quien esta empujando y quien esta trabada.
+   */
+  equipo: Array<{
+    userId: string | null;
+    name: string;
+    leadsACargo: number;
+    conMovimientoHoy: number;
+    llamadasHoy: number;
+    llamadasSemana: number;
+    ventasSemana: number;
+  }>;
   // Conteo REAL de leads por etapa (excluye descartados del CRM).
   stageDistribution: Array<{ stage: CrmStage; count: number }>;
   // Motivos de pérdida más frecuentes.
@@ -184,6 +201,7 @@ export async function getLlamadasOwnerData(workspaceId: string): Promise<Llamada
     callsToday: 0,
     callsThisWeek: 0,
     byUser: [],
+    equipo: [],
     stageDistribution: [],
     lostReasons: [],
     rottingCount: 0,
@@ -213,6 +231,68 @@ export async function getLlamadasOwnerData(workspaceId: string): Promise<Llamada
     result.byUser = Array.from(perUser.entries())
       .map(([userId, value]) => ({ userId: userId === "sin_usuario" ? null : userId, ...value }))
       .sort((a, b) => b.week - a.week);
+
+    /**
+     * Tablero por vendedora. Se arma con lo que se puede medir de verdad:
+     *
+     *  - leads a cargo y ventas salen de la ASIGNACION de la conversacion,
+     *  - las llamadas del registro de llamadas.
+     *
+     * "Con movimiento hoy" cuenta chats que se movieron hoy, sin distinguir si escribio ella o
+     * el cliente: los mensajes no guardan quien los escribio, asi que decir "respondidos por
+     * Marcela" seria inventarlo. Se llama como lo que realmente mide.
+     */
+    const [aCargo, movidosHoy, ganadosSemana, miembros] = await Promise.all([
+      prisma.conversation.groupBy({
+        by: ["assignedToUserId"],
+        where: { workspaceId, assignedToUserId: { not: null }, contact: { excludedFromCrm: false } },
+        _count: { _all: true },
+      }),
+      prisma.conversation.groupBy({
+        by: ["assignedToUserId"],
+        where: {
+          workspaceId,
+          assignedToUserId: { not: null },
+          lastMessageAt: { gte: startToday },
+          contact: { excludedFromCrm: false },
+        },
+        _count: { _all: true },
+      }),
+      prisma.conversation.groupBy({
+        by: ["assignedToUserId"],
+        where: {
+          workspaceId,
+          assignedToUserId: { not: null },
+          contact: { crmStage: "GANADO", wonAt: { gte: startWeek } },
+        },
+        _count: { _all: true },
+      }),
+      prisma.workspaceMember.findMany({
+        where: { workspaceId, isActive: true },
+        select: { userId: true, user: { select: { name: true, email: true } } },
+      }),
+    ]);
+
+    const cuenta = (filas: Array<{ assignedToUserId: string | null; _count: { _all: number } }>) =>
+      new Map(filas.map((fila) => [fila.assignedToUserId ?? "", fila._count._all]));
+    const mapaACargo = cuenta(aCargo);
+    const mapaMovidos = cuenta(movidosHoy);
+    const mapaGanados = cuenta(ganadosSemana);
+
+    result.equipo = miembros
+      .map((miembro) => {
+        const llamadas = perUser.get(miembro.userId);
+        return {
+          userId: miembro.userId,
+          name: miembro.user?.name?.trim() || miembro.user?.email || "Sin nombre",
+          leadsACargo: mapaACargo.get(miembro.userId) ?? 0,
+          conMovimientoHoy: mapaMovidos.get(miembro.userId) ?? 0,
+          llamadasHoy: llamadas?.today ?? 0,
+          llamadasSemana: llamadas?.week ?? 0,
+          ventasSemana: mapaGanados.get(miembro.userId) ?? 0,
+        };
+      })
+      .sort((a, b) => b.ventasSemana - a.ventasSemana || b.leadsACargo - a.leadsACargo);
 
     // Distribución real por etapa.
     const stageGroups = await prisma.contact.groupBy({
