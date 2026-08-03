@@ -1997,24 +1997,63 @@ type EvolutionGoHistoryChat = {
   messages: EvolutionGoHistoryMessage[];
 };
 
-// Grupos, canales y estados no son chats de CRM: nadie los va a atender desde aca. Los @lid
-// tampoco sirven: son identificadores internos de WhatsApp, no telefonos, y como pasan el
-// filtro de digitos (14-15) crearian una ficha con un "numero" al que no se le puede escribir.
+// Grupos, canales y estados no son chats de CRM: nadie los va a atender desde aca.
 function isSyncableHistoryChatId(value: string) {
   const normalized = value.toLowerCase();
-  if (
-    normalized.includes("@g.us") ||
-    normalized.includes("@newsletter") ||
-    normalized.includes("@broadcast") ||
-    normalized.includes("@lid") ||
-    normalized.startsWith("status@")
-  ) {
-    return false;
+  return (
+    !normalized.includes("@g.us") &&
+    !normalized.includes("@newsletter") &&
+    !normalized.includes("@broadcast") &&
+    !normalized.startsWith("status@")
+  );
+}
+
+/**
+ * El history sync identifica casi todos los chats por **@lid**, no por telefono.
+ *
+ * Un LID ("20131166085305@lid") es un identificador interno de WhatsApp: no se le puede
+ * escribir y no sirve como ficha de contacto ([[evolution.ts]] ya lo sufrio al enviar). El
+ * traductor viene en el MISMO evento, en `phoneNumberToLidMappings`:
+ *
+ *     { pnJID: "573008544903@s.whatsapp.net", lidJID: "97732165370048@lid" }
+ */
+function readHistoryLidToPhoneMap(payloads: unknown[]) {
+  const lidToPhone = new Map<string, string>();
+
+  for (const payload of payloads) {
+    const mappings = asRecord(asRecord(asRecord(payload)?.data)?.Data)?.phoneNumberToLidMappings;
+    if (!Array.isArray(mappings)) {
+      continue;
+    }
+
+    for (const rawMapping of mappings) {
+      const mapping = asRecord(rawMapping);
+      const phone = getComparablePhoneFromString(
+        readString(mapping?.pnJID) ?? readString(mapping?.PnJID) ?? "",
+      );
+      const lidDigits = (readString(mapping?.lidJID) ?? readString(mapping?.LidJID) ?? "")
+        .split("@")[0]
+        ?.replace(/\D/g, "");
+
+      if (phone && lidDigits) {
+        lidToPhone.set(lidDigits, phone);
+      }
+    }
+  }
+
+  return lidToPhone;
+}
+
+/** El telefono de un chat del historial: directo si es un JID normal, traducido si es un LID. */
+function resolveHistoryChatPhone(chatId: string, lidToPhone: Map<string, string>) {
+  const digits = chatId.split("@")[0]?.replace(/\D/g, "") ?? "";
+
+  if (chatId.toLowerCase().includes("@lid")) {
+    return lidToPhone.get(digits) ?? null;
   }
 
   // Un telefono real no pasa de 13 digitos con indicativo (misma regla que en evolution.ts).
-  const digits = normalized.split("@")[0]?.replace(/\D/g, "") ?? "";
-  return digits.length >= 7 && digits.length <= 13;
+  return digits.length >= 7 && digits.length <= 13 ? getComparablePhoneFromString(chatId) : null;
 }
 
 function readHistorySyncDisplayName(conversation: UnknownRecord | null, messages: EvolutionGoHistoryMessage[]) {
@@ -2053,13 +2092,19 @@ async function readEvolutionGoHistoryChats(instanceName: string): Promise<Evolut
     WHERE "provider" = 'EVOLUTION'
       AND "instanceName" = ${instanceName}
       AND "createdAt" >= ${since}
-      AND jsonb_typeof("payload"->'data'->'Data'->'conversations') = 'array'
+      AND (
+        jsonb_typeof("payload"->'data'->'Data'->'conversations') = 'array'
+        OR jsonb_typeof("payload"->'data'->'Data'->'phoneNumberToLidMappings') = 'array'
+      )
     ORDER BY "createdAt" DESC
     LIMIT ${HISTORY_SYNC_MAX_EVENTS}
   `;
 
   const chats = new Map<string, EvolutionGoHistoryChat>();
   const seenMessageIds = new Set<string>();
+  // Primero el traductor de LID a telefono: sin el, casi ningun chat es identificable.
+  const lidToPhone = readHistoryLidToPhoneMap(logs.map((log) => log.payload));
+  let unresolvedLids = 0;
 
   for (const log of logs) {
     const conversations = asRecord(asRecord(asRecord(log.payload)?.data)?.Data)?.conversations;
@@ -2074,9 +2119,15 @@ async function readEvolutionGoHistoryChats(instanceName: string): Promise<Evolut
         continue;
       }
 
-      const phoneNumber = getComparablePhoneFromString(chatId);
+      const phoneNumber = resolveHistoryChatPhone(chatId, lidToPhone);
       const rawMessages = conversationRecord?.messages ?? conversationRecord?.Messages;
-      if (!phoneNumber || !Array.isArray(rawMessages) || !rawMessages.length) {
+      if (!phoneNumber) {
+        // Un LID sin traduccion es un chat al que no le podriamos escribir: se cuenta y se deja.
+        unresolvedLids += 1;
+        continue;
+      }
+
+      if (!Array.isArray(rawMessages) || !rawMessages.length) {
         continue;
       }
 
@@ -2091,11 +2142,19 @@ async function readEvolutionGoHistoryChats(instanceName: string): Promise<Evolut
         }
         seenMessageIds.add(externalId);
 
+        // Buena parte de lo que trae el historial son avisos internos de WhatsApp
+        // (`messageStubType`, sin bloque `message`): no tienen nada que mostrar y como
+        // mensajes serian burbujas vacias en el chat.
+        const content = asRecord(webMessage.message) ?? asRecord(webMessage.Message);
+        if (!content) {
+          continue;
+        }
+
         const timestampSeconds = Number(webMessage.messageTimestamp ?? webMessage.MessageTimestamp);
         chat.messages.push({
           externalId,
           webMessage,
-          content: asRecord(webMessage.message) ?? asRecord(webMessage.Message),
+          content,
           createdAt:
             Number.isFinite(timestampSeconds) && timestampSeconds > 0
               ? new Date(timestampSeconds * 1000)
@@ -2123,6 +2182,8 @@ async function readEvolutionGoHistoryChats(instanceName: string): Promise<Evolut
       instanceName,
       eventos: logs.length,
       conversaciones: Array.isArray(conversations) ? conversations.length : null,
+      lidsSinTraduccion: unresolvedLids,
+      lidsConocidos: lidToPhone.size,
       conversacionKeys: firstConversation ? Object.keys(firstConversation).slice(0, 15) : null,
       conversacionId: firstConversation ? JSON.stringify(firstConversation.ID ?? firstConversation.id) : null,
       mensajeSample: JSON.stringify(firstMessage ?? null).slice(0, 500),
@@ -2203,6 +2264,7 @@ async function scanEvolutionGoHistoryCandidates(input: {
   console.log("[chat-sync] history_scan", {
     instanceName: input.instanceName,
     chatsEnElHistorial: allChats.length,
+    mensajes: allChats.reduce((total, chat) => total + chat.messages.length, 0),
     filtradoPorNumero: input.phoneNumber ?? null,
   });
 
