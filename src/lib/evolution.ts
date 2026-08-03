@@ -138,6 +138,23 @@ function normalizeEvolutionSendNumber(value: string) {
     return trimmed;
   }
 
+  /**
+   * El LID guardado SIN su "@lid", que es como queda siempre en la ficha del contacto.
+   *
+   * Al guardar el contacto se le saca el dominio al JID, asi que un cliente identificado por LID
+   * queda como "37898875334784" pelado. Enviado asi, el gateway lo completa como
+   * "37898875334784@s.whatsapp.net" — una direccion que no existe. El resultado era el peor
+   * posible: el agente contestaba, el mensaje se veia en el chat como enviado, y al cliente NO
+   * le llegaba nada. En el log del gateway quedaba "Failed to check user existence" y
+   * "ServerID: 0", pero la app lo daba por bueno.
+   *
+   * Un telefono real no pasa de 13 digitos con indicativo; de 14 para arriba es un LID.
+   */
+  const digits = trimmed.replace(/\D/g, "");
+  if (digits.length >= 14 && digits === trimmed) {
+    return `${digits}@lid`;
+  }
+
   return normalizePhoneValue(trimmed) ?? trimmed;
 }
 
