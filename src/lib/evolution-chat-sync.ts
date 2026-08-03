@@ -1109,15 +1109,15 @@ async function evolutionSyncRequest<T>(
   }
 }
 
-// Listar chats y mensajes del telefono es exclusivo de Evolution API (Baileys): guarda el
-// historial en su propia base y lo expone por findChats/findMessages. Evolution GO (whatsmeow)
-// NO tiene esas rutas — su gateway contesta literalmente "404 page not found" — asi que este
-// escaneo no puede existir alli. Antes ese 404 subia como excepcion desde la server action y
-// tumbaba la pantalla entera de Conexion ("No se pudo cargar esta pantalla", digest 1609115967)
-// en vez de explicar lo que pasaba.
-const CHAT_SYNC_UNSUPPORTED_MESSAGE =
-  "Este canal esta conectado por Evolution GO, que no permite leer la lista de chats ni el historial guardado en el telefono. Sincronizar chats solo funciona en canales de Evolution API.";
-
+// Preguntarle al gateway que chats y mensajes tiene el telefono es exclusivo de Evolution API
+// (Baileys): guarda el historial en su propia base y lo expone por findChats/findMessages.
+// Evolution GO (whatsmeow) NO tiene esas rutas — contesta literalmente "404 page not found", y
+// ese 404 subia como excepcion desde la server action y tumbaba la pantalla entera de Conexion
+// ("No se pudo cargar esta pantalla", digest 1609115967).
+//
+// Los canales GO no se quedan sin sincronizacion: van por otro camino, el historial que el
+// telefono ya nos mando al vincularse (ver scanEvolutionGoHistoryCandidates, mas abajo).
+//
 // Sin conexion por-canal se usa la configuracion global, que hoy apunta a evogo (GO).
 function supportsRemoteChatSync(connection: EvolutionConnection | null) {
   return connection?.kind === "EVOLUTION_API";
@@ -1224,10 +1224,11 @@ export async function scanEvolutionChatSyncCandidate(input: { workspaceId: strin
 
   const connection = readGatewayConnection(channel.metadata);
   if (!supportsRemoteChatSync(connection)) {
-    return {
-      ok: false as const,
-      error: CHAT_SYNC_UNSUPPORTED_MESSAGE,
-    };
+    return scanEvolutionGoHistoryCandidates({
+      workspaceId: input.workspaceId,
+      channelId: input.channelId,
+      instanceName: channel.evolutionInstanceName,
+    });
   }
 
   const remoteChats = await fetchEvolutionChats(channel.evolutionInstanceName, connection);
@@ -1386,12 +1387,6 @@ export async function scanEvolutionChatSyncCandidateByPhone(input: {
   }
 
   const connection = readGatewayConnection(channel.metadata);
-  if (!supportsRemoteChatSync(connection)) {
-    return {
-      ok: false as const,
-      error: CHAT_SYNC_UNSUPPORTED_MESSAGE,
-    };
-  }
 
   const normalizedPhone = normalizePhoneDigits(input.phoneNumber);
   if (!normalizedPhone) {
@@ -1399,6 +1394,15 @@ export async function scanEvolutionChatSyncCandidateByPhone(input: {
       ok: false as const,
       error: "El numero ingresado no es valido. Usa solo digitos con codigo de pais (ej: 573001234567).",
     };
+  }
+
+  if (!supportsRemoteChatSync(connection)) {
+    return scanEvolutionGoHistoryCandidates({
+      workspaceId: input.workspaceId,
+      channelId: input.channelId,
+      instanceName: channel.evolutionInstanceName,
+      phoneNumber: normalizedPhone,
+    });
   }
 
   const [localContacts, localConversations] = await Promise.all([
@@ -1548,11 +1552,20 @@ export async function applyEvolutionChatSyncCandidate(input: {
   }
 
   const connection = readGatewayConnection(channel.metadata);
+
+  // En Evolution GO los mensajes no se piden: ya llegaron solos en el history sync de la
+  // vinculacion y estan guardados en WebhookEventLog. Ese es otro origen, mismo destino.
   if (!supportsRemoteChatSync(connection)) {
-    return {
-      ok: false as const,
-      error: CHAT_SYNC_UNSUPPORTED_MESSAGE,
-    };
+    return applyEvolutionGoHistoryCandidate({
+      workspaceId: input.workspaceId,
+      channel: {
+        id: channel.id,
+        agentId: channel.agentId,
+        evolutionInstanceName: channel.evolutionInstanceName,
+      },
+      candidate,
+      importLimit: input.importLimit,
+    });
   }
 
   await ensureEvolutionInstanceFullHistory(channel.evolutionInstanceName);
@@ -1572,6 +1585,29 @@ export async function applyEvolutionChatSyncCandidate(input: {
       error: "No se pudo leer el historial completo de Evolution para esta conversacion.",
     };
   }
+
+  return persistEvolutionChatSyncCandidate({
+    workspaceId: input.workspaceId,
+    channel,
+    candidate,
+    importedMessages,
+  });
+}
+
+/**
+ * Crea (o completa) el contacto, la conversacion y los mensajes de un candidato ya resuelto.
+ *
+ * Es la mitad final —y comun— de las dos importaciones: la de Evolution API, que lee los
+ * mensajes de findMessages, y la de Evolution GO, que los saca del history sync guardado. Lo
+ * unico que cambia entre ambas es de donde salieron los mensajes.
+ */
+async function persistEvolutionChatSyncCandidate(input: {
+  workspaceId: string;
+  channel: { id: string; agentId: string | null };
+  candidate: EvolutionChatSyncCandidate;
+  importedMessages: EvolutionChatSyncImportedMessageDraft[];
+}) {
+  const { candidate, channel, importedMessages } = input;
 
   const contactAndConversation = await prisma.$transaction(async (tx) => {
     let contact = await tx.contact.findFirst({
@@ -1907,6 +1943,430 @@ function readHistorySyncText(message: Record<string, unknown> | null) {
   }
 
   return null;
+}
+
+// ===========================================================================
+// Traer chats en Evolution GO: el history sync que manda el telefono al vincular
+// ===========================================================================
+//
+// evogo no tiene findChats ni findMessages (ver supportsRemoteChatSync), asi que no hay
+// a quien preguntarle "que chats tiene este telefono". Pero no hace falta preguntar: al vincular
+// un dispositivo nuevo, WhatsApp EMPUJA el historial reciente del celular y evogo nos lo manda
+// como eventos HISTORYSYNC (INITIAL_STATUS_V3, PUSH_NAME, RECENT —el gordo, cientos de KB— y
+// FULL). Ese evento ya se guarda entero en WebhookEventLog. O sea: el historial de un canal
+// recien conectado YA ESTA en nuestra base; lo unico que faltaba era usarlo.
+//
+// Por eso, en un canal GO, "Sincronizar chats" no llama al gateway: lee esos eventos.
+//
+// Ojo con la diferencia respecto de persistEvolutionHistorySync (mas abajo, el camino
+// automatico del webhook): aquel NO crea contactos ni conversaciones a proposito, porque un
+// history sync trae chats que nadie pidio y asi fue como el CRM se lleno de 26 leads que nunca
+// escribieron. Este camino SI crea, porque no es automatico: un administrador abrio Conexion,
+// vio la lista y eligio ese chat.
+
+/** Hasta cuando mirar hacia atras: el sync de vinculacion llega una sola vez, ese dia. */
+const HISTORY_SYNC_LOOKBACK_DAYS = 60;
+/**
+ * Cuantos eventos se leen. El de la vinculacion (RECENT) pesa ~650 KB, asi que esto es RAM del
+ * servidor —que es justo lo que le falta— y no conviene subirlo. Una vinculacion son 4 eventos,
+ * asi que 8 cubre la ultima con margen; los pedidos manuales del boton del chat son chicos.
+ */
+const HISTORY_SYNC_MAX_EVENTS = 8;
+/** Cuantos chats se ofrecen por escaneo (se avisa en el mensaje cuando se recorta). */
+const HISTORY_SYNC_MAX_CANDIDATES = 12;
+/** Cuantos chats del historial se revisan contra la base local, del mas reciente al mas viejo. */
+const HISTORY_SYNC_MAX_CHATS_SCANNED = 40;
+/** Tope de mensajes por chat: acota la RAM y el tamaño de los `in` contra la base. */
+const HISTORY_SYNC_MAX_MESSAGES_PER_CHAT = 300;
+const HISTORY_SYNC_PREVIEW_LIMIT = 12;
+/** Tope de adjuntos por importacion: cada uno es una descarga + descifrado en el servidor. */
+const HISTORY_SYNC_MEDIA_LIMIT = 25;
+
+type EvolutionGoHistoryMessage = {
+  externalId: string;
+  webMessage: UnknownRecord;
+  content: UnknownRecord | null;
+  createdAt: Date;
+  fromMe: boolean;
+  pushName: string | null;
+};
+
+type EvolutionGoHistoryChat = {
+  phoneNumber: string;
+  displayName: string | null;
+  messages: EvolutionGoHistoryMessage[];
+};
+
+// Grupos, canales y estados no son chats de CRM: nadie los va a atender desde aca. Los @lid
+// tampoco sirven: son identificadores internos de WhatsApp, no telefonos, y como pasan el
+// filtro de digitos (14-15) crearian una ficha con un "numero" al que no se le puede escribir.
+function isSyncableHistoryChatId(value: string) {
+  const normalized = value.toLowerCase();
+  if (
+    normalized.includes("@g.us") ||
+    normalized.includes("@newsletter") ||
+    normalized.includes("@broadcast") ||
+    normalized.includes("@lid") ||
+    normalized.startsWith("status@")
+  ) {
+    return false;
+  }
+
+  // Un telefono real no pasa de 13 digitos con indicativo (misma regla que en evolution.ts).
+  const digits = normalized.split("@")[0]?.replace(/\D/g, "") ?? "";
+  return digits.length >= 7 && digits.length <= 13;
+}
+
+function readHistorySyncDisplayName(conversation: UnknownRecord | null, messages: EvolutionGoHistoryMessage[]) {
+  const fromConversation =
+    readString(conversation?.name) ??
+    readString(conversation?.Name) ??
+    readString(conversation?.displayName) ??
+    readString(conversation?.DisplayName);
+
+  if (fromConversation) {
+    return fromConversation;
+  }
+
+  // El pushName es como se llama el cliente en WhatsApp; solo sirve el de SUS mensajes (en los
+  // nuestros viene el nombre de nuestra propia linea).
+  return messages.find((message) => !message.fromMe && message.pushName)?.pushName ?? null;
+}
+
+/**
+ * Reconstruye los chats del telefono a partir de los eventos HISTORYSYNC ya guardados.
+ *
+ * Devuelve los chats ordenados por su ultimo mensaje (el mas fresco primero) y con los mensajes
+ * en orden cronologico, deduplicados por externalId: los eventos se pisan entre si (RECENT y
+ * FULL repiten conversaciones) y el mismo mensaje aparece en varios.
+ */
+async function readEvolutionGoHistoryChats(instanceName: string): Promise<EvolutionGoHistoryChat[]> {
+  const logs = await prisma.webhookEventLog.findMany({
+    where: {
+      provider: "EVOLUTION",
+      instanceName,
+      event: { contains: "HISTORY", mode: "insensitive" },
+      createdAt: { gte: new Date(Date.now() - HISTORY_SYNC_LOOKBACK_DAYS * 24 * 60 * 60 * 1000) },
+    },
+    orderBy: { createdAt: "desc" },
+    take: HISTORY_SYNC_MAX_EVENTS,
+    select: { payload: true },
+  });
+
+  const chats = new Map<string, EvolutionGoHistoryChat>();
+  const seenMessageIds = new Set<string>();
+
+  for (const log of logs) {
+    const conversations = asRecord(asRecord(asRecord(log.payload)?.data)?.Data)?.conversations;
+    if (!Array.isArray(conversations)) {
+      continue;
+    }
+
+    for (const rawConversation of conversations) {
+      const conversationRecord = asRecord(rawConversation);
+      const chatId = readString(conversationRecord?.ID) ?? readString(conversationRecord?.id) ?? "";
+      if (!chatId || !isSyncableHistoryChatId(chatId)) {
+        continue;
+      }
+
+      const phoneNumber = getComparablePhoneFromString(chatId);
+      const rawMessages = conversationRecord?.messages ?? conversationRecord?.Messages;
+      if (!phoneNumber || !Array.isArray(rawMessages) || !rawMessages.length) {
+        continue;
+      }
+
+      const chat = chats.get(phoneNumber) ?? { phoneNumber, displayName: null, messages: [] };
+
+      for (const rawItem of rawMessages) {
+        const webMessage = asRecord(asRecord(rawItem)?.message) ?? asRecord(asRecord(rawItem)?.Message);
+        const key = asRecord(webMessage?.key) ?? asRecord(webMessage?.Key);
+        const externalId = readString(key?.ID) ?? readString(key?.id);
+        if (!webMessage || !externalId || seenMessageIds.has(externalId)) {
+          continue;
+        }
+        seenMessageIds.add(externalId);
+
+        const timestampSeconds = Number(webMessage.messageTimestamp ?? webMessage.MessageTimestamp);
+        chat.messages.push({
+          externalId,
+          webMessage,
+          content: asRecord(webMessage.message) ?? asRecord(webMessage.Message),
+          createdAt:
+            Number.isFinite(timestampSeconds) && timestampSeconds > 0
+              ? new Date(timestampSeconds * 1000)
+              : new Date(),
+          fromMe: key?.fromMe === true || key?.FromMe === true,
+          pushName: readString(webMessage.pushName) ?? readString(webMessage.PushName),
+        });
+      }
+
+      chat.displayName = chat.displayName ?? readHistorySyncDisplayName(conversationRecord, chat.messages);
+      chats.set(phoneNumber, chat);
+    }
+  }
+
+  const result = Array.from(chats.values()).filter((chat) => chat.messages.length > 0);
+
+  for (const chat of result) {
+    chat.messages.sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime());
+    if (chat.messages.length > HISTORY_SYNC_MAX_MESSAGES_PER_CHAT) {
+      chat.messages = chat.messages.slice(-HISTORY_SYNC_MAX_MESSAGES_PER_CHAT);
+    }
+  }
+
+  result.sort(
+    (left, right) =>
+      (right.messages.at(-1)?.createdAt.getTime() ?? 0) - (left.messages.at(-1)?.createdAt.getTime() ?? 0),
+  );
+
+  return result;
+}
+
+function buildEvolutionGoHistoryCandidate(input: {
+  chat: EvolutionGoHistoryChat;
+  kind: EvolutionChatSyncCandidate["kind"];
+  summary: string;
+  needsContact: boolean;
+  needsConversation: boolean;
+}): EvolutionChatSyncCandidate {
+  const { chat } = input;
+
+  return {
+    fingerprint: buildCandidateFingerprint({
+      kind: input.kind,
+      phoneNumber: chat.phoneNumber,
+      remoteItemId: null,
+    }),
+    kind: input.kind,
+    remotePhoneNumber: chat.phoneNumber,
+    remoteDisplayName: chat.displayName,
+    remoteJid: buildCanonicalRemoteJid(chat.phoneNumber),
+    remoteJidAlt: null,
+    remoteItemId: null,
+    summary: input.summary,
+    needsContact: input.needsContact,
+    needsConversation: input.needsConversation,
+    needsMessages: true,
+    messagePreview: chat.messages.slice(-HISTORY_SYNC_PREVIEW_LIMIT).map((message) => ({
+      id: message.externalId,
+      direction: message.fromMe ? ("OUTBOUND" as const) : ("INBOUND" as const),
+      type: readHistorySyncMessageType(message.content),
+      content: readHistorySyncText(message.content),
+      createdAt: message.createdAt.toISOString(),
+      mediaUrl: null,
+    })),
+  };
+}
+
+/**
+ * "Escaneo" de un canal Evolution GO: compara el historial que mando el telefono contra lo que
+ * hay en la base local, y ofrece los chats a los que les falta algo.
+ */
+async function scanEvolutionGoHistoryCandidates(input: {
+  workspaceId: string;
+  channelId: string;
+  instanceName: string;
+  phoneNumber?: string | null;
+}): Promise<EvolutionChatSyncScanResult | { ok: false; error: string }> {
+  const allChats = await readEvolutionGoHistoryChats(input.instanceName);
+  const chats = input.phoneNumber
+    ? allChats.filter((chat) => chat.phoneNumber === input.phoneNumber)
+    : allChats;
+
+  console.log("[chat-sync] history_scan", {
+    instanceName: input.instanceName,
+    chatsEnElHistorial: allChats.length,
+    filtradoPorNumero: input.phoneNumber ?? null,
+  });
+
+  if (!chats.length) {
+    return {
+      ok: true as const,
+      kind: "none" as const,
+      message: input.phoneNumber
+        ? `No encontramos a ${input.phoneNumber} en el historial que mando el telefono al vincular este canal.`
+        : "Este canal no tiene historial guardado. WhatsApp lo manda una sola vez, cuando se vincula el telefono: si el canal se conecto hace tiempo, hay que volver a escanear el QR para que lo mande de nuevo.",
+    };
+  }
+
+  const [localContacts, localConversations] = await Promise.all([
+    findLocalContactsByPhoneNumbers(
+      input.workspaceId,
+      chats.map((chat) => chat.phoneNumber),
+    ),
+    findLocalConversationsByChannel(input.workspaceId, input.channelId),
+  ]);
+  const localContactsByPhone = buildPhoneLookupMap(localContacts);
+  const localConversationsByPhone = buildPhoneLookupMap(
+    localConversations.map((conversation) => ({
+      phoneNumber: conversation.contact.phoneNumber,
+      id: conversation.id,
+    })),
+  );
+
+  const candidates: EvolutionChatSyncCandidate[] = [];
+  let truncated = false;
+
+  // El telefono puede traer decenas de chats y la mayoria pueden estar ya completos. Se miran
+  // los mas recientes y hasta un tope: sin esto, un telefono con 200 chats viejos serian 200
+  // consultas para no ofrecer nada.
+  for (const chat of chats.slice(0, HISTORY_SYNC_MAX_CHATS_SCANNED)) {
+    if (candidates.length >= HISTORY_SYNC_MAX_CANDIDATES) {
+      truncated = true;
+      break;
+    }
+
+    const localContact = localContactsByPhone.get(chat.phoneNumber);
+    const localConversation = localConversationsByPhone.get(chat.phoneNumber) ?? null;
+
+    // Cuantos de estos mensajes NO tenemos. Es exacto y barato (un count por chat), y evita
+    // ofrecer un chat que ya esta completo solo porque el telefono lo volvio a mandar.
+    const alreadyStored = await prisma.message.count({
+      where: {
+        channelId: input.channelId,
+        externalId: { in: chat.messages.map((message) => message.externalId) },
+      },
+    });
+    const missing = chat.messages.length - alreadyStored;
+
+    if (localConversation && missing <= 0) {
+      continue;
+    }
+
+    const label = chat.displayName ? `${chat.displayName} (${chat.phoneNumber})` : chat.phoneNumber;
+
+    candidates.push(
+      buildEvolutionGoHistoryCandidate({
+        chat,
+        kind: localContact ? "CONVERSATION" : "CONTACT",
+        needsContact: !localContact,
+        needsConversation: !localConversation,
+        summary: !localContact
+          ? `${label} no existe en Chats. Se creara con ${missing} mensajes del historial del telefono.`
+          : !localConversation
+            ? `${label} existe pero no tiene conversacion en este canal. Se creara con ${missing} mensajes.`
+            : `A ${label} le faltan ${missing} mensajes del historial del telefono.`,
+      }),
+    );
+  }
+
+  if (!candidates.length) {
+    return {
+      ok: true as const,
+      kind: "none" as const,
+      message: "Los chats del historial de este telefono ya estan completos en la base local.",
+    };
+  }
+
+  return {
+    ok: true as const,
+    kind: "batch" as const,
+    message: truncated
+      ? `Mostramos los ${candidates.length} chats mas recientes del historial del telefono; volve a escanear despues de importarlos para ver los que siguen.`
+      : `Encontramos ${candidates.length} ${candidates.length === 1 ? "chat" : "chats"} en el historial que mando el telefono al vincular este canal.`,
+    candidates,
+  };
+}
+
+/** Convierte los mensajes del history sync en el mismo borrador que usa la importacion normal. */
+async function buildEvolutionGoHistoryImportedMessages(input: {
+  instanceName: string;
+  channelId: string;
+  messages: EvolutionGoHistoryMessage[];
+}): Promise<EvolutionChatSyncImportedMessageDraft[]> {
+  // Los que ya estan guardados no se vuelven a armar: lo caro no es la fila, es bajar otra vez
+  // sus adjuntos (WhatsApp los manda cifrados y hay que pedirle a evogo que los descifre).
+  const stored = await prisma.message.findMany({
+    where: {
+      channelId: input.channelId,
+      externalId: { in: input.messages.map((message) => message.externalId) },
+    },
+    select: { externalId: true },
+  });
+  const storedIds = new Set(stored.map((message) => message.externalId));
+
+  const drafts: EvolutionChatSyncImportedMessageDraft[] = [];
+  let mediaDownloaded = 0;
+
+  for (const message of input.messages) {
+    if (storedIds.has(message.externalId)) {
+      continue;
+    }
+
+    const type = readHistorySyncMessageType(message.content);
+    const isMedia = type === "IMAGE" || type === "VIDEO" || type === "AUDIO" || type === "DOCUMENT" || type === "STICKER";
+
+    let mediaUrl: string | null = null;
+    if (isMedia && message.content && mediaDownloaded < HISTORY_SYNC_MEDIA_LIMIT) {
+      try {
+        const dataUrl = await fetchEvolutionGoMediaDataUrl({
+          instanceName: input.instanceName,
+          message: message.content,
+        });
+        mediaUrl = await persistChatMediaFromDataUrl({ dataUrl, mediaType: type });
+        if (mediaUrl) {
+          mediaDownloaded += 1;
+        }
+      } catch {
+        // WhatsApp borra los archivos viejos de sus servidores: el mensaje se guarda igual,
+        // con su texto y su fecha, aunque el adjunto ya no se pueda bajar.
+        mediaUrl = null;
+      }
+    }
+
+    drafts.push({
+      externalId: message.externalId,
+      direction: message.fromMe ? "OUTBOUND" : "INBOUND",
+      type,
+      status: message.fromMe ? "SENT" : "RECEIVED",
+      content: readHistorySyncText(message.content),
+      mediaUrl,
+      createdAt: message.createdAt,
+      sentAt: message.fromMe ? message.createdAt : null,
+      rawPayload: { source: "evogo-history-sync", evolution: message.webMessage },
+    });
+  }
+
+  return drafts;
+}
+
+/** La importacion de un chat elegido, en canales Evolution GO. */
+async function applyEvolutionGoHistoryCandidate(input: {
+  workspaceId: string;
+  channel: { id: string; agentId: string | null; evolutionInstanceName: string };
+  candidate: EvolutionChatSyncCandidate;
+  importLimit?: number | null;
+}) {
+  const phoneNumber = normalizePhoneDigits(input.candidate.remotePhoneNumber);
+  const chats = await readEvolutionGoHistoryChats(input.channel.evolutionInstanceName);
+  const chat = chats.find((item) => item.phoneNumber === phoneNumber);
+
+  if (!chat) {
+    return {
+      ok: false as const,
+      error: "Ese chat ya no aparece en el historial guardado del canal. Volve a escanear.",
+    };
+  }
+
+  const limit = input.importLimit;
+  const selected = typeof limit === "number" && limit > 0 ? chat.messages.slice(-limit) : chat.messages;
+
+  const importedMessages = await buildEvolutionGoHistoryImportedMessages({
+    instanceName: input.channel.evolutionInstanceName,
+    channelId: input.channel.id,
+    messages: selected,
+  });
+
+  return persistEvolutionChatSyncCandidate({
+    workspaceId: input.workspaceId,
+    channel: input.channel,
+    candidate: {
+      ...input.candidate,
+      remotePhoneNumber: phoneNumber ?? input.candidate.remotePhoneNumber,
+      remoteDisplayName: input.candidate.remoteDisplayName ?? chat.displayName,
+    },
+    importedMessages,
+  });
 }
 
 /**
