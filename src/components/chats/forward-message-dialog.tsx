@@ -39,6 +39,27 @@ function esReenviableComoArchivo(tipo?: string | null): tipo is (typeof TIPOS_CO
   return TIPOS_CON_ARCHIVO.includes((tipo ?? "") as (typeof TIPOS_CON_ARCHIVO)[number]);
 }
 
+/**
+ * ¿El archivo vive en NUESTRO servidor?
+ *
+ * Se mira la RUTA, no el texto completo: los mensajes guardan la direccion absoluta
+ * ("https://app.aizenbot.com/uploads/chat-media/...") y comparar el principio contra "/uploads/"
+ * no coincidia NUNCA. Resultado: reenviar cualquier foto o PDF avisaba "todavia se esta
+ * guardando" y no mandaba nada, siempre.
+ */
+function esArchivoDeNuestroServidor(mediaUrl?: string | null): boolean {
+  const direccion = mediaUrl?.trim();
+  if (!direccion) {
+    return false;
+  }
+  try {
+    const ruta = direccion.startsWith("/") ? direccion : new URL(direccion).pathname;
+    return ruta.startsWith("/uploads/");
+  } catch {
+    return false;
+  }
+}
+
 export function ForwardMessageDialog({
   message,
   onClose,
@@ -121,7 +142,7 @@ export function ForwardMessageDialog({
        * se avisa: el archivo se termina de guardar solo al abrir el chat, asi que reintentar en
        * un momento suele alcanzar.
        */
-      const archivoPropio = Boolean(message.mediaUrl && message.mediaUrl.startsWith("/uploads/"));
+      const archivoPropio = esArchivoDeNuestroServidor(message.mediaUrl);
 
       if (esReenviableComoArchivo(message.type) && message.mediaUrl && !archivoPropio) {
         toast.error("Ese archivo todavía se está guardando. Abrí el chat y probá de nuevo en un momento.");
