@@ -13,6 +13,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { getContactosData } from "@/features/contactos";
 import { ContactosCardsList } from "@/features/contactos/components/ContactosCardsList";
+import { NewContactDialog } from "@/features/contactos/components/NewContactDialog";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 
 export const metadata: Metadata = {
@@ -55,6 +56,8 @@ export default async function ClienteContactosPage({ searchParams }: PageProps) 
             aria-label="Buscar contactos"
           />
         </form>
+
+        <NewContactDialog />
 
         <div className="shrink-0">
           <DropdownMenu>
