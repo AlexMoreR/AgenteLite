@@ -3,6 +3,7 @@ import { after } from "next/server";
 import { sendUnifiedChatReplyAction, toggleConversationAutomationAction, toggleOfficialApiConversationAutomationAction } from "@/app/actions/chats-actions";
 import { sendChatAudioReplyAction, sendChatMediaReplyAction } from "@/app/actions/agent-actions";
 import { AssignChatControl } from "@/components/chats/assign-chat-control";
+import { ImportHistoryControl } from "@/components/chats/import-history-control";
 import { ChatHeaderActions } from "@/components/chats/chat-header-actions";
 import type { CrmStage } from "@/features/crm/types";
 import { ChatsAutoRefresh } from "@/components/agents/chats-auto-refresh";
@@ -1143,7 +1144,6 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
               status={selectedAgentConversation?.status ?? "OPEN"}
               returnTo={selectedChatHref}
               toggleAutomationAction={toggleConversationAutomationAction}
-              canImportHistory={selectedChannelKeepsHistory}
             />
           ) : selectedUnified?.source === "official" && selectedConversation ? (
             <ChatHeaderActions
@@ -1159,6 +1159,16 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
               returnTo={selectedChatHref}
               toggleAutomationAction={toggleOfficialApiConversationAutomationAction}
               source="official"
+            />
+          ) : null
+        }
+        contactPanelHeaderActions={
+          // Traer el historial: se usa una vez por cliente, asi que vive en la ficha y no en la
+          // barra del chat, que es para lo de todos los dias. Solo el canal viejo lo expone.
+          selectedUnified?.source === "agent" && selectedConversation && selectedChannelKeepsHistory ? (
+            <ImportHistoryControl
+              key={`panel-history:${selectedConversation.id}`}
+              conversationId={selectedConversation.id}
             />
           ) : null
         }

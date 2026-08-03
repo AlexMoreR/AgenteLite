@@ -149,6 +149,8 @@ export type SharedInboxProps = {
   headerBadge?: ReactNode;
   headerActions?: ReactNode;
   contactPanelActions?: ReactNode;
+  // Acciones de la cabecera del panel de contacto (al lado del titulo "Contacto").
+  contactPanelHeaderActions?: ReactNode;
   composer?: {
     action: (formData: FormData) => void | Promise<{ ok: boolean; error?: string; suppressOptimistic?: boolean } | void>;
     hiddenFields: Array<{ name: string; value: string }>;

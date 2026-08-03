@@ -4,7 +4,6 @@ import { MoreVertical } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { FormActionSwitch } from "@/components/ui/form-action-switch";
 import { CrmStageControl } from "./crm-stage-control";
-import { ImportHistoryControl } from "./import-history-control";
 import { ResolveChatControl } from "./resolve-chat-control";
 import { SnoozeChatControl } from "./snooze-chat-control";
 import type { CrmStage } from "@/features/crm/types";
@@ -18,9 +17,6 @@ type ChatHeaderActionsProps = {
   returnTo: string;
   toggleAutomationAction: (formData: FormData) => void | Promise<void>;
   source?: "agent" | "official";
-  // Solo los canales Evolution API guardan historial: evogo no lo expone (404) porque no
-  // guarda mensajes. Sin esto el boton aparece en Ventas y falla en la cara de la asesora.
-  canImportHistory?: boolean;
 };
 
 // Acciones de la cabecera del chat (Etapa CRM, pausar agente IA, resolver).
@@ -38,7 +34,6 @@ export function ChatHeaderActions({
   returnTo,
   toggleAutomationAction,
   source = "agent",
-  canImportHistory = false,
 }: ChatHeaderActionsProps) {
   const switchHiddenFields = [
     { name: "conversationId", value: conversationId },
@@ -57,8 +52,6 @@ export function ChatHeaderActions({
           ariaLabel={switchAriaLabel}
           hiddenFields={switchHiddenFields}
         />
-        {/* Solo WhatsApp: la API oficial no expone historial para traer. */}
-        {source === "agent" && canImportHistory ? <ImportHistoryControl conversationId={conversationId} /> : null}
         <ResolveChatControl conversationId={conversationId} status={status} source={source} />
         {/* Las dos salidas del chat: resolver es "esto se termino", posponer es "sigue, pero
             no hoy". Por eso van pegados. */}
@@ -102,12 +95,6 @@ export function ChatHeaderActions({
                   hiddenFields={switchHiddenFields}
                 />
               </div>
-              {source === "agent" && canImportHistory ? (
-                <div className="flex items-center justify-between gap-2 rounded-xl px-2 py-2">
-                  <span className="text-[13px] font-medium text-foreground">Historial de WhatsApp</span>
-                  <ImportHistoryControl conversationId={conversationId} withLabel />
-                </div>
-              ) : null}
               <div className="flex items-center justify-between gap-2 rounded-xl px-2 py-2">
                 <span className="text-[13px] font-medium text-foreground">Conversación</span>
                 <ResolveChatControl conversationId={conversationId} status={status} source={source} />

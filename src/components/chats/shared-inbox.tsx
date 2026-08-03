@@ -172,6 +172,7 @@ export function SharedInbox({
   headerBadge,
   headerActions,
   contactPanelActions,
+  contactPanelHeaderActions,
   composer,
   emptyListTitle,
   emptyListDescription,
@@ -1730,7 +1731,6 @@ export function SharedInbox({
         status={conversation.status ?? "OPEN"}
         returnTo={typeof window === "undefined" ? "" : window.location.pathname + window.location.search}
         toggleAutomationAction={toggleConversationAutomationAction}
-        canImportHistory={Boolean(conversation.canImportHistory)}
       />
     );
   }, [renderedConversation, selectedConversationKey]);
@@ -2224,6 +2224,7 @@ export function SharedInbox({
         headerActions={clientHeaderActions ?? headerActions}
         headerBadge={headerBadge}
         contactPanelActions={contactPanelActions}
+        contactPanelHeaderActions={contactPanelHeaderActions}
       />
     </div>
 

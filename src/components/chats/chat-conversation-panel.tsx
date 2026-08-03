@@ -102,6 +102,14 @@ type ConversationPanelProps = {
   headerActions?: ReactNode;
   headerBadge?: ReactNode;
   contactPanelActions?: ReactNode;
+  /**
+   * Acciones de la CABECERA del panel de contacto, al lado del titulo.
+   *
+   * Traer el historial vivia en la barra del chat, apretado entre la etapa, el interruptor de la
+   * IA y "Resolver". Es algo que se usa una vez por cliente y estaba compitiendo por lugar con
+   * lo que se usa todo el dia; ademas en el celular ese renglon quedaba a reventar.
+   */
+  contactPanelHeaderActions?: ReactNode;
   canDeleteTags: boolean;
 };
 
@@ -133,6 +141,7 @@ export const ConversationPanel = memo(function ConversationPanel({
   headerActions,
   headerBadge,
   contactPanelActions,
+  contactPanelHeaderActions,
   canDeleteTags,
 }: ConversationPanelProps) {
   const canLoadOlderMessages = Boolean(renderedConversation?.loadMoreCursor && renderedConversation.hasMoreMessages);
@@ -1405,6 +1414,8 @@ export const ConversationPanel = memo(function ConversationPanel({
                   <SheetTitle>Contacto</SheetTitle>
                   <SheetDescription>Información del cliente y etiquetas.</SheetDescription>
                 </div>
+                <div className="flex items-center gap-1">
+                {contactPanelHeaderActions}
                 <button
                   type="button"
                   onClick={() => setIsContactPanelOpen(false)}
@@ -1413,6 +1424,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                 >
                   <X className="h-4 w-4" />
                 </button>
+                </div>
               </div>
             </SheetHeader>
             {contactPanelContent}
@@ -1422,6 +1434,8 @@ export const ConversationPanel = memo(function ConversationPanel({
           <aside className="hidden w-72 shrink-0 flex-col border-l border-border bg-card md:flex lg:w-80">
             <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
               <h3 className="text-sm font-semibold text-foreground">Contacto</h3>
+              <div className="flex items-center gap-1">
+              {contactPanelHeaderActions}
               <button
                 type="button"
                 onClick={() => setIsContactPanelOpen(false)}
@@ -1430,6 +1444,7 @@ export const ConversationPanel = memo(function ConversationPanel({
               >
                 <X className="h-4 w-4" />
               </button>
+              </div>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
               <div className="flex items-center gap-3">
