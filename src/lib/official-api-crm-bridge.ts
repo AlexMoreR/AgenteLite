@@ -50,8 +50,19 @@ export async function ensureCrmContactForOfficialApi(input: {
       return existing.id;
     }
 
-    const created = await prisma.contact.create({
-      data: {
+    /**
+     * upsert y no create: entre el findFirst de arriba y esto puede colarse OTRO mensaje del
+     * mismo numero (llegan de a varios y se procesan a la vez). Los dos veian "no existe" y los
+     * dos insertaban; el segundo reventaba con
+     * "duplicate key value violates unique constraint Contact_workspaceId_phoneNumber_key",
+     * el catch devolvia null y ESE cliente se quedaba sin ficha en el CRM: no aparecia en el
+     * Kanban ni en Mi dia. Con upsert, el que llega segundo se encuentra la ficha del primero.
+     */
+    const created = await prisma.contact.upsert({
+      where: {
+        workspaceId_phoneNumber: { workspaceId: input.workspaceId, phoneNumber },
+      },
+      create: {
         id: randomUUID(),
         workspaceId: input.workspaceId,
         phoneNumber,
@@ -60,6 +71,8 @@ export async function ensureCrmContactForOfficialApi(input: {
         excludedFromCrm: !feedsCrm,
         metadata: { source: "whatsapp oficial" },
       },
+      // Ya existia (carrera): no se toca nada de lo que tenga guardado.
+      update: {},
       select: { id: true },
     });
 

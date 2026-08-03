@@ -1569,12 +1569,23 @@ export async function applyEvolutionChatSyncCandidate(input: {
     }
 
     if (!contact) {
-      contact = await tx.contact.create({
-        data: {
+      // upsert y no create: dos mensajes del mismo numero nuevo pueden procesarse a la vez, los
+      // dos ven "no existe" y los dos insertan. El segundo reventaba contra el indice unico
+      // (Contact_workspaceId_phoneNumber_key) y se caia toda la sincronizacion. Asi, el que
+      // llega segundo se encuentra la ficha que acaba de crear el primero.
+      contact = await tx.contact.upsert({
+        where: {
+          workspaceId_phoneNumber: {
+            workspaceId: input.workspaceId,
+            phoneNumber: candidate.remotePhoneNumber,
+          },
+        },
+        create: {
           workspaceId: input.workspaceId,
           phoneNumber: candidate.remotePhoneNumber,
           name: candidate.remoteDisplayName ?? null,
         },
+        update: {},
         select: {
           id: true,
           name: true,
