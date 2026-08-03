@@ -46,13 +46,18 @@ function Tarjeta({
 export function MiTableroView({ data }: { data: MiTableroData }) {
   const vivos = data.porEtapa.filter((fila) => !["GANADO", "PERDIDO"].includes(fila.stage));
   const maximo = Math.max(1, ...vivos.map((fila) => fila.count));
+  // Solo el nombre de pila: "Hola, Angy Marcela Ortiz" suena a carta del banco.
+  const primerNombre = data.advisorName.trim().split(/\s+/)[0] || data.advisorName;
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
+        {/* Saludo y no "Mi tablero": el titulo ya esta arriba en la barra, repetirlo no sumaba
+            nada. Y esta es la primera pantalla del dia de la asesora — que la salude por su
+            nombre cuesta lo mismo que un titulo mudo. */}
         <div>
-          <h1 className="text-xl font-semibold text-foreground">Mi tablero</h1>
-          <p className="text-sm text-muted-foreground">{data.advisorName} · solo tus leads</p>
+          <h1 className="text-xl font-semibold text-foreground">Hola, {primerNombre} 👋</h1>
+          <p className="text-sm text-muted-foreground">Así venís con tus leads.</p>
         </div>
 
         <Link
