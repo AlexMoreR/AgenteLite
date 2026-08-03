@@ -2105,6 +2105,21 @@ async function readEvolutionGoHistoryChats(instanceName: string): Promise<Evolut
     }
   }
 
+  // Hay eventos guardados pero no salio ni un chat: es un problema de FORMA del payload, y sin
+  // esto solo se ve "no hay historial". Nunca hay que leer el payload de evogo por una ruta
+  // fija de memoria: whatsmeow cuelga los bloques mas adentro y con otras mayusculas.
+  if (!chats.size && logs.length) {
+    const root = asRecord(logs[0]?.payload);
+    const data = asRecord(root?.data);
+    console.warn("[chat-sync] history_shape", {
+      instanceName,
+      eventos: logs.length,
+      rootKeys: root ? Object.keys(root).slice(0, 12) : null,
+      dataKeys: data ? Object.keys(data).slice(0, 12) : null,
+      dataDataKeys: asRecord(data?.Data) ? Object.keys(asRecord(data?.Data) ?? {}).slice(0, 12) : null,
+    });
+  }
+
   const result = Array.from(chats.values()).filter((chat) => chat.messages.length > 0);
 
   for (const chat of result) {
