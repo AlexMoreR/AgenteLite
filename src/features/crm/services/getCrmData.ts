@@ -314,12 +314,19 @@ export async function getCrmData({
   };
 }
 
-export async function getCrmKanbanData({ workspaceId, workspaceName }: GetCrmDataInput): Promise<CrmData | null> {
+export async function getCrmKanbanData({
+  workspaceId,
+  workspaceName,
+  assignedToUserId = null,
+}: GetCrmDataInput): Promise<CrmData | null> {
   const rawContacts = await prisma.contact.findMany({
     where: {
       workspaceId,
       // Los contactos marcados como ocultos (proveedores, personales, etc.) no entran al CRM.
       excludedFromCrm: false,
+      // Para una asesora, el kanban es SU embudo. Ver los 1146 del negocio no le sirve para
+      // trabajar y ademas le muestra los leads de las companeras.
+      ...(assignedToUserId ? { conversations: { some: { assignedToUserId } } } : {}),
     },
     orderBy: [{ updatedAt: "desc" }],
     select: {

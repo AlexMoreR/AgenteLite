@@ -29,9 +29,13 @@ export async function getAuthorizedCrmData() {
 export async function getAuthorizedCrmKanbanData() {
   const access = await requireClientWorkspaceAccess("crm");
 
+  // Misma regla que el informe: el jefe ve el embudo del negocio, la asesora el suyo.
+  const esJefe = access.isOwner || access.role === "ADMIN";
+
   const data = await getCrmKanbanData({
     workspaceId: access.workspaceId,
     workspaceName: access.workspaceName,
+    assignedToUserId: esJefe ? null : access.userId,
   });
 
   if (!data) {
