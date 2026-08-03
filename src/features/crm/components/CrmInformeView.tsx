@@ -146,7 +146,7 @@ export function CrmInformeView({ data, esPersonal = false }: { data: CrmData; es
             href="/cliente/crm/mi-dia"
             className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-[var(--primary)] px-3.5 py-2 text-[13px] font-medium text-white transition hover:brightness-110"
           >
-            Ver qué tengo pendiente
+            Ir a mi día
             <ArrowRight className="size-4" />
           </Link>
         </div>

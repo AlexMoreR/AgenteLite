@@ -64,7 +64,7 @@ export function MiTableroView({ data }: { data: MiTableroData }) {
           href="/cliente/crm/mi-dia"
           className="inline-flex items-center gap-1.5 rounded-full bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white transition hover:brightness-110"
         >
-          Ver qué tengo pendiente
+          Ir a mi día
           <ArrowRight className="size-4" />
         </Link>
       </div>
