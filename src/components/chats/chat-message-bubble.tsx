@@ -698,6 +698,13 @@ export const MessageBubble = memo(function MessageBubble({
             </a>
           ) : mediaPreviewLabel ? (
             <div className="space-y-2">
+              {/*
+                La ruedita SOLO mientras el archivo se esta yendo de verdad (burbuja optimista).
+                Antes giraba siempre que no se podia abrir el archivo, y eso pasa para siempre en
+                los que llegan con una direccion del CDN de WhatsApp (los que manda la asesora
+                desde su celular): el mensaje quedaba "cargando" eternamente aunque ya se hubiera
+                entregado. Mentir con un cargando es peor que decir que no se puede abrir.
+              */}
               <div
                 className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium ${
                   outbound
@@ -705,8 +712,22 @@ export const MessageBubble = memo(function MessageBubble({
                     : "border-border bg-muted text-foreground"
                 }`}
               >
-                <LoaderCircle className={`h-4 w-4 shrink-0 animate-spin ${outbound ? "text-black/60" : "text-muted-foreground"}`} />
-                <span>{mediaPreviewLabel}</span>
+                {isPendingMedia ? (
+                  <LoaderCircle className={`h-4 w-4 shrink-0 animate-spin ${outbound ? "text-black/60" : "text-muted-foreground"}`} />
+                ) : (
+                  (() => {
+                    const { Icon, color } = getDocumentIcon(documentMeta?.typeLabel ?? "ARCHIVO");
+                    return <Icon className="size-5 shrink-0" style={{ color }} />;
+                  })()
+                )}
+                <span className="flex min-w-0 flex-col">
+                  <span className="truncate">{documentMeta?.fileName ?? mediaPreviewLabel}</span>
+                  {!isPendingMedia ? (
+                    <span className={`truncate text-[11px] font-normal leading-tight ${outbound ? "text-black/50" : "text-muted-foreground"}`}>
+                      Enviado · no se puede abrir desde acá
+                    </span>
+                  ) : null}
+                </span>
               </div>
               {shouldRenderMediaCaption ? renderMessageText(message.content) : null}
             </div>
