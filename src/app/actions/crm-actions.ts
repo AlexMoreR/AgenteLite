@@ -8,6 +8,7 @@ import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { createFollowsFromRulesForSource } from "@/features/seguimientos/services/follows";
 import { recordConversationActivity } from "@/lib/conversation-activity";
+import { claimConversationIfUnassigned } from "@/lib/conversation-claim";
 import { CRM_STAGE_META, getCrmLostReasonLabel } from "@/features/crm/domain/crm-config";
 import type { CrmStage } from "@/features/crm/types";
 
@@ -170,4 +171,38 @@ export async function updateCrmCollapsedAction(input: { contactId: string; colla
   revalidatePath("/cliente/chats");
 
   return { success: true, contactId: contact.id, collapsed: parsed.data.collapsed };
+}
+
+/**
+ * Tomar el lead al abrirlo desde Mi dia.
+ *
+ * Pedido de Alex: si una asesora entra a un lead sin dueño, ese lead pasa a ser suyo y
+ * DESAPARECE del dia de las demas. Sin esto, dos podian estar escribiendole al mismo cliente al
+ * mismo tiempo — que es exactamente lo que "Mi dia" venia a evitar.
+ *
+ * Se toma al ABRIR y no al responder (que tambien lo hace, por su cuenta) porque el momento en
+ * que se pisan es antes de escribir: las dos abren el mismo chat.
+ *
+ * Solo agarra lo que NO tiene dueño: entrar a un chat ajeno no se lo quita a nadie.
+ */
+export async function claimLeadOnOpenAction(conversationId: string): Promise<{ ok: boolean }> {
+  const session = await auth();
+  if (!session?.user?.id || !conversationId.trim()) {
+    return { ok: false };
+  }
+  await requireClientWorkspaceAccess("crm");
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership?.workspace.id) {
+    return { ok: false };
+  }
+
+  await claimConversationIfUnassigned({
+    source: "agent",
+    conversationId: conversationId.trim(),
+    workspaceId: membership.workspace.id,
+  });
+
+  revalidatePath("/cliente/crm/mi-dia");
+  return { ok: true };
 }

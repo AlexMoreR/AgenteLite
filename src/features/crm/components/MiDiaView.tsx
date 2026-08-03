@@ -1,6 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useCallback, useTransition } from "react";
+
+import { claimLeadOnOpenAction } from "@/app/actions/crm-actions";
 import { MessageCircle, Clock, Flame, PhoneCall } from "lucide-react";
 import { ContactAvatar } from "@/components/chats/contact-avatar";
 import { CRM_STAGE_META } from "../domain/crm-config";
@@ -34,8 +38,39 @@ function StageBadge({ stage }: { stage: CrmStage }) {
   );
 }
 
+/**
+ * Abrir un lead sin dueño lo convierte en tuyo.
+ *
+ * Si no, dos asesoras abren el mismo chat y le escriben las dos al mismo cliente. Se toma ANTES
+ * de navegar para que al volver a Mi dia ya no le aparezca a las demas. Si algo falla igual se
+ * abre el chat: entrar a atender nunca puede quedar bloqueado por esto.
+ */
+function useAbrirLead() {
+  const router = useRouter();
+  const [, startTransition] = useTransition();
+
+  return useCallback(
+    (evento: React.MouseEvent, lead: { conversationId: string; chatKey: string; esMio: boolean }) => {
+      const destino = `/cliente/chats?chatKey=${encodeURIComponent(lead.chatKey)}`;
+      if (lead.esMio) {
+        return; // ya es suyo: que el Link navegue normal
+      }
+      evento.preventDefault();
+      startTransition(async () => {
+        try {
+          await claimLeadOnOpenAction(lead.conversationId);
+        } finally {
+          router.push(destino);
+        }
+      });
+    },
+    [router],
+  );
+}
+
 export function MiDiaView({ data }: { data: MiDiaData }) {
   const { leads } = data;
+  const abrirLead = useAbrirLead();
   const waiting = leads.filter((lead) => lead.waitingOnUs).length;
   // Desglose por etapa: la asesora ve de un golpe cuanto de lo que tiene entre manos es plata
   // cerca de cerrarse (Caliente) y cuanto es todavia frio, sin tener que contar filas.
@@ -99,6 +134,7 @@ export function MiDiaView({ data }: { data: MiDiaData }) {
             </span>
             <Link
               href={`/cliente/chats?chatKey=${encodeURIComponent(primero.chatKey)}`}
+              onClick={(evento) => abrirLead(evento, primero)}
               className="ml-auto inline-flex items-center gap-1.5 rounded-full bg-[var(--primary)] px-3 py-1 text-[13px] font-semibold text-white transition hover:opacity-90"
             >
               <MessageCircle className="h-3.5 w-3.5" />
@@ -130,6 +166,7 @@ export function MiDiaView({ data }: { data: MiDiaData }) {
               ) : null}
               <Link
                 href={`/cliente/chats?chatKey=${encodeURIComponent(lead.chatKey)}`}
+                onClick={(evento) => abrirLead(evento, lead)}
                 className={`flex items-center gap-3 rounded-xl border bg-card px-3 py-2.5 transition hover:bg-muted/50 ${
                   lead.waitingOnUs ? "border-rose-200 dark:border-rose-500/30" : "border-border"
                 }`}
