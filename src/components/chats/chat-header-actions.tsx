@@ -6,6 +6,7 @@ import { FormActionSwitch } from "@/components/ui/form-action-switch";
 import { CrmStageControl } from "./crm-stage-control";
 import { ImportHistoryControl } from "./import-history-control";
 import { ResolveChatControl } from "./resolve-chat-control";
+import { SnoozeChatControl } from "./snooze-chat-control";
 import type { CrmStage } from "@/features/crm/types";
 
 type ChatHeaderActionsProps = {
@@ -59,6 +60,9 @@ export function ChatHeaderActions({
         {/* Solo WhatsApp: la API oficial no expone historial para traer. */}
         {source === "agent" && canImportHistory ? <ImportHistoryControl conversationId={conversationId} /> : null}
         <ResolveChatControl conversationId={conversationId} status={status} source={source} />
+        {/* Las dos salidas del chat: resolver es "esto se termino", posponer es "sigue, pero
+            no hoy". Por eso van pegados. */}
+        {contactId ? <SnoozeChatControl contactId={contactId} /> : null}
       </div>
 
       {/* Variante 3 PUNTOS — visible cuando la cabecera es angosta (panel abierto o móvil). */}
@@ -105,6 +109,7 @@ export function ChatHeaderActions({
               <div className="flex items-center justify-between gap-2 rounded-xl px-2 py-2">
                 <span className="text-[13px] font-medium text-foreground">Conversación</span>
                 <ResolveChatControl conversationId={conversationId} status={status} source={source} />
+                {contactId ? <SnoozeChatControl contactId={contactId} /> : null}
               </div>
             </div>
           </PopoverContent>
