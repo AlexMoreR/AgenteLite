@@ -2131,6 +2131,10 @@ export function SharedInbox({
   const scrollToBottom = useCallback(() => {
     const container = messagesScrollRef.current;
     if (!container) return;
+    // Ir al final es una orden explicita: si quedaba una restauracion de historial pendiente se
+    // descarta, porque volveria a anclar la vista arriba a mitad de camino.
+    historyRestoreGuardUntilRef.current = 0;
+    loadMoreHistoryRestoreRef.current = null;
     container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
     isNearBottomRef.current = true;
     setUnreadCount(0);
@@ -2138,6 +2142,16 @@ export function SharedInbox({
     // queda a la vista durante toda la bajada y parece que no respondio al toque.
     showJumpToBottomRef.current = false;
     setShowJumpToBottom(false);
+    // Una foto que termina de cargar corre el final del chat hacia abajo y la bajada se queda a
+    // media altura. Se reafirma un par de veces —y solo si en el camino nadie volvio a subir.
+    const reafirmarFondo = () => {
+      const el = messagesScrollRef.current;
+      if (!el || !isNearBottomRef.current) return;
+      el.scrollTop = el.scrollHeight;
+      lastScrollTopRef.current = el.scrollTop;
+    };
+    window.setTimeout(reafirmarFondo, 300);
+    window.setTimeout(reafirmarFondo, 900);
   }, []);
 
   return (
