@@ -87,6 +87,10 @@ export function AssignChatControl({ conversationId, assignee, source = "agent" }
 
   const assignedToMe = Boolean(assignee && currentUserId && assignee.id === currentUserId);
   const buttonLabel = assignee ? memberLabel(assignee) : "Sin asignar";
+  // Un chat se puede traspasar cuando es propio o no tiene dueno. El servidor vuelve a
+  // comprobarlo: esto es solo para no ofrecer algo que va a ser rechazado.
+  const puedeTraspasar = !assignee || assignedToMe;
+  const companeras = members.filter((member) => member.id !== currentUserId);
 
   return (
     <div ref={containerRef} className="relative">
@@ -119,7 +123,7 @@ export function AssignChatControl({ conversationId, assignee, source = "agent" }
             <div className="px-3 py-3 text-[12px] text-red-500">{error}</div>
           ) : (
             <div className="max-h-72 overflow-y-auto py-1">
-              {/* Tomar / soltar rápido para no-managers */}
+              {/* Tomar / soltar / pasar a una companera, para quien no es jefe */}
               {!isManager ? (
                 <>
                   {!assignedToMe ? (
@@ -143,6 +147,37 @@ export function AssignChatControl({ conversationId, assignee, source = "agent" }
                       Soltar chat
                     </button>
                   ) : null}
+
+                  {/*
+                    Pasar el chat a otra persona: es lo que hace falta cuando el cliente pregunta
+                    algo que se le responde mejor desde otra experiencia. Solo sale si el chat es
+                    propio o no tiene dueno; el de otra companera no se toca (eso es de jefes).
+                  */}
+                  {puedeTraspasar ? (
+                    <>
+                      <div className="mt-1 border-t border-border px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        Pasar a
+                      </div>
+                      {companeras.length === 0 ? (
+                        <div className="px-3 py-2 text-[12px] text-muted-foreground">
+                          No hay nadie mas en el equipo.
+                        </div>
+                      ) : (
+                        companeras.map((member) => (
+                          <button
+                            key={member.id}
+                            type="button"
+                            disabled={isPending}
+                            onClick={() => handleAssign(member.id)}
+                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-foreground transition hover:bg-muted disabled:opacity-50"
+                          >
+                            <span className="min-w-0 truncate">{memberLabel(member)}</span>
+                          </button>
+                        ))
+                      )}
+                    </>
+                  ) : null}
+
                   {assignee && !assignedToMe ? (
                     <div className="px-3 py-2 text-[12px] text-muted-foreground">
                       Asignado a {memberLabel(assignee)}

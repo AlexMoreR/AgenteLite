@@ -1554,7 +1554,8 @@ export async function getAssignableMembersAction(): Promise<{
 
 /**
  * Asignar un chat del canal de API OFICIAL. Mismas reglas que el canal viejo: OWNER/ADMIN
- * asignan a cualquiera; una asesora solo puede tomar chats para si misma o soltar los suyos.
+ * asignan a cualquiera; una asesora manda sobre los suyos (tomar, soltar, pasarlos a una
+ * companera) pero no sobre los de otra.
  *
  * La conversacion se busca por el config del workspace (no tiene workspaceId propio), asi
  * nadie puede asignar chats de otro negocio pasando un id a mano.
@@ -1578,15 +1579,11 @@ async function assignOfficialApiChat(input: {
 
   const isManager = input.role === "OWNER" || input.role === "ADMIN";
   if (!isManager) {
-    if (input.targetUserId && input.targetUserId !== input.actorId) {
-      return { error: "Solo puedes asignarte chats a ti mismo" };
-    }
-    if (
-      !input.targetUserId &&
-      conversation.assignedToUserId &&
-      conversation.assignedToUserId !== input.actorId
-    ) {
-      return { error: "No puedes liberar un chat asignado a otra persona" };
+    const esChatPropio =
+      !conversation.assignedToUserId || conversation.assignedToUserId === input.actorId;
+    const seLoDaAOtra = input.targetUserId !== null && input.targetUserId !== input.actorId;
+    if ((seLoDaAOtra || input.targetUserId === null) && !esChatPropio) {
+      return { error: "Ese chat es de otra persona. Pidele a un administrador que lo mueva." };
     }
   }
 
@@ -1650,19 +1647,19 @@ export async function assignChatAction(input: {
   });
   if (!conversation) return { error: "Conversacion no encontrada" };
 
-  // OWNER/ADMIN pueden asignar a cualquiera. AGENT/VIEWER solo pueden tomar
-  // chats para si mismos o soltar los suyos.
+  // OWNER/ADMIN pueden asignar a cualquiera. Una asesora manda sobre SUS chats (y sobre los
+  // que no tienen dueño): puede tomarlos, soltarlos y pasarlos a una companera —a alguien con
+  // mas experiencia, por ejemplo—, pero no puede meterse con el chat de otra ni quitarselo.
   const isManager = membership.role === "OWNER" || membership.role === "ADMIN";
   if (!isManager) {
-    if (targetUserId && targetUserId !== session.user.id) {
-      return { error: "Solo puedes asignarte chats a ti mismo" };
-    }
-    if (
-      !targetUserId &&
-      conversation.assignedToUserId &&
-      conversation.assignedToUserId !== session.user.id
-    ) {
-      return { error: "No puedes liberar un chat asignado a otra persona" };
+    const esChatPropio =
+      !conversation.assignedToUserId || conversation.assignedToUserId === session.user.id;
+    // Pasarselo a OTRA persona (o soltarlo) solo se puede con un chat propio o sin dueno: asi
+    // una asesora le entrega el cliente a una companera con mas experiencia, pero nadie le
+    // arrebata un chat a nadie. Tomarlo para si misma se sigue permitiendo, como siempre.
+    const seLoDaAOtra = targetUserId !== null && targetUserId !== session.user.id;
+    if ((seLoDaAOtra || targetUserId === null) && !esChatPropio) {
+      return { error: "Ese chat es de otra persona. Pidele a un administrador que lo mueva." };
     }
   }
 
