@@ -2793,7 +2793,9 @@ export async function lookupEvolutionUserInfo(input: { instanceName: string; jid
       instanceName: input.instanceName,
       path: "/user/info",
       method: "POST",
-      body: { phone: [input.jid] },
+      // El gateway espera { number: [...] }, no "phone". Y formatJid pide que devuelva el JID
+      // completo, que es justo el dato que buscamos.
+      body: { number: [input.jid], formatJid: true },
     });
     return { ok: true as const, data: respuesta };
   } catch (error) {
@@ -2817,20 +2819,28 @@ export async function sampleEvolutionContacts(input: { instanceName: string }) {
     });
 
     const raiz = asRecord(respuesta);
-    const agenda = asRecord(raiz?.data) ?? asRecord(raiz?.Data) ?? raiz;
-    if (!agenda) {
-      return { ok: true as const, total: 0, conLid: 0, conTelefono: 0, ejemplos: [] as unknown[] };
-    }
+    const crudo = raiz?.data ?? raiz?.Data ?? respuesta;
 
-    const claves = Object.keys(agenda);
-    const conLid = claves.filter((clave) => clave.toLowerCase().endsWith("@lid")).length;
+    // La agenda puede venir como objeto {jid: {...}} o como lista [{jid, ...}]: se normaliza a
+    // pares para poder mirarla igual en los dos casos.
+    const pares: Array<[string, unknown]> = Array.isArray(crudo)
+      ? crudo.map((entrada, indice) => {
+          const registro = asRecord(entrada);
+          const jid =
+            readString(registro?.jid) || readString(registro?.JID) || readString(registro?.id) || `#${indice}`;
+          return [jid, entrada] as [string, unknown];
+        })
+      : Object.entries(asRecord(crudo) ?? {});
+
+    const claves = pares.map(([clave]) => clave);
+    const conLid = claves.filter((clave) => clave.toLowerCase().includes("@lid")).length;
     const conTelefono = claves.filter((clave) => clave.toLowerCase().includes("@s.whatsapp.net")).length;
 
-    const ejemplos = claves.slice(0, 3).map((clave) => ({
+    const ejemplos = pares.slice(0, 3).map(([clave, valor]) => ({
       // Se recorta el identificador: para ver la forma no hace falta el numero completo.
-      clave: `${clave.slice(0, 4)}…${clave.slice(clave.indexOf("@"))}`,
-      campos: Object.keys(asRecord(agenda[clave]) ?? {}),
-      valores: asRecord(agenda[clave]) ?? null,
+      clave: clave.includes("@") ? `${clave.slice(0, 4)}…${clave.slice(clave.indexOf("@"))}` : clave.slice(0, 12),
+      campos: Object.keys(asRecord(valor) ?? {}),
+      valor,
     }));
 
     return { ok: true as const, total: claves.length, conLid, conTelefono, ejemplos };
