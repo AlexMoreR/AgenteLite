@@ -213,6 +213,11 @@ export function SharedInbox({
   // disparan el listener de scroll y podrían "armar"/lanzar la carga de mensajes anteriores,
   // que ancla la vista arriba. Suprimimos esa carga hasta este timestamp tras abrir.
   const suppressHistoryLoadUntilRef = useRef(0);
+  // "Cargar mensajes anteriores" agranda el contenido, y agrandar el contenido es justo lo que
+  // despierta al observador que mantiene el chat pegado abajo. Resultado: la asesora pedia el
+  // historial y el chat se le iba al fondo, o sea lo contrario de lo que pidio. Mientras dure la
+  // carga y un momento despues, ese pegado queda en pausa para que la vista se quede donde estaba.
+  const historyRestoreGuardUntilRef = useRef(0);
   const selectedConversationDetailFollowUpTimerRef = useRef<number | null>(null);
   const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -1358,6 +1363,7 @@ export function SharedInbox({
 
     loadMoreHistoryInFlightRef.current = true;
     setIsLoadingOlderMessages(true);
+    historyRestoreGuardUntilRef.current = Date.now() + 4000;
     loadMoreHistoryRestoreRef.current = {
       scrollTop: container.scrollTop,
       scrollHeight: container.scrollHeight,
@@ -1922,9 +1928,19 @@ export function SharedInbox({
         const el = messagesScrollRef.current;
         if (!el) return;
         el.scrollTop = Math.max(0, el.scrollHeight - distanceFromBottom);
+        // Quien acaba de pedir el historial esta leyendo hacia arriba, no esperando el
+        // ultimo mensaje: se deja constancia de que YA NO esta al fondo. Sin esto, el
+        // observador de tamaño creia que seguia abajo y devolvia la vista al final en
+        // cuanto una foto del historial terminaba de cargar.
+        lastScrollTopRef.current = el.scrollTop;
+        isNearBottomRef.current = false;
       };
       pinScroll();
       window.requestAnimationFrame(pinScroll);
+      historyRestoreGuardUntilRef.current = Math.max(
+        historyRestoreGuardUntilRef.current,
+        Date.now() + 1200,
+      );
       loadMoreHistoryRestoreRef.current = null;
       return;
     }
@@ -2074,6 +2090,16 @@ export function SharedInbox({
       const grew = el.scrollHeight > lastScrollHeight + 1;
       lastScrollHeight = el.scrollHeight;
       if (!grew) return;
+
+      // El contenido crecio porque se pidieron mensajes ANTERIORES: ese crecimiento va
+      // arriba, no abajo, y bajar al fondo seria taparle a la asesora lo que fue a buscar.
+      if (
+        historyRestoreGuardUntilRef.current > Date.now() ||
+        loadMoreHistoryInFlightRef.current ||
+        loadMoreHistoryRestoreRef.current
+      ) {
+        return;
+      }
 
       const justOpened = suppressHistoryLoadUntilRef.current > Date.now();
       if (isNearBottomRef.current || justOpened) {
