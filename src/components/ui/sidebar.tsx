@@ -334,7 +334,9 @@ function SidebarHeader({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="sidebar-header"
       data-sidebar="header"
-      className={cn("flex flex-col gap-2 p-2", className)}
+      /* pb con safe-area: en iPhone la franja del gesto de inicio tapaba la ultima fila del
+         menu, y quedaba media visible y sin poder tocarla. */
+      className={cn("flex shrink-0 flex-col gap-2 p-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)]", className)}
       {...props}
     />
   )
