@@ -1820,6 +1820,55 @@ export async function POST(request: NextRequest) {
         shouldTouchConversation = true;
       }
     } else {
+      /**
+       * El ECO de un mensaje que enviamos nosotros.
+       *
+       * El gateway nos reenvia por webhook lo que acabamos de enviar (asi entran tambien los
+       * mensajes que las asesoras escriben desde su celular). Normalmente se reconoce por el id
+       * de WhatsApp: ya lo guardamos al enviar, y la base rechaza el repetido.
+       *
+       * Pero si ese envio quedo SIN id (pasaba con evogo, que lo devuelve en otra ruta), nada
+       * lo emparejaba y el mismo mensaje entraba una segunda vez: el chat lo mostraba dos veces
+       * aunque a la clienta le llego una sola. Aca se busca ese mensaje nuestro, recien
+       * guardado y sin id, y en vez de crear otra burbuja se le pega el id que faltaba.
+       */
+      const nuestroMensajeSinId =
+        fromMe && !isCallEvent && inboundExternalId
+          ? await prisma.message.findFirst({
+              where: {
+                conversationId: conversation.id,
+                direction: "OUTBOUND",
+                externalId: null,
+                type: messageType,
+                content: messageText,
+                createdAt: { gte: new Date(Date.now() - 5 * 60 * 1000) },
+              },
+              orderBy: { createdAt: "desc" },
+              select: { id: true },
+            })
+          : null;
+
+      if (nuestroMensajeSinId) {
+        await prisma.message.update({
+          where: { id: nuestroMensajeSinId.id },
+          data: { externalId: inboundExternalId },
+        });
+        console.log("[EVOLUTION] outbound_echo_matched", {
+          instanceName,
+          channelId: channel.id,
+          conversationId: conversation.id,
+          messageId: nuestroMensajeSinId.id,
+          externalId: inboundExternalId,
+        });
+
+        return NextResponse.json({
+          ok: true,
+          message: "Outbound echo matched to our own message",
+          instanceName,
+          event: eventName,
+        });
+      }
+
       await persistEvolutionMessage({
         data: messageData,
       });

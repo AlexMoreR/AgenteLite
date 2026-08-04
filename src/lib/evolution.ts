@@ -46,6 +46,13 @@ type EvolutionSendTextResponse = {
       id?: string;
     };
     id?: string;
+    // evogo/whatsmeow responde con otra forma y otras mayusculas (ver Info.ID).
+    Info?: {
+      ID?: string;
+    };
+  };
+  Info?: {
+    ID?: string;
   };
   id?: string;
   messageId?: string;
@@ -658,12 +665,24 @@ function buildInstanceManagerHeaders(instance: EvolutionResolvedInstance | null)
   return buildInstanceHeaders(instance);
 }
 
+/**
+ * El id que WhatsApp le pone al mensaje que acabamos de enviar.
+ *
+ * Es lo que despues permite reconocer el ECO: el gateway nos reenvia por webhook el mismo
+ * mensaje que enviamos, y sin este id no hay forma de saber que ya lo teniamos guardado, asi
+ * que entraba una segunda vez y el chat mostraba el mensaje DOS veces (enviado una sola).
+ *
+ * Cada gateway lo pone en otro lado: Evolution API en `key.id`, y evogo/whatsmeow en
+ * `data.Info.ID` — otra ruta y con otras mayusculas. Se prueban todas.
+ */
 function extractEvolutionExternalId(response: EvolutionSendTextResponse | EvolutionSendMediaResponse) {
   return (
     response.key?.id ||
     response.message?.key?.id ||
     response.data?.key?.id ||
     response.data?.id ||
+    response.data?.Info?.ID ||
+    response.Info?.ID ||
     response.id ||
     response.messageId ||
     null
