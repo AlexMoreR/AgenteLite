@@ -1978,15 +1978,30 @@ export async function importConversationHistoryAction(input: {
     return { ok: true, imported: result.imported };
   }
 
-  // Evolution GO: hace falta un mensaje ancla, porque WhatsApp devuelve los ANTERIORES a el.
-  // Se usa el mas viejo que tengamos de este chat, que es justo donde se corta el historial.
-  const oldest = await prisma.message.findFirst({
-    where: { conversationId: conversation.id },
+  /**
+   * Evolution GO: hace falta un mensaje ancla, porque WhatsApp devuelve los ANTERIORES a el.
+   *
+   * Se usa el mas viejo del chat, que es justo donde se corta el historial. Pero NO cualquiera:
+   * las notas de actividad ("Angy auto-asignado a esta conversacion") tambien se guardan como
+   * mensajes, y suelen ser lo mas viejo de la conversacion. Como no traen los datos de WhatsApp,
+   * el ancla salia vacia y el boton respondia "este chat no tiene un mensaje desde el cual pedir
+   * historial" en chats que si tenian mensajes de verdad.
+   *
+   * Se miran varios de los mas viejos y se usa el primero que sirva: un mensaje manual tampoco
+   * siempre trae la forma que espera el gateway.
+   */
+  const candidatos = await prisma.message.findMany({
+    where: {
+      conversationId: conversation.id,
+      type: { not: "SYSTEM" },
+      NOT: { rawPayload: { path: ["source"], equals: "activity" } },
+    },
     select: { rawPayload: true },
     orderBy: { createdAt: "asc" },
+    take: 10,
   });
 
-  const anchor = buildEvolutionGoHistoryAnchor(oldest?.rawPayload);
+  const anchor = candidatos.map((mensaje) => buildEvolutionGoHistoryAnchor(mensaje.rawPayload)).find(Boolean);
   if (!anchor) {
     return { error: "Este chat no tiene un mensaje desde el cual pedir historial" };
   }
