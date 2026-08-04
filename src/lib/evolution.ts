@@ -2779,3 +2779,62 @@ export async function fetchEvolutionGoMediaDataUrl(input: {
     return null;
   }
 }
+
+/**
+ * Le pregunta al gateway que sabe de un JID (sirve para un LID).
+ *
+ * whatsmeow mantiene la equivalencia entre el LID y el telefono —la necesita para enrutar—, y
+ * esta es la unica forma de averiguar si la expone: preguntandole. Si viene, dejan de nacer
+ * fichas duplicadas de la misma persona.
+ */
+export async function lookupEvolutionUserInfo(input: { instanceName: string; jid: string }) {
+  try {
+    const respuesta = await evolutionInstanceRequest<unknown>({
+      instanceName: input.instanceName,
+      path: "/user/info",
+      method: "POST",
+      body: { phone: [input.jid] },
+    });
+    return { ok: true as const, data: respuesta };
+  } catch (error) {
+    return { ok: false as const, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/**
+ * La FORMA de la agenda de whatsmeow, no la agenda.
+ *
+ * Interesa una sola cosa: si la misma persona aparece con sus dos identidades (@lid y el
+ * telefono) y si alguna entrada las relaciona. Se devuelven conteos y un par de ejemplos con el
+ * numero recortado: alcanza para decidir y no expone la libreta del negocio.
+ */
+export async function sampleEvolutionContacts(input: { instanceName: string }) {
+  try {
+    const respuesta = await evolutionInstanceRequest<unknown>({
+      instanceName: input.instanceName,
+      path: "/user/contacts",
+      method: "GET",
+    });
+
+    const raiz = asRecord(respuesta);
+    const agenda = asRecord(raiz?.data) ?? asRecord(raiz?.Data) ?? raiz;
+    if (!agenda) {
+      return { ok: true as const, total: 0, conLid: 0, conTelefono: 0, ejemplos: [] as unknown[] };
+    }
+
+    const claves = Object.keys(agenda);
+    const conLid = claves.filter((clave) => clave.toLowerCase().endsWith("@lid")).length;
+    const conTelefono = claves.filter((clave) => clave.toLowerCase().includes("@s.whatsapp.net")).length;
+
+    const ejemplos = claves.slice(0, 3).map((clave) => ({
+      // Se recorta el identificador: para ver la forma no hace falta el numero completo.
+      clave: `${clave.slice(0, 4)}…${clave.slice(clave.indexOf("@"))}`,
+      campos: Object.keys(asRecord(agenda[clave]) ?? {}),
+      valores: asRecord(agenda[clave]) ?? null,
+    }));
+
+    return { ok: true as const, total: claves.length, conLid, conTelefono, ejemplos };
+  } catch (error) {
+    return { ok: false as const, error: error instanceof Error ? error.message : String(error) };
+  }
+}
