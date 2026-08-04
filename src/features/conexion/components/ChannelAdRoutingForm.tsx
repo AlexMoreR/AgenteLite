@@ -1,8 +1,10 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+
+import { Check, TriangleAlert } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,7 +40,11 @@ export function ChannelAdRoutingForm({
   const router = useRouter();
   const [texto, setTexto] = useState(() => keywords.join(", "));
   const [persona, setPersona] = useState(() => (members.some((m) => m.id === userId) ? userId : ""));
-  const [isPending, startTransition] = useTransition();
+  // Estado propio en vez de useTransition: con la transicion, el boton seguia diciendo
+  // "Guardando..." mientras el refresco de la pantalla estuviera pendiente. Si justo se despliega
+  // una version nueva, ese refresco no termina nunca y parece que no se guardo, cuando en la base
+  // ya estaba guardado.
+  const [isPending, setIsPending] = useState(false);
 
   const palabras = useMemo(
     () =>
@@ -55,8 +61,34 @@ export function ChannelAdRoutingForm({
       ? `${describeAdCampaignRouting(palabras)} van a ${personaElegida ? memberLabel(personaElegida) : "esa persona"}.`
       : "Sin regla: todos los leads se reparten por turnos entre los colaboradores.";
 
-  const handleSave = () => {
-    startTransition(async () => {
+  // Lo que hay guardado en el servidor, para poder decir si lo de la pantalla ya quedo guardado
+  // o son cambios sin guardar. Antes no habia forma de saberlo.
+  const [guardado, setGuardado] = useState(() => ({
+    keywords,
+    userId: members.some((member) => member.id === userId) ? userId : "",
+  }));
+  const hayCambiosSinGuardar =
+    guardado.userId !== persona || guardado.keywords.join("|") !== palabras.join("|");
+
+  /**
+   * Palabras que aparecen en casi cualquier mensaje. Si una se cuela, la regla deja de ser "esta
+   * campana" y se lleva TODOS los leads de anuncios sin que se note. Paso de verdad: al pegar la
+   * frase entera del anuncio, la primera palabra separada por comas quedo siendo «Hola».
+   */
+  const COMUNES = ["hola", "buenas", "buenos dias", "buenas tardes", "buenas noches", "gracias", "si", "ok", "info"];
+  const palabrasPeligrosas = palabras.filter((palabra) =>
+    COMUNES.includes(
+      palabra
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .trim(),
+    ),
+  );
+
+  const handleSave = async () => {
+    setIsPending(true);
+    try {
       const result = await updateChannelAdRoutingAction({
         channelId,
         keywords: persona ? palabras : [],
@@ -66,9 +98,14 @@ export function ChannelAdRoutingForm({
         toast.error(result.error);
         return;
       }
+      setGuardado({ keywords: persona ? palabras : [], userId: persona });
       toast.success(persona ? "Regla de campaña guardada" : "Regla de campaña quitada");
       router.refresh();
-    });
+    } catch {
+      toast.error("No se pudo guardar. Recargá la página e intentá de nuevo.");
+    } finally {
+      setIsPending(false);
+    }
   };
 
   return (
@@ -117,11 +154,49 @@ export function ChannelAdRoutingForm({
         </NativeSelect>
       </div>
 
+      {palabras.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5">
+          {palabras.map((palabra) => (
+            <span
+              key={palabra}
+              className={`inline-flex items-center rounded-md px-2 py-1 text-[12px] ${
+                palabrasPeligrosas.includes(palabra)
+                  ? "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200"
+                  : "bg-muted text-foreground"
+              }`}
+            >
+              {palabra}
+            </span>
+          ))}
+        </div>
+      ) : null}
+
+      {palabrasPeligrosas.length > 0 ? (
+        <p className="flex gap-2 rounded-lg bg-amber-50 px-3 py-2 text-[12px] text-amber-900 dark:bg-amber-950 dark:text-amber-200">
+          <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>
+            {palabrasPeligrosas.map((palabra) => `«${palabra}»`).join(", ")} aparece en casi
+            cualquier mensaje: con esa palabra la regla se lleva todos los leads de anuncios, no
+            solo los de esta campaña.
+          </span>
+        </p>
+      ) : null}
+
       <p className="rounded-lg bg-muted px-3 py-2 text-[12px] text-muted-foreground">{resumen}</p>
 
-      <Button type="button" onClick={handleSave} disabled={isPending}>
-        {isPending ? "Guardando…" : "Guardar regla"}
-      </Button>
+      <div className="flex items-center gap-3">
+        <Button type="button" onClick={() => void handleSave()} disabled={isPending}>
+          {isPending ? "Guardando…" : "Guardar regla"}
+        </Button>
+        {hayCambiosSinGuardar ? (
+          <span className="text-[12px] text-amber-700 dark:text-amber-300">Sin guardar</span>
+        ) : (
+          <span className="inline-flex items-center gap-1 text-[12px] text-emerald-700 dark:text-emerald-400">
+            <Check className="h-3.5 w-3.5" />
+            Guardada
+          </span>
+        )}
+      </div>
     </div>
   );
 }
