@@ -5,6 +5,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { analyzeImageForAgent, generateAgentReply, transcribeAudioForAgent } from "@/lib/agent-ai";
 import { summarizeContactHistory } from "@/lib/contact-summary";
 import { buildSnoozeMetadata, readSnoozedUntil } from "@/lib/lead-snooze";
+import { lookupEvolutionLidForPhone } from "@/lib/evolution";
+import { mergeLidContactIntoPhoneContact } from "@/lib/lid-contact-merge";
 import {
   CONTACT_LID_ID_METADATA_PATH,
   buildDiscoveredPhoneMetadata,
@@ -1946,6 +1948,70 @@ export async function POST(request: NextRequest) {
         error: error instanceof Error ? error.message : String(error),
       });
     }
+  }
+
+  /**
+   * Si llego con TELEFONO y todavia no sabemos su LID, se lo preguntamos al gateway.
+   *
+   * WhatsApp solo manda el par (telefono + LID) en algunos mensajes, asi que esperar a que venga
+   * solo dejaba a la mayoria de las fichas sin LID anotado — y sin eso, cuando esa misma persona
+   * escribe un dia identificada solo con su LID, se le abre una ficha NUEVA: la misma clienta
+   * duplicada, con dos chats, y la asesora contesta en uno sin ver el otro.
+   *
+   * El gateway resuelve telefono -> LID (al reves no: preguntando por el LID devuelve null).
+   * Con esto alcanza: anotado el LID, el mensaje que llegue solo con LID encuentra la ficha que
+   * ya existe.
+   *
+   * Va en after() y una sola vez por ficha: es una llamada de red al gateway y no puede demorar
+   * la entrada del mensaje ni repetirse en cada uno.
+   */
+  if (contact?.id && !isLidJid(remoteJid) && channel.evolutionInstanceName && !looksLikeLidNumber(phoneNumber)) {
+    const contactId = contact.id;
+    const instanceName = channel.evolutionInstanceName;
+    const telefono = phoneNumber ?? "";
+    const channelWorkspaceId = channel.workspaceId;
+    after(async () => {
+      try {
+        const ficha = await prisma.contact.findUnique({
+          where: { id: contactId },
+          select: { metadata: true },
+        });
+        if (!ficha || readLinkedLid(ficha.metadata)) {
+          return;
+        }
+
+        const lid = await lookupEvolutionLidForPhone({ instanceName, phoneNumber: telefono });
+        if (!lid) {
+          return;
+        }
+
+        await prisma.contact.update({
+          where: { id: contactId },
+          data: {
+            metadata: buildLinkedLidMetadata(ficha.metadata, lid) as Prisma.InputJsonValue,
+          },
+        });
+
+        /**
+         * Recien ahora sabemos que ESE LID es ESTA persona. Si mientras tanto se le habia abierto
+         * una ficha aparte con el LID como telefono (pasa con los leads nuevos, que WhatsApp
+         * manda solo con LID), se unen: queda una sola con la historia completa.
+         */
+        const resultado = await mergeLidContactIntoPhoneContact({
+          workspaceId: channelWorkspaceId,
+          lid,
+          phoneContactId: contactId,
+        });
+        if (resultado.merged) {
+          console.log("[EVOLUTION] se unio la ficha del LID con la del telefono", { contactId, lid });
+        }
+      } catch (error) {
+        console.warn("[EVOLUTION] no se pudo resolver el LID del telefono", {
+          contactId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    });
   }
 
   /**

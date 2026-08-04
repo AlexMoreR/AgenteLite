@@ -2848,3 +2848,45 @@ export async function sampleEvolutionContacts(input: { instanceName: string }) {
     return { ok: false as const, error: error instanceof Error ? error.message : String(error) };
   }
 }
+
+/**
+ * El LID que WhatsApp le asigna a un telefono.
+ *
+ * Es la unica direccion que el gateway resuelve: preguntando por el telefono devuelve su LID,
+ * pero preguntando por el LID NO devuelve el telefono (verificado contra evogo). Alcanza igual:
+ * anotando el LID de los contactos que ya conocemos por telefono, un mensaje que llegue solo con
+ * LID encuentra la ficha que ya existe en vez de abrir una nueva.
+ */
+export async function lookupEvolutionLidForPhone(input: {
+  instanceName: string;
+  phoneNumber: string;
+}): Promise<string | null> {
+  const digits = input.phoneNumber.replace(/\D/g, "");
+  if (!digits) {
+    return null;
+  }
+
+  const respuesta = await lookupEvolutionUserInfo({
+    instanceName: input.instanceName,
+    jid: `${digits}@s.whatsapp.net`,
+  });
+  if (!respuesta.ok) {
+    return null;
+  }
+
+  const raiz = asRecord(respuesta.data);
+  const usuarios = asRecord(asRecord(raiz?.data)?.Users) ?? asRecord(raiz?.Users);
+  if (!usuarios) {
+    return null;
+  }
+
+  // La clave es el JID que se pregunto; se toma el unico que vino.
+  const primero = Object.values(usuarios)[0];
+  const lid = readString(asRecord(primero)?.LID);
+  if (!lid || !lid.toLowerCase().endsWith("@lid")) {
+    return null;
+  }
+
+  const soloDigitos = lid.split("@")[0]?.replace(/\D/g, "") ?? "";
+  return soloDigitos || null;
+}
