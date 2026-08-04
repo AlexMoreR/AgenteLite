@@ -878,6 +878,18 @@ export const ConversationPanel = memo(function ConversationPanel({
                     <h2 className="truncate text-[13px] font-semibold text-foreground md:text-sm">
                       {renderedConversation.label}
                     </h2>
+                    {/*
+                      El telefono, a la vista. Antes solo aparecia al pasar el mouse por la foto:
+                      en el celular eso no existe, asi que para saber a quien le estaban
+                      escribiendo tocaba abrir el panel del contacto. Se omite cuando el nombre
+                      YA es el numero (contacto sin nombre), para no escribirlo dos veces.
+                    */}
+                    {renderedConversation.secondaryLabel &&
+                    renderedConversation.secondaryLabel !== renderedConversation.label ? (
+                      <p className="truncate text-[11px] leading-tight text-muted-foreground md:text-xs">
+                        {renderedConversation.secondaryLabel}
+                      </p>
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -1393,7 +1405,6 @@ export const ConversationPanel = memo(function ConversationPanel({
           open={isFollowUpOpen}
           onClose={() => setIsFollowUpOpen(false)}
           contactId={renderedConversation?.contactId ?? null}
-          contactName={renderedConversation?.label ?? null}
         />
         {pendingMediaFiles.length > 0 ? (
           <MediaPreviewDialog

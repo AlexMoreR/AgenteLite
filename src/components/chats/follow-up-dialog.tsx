@@ -9,7 +9,6 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -42,12 +41,10 @@ export function FollowUpDialog({
   open,
   onClose,
   contactId,
-  contactName,
 }: {
   open: boolean;
   onClose: () => void;
   contactId: string | null;
-  contactName?: string | null;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -89,11 +86,12 @@ export function FollowUpDialog({
     <Dialog open={open} onOpenChange={(next) => (!next ? onClose() : undefined)}>
       <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] max-w-md overflow-y-auto">
         <DialogHeader>
+          {/*
+            Sin bajada: decia lo mismo que la nota del final ("si el cliente escribe antes, el
+            seguimiento se cancela solo"), asi que era la misma frase dos veces en una ventana
+            que se abre para hacer una cosa rapida.
+          */}
           <DialogTitle>Agendar seguimiento</DialogTitle>
-          <DialogDescription>
-            {contactName ? `Se le escribirá a ${contactName} ` : "Se enviará "}
-            solo si no responde antes.
-          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3">
