@@ -1149,8 +1149,24 @@ export async function POST(request: NextRequest) {
     });
   }
 
+  /**
+   * Lo que la asesora escribe desde SU CELULAR llega como evento "SENDMESSAGE".
+   *
+   * No estaba en la lista, asi que el webhook lo respondia con "Event logged" y lo tiraba: el
+   * mensaje salia al cliente por WhatsApp pero en el CRM no aparecia nunca. La conversacion
+   * quedaba cortada —se veia la pregunta del cliente y ninguna respuesta— y la siguiente asesora
+   * la retomaba sin saber que ya la habian atendido.
+   *
+   * El resto del camino ya estaba preparado para estos mensajes: los guarda como OUTBOUND, no le
+   * hace contestar al agente (eso solo pasa con los entrantes) y descarta los repetidos por su
+   * id. Por eso los que enviamos desde la app tampoco se duplican: llegan con el mismo id que ya
+   * guardamos al enviarlos.
+   */
+  const isOutgoingEchoEvent = (eventName ?? "").toUpperCase().replace(/[^A-Z]/g, "").includes("SENDMESSAGE");
+
   const isMessageEvent =
     isInboundMessageEvent(eventName) ||
+    isOutgoingEchoEvent ||
     isCallEvent ||
     hasEvolutionEditedMessagePayload(payload) ||
     hasEvolutionDeletedMessagePayload(payload);
