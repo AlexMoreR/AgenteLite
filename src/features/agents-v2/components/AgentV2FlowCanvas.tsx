@@ -28,6 +28,7 @@ import {
   ShoppingBag,
   Split,
   Trash2,
+  TriangleAlert,
   Workflow,
   X,
 } from "lucide-react";
@@ -2561,6 +2562,67 @@ function FlowCanvasInner({
     setNodes((current) => [...current, newNode]);
   }, [setNodes, getSpawnPosition]);
 
+  /**
+   * Avisos del diagrama: conexiones y bloques que el constructor acepta pero que al publicar NO
+   * hacen nada. Eran el peor de los errores porque no se notan: el diagrama queda "bien dibujado"
+   * y la conversacion real se comporta distinto, sin ninguna senal de por que.
+   *
+   * Se muestran, no se bloquea la publicacion: un diagrama a medio armar es normal mientras se
+   * trabaja, y quien publica decide.
+   */
+  const avisosDelDiagrama = useMemo(() => {
+    const lista: string[] = [];
+    const porId = new Map(nodes.map((node) => [node.id, node] as const));
+    const nodoAgente = nodes.find((node) => node.type === "agent");
+    // Los que el compilador sabe traducir cuando una Condicion apunta hacia ellos.
+    const DESTINOS_QUE_SE_EJECUTAN = new Set(["texto", "flujo", "condicion", "producto", "notificar"]);
+    const nombreDeTipo: Record<string, string> = {
+      seguimiento: "Seguimiento",
+      agent: "Agente",
+      entrada: "Entrada",
+    };
+
+    for (const edge of edges) {
+      const origen = porId.get(edge.source);
+      const destino = edge.target ? porId.get(edge.target) : undefined;
+      if (!origen || !destino || origen.type !== "condicion") {
+        continue;
+      }
+      if (!DESTINOS_QUE_SE_EJECUTAN.has(destino.type ?? "")) {
+        lista.push(
+          `Una rama de una Condición llega a un bloque de ${nombreDeTipo[destino.type ?? ""] ?? "otro tipo"}, ` +
+            "que no se ejecuta. En esa rama la IA va a seguir conversando por su cuenta.",
+        );
+      }
+    }
+
+    for (const node of nodes) {
+      if (node.type === "notificar") {
+        const numeros = Array.isArray((node.data as NotificarData | undefined)?.phoneNumbers)
+          ? ((node.data as NotificarData).phoneNumbers ?? []).filter((valor) => String(valor).trim())
+          : [];
+        if (numeros.length === 0) {
+          lista.push(
+            "«Notificar asesor» no tiene ningún número: no se va a avisar a nadie.",
+          );
+        }
+      }
+      if (node.type === "flujo" && nodoAgente) {
+        const saleDelAgente = edges.some(
+          (edge) => edge.source === nodoAgente.id && edge.target === node.id,
+        );
+        if (!saleDelAgente) {
+          lista.push(
+            "Un bloque de Flujo no está conectado al Agente: la IA no lo conoce, así que no va a " +
+              "poder ejecutarlo aunque una Condición lo señale.",
+          );
+        }
+      }
+    }
+
+    return [...new Set(lista)];
+  }, [nodes, edges]);
+
   const onSaveGraphRef = useRef(onSaveGraph);
   useEffect(() => {
     onSaveGraphRef.current = onSaveGraph;
@@ -2652,6 +2714,37 @@ function FlowCanvasInner({
             {edges.length} conexiones
           </span>
           </div>
+          {avisosDelDiagrama.length > 0 ? (
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-2 rounded-full bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 ring-1 ring-amber-300 transition hover:bg-amber-100 dark:bg-amber-950 dark:text-amber-200 dark:ring-amber-800"
+                >
+                  <TriangleAlert className="h-3.5 w-3.5" />
+                  {avisosDelDiagrama.length}{" "}
+                  {avisosDelDiagrama.length === 1 ? "aviso" : "avisos"}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                align="start"
+                side="bottom"
+                className="nodrag w-80 rounded-xl border border-border bg-popover p-3"
+              >
+                <p className="pb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Esto no se va a ejecutar
+                </p>
+                <ul className="space-y-2">
+                  {avisosDelDiagrama.map((aviso) => (
+                    <li key={aviso} className="flex gap-2 text-[12px] leading-snug text-foreground">
+                      <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
+                      <span>{aviso}</span>
+                    </li>
+                  ))}
+                </ul>
+              </PopoverContent>
+            </Popover>
+          ) : null}
         </div>
         <div className="absolute right-4 top-4 z-10 flex items-center gap-2">
           <Button
@@ -2663,7 +2756,17 @@ function FlowCanvasInner({
               startPublish(async () => {
                 const res = await onPublish(stored);
                 if (res.ok) {
-                  toast.success("Agente publicado");
+                  // Publicar con avisos se permite, pero no en silencio: si no, se publica
+                  // convencido de que el diagrama hace algo que no hace.
+                  if (avisosDelDiagrama.length > 0) {
+                    toast.warning(
+                      `Agente publicado, pero hay ${avisosDelDiagrama.length} ${
+                        avisosDelDiagrama.length === 1 ? "aviso" : "avisos"
+                      } en el diagrama`,
+                    );
+                  } else {
+                    toast.success("Agente publicado");
+                  }
                 } else {
                   toast.error(res.error ?? "No se pudo publicar");
                 }

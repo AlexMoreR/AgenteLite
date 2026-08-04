@@ -449,6 +449,22 @@ export async function publishAgentV2Action(input: {
     if (target.type === "producto") {
       return "presenta ese producto";
     }
+    /**
+     * Rama que termina en "Notificar asesor": es un pedido explicito de sacar a la IA y meter a
+     * una persona. Antes caia en el "continua la conversacion normal con la IA" de abajo, asi
+     * que la condicion acertaba y el resultado era el contrario del configurado: la IA seguia
+     * hablando (y a veces improvisaba que no podia hacer algo) en vez de pasar el caso.
+     *
+     * Si el nodo existe pero no tiene numero, la herramienta ni siquiera esta disponible: en ese
+     * caso no se le pide que la llame —quedaria inventando— y el aviso del constructor es el que
+     * se encarga de que eso no pase desapercibido.
+     */
+    if (target.type === "notificar") {
+      return notifyEnabled
+        ? "llama OBLIGATORIAMENTE a la herramienta Notificar_asesor con un resumen breve del caso. " +
+            "NO sigas el embudo ni respondas con texto propio: avisa en una linea que un asesor continua"
+        : "avisa en una linea que un asesor va a continuar y no sigas el embudo";
+    }
     return "continua la conversacion normal con la IA";
   };
 
