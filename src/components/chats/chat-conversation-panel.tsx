@@ -9,7 +9,7 @@ import {
   ArrowLeft,
   BookOpen,
   Camera,
-  ChevronUp,
+  ChevronDown,
   Copy,
   FileText,
   Headphones,
@@ -80,6 +80,7 @@ type ConversationPanelProps = {
   messageScrollBehavior: "bottom" | "preserve";
   messagesScrollRef: RefObject<HTMLDivElement | null>;
   unreadCount: number;
+  showJumpToBottom: boolean;
   onScrollToBottom: () => void;
   onEditContact: () => void;
   onComposerDraft: (message: string, formData: FormData) => void;
@@ -123,6 +124,7 @@ export const ConversationPanel = memo(function ConversationPanel({
   messageScrollBehavior,
   messagesScrollRef,
   unreadCount,
+  showJumpToBottom,
   onScrollToBottom,
   onEditContact,
   onComposerDraft,
@@ -977,14 +979,30 @@ export const ConversationPanel = memo(function ConversationPanel({
                   </div>
                 </div>
               </div>
-              {unreadCount > 0 ? (
+              {/*
+                Bajar al ultimo mensaje, como en WhatsApp. Aparece apenas se sube lo suficiente
+                como para perder de vista el final —antes solo salia si habian llegado mensajes,
+                asi que quien subia a buscar algo tenia que devolverse a mano— y si mientras tanto
+                llega algo, lleva encima cuantos mensajes son.
+              */}
+              {showJumpToBottom || unreadCount > 0 ? (
                 <button
                   type="button"
                   onClick={onScrollToBottom}
-                  className="absolute bottom-4 right-4 z-10 flex cursor-pointer items-center gap-1.5 rounded-full bg-slate-900/90 px-3 py-1.5 text-xs font-semibold text-white shadow-lg backdrop-blur-sm transition hover:bg-slate-900"
+                  aria-label={
+                    unreadCount > 0
+                      ? `Ir al ultimo mensaje (${unreadCount} sin leer)`
+                      : "Ir al ultimo mensaje"
+                  }
+                  title="Ir al último mensaje"
+                  className="absolute bottom-4 right-4 z-10 inline-flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border border-border bg-card text-foreground shadow-lg transition hover:bg-muted"
                 >
-                  <ChevronUp className="h-3.5 w-3.5" />
-                  {unreadCount}
+                  <ChevronDown className="h-5 w-5" />
+                  {unreadCount > 0 ? (
+                    <span className="absolute -right-1 -top-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[var(--primary)] px-1 text-[10px] font-semibold leading-none text-white">
+                      {unreadCount > 99 ? "99+" : unreadCount}
+                    </span>
+                  ) : null}
                 </button>
               ) : null}
             </div>

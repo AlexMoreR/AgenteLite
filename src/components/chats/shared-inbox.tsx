@@ -221,6 +221,10 @@ export function SharedInbox({
   const selectedConversationDetailFollowUpTimerRef = useRef<number | null>(null);
   const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  // Boton flotante para volver al ultimo mensaje (estilo WhatsApp). Se guarda tambien en un ref
+  // para no llamar a setState en cada evento de scroll: solo cuando el boton cambia de estado.
+  const [showJumpToBottom, setShowJumpToBottom] = useState(false);
+  const showJumpToBottomRef = useRef(false);
   const [hasHydrated, setHasHydrated] = useState(false);
   const selectedConversationDetailInFlightRef = useRef<string | null>(null);
   // Ref sincronizada en cada render: permite leer el valor actual dentro de event
@@ -1842,6 +1846,8 @@ export function SharedInbox({
   useEffect(() => {
     isNearBottomRef.current = true;
     setUnreadCount(0);
+    showJumpToBottomRef.current = false;
+    setShowJumpToBottom(false);
     prevScrollKeyRef.current = "";
     lastScrollTopRef.current = 0;
     historyLoadArmedRef.current = false;
@@ -1855,6 +1861,7 @@ export function SharedInbox({
     if (!container) return;
     const BOTTOM_SCROLL_THRESHOLD_PX = 24;
     const TOP_SCROLL_THRESHOLD_PX = 96;
+    const JUMP_TO_BOTTOM_THRESHOLD_PX = 220;
 
     function handleScroll() {
       const el = container!;
@@ -1877,6 +1884,14 @@ export function SharedInbox({
       const distFromBottom = el.scrollHeight - nextScrollTop - el.clientHeight;
       isNearBottomRef.current = distFromBottom <= BOTTOM_SCROLL_THRESHOLD_PX;
       if (isNearBottomRef.current) setUnreadCount(0);
+
+      // El boton aparece cuando ya se subio lo suficiente como para perder de vista el final.
+      // El margen es mas ancho que el de "estoy al fondo" para que no parpadee al desplazarse.
+      const debeMostrarse = distFromBottom > JUMP_TO_BOTTOM_THRESHOLD_PX;
+      if (debeMostrarse !== showJumpToBottomRef.current) {
+        showJumpToBottomRef.current = debeMostrarse;
+        setShowJumpToBottom(debeMostrarse);
+      }
 
       if (
         historyLoadSuppressed ||
@@ -2119,6 +2134,10 @@ export function SharedInbox({
     container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
     isNearBottomRef.current = true;
     setUnreadCount(0);
+    // Se esconde ya, sin esperar a que termine el desplazamiento suave: si no, el boton se
+    // queda a la vista durante toda la bajada y parece que no respondio al toque.
+    showJumpToBottomRef.current = false;
+    setShowJumpToBottom(false);
   }, []);
 
   return (
@@ -2231,6 +2250,7 @@ export function SharedInbox({
         messageScrollBehavior={messageScrollBehavior}
         messagesScrollRef={messagesScrollRef}
         unreadCount={unreadCount}
+        showJumpToBottom={showJumpToBottom}
         onScrollToBottom={scrollToBottom}
         onEditContact={handleOpenEditContact}
         onComposerDraft={handleComposerDraft}
