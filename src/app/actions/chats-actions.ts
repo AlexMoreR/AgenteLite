@@ -25,6 +25,7 @@ import {
   setOfficialApiConversationStatus,
 } from "@/lib/official-api-config";
 import { sendOfficialApiTextMessage } from "@/lib/official-api-messaging";
+import { AD_CAMPAIGN_ROUTING_METADATA_KEY } from "@/lib/ad-campaign-routing";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { Prisma } from "@prisma/client";
@@ -1886,6 +1887,82 @@ export async function updateChannelCollaboratorsAction(input: {
     where: { id: channel.id },
     data: {
       metadata: { ...baseMetadata, collaboratorIds } as Prisma.InputJsonValue,
+    },
+  });
+
+  revalidatePath(`/cliente/conexion/whatsapp-business/${channelId}`);
+  return {};
+}
+
+/**
+ * Guardar a quien le tocan los leads de una campana de pauta (regla por titulo del anuncio).
+ *
+ * Vive en el metadata del canal, junto a los colaboradores: sin regla configurada, todo sigue
+ * repartiendose por turnos como hasta ahora.
+ */
+export async function updateChannelAdRoutingAction(input: {
+  channelId: string;
+  keywords: string[];
+  userId: string;
+}): Promise<{ error?: string }> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
+    return { error: "No autorizado" };
+  }
+  await requireClientWorkspaceAccess("connection");
+
+  const channelId = input.channelId?.trim();
+  if (!channelId) {
+    return { error: "Datos invalidos" };
+  }
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    return { error: "Workspace no encontrado" };
+  }
+
+  const channel = await prisma.whatsAppChannel.findFirst({
+    where: { id: channelId, workspaceId: membership.workspace.id },
+    select: { id: true, metadata: true },
+  });
+  if (!channel) {
+    return { error: "Canal no encontrado" };
+  }
+
+  const keywords = Array.from(
+    new Set(
+      (Array.isArray(input.keywords) ? input.keywords : [])
+        .map((value) => (typeof value === "string" ? value.trim() : ""))
+        .filter(Boolean),
+    ),
+  );
+  const userId = typeof input.userId === "string" ? input.userId.trim() : "";
+
+  if (userId) {
+    const miembro = await prisma.workspaceMember.findFirst({
+      where: { workspaceId: membership.workspace.id, userId, isActive: true },
+      select: { userId: true },
+    });
+    if (!miembro) {
+      return { error: "Esa persona no pertenece al equipo" };
+    }
+    if (keywords.length === 0) {
+      return { error: "Escribe al menos una palabra del titulo del anuncio" };
+    }
+  }
+
+  const baseMetadata =
+    channel.metadata && typeof channel.metadata === "object" && !Array.isArray(channel.metadata)
+      ? (channel.metadata as Record<string, unknown>)
+      : {};
+
+  await prisma.whatsAppChannel.update({
+    where: { id: channel.id },
+    data: {
+      metadata: {
+        ...baseMetadata,
+        [AD_CAMPAIGN_ROUTING_METADATA_KEY]: { keywords, userId },
+      } as Prisma.InputJsonValue,
     },
   });
 

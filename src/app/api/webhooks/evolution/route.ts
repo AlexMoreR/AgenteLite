@@ -77,6 +77,7 @@ import {
   resolveEvolutionMessageMediaUrl,
 } from "@/lib/evolution";
 import { resolveAgentKnowledgeBaseReply } from "@/lib/agent-knowledge-media";
+import { adTitleMatchesRouting, readAdCampaignRouting } from "@/lib/ad-campaign-routing";
 import { recordContactMatch } from "@/lib/contact-matches";
 import { buildConversationMatchContextNote, getLatestConversationMatch } from "@/lib/contact-matches";
 import { buildFlowExecutionContextNote, getConversationExecutedFlowSlugs, getFlowSlug } from "@/lib/flow-execution-history";
@@ -789,6 +790,86 @@ async function resolveConversationWithLock(args: {
 // Auto-asignación round-robin entre los colaboradores del canal.
 // Solo asigna si la conversación está SIN asignar (no toca las que ya tienen dueño).
 // El turno se guarda en channel.metadata.lastAutoAssignedUserId.
+/**
+ * Asignar un lead de PAUTA a quien le corresponde por la campana de la que vino.
+ *
+ * Corre ANTES del reparto por turnos, en el mismo primer mensaje: el titulo del anuncio llega
+ * dentro del propio mensaje, asi que se puede decidir sin esperar a que el agente identifique el
+ * producto (esa etiqueta se escribe despues, cuando el lead ya fue repartido).
+ *
+ * Nunca le saca un chat a nadie: si ya tiene dueno, no se toca.
+ */
+async function assignAdLeadByCampaign(args: {
+  conversationId: string;
+  channelId: string;
+  workspaceId: string;
+  adTitle: string;
+}): Promise<boolean> {
+  if (!args.adTitle.trim()) {
+    return false;
+  }
+
+  const [conversation, channel] = await Promise.all([
+    prisma.conversation.findUnique({
+      where: { id: args.conversationId },
+      select: { assignedToUserId: true },
+    }),
+    prisma.whatsAppChannel.findUnique({
+      where: { id: args.channelId },
+      select: { metadata: true },
+    }),
+  ]);
+
+  if (!conversation || conversation.assignedToUserId) {
+    return false;
+  }
+
+  const routing = readAdCampaignRouting(channel?.metadata);
+  if (!routing || !adTitleMatchesRouting(args.adTitle, routing)) {
+    return false;
+  }
+
+  // La persona puede haber salido del equipo desde que se configuro la regla: si ya no esta
+  // activa, no se le asigna nada (quedaria un lead en el limbo) y sigue el reparto por turnos.
+  const miembroActivo = await prisma.workspaceMember.findFirst({
+    where: { workspaceId: args.workspaceId, userId: routing.userId, isActive: true },
+    select: { userId: true },
+  });
+  if (!miembroActivo) {
+    return false;
+  }
+
+  await prisma.conversation.update({
+    where: { id: args.conversationId },
+    data: { assignedToUserId: routing.userId },
+  });
+
+  const persona = await prisma.user.findUnique({
+    where: { id: routing.userId },
+    select: { name: true, email: true },
+  });
+  const nombre = persona?.name?.trim() || persona?.email || "Colaborador";
+
+  await recordConversationActivity({
+    workspaceId: args.workspaceId,
+    conversationId: args.conversationId,
+    channelId: args.channelId,
+    kind: "assigned",
+    // Queda escrito POR QUE le toco a esa persona: si manana el reparto parece raro, la
+    // conversacion misma lo explica sin tener que revisar configuraciones.
+    text: `${nombre} asignado por la campaña "${args.adTitle}"`,
+  });
+
+  console.log("[EVOLUTION] ad_campaign_assign", {
+    conversationId: args.conversationId,
+    channelId: args.channelId,
+    adTitle: args.adTitle,
+    userId: routing.userId,
+  });
+
+  return true;
+}
+
 async function autoAssignConversationToCollaborator(args: {
   conversationId: string;
   channelId: string;
@@ -1656,6 +1737,16 @@ export async function POST(request: NextRequest) {
   // asignar, se asigna al siguiente colaborador del canal. No toca las ya asignadas.
   if (direction === "INBOUND" && !messageWasEdited && !messageWasDeleted && conversation.id) {
     try {
+      // Primero la regla de campana (si aplica, deja la conversacion asignada y el reparto por
+      // turnos de abajo la encuentra con dueno y no la toca).
+      if (adLeadOrigin?.title) {
+        await assignAdLeadByCampaign({
+          conversationId: conversation.id,
+          channelId: channel.id,
+          workspaceId: channel.workspaceId,
+          adTitle: adLeadOrigin.title,
+        });
+      }
       await autoAssignConversationToCollaborator({
         conversationId: conversation.id,
         channelId: channel.id,

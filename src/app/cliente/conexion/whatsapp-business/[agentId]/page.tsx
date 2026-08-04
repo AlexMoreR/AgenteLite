@@ -10,6 +10,7 @@ import { getEvolutionGateways, getOfficialApiProviderSettings } from "@/lib/syst
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { AD_CAMPAIGN_ROUTING_METADATA_KEY } from "@/lib/ad-campaign-routing";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -103,6 +104,17 @@ async function ConnectionDetailContent({
   const collaboratorIds = Array.isArray(channelMetadata.collaboratorIds)
     ? (channelMetadata.collaboratorIds as unknown[]).filter((id): id is string => typeof id === "string")
     : [];
+  // Regla de campana: a quien le tocan los leads que entran por un anuncio.
+  const adRouting = channelMetadata[AD_CAMPAIGN_ROUTING_METADATA_KEY];
+  const adRoutingRecord =
+    adRouting && typeof adRouting === "object" && !Array.isArray(adRouting)
+      ? (adRouting as Record<string, unknown>)
+      : {};
+  const adRoutingKeywords = Array.isArray(adRoutingRecord.keywords)
+    ? (adRoutingRecord.keywords as unknown[]).filter((value): value is string => typeof value === "string")
+    : [];
+  const adRoutingUserId = typeof adRoutingRecord.userId === "string" ? adRoutingRecord.userId : "";
+
   const collaboratorMembers = workspaceMembers.map((member) => ({
     id: member.user.id,
     name: member.user.name,
@@ -133,6 +145,8 @@ async function ConnectionDetailContent({
       availableAgents={availableAgents}
       collaboratorMembers={collaboratorMembers}
       collaboratorIds={collaboratorIds}
+      adRoutingKeywords={adRoutingKeywords}
+      adRoutingUserId={adRoutingUserId}
       canConnectEvolutionApi={!isChannelAlreadyEvolutionApi}
       evolutionApiGateways={evolutionGateways
         .filter((gateway) => gateway.kind === "EVOLUTION_API")

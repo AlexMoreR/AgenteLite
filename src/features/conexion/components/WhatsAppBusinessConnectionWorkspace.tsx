@@ -19,6 +19,7 @@ import { AgentAssignAutosaveForm, ReactivationAutosaveForm, ResponseDelayAutosav
 import { NotificationSoundSelect } from "@/components/chats/notification-sound-select";
 import { NotificationPermissionToggle } from "@/components/chats/notification-permission-toggle";
 import { ChannelCollaboratorsForm } from "./ChannelCollaboratorsForm";
+import { ChannelAdRoutingForm } from "@/features/conexion/components/ChannelAdRoutingForm";
 import { OfficialApiConnectionSetupCard } from "./OfficialApiConnectionSetupCard";
 import { RegenerateInstanceButton } from "./RegenerateInstanceButton";
 
@@ -61,6 +62,9 @@ type WhatsAppBusinessConnectionWorkspaceProps = {
   }>;
   collaboratorMembers?: Array<{ id: string; name: string | null; email: string }>;
   collaboratorIds?: string[];
+  // Regla "los leads de esta campana son de tal persona" (por titulo del anuncio).
+  adRoutingKeywords?: string[];
+  adRoutingUserId?: string;
   // Conexiones Evolution API del catalogo del admin (sin apikey).
   evolutionApiGateways?: Array<{ id: string; baseUrl: string }>;
   // Solo para canales que AUN no estan en Evolution API (migrar evogo -> API).
@@ -83,6 +87,8 @@ export function WhatsAppBusinessConnectionWorkspace({
   availableAgents,
   collaboratorMembers = [],
   collaboratorIds = [],
+  adRoutingKeywords = [],
+  adRoutingUserId = "",
   evolutionApiGateways = [],
   canConnectEvolutionApi = false,
 }: WhatsAppBusinessConnectionWorkspaceProps) {
@@ -300,15 +306,27 @@ export function WhatsAppBusinessConnectionWorkspace({
             agente={agentTabContent}
             ajustes={settingsTabContent}
             colaboradores={
-              <Card>
-                <CardContent>
-                  <ChannelCollaboratorsForm
-                    channelId={connection.id}
-                    members={collaboratorMembers}
-                    collaboratorIds={collaboratorIds}
-                  />
-                </CardContent>
-              </Card>
+              <div className="space-y-4">
+                <Card>
+                  <CardContent>
+                    <ChannelCollaboratorsForm
+                      channelId={connection.id}
+                      members={collaboratorMembers}
+                      collaboratorIds={collaboratorIds}
+                    />
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent>
+                    <ChannelAdRoutingForm
+                      channelId={connection.id}
+                      members={collaboratorMembers}
+                      keywords={adRoutingKeywords}
+                      userId={adRoutingUserId}
+                    />
+                  </CardContent>
+                </Card>
+              </div>
             }
           />
         </>
@@ -319,15 +337,27 @@ export function WhatsAppBusinessConnectionWorkspace({
             agente={agentTabContent}
             ajustes={settingsTabContent}
             colaboradores={
-              <Card>
-                <CardContent>
-                  <ChannelCollaboratorsForm
-                    channelId={connection.id}
-                    members={collaboratorMembers}
-                    collaboratorIds={collaboratorIds}
-                  />
-                </CardContent>
-              </Card>
+              <div className="space-y-4">
+                <Card>
+                  <CardContent>
+                    <ChannelCollaboratorsForm
+                      channelId={connection.id}
+                      members={collaboratorMembers}
+                      collaboratorIds={collaboratorIds}
+                    />
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent>
+                    <ChannelAdRoutingForm
+                      channelId={connection.id}
+                      members={collaboratorMembers}
+                      keywords={adRoutingKeywords}
+                      userId={adRoutingUserId}
+                    />
+                  </CardContent>
+                </Card>
+              </div>
             }
           />
         </>
