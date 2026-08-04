@@ -20,9 +20,9 @@ function memberLabel(member: CollaboratorMember) {
  * "Los leads de esta campana son para tal persona".
  *
  * El reparto normal es por turnos, y para la pauta a veces no sirve: una campana puede necesitar
- * a quien mas sabe de ese producto. Se decide por el TITULO del anuncio porque es el unico dato
- * que llega en el primer mensaje —la etiqueta del producto la pone el agente despues, cuando el
- * lead ya se repartio.
+ * a quien mas sabe de ese producto. Se decide con lo que llega en el PRIMER mensaje (el anuncio y
+ * la frase del cliente) y no con la etiqueta del producto: esa la pone el agente despues, cuando
+ * el lead ya se repartio.
  */
 export function ChannelAdRoutingForm({
   channelId,
@@ -77,13 +77,14 @@ export function ChannelAdRoutingForm({
         <p className="text-sm font-medium text-foreground">Leads de anuncios</p>
         <p className="text-xs text-muted-foreground">
           Manda los leads de una campaña a una persona fija, en vez de repartirlos por turnos. Se
-          decide con el título del anuncio, apenas entra el primer mensaje.
+          decide apenas entra el primer mensaje, mirando el anuncio y la frase con la que llega el
+          cliente.
         </p>
       </div>
 
       <div className="space-y-1.5">
         <label htmlFor="adRoutingKeywords" className="text-xs font-medium text-foreground">
-          Si el título del anuncio contiene
+          Si el anuncio o la frase del cliente contienen
         </label>
         <Input
           id="adRoutingKeywords"
@@ -92,7 +93,8 @@ export function ChannelAdRoutingForm({
           placeholder="camilla, combo"
         />
         <p className="text-[11px] text-muted-foreground">
-          Separadas por comas. Alcanza con que aparezca una. No distingue mayúsculas ni tildes.
+          Separadas por comas. Alcanza con que una aparezca en el título del anuncio, en su
+          descripción o en el primer mensaje. No distingue mayúsculas ni tildes.
         </p>
       </div>
 

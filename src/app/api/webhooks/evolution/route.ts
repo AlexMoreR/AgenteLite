@@ -77,7 +77,7 @@ import {
   resolveEvolutionMessageMediaUrl,
 } from "@/lib/evolution";
 import { resolveAgentKnowledgeBaseReply } from "@/lib/agent-knowledge-media";
-import { adTitleMatchesRouting, readAdCampaignRouting } from "@/lib/ad-campaign-routing";
+import { adLeadMatchesRouting, readAdCampaignRouting } from "@/lib/ad-campaign-routing";
 import { recordContactMatch } from "@/lib/contact-matches";
 import { buildConversationMatchContextNote, getLatestConversationMatch } from "@/lib/contact-matches";
 import { buildFlowExecutionContextNote, getConversationExecutedFlowSlugs, getFlowSlug } from "@/lib/flow-execution-history";
@@ -393,6 +393,7 @@ function findExternalAdReply(value: unknown, depth = 0): Record<string, unknown>
 type AdLeadOrigin = {
   title: string;
   sourceApp: string; // facebook | instagram
+  body: string;
   ctwaClid: string;
   sourceId: string;
   sourceUrl: string;
@@ -413,6 +414,7 @@ function extractAdLeadOrigin(payload: unknown): AdLeadOrigin | null {
   }
   return {
     title,
+    body: s(ad.body) || s(ad.Body),
     sourceApp: (s(ad.sourceApp) || s(ad.SourceApp)).toLowerCase(),
     ctwaClid: s(ad.ctwaClid),
     sourceId: s(ad.sourceID) || s(ad.sourceId),
@@ -804,10 +806,9 @@ async function assignAdLeadByCampaign(args: {
   channelId: string;
   workspaceId: string;
   adTitle: string;
+  adBody: string;
+  messageText: string;
 }): Promise<boolean> {
-  if (!args.adTitle.trim()) {
-    return false;
-  }
 
   const [conversation, channel] = await Promise.all([
     prisma.conversation.findUnique({
@@ -825,7 +826,13 @@ async function assignAdLeadByCampaign(args: {
   }
 
   const routing = readAdCampaignRouting(channel?.metadata);
-  if (!routing || !adTitleMatchesRouting(args.adTitle, routing)) {
+  const coincide =
+    routing !== null &&
+    adLeadMatchesRouting(
+      { title: args.adTitle, body: args.adBody, messageText: args.messageText },
+      routing,
+    );
+  if (!routing || !coincide) {
     return false;
   }
 
@@ -857,7 +864,7 @@ async function assignAdLeadByCampaign(args: {
     kind: "assigned",
     // Queda escrito POR QUE le toco a esa persona: si manana el reparto parece raro, la
     // conversacion misma lo explica sin tener que revisar configuraciones.
-    text: `${nombre} asignado por la campaña "${args.adTitle}"`,
+    text: `${nombre} asignado por la campaña "${args.adTitle || "anuncio"}"`,
   });
 
   console.log("[EVOLUTION] ad_campaign_assign", {
@@ -1739,12 +1746,16 @@ export async function POST(request: NextRequest) {
     try {
       // Primero la regla de campana (si aplica, deja la conversacion asignada y el reparto por
       // turnos de abajo la encuentra con dueno y no la toca).
-      if (adLeadOrigin?.title) {
+      if (adLeadOrigin) {
         await assignAdLeadByCampaign({
           conversationId: conversation.id,
           channelId: channel.id,
           workspaceId: channel.workspaceId,
           adTitle: adLeadOrigin.title,
+          adBody: adLeadOrigin.body,
+          // La frase con la que llega el cliente: el anuncio se la deja escrita y suele nombrar
+          // el producto mejor que el titulo.
+          messageText: messageText ?? "",
         });
       }
       await autoAssignConversationToCollaborator({

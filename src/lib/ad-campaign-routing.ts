@@ -65,15 +65,30 @@ export function readAdCampaignRouting(metadata: unknown): AdCampaignRouting | nu
   return { keywords, userId };
 }
 
-/** ¿El titulo de este anuncio cae en la regla? */
-export function adTitleMatchesRouting(adTitle: string, routing: AdCampaignRouting): boolean {
-  const titulo = normalizeAdText(adTitle);
-  if (!titulo) {
+/**
+ * ¿Este lead de anuncio cae en la regla?
+ *
+ * Se miran TRES textos, no solo el titulo. El titulo es texto de marketing y cambia solo: el
+ * anuncio que mas vende camillas se llama "Solo 989.000 COP - Todo lo que necesitas", donde no
+ * aparece ni "camilla" ni "combo". Quien si nombra el producto es la frase con la que el cliente
+ * llega, porque el anuncio se la deja escrita: "me interesa el COMBO de estetica (camilla,
+ * escalera, silla y auxiliar)". Con solo el titulo, esa campana entera se repartia por turnos.
+ */
+export function adLeadMatchesRouting(
+  lead: { title?: string; body?: string; messageText?: string },
+  routing: AdCampaignRouting,
+): boolean {
+  const textos = [lead.title, lead.body, lead.messageText]
+    .map((value) => normalizeAdText(value ?? ""))
+    .filter(Boolean);
+
+  if (textos.length === 0) {
     return false;
   }
+
   return routing.keywords.some((keyword) => {
     const palabra = normalizeAdText(keyword);
-    return palabra.length > 0 && titulo.includes(palabra);
+    return palabra.length > 0 && textos.some((texto) => texto.includes(palabra));
   });
 }
 
@@ -84,7 +99,7 @@ export function describeAdCampaignRouting(keywords: string[]): string {
     return "";
   }
   if (limpias.length === 1) {
-    return `los anuncios cuyo título contenga «${limpias[0]}»`;
+    return `los leads de anuncios donde aparezca «${limpias[0]}»`;
   }
-  return `los anuncios cuyo título contenga ${limpias.map((value) => `«${value}»`).join(" o ")}`;
+  return `los leads de anuncios donde aparezca ${limpias.map((value) => `«${value}»`).join(" o ")}`;
 }
