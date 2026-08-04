@@ -2890,3 +2890,48 @@ export async function lookupEvolutionLidForPhone(input: {
   const soloDigitos = lid.split("@")[0]?.replace(/\D/g, "") ?? "";
   return soloDigitos || null;
 }
+
+/**
+ * El telefono que hay detras de un LID.
+ *
+ * WhatsApp entrega cada vez mas chats identificados solo por su LID. Sin resolverlo, el lead
+ * nace con ese id en el lugar del telefono: no se le puede llamar, y cuando la misma persona
+ * escribe mas adelante con su numero se le abre una SEGUNDA ficha.
+ *
+ * whatsmeow guarda la equivalencia (la necesita para enrutar) y ahora el gateway la expone en el
+ * campo PN (ver AlexMoreR/evolution-go#2). Devuelve solo los digitos, que es como se guardan los
+ * telefonos en la base.
+ */
+export async function lookupEvolutionPhoneForLid(input: {
+  instanceName: string;
+  lid: string;
+}): Promise<string | null> {
+  const digits = input.lid.replace(/\D/g, "");
+  if (!digits) {
+    return null;
+  }
+
+  const respuesta = await lookupEvolutionUserInfo({
+    instanceName: input.instanceName,
+    jid: `${digits}@lid`,
+  });
+  if (!respuesta.ok) {
+    return null;
+  }
+
+  const raiz = asRecord(respuesta.data);
+  const usuarios = asRecord(asRecord(raiz?.data)?.Users) ?? asRecord(raiz?.Users);
+  if (!usuarios) {
+    return null;
+  }
+
+  const primero = Object.values(usuarios)[0];
+  const pn = readString(asRecord(primero)?.PN);
+  if (!pn) {
+    return null;
+  }
+
+  const soloDigitos = pn.split("@")[0]?.replace(/\D/g, "") ?? "";
+  // Un telefono real no pasa de 15 digitos; si volviera otro LID, se descarta.
+  return soloDigitos && soloDigitos.length <= 15 ? soloDigitos : null;
+}

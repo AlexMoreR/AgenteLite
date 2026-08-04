@@ -5,7 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { analyzeImageForAgent, generateAgentReply, transcribeAudioForAgent } from "@/lib/agent-ai";
 import { summarizeContactHistory } from "@/lib/contact-summary";
 import { buildSnoozeMetadata, readSnoozedUntil } from "@/lib/lead-snooze";
-import { lookupEvolutionLidForPhone } from "@/lib/evolution";
+import { lookupEvolutionLidForPhone, lookupEvolutionPhoneForLid } from "@/lib/evolution";
 import { mergeLidContactIntoPhoneContact } from "@/lib/lid-contact-merge";
 import {
   CONTACT_LID_ID_METADATA_PATH,
@@ -1239,6 +1239,26 @@ export async function POST(request: NextRequest) {
       });
       if (yaConocida?.phoneNumber) {
         phoneNumber = yaConocida.phoneNumber;
+      } else if (channel.evolutionInstanceName) {
+        /**
+         * Todavia no conocemos a esta persona: se le pregunta el telefono al gateway.
+         *
+         * Es lo que hace que el lead NAZCA con su numero en vez de con el LID. Sin esto la ficha
+         * se creaba con el id en el lugar del telefono —no se le podia llamar— y cuando la misma
+         * persona escribia despues con su numero se le abria una segunda ficha.
+         *
+         * Va aca y no en after() a proposito: el telefono tiene que estar ANTES de crear la
+         * ficha, si no ya nacio mal. Es una sola llamada y solo la primera vez, porque despues
+         * la busqueda de arriba la encuentra sin salir a la red.
+         */
+        const telefonoReal = await lookupEvolutionPhoneForLid({
+          instanceName: channel.evolutionInstanceName,
+          lid: lidEntrante,
+        });
+        if (telefonoReal) {
+          phoneNumber = telefonoReal;
+          console.log("[EVOLUTION] LID resuelto a telefono", { lid: lidEntrante });
+        }
       }
     } catch (error) {
       // Si la busqueda falla se sigue con el LID: peor es no guardar el mensaje.
@@ -1948,6 +1968,47 @@ export async function POST(request: NextRequest) {
         error: error instanceof Error ? error.message : String(error),
       });
     }
+  }
+
+  /**
+   * Llego con LID y lo resolvimos a un telefono: se anota el par y, si ya existia una ficha
+   * fantasma con el LID como numero, se unen.
+   *
+   * Anotarlo evita volver a salir a la red por esta persona. Unir limpia lo que quedo de antes
+   * del arreglo: los leads que nacieron con el id en el lugar del telefono.
+   */
+  if (contact?.id && lidEntrante && phoneNumber && phoneNumber !== lidEntrante) {
+    const contactId = contact.id;
+    const workspaceId = channel.workspaceId;
+    const lid = lidEntrante;
+    after(async () => {
+      try {
+        const ficha = await prisma.contact.findUnique({
+          where: { id: contactId },
+          select: { metadata: true },
+        });
+        if (ficha && readLinkedLid(ficha.metadata) !== lid) {
+          await prisma.contact.update({
+            where: { id: contactId },
+            data: { metadata: buildLinkedLidMetadata(ficha.metadata, lid) as Prisma.InputJsonValue },
+          });
+        }
+
+        const resultado = await mergeLidContactIntoPhoneContact({
+          workspaceId,
+          lid,
+          phoneContactId: contactId,
+        });
+        if (resultado.merged) {
+          console.log("[EVOLUTION] se unio la ficha del LID con la del telefono", { contactId, lid });
+        }
+      } catch (error) {
+        console.warn("[EVOLUTION] no se pudo anotar/unir el LID resuelto", {
+          contactId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    });
   }
 
   /**
