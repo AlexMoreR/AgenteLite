@@ -652,14 +652,34 @@ export function extractEvolutionRemoteJid(payload: unknown): string | null {
       const domain = (jid?.split("@")[1] ?? "").toLowerCase();
       return domain === "s.whatsapp.net" || domain === "c.us";
     };
-    const infoIndividual = [
-      readString(info.RecipientAlt),
-      readString(info.Sender),
-      readString(info.Chat),
-      readString(info.SenderAlt),
-    ].find((jid) => jid && isIndividual(jid));
+
+    /**
+     * En un mensaje SALIENTE, `Sender` somos NOSOTROS.
+     *
+     * Antes se lo miraba igual que al resto, y como estos eventos no se procesaban nadie lo
+     * noto. Al empezar a guardar lo que se manda desde el celular quedo a la vista: si el
+     * destinatario venia como @lid y `RecipientAlt` estaba vacio, se elegia `Sender` — o sea la
+     * propia linea— y el mensaje del agente aparecia en un chat del negocio consigo mismo.
+     *
+     * Saliendo, el destinatario es RecipientAlt o Chat. Nunca Sender.
+     */
+    const candidatos = info.IsFromMe === true
+      ? [readString(info.RecipientAlt), readString(info.Chat)]
+      : [readString(info.RecipientAlt), readString(info.Sender), readString(info.Chat), readString(info.SenderAlt)];
+
+    const infoIndividual = candidatos.find((jid) => jid && isIndividual(jid));
     if (infoIndividual) {
       return infoIndividual;
+    }
+
+    // Saliente a un contacto que solo tiene @lid: se devuelve el Chat tal cual, que es el
+    // destinatario. Sin esto caia al buscador generico de mas abajo, que puede volver a elegir
+    // nuestra propia linea.
+    if (info.IsFromMe === true) {
+      const chat = readString(info.Chat);
+      if (chat) {
+        return chat;
+      }
     }
   }
 
