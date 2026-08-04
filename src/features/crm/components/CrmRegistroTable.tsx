@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import * as React from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown, CalendarDays, ChartNoAxesCombined, Copy, Eraser, Eye, FileText, Globe2, Hash, MoreHorizontal, Search, Tag, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -128,6 +128,7 @@ export function CrmRegistroTable({
   records: CrmRecord[];
   referenceNow: string;
 }) {
+  const router = useRouter();
   const [editableRecords, setEditableRecords] = React.useState(records);
   const [query, setQuery] = React.useState("");
   const [statusFilter, setStatusFilter] = React.useState<CrmStage | "__all__">("__all__");
@@ -649,11 +650,26 @@ export function CrmRegistroTable({
                               Copiar detalle
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
-                            <DropdownMenuItem asChild className="gap-2">
-                              <Link href="/cliente/chats">
-                                <Eye className="h-4 w-4" />
-                                Ir a chats
-                              </Link>
+                            {/*
+                              Va al chat DE ESE LEAD, no a la bandeja: mandaba a la lista vacia y
+                              la asesora tenia que buscarlo a mano, que es justo lo que el menu
+                              venia a evitar.
+
+                              onClick y no <Link asChild>: en este menu (Base UI) el enlace no
+                              navegaba — el mismo problema que ya nos paso con onSelect.
+                            */}
+                            <DropdownMenuItem
+                              className="gap-2"
+                              disabled={!record.chatKey}
+                              onClick={() => {
+                                if (!record.chatKey) {
+                                  return;
+                                }
+                                router.push(`/cliente/chats?chatKey=${encodeURIComponent(record.chatKey)}`);
+                              }}
+                            >
+                              <Eye className="h-4 w-4" />
+                              {record.chatKey ? "Ir al chat" : "Sin chat todavía"}
                             </DropdownMenuItem>
                             <DropdownMenuItem variant="destructive" className="gap-2">
                               <Trash2 className="h-4 w-4" />
