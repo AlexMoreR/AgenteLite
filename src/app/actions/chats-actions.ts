@@ -1981,36 +1981,62 @@ export async function importConversationHistoryAction(input: {
   /**
    * Evolution GO: hace falta un mensaje ancla, porque WhatsApp devuelve los ANTERIORES a el.
    *
-   * Se usa el mas viejo del chat, que es justo donde se corta el historial. Pero NO cualquiera:
-   * las notas de actividad ("Angy auto-asignado a esta conversacion") tambien se guardan como
-   * mensajes, y suelen ser lo mas viejo de la conversacion. Como no traen los datos de WhatsApp,
-   * el ancla salia vacia y el boton respondia "este chat no tiene un mensaje desde el cual pedir
-   * historial" en chats que si tenian mensajes de verdad.
+   * Se pide DOS veces, con dos anclas distintas, porque hay dos agujeros distintos que tapar:
    *
-   * Se miran varios de los mas viejos y se usa el primero que sirva: un mensaje manual tampoco
-   * siempre trae la forma que espera el gateway.
+   *  1. Anclando en el mensaje MAS NUEVO se rellena la ventana reciente. Ahi estan los huecos de
+   *     lo que se perdio (por ejemplo, lo que la asesora escribia desde su celular y el webhook
+   *     descartaba). Anclando solo en el mas viejo, el pedido pasaba de largo por encima de esos
+   *     mensajes y el boton "no traia nada" justo cuando mas se lo necesitaba.
+   *  2. Anclando en el mas VIEJO se sigue destapando historia hacia atras, que es para lo que
+   *     estaba pensado.
+   *
+   * Se descartan las notas de actividad ("Angy auto-asignado a esta conversacion"): tambien se
+   * guardan como mensajes y suelen ser lo mas viejo del chat, pero no traen los datos de WhatsApp
+   * y el ancla salia vacia. Se miran varias de cada punta porque un mensaje enviado a mano
+   * tampoco siempre trae la forma que espera el gateway.
    */
-  const candidatos = await prisma.message.findMany({
-    where: {
-      conversationId: conversation.id,
-      type: { not: "SYSTEM" },
-      NOT: { rawPayload: { path: ["source"], equals: "activity" } },
-    },
-    select: { rawPayload: true },
-    orderBy: { createdAt: "asc" },
-    take: 10,
-  });
+  const soloMensajesReales = {
+    conversationId: conversation.id,
+    type: { not: "SYSTEM" as const },
+    NOT: { rawPayload: { path: ["source"], equals: "activity" } },
+  };
 
-  const anchor = candidatos.map((mensaje) => buildEvolutionGoHistoryAnchor(mensaje.rawPayload)).find(Boolean);
-  if (!anchor) {
+  const [masViejos, masNuevos] = await Promise.all([
+    prisma.message.findMany({
+      where: soloMensajesReales,
+      select: { rawPayload: true },
+      orderBy: { createdAt: "asc" },
+      take: 10,
+    }),
+    prisma.message.findMany({
+      where: soloMensajesReales,
+      select: { rawPayload: true },
+      orderBy: { createdAt: "desc" },
+      take: 10,
+    }),
+  ]);
+
+  const anclaAntigua = masViejos.map((m) => buildEvolutionGoHistoryAnchor(m.rawPayload)).find(Boolean);
+  const anclaReciente = masNuevos.map((m) => buildEvolutionGoHistoryAnchor(m.rawPayload)).find(Boolean);
+
+  // La reciente primero: tapar el hueco de lo perdido es lo urgente; la historia vieja no se va
+  // a ningun lado. Si el chat tiene un solo mensaje, las dos anclas son la misma y se pide una.
+  const anclas = [anclaReciente, anclaAntigua].filter(
+    (ancla, indice, todas): ancla is Record<string, unknown> =>
+      Boolean(ancla) && todas.findIndex((otra) => otra?.id === ancla?.id) === indice,
+  );
+
+  if (anclas.length === 0) {
     return { error: "Este chat no tiene un mensaje desde el cual pedir historial" };
   }
 
   try {
-    await requestEvolutionGoHistorySync({
-      instanceName: conversation.channel.evolutionInstanceName,
-      messageInfo: anchor,
-    });
+    for (const ancla of anclas) {
+      await requestEvolutionGoHistorySync({
+        instanceName: conversation.channel.evolutionInstanceName,
+        messageInfo: ancla,
+      });
+    }
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     return { error: `No se pudo pedir el historial: ${detail}` };
