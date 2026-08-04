@@ -1,4 +1,4 @@
-const CACHE_NAME = "agente-lite-v4";
+const CACHE_NAME = "agente-lite-v5";
 const APP_SHELL = ["/", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
@@ -116,7 +116,29 @@ self.addEventListener("push", (event) => {
     data: { url: payload.url || "/cliente/chats" },
   };
 
-  event.waitUntil(self.registration.showNotification(title, options));
+  /**
+   * Si la app esta ABIERTA Y A LA VISTA, no se muestra la notificacion del sistema.
+   *
+   * Sonaba doble: la pagina reproduce su propio sonido al llegar el mensaje y ademas el Service
+   * Worker mostraba la notificacion, que suena por su cuenta. Con la app en la mano eso es ruido
+   * (ya estas viendo el mensaje llegar); con la app en segundo plano o cerrada, la notificacion
+   * es lo unico que avisa, y ahi si tiene que salir.
+   *
+   * Se mira visibilityState y no si hay clientes: una pestaña abierta pero tapada por WhatsApp
+   * no esta a la vista, y ahi la asesora SI necesita el aviso.
+   */
+  event.waitUntil(
+    self.clients
+      .matchAll({ type: "window", includeUncontrolled: true })
+      .then((clientList) => {
+        const appALaVista = clientList.some((client) => client.visibilityState === "visible");
+        if (appALaVista) {
+          return undefined;
+        }
+        return self.registration.showNotification(title, options);
+      })
+      .catch(() => self.registration.showNotification(title, options)),
+  );
 });
 
 // Al tocar la notificación: enfoca una pestaña abierta de la app o abre una nueva
