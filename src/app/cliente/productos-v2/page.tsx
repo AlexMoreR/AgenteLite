@@ -2,6 +2,7 @@ import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowItems";
 import { prisma } from "@/lib/prisma";
 import { ProductoV2Workspace } from "@/features/productos-v2/components/ProductoV2Workspace";
+import { getProductFunnelCounts } from "@/features/productos-v2/services/getProductFunnelCounts";
 import type { ProductoV2Item } from "@/features/productos-v2/types";
 
 // Palabra distintiva ilustrativa: el primer token "fuerte" del nombre (no genérico). La real la
@@ -69,6 +70,12 @@ export default async function ClienteProductoV2Page() {
     .catch(() => []);
   const playbookByProductId = new Map(playbookRows.map((row) => [row.productId, row] as const));
 
+  // Cuantos leads vivos hay parados en cada etapa, por producto.
+  const conteoPorProducto = await getProductFunnelCounts({
+    workspaceId: access.workspaceId,
+    productIds: productRows.map((product) => product.id),
+  });
+
   const flowTitleById = new Map(flowItems.map((flow) => [flow.id, flow.title] as const));
 
   const products: ProductoV2Item[] = productRows.map((product) => {
@@ -117,6 +124,7 @@ export default async function ClienteProductoV2Page() {
       playbookPitch: playbook?.pitch?.trim() || "",
       funnelStages: tieneEmbudoPropio ? etapasGuardadas : embudoDelAgente,
       funnelFromAgent: !tieneEmbudoPropio && embudoDelAgente.length > 0,
+      funnelCounts: conteoPorProducto.get(product.id) ?? {},
       playbookRules: (playbook?.rules ?? []).map((rule) => ({
         id: rule.id,
         kind: rule.kind as "DECIR" | "NO_DECIR" | "OBJECION" | "BENEFICIO",

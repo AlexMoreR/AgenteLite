@@ -30,11 +30,14 @@ export function ProductFunnelEditor({
   productId,
   stages,
   vienenDelAgente,
+  conteo,
 }: {
   productId: string;
   stages: EtapaEditable[];
   /** El texto se trajo del embudo que el agente ya tenia y todavia no se guardo aca. */
   vienenDelAgente: boolean;
+  /** Cuantos leads vivos estan parados hoy en cada etapa. */
+  conteo: Record<string, number>;
 }) {
   const router = useRouter();
   const [etapas, setEtapas] = useState<EtapaEditable[]>(() =>
@@ -52,6 +55,7 @@ export function ProductFunnelEditor({
 
   const hayCambios = JSON.stringify(etapas) !== guardado;
   const escritas = etapas.filter((etapa) => etapa.goal || etapa.script).length;
+  const totalEnEmbudo = Object.values(conteo).reduce((suma, valor) => suma + valor, 0);
 
   // Se abre en la primera etapa que falta: es la que hay que trabajar.
   const [abierta] = useState<string[]>(() => {
@@ -91,7 +95,10 @@ export function ProductFunnelEditor({
       <CardHeader className="pb-0">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="text-sm">Embudo de ventas</CardTitle>
-          <span className="text-xs text-muted-foreground">{escritas} de 5 escritas</span>
+          <span className="text-xs text-muted-foreground">
+            {escritas} de 5 escritas
+            {totalEnEmbudo > 0 ? ` · ${totalEnEmbudo} ${totalEnEmbudo === 1 ? "lead" : "leads"} adentro` : ""}
+          </span>
         </div>
       </CardHeader>
 
@@ -119,8 +126,17 @@ export function ProductFunnelEditor({
                     >
                       {indice + 1}
                     </span>
-                    <span className="min-w-0">
-                      <span className="block text-sm font-medium text-foreground">{meta.label}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-foreground">{meta.label}</span>
+                        {/* Cuantos leads estan parados ACA hoy. Es el numero que dice donde se
+                            traba la venta, y por eso va pegado al texto de la etapa. */}
+                        {(conteo[meta.stage] ?? 0) > 0 ? (
+                          <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                            {conteo[meta.stage]} {conteo[meta.stage] === 1 ? "lead" : "leads"}
+                          </span>
+                        ) : null}
+                      </span>
                       <span
                         className={`block truncate text-xs ${
                           resumen ? "text-muted-foreground" : "text-amber-600 dark:text-amber-400"
