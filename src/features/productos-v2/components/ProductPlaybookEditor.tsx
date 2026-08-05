@@ -2,8 +2,15 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Check, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   addProductPlaybookRuleAction,
   deleteProductPlaybookRuleAction,
@@ -23,13 +30,13 @@ const GRUPOS = [
   {
     kind: "DECIR" as const,
     titulo: "Hacer siempre",
-    ayuda: "Ej. Confirmar el producto del anuncio antes de preguntar nada.",
+    ayuda: "Ej. confirmar el producto del anuncio antes de preguntar nada.",
     placeholder: "Qué tiene que hacer siempre…",
   },
   {
     kind: "NO_DECIR" as const,
     titulo: "Nunca hacer",
-    ayuda: "Ej. No prometer fecha de entrega sin confirmar la ciudad.",
+    ayuda: "Ej. no prometer fecha de entrega sin confirmar la ciudad.",
     placeholder: "Qué no puede hacer nunca…",
   },
 ];
@@ -65,6 +72,8 @@ export function ProductPlaybookEditor({
       setPitchGuardado(texto);
       toast.success("Guardado");
       router.refresh();
+    } catch {
+      toast.error("No se pudo guardar. Recargá la página e intentá de nuevo.");
     } finally {
       setOcupado(false);
     }
@@ -84,6 +93,8 @@ export function ProductPlaybookEditor({
         setObjecion({ trigger: "", text: "" });
       }
       router.refresh();
+    } catch {
+      toast.error("No se pudo guardar. Recargá la página e intentá de nuevo.");
     } finally {
       setOcupado(false);
     }
@@ -98,147 +109,162 @@ export function ProductPlaybookEditor({
         return;
       }
       router.refresh();
+    } catch {
+      toast.error("No se pudo borrar. Recargá la página e intentá de nuevo.");
     } finally {
       setOcupado(false);
     }
   };
 
-  return (
-    <div className="pv2-sec">
-      <div className="pv2-sec-h">
-        <span className="pv2-k">Playbook de ventas</span>
-        <span className="pv2-req opt">Lo lee el agente</span>
-      </div>
-
-      <p className="pv2-hint" style={{ marginTop: 0 }}>
-        Lo que aprendiste vendiendo <b>{productName}</b>. El agente lo aplica en la próxima
-        respuesta: no hace falta volver a publicarlo.
-      </p>
-
-      <label className="pv2-f">Cómo se vende</label>
-      <textarea
-        className="pv2-inp pv2-ta"
-        rows={4}
-        value={texto}
-        onChange={(event) => setTexto(event.target.value)}
-        placeholder="Con qué abrir, qué mostrar primero, qué preguntar para avanzar…"
-      />
-      <div className="pv2-row-btns">
-        <button type="button" className="pv2-btn" onClick={() => void guardarPitch()} disabled={ocupado}>
-          Guardar
+  const filaRegla = (rule: ProductoV2PlaybookRule, contenido: React.ReactNode) => (
+    <li
+      key={rule.id}
+      className="flex items-start justify-between gap-3 rounded-lg border border-border px-3 py-2 text-sm"
+    >
+      <span className="min-w-0">{contenido}</span>
+      <span className="flex shrink-0 items-center gap-2">
+        {rule.source === "auditoria" ? (
+          <Badge variant="secondary" className="font-normal">
+            de una venta perdida
+          </Badge>
+        ) : null}
+        <button
+          type="button"
+          aria-label="Quitar"
+          onClick={() => void borrar(rule.id)}
+          disabled={ocupado}
+          className="text-muted-foreground transition hover:text-foreground disabled:opacity-50"
+        >
+          <X className="h-3.5 w-3.5" />
         </button>
-        {texto === pitchGuardado ? (
-          <span className="pv2-ok">✓ Guardado</span>
-        ) : (
-          <span className="pv2-warn">Sin guardar</span>
-        )}
-      </div>
+      </span>
+    </li>
+  );
 
-      {GRUPOS.map((grupo) => {
-        const delGrupo = rules.filter((rule) => rule.kind === grupo.kind);
-        return (
-          <div key={grupo.kind} className="pv2-mt14">
-            <label className="pv2-f">{grupo.titulo}</label>
-            {delGrupo.length === 0 ? (
-              <p className="pv2-disabled" style={{ margin: "4px 0 8px" }}>
-                {grupo.ayuda}
-              </p>
-            ) : (
-              <ul className="pv2-rules">
-                {delGrupo.map((rule) => (
-                  <li key={rule.id} className="pv2-rule">
-                    <span>{rule.text}</span>
-                    <span className="pv2-rule-meta">
-                      {rule.source === "auditoria" ? <em>de una venta perdida</em> : null}
-                      <button
-                        type="button"
-                        aria-label="Quitar regla"
-                        onClick={() => void borrar(rule.id)}
-                        disabled={ocupado}
-                      >
-                        ✕
-                      </button>
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <div className="pv2-row-btns">
-              <input
-                className="pv2-inp"
-                value={nuevaRegla[grupo.kind] ?? ""}
-                onChange={(event) =>
-                  setNuevaRegla((actual) => ({ ...actual, [grupo.kind]: event.target.value }))
-                }
-                placeholder={grupo.placeholder}
-              />
-              <button
-                type="button"
-                className="pv2-btn ghost"
-                onClick={() => void agregar(grupo.kind, nuevaRegla[grupo.kind] ?? "")}
-                disabled={ocupado}
-              >
-                Agregar
-              </button>
-            </div>
-          </div>
-        );
-      })}
-
-      <div className="pv2-mt14">
-        <label className="pv2-f">
-          Objeciones <span className="pv2-faint">(lo que dice el cliente y qué contestarle)</span>
-        </label>
-        {objeciones.length === 0 ? (
-          <p className="pv2-disabled" style={{ margin: "4px 0 8px" }}>
-            Ej. dice «está caro» → recordarle que el combo trae 4 piezas y el precio por separado.
-          </p>
-        ) : (
-          <ul className="pv2-rules">
-            {objeciones.map((rule) => (
-              <li key={rule.id} className="pv2-rule">
-                <span>
-                  <b>«{rule.trigger}»</b> → {rule.text}
-                </span>
-                <span className="pv2-rule-meta">
-                  {rule.source === "auditoria" ? <em>de una venta perdida</em> : null}
-                  <button
-                    type="button"
-                    aria-label="Quitar objeción"
-                    onClick={() => void borrar(rule.id)}
-                    disabled={ocupado}
-                  >
-                    ✕
-                  </button>
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-        <div className="pv2-row-btns">
-          <input
-            className="pv2-inp"
-            style={{ maxWidth: 200 }}
-            value={objecion.trigger}
-            onChange={(event) => setObjecion((actual) => ({ ...actual, trigger: event.target.value }))}
-            placeholder="Dice…"
-          />
-          <input
-            className="pv2-inp"
-            value={objecion.text}
-            onChange={(event) => setObjecion((actual) => ({ ...actual, text: event.target.value }))}
-            placeholder="Le contestás…"
-          />
-          <button
-            type="button"
-            className="pv2-btn ghost"
-            onClick={() => void agregar("OBJECION", objecion.text, objecion.trigger)}
-            disabled={ocupado}
-          >
-            Agregar
-          </button>
+  return (
+    <Card>
+      <CardHeader className="pb-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <CardTitle className="text-sm">Playbook de ventas</CardTitle>
+          <Badge variant="secondary" className="font-normal">
+            Lo lee el agente
+          </Badge>
         </div>
-      </div>
-    </div>
+        <p className="text-xs text-muted-foreground">
+          Lo que aprendiste vendiendo <b>{productName}</b>. El agente lo aplica en la próxima
+          respuesta: no hace falta volver a publicarlo.
+        </p>
+      </CardHeader>
+
+      <CardContent className="space-y-5">
+        <div className="space-y-1.5">
+          <Label htmlFor="pv2-pitch">Cómo se vende</Label>
+          <Textarea
+            id="pv2-pitch"
+            rows={4}
+            value={texto}
+            onChange={(event) => setTexto(event.target.value)}
+            placeholder="Con qué abrir, qué mostrar primero, qué preguntar para avanzar…"
+          />
+          <div className="flex items-center gap-3">
+            <Button type="button" size="sm" onClick={() => void guardarPitch()} disabled={ocupado}>
+              Guardar
+            </Button>
+            {texto === pitchGuardado ? (
+              <span className="inline-flex items-center gap-1 text-xs text-emerald-700 dark:text-emerald-400">
+                <Check className="h-3.5 w-3.5" />
+                Guardado
+              </span>
+            ) : (
+              <span className="text-xs text-amber-700 dark:text-amber-300">Sin guardar</span>
+            )}
+          </div>
+        </div>
+
+        {GRUPOS.map((grupo) => {
+          const delGrupo = rules.filter((rule) => rule.kind === grupo.kind);
+          return (
+            <div key={grupo.kind} className="space-y-2">
+              <Label>{grupo.titulo}</Label>
+              {delGrupo.length === 0 ? (
+                <p className="text-xs text-muted-foreground">{grupo.ayuda}</p>
+              ) : (
+                <ul className="space-y-1.5">{delGrupo.map((rule) => filaRegla(rule, rule.text))}</ul>
+              )}
+              <div className="flex flex-wrap items-center gap-2">
+                <Input
+                  className="min-w-[220px] flex-1"
+                  value={nuevaRegla[grupo.kind] ?? ""}
+                  onChange={(event) =>
+                    setNuevaRegla((actual) => ({ ...actual, [grupo.kind]: event.target.value }))
+                  }
+                  placeholder={grupo.placeholder}
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void agregar(grupo.kind, nuevaRegla[grupo.kind] ?? "")}
+                  disabled={ocupado}
+                >
+                  <Plus className="h-4 w-4" />
+                  Agregar
+                </Button>
+              </div>
+            </div>
+          );
+        })}
+
+        <div className="space-y-2">
+          <Label>
+            Objeciones{" "}
+            <span className="font-normal text-muted-foreground">
+              (lo que dice el cliente y qué contestarle)
+            </span>
+          </Label>
+          {objeciones.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              Ej. dice «está caro» → recordarle que el combo trae 4 piezas y cuánto costarían por
+              separado.
+            </p>
+          ) : (
+            <ul className="space-y-1.5">
+              {objeciones.map((rule) =>
+                filaRegla(
+                  rule,
+                  <>
+                    <b>«{rule.trigger}»</b> → {rule.text}
+                  </>,
+                ),
+              )}
+            </ul>
+          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              className="w-full sm:max-w-[200px]"
+              value={objecion.trigger}
+              onChange={(event) => setObjecion((actual) => ({ ...actual, trigger: event.target.value }))}
+              placeholder="Dice…"
+            />
+            <Input
+              className="min-w-[220px] flex-1"
+              value={objecion.text}
+              onChange={(event) => setObjecion((actual) => ({ ...actual, text: event.target.value }))}
+              placeholder="Le contestás…"
+            />
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => void agregar("OBJECION", objecion.text, objecion.trigger)}
+              disabled={ocupado}
+            >
+              <Plus className="h-4 w-4" />
+              Agregar
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
