@@ -38,7 +38,7 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
 
   if (view.mode === "list") {
     return (
-      <div className="space-y-4">
+      <div className="space-y-4 p-4 sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <PageHeader icon={ShoppingCart} title="Productos" />
@@ -108,7 +108,7 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 p-4 sm:p-6">
       {/* Volver y nombre en la misma linea: la palabra "Productos" arriba del titulo era un
           renglon entero para decir lo que la flecha ya dice. */}
       <div className="flex items-center gap-1">
