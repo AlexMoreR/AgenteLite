@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Loader2, Search, Workflow } from "lucide-react";
+import { Search, Workflow } from "lucide-react";
 import { toast } from "sonner";
 
 import { listFlowsForChatAction, sendFlowToChatAction, type FlowChoice } from "@/app/actions/flow-send-actions";
@@ -31,7 +31,6 @@ export function SendFlowDialog({
   const [flujos, setFlujos] = React.useState<FlowChoice[]>([]);
   const [cargando, setCargando] = React.useState(false);
   const [busqueda, setBusqueda] = React.useState("");
-  const [enviando, setEnviando] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (!open) {
@@ -57,48 +56,44 @@ export function SendFlowDialog({
     return q ? flujos.filter((flujo) => flujo.title.toLowerCase().includes(q)) : flujos;
   }, [flujos, busqueda]);
 
-  const enviar = async (flujo: FlowChoice) => {
-    if (enviando) {
-      return;
-    }
-    setEnviando(flujo.id);
-    // Un flujo puede llevar varios pasos con pausas entre medio: el aviso se queda hasta el final
-    // para que la asesora no crea que se colgo y lo mande dos veces.
+  const enviar = (flujo: FlowChoice) => {
+    /**
+     * Se manda y se sale: la pantalla no espera.
+     *
+     * Un flujo puede llevar varios pasos con pausas entre medio, y antes la ventana se quedaba
+     * trabada esos segundos sin dejar contestar a nadie. El envio ya corre entero del lado del
+     * servidor, asi que la pantalla no tiene por que quedarse mirando: se cierra al toque y el
+     * aviso de abajo cuenta como termino.
+     */
     const aviso = toast.loading(`Enviando "${flujo.title}"…`);
-    try {
-      const resultado = await sendFlowToChatAction({
-        source,
-        conversationId,
-        flowId: flujo.id,
-        agentId,
-      });
+    onClose();
 
-      if (!resultado.ok) {
-        toast.error(resultado.error, { id: aviso });
-        return;
-      }
+    void sendFlowToChatAction({ source, conversationId, flowId: flujo.id, agentId })
+      .then((resultado) => {
+        if (!resultado.ok) {
+          toast.error(resultado.error, { id: aviso });
+          return;
+        }
 
-      if (resultado.fallidos > 0 || resultado.omitidos > 0) {
-        // Nunca decir "listo" a medias: si un paso no salio, la asesora tiene que saberlo para
-        // mandarlo a mano. En WhatsApp lo ya enviado no se puede deshacer.
-        const partes = [`Se enviaron ${resultado.enviados}`];
-        if (resultado.fallidos > 0) partes.push(`${resultado.fallidos} fallaron`);
-        if (resultado.omitidos > 0) partes.push(`${resultado.omitidos} sin enviar (audio)`);
-        toast.warning(partes.join(" · "), { id: aviso, duration: 10000 });
-      } else {
+        if (resultado.fallidos > 0 || resultado.omitidos > 0) {
+          // Nunca decir "listo" a medias: si un paso no salio, la asesora tiene que saberlo para
+          // mandarlo a mano. En WhatsApp lo ya enviado no se puede deshacer.
+          const partes = [`Se enviaron ${resultado.enviados}`];
+          if (resultado.fallidos > 0) partes.push(`${resultado.fallidos} fallaron`);
+          if (resultado.omitidos > 0) partes.push(`${resultado.omitidos} sin enviar (audio)`);
+          toast.warning(partes.join(" · "), { id: aviso, duration: 10000 });
+          return;
+        }
+
         toast.success(`"${flujo.title}" enviado`, { id: aviso });
-      }
-
-      onClose();
-    } catch {
-      toast.error("No se pudo enviar el flujo.", { id: aviso });
-    } finally {
-      setEnviando(null);
-    }
+      })
+      .catch(() => {
+        toast.error("No se pudo enviar el flujo.", { id: aviso });
+      });
   };
 
   return (
-    <Dialog open={open} onOpenChange={(valor) => !valor && !enviando && onClose()}>
+    <Dialog open={open} onOpenChange={(valor) => !valor && onClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Enviar flujos</DialogTitle>
@@ -128,15 +123,11 @@ export function SendFlowDialog({
                 <li key={flujo.id}>
                   <button
                     type="button"
-                    onClick={() => void enviar(flujo)}
-                    disabled={Boolean(enviando)}
-                    className="flex w-full items-center gap-3 px-1 py-2.5 text-left transition hover:bg-muted disabled:opacity-60"
+                    onClick={() => enviar(flujo)}
+                    className="flex w-full items-center gap-3 px-1 py-2.5 text-left transition hover:bg-muted"
                   >
                     <Workflow className="size-4 shrink-0 text-[var(--primary)]" />
                     <span className="min-w-0 flex-1 truncate text-sm text-foreground">{flujo.title}</span>
-                    {enviando === flujo.id ? (
-                      <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />
-                    ) : null}
                   </button>
                 </li>
               ))}
