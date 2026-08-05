@@ -134,14 +134,8 @@ export function ChannelAdRoutingForm({
 
   return (
     <div className="space-y-3">
-      <div className="space-y-1">
-        <p className="text-sm font-medium text-foreground">Leads de anuncios</p>
-        <p className="text-xs text-muted-foreground">
-          Manda los leads de una campaña a una persona fija, en vez de repartirlos por turnos. Se
-          decide apenas entra el primer mensaje, mirando el anuncio y la frase con la que llega el
-          cliente.
-        </p>
-      </div>
+      {/* Sin bajada: los propios campos y el resumen del final ya dicen lo que hace la regla. */}
+      <p className="text-sm font-medium text-foreground">Leads de anuncios</p>
 
       <div className="space-y-1.5">
         <label htmlFor="adRoutingKeywords" className="text-xs font-medium text-foreground">
