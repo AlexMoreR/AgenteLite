@@ -161,6 +161,7 @@ export function SharedInbox({
   assignedFilter = "all",
   statusFilter = "open",
   isManager = false,
+  chatSignature = "",
   conversationListApiPath = "/api/cliente/chats/list",
   initialConversationBatchSize = 20,
   initialHasMoreConversations,
@@ -2255,6 +2256,7 @@ export function SharedInbox({
         // hacer click y el pin al fondo queda estable.
         key={mobileConversationActive ? (selectedConversationKey || "selected") : "empty"}
         canDeleteTags={isManager}
+        chatSignature={chatSignature}
         backHref={backHref}
         composer={effectiveComposer}
         composerHiddenFields={composerHiddenFields}

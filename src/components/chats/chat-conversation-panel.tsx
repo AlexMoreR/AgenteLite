@@ -80,6 +80,8 @@ type ConversationPanelProps = {
   messageScrollBehavior: "bottom" | "preserve";
   messagesScrollRef: RefObject<HTMLDivElement | null>;
   unreadCount: number;
+  /** La firma de quien escribe. Se muestra en el campo para poder editarla o borrarla. */
+  chatSignature: string;
   showJumpToBottom: boolean;
   onScrollToBottom: () => void;
   onEditContact: () => void;
@@ -124,6 +126,7 @@ export const ConversationPanel = memo(function ConversationPanel({
   messageScrollBehavior,
   messagesScrollRef,
   unreadCount,
+  chatSignature,
   showJumpToBottom,
   onScrollToBottom,
   onEditContact,
@@ -646,6 +649,38 @@ export const ConversationPanel = memo(function ConversationPanel({
     target.style.overflowY = target.scrollHeight > maxHeight ? "auto" : "hidden";
   }, []);
 
+  const firma = chatSignature.trim();
+
+  /**
+   * Dejar la firma escrita en el campo en vez de pegarla al enviar.
+   *
+   * Antes se agregaba en el servidor: la asesora no la veia y no habia forma de sacarla cuando no
+   * correspondia (un mensaje corto, una respuesta seca). Ahora aparece como texto normal —se ve,
+   * se edita, se borra— y sale EXACTAMENTE lo que quedo escrito.
+   */
+  const escribirFirmaEnElCampo = useCallback(() => {
+    const textarea = composerTextAreaRef.current;
+    // Nunca encima de algo que la persona estaba escribiendo.
+    if (!textarea || !firma || textarea.value.trim().length > 0) {
+      return;
+    }
+    textarea.value = `${firma}\n`;
+    const fin = textarea.value.length;
+    textarea.setSelectionRange(fin, fin);
+    autoResizeComposer(textarea);
+  }, [firma, autoResizeComposer]);
+
+  /** Lo que la persona escribio de verdad, sin contar la firma. */
+  const textoSinFirma = useCallback(
+    (valor: string) => (firma && valor.startsWith(firma) ? valor.slice(firma.length) : valor).trim(),
+    [firma],
+  );
+
+  // Al abrir cada chat, la firma queda lista arriba del cursor.
+  useEffect(() => {
+    escribirFirmaEnElCampo();
+  }, [renderedConversation?.id, escribirFirmaEnElCampo]);
+
   const insertComposerEmoji = useCallback((emoji: string) => {
     const textarea = composerTextAreaRef.current;
     if (!textarea) {
@@ -1017,12 +1052,19 @@ export const ConversationPanel = memo(function ConversationPanel({
                     const formData = new FormData(form);
                     const message = String(formData.get("message") || "").trim();
 
-                    if (!message || !renderedConversation) {
+                    // Sin texto propio no se envia: un campo con solo la firma no es un mensaje.
+                    if (!message || !renderedConversation || !textoSinFirma(message)) {
                       return;
                     }
 
                     // Respuesta rapida: va tal cual, sin la firma encima.
                     if (desdeRespuestaRapida) {
+                      formData.set("skipSignature", "1");
+                    }
+
+                    // Con la firma a la vista, el servidor NO debe agregar otra: si la borraron,
+                    // fue a proposito y el mensaje tiene que salir sin firma.
+                    if (firma) {
                       formData.set("skipSignature", "1");
                     }
 
@@ -1033,6 +1075,8 @@ export const ConversationPanel = memo(function ConversationPanel({
                     setDesdeRespuestaRapida(false);
                     form.reset();
                     autoResizeComposer(composerTextAreaRef.current);
+                    // Lista para el proximo mensaje.
+                    escribirFirmaEnElCampo();
                   }}
                 >
                   {composerHiddenFields.map((field) => (
@@ -1317,7 +1361,9 @@ export const ConversationPanel = memo(function ConversationPanel({
                           placeholder={isSendingAudio ? "Enviando nota de voz..." : composer.placeholder || "Escribe un mensaje..."}
                           disabled={isSendingAudio}
                           onChange={(event) => {
-                            setComposerHasText(event.currentTarget.value.trim().length > 0);
+                            // La firma sola no cuenta como mensaje: si contara, el boton de enviar
+                            // taparia el microfono en un campo donde nadie escribio nada todavia.
+                            setComposerHasText(textoSinFirma(event.currentTarget.value).length > 0);
                             autoResizeComposer(event.currentTarget);
                           }}
                           onSelect={(event) => syncComposerSelection(event.currentTarget)}

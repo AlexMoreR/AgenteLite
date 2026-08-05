@@ -135,6 +135,8 @@ export type SharedInboxProps = {
   assignedFilter?: AssignedFilter;
   statusFilter?: StatusFilter;
   isManager?: boolean;
+  /** La firma de quien escribe, para dejarla visible en el compositor. */
+  chatSignature?: string;
   conversationListApiPath?: string;
   initialConversationBatchSize?: number;
   initialHasMoreConversations?: boolean;

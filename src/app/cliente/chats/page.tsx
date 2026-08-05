@@ -225,6 +225,15 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   const searchQuery = typeof params.q === "string" ? params.q.trim() : "";
 
   const isManager = membership.role === "OWNER" || membership.role === "ADMIN";
+
+  // La firma va al compositor para que se VEA y se pueda borrar antes de enviar. Antes se pegaba
+  // en el servidor: la asesora no la veia y no habia forma de sacarla cuando no correspondia.
+  const chatSignature = (
+    await prisma.user.findUnique({
+      where: { id: access.userId },
+      select: { chatSignature: true },
+    })
+  )?.chatSignature?.trim() ?? "";
   const assignedParam = typeof params.assigned === "string" ? params.assigned.trim() : "";
   let assignedFilter: "all" | "mine" | "unassigned" =
     assignedParam === "mine" || assignedParam === "unassigned" ? assignedParam : "all";
@@ -1096,6 +1105,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         assignedFilter={assignedFilter}
         statusFilter={statusFilter}
         isManager={isManager}
+        chatSignature={chatSignature}
         initialConversationBatchSize={conversationListTake}
         initialHasMoreConversations={hasMoreConversationItems}
         conversationListApiPath="/api/cliente/chats/list"
