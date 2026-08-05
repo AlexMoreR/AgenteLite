@@ -84,6 +84,7 @@ import {
   readAdCampaignRouting,
 } from "@/lib/ad-campaign-routing";
 import { buildProductPlaybookPrompt, getProductPlaybook } from "@/lib/product-playbook";
+import { reconocerProductoDelLead } from "@/lib/product-auto-tag";
 import {
   evaluateFunnelSafetyNet,
   funnelStageLabel,
@@ -1783,6 +1784,45 @@ export async function POST(request: NextRequest) {
   // asignar, se asigna al siguiente colaborador del canal. No toca las ya asignadas.
   if (direction === "INBOUND" && !messageWasEdited && !messageWasDeleted && conversation.id) {
     try {
+      /**
+       * Etiquetar el lead con su producto apenas entra.
+       *
+       * Antes esta etiqueta solo la ponia el agente al reconocer el producto respondiendo. Si una
+       * asesora tomaba el chat, la IA quedaba en pausa, el agente nunca corria y el lead se
+       * quedaba sin producto: despues no aparecia en ningun conteo. Se usa la MISMA regla que el
+       * producto declara para reconocerse, asi hay un solo lugar donde eso se define.
+       *
+       * Best-effort: si falla, el mensaje sigue su curso. Una etiqueta que falta es un detalle;
+       * un mensaje que no entra es un cliente perdido.
+       */
+      after(async () => {
+        try {
+          const producto = await reconocerProductoDelLead({
+            workspaceId: channel.workspaceId,
+            messageText: messageText ?? "",
+            adTitle: adLeadOrigin?.title ?? "",
+          });
+          if (!producto) {
+            return;
+          }
+          await recordContactMatch({
+            workspaceId: channel.workspaceId,
+            contactId: contact.id,
+            contactName: contact.name,
+            conversationId: conversation.id,
+            matchType: "PRODUCT",
+            sourceType: "KNOWLEDGE",
+            targetName: producto.productName,
+            targetId: producto.productId,
+          });
+        } catch (error) {
+          console.warn("[EVOLUTION] product_auto_tag_failed", {
+            conversationId: conversation.id,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      });
+
       // Primero la regla de campana (si aplica, deja la conversacion asignada y el reparto por
       // turnos de abajo la encuentra con dueno y no la toca).
       if (adLeadOrigin) {
