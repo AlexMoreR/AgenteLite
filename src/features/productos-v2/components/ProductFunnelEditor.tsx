@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Users } from "lucide-react";
+import { Check } from "lucide-react";
 import { toast } from "sonner";
 
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -30,14 +30,20 @@ export function ProductFunnelEditor({
   productId,
   stages,
   vienenDelAgente,
-  conteo,
+  avance,
 }: {
   productId: string;
   stages: EtapaEditable[];
   /** El texto se trajo del embudo que el agente ya tenia y todavia no se guardo aca. */
   vienenDelAgente: boolean;
-  /** Cuantos leads vivos estan parados hoy en cada etapa. */
-  conteo: Record<string, number>;
+  /** Hasta donde llegaron los leads en los ultimos 30 dias. */
+  avance: {
+    murioPrimero: number;
+    mandoDos: number;
+    converso: number;
+    larga: number;
+    total: number;
+  } | null;
 }) {
   const router = useRouter();
   const [etapas, setEtapas] = useState<EtapaEditable[]>(() =>
@@ -56,7 +62,6 @@ export function ProductFunnelEditor({
 
   const hayCambios = JSON.stringify(etapas) !== guardado;
   const escritas = etapas.filter((etapa) => etapa.goal || etapa.script).length;
-  const totalEnEmbudo = Object.values(conteo).reduce((suma, valor) => suma + valor, 0);
 
   // Se abre en la primera etapa que falta: es la que hay que trabajar.
   const [abierta] = useState<string[]>(() => {
@@ -107,14 +112,48 @@ export function ProductFunnelEditor({
       <CardHeader className="pb-0">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="text-sm">Embudo de ventas</CardTitle>
-          <span className="text-xs text-muted-foreground">
-            {escritas} de 5 escritas
-            {totalEnEmbudo > 0 ? ` · ${totalEnEmbudo} ${totalEnEmbudo === 1 ? "lead" : "leads"} adentro` : ""}
-          </span>
+          <span className="text-xs text-muted-foreground">{escritas} de 5 escritas</span>
         </div>
       </CardHeader>
 
       <CardContent className="space-y-3">
+        {/*
+          Hasta donde llegan los leads, contando mensajes. Antes aca habia un conteo por etapa
+          comercial: medido contra la base, 920 de 924 conversaciones caian en la MISMA etapa
+          —el clasificador va por listas de palabras y las de "diagnostico" las pescan a todas—,
+          asi que el numero era casi constante y no decia nada. Esto es mas tosco y es cierto.
+        */}
+        {avance && avance.total > 0 ? (
+          <div className="space-y-2 rounded-lg border border-border p-3">
+            <p className="text-xs font-medium text-foreground">
+              Hasta dónde llegan · últimos 30 días{" "}
+              <span className="font-normal text-muted-foreground">({avance.total} leads)</span>
+            </p>
+            {[
+              { etiqueta: "Se fue en el 1er mensaje", valor: avance.murioPrimero, malo: true },
+              { etiqueta: "Mandó 2 mensajes", valor: avance.mandoDos, malo: true },
+              { etiqueta: "Conversó (3 a 5)", valor: avance.converso, malo: false },
+              { etiqueta: "Conversación larga (6+)", valor: avance.larga, malo: false },
+            ].map((fila) => {
+              const pct = Math.round((fila.valor / avance.total) * 100);
+              return (
+                <div key={fila.etiqueta} className="flex items-center gap-2 text-xs">
+                  <span className="w-36 shrink-0 text-muted-foreground sm:w-44">{fila.etiqueta}</span>
+                  <span className="hidden h-2 flex-1 overflow-hidden rounded-full bg-muted sm:block">
+                    <span
+                      className={`block h-full rounded-full ${fila.malo ? "bg-amber-500" : "bg-emerald-500"}`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </span>
+                  <span className="ml-auto w-20 shrink-0 text-right tabular-nums text-foreground sm:ml-0">
+                    {fila.valor} · {pct}%
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+
         <Accordion defaultValue={abierta} keepMounted>
           {PRODUCT_FUNNEL_STAGES.map((meta, indice) => {
             const etapa = etapas.find((item) => item.stage === meta.stage);
@@ -135,17 +174,6 @@ export function ProductFunnelEditor({
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center gap-2">
                         <span className="text-sm font-medium text-foreground">{meta.label}</span>
-                        {/* Cuantos leads estan parados ACA hoy. Es el numero que dice donde se
-                            traba la venta, y por eso va pegado al texto de la etapa. */}
-                        {(conteo[meta.stage] ?? 0) > 0 ? (
-                          <span
-                            title={`${conteo[meta.stage]} ${conteo[meta.stage] === 1 ? "lead parado" : "leads parados"} en esta etapa`}
-                            className="inline-flex shrink-0 items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-medium leading-none text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950 dark:text-indigo-300"
-                          >
-                            <Users className="h-3 w-3" />
-                            <span className="tabular-nums">{conteo[meta.stage]}</span>
-                          </span>
-                        ) : null}
                       </span>
                       <span
                         className={`block truncate text-xs ${

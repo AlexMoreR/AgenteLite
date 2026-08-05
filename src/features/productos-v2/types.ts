@@ -19,8 +19,14 @@ export type ProductoV2Item = {
   funnelStages: Array<{ stage: string; goal: string; script: string; stuckAfterMessages: number | null }>;
   /** El embudo que se muestra vino del agente y todavia no es del producto. */
   funnelFromAgent: boolean;
-  /** Cuantos leads vivos estan parados en cada etapa. */
-  funnelCounts: Record<string, number>;
+  /** Hasta donde llegaron los leads en los ultimos 30 dias. */
+  leadProgress: {
+    murioPrimero: number;
+    mandoDos: number;
+    converso: number;
+    larga: number;
+    total: number;
+  } | null;
   playbookRules: ProductoV2PlaybookRule[];
 };
 

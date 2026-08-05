@@ -237,7 +237,7 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
               productId={selected.id}
               stages={selected.funnelStages}
               vienenDelAgente={selected.funnelFromAgent}
-              conteo={selected.funnelCounts}
+              avance={selected.leadProgress}
             />
           ) : null}
         </TabsContent>
