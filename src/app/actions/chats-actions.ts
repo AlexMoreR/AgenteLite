@@ -1903,7 +1903,7 @@ export async function updateChannelCollaboratorsAction(input: {
 export async function updateChannelAdRoutingAction(input: {
   channelId: string;
   keywords: string[];
-  userId: string;
+  userIds: string[];
 }): Promise<{ error?: string }> {
   const session = await auth();
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
@@ -1936,18 +1936,27 @@ export async function updateChannelAdRoutingAction(input: {
         .filter(Boolean),
     ),
   );
-  const userId = typeof input.userId === "string" ? input.userId.trim() : "";
+  const pedidos = Array.from(
+    new Set(
+      (Array.isArray(input.userIds) ? input.userIds : [])
+        .map((value) => (typeof value === "string" ? value.trim() : ""))
+        .filter(Boolean),
+    ),
+  );
 
-  if (userId) {
-    const miembro = await prisma.workspaceMember.findFirst({
-      where: { workspaceId: membership.workspace.id, userId, isActive: true },
+  let userIds: string[] = [];
+  if (pedidos.length > 0) {
+    const miembros = await prisma.workspaceMember.findMany({
+      where: { workspaceId: membership.workspace.id, isActive: true, userId: { in: pedidos } },
       select: { userId: true },
     });
-    if (!miembro) {
-      return { error: "Esa persona no pertenece al equipo" };
+    const validos = new Set(miembros.map((miembro) => miembro.userId));
+    userIds = pedidos.filter((id) => validos.has(id));
+    if (userIds.length !== pedidos.length) {
+      return { error: "Alguna de esas personas ya no pertenece al equipo" };
     }
     if (keywords.length === 0) {
-      return { error: "Escribe al menos una palabra del titulo del anuncio" };
+      return { error: "Escribe al menos una palabra del anuncio o de la frase del cliente" };
     }
   }
 
@@ -1961,7 +1970,10 @@ export async function updateChannelAdRoutingAction(input: {
     data: {
       metadata: {
         ...baseMetadata,
-        [AD_CAMPAIGN_ROUTING_METADATA_KEY]: { keywords, userId },
+        // Sin personas, la regla queda vacia: es la forma de eliminarla (todo vuelve a repartirse
+        // por turnos entre los colaboradores del canal).
+        [AD_CAMPAIGN_ROUTING_METADATA_KEY]:
+          userIds.length > 0 ? { keywords, userIds, lastAssignedUserId: "" } : {},
       } as Prisma.InputJsonValue,
     },
   });

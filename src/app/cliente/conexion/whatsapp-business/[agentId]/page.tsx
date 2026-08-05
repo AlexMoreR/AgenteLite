@@ -113,7 +113,13 @@ async function ConnectionDetailContent({
   const adRoutingKeywords = Array.isArray(adRoutingRecord.keywords)
     ? (adRoutingRecord.keywords as unknown[]).filter((value): value is string => typeof value === "string")
     : [];
-  const adRoutingUserId = typeof adRoutingRecord.userId === "string" ? adRoutingRecord.userId : "";
+  // Antes se guardaba una sola persona (userId); se sigue leyendo para no perder las reglas ya
+  // configuradas cuando se paso a poder elegir varias.
+  const adRoutingUserIds = Array.isArray(adRoutingRecord.userIds)
+    ? (adRoutingRecord.userIds as unknown[]).filter((value): value is string => typeof value === "string")
+    : typeof adRoutingRecord.userId === "string" && adRoutingRecord.userId
+      ? [adRoutingRecord.userId]
+      : [];
 
   const collaboratorMembers = workspaceMembers.map((member) => ({
     id: member.user.id,
@@ -146,7 +152,7 @@ async function ConnectionDetailContent({
       collaboratorMembers={collaboratorMembers}
       collaboratorIds={collaboratorIds}
       adRoutingKeywords={adRoutingKeywords}
-      adRoutingUserId={adRoutingUserId}
+      adRoutingUserIds={adRoutingUserIds}
       canConnectEvolutionApi={!isChannelAlreadyEvolutionApi}
       evolutionApiGateways={evolutionGateways
         .filter((gateway) => gateway.kind === "EVOLUTION_API")

@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
-import { Check, TriangleAlert } from "lucide-react";
+import { Check, TriangleAlert, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,16 +30,18 @@ export function ChannelAdRoutingForm({
   channelId,
   members,
   keywords,
-  userId,
+  userIds,
 }: {
   channelId: string;
   members: CollaboratorMember[];
   keywords: string[];
-  userId: string;
+  userIds: string[];
 }) {
   const router = useRouter();
   const [texto, setTexto] = useState(() => keywords.join(", "));
-  const [persona, setPersona] = useState(() => (members.some((m) => m.id === userId) ? userId : ""));
+  const [personas, setPersonas] = useState<string[]>(() =>
+    userIds.filter((id) => members.some((member) => member.id === id)),
+  );
   // Estado propio en vez de useTransition: con la transicion, el boton seguia diciendo
   // "Guardando..." mientras el refresco de la pantalla estuviera pendiente. Si justo se despliega
   // una version nueva, ese refresco no termina nunca y parece que no se guardo, cuando en la base
@@ -55,20 +57,30 @@ export function ChannelAdRoutingForm({
     [texto],
   );
 
-  const personaElegida = members.find((member) => member.id === persona);
+  const elegidas = personas
+    .map((id) => members.find((member) => member.id === id))
+    .filter((member): member is CollaboratorMember => Boolean(member));
+  const disponibles = members.filter((member) => !personas.includes(member.id));
+  const nombres = elegidas.map(memberLabel);
+  const destino =
+    nombres.length <= 1
+      ? nombres[0] ?? ""
+      : `${nombres.slice(0, -1).join(", ")} y ${nombres[nombres.length - 1]} (se turnan entre ellas)`;
   const resumen =
-    persona && palabras.length > 0
-      ? `${describeAdCampaignRouting(palabras)} van a ${personaElegida ? memberLabel(personaElegida) : "esa persona"}.`
+    personas.length > 0 && palabras.length > 0
+      ? `${describeAdCampaignRouting(palabras)} van a ${destino}.`
       : "Sin regla: todos los leads se reparten por turnos entre los colaboradores.";
 
   // Lo que hay guardado en el servidor, para poder decir si lo de la pantalla ya quedo guardado
   // o son cambios sin guardar. Antes no habia forma de saberlo.
   const [guardado, setGuardado] = useState(() => ({
     keywords,
-    userId: members.some((member) => member.id === userId) ? userId : "",
+    userIds: userIds.filter((id) => members.some((member) => member.id === id)),
   }));
   const hayCambiosSinGuardar =
-    guardado.userId !== persona || guardado.keywords.join("|") !== palabras.join("|");
+    guardado.userIds.join("|") !== personas.join("|") ||
+    guardado.keywords.join("|") !== palabras.join("|");
+  const hayReglaGuardada = guardado.userIds.length > 0 && guardado.keywords.length > 0;
 
   /**
    * Palabras que aparecen en casi cualquier mensaje. Si una se cuela, la regla deja de ser "esta
@@ -86,26 +98,38 @@ export function ChannelAdRoutingForm({
     ),
   );
 
-  const handleSave = async () => {
+  const guardar = async (destinatarios: string[], palabrasAGuardar: string[]) => {
     setIsPending(true);
     try {
       const result = await updateChannelAdRoutingAction({
         channelId,
-        keywords: persona ? palabras : [],
-        userId: persona,
+        keywords: destinatarios.length > 0 ? palabrasAGuardar : [],
+        userIds: destinatarios,
       });
       if (result?.error) {
         toast.error(result.error);
         return;
       }
-      setGuardado({ keywords: persona ? palabras : [], userId: persona });
-      toast.success(persona ? "Regla de campaña guardada" : "Regla de campaña quitada");
+      setGuardado({
+        keywords: destinatarios.length > 0 ? palabrasAGuardar : [],
+        userIds: destinatarios,
+      });
+      toast.success(destinatarios.length > 0 ? "Regla guardada" : "Regla eliminada");
       router.refresh();
     } catch {
       toast.error("No se pudo guardar. Recargá la página e intentá de nuevo.");
     } finally {
       setIsPending(false);
     }
+  };
+
+  const handleSave = () => guardar(personas, palabras);
+
+  // Eliminar es guardar la regla vacia: los leads de anuncios vuelven al reparto por turnos.
+  const handleDelete = async () => {
+    setPersonas([]);
+    setTexto("");
+    await guardar([], []);
   };
 
   return (
@@ -139,19 +163,60 @@ export function ChannelAdRoutingForm({
         <label htmlFor="adRoutingUser" className="text-xs font-medium text-foreground">
           Asignar a
         </label>
-        <NativeSelect
-          id="adRoutingUser"
-          className="w-full"
-          value={persona}
-          onChange={(event) => setPersona(event.target.value)}
-        >
-          <NativeSelectOption value="">Nadie (repartir por turnos)</NativeSelectOption>
-          {members.map((member) => (
-            <NativeSelectOption key={member.id} value={member.id}>
-              {memberLabel(member)}
-            </NativeSelectOption>
-          ))}
-        </NativeSelect>
+
+        <div className="min-h-[44px] rounded-lg border border-input p-2">
+          {elegidas.length ? (
+            <div className="flex flex-wrap gap-1.5">
+              {elegidas.map((member) => (
+                <span
+                  key={member.id}
+                  className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-[13px] text-foreground"
+                >
+                  {memberLabel(member)}
+                  <button
+                    type="button"
+                    onClick={() => setPersonas((actual) => actual.filter((id) => id !== member.id))}
+                    aria-label={`Quitar ${memberLabel(member)}`}
+                    className="text-muted-foreground transition hover:text-foreground"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="px-1 py-1 text-sm text-muted-foreground">
+              Nadie: estos leads se reparten por turnos como los demás.
+            </p>
+          )}
+        </div>
+
+        {disponibles.length ? (
+          <NativeSelect
+            id="adRoutingUser"
+            className="w-full"
+            value=""
+            onChange={(event) => {
+              const id = event.target.value;
+              if (id) {
+                setPersonas((actual) => (actual.includes(id) ? actual : [...actual, id]));
+              }
+            }}
+          >
+            <NativeSelectOption value="">+ Añadir persona…</NativeSelectOption>
+            {disponibles.map((member) => (
+              <NativeSelectOption key={member.id} value={member.id}>
+                {memberLabel(member)}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+        ) : null}
+
+        {personas.length > 1 ? (
+          <p className="text-[11px] text-muted-foreground">
+            Con varias personas, los leads de esta campaña se turnan entre ellas.
+          </p>
+        ) : null}
       </div>
 
       {palabras.length > 0 ? (
@@ -188,6 +253,16 @@ export function ChannelAdRoutingForm({
         <Button type="button" onClick={() => void handleSave()} disabled={isPending}>
           {isPending ? "Guardando…" : "Guardar regla"}
         </Button>
+        {hayReglaGuardada ? (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => void handleDelete()}
+            disabled={isPending}
+          >
+            Eliminar regla
+          </Button>
+        ) : null}
         {hayCambiosSinGuardar ? (
           <span className="text-[12px] text-amber-700 dark:text-amber-300">Sin guardar</span>
         ) : (

@@ -77,7 +77,12 @@ import {
   resolveEvolutionMessageMediaUrl,
 } from "@/lib/evolution";
 import { resolveAgentKnowledgeBaseReply } from "@/lib/agent-knowledge-media";
-import { adLeadMatchesRouting, readAdCampaignRouting } from "@/lib/ad-campaign-routing";
+import {
+  AD_CAMPAIGN_ROUTING_METADATA_KEY,
+  adLeadMatchesRouting,
+  pickNextAdCampaignAssignee,
+  readAdCampaignRouting,
+} from "@/lib/ad-campaign-routing";
 import { recordContactMatch } from "@/lib/contact-matches";
 import { buildConversationMatchContextNote, getLatestConversationMatch } from "@/lib/contact-matches";
 import { buildFlowExecutionContextNote, getConversationExecutedFlowSlugs, getFlowSlug } from "@/lib/flow-execution-history";
@@ -836,23 +841,51 @@ async function assignAdLeadByCampaign(args: {
     return false;
   }
 
-  // La persona puede haber salido del equipo desde que se configuro la regla: si ya no esta
-  // activa, no se le asigna nada (quedaria un lead en el limbo) y sigue el reparto por turnos.
-  const miembroActivo = await prisma.workspaceMember.findFirst({
-    where: { workspaceId: args.workspaceId, userId: routing.userId, isActive: true },
+  // Quienes de la regla siguen en el equipo: si alguien se fue, sus leads no pueden quedar
+  // esperando a nadie.
+  const miembrosActivos = await prisma.workspaceMember.findMany({
+    where: { workspaceId: args.workspaceId, isActive: true, userId: { in: routing.userIds } },
     select: { userId: true },
   });
-  if (!miembroActivo) {
+  const elegido = pickNextAdCampaignAssignee(
+    routing,
+    new Set(miembrosActivos.map((miembro) => miembro.userId)),
+  );
+  if (!elegido) {
     return false;
   }
 
   await prisma.conversation.update({
     where: { id: args.conversationId },
-    data: { assignedToUserId: routing.userId },
+    data: { assignedToUserId: elegido },
   });
 
+  // Con varias personas en la regla, se turnan: queda anotado a quien le toco para saber a quien
+  // le sigue. Con una sola persona esto no cambia nada.
+  if (routing.userIds.length > 1) {
+    const base =
+      channel?.metadata && typeof channel.metadata === "object" && !Array.isArray(channel.metadata)
+        ? (channel.metadata as Record<string, unknown>)
+        : {};
+    const reglaGuardada =
+      base[AD_CAMPAIGN_ROUTING_METADATA_KEY] &&
+      typeof base[AD_CAMPAIGN_ROUTING_METADATA_KEY] === "object" &&
+      !Array.isArray(base[AD_CAMPAIGN_ROUTING_METADATA_KEY])
+        ? (base[AD_CAMPAIGN_ROUTING_METADATA_KEY] as Record<string, unknown>)
+        : {};
+    await prisma.whatsAppChannel.update({
+      where: { id: args.channelId },
+      data: {
+        metadata: {
+          ...base,
+          [AD_CAMPAIGN_ROUTING_METADATA_KEY]: { ...reglaGuardada, lastAssignedUserId: elegido },
+        } as Prisma.InputJsonValue,
+      },
+    });
+  }
+
   const persona = await prisma.user.findUnique({
-    where: { id: routing.userId },
+    where: { id: elegido },
     select: { name: true, email: true },
   });
   const nombre = persona?.name?.trim() || persona?.email || "Colaborador";
@@ -871,7 +904,7 @@ async function assignAdLeadByCampaign(args: {
     conversationId: args.conversationId,
     channelId: args.channelId,
     adTitle: args.adTitle,
-    userId: routing.userId,
+    userId: elegido,
   });
 
   return true;

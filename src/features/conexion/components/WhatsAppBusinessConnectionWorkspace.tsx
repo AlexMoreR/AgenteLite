@@ -64,7 +64,7 @@ type WhatsAppBusinessConnectionWorkspaceProps = {
   collaboratorIds?: string[];
   // Regla "los leads de esta campana son de tal persona" (por titulo del anuncio).
   adRoutingKeywords?: string[];
-  adRoutingUserId?: string;
+  adRoutingUserIds?: string[];
   // Conexiones Evolution API del catalogo del admin (sin apikey).
   evolutionApiGateways?: Array<{ id: string; baseUrl: string }>;
   // Solo para canales que AUN no estan en Evolution API (migrar evogo -> API).
@@ -88,7 +88,7 @@ export function WhatsAppBusinessConnectionWorkspace({
   collaboratorMembers = [],
   collaboratorIds = [],
   adRoutingKeywords = [],
-  adRoutingUserId = "",
+  adRoutingUserIds = [],
   evolutionApiGateways = [],
   canConnectEvolutionApi = false,
 }: WhatsAppBusinessConnectionWorkspaceProps) {
@@ -322,7 +322,7 @@ export function WhatsAppBusinessConnectionWorkspace({
                       channelId={connection.id}
                       members={collaboratorMembers}
                       keywords={adRoutingKeywords}
-                      userId={adRoutingUserId}
+                      userIds={adRoutingUserIds}
                     />
                   </CardContent>
                 </Card>
@@ -353,7 +353,7 @@ export function WhatsAppBusinessConnectionWorkspace({
                       channelId={connection.id}
                       members={collaboratorMembers}
                       keywords={adRoutingKeywords}
-                      userId={adRoutingUserId}
+                      userIds={adRoutingUserIds}
                     />
                   </CardContent>
                 </Card>

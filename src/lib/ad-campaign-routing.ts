@@ -17,10 +17,12 @@
 export const AD_CAMPAIGN_ROUTING_METADATA_KEY = "adCampaignRouting";
 
 export type AdCampaignRouting = {
-  /** Palabras que debe contener el titulo del anuncio. Si esta vacio, la regla no aplica. */
+  /** Palabras que debe contener el anuncio o la frase del cliente. Vacio = la regla no aplica. */
   keywords: string[];
-  /** A quien se le asigna. Vacio = regla apagada. */
-  userId: string;
+  /** A quien se le asigna. Si hay varias personas, se turnan entre ellas. Vacio = regla apagada. */
+  userIds: string[];
+  /** Ultima persona a la que le toco, para saber a quien le sigue en el turno. */
+  lastAssignedUserId: string;
 };
 
 /**
@@ -50,7 +52,6 @@ export function readAdCampaignRouting(metadata: unknown): AdCampaignRouting | nu
   }
 
   const record = raw as Record<string, unknown>;
-  const userId = typeof record.userId === "string" ? record.userId.trim() : "";
   const keywords = Array.isArray(record.keywords)
     ? record.keywords
         .filter((value): value is string => typeof value === "string")
@@ -58,11 +59,46 @@ export function readAdCampaignRouting(metadata: unknown): AdCampaignRouting | nu
         .filter(Boolean)
     : [];
 
-  if (!userId || keywords.length === 0) {
+  // `userId` (uno solo) es como se guardaba antes de poder elegir varias personas. Se sigue
+  // leyendo para que las reglas ya configuradas no dejen de funcionar de un dia para el otro.
+  const desdeLista = Array.isArray(record.userIds)
+    ? record.userIds
+        .filter((value): value is string => typeof value === "string")
+        .map((value) => value.trim())
+        .filter(Boolean)
+    : [];
+  const desdeUnico = typeof record.userId === "string" && record.userId.trim() ? [record.userId.trim()] : [];
+  const userIds = Array.from(new Set(desdeLista.length > 0 ? desdeLista : desdeUnico));
+
+  if (userIds.length === 0 || keywords.length === 0) {
     return null;
   }
 
-  return { keywords, userId };
+  return {
+    keywords,
+    userIds,
+    lastAssignedUserId:
+      typeof record.lastAssignedUserId === "string" ? record.lastAssignedUserId.trim() : "",
+  };
+}
+
+/**
+ * A quien le toca ahora, cuando la regla tiene varias personas: la siguiente despues de la
+ * ultima que atendio, dando la vuelta. Con una sola persona siempre devuelve a esa.
+ *
+ * Se reparte solo entre quienes SIGUEN activos: si alguien se fue del equipo, sus leads no
+ * quedan en el limbo esperando a nadie.
+ */
+export function pickNextAdCampaignAssignee(
+  routing: AdCampaignRouting,
+  activeUserIds: Set<string>,
+): string | null {
+  const disponibles = routing.userIds.filter((id) => activeUserIds.has(id));
+  if (disponibles.length === 0) {
+    return null;
+  }
+  const ultimo = routing.lastAssignedUserId ? disponibles.indexOf(routing.lastAssignedUserId) : -1;
+  return disponibles[(ultimo + 1) % disponibles.length];
 }
 
 /**
