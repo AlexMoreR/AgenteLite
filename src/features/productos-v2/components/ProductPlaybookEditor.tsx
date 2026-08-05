@@ -64,10 +64,8 @@ export function ProductPlaybookEditor({
     pitch,
   });
   const [nuevaRegla, setNuevaRegla] = useState<Record<string, string>>({});
-  const [objecion, setObjecion] = useState({ trigger: "", text: "" });
   const [ocupado, setOcupado] = useState(false);
 
-  const objeciones = rules.filter((rule) => rule.kind === "OBJECION");
   const beneficios = rules.filter((rule) => rule.kind === "BENEFICIO");
   const [beneficio, setBeneficio] = useState({ trigger: "", text: "" });
 
@@ -104,9 +102,6 @@ export function ProductPlaybookEditor({
         return;
       }
       setNuevaRegla((actual) => ({ ...actual, [kind]: "" }));
-      if (kind === "OBJECION") {
-        setObjecion({ trigger: "", text: "" });
-      }
       if (kind === "BENEFICIO") {
         setBeneficio({ trigger: "", text: "" });
       }
@@ -301,51 +296,6 @@ export function ProductPlaybookEditor({
           );
         })}
 
-        <div className="space-y-2">
-          <Label>Objeciones</Label>
-          {objeciones.length === 0 ? (
-            <p className="text-xs text-muted-foreground">
-              Ej. dice «está caro» → recordarle que el combo trae 4 piezas y cuánto costarían por
-              separado.
-            </p>
-          ) : (
-            <ul className="space-y-1.5">
-              {objeciones.map((rule) =>
-                filaRegla(
-                  rule,
-                  <>
-                    <b>«{rule.trigger}»</b> → {rule.text}
-                  </>,
-                ),
-              )}
-            </ul>
-          )}
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <Input
-              className="w-full sm:max-w-[200px]"
-              value={objecion.trigger}
-              onChange={(event) => setObjecion((actual) => ({ ...actual, trigger: event.target.value }))}
-              placeholder="Dice…"
-            />
-            <Input
-              className="w-full sm:flex-1"
-              value={objecion.text}
-              onChange={(event) => setObjecion((actual) => ({ ...actual, text: event.target.value }))}
-              placeholder="Le contestás…"
-            />
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="w-full sm:w-auto"
-              onClick={() => void agregar("OBJECION", objecion.text, objecion.trigger)}
-              disabled={ocupado}
-            >
-              <Plus className="h-4 w-4" />
-              Agregar
-            </Button>
-          </div>
-        </div>
       </CardContent>
     </Card>
   );

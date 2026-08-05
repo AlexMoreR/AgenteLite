@@ -1,7 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowLeft, ChevronRight, FileText, Plus, ShoppingCart } from "lucide-react";
+import {
+  ArrowLeft,
+  BookOpen,
+  ChevronRight,
+  FileText,
+  MessageCircleQuestion,
+  Plus,
+  ShoppingCart,
+  Split,
+} from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,7 +19,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PageHeader } from "@/components/ui/page-header";
 import type { ProductoV2Item } from "../types";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ProductFunnelEditor } from "./ProductFunnelEditor";
+import { ProductObjectionsEditor } from "./ProductObjectionsEditor";
 import { ProductPlaybookEditor } from "./ProductPlaybookEditor";
 
 function formatPrice(price: number | null): string {
@@ -35,6 +46,14 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
       ? products.find((product) => product.id === view.productId) ?? null
       : null;
   const isNew = view.mode === "editor" && view.productId === null;
+
+  const etapasEscritas = (selected?.funnelStages ?? []).filter(
+    (etapa) => etapa.goal || etapa.script,
+  ).length;
+  const reglasPlaybook = (selected?.playbookRules ?? []).filter(
+    (regla) => regla.kind !== "OBJECION",
+  ).length;
+  const objeciones = (selected?.playbookRules ?? []).filter((regla) => regla.kind === "OBJECION").length;
 
   if (view.mode === "list") {
     return (
@@ -132,70 +151,114 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
         (vende / solo catalogo) sale solo de si hay precio. Eran la misma informacion escrita
         de tres formas, y empujaban el playbook —lo unico que se edita— hasta el fondo.
       */}
-      <Card>
-        <CardHeader className="pb-0">
-          <CardTitle className="text-sm">Nombre del producto y precio</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_200px]">
-            <div className="space-y-1.5">
-              <Label htmlFor="pv2-nombre">Nombre</Label>
-              <Input id="pv2-nombre" value={selected?.name ?? ""} placeholder="Ej. Combo de camillas" readOnly />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="pv2-precio">Precio</Label>
-              <Input
-                id="pv2-precio"
-                value={selected?.sells ? formatPrice(selected.price) : ""}
-                placeholder="Sin precio"
-                readOnly
-              />
-            </div>
-          </div>
+      {/*
+        Cuatro pestañas y no una pagina larga: el producto casi no se toca, el embudo cada tanto y
+        las objeciones todo el tiempo. Cada una lleva su numero porque con pestañas lo que no se
+        ve deja de existir, y "sin escribir" es justo lo que hay que ver.
+      */}
+      <Tabs defaultValue="embudo">
+        <TabsList variant="line">
+          <TabsTrigger value="producto">
+            <ShoppingCart className="size-4" />
+            Producto
+          </TabsTrigger>
+          <TabsTrigger value="embudo">
+            <Split className="size-4" />
+            Embudo
+            <span className={etapasEscritas === 5 ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}>
+              {etapasEscritas}/5
+            </span>
+          </TabsTrigger>
+          <TabsTrigger value="playbook">
+            <BookOpen className="size-4" />
+            Playbook
+            {reglasPlaybook > 0 ? (
+              <span className="text-muted-foreground">{reglasPlaybook}</span>
+            ) : null}
+          </TabsTrigger>
+          <TabsTrigger value="objeciones">
+            <MessageCircleQuestion className="size-4" />
+            Objeciones
+            {objeciones > 0 ? <span className="text-muted-foreground">{objeciones}</span> : null}
+          </TabsTrigger>
+        </TabsList>
 
-          {/* Vende / Solo catalogo: en fila tambien en el celular, porque son dos palabras.
-              Apiladas ocupaban media pantalla para decir una sola cosa. */}
-          <div className="space-y-1.5">
-            <Label>Tipo</Label>
-            <div className="grid grid-cols-2 gap-2">
-              {[
-                { activo: Boolean(selected?.sells), titulo: "Vende", icono: ShoppingCart },
-                { activo: Boolean(selected && !selected.sells), titulo: "Solo catálogo", icono: FileText },
-              ].map((opcion) => (
-                <div
-                  key={opcion.titulo}
-                  className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm ${
-                    opcion.activo
-                      ? "border-primary bg-primary/5 font-medium text-foreground"
-                      : "border-border text-muted-foreground"
-                  }`}
-                >
-                  <opcion.icono className="h-4 w-4 shrink-0" />
-                  <span className="truncate">{opcion.titulo}</span>
+        <TabsContent value="producto" className="pt-4">
+          <Card>
+            <CardHeader className="pb-0">
+              <CardTitle className="text-sm">Nombre del producto y precio</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_200px]">
+                <div className="space-y-1.5">
+                  <Label htmlFor="pv2-nombre">Nombre</Label>
+                  <Input id="pv2-nombre" value={selected?.name ?? ""} placeholder="Ej. Combo de camillas" readOnly />
                 </div>
-              ))}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+                <div className="space-y-1.5">
+                  <Label htmlFor="pv2-precio">Precio</Label>
+                  <Input
+                    id="pv2-precio"
+                    value={selected?.sells ? formatPrice(selected.price) : ""}
+                    placeholder="Sin precio"
+                    readOnly
+                  />
+                </div>
+              </div>
 
-      {selected ? (
-        <ProductFunnelEditor
-          productId={selected.id}
-          stages={selected.funnelStages}
-          vienenDelAgente={selected.funnelFromAgent}
-        />
-      ) : null}
+              {/* Vende / Solo catalogo: en fila tambien en el celular, porque son dos palabras. */}
+              <div className="space-y-1.5">
+                <Label>Tipo</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { activo: Boolean(selected?.sells), titulo: "Vende", icono: ShoppingCart },
+                    { activo: Boolean(selected && !selected.sells), titulo: "Solo catálogo", icono: FileText },
+                  ].map((opcion) => (
+                    <div
+                      key={opcion.titulo}
+                      className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm ${
+                        opcion.activo
+                          ? "border-primary bg-primary/5 font-medium text-foreground"
+                          : "border-border text-muted-foreground"
+                      }`}
+                    >
+                      <opcion.icono className="h-4 w-4 shrink-0" />
+                      <span className="truncate">{opcion.titulo}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
-      {selected ? (
-        <ProductPlaybookEditor
-          productId={selected.id}
-          idealCustomer={selected.playbookIdealCustomer}
-          customerPain={selected.playbookCustomerPain}
-          pitch={selected.playbookPitch}
-          rules={selected.playbookRules}
-        />
-      ) : null}
+        <TabsContent value="embudo" className="pt-4">
+          {selected ? (
+            <ProductFunnelEditor
+              productId={selected.id}
+              stages={selected.funnelStages}
+              vienenDelAgente={selected.funnelFromAgent}
+            />
+          ) : null}
+        </TabsContent>
+
+        <TabsContent value="playbook" className="pt-4">
+          {selected ? (
+            <ProductPlaybookEditor
+              productId={selected.id}
+              idealCustomer={selected.playbookIdealCustomer}
+              customerPain={selected.playbookCustomerPain}
+              pitch={selected.playbookPitch}
+              rules={selected.playbookRules}
+            />
+          ) : null}
+        </TabsContent>
+
+        <TabsContent value="objeciones" className="pt-4">
+          {selected ? (
+            <ProductObjectionsEditor productId={selected.id} rules={selected.playbookRules} />
+          ) : null}
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
