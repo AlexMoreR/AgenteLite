@@ -1,4 +1,8 @@
 import { prisma } from "@/lib/prisma";
+import { PRODUCT_FUNNEL_STAGES, type ProductFunnelStageKey } from "@/lib/product-funnel-stages";
+
+export { PRODUCT_FUNNEL_STAGES };
+export type { ProductFunnelStageKey };
 
 /**
  * El playbook de ventas de un producto.
@@ -31,12 +35,19 @@ export type ProductPlaybookRuleItem = {
   createdAt: string;
 };
 
+export type ProductFunnelStageItem = {
+  stage: string;
+  goal: string;
+  script: string;
+};
+
 export type ProductPlaybookData = {
   productId: string;
   idealCustomer: string;
   customerPain: string;
   pitch: string;
   rules: ProductPlaybookRuleItem[];
+  stages: ProductFunnelStageItem[];
 };
 
 export async function getProductPlaybook(input: {
@@ -51,6 +62,10 @@ export async function getProductPlaybook(input: {
       idealCustomer: true,
       customerPain: true,
       pitch: true,
+      stages: {
+        orderBy: { sortOrder: "asc" },
+        select: { stage: true, goal: true, script: true },
+      },
       rules: {
         where: { isActive: true },
         orderBy: [{ kind: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
@@ -72,6 +87,11 @@ export async function getProductPlaybook(input: {
     idealCustomer: playbook?.idealCustomer?.trim() || "",
     customerPain: playbook?.customerPain?.trim() || "",
     pitch: playbook?.pitch?.trim() || "",
+    stages: (playbook?.stages ?? []).map((stage) => ({
+      stage: stage.stage,
+      goal: stage.goal?.trim() || "",
+      script: stage.script?.trim() || "",
+    })),
     rules: (playbook?.rules ?? [])
       .filter((rule) => isPlaybookRuleKind(rule.kind))
       .map((rule) => ({
@@ -102,7 +122,10 @@ export function buildProductPlaybookPrompt(
   const objeciones = playbook.rules.filter((rule) => rule.kind === "OBJECION");
   const beneficios = playbook.rules.filter((rule) => rule.kind === "BENEFICIO");
 
+  const etapasConTexto = playbook.stages.filter((stage) => stage.goal || stage.script);
+
   if (
+    etapasConTexto.length === 0 &&
     !playbook.idealCustomer &&
     !playbook.customerPain &&
     beneficios.length === 0 &&
@@ -149,6 +172,25 @@ export function buildProductPlaybookPrompt(
       `Si el cliente dice algo asi, responde asi:\n${objeciones
         .map((rule) => `- Si dice "${rule.trigger ?? "algo parecido"}" → ${rule.text}`)
         .join("\n")}`,
+    );
+  }
+
+  if (etapasConTexto.length > 0) {
+    // El embudo va al final del bloque y con el orden explicito: es lo que la IA tiene que
+    // recorrer, y conviene que lo lea justo antes de contestar.
+    const orden = PRODUCT_FUNNEL_STAGES.map((etapa) => etapa.stage);
+    const lineas = [...etapasConTexto]
+      .sort((a, b) => orden.indexOf(a.stage as ProductFunnelStageKey) - orden.indexOf(b.stage as ProductFunnelStageKey))
+      .map((etapa) => {
+        const meta = PRODUCT_FUNNEL_STAGES.find((item) => item.stage === etapa.stage);
+        const partes = [
+          etapa.goal ? `objetivo: ${etapa.goal}` : "",
+          etapa.script ? `que decir: ${etapa.script}` : "",
+        ].filter(Boolean);
+        return `${orden.indexOf(etapa.stage as ProductFunnelStageKey) + 1}. ${meta?.label ?? etapa.stage} — ${partes.join(" | ")}`;
+      });
+    bloques.push(
+      `EMBUDO DE ESTE PRODUCTO (en orden; no saltes etapas y no vuelvas atras sin motivo):\n${lineas.join("\n")}`,
     );
   }
 

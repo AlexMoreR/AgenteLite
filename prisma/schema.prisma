@@ -1131,6 +1131,7 @@ model ProductPlaybook {
   workspace   Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   product     Product               @relation(fields: [productId], references: [id], onDelete: Cascade)
   rules       ProductPlaybookRule[]
+  stages      ProductFunnelStage[]
 
   @@unique([workspaceId, productId])
   @@index([workspaceId])
@@ -1161,4 +1162,28 @@ model ProductPlaybookRule {
   playbook   ProductPlaybook @relation(fields: [playbookId], references: [id], onDelete: Cascade)
 
   @@index([playbookId, kind, sortOrder])
+}
+
+/// Una etapa del embudo de ventas del producto.
+///
+/// Son las cinco con las que ya trabaja el motor —presentacion, identificacion, producto, dudas
+/// y cierre—, pero editables desde el producto y leidas AL RESPONDER. Antes solo se podian tocar
+/// dentro del diagrama del agente y habia que republicar para que aplicaran.
+model ProductFunnelStage {
+  id         String          @id @default(cuid())
+  playbookId String
+  /// PRESENTACION | IDENTIFICACION | PRODUCTO | OBJECIONES | CIERRE. Texto y no enum:
+  /// si mañana una venta necesita otra etapa, no deberia obligar a migrar la base.
+  stage      String
+  /// Que hay que lograr en esta etapa antes de pasar a la siguiente.
+  goal       String?
+  /// Que decir para lograrlo.
+  script     String?
+  sortOrder  Int             @default(0)
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  playbook   ProductPlaybook @relation(fields: [playbookId], references: [id], onDelete: Cascade)
+
+  @@unique([playbookId, stage])
+  @@index([playbookId, sortOrder])
 }

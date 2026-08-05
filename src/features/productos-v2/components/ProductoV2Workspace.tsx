@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowLeft, ChevronRight, FileText, Paperclip, Plus, ShoppingCart } from "lucide-react";
+import { ArrowLeft, ChevronRight, FileText, Plus, ShoppingCart } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PageHeader } from "@/components/ui/page-header";
 import type { ProductoV2Item } from "../types";
+import { ProductFunnelEditor } from "./ProductFunnelEditor";
 import { ProductPlaybookEditor } from "./ProductPlaybookEditor";
 
 function formatPrice(price: number | null): string {
@@ -59,6 +60,7 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
           <div className="grid gap-2">
             {products.map((product) => {
               const reglas = product.playbookRules.length;
+              const etapas = product.funnelStages.filter((etapa) => etapa.goal || etapa.script).length;
               return (
                 <button
                   key={product.id}
@@ -78,15 +80,14 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
                       {product.price ? (
                         <span className="tabular-nums text-foreground">{formatPrice(product.price)}</span>
                       ) : null}
-                      {product.anchoredFlowTitle ? (
-                        <span className="inline-flex items-center gap-1 truncate">
-                          <Paperclip className="h-3 w-3 shrink-0" />
-                          {product.anchoredFlowTitle}
+                      {/* Embudo y playbook: las dos cosas que hay que mantener vivas. */}
+                      {etapas > 0 ? (
+                        <span className="text-emerald-600 dark:text-emerald-400">
+                          embudo · {etapas}/5
                         </span>
                       ) : (
-                        <span className="truncate">sin flujo anclado</span>
+                        <span className="text-amber-600 dark:text-amber-400">sin embudo</span>
                       )}
-                      {/* El playbook a la vista desde la lista: es lo que hay que mantener vivo. */}
                       {reglas > 0 || product.playbookPitch ? (
                         <span className="text-emerald-600 dark:text-emerald-400">
                           playbook{reglas > 0 ? ` · ${reglas} ${reglas === 1 ? "regla" : "reglas"}` : ""}
@@ -170,24 +171,13 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader className="pb-0">
-          <CardTitle className="text-sm">Flujos anclados</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          {selected?.anchoredFlowTitle ? (
-            <div className="flex items-center gap-3 rounded-lg border border-border px-3 py-2">
-              <Paperclip className="h-4 w-4 shrink-0 text-muted-foreground" />
-              <div className="min-w-0">
-                <p className="truncate text-sm text-foreground">{selected.anchoredFlowTitle}</p>
-                <p className="text-xs text-muted-foreground">cuando el cliente lo pide</p>
-              </div>
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">Todavía no hay un flujo anclado.</p>
-          )}
-        </CardContent>
-      </Card>
+      {selected ? (
+        <ProductFunnelEditor
+          productId={selected.id}
+          stages={selected.funnelStages}
+          vienenDelAgente={selected.funnelFromAgent}
+        />
+      ) : null}
 
       {selected ? (
         <ProductPlaybookEditor

@@ -5,7 +5,11 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
-import { isPlaybookRuleKind, type PlaybookRuleKind } from "@/lib/product-playbook";
+import {
+  isPlaybookRuleKind,
+  PRODUCT_FUNNEL_STAGES,
+  type PlaybookRuleKind,
+} from "@/lib/product-playbook";
 
 /**
  * Guardar el playbook de ventas de un producto.
@@ -74,6 +78,52 @@ export async function saveProductPitchAction(input: {
         : { customerPain: input.customerPain.trim() || null }),
     },
   });
+
+  revalidatePath("/cliente/productos-v2");
+  return { ok: true };
+}
+
+/**
+ * Guardar las cinco etapas del embudo del producto de una sola vez.
+ *
+ * Van juntas y no una por una porque el embudo se lee y se corrige como un recorrido: cambiar el
+ * cierre sin mirar lo que promete la presentacion es como se rompen los embudos.
+ */
+export async function saveProductFunnelAction(input: {
+  productId: string;
+  stages: Array<{ stage: string; goal: string; script: string }>;
+}): Promise<{ ok?: true; error?: string }> {
+  const workspaceId = await getAccess();
+  if (!workspaceId) {
+    return { error: "No autorizado" };
+  }
+
+  const productId = input.productId?.trim();
+  if (!productId) {
+    return { error: "Datos invalidos" };
+  }
+
+  const producto = await prisma.product.findUnique({ where: { id: productId }, select: { id: true } });
+  if (!producto) {
+    return { error: "Producto no encontrado" };
+  }
+
+  const conocidas = new Map(PRODUCT_FUNNEL_STAGES.map((etapa, indice) => [etapa.stage as string, indice]));
+  const playbookId = await ensurePlaybook(workspaceId, productId);
+
+  for (const etapa of Array.isArray(input.stages) ? input.stages : []) {
+    const orden = conocidas.get(etapa.stage);
+    if (orden === undefined) {
+      continue;
+    }
+    const goal = etapa.goal?.trim() || null;
+    const script = etapa.script?.trim() || null;
+    await prisma.productFunnelStage.upsert({
+      where: { playbookId_stage: { playbookId, stage: etapa.stage } },
+      create: { playbookId, stage: etapa.stage, goal, script, sortOrder: orden },
+      update: { goal, script, sortOrder: orden },
+    });
+  }
 
   revalidatePath("/cliente/productos-v2");
   return { ok: true };

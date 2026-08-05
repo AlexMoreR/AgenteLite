@@ -17,6 +17,9 @@ export type ProductoV2Item = {
   playbookIdealCustomer: string;
   playbookCustomerPain: string;
   playbookPitch: string;
+  funnelStages: Array<{ stage: string; goal: string; script: string }>;
+  /** El embudo que se muestra vino del agente y todavia no es del producto. */
+  funnelFromAgent: boolean;
   playbookRules: ProductoV2PlaybookRule[];
 };
 

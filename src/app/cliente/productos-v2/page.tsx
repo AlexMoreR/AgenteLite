@@ -28,7 +28,15 @@ export default async function ClienteProductoV2Page() {
         name: true,
         price: true,
         agentKnowledge: {
-          select: { instructions: true, followUpFlowId: true },
+          select: {
+            instructions: true,
+            followUpFlowId: true,
+            funnelOpening: true,
+            funnelQualification: true,
+            funnelPresentation: true,
+            funnelFaq: true,
+            funnelClosing: true,
+          },
           take: 1,
         },
       },
@@ -52,6 +60,10 @@ export default async function ClienteProductoV2Page() {
           orderBy: [{ kind: "asc" }, { sortOrder: "asc" }],
           select: { id: true, kind: true, trigger: true, text: true, source: true },
         },
+        stages: {
+          orderBy: { sortOrder: "asc" },
+          select: { stage: true, goal: true, script: true },
+        },
       },
     })
     .catch(() => []);
@@ -67,6 +79,32 @@ export default async function ClienteProductoV2Page() {
       ? flowTitleById.get(followUpFlowId) ?? "Flujo del producto"
       : null;
     const playbook = playbookByProductId.get(product.id);
+
+    /**
+     * El embudo que el agente YA tenia, para no arrancar de cero.
+     *
+     * Si el producto todavia no tiene su embudo propio, se muestra el que el agente venia usando
+     * (los cinco campos del embudo que se compilan al publicar). Asi lo que se ve en pantalla es
+     * lo que de verdad esta pasando en los chats, y no un formulario vacio al lado de un agente
+     * que ya dice otra cosa.
+     */
+    const embudoDelAgente: Array<{ stage: string; goal: string; script: string }> = [
+      { stage: "PRESENTACION", texto: knowledge?.funnelOpening },
+      { stage: "IDENTIFICACION", texto: knowledge?.funnelQualification },
+      { stage: "PRODUCTO", texto: knowledge?.funnelPresentation },
+      { stage: "OBJECIONES", texto: knowledge?.funnelFaq },
+      { stage: "CIERRE", texto: knowledge?.funnelClosing },
+    ]
+      .filter((item) => item.texto?.trim())
+      .map((item) => ({ stage: item.stage, goal: "", script: item.texto?.trim() ?? "" }));
+
+    const etapasGuardadas = (playbook?.stages ?? []).map((stage) => ({
+      stage: stage.stage,
+      goal: stage.goal?.trim() || "",
+      script: stage.script?.trim() || "",
+    }));
+    const tieneEmbudoPropio = etapasGuardadas.some((etapa) => etapa.goal || etapa.script);
+
     return {
       id: product.id,
       name: product.name,
@@ -77,6 +115,8 @@ export default async function ClienteProductoV2Page() {
       playbookIdealCustomer: playbook?.idealCustomer?.trim() || "",
       playbookCustomerPain: playbook?.customerPain?.trim() || "",
       playbookPitch: playbook?.pitch?.trim() || "",
+      funnelStages: tieneEmbudoPropio ? etapasGuardadas : embudoDelAgente,
+      funnelFromAgent: !tieneEmbudoPropio && embudoDelAgente.length > 0,
       playbookRules: (playbook?.rules ?? []).map((rule) => ({
         id: rule.id,
         kind: rule.kind as "DECIR" | "NO_DECIR" | "OBJECION" | "BENEFICIO",
