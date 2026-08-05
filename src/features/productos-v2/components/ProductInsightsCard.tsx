@@ -13,6 +13,7 @@ type Resumen = {
   leidas: number;
   pendientes: number;
   porMotivo: Array<{ motivo: string; cantidad: number }>;
+  porUltimaFrase: Array<{ frase: string; cantidad: number }>;
   ejemplos: Array<{ conversationId: string; summary: string; motivo: string | null }>;
 };
 
@@ -57,6 +58,9 @@ export function ProductInsightsCard({
         }
         total += datos.leidas ?? 0;
         setRestantes(datos.restantes ?? 0);
+        // Refrescar en cada tanda y no al final: leer 800 conversaciones son varios minutos, y
+        // mirar "Leyendo..." sin que se mueva nada parece que se colgo.
+        router.refresh();
         if (!datos.leidas || (!forzar && !datos.restantes)) {
           break;
         }
@@ -108,6 +112,18 @@ export function ProductInsightsCard({
             })}
           </ul>
         )}
+
+        {resumen.porUltimaFrase.length > 0 ? (
+          <div className="space-y-1.5 border-t border-border pt-3">
+            <p className="text-xs font-medium text-foreground">Lo último que dijimos antes del silencio</p>
+            {resumen.porUltimaFrase.map((fila) => (
+              <div key={fila.frase} className="flex items-start gap-2 text-xs">
+                <span className="w-10 shrink-0 tabular-nums text-foreground">{fila.cantidad}×</span>
+                <span className="min-w-0 flex-1 truncate text-muted-foreground">{fila.frase}</span>
+              </div>
+            ))}
+          </div>
+        ) : null}
 
         {resumen.ejemplos.length > 0 ? (
           <div className="space-y-1.5 border-t border-border pt-3">

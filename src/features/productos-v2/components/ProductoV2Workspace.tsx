@@ -252,7 +252,15 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
               />
               <ProductInsightsCard
                 productId={selected.id}
-                resumen={selected.insights ?? { leidas: 0, pendientes: 0, porMotivo: [], ejemplos: [] }}
+                resumen={
+                  selected.insights ?? {
+                    leidas: 0,
+                    pendientes: 0,
+                    porMotivo: [],
+                    porUltimaFrase: [],
+                    ejemplos: [],
+                  }
+                }
               />
             </div>
           ) : null}

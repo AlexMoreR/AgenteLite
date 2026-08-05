@@ -60,10 +60,17 @@ Campos:
 - "lostReason": SIEMPRE, tambien si la ves viva: si esta conversacion se cortara aca, cual seria el motivo mas probable. Uno de: ${MOTIVOS_DE_CAIDA.map((motivo) => `"${motivo}"`).join(", ")}. Quien decide si esta muerta es otro; vos solo decis el motivo.
 - "summary": una linea de maximo 15 palabras, concreta, para entender el caso sin abrir el chat.
 
-Reglas:
-- No inventes. Si algo no esta en la conversacion, poné "" o null.
-- "el bot no supo" es para cuando respondimos algo generico o equivocado a una pregunta concreta.
-- "no contesto" es cuando le respondimos bien y el cliente simplemente no volvio a escribir.`;
+Reglas del motivo (esto es lo mas importante):
+- "no contesto" es el ULTIMO recurso. Casi todo lead muerto deja de contestar: eso es COMO se murio,
+  no POR QUE. Usalo solo si le respondimos todo, no quedo ninguna pregunta sin responder, y aun asi
+  desaparecio sin dar motivo.
+- Mira QUE fue lo ultimo que pasó antes del silencio y de ahi sacá el motivo:
+  - si el silencio vino despues de hablar de envio, ciudad, cobertura o tiempos de entrega → "envio o ciudad"
+  - si vino despues de decir el precio, o pidiendo descuento o financiacion → "precio"
+  - si el cliente pregunto algo y no se le respondio, o se le respondio con algo generico o
+    equivocado → "el bot no supo"
+  - si pidio un producto, medida o color que no manejamos → "no lo vendemos"
+- No inventes. Si algo no esta en la conversacion, poné "" o null.`;
 
 /**
  * Si la conversacion esta muerta lo decide una REGLA, no la IA.

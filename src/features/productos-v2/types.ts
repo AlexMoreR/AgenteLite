@@ -35,6 +35,7 @@ export type ProductoV2Item = {
     leidas: number;
     pendientes: number;
     porMotivo: Array<{ motivo: string; cantidad: number }>;
+    porUltimaFrase: Array<{ frase: string; cantidad: number }>;
     ejemplos: Array<{ conversationId: string; summary: string; motivo: string | null }>;
   } | null;
   playbookRules: ProductoV2PlaybookRule[];

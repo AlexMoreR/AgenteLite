@@ -16,6 +16,8 @@ export type ProductInsightSummary = {
   leidas: number;
   pendientes: number;
   porMotivo: Array<{ motivo: string; cantidad: number }>;
+  /** La ultima frase que mandamos antes del silencio, agrupada. Es la que hay que corregir. */
+  porUltimaFrase: Array<{ frase: string; cantidad: number }>;
   ejemplos: Array<{ conversationId: string; summary: string; motivo: string | null }>;
 };
 
@@ -25,10 +27,16 @@ export async function getProductInsights(input: {
 }): Promise<ProductInsightSummary> {
   const productId = input.rule.productId;
   const condicion = buildProductConversationCondition(input.rule);
-  const vacio: ProductInsightSummary = { leidas: 0, pendientes: 0, porMotivo: [], ejemplos: [] };
+  const vacio: ProductInsightSummary = {
+    leidas: 0,
+    pendientes: 0,
+    porMotivo: [],
+    porUltimaFrase: [],
+    ejemplos: [],
+  };
 
   try {
-    const [porMotivo, leidas, pendientesRow, ejemplos] = await Promise.all([
+    const [porMotivo, leidas, pendientesRow, ejemplos, porFrase] = await Promise.all([
       prisma.conversationInsight.groupBy({
         by: ["lostReason"],
         where: {
@@ -67,6 +75,26 @@ export async function getProductInsights(input: {
         take: 5,
         select: { conversationId: true, summary: true, lostReason: true },
       }),
+      /**
+       * Que dijimos justo antes de que se callaran, agrupado.
+       *
+       * Es el dato mas accionable de todos: si la misma frase aparece cuarenta veces como ultima,
+       * ahi esta la fuga y hay una sola cosa que corregir. La firma se saca (primera linea con
+       * asteriscos) para que el mismo mensaje de dos asesoras distintas cuente junto.
+       */
+      prisma.$queryRaw<Array<{ frase: string; total: bigint }>>(Prisma.sql`
+        SELECT
+          left(regexp_replace("lastOutbound", '^[^\n]*\*[^\n]*\n', ''), 90) AS frase,
+          COUNT(*) AS total
+        FROM "ConversationInsight"
+        WHERE "workspaceId" = ${input.workspaceId}
+          AND "productId" = ${productId}
+          AND status = 'MUERTO'
+          AND "lastOutbound" IS NOT NULL
+        GROUP BY 1
+        ORDER BY 2 DESC
+        LIMIT 5
+      `),
     ]);
 
     return {
@@ -75,6 +103,9 @@ export async function getProductInsights(input: {
       porMotivo: porMotivo
         .map((fila) => ({ motivo: fila.lostReason ?? "otro", cantidad: fila._count._all }))
         .sort((a, b) => b.cantidad - a.cantidad),
+      porUltimaFrase: porFrase
+        .map((fila) => ({ frase: fila.frase?.replace(/\s+/g, " ").trim() ?? "", cantidad: Number(fila.total) }))
+        .filter((fila) => fila.frase.length > 0),
       ejemplos: ejemplos.map((fila) => ({
         conversationId: fila.conversationId,
         summary: fila.summary ?? "",
