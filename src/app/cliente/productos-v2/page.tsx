@@ -55,7 +55,6 @@ export default async function ClienteProductoV2Page() {
         productId: true,
         idealCustomer: true,
         customerPain: true,
-        pitch: true,
         rules: {
           where: { isActive: true },
           orderBy: [{ kind: "asc" }, { sortOrder: "asc" }],
@@ -122,7 +121,6 @@ export default async function ClienteProductoV2Page() {
       anchoredFlowTitle,
       playbookIdealCustomer: playbook?.idealCustomer?.trim() || "",
       playbookCustomerPain: playbook?.customerPain?.trim() || "",
-      playbookPitch: playbook?.pitch?.trim() || "",
       funnelStages: tieneEmbudoPropio ? etapasGuardadas : embudoDelAgente,
       funnelFromAgent: !tieneEmbudoPropio && embudoDelAgente.length > 0,
       funnelCounts: conteoPorProducto.get(product.id) ?? {},

@@ -45,24 +45,17 @@ export function ProductPlaybookEditor({
   productId,
   idealCustomer,
   customerPain,
-  pitch,
   rules,
 }: {
   productId: string;
   idealCustomer: string;
   customerPain: string;
-  pitch: string;
   rules: ProductoV2PlaybookRule[];
 }) {
   const router = useRouter();
   const [perfil, setPerfil] = useState(idealCustomer);
   const [dolor, setDolor] = useState(customerPain);
-  const [texto, setTexto] = useState(pitch);
-  const [guardadoPrevio, setGuardadoPrevio] = useState({
-    perfil: idealCustomer,
-    dolor: customerPain,
-    pitch,
-  });
+  const [guardadoPrevio, setGuardadoPrevio] = useState({ perfil: idealCustomer, dolor: customerPain });
   const [nuevaRegla, setNuevaRegla] = useState<Record<string, string>>({});
   const [ocupado, setOcupado] = useState(false);
 
@@ -74,7 +67,6 @@ export function ProductPlaybookEditor({
     try {
       const result = await saveProductPitchAction({
         productId,
-        pitch: texto,
         idealCustomer: perfil,
         customerPain: dolor,
       });
@@ -82,7 +74,7 @@ export function ProductPlaybookEditor({
         toast.error(result.error);
         return;
       }
-      setGuardadoPrevio({ perfil, dolor, pitch: texto });
+      setGuardadoPrevio({ perfil, dolor });
       toast.success("Guardado");
       router.refresh();
     } catch {
@@ -235,30 +227,18 @@ export function ProductPlaybookEditor({
           </div>
         </div>
 
-        <div className="space-y-1.5">
-          <Label htmlFor="pv2-pitch">Cómo se vende</Label>
-          <Textarea
-            id="pv2-pitch"
-            rows={4}
-            value={texto}
-            onChange={(event) => setTexto(event.target.value)}
-            placeholder="Con qué abrir, qué mostrar primero, qué preguntar para avanzar…"
-          />
-          <div className="flex items-center gap-3">
-            <Button type="button" size="sm" onClick={() => void guardarPitch()} disabled={ocupado}>
-              Guardar
-            </Button>
-            {texto !== guardadoPrevio.pitch ||
-            perfil !== guardadoPrevio.perfil ||
-            dolor !== guardadoPrevio.dolor ? (
-              <span className="text-xs text-amber-700 dark:text-amber-300">Sin guardar</span>
-            ) : guardadoPrevio.pitch || guardadoPrevio.perfil || guardadoPrevio.dolor ? (
-              <span className="inline-flex items-center gap-1 text-xs text-emerald-700 dark:text-emerald-400">
-                <Check className="h-3.5 w-3.5" />
-                Guardado
-              </span>
-            ) : null}
-          </div>
+        <div className="flex items-center gap-3">
+          <Button type="button" size="sm" onClick={() => void guardarPitch()} disabled={ocupado}>
+            Guardar
+          </Button>
+          {perfil !== guardadoPrevio.perfil || dolor !== guardadoPrevio.dolor ? (
+            <span className="text-xs text-amber-700 dark:text-amber-300">Sin guardar</span>
+          ) : guardadoPrevio.perfil || guardadoPrevio.dolor ? (
+            <span className="inline-flex items-center gap-1 text-xs text-emerald-700 dark:text-emerald-400">
+              <Check className="h-3.5 w-3.5" />
+              Guardado
+            </span>
+          ) : null}
         </div>
 
         {GRUPOS.map((grupo) => {

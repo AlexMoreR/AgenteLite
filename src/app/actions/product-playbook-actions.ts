@@ -46,7 +46,6 @@ async function ensurePlaybook(workspaceId: string, productId: string) {
 
 export async function saveProductPitchAction(input: {
   productId: string;
-  pitch: string;
   idealCustomer?: string;
   customerPain?: string;
 }): Promise<{ ok?: true; error?: string }> {
@@ -69,7 +68,6 @@ export async function saveProductPitchAction(input: {
   await prisma.productPlaybook.update({
     where: { id: playbookId },
     data: {
-      pitch: input.pitch.trim() || null,
       ...(input.idealCustomer === undefined
         ? {}
         : { idealCustomer: input.idealCustomer.trim() || null }),

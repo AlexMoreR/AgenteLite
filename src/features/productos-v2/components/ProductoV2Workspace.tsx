@@ -107,7 +107,7 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
                       ) : (
                         <span className="text-amber-600 dark:text-amber-400">sin embudo</span>
                       )}
-                      {reglas > 0 || product.playbookPitch ? (
+                      {reglas > 0 || product.playbookIdealCustomer || product.playbookCustomerPain ? (
                         <span className="text-emerald-600 dark:text-emerald-400">
                           playbook{reglas > 0 ? ` · ${reglas} ${reglas === 1 ? "regla" : "reglas"}` : ""}
                         </span>
@@ -248,7 +248,6 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
               productId={selected.id}
               idealCustomer={selected.playbookIdealCustomer}
               customerPain={selected.playbookCustomerPain}
-              pitch={selected.playbookPitch}
               rules={selected.playbookRules}
             />
           ) : null}

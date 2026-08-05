@@ -16,7 +16,6 @@ export type ProductoV2Item = {
   /** El playbook de ventas: lo unico de esta pantalla que ya se guarda de verdad. */
   playbookIdealCustomer: string;
   playbookCustomerPain: string;
-  playbookPitch: string;
   funnelStages: Array<{ stage: string; goal: string; script: string; stuckAfterMessages: number | null }>;
   /** El embudo que se muestra vino del agente y todavia no es del producto. */
   funnelFromAgent: boolean;
