@@ -69,7 +69,10 @@ export async function POST(request: Request) {
       AND ${condicion}
     GROUP BY c.id, i."messageCount"
     HAVING ${forzar} OR i."messageCount" IS NULL OR i."messageCount" < COUNT(m.id)
-    ORDER BY MAX(m."createdAt") DESC
+    -- Las MAS VIEJAS primero: son las que ya tienen desenlace. Al reves —que era como estaba—
+    -- las primeras tandas traen conversaciones de hoy, que no estan muertas ni ganadas: estan
+    -- esperando. Se lee y se paga por saber que todavia no se sabe nada.
+    ORDER BY MAX(m."createdAt") ASC
     LIMIT ${limite}
   `);
 
