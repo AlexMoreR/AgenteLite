@@ -22,6 +22,7 @@ import type { ProductoV2Item } from "../types";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ProductFunnelEditor } from "./ProductFunnelEditor";
 import { ProductInsightsCard } from "./ProductInsightsCard";
+import { ProductMatchForm } from "./ProductMatchForm";
 import { ProductObjectionsEditor } from "./ProductObjectionsEditor";
 import { ProductPlaybookEditor } from "./ProductPlaybookEditor";
 
@@ -184,7 +185,7 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="producto" className="pt-4">
+        <TabsContent value="producto" className="pt-4 space-y-4">
           <Card>
             <CardHeader className="pb-0">
               <CardTitle className="text-sm">Nombre del producto y precio</CardTitle>
@@ -230,6 +231,14 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
               </div>
             </CardContent>
           </Card>
+
+          {selected ? (
+            <ProductMatchForm
+              productId={selected.id}
+              keywords={selected.matchKeywords}
+              adTitles={selected.matchAdTitles}
+            />
+          ) : null}
         </TabsContent>
 
         <TabsContent value="embudo" className="pt-4">

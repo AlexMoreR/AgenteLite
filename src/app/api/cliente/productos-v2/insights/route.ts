@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { auth } from "@/auth";
 import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
 import { prisma } from "@/lib/prisma";
+import {
+  buildProductConversationCondition,
+  getProductMatchRule,
+} from "@/features/productos-v2/services/productConversationFilter";
 import {
   analyzeConversation,
   buildInsightTranscript,
@@ -49,35 +54,38 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: "Falta el producto" }, { status: 400 });
   }
 
-  // Candidatas: conversaciones de ESTE producto, de los ultimos 30 dias, que todavia no se
-  // leyeron o que crecieron desde la ultima lectura.
-  const candidatas = await prisma.$queryRaw<Array<{ id: string; total: bigint }>>`
+  // Que conversaciones son de este producto lo dice la regla del propio producto: lo marco el
+  // agente, el cliente uso una de sus palabras, o llego por uno de sus anuncios.
+  const regla = await getProductMatchRule({ workspaceId: access.workspaceId, productId });
+  const condicion = buildProductConversationCondition(regla);
+
+  const candidatas = await prisma.$queryRaw<Array<{ id: string; total: bigint }>>(Prisma.sql`
     SELECT c.id, COUNT(m.id) AS total
     FROM "Conversation" c
     JOIN "Message" m ON m."conversationId" = c.id
     LEFT JOIN "ConversationInsight" i ON i."conversationId" = c.id
     WHERE c."workspaceId" = ${access.workspaceId}
-      AND c."activeProductContext"->>'productId' = ${productId}
       AND c."lastMessageAt" > now() - interval '30 days'
+      AND ${condicion}
     GROUP BY c.id, i."messageCount"
     HAVING ${forzar} OR i."messageCount" IS NULL OR i."messageCount" < COUNT(m.id)
     ORDER BY MAX(m."createdAt") DESC
     LIMIT ${limite}
-  `;
+  `);
 
-  const restantesRow = await prisma.$queryRaw<Array<{ total: bigint }>>`
+  const restantesRow = await prisma.$queryRaw<Array<{ total: bigint }>>(Prisma.sql`
     SELECT COUNT(*) AS total FROM (
       SELECT c.id
       FROM "Conversation" c
       JOIN "Message" m ON m."conversationId" = c.id
       LEFT JOIN "ConversationInsight" i ON i."conversationId" = c.id
       WHERE c."workspaceId" = ${access.workspaceId}
-        AND c."activeProductContext"->>'productId' = ${productId}
         AND c."lastMessageAt" > now() - interval '30 days'
+        AND ${condicion}
       GROUP BY c.id, i."messageCount"
       HAVING i."messageCount" IS NULL OR i."messageCount" < COUNT(m.id)
     ) AS pendientes
-  `;
+  `);
 
   let leidas = 0;
   let fallidas = 0;

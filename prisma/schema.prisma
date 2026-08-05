@@ -1126,6 +1126,10 @@ model ProductPlaybook {
   productId   String
   /// A quien le sirve este producto y a quien no. Es lo primero que cambia el tono: no se le
   /// habla igual a la dueña de un spa que a quien pregunta de curiosidad.
+  /// Palabras que, dichas por el cliente, identifican a este producto ("camilla", "combo").
+  matchKeywords String[] @default([])
+  /// Titulos (o parte) de los anuncios que traen a este producto.
+  matchAdTitles String[] @default([])
   idealCustomer String?
   /// Que le duele a ese cliente. Es lo que se vende de verdad: nadie compra una camilla, compra
   /// dejar de perder clientas porque el local se ve improvisado.

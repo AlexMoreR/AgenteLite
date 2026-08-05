@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { ProductoV2Workspace } from "@/features/productos-v2/components/ProductoV2Workspace";
 import { getProductInsights } from "@/features/productos-v2/services/getProductInsights";
 import { getProductLeadProgress } from "@/features/productos-v2/services/getProductLeadProgress";
+import { getProductMatchRule } from "@/features/productos-v2/services/productConversationFilter";
 import type { ProductoV2Item } from "@/features/productos-v2/types";
 
 // Palabra distintiva ilustrativa: el primer token "fuerte" del nombre (no genérico). La real la
@@ -54,6 +55,8 @@ export default async function ClienteProductoV2Page() {
       where: { workspaceId: access.workspaceId },
       select: {
         productId: true,
+        matchKeywords: true,
+        matchAdTitles: true,
         idealCustomer: true,
         customerPain: true,
         rules: {
@@ -70,23 +73,22 @@ export default async function ClienteProductoV2Page() {
     .catch(() => []);
   const playbookByProductId = new Map(playbookRows.map((row) => [row.productId, row] as const));
 
-  // Hasta donde llegaron los leads de cada producto en los ultimos 30 dias.
-  const avancePorProducto = await getProductLeadProgress({
-    workspaceId: access.workspaceId,
-    productIds: productRows.map((product) => product.id),
-  });
-
-  // Lo que la IA leyo en las conversaciones de cada producto.
-  const insightsPorProducto = new Map(
-    await Promise.all(
-      productRows.map(async (product) => {
-        const resumen = await getProductInsights({
-          workspaceId: access.workspaceId,
-          productId: product.id,
-        });
-        return [product.id, resumen] as const;
-      }),
-    ),
+  // Por producto: su regla de reconocimiento, hasta donde llegan sus leads y que leyo la IA.
+  const avancePorProducto = new Map<string, Awaited<ReturnType<typeof getProductLeadProgress>>>();
+  const insightsPorProducto = new Map<string, Awaited<ReturnType<typeof getProductInsights>>>();
+  await Promise.all(
+    productRows.map(async (product) => {
+      const rule = await getProductMatchRule({
+        workspaceId: access.workspaceId,
+        productId: product.id,
+      });
+      const [avance, insights] = await Promise.all([
+        getProductLeadProgress({ workspaceId: access.workspaceId, rule }),
+        getProductInsights({ workspaceId: access.workspaceId, rule }),
+      ]);
+      avancePorProducto.set(product.id, avance);
+      insightsPorProducto.set(product.id, insights);
+    }),
   );
 
   const flowTitleById = new Map(flowItems.map((flow) => [flow.id, flow.title] as const));
@@ -133,6 +135,8 @@ export default async function ClienteProductoV2Page() {
       sells: priceNumber > 0,
       price: priceNumber > 0 ? priceNumber : null,
       anchoredFlowTitle,
+      matchKeywords: playbook?.matchKeywords ?? [],
+      matchAdTitles: playbook?.matchAdTitles ?? [],
       playbookIdealCustomer: playbook?.idealCustomer?.trim() || "",
       playbookCustomerPain: playbook?.customerPain?.trim() || "",
       funnelStages: tieneEmbudoPropio ? etapasGuardadas : embudoDelAgente,

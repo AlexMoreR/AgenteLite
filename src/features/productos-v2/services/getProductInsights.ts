@@ -1,4 +1,9 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import {
+  buildProductConversationCondition,
+  type ProductMatchRule,
+} from "./productConversationFilter";
 
 /**
  * El resumen de lo que la IA leyo en las conversaciones de un producto.
@@ -16,8 +21,10 @@ export type ProductInsightSummary = {
 
 export async function getProductInsights(input: {
   workspaceId: string;
-  productId: string;
+  rule: ProductMatchRule;
 }): Promise<ProductInsightSummary> {
+  const productId = input.rule.productId;
+  const condicion = buildProductConversationCondition(input.rule);
   const vacio: ProductInsightSummary = { leidas: 0, pendientes: 0, porMotivo: [], ejemplos: [] };
 
   try {
@@ -26,33 +33,33 @@ export async function getProductInsights(input: {
         by: ["lostReason"],
         where: {
           workspaceId: input.workspaceId,
-          productId: input.productId,
+          productId,
           status: "MUERTO",
           lostReason: { not: null },
         },
         _count: { _all: true },
       }),
       prisma.conversationInsight.count({
-        where: { workspaceId: input.workspaceId, productId: input.productId },
+        where: { workspaceId: input.workspaceId, productId },
       }),
       // Cuantas faltan por leer: las de los ultimos 30 dias que no tienen lectura o crecieron.
-      prisma.$queryRaw<Array<{ total: bigint }>>`
+      prisma.$queryRaw<Array<{ total: bigint }>>(Prisma.sql`
         SELECT COUNT(*) AS total FROM (
           SELECT c.id
           FROM "Conversation" c
           JOIN "Message" m ON m."conversationId" = c.id
           LEFT JOIN "ConversationInsight" i ON i."conversationId" = c.id
           WHERE c."workspaceId" = ${input.workspaceId}
-            AND c."activeProductContext"->>'productId' = ${input.productId}
             AND c."lastMessageAt" > now() - interval '30 days'
+            AND ${condicion}
           GROUP BY c.id, i."messageCount"
           HAVING i."messageCount" IS NULL OR i."messageCount" < COUNT(m.id)
         ) AS pendientes
-      `,
+      `),
       prisma.conversationInsight.findMany({
         where: {
           workspaceId: input.workspaceId,
-          productId: input.productId,
+          productId,
           status: "MUERTO",
           summary: { not: null },
         },

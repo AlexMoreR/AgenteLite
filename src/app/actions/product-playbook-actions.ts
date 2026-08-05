@@ -132,6 +132,53 @@ export async function saveProductFunnelAction(input: {
   return { ok: true };
 }
 
+/**
+ * Guardar como se reconoce un producto: palabras del cliente y anuncios de origen.
+ *
+ * Es lo que permite mirar las conversaciones que atendio una persona. Cuando la IA esta en pausa
+ * el agente nunca corre, y sin esta regla esas conversaciones no pertenecen a ningun producto.
+ */
+export async function saveProductMatchAction(input: {
+  productId: string;
+  keywords: string[];
+  adTitles: string[];
+}): Promise<{ ok?: true; error?: string }> {
+  const workspaceId = await getAccess();
+  if (!workspaceId) {
+    return { error: "No autorizado" };
+  }
+
+  const productId = input.productId?.trim();
+  if (!productId) {
+    return { error: "Datos invalidos" };
+  }
+
+  const producto = await prisma.product.findUnique({ where: { id: productId }, select: { id: true } });
+  if (!producto) {
+    return { error: "Producto no encontrado" };
+  }
+
+  const limpiar = (valores: string[]) =>
+    Array.from(
+      new Set(
+        (Array.isArray(valores) ? valores : [])
+          .map((valor) => (typeof valor === "string" ? valor.trim() : ""))
+          // Una palabra de una o dos letras engancha cualquier cosa: ya nos paso que "si" matcheara
+          // "silla" y pisara el producto de una conversacion entera.
+          .filter((valor) => valor.length >= 3),
+      ),
+    ).slice(0, 20);
+
+  const playbookId = await ensurePlaybook(workspaceId, productId);
+  await prisma.productPlaybook.update({
+    where: { id: playbookId },
+    data: { matchKeywords: limpiar(input.keywords), matchAdTitles: limpiar(input.adTitles) },
+  });
+
+  revalidatePath("/cliente/productos-v2");
+  return { ok: true };
+}
+
 export async function addProductPlaybookRuleAction(input: {
   productId: string;
   kind: string;

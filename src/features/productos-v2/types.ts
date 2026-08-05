@@ -14,6 +14,9 @@ export type ProductoV2Item = {
   price: number | null;
   anchoredFlowTitle: string | null;
   /** El playbook de ventas: lo unico de esta pantalla que ya se guarda de verdad. */
+  /** Como se reconoce este producto en una conversacion. */
+  matchKeywords: string[];
+  matchAdTitles: string[];
   playbookIdealCustomer: string;
   playbookCustomerPain: string;
   funnelStages: Array<{ stage: string; goal: string; script: string; stuckAfterMessages: number | null }>;
