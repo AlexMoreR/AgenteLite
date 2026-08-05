@@ -37,6 +37,24 @@ export default async function ClienteProductoV2Page() {
     getCreatedFlowItems({ workspaceId: access.workspaceId, includeOfficialApi: false }).catch(() => []),
   ]);
 
+  // El playbook de cada producto. Si la tabla todavia no existe (despliegue a medio camino), la
+  // pantalla sigue funcionando sin playbooks en vez de caerse entera.
+  const playbookRows = await prisma.productPlaybook
+    .findMany({
+      where: { workspaceId: access.workspaceId },
+      select: {
+        productId: true,
+        pitch: true,
+        rules: {
+          where: { isActive: true },
+          orderBy: [{ kind: "asc" }, { sortOrder: "asc" }],
+          select: { id: true, kind: true, trigger: true, text: true, source: true },
+        },
+      },
+    })
+    .catch(() => []);
+  const playbookByProductId = new Map(playbookRows.map((row) => [row.productId, row] as const));
+
   const flowTitleById = new Map(flowItems.map((flow) => [flow.id, flow.title] as const));
 
   const products: ProductoV2Item[] = productRows.map((product) => {
@@ -46,6 +64,7 @@ export default async function ClienteProductoV2Page() {
     const anchoredFlowTitle = followUpFlowId
       ? flowTitleById.get(followUpFlowId) ?? "Flujo del producto"
       : null;
+    const playbook = playbookByProductId.get(product.id);
     return {
       id: product.id,
       name: product.name,
@@ -53,6 +72,14 @@ export default async function ClienteProductoV2Page() {
       sells: priceNumber > 0,
       price: priceNumber > 0 ? priceNumber : null,
       anchoredFlowTitle,
+      playbookPitch: playbook?.pitch?.trim() || "",
+      playbookRules: (playbook?.rules ?? []).map((rule) => ({
+        id: rule.id,
+        kind: rule.kind as "DECIR" | "NO_DECIR" | "OBJECION",
+        trigger: rule.trigger,
+        text: rule.text,
+        source: rule.source,
+      })),
     };
   });
 

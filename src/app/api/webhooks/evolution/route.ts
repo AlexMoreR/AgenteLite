@@ -83,6 +83,7 @@ import {
   pickNextAdCampaignAssignee,
   readAdCampaignRouting,
 } from "@/lib/ad-campaign-routing";
+import { buildProductPlaybookPrompt, getProductPlaybook } from "@/lib/product-playbook";
 import { recordContactMatch } from "@/lib/contact-matches";
 import { buildConversationMatchContextNote, getLatestConversationMatch } from "@/lib/contact-matches";
 import { buildFlowExecutionContextNote, getConversationExecutedFlowSlugs, getFlowSlug } from "@/lib/flow-execution-history";
@@ -2998,6 +2999,39 @@ export async function POST(request: NextRequest) {
         const activeProductContextNote = buildActiveProductContextNote(resolvedActiveProductContext);
         if (activeProductContextNote) {
           aiContextNotes.add(activeProductContextNote);
+        }
+      }
+
+      /**
+       * El playbook de ventas del producto activo.
+       *
+       * Se lee AHORA, al responder, y no cuando se publica el agente. Esa es la diferencia entre
+       * un guion y un sistema que aprende: una regla que se agrega hoy a las 3 de la tarde
+       * —porque se perdio una venta a las 2— aplica en la conversacion de las 3 y un minuto, sin
+       * republicar nada.
+       *
+       * Si falla la lectura no se corta la respuesta: el cliente esperando importa mas que el
+       * playbook.
+       */
+      const productoDelPlaybook = resolvedActiveProductContext ?? previousActiveProductContext;
+      if (productoDelPlaybook?.productId) {
+        try {
+          const playbook = await getProductPlaybook({
+            workspaceId: channel.workspaceId,
+            productId: productoDelPlaybook.productId,
+          });
+          const bloquePlaybook = buildProductPlaybookPrompt(
+            playbook,
+            productoDelPlaybook.productName || "este producto",
+          );
+          if (bloquePlaybook) {
+            aiContextNotes.add(bloquePlaybook);
+          }
+        } catch (error) {
+          console.warn("[EVOLUTION] playbook_read_failed", {
+            productId: productoDelPlaybook.productId,
+            error: error instanceof Error ? error.message : String(error),
+          });
         }
       }
 

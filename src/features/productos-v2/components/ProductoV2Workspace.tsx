@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { ProductoV2Flow, ProductoV2Item } from "../types";
+import { ProductPlaybookEditor } from "./ProductPlaybookEditor";
 
 function formatPrice(price: number | null): string {
   if (!price || price <= 0) return "";
@@ -94,7 +95,7 @@ export function ProductoV2Workspace({
           </div>
           <div className="pv2-title-row" style={{ marginTop: 6 }}>
             <h1 className="pv2-h1">{isNew ? "Nuevo producto" : selected?.name}</h1>
-            <span className="pv2-badge">Vista previa · guardar próximamente</span>
+            <span className="pv2-badge">El playbook ya se guarda · el resto es vista previa</span>
           </div>
 
           <div className="pv2-card">
@@ -183,6 +184,16 @@ export function ProductoV2Workspace({
                 </p>
               )}
             </div>
+
+            {/* Playbook de ventas: la unica seccion que ya guarda de verdad. */}
+            {selected ? (
+              <ProductPlaybookEditor
+                productId={selected.id}
+                productName={selected.name}
+                pitch={selected.playbookPitch}
+                rules={selected.playbookRules}
+              />
+            ) : null}
 
             {/* Anuncios */}
             <div className="pv2-sec">
@@ -291,4 +302,22 @@ const PV2_STYLES = `
 .pv2-add-flow{ border:1.5px dashed var(--pv2-hair2); border-radius:12px; padding:12px; text-align:center; color:var(--pv2-accent);
   font-size:13.5px; font-weight:600; }
 .pv2-disabled{ font-size:13px; color:var(--pv2-faint); font-style:italic; margin:0; }
+
+.pv2-ta { min-height:88px; resize:vertical; font-family:inherit; }
+.pv2-row-btns { display:flex; gap:8px; align-items:center; margin-top:8px; flex-wrap:wrap; }
+.pv2-row-btns .pv2-inp { flex:1 1 220px; }
+.pv2-btn { border:0; border-radius:9px; background:var(--pv2-accent); color:#fff; font-weight:600;
+  font-size:13px; padding:8px 14px; cursor:pointer; }
+.pv2-btn:disabled { opacity:.6; cursor:default; }
+.pv2-btn.ghost { background:var(--pv2-surface2); color:var(--pv2-ink); border:1px solid var(--pv2-hair2); }
+.pv2-ok { font-size:12px; color:var(--pv2-green); }
+.pv2-warn { font-size:12px; color:var(--pv2-amber); }
+.pv2-rules { list-style:none; margin:6px 0 0; padding:0; display:flex; flex-direction:column; gap:6px; }
+.pv2-rule { display:flex; gap:10px; align-items:flex-start; justify-content:space-between;
+  background:var(--pv2-surface2); border:1px solid var(--pv2-hair); border-radius:9px;
+  padding:8px 10px; font-size:13px; }
+.pv2-rule-meta { display:flex; align-items:center; gap:8px; flex-shrink:0; }
+.pv2-rule-meta em { font-style:normal; font-size:11px; color:var(--pv2-faint); }
+.pv2-rule-meta button { border:0; background:none; color:var(--pv2-faint); cursor:pointer; font-size:13px; }
+.pv2-rule-meta button:hover { color:var(--pv2-ink); }
 `;

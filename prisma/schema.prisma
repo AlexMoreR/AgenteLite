@@ -89,6 +89,7 @@ model Workspace {
   webPushSubscriptions WebPushSubscription[]
   callAttempts         CallAttempt[]
   playbookScripts      PlaybookScript[]
+  productPlaybooks     ProductPlaybook[]
 
   @@index([ownerId])
 }
@@ -286,6 +287,7 @@ model Product {
   code               String?                 @unique
   slug               String                  @unique
   agentKnowledge     AgentKnowledgeProduct[]
+  playbooks          ProductPlaybook[]
   category           Category?               @relation(fields: [categoryId], references: [id])
   images             ProductImage[]
   suppliers          ProductSupplier[]
@@ -1104,4 +1106,53 @@ model CallAttempt {
   @@index([workspaceId, contactId, calledAt])
   @@index([workspaceId, calledAt])
   @@index([workspaceId, nextContactAt])
+}
+
+/// El playbook de ventas de UN producto: lo que la casa aprendio vendiendolo.
+///
+/// Vive aparte del embudo del diagrama del agente a proposito. El embudo dice el orden de los
+/// pasos; el playbook dice COMO se vende: con que abrir, que no prometer nunca, y que contestar
+/// a cada objecion. Es lo que se corrige cuando una venta se pierde, y por eso tiene que poder
+/// cambiar todos los dias sin volver a publicar el agente.
+model ProductPlaybook {
+  id          String                @id @default(cuid())
+  workspaceId String
+  productId   String
+  /// Con que abrir y como llevar la conversacion de este producto.
+  pitch       String?
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+  workspace   Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  product     Product               @relation(fields: [productId], references: [id], onDelete: Cascade)
+  rules       ProductPlaybookRule[]
+
+  @@unique([workspaceId, productId])
+  @@index([workspaceId])
+}
+
+/// Cada cosa aprendida, por separado y con fecha.
+///
+/// Separadas y no un texto largo para que cada una se pueda apagar, ordenar y —sobre todo— para
+/// saber CUANDO se agrego y de donde salio: si una regla nacio de una venta perdida, eso es lo
+/// que convierte la auditoria en memoria en vez de en una reunion.
+model ProductPlaybookRule {
+  id         String          @id @default(cuid())
+  playbookId String
+  /// "DECIR" | "NO_DECIR" | "OBJECION". Texto y no enum: sumar un tipo no deberia obligar a
+  /// migrar la base de produccion (mismo criterio que PlaybookScript.kind).
+  kind       String
+  /// En las objeciones, lo que dice el cliente ("esta caro"). Null en las demas.
+  trigger    String?
+  text       String
+  sortOrder  Int             @default(0)
+  isActive   Boolean         @default(true)
+  /// "manual" | "auditoria". De donde salio la regla.
+  source     String          @default("manual")
+  /// El chat que la origino, cuando sale de revisar una venta perdida.
+  originConversationId String?
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  playbook   ProductPlaybook @relation(fields: [playbookId], references: [id], onDelete: Cascade)
+
+  @@index([playbookId, kind, sortOrder])
 }
