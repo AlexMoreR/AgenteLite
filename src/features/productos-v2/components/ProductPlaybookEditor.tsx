@@ -170,14 +170,14 @@ export function ProductPlaybookEditor({
             <Button type="button" size="sm" onClick={() => void guardarPitch()} disabled={ocupado}>
               Guardar
             </Button>
-            {texto === pitchGuardado ? (
+            {texto !== pitchGuardado ? (
+              <span className="text-xs text-amber-700 dark:text-amber-300">Sin guardar</span>
+            ) : pitchGuardado ? (
               <span className="inline-flex items-center gap-1 text-xs text-emerald-700 dark:text-emerald-400">
                 <Check className="h-3.5 w-3.5" />
                 Guardado
               </span>
-            ) : (
-              <span className="text-xs text-amber-700 dark:text-amber-300">Sin guardar</span>
-            )}
+            ) : null}
           </div>
         </div>
 
@@ -191,9 +191,9 @@ export function ProductPlaybookEditor({
               ) : (
                 <ul className="space-y-1.5">{delGrupo.map((rule) => filaRegla(rule, rule.text))}</ul>
               )}
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                 <Input
-                  className="min-w-[220px] flex-1"
+                  className="w-full sm:flex-1"
                   value={nuevaRegla[grupo.kind] ?? ""}
                   onChange={(event) =>
                     setNuevaRegla((actual) => ({ ...actual, [grupo.kind]: event.target.value }))
@@ -204,6 +204,7 @@ export function ProductPlaybookEditor({
                   type="button"
                   size="sm"
                   variant="outline"
+                  className="w-full sm:w-auto"
                   onClick={() => void agregar(grupo.kind, nuevaRegla[grupo.kind] ?? "")}
                   disabled={ocupado}
                 >
@@ -216,12 +217,10 @@ export function ProductPlaybookEditor({
         })}
 
         <div className="space-y-2">
-          <Label>
-            Objeciones{" "}
-            <span className="font-normal text-muted-foreground">
-              (lo que dice el cliente y qué contestarle)
-            </span>
-          </Label>
+          <Label>Objeciones</Label>
+          <p className="-mt-1 text-xs text-muted-foreground">
+            Lo que dice el cliente y qué contestarle.
+          </p>
           {objeciones.length === 0 ? (
             <p className="text-xs text-muted-foreground">
               Ej. dice «está caro» → recordarle que el combo trae 4 piezas y cuánto costarían por
@@ -239,7 +238,7 @@ export function ProductPlaybookEditor({
               )}
             </ul>
           )}
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <Input
               className="w-full sm:max-w-[200px]"
               value={objecion.trigger}
@@ -247,7 +246,7 @@ export function ProductPlaybookEditor({
               placeholder="Dice…"
             />
             <Input
-              className="min-w-[220px] flex-1"
+              className="w-full sm:flex-1"
               value={objecion.text}
               onChange={(event) => setObjecion((actual) => ({ ...actual, text: event.target.value }))}
               placeholder="Le contestás…"
@@ -256,6 +255,7 @@ export function ProductPlaybookEditor({
               type="button"
               size="sm"
               variant="outline"
+              className="w-full sm:w-auto"
               onClick={() => void agregar("OBJECION", objecion.text, objecion.trigger)}
               disabled={ocupado}
             >

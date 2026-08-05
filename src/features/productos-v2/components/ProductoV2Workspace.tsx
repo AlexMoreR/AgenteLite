@@ -133,10 +133,10 @@ export function ProductoV2Workspace({
             <Input id="pv2-nombre" value={selected?.name ?? ""} placeholder="Ej. Combo de camillas" readOnly />
           </div>
           <div className="space-y-1.5">
-            <Label>
-              Palabra distintiva{" "}
-              <span className="font-normal text-muted-foreground">(la usa el candado para no confundirlo)</span>
-            </Label>
+            <Label>Palabra distintiva</Label>
+            <p className="-mt-1 text-xs text-muted-foreground">
+              La usa el candado para no confundir este producto con otro.
+            </p>
             {selected ? (
               <Badge variant="secondary" className="font-mono font-normal">
                 #{selected.distinctiveWord}
