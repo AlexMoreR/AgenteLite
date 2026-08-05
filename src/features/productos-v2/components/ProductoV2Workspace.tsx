@@ -45,12 +45,8 @@ export function ProductoV2Workspace({
               + Nuevo producto
             </button>
           </div>
-          <p className="pv2-intro">
-            Cada producto es un contenedor: le anclás flujos y decís cuándo corre cada uno. El precio
-            es opcional. Tocá un producto para verlo, o creá uno nuevo. <b>Vista previa:</b> la edición
-            y el guardado llegan en el siguiente paso.
-          </p>
-
+          {/* Sin bajada: la lista se entiende sola, y el texto ademas quedo viejo (decia que nada
+              se guardaba todavia, cuando el playbook ya guarda). */}
           {products.length === 0 ? (
             <div className="pv2-empty">Todavía no hay productos. Tocá "Nuevo producto" para crear el primero.</div>
           ) : (
