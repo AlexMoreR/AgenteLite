@@ -109,12 +109,20 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
 
   return (
     <div className="space-y-4">
-      <Button type="button" variant="ghost" size="sm" className="-ml-2" onClick={() => setView({ mode: "list" })}>
-        <ArrowLeft className="h-4 w-4" />
-        Productos
-      </Button>
-
-      <div className="flex flex-wrap items-center gap-2">
+      {/* Volver y nombre en la misma linea: la palabra "Productos" arriba del titulo era un
+          renglon entero para decir lo que la flecha ya dice. */}
+      <div className="flex items-center gap-1">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="-ml-2 h-8 w-8 shrink-0"
+          aria-label="Volver a productos"
+          title="Volver a productos"
+          onClick={() => setView({ mode: "list" })}
+        >
+          <ArrowLeft className="h-4 w-4" />
+        </Button>
         <PageHeader icon={ShoppingCart} title={isNew ? "Nuevo producto" : selected?.name ?? "Producto"} />
       </div>
 
