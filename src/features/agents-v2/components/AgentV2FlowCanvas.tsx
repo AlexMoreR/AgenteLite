@@ -2607,17 +2607,32 @@ function FlowCanvasInner({
           );
         }
       }
-      if (node.type === "flujo" && nodoAgente) {
-        const saleDelAgente = edges.some(
-          (edge) => edge.source === nodoAgente.id && edge.target === node.id,
+      // Un Flujo le sirve a la IA si sale del Agente o si lo señala una rama de Condición.
+      // Suelto (sin ninguna de las dos) no lo va a ejecutar nunca.
+      if (node.type === "flujo") {
+        const loConoceLaIA = edges.some(
+          (edge) =>
+            edge.target === node.id &&
+            (edge.source === nodoAgente?.id || porId.get(edge.source)?.type === "condicion"),
         );
-        if (!saleDelAgente) {
+        if (!loConoceLaIA) {
           lista.push(
-            "Un bloque de Flujo no está conectado al Agente: la IA no lo conoce, así que no va a " +
-              "poder ejecutarlo aunque una Condición lo señale.",
+            "Un bloque de Flujo no sale del Agente ni de una Condición: la IA no lo conoce y no " +
+              "va a poder ejecutarlo.",
           );
         }
       }
+    }
+
+    // El interruptor "Consultar flujos" del Agente le quita la herramienta: con el apagado,
+    // cualquier rama que mande ejecutar un flujo es letra muerta.
+    const hayFlujos = nodes.some((node) => node.type === "flujo");
+    const consultaFlujos = (nodoAgente?.data as { consultFlows?: boolean } | undefined)?.consultFlows !== false;
+    if (hayFlujos && !consultaFlujos) {
+      lista.push(
+        "El Agente tiene apagado «Consultar flujos»: no va a poder ejecutar ningún flujo, aunque " +
+          "el diagrama se lo indique.",
+      );
     }
 
     return [...new Set(lista)];

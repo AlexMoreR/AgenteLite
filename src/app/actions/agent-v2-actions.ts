@@ -323,8 +323,28 @@ export async function publishAgentV2Action(input: {
   const productNodes = nodes.filter(
     (node) => node.type === "producto" && agentToolTargets.has(node.id),
   );
+  /**
+   * Los flujos que la IA puede ejecutar.
+   *
+   * Ademas de los colgados del Agente, entran los que señala una rama de Condicion. Sin esto, al
+   * publicar le dabamos una orden imposible: la rama decia "ejecuta OBLIGATORIAMENTE el flujo de
+   * las fotos" pero ese flujo no figuraba en su lista de flujos conocidos, asi que no lo
+   * encontraba y terminaba improvisando —el famoso "lamentablemente, no puedo enviar fotos"—
+   * mientras en el diagrama la conexion se veia perfecta.
+   */
+  const conditionNodeIds = new Set(
+    nodes.filter((node) => node.type === "condicion").map((node) => node.id),
+  );
+  const flowNodeIdsFromConditions = new Set(
+    edges
+      .filter((edge) => Boolean(edge.source) && conditionNodeIds.has(edge.source as string))
+      .map((edge) => edge.target)
+      .filter((target): target is string => Boolean(target)),
+  );
   const flowNodes = nodes.filter(
-    (node) => node.type === "flujo" && agentToolTargets.has(node.id),
+    (node) =>
+      node.type === "flujo" &&
+      (agentToolTargets.has(node.id) || flowNodeIdsFromConditions.has(node.id)),
   );
   const textNodes = nodes.filter((node) => node.type === "texto");
   const conditionNodes = nodes.filter((node) => node.type === "condicion");
