@@ -51,17 +51,36 @@ export function buildInsightTranscript(turnos: Turno[]): string {
 
 const SISTEMA = `Sos un analista de ventas. Lees una conversacion de WhatsApp entre un negocio de mobiliario para salones de belleza y un cliente, y devolves SOLO un JSON con lo que paso.
 
+Al final del texto vas a ver una linea con CUANTOS DIAS pasaron desde el ultimo mensaje y QUIEN hablo ultimo. Usala: una conversacion donde le respondimos y el cliente no volvio a escribir en varios dias esta MUERTA, aunque el texto parezca que quedo esperando.
+
 Campos:
 - "requested": que pidio el cliente, en sus palabras, maximo 8 palabras. Si no pidio nada claro, "".
 - "status": "GANADO" si dio datos para comprar o confirmo la compra; "VIVO" si la conversacion sigue viva y falta algo; "MUERTO" si se corto sin respuesta del cliente.
 - "stage": en cual de estas etapas quedo: ${PRODUCT_FUNNEL_STAGES.map((etapa) => `"${etapa.stage}" (${etapa.label})`).join(", ")}.
-- "lostReason": solo si status es "MUERTO". Uno de: ${MOTIVOS_DE_CAIDA.map((motivo) => `"${motivo}"`).join(", ")}. Si sigue vivo o gano, null.
+- "lostReason": SIEMPRE, tambien si la ves viva: si esta conversacion se cortara aca, cual seria el motivo mas probable. Uno de: ${MOTIVOS_DE_CAIDA.map((motivo) => `"${motivo}"`).join(", ")}. Quien decide si esta muerta es otro; vos solo decis el motivo.
 - "summary": una linea de maximo 15 palabras, concreta, para entender el caso sin abrir el chat.
 
 Reglas:
 - No inventes. Si algo no esta en la conversacion, poné "" o null.
 - "el bot no supo" es para cuando respondimos algo generico o equivocado a una pregunta concreta.
 - "no contesto" es cuando le respondimos bien y el cliente simplemente no volvio a escribir.`;
+
+/**
+ * Si la conversacion esta muerta lo decide una REGLA, no la IA.
+ *
+ * Los dias que pasaron son un dato, no una interpretacion: pedirle a la IA que los deduzca de un
+ * texto sin fechas fue el error de la primera version —clasifico 28 de 30 como "vivas" porque en
+ * el texto toda conversacion parece estar esperando respuesta.
+ *
+ * Muerta = le respondimos y el cliente no volvio a escribir en 5 dias. Si el ultimo que hablo fue
+ * el cliente, la pelota es nuestra: eso no esta muerto, esta sin atender.
+ */
+export function estaMuerta(input: {
+  diasDesdeElUltimo: number;
+  ultimoHabloElCliente: boolean;
+}): boolean {
+  return !input.ultimoHabloElCliente && input.diasDesdeElUltimo >= 5;
+}
 
 export async function analyzeConversation(input: {
   transcript: string;
@@ -110,13 +129,14 @@ export async function analyzeConversation(input: {
 
   return {
     requested: texto(datos.requested, 80),
-    // Cualquier cosa rara cae en VIVO: es el estado que no afirma nada.
+    // Cualquier cosa rara cae en VIVO: es el estado que no afirma nada. El llamador puede
+    // pisarlo con la regla de los dias, que es mas confiable que leerlo del texto.
     status: status === "GANADO" || status === "MUERTO" ? status : "VIVO",
     stage: PRODUCT_FUNNEL_STAGES.some((etapa) => etapa.stage === stage) ? stage : null,
-    lostReason:
-      status === "MUERTO" && (MOTIVOS_DE_CAIDA as readonly string[]).includes(lostReason)
-        ? lostReason
-        : null,
+    // El motivo se conserva SIEMPRE, aunque la IA la haya visto viva: quien decide si esta muerta
+    // es la regla de los dias, y si el motivo se descartara aca las muertas quedarian sin motivo,
+    // que es justo el dato que se busca.
+    lostReason: (MOTIVOS_DE_CAIDA as readonly string[]).includes(lostReason) ? lostReason : null,
     summary: texto(datos.summary, 200),
   };
 }

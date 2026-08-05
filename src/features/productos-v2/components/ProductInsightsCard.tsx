@@ -34,7 +34,7 @@ export function ProductInsightsCard({
   const [corriendo, setCorriendo] = useState(false);
   const [restantes, setRestantes] = useState(resumen.pendientes);
 
-  const leer = async () => {
+  const leer = async (forzar = false) => {
     setCorriendo(true);
     let total = 0;
     try {
@@ -42,7 +42,7 @@ export function ProductInsightsCard({
       // hay una peticion eterna que se caiga a la mitad sin saber donde quedo.
       for (let tanda = 0; tanda < 40; tanda += 1) {
         const respuesta = await fetch(
-          `/api/cliente/productos-v2/insights?productId=${encodeURIComponent(productId)}&limit=10`,
+          `/api/cliente/productos-v2/insights?productId=${encodeURIComponent(productId)}&limit=10${forzar ? "&force=1" : ""}`,
           { method: "POST", credentials: "same-origin", cache: "no-store" },
         );
         const datos = (await respuesta.json()) as {
@@ -57,7 +57,7 @@ export function ProductInsightsCard({
         }
         total += datos.leidas ?? 0;
         setRestantes(datos.restantes ?? 0);
-        if (!datos.restantes || !datos.leidas) {
+        if (!datos.leidas || (!forzar && !datos.restantes)) {
           break;
         }
       }
@@ -125,10 +125,25 @@ export function ProductInsightsCard({
           </div>
         ) : null}
 
-        <Button type="button" size="sm" variant="outline" onClick={() => void leer()} disabled={corriendo}>
-          <Sparkles className="h-4 w-4" />
-          {corriendo ? "Leyendo…" : restantes > 0 ? `Leer ${restantes} conversaciones` : "Buscar nuevas"}
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" size="sm" variant="outline" onClick={() => void leer()} disabled={corriendo}>
+            <Sparkles className="h-4 w-4" />
+            {corriendo ? "Leyendo…" : restantes > 0 ? `Leer ${restantes} conversaciones` : "Buscar nuevas"}
+          </Button>
+          {/* Volver a leer lo ya leido: hace falta cuando se corrige como clasifica, si no las
+              lecturas viejas quedan para siempre y no hay forma de saber si el arreglo sirvio. */}
+          {resumen.leidas > 0 ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => void leer(true)}
+              disabled={corriendo}
+            >
+              Releer las {resumen.leidas} ya leídas
+            </Button>
+          ) : null}
+        </div>
       </CardContent>
     </Card>
   );

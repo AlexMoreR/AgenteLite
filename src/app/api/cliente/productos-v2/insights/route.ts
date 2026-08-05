@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import {
   analyzeConversation,
   buildInsightTranscript,
+  estaMuerta,
   saveConversationInsight,
 } from "@/lib/conversation-insight";
 
@@ -41,6 +42,9 @@ export async function POST(request: Request) {
   const url = new URL(request.url);
   const productId = url.searchParams.get("productId")?.trim() || "";
   const limite = Math.max(1, Math.min(25, Number.parseInt(url.searchParams.get("limit") || "10", 10) || 10));
+  // Releer lo ya leido: hace falta cuando se corrige como clasifica, si no quedan para siempre
+  // las lecturas viejas y no hay forma de saber si el arreglo sirvio.
+  const forzar = url.searchParams.get("force") === "1";
   if (!productId) {
     return NextResponse.json({ ok: false, error: "Falta el producto" }, { status: 400 });
   }
@@ -56,7 +60,7 @@ export async function POST(request: Request) {
       AND c."activeProductContext"->>'productId' = ${productId}
       AND c."lastMessageAt" > now() - interval '30 days'
     GROUP BY c.id, i."messageCount"
-    HAVING i."messageCount" IS NULL OR i."messageCount" < COUNT(m.id)
+    HAVING ${forzar} OR i."messageCount" IS NULL OR i."messageCount" < COUNT(m.id)
     ORDER BY MAX(m."createdAt") DESC
     LIMIT ${limite}
   `;
@@ -87,13 +91,24 @@ export async function POST(request: Request) {
       const mensajes = await prisma.message.findMany({
         where: { conversationId: candidata.id, deletedAt: null },
         orderBy: { createdAt: "asc" },
-        select: { direction: true, content: true, type: true },
+        select: { direction: true, content: true, type: true, createdAt: true },
       });
 
-      const transcript = buildInsightTranscript(mensajes);
-      if (!transcript) {
+      const base = buildInsightTranscript(mensajes);
+      if (!base) {
         continue;
       }
+
+      // Los dias que pasaron, explicitos. Sin esto la IA no tiene como saber que "le mandamos el
+      // precio" fue hace doce dias y el cliente nunca volvio: en el texto parece que sigue viva.
+      const ultimo = mensajes[mensajes.length - 1];
+      const dias = ultimo
+        ? Math.floor((Date.now() - ultimo.createdAt.getTime()) / 86_400_000)
+        : 0;
+      const ultimoHabloElCliente = ultimo?.direction === "INBOUND";
+      const transcript = `${base}\n\n[Ultimo mensaje: hace ${dias} dias. Hablo ultimo: ${
+        ultimoHabloElCliente ? "EL CLIENTE" : "NOSOTROS"
+      }.]`;
 
       const resultado = await analyzeConversation({ transcript, model: MODELO });
       if (!resultado) {
@@ -105,6 +120,12 @@ export async function POST(request: Request) {
         .reverse()
         .find((mensaje) => mensaje.direction === "OUTBOUND" && (mensaje.content ?? "").trim());
 
+      // El estado lo decide la regla de los dias, salvo que la IA haya visto una compra
+      // confirmada: eso si esta en el texto y la regla no puede saberlo.
+      const muerta = estaMuerta({ diasDesdeElUltimo: dias, ultimoHabloElCliente });
+      const estadoFinal =
+        resultado.status === "GANADO" ? "GANADO" : muerta ? "MUERTO" : "VIVO";
+
       await saveConversationInsight({
         workspaceId: access.workspaceId,
         conversationId: candidata.id,
@@ -112,7 +133,12 @@ export async function POST(request: Request) {
         messageCount: Number(candidata.total),
         lastOutbound: ultimoNuestro?.content ?? null,
         model: MODELO,
-        resultado,
+        resultado: {
+          ...resultado,
+          status: estadoFinal,
+          // El motivo solo tiene sentido en las muertas.
+          lostReason: estadoFinal === "MUERTO" ? resultado.lostReason : null,
+        },
       });
       leidas += 1;
     } catch (error) {
