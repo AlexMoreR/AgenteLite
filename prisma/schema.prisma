@@ -251,6 +251,12 @@ model Conversation {
   automationPausedAt DateTime?
   activeProductContext Json?
   commercialContext  Json?
+  /// En que etapa del embudo del producto viene la conversacion, cuantos mensajes lleva ahi y si
+  /// ya se aviso. Se guarda aparte del commercialContext (que lo reescribe el motor en cada
+  /// turno) para que el contador no se pierda.
+  funnelStage        String?
+  funnelStageCount   Int                @default(0)
+  funnelNotifiedAt   DateTime?
   agent              Agent?             @relation(fields: [agentId], references: [id])
   channel            WhatsAppChannel?   @relation(fields: [channelId], references: [id])
   contact            Contact            @relation(fields: [contactId], references: [id], onDelete: Cascade)
@@ -1179,6 +1185,9 @@ model ProductFunnelStage {
   goal       String?
   /// Que decir para lograrlo.
   script     String?
+  /// Red de seguridad: si el cliente lleva TANTOS mensajes sin salir de esta etapa, se avisa a un
+  /// asesor. Null = sin red. Es el limite que no depende de lo que decida la IA.
+  stuckAfterMessages Int?
   sortOrder  Int             @default(0)
   createdAt  DateTime        @default(now())
   updatedAt  DateTime        @updatedAt

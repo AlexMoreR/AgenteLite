@@ -91,7 +91,7 @@ export async function saveProductPitchAction(input: {
  */
 export async function saveProductFunnelAction(input: {
   productId: string;
-  stages: Array<{ stage: string; goal: string; script: string }>;
+  stages: Array<{ stage: string; goal: string; script: string; stuckAfterMessages?: number | null }>;
 }): Promise<{ ok?: true; error?: string }> {
   const workspaceId = await getAccess();
   if (!workspaceId) {
@@ -118,10 +118,15 @@ export async function saveProductFunnelAction(input: {
     }
     const goal = etapa.goal?.trim() || null;
     const script = etapa.script?.trim() || null;
+    // Un limite de 0 o negativo no es una red: es apagarla.
+    const limite =
+      typeof etapa.stuckAfterMessages === "number" && etapa.stuckAfterMessages > 0
+        ? Math.min(50, Math.round(etapa.stuckAfterMessages))
+        : null;
     await prisma.productFunnelStage.upsert({
       where: { playbookId_stage: { playbookId, stage: etapa.stage } },
-      create: { playbookId, stage: etapa.stage, goal, script, sortOrder: orden },
-      update: { goal, script, sortOrder: orden },
+      create: { playbookId, stage: etapa.stage, goal, script, sortOrder: orden, stuckAfterMessages: limite },
+      update: { goal, script, sortOrder: orden, stuckAfterMessages: limite },
     });
   }
 

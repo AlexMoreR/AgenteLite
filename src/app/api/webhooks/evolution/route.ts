@@ -84,6 +84,11 @@ import {
   readAdCampaignRouting,
 } from "@/lib/ad-campaign-routing";
 import { buildProductPlaybookPrompt, getProductPlaybook } from "@/lib/product-playbook";
+import {
+  evaluateFunnelSafetyNet,
+  funnelStageLabel,
+  toFunnelStage,
+} from "@/lib/funnel-safety-net";
 import { recordContactMatch } from "@/lib/contact-matches";
 import { buildConversationMatchContextNote, getLatestConversationMatch } from "@/lib/contact-matches";
 import { buildFlowExecutionContextNote, getConversationExecutedFlowSlugs, getFlowSlug } from "@/lib/flow-execution-history";
@@ -3026,6 +3031,93 @@ export async function POST(request: NextRequest) {
           );
           if (bloquePlaybook) {
             aiContextNotes.add(bloquePlaybook);
+          }
+
+          /**
+           * Red de seguridad del embudo.
+           *
+           * Cuenta cuantos mensajes lleva el cliente en la misma etapa y, pasado el numero que
+           * puso el dueño, avisa a un asesor. Es el limite que NO depende de lo que decida la IA:
+           * puede improvisar dentro de la etapa, pero no quedarse dando vueltas sin que nadie se
+           * entere. Al avanzar de etapa el contador se reinicia solo.
+           */
+          const etapaDelEmbudo = toFunnelStage(commercialStageResolution.currentStage);
+          const configEtapa = playbook.stages.find((etapa) => etapa.stage === etapaDelEmbudo);
+          const estadoEmbudo = await prisma.conversation.findUnique({
+            where: { id: conversation.id },
+            select: { funnelStage: true, funnelStageCount: true, funnelNotifiedAt: true },
+          });
+
+          const red = evaluateFunnelSafetyNet({
+            stageActual: etapaDelEmbudo,
+            guardado: {
+              stage: estadoEmbudo?.funnelStage ?? null,
+              count: estadoEmbudo?.funnelStageCount ?? 0,
+              notifiedAt: estadoEmbudo?.funnelNotifiedAt ?? null,
+            },
+            stuckAfterMessages: configEtapa?.stuckAfterMessages ?? null,
+          });
+
+          if (etapaDelEmbudo) {
+            await prisma.conversation.update({
+              where: { id: conversation.id },
+              data: {
+                funnelStage: red.next.stage,
+                funnelStageCount: red.next.count,
+                funnelNotifiedAt: red.next.notifiedAt,
+              },
+            });
+          }
+
+          if (red.debeNotificar && channel.evolutionInstanceName) {
+            const etapaNombre = funnelStageLabel(etapaDelEmbudo);
+            await sendNotificarAsesorNotification({
+              trainingConfig: agent.trainingConfig,
+              agentName: agent.name,
+              customerPhoneNumber: phoneNumber,
+              customerName: contact.name,
+              latestUserMessage: inboundTextForProcessing,
+              toolInput: {
+                motivo: `El lead lleva ${red.next.count} mensajes en la etapa "${etapaNombre}" sin avanzar`,
+                prioridad: "media",
+                resumen_cliente: `Producto: ${productoDelPlaybook.productName || "sin producto"}. Etapa: ${etapaNombre}.`,
+                ultimo_mensaje: inboundTextForProcessing,
+              },
+              sendMessage: async (destinationPhoneNumber, text) => {
+                if (!channel.evolutionInstanceName) {
+                  throw new Error("La instancia de Evolution no esta disponible");
+                }
+                return sendEvolutionTextMessageWithReconnect({
+                  instanceName: channel.evolutionInstanceName,
+                  phoneNumber: destinationPhoneNumber,
+                  text,
+                  delayMs: 0,
+                });
+              },
+            }).catch((error) => {
+              console.warn("[EVOLUTION] funnel_safety_net_notify_failed", {
+                conversationId: conversation.id,
+                error: error instanceof Error ? error.message : String(error),
+              });
+              return null;
+            });
+
+            // Queda escrito en la conversacion: la asesora que la abre entiende por que le
+            // llego el aviso sin tener que reconstruirlo.
+            await recordConversationActivity({
+              workspaceId: channel.workspaceId,
+              conversationId: conversation.id,
+              channelId: channel.id,
+              contactId: contact.id,
+              kind: "assigned",
+              text: `Se avisó a un asesor: ${red.next.count} mensajes en "${etapaNombre}" sin avanzar`,
+            }).catch(() => null);
+
+            console.log("[EVOLUTION] funnel_safety_net", {
+              conversationId: conversation.id,
+              stage: etapaDelEmbudo,
+              count: red.next.count,
+            });
           }
         } catch (error) {
           console.warn("[EVOLUTION] playbook_read_failed", {

@@ -17,7 +17,7 @@ export type ProductoV2Item = {
   playbookIdealCustomer: string;
   playbookCustomerPain: string;
   playbookPitch: string;
-  funnelStages: Array<{ stage: string; goal: string; script: string }>;
+  funnelStages: Array<{ stage: string; goal: string; script: string; stuckAfterMessages: number | null }>;
   /** El embudo que se muestra vino del agente y todavia no es del producto. */
   funnelFromAgent: boolean;
   /** Cuantos leads vivos estan parados en cada etapa. */
