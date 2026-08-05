@@ -1,6 +1,6 @@
 export type ProductoV2PlaybookRule = {
   id: string;
-  kind: "DECIR" | "NO_DECIR" | "OBJECION";
+  kind: "DECIR" | "NO_DECIR" | "OBJECION" | "BENEFICIO";
   trigger: string | null;
   text: string;
   source: string;
@@ -15,6 +15,7 @@ export type ProductoV2Item = {
   anchoredFlowTitle: string | null;
   /** El playbook de ventas: lo unico de esta pantalla que ya se guarda de verdad. */
   playbookIdealCustomer: string;
+  playbookCustomerPain: string;
   playbookPitch: string;
   playbookRules: ProductoV2PlaybookRule[];
 };

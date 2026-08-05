@@ -45,24 +45,33 @@ export function ProductPlaybookEditor({
   productId,
   productName,
   idealCustomer,
+  customerPain,
   pitch,
   rules,
 }: {
   productId: string;
   productName: string;
   idealCustomer: string;
+  customerPain: string;
   pitch: string;
   rules: ProductoV2PlaybookRule[];
 }) {
   const router = useRouter();
   const [perfil, setPerfil] = useState(idealCustomer);
+  const [dolor, setDolor] = useState(customerPain);
   const [texto, setTexto] = useState(pitch);
-  const [guardadoPrevio, setGuardadoPrevio] = useState({ perfil: idealCustomer, pitch });
+  const [guardadoPrevio, setGuardadoPrevio] = useState({
+    perfil: idealCustomer,
+    dolor: customerPain,
+    pitch,
+  });
   const [nuevaRegla, setNuevaRegla] = useState<Record<string, string>>({});
   const [objecion, setObjecion] = useState({ trigger: "", text: "" });
   const [ocupado, setOcupado] = useState(false);
 
   const objeciones = rules.filter((rule) => rule.kind === "OBJECION");
+  const beneficios = rules.filter((rule) => rule.kind === "BENEFICIO");
+  const [beneficio, setBeneficio] = useState({ trigger: "", text: "" });
 
   const guardarPitch = async () => {
     setOcupado(true);
@@ -71,12 +80,13 @@ export function ProductPlaybookEditor({
         productId,
         pitch: texto,
         idealCustomer: perfil,
+        customerPain: dolor,
       });
       if (result?.error) {
         toast.error(result.error);
         return;
       }
-      setGuardadoPrevio({ perfil, pitch: texto });
+      setGuardadoPrevio({ perfil, dolor, pitch: texto });
       toast.success("Guardado");
       router.refresh();
     } catch {
@@ -98,6 +108,9 @@ export function ProductPlaybookEditor({
       setNuevaRegla((actual) => ({ ...actual, [kind]: "" }));
       if (kind === "OBJECION") {
         setObjecion({ trigger: "", text: "" });
+      }
+      if (kind === "BENEFICIO") {
+        setBeneficio({ trigger: "", text: "" });
       }
       router.refresh();
     } catch {
@@ -179,6 +192,70 @@ export function ProductPlaybookEditor({
         </div>
 
         <div className="space-y-1.5">
+          <Label htmlFor="pv2-dolor">Qué le duele</Label>
+          <p className="-mt-1 text-xs text-muted-foreground">
+            El problema que lo trae. Es lo que se vende de verdad, no el producto.
+          </p>
+          <Textarea
+            id="pv2-dolor"
+            rows={3}
+            value={dolor}
+            onChange={(event) => setDolor(event.target.value)}
+            placeholder="Ej. su local se ve improvisado al lado de la competencia y pierde clientas…"
+          />
+        </div>
+
+        {/* Caracteristica → beneficio. Va antes del "como se vende" porque es la materia prima:
+            sin esto el agente recita ficha tecnica y el cliente no ve por que le conviene. */}
+        <div className="space-y-2">
+          <Label>Características y para qué le sirven</Label>
+          <p className="-mt-1 text-xs text-muted-foreground">
+            Lo que tiene y, al lado, qué gana el cliente con eso.
+          </p>
+          {beneficios.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              Ej. espaldar reclinable → puede atender faciales y masajes sin comprar otra camilla.
+            </p>
+          ) : (
+            <ul className="space-y-1.5">
+              {beneficios.map((rule) =>
+                filaRegla(
+                  rule,
+                  <>
+                    <b>{rule.trigger}</b> → {rule.text}
+                  </>,
+                ),
+              )}
+            </ul>
+          )}
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <Input
+              className="w-full sm:max-w-[220px]"
+              value={beneficio.trigger}
+              onChange={(event) => setBeneficio((actual) => ({ ...actual, trigger: event.target.value }))}
+              placeholder="Qué tiene…"
+            />
+            <Input
+              className="w-full sm:flex-1"
+              value={beneficio.text}
+              onChange={(event) => setBeneficio((actual) => ({ ...actual, text: event.target.value }))}
+              placeholder="Qué gana el cliente con eso…"
+            />
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="w-full sm:w-auto"
+              onClick={() => void agregar("BENEFICIO", beneficio.text, beneficio.trigger)}
+              disabled={ocupado}
+            >
+              <Plus className="h-4 w-4" />
+              Agregar
+            </Button>
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
           <Label htmlFor="pv2-pitch">Cómo se vende</Label>
           <Textarea
             id="pv2-pitch"
@@ -191,9 +268,11 @@ export function ProductPlaybookEditor({
             <Button type="button" size="sm" onClick={() => void guardarPitch()} disabled={ocupado}>
               Guardar
             </Button>
-            {texto !== guardadoPrevio.pitch || perfil !== guardadoPrevio.perfil ? (
+            {texto !== guardadoPrevio.pitch ||
+            perfil !== guardadoPrevio.perfil ||
+            dolor !== guardadoPrevio.dolor ? (
               <span className="text-xs text-amber-700 dark:text-amber-300">Sin guardar</span>
-            ) : guardadoPrevio.pitch || guardadoPrevio.perfil ? (
+            ) : guardadoPrevio.pitch || guardadoPrevio.perfil || guardadoPrevio.dolor ? (
               <span className="inline-flex items-center gap-1 text-xs text-emerald-700 dark:text-emerald-400">
                 <Check className="h-3.5 w-3.5" />
                 Guardado

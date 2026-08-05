@@ -45,6 +45,7 @@ export default async function ClienteProductoV2Page() {
       select: {
         productId: true,
         idealCustomer: true,
+        customerPain: true,
         pitch: true,
         rules: {
           where: { isActive: true },
@@ -74,10 +75,11 @@ export default async function ClienteProductoV2Page() {
       price: priceNumber > 0 ? priceNumber : null,
       anchoredFlowTitle,
       playbookIdealCustomer: playbook?.idealCustomer?.trim() || "",
+      playbookCustomerPain: playbook?.customerPain?.trim() || "",
       playbookPitch: playbook?.pitch?.trim() || "",
       playbookRules: (playbook?.rules ?? []).map((rule) => ({
         id: rule.id,
-        kind: rule.kind as "DECIR" | "NO_DECIR" | "OBJECION",
+        kind: rule.kind as "DECIR" | "NO_DECIR" | "OBJECION" | "BENEFICIO",
         trigger: rule.trigger,
         text: rule.text,
         source: rule.source,

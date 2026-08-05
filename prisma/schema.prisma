@@ -1121,6 +1121,9 @@ model ProductPlaybook {
   /// A quien le sirve este producto y a quien no. Es lo primero que cambia el tono: no se le
   /// habla igual a la dueña de un spa que a quien pregunta de curiosidad.
   idealCustomer String?
+  /// Que le duele a ese cliente. Es lo que se vende de verdad: nadie compra una camilla, compra
+  /// dejar de perder clientas porque el local se ve improvisado.
+  customerPain  String?
   /// Con que abrir y como llevar la conversacion de este producto.
   pitch       String?
   createdAt   DateTime              @default(now())

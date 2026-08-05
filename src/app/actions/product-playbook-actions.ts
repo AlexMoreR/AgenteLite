@@ -44,6 +44,7 @@ export async function saveProductPitchAction(input: {
   productId: string;
   pitch: string;
   idealCustomer?: string;
+  customerPain?: string;
 }): Promise<{ ok?: true; error?: string }> {
   const workspaceId = await getAccess();
   if (!workspaceId) {
@@ -68,6 +69,9 @@ export async function saveProductPitchAction(input: {
       ...(input.idealCustomer === undefined
         ? {}
         : { idealCustomer: input.idealCustomer.trim() || null }),
+      ...(input.customerPain === undefined
+        ? {}
+        : { customerPain: input.customerPain.trim() || null }),
     },
   });
 
@@ -101,6 +105,9 @@ export async function addProductPlaybookRuleAction(input: {
   if (kind === "OBJECION" && !trigger) {
     return { error: "Escribe que dice el cliente" };
   }
+  if (kind === "BENEFICIO" && !trigger) {
+    return { error: "Escribe la caracteristica" };
+  }
 
   const producto = await prisma.product.findUnique({ where: { id: productId }, select: { id: true } });
   if (!producto) {
@@ -118,7 +125,7 @@ export async function addProductPlaybookRuleAction(input: {
     data: {
       playbookId,
       kind,
-      trigger: kind === "OBJECION" ? trigger : null,
+      trigger: kind === "OBJECION" || kind === "BENEFICIO" ? trigger : null,
       text,
       sortOrder: (ultimo?.sortOrder ?? 0) + 1,
       source: input.source?.trim() || "manual",
