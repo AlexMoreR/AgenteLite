@@ -87,7 +87,5 @@ export default async function ClienteProductoV2Page() {
     };
   });
 
-  const allFlows = flowItems.map((flow) => ({ id: flow.id, title: flow.title }));
-
-  return <ProductoV2Workspace products={products} allFlows={allFlows} />;
+  return <ProductoV2Workspace products={products} />;
 }

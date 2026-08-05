@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PageHeader } from "@/components/ui/page-header";
-import type { ProductoV2Flow, ProductoV2Item } from "../types";
+import type { ProductoV2Item } from "../types";
 import { ProductPlaybookEditor } from "./ProductPlaybookEditor";
 
 function formatPrice(price: number | null): string {
@@ -26,13 +26,7 @@ type View = { mode: "list" } | { mode: "editor"; productId: string | null };
  * flujos, precio) todavia se lee de lo que existe y se muestra en solo lectura; por eso cada
  * seccion dice si se puede tocar o no, en vez de aparentar que si y no guardar nada.
  */
-export function ProductoV2Workspace({
-  products,
-  allFlows,
-}: {
-  products: ProductoV2Item[];
-  allFlows: ProductoV2Flow[];
-}) {
+export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }) {
   const [view, setView] = useState<View>({ mode: "list" });
 
   const selected =
@@ -123,63 +117,56 @@ export function ProductoV2Workspace({
         <PageHeader icon={ShoppingCart} title={isNew ? "Nuevo producto" : selected?.name ?? "Producto"} />
       </div>
 
+      {/*
+        Nombre y precio juntos y nada mas. Antes esto eran TRES tarjetas —Identidad, Tipo y
+        Precio— para dos datos: la "palabra distintiva" sale sola del nombre y el "tipo"
+        (vende / solo catalogo) sale solo de si hay precio. Eran la misma informacion escrita
+        de tres formas, y empujaban el playbook —lo unico que se edita— hasta el fondo.
+      */}
       <Card>
         <CardHeader className="pb-0">
-          <CardTitle className="text-sm">Identidad</CardTitle>
+          <CardTitle className="text-sm">Nombre del producto y precio</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="space-y-1.5">
-            <Label htmlFor="pv2-nombre">Nombre del producto</Label>
-            <Input id="pv2-nombre" value={selected?.name ?? ""} placeholder="Ej. Combo de camillas" readOnly />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Palabra distintiva</Label>
-            <p className="-mt-1 text-xs text-muted-foreground">
-              La usa el candado para no confundir este producto con otro.
-            </p>
-            {selected ? (
-              <Badge variant="secondary" className="font-mono font-normal">
-                #{selected.distinctiveWord}
-              </Badge>
-            ) : (
-              <p className="text-sm text-muted-foreground">Se saca sola del nombre al escribirlo.</p>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="pb-0">
-          <CardTitle className="text-sm">Tipo</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-2 sm:grid-cols-2">
-          {[
-            {
-              activo: Boolean(selected?.sells),
-              titulo: "Vende",
-              detalle: "Tiene precio y cierre. Es lo que se ancla desde el anuncio.",
-              icono: ShoppingCart,
-            },
-            {
-              activo: Boolean(selected && !selected.sells),
-              titulo: "Solo catálogo",
-              detalle: "Solo muestra opciones, sin precio.",
-              icono: FileText,
-            },
-          ].map((opcion) => (
-            <div
-              key={opcion.titulo}
-              className={`rounded-lg border p-3 ${
-                opcion.activo ? "border-primary bg-primary/5" : "border-border"
-              }`}
-            >
-              <p className="flex items-center gap-2 text-sm font-medium text-foreground">
-                <opcion.icono className="h-4 w-4" />
-                {opcion.titulo}
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">{opcion.detalle}</p>
+          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_200px]">
+            <div className="space-y-1.5">
+              <Label htmlFor="pv2-nombre">Nombre</Label>
+              <Input id="pv2-nombre" value={selected?.name ?? ""} placeholder="Ej. Combo de camillas" readOnly />
             </div>
-          ))}
+            <div className="space-y-1.5">
+              <Label htmlFor="pv2-precio">Precio</Label>
+              <Input
+                id="pv2-precio"
+                value={selected?.sells ? formatPrice(selected.price) : ""}
+                placeholder="Sin precio"
+                readOnly
+              />
+            </div>
+          </div>
+
+          {/* Vende / Solo catalogo: en fila tambien en el celular, porque son dos palabras.
+              Apiladas ocupaban media pantalla para decir una sola cosa. */}
+          <div className="space-y-1.5">
+            <Label>Tipo</Label>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { activo: Boolean(selected?.sells), titulo: "Vende", icono: ShoppingCart },
+                { activo: Boolean(selected && !selected.sells), titulo: "Solo catálogo", icono: FileText },
+              ].map((opcion) => (
+                <div
+                  key={opcion.titulo}
+                  className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm ${
+                    opcion.activo
+                      ? "border-primary bg-primary/5 font-medium text-foreground"
+                      : "border-border text-muted-foreground"
+                  }`}
+                >
+                  <opcion.icono className="h-4 w-4 shrink-0" />
+                  <span className="truncate">{opcion.titulo}</span>
+                </div>
+              ))}
+            </div>
+          </div>
         </CardContent>
       </Card>
 
@@ -193,33 +180,11 @@ export function ProductoV2Workspace({
               <Paperclip className="h-4 w-4 shrink-0 text-muted-foreground" />
               <div className="min-w-0">
                 <p className="truncate text-sm text-foreground">{selected.anchoredFlowTitle}</p>
-                <p className="text-xs text-muted-foreground">se ejecuta cuando el cliente lo pide</p>
+                <p className="text-xs text-muted-foreground">cuando el cliente lo pide</p>
               </div>
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">Todavía no hay un flujo anclado.</p>
-          )}
-          <p className="text-xs text-muted-foreground">
-            Hay {allFlows.length} flujos disponibles para anclar. Un mismo flujo se puede anclar a
-            varios productos.
-          </p>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="pb-0">
-          <CardTitle className="text-sm">Precio y cierre</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {selected?.sells ? (
-            <div className="space-y-1.5">
-              <Label htmlFor="pv2-precio">Precio</Label>
-              <Input id="pv2-precio" value={formatPrice(selected.price)} readOnly />
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              {selected ? "Este producto es «solo catálogo»: no tiene precio." : "Solo si el producto vende."}
-            </p>
           )}
         </CardContent>
       </Card>
@@ -227,7 +192,6 @@ export function ProductoV2Workspace({
       {selected ? (
         <ProductPlaybookEditor
           productId={selected.id}
-          productName={selected.name}
           idealCustomer={selected.playbookIdealCustomer}
           customerPain={selected.playbookCustomerPain}
           pitch={selected.playbookPitch}

@@ -43,14 +43,12 @@ const GRUPOS = [
 
 export function ProductPlaybookEditor({
   productId,
-  productName,
   idealCustomer,
   customerPain,
   pitch,
   rules,
 }: {
   productId: string;
-  productName: string;
   idealCustomer: string;
   customerPain: string;
   pitch: string;
@@ -170,18 +168,11 @@ export function ProductPlaybookEditor({
             Lo lee el agente
           </Badge>
         </div>
-        <p className="text-xs text-muted-foreground">
-          Lo que aprendiste vendiendo <b>{productName}</b>. El agente lo aplica en la próxima
-          respuesta: no hace falta volver a publicarlo.
-        </p>
       </CardHeader>
 
       <CardContent className="space-y-5">
         <div className="space-y-1.5">
           <Label htmlFor="pv2-perfil">Cliente ideal</Label>
-          <p className="-mt-1 text-xs text-muted-foreground">
-            A quién le sirve y a quién no. Es lo que le cambia el tono a todo lo demás.
-          </p>
           <Textarea
             id="pv2-perfil"
             rows={3}
@@ -193,9 +184,6 @@ export function ProductPlaybookEditor({
 
         <div className="space-y-1.5">
           <Label htmlFor="pv2-dolor">Qué le duele</Label>
-          <p className="-mt-1 text-xs text-muted-foreground">
-            El problema que lo trae. Es lo que se vende de verdad, no el producto.
-          </p>
           <Textarea
             id="pv2-dolor"
             rows={3}
@@ -209,9 +197,6 @@ export function ProductPlaybookEditor({
             sin esto el agente recita ficha tecnica y el cliente no ve por que le conviene. */}
         <div className="space-y-2">
           <Label>Características y para qué le sirven</Label>
-          <p className="-mt-1 text-xs text-muted-foreground">
-            Lo que tiene y, al lado, qué gana el cliente con eso.
-          </p>
           {beneficios.length === 0 ? (
             <p className="text-xs text-muted-foreground">
               Ej. espaldar reclinable → puede atender faciales y masajes sin comprar otra camilla.
@@ -318,9 +303,6 @@ export function ProductPlaybookEditor({
 
         <div className="space-y-2">
           <Label>Objeciones</Label>
-          <p className="-mt-1 text-xs text-muted-foreground">
-            Lo que dice el cliente y qué contestarle.
-          </p>
           {objeciones.length === 0 ? (
             <p className="text-xs text-muted-foreground">
               Ej. dice «está caro» → recordarle que el combo trae 4 piezas y cuánto costarían por
