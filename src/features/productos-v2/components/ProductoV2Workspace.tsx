@@ -21,6 +21,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import type { ProductoV2Item } from "../types";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ProductFunnelEditor } from "./ProductFunnelEditor";
+import { ProductInsightsCard } from "./ProductInsightsCard";
 import { ProductObjectionsEditor } from "./ProductObjectionsEditor";
 import { ProductPlaybookEditor } from "./ProductPlaybookEditor";
 
@@ -233,12 +234,18 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
 
         <TabsContent value="embudo" className="pt-4">
           {selected ? (
-            <ProductFunnelEditor
-              productId={selected.id}
-              stages={selected.funnelStages}
-              vienenDelAgente={selected.funnelFromAgent}
-              avance={selected.leadProgress}
-            />
+            <div className="space-y-4">
+              <ProductFunnelEditor
+                productId={selected.id}
+                stages={selected.funnelStages}
+                vienenDelAgente={selected.funnelFromAgent}
+                avance={selected.leadProgress}
+              />
+              <ProductInsightsCard
+                productId={selected.id}
+                resumen={selected.insights ?? { leidas: 0, pendientes: 0, porMotivo: [], ejemplos: [] }}
+              />
+            </div>
           ) : null}
         </TabsContent>
 

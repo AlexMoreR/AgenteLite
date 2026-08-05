@@ -27,6 +27,13 @@ export type ProductoV2Item = {
     larga: number;
     total: number;
   } | null;
+  /** Lo que la IA leyo en las conversaciones de este producto. */
+  insights: {
+    leidas: number;
+    pendientes: number;
+    porMotivo: Array<{ motivo: string; cantidad: number }>;
+    ejemplos: Array<{ conversationId: string; summary: string; motivo: string | null }>;
+  } | null;
   playbookRules: ProductoV2PlaybookRule[];
 };
 

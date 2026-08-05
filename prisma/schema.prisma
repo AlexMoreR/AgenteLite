@@ -1196,3 +1196,36 @@ model ProductFunnelStage {
   @@unique([playbookId, stage])
   @@index([playbookId, sortOrder])
 }
+
+/// Lo que paso en una conversacion, leido por la IA y guardado.
+///
+/// El CRM sabe quien escribio y cuando, pero no QUE pidio ni POR QUE se cayo. Eso vivia solo en el
+/// texto del chat: para saberlo habia que abrirlo y leerlo entero, de a uno. Aca queda escrito una
+/// vez y despues se puede contar, agrupar y mirar de a cientos.
+model ConversationInsight {
+  id             String   @id @default(cuid())
+  workspaceId    String
+  conversationId String   @unique
+  productId      String?
+  /// Que pidio, en palabras del cliente.
+  requested      String?
+  /// "VIVO" | "MUERTO" | "GANADO". Texto y no enum: sumar un estado no deberia migrar la base.
+  status         String
+  /// En cual de las cinco etapas del embudo quedo.
+  stage          String?
+  /// Por que se cayo: precio, envio, no contesto, no lo vendemos, el bot no supo, otro.
+  lostReason     String?
+  /// Lo ultimo que le dijimos antes del silencio. Es la frase a corregir.
+  lastOutbound   String?
+  /// Una linea para leer sin abrir el chat.
+  summary        String?
+  /// Cuantos mensajes tenia la conversacion cuando se leyo: si crecio, hay que volver a leerla.
+  messageCount   Int      @default(0)
+  model          String?
+  analyzedAt     DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([workspaceId, productId, status])
+  @@index([workspaceId, lostReason])
+}

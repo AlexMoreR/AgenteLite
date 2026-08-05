@@ -2,6 +2,7 @@ import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowItems";
 import { prisma } from "@/lib/prisma";
 import { ProductoV2Workspace } from "@/features/productos-v2/components/ProductoV2Workspace";
+import { getProductInsights } from "@/features/productos-v2/services/getProductInsights";
 import { getProductLeadProgress } from "@/features/productos-v2/services/getProductLeadProgress";
 import type { ProductoV2Item } from "@/features/productos-v2/types";
 
@@ -75,6 +76,19 @@ export default async function ClienteProductoV2Page() {
     productIds: productRows.map((product) => product.id),
   });
 
+  // Lo que la IA leyo en las conversaciones de cada producto.
+  const insightsPorProducto = new Map(
+    await Promise.all(
+      productRows.map(async (product) => {
+        const resumen = await getProductInsights({
+          workspaceId: access.workspaceId,
+          productId: product.id,
+        });
+        return [product.id, resumen] as const;
+      }),
+    ),
+  );
+
   const flowTitleById = new Map(flowItems.map((flow) => [flow.id, flow.title] as const));
 
   const products: ProductoV2Item[] = productRows.map((product) => {
@@ -124,6 +138,7 @@ export default async function ClienteProductoV2Page() {
       funnelStages: tieneEmbudoPropio ? etapasGuardadas : embudoDelAgente,
       funnelFromAgent: !tieneEmbudoPropio && embudoDelAgente.length > 0,
       leadProgress: avancePorProducto.get(product.id) ?? null,
+      insights: insightsPorProducto.get(product.id) ?? null,
       playbookRules: (playbook?.rules ?? []).map((rule) => ({
         id: rule.id,
         kind: rule.kind as "DECIR" | "NO_DECIR" | "OBJECION" | "BENEFICIO",
