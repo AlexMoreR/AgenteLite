@@ -14,6 +14,7 @@ export type ProductoV2Item = {
   price: number | null;
   anchoredFlowTitle: string | null;
   /** El playbook de ventas: lo unico de esta pantalla que ya se guarda de verdad. */
+  playbookIdealCustomer: string;
   playbookPitch: string;
   playbookRules: ProductoV2PlaybookRule[];
 };

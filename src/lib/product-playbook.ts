@@ -28,6 +28,7 @@ export type ProductPlaybookRuleItem = {
 
 export type ProductPlaybookData = {
   productId: string;
+  idealCustomer: string;
   pitch: string;
   rules: ProductPlaybookRuleItem[];
 };
@@ -41,6 +42,7 @@ export async function getProductPlaybook(input: {
       workspaceId_productId: { workspaceId: input.workspaceId, productId: input.productId },
     },
     select: {
+      idealCustomer: true,
       pitch: true,
       rules: {
         where: { isActive: true },
@@ -60,6 +62,7 @@ export async function getProductPlaybook(input: {
 
   return {
     productId: input.productId,
+    idealCustomer: playbook?.idealCustomer?.trim() || "",
     pitch: playbook?.pitch?.trim() || "",
     rules: (playbook?.rules ?? [])
       .filter((rule) => isPlaybookRuleKind(rule.kind))
@@ -90,12 +93,22 @@ export function buildProductPlaybookPrompt(
   const noDecir = playbook.rules.filter((rule) => rule.kind === "NO_DECIR");
   const objeciones = playbook.rules.filter((rule) => rule.kind === "OBJECION");
 
-  if (!playbook.pitch && decir.length === 0 && noDecir.length === 0 && objeciones.length === 0) {
+  if (
+    !playbook.idealCustomer &&
+    !playbook.pitch &&
+    decir.length === 0 &&
+    noDecir.length === 0 &&
+    objeciones.length === 0
+  ) {
     return "";
   }
 
   const bloques: string[] = [`PLAYBOOK DE VENTAS DE "${productName}"`];
 
+  if (playbook.idealCustomer) {
+    // Primero a quien le hablamos: cambia el tono de todo lo que sigue.
+    bloques.push(`A quien le sirve este producto:\n${playbook.idealCustomer}`);
+  }
   if (playbook.pitch) {
     bloques.push(`Como vender este producto:\n${playbook.pitch}`);
   }

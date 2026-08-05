@@ -228,6 +228,7 @@ export function ProductoV2Workspace({
         <ProductPlaybookEditor
           productId={selected.id}
           productName={selected.name}
+          idealCustomer={selected.playbookIdealCustomer}
           pitch={selected.playbookPitch}
           rules={selected.playbookRules}
         />

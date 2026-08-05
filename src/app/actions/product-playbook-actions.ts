@@ -43,6 +43,7 @@ async function ensurePlaybook(workspaceId: string, productId: string) {
 export async function saveProductPitchAction(input: {
   productId: string;
   pitch: string;
+  idealCustomer?: string;
 }): Promise<{ ok?: true; error?: string }> {
   const workspaceId = await getAccess();
   if (!workspaceId) {
@@ -62,7 +63,12 @@ export async function saveProductPitchAction(input: {
   const playbookId = await ensurePlaybook(workspaceId, productId);
   await prisma.productPlaybook.update({
     where: { id: playbookId },
-    data: { pitch: input.pitch.trim() || null },
+    data: {
+      pitch: input.pitch.trim() || null,
+      ...(input.idealCustomer === undefined
+        ? {}
+        : { idealCustomer: input.idealCustomer.trim() || null }),
+    },
   });
 
   revalidatePath("/cliente/productos-v2");

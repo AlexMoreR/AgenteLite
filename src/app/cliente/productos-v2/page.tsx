@@ -44,6 +44,7 @@ export default async function ClienteProductoV2Page() {
       where: { workspaceId: access.workspaceId },
       select: {
         productId: true,
+        idealCustomer: true,
         pitch: true,
         rules: {
           where: { isActive: true },
@@ -72,6 +73,7 @@ export default async function ClienteProductoV2Page() {
       sells: priceNumber > 0,
       price: priceNumber > 0 ? priceNumber : null,
       anchoredFlowTitle,
+      playbookIdealCustomer: playbook?.idealCustomer?.trim() || "",
       playbookPitch: playbook?.pitch?.trim() || "",
       playbookRules: (playbook?.rules ?? []).map((rule) => ({
         id: rule.id,

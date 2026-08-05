@@ -1118,6 +1118,9 @@ model ProductPlaybook {
   id          String                @id @default(cuid())
   workspaceId String
   productId   String
+  /// A quien le sirve este producto y a quien no. Es lo primero que cambia el tono: no se le
+  /// habla igual a la dueña de un spa que a quien pregunta de curiosidad.
+  idealCustomer String?
   /// Con que abrir y como llevar la conversacion de este producto.
   pitch       String?
   createdAt   DateTime              @default(now())

@@ -44,17 +44,20 @@ const GRUPOS = [
 export function ProductPlaybookEditor({
   productId,
   productName,
+  idealCustomer,
   pitch,
   rules,
 }: {
   productId: string;
   productName: string;
+  idealCustomer: string;
   pitch: string;
   rules: ProductoV2PlaybookRule[];
 }) {
   const router = useRouter();
+  const [perfil, setPerfil] = useState(idealCustomer);
   const [texto, setTexto] = useState(pitch);
-  const [pitchGuardado, setPitchGuardado] = useState(pitch);
+  const [guardadoPrevio, setGuardadoPrevio] = useState({ perfil: idealCustomer, pitch });
   const [nuevaRegla, setNuevaRegla] = useState<Record<string, string>>({});
   const [objecion, setObjecion] = useState({ trigger: "", text: "" });
   const [ocupado, setOcupado] = useState(false);
@@ -64,12 +67,16 @@ export function ProductPlaybookEditor({
   const guardarPitch = async () => {
     setOcupado(true);
     try {
-      const result = await saveProductPitchAction({ productId, pitch: texto });
+      const result = await saveProductPitchAction({
+        productId,
+        pitch: texto,
+        idealCustomer: perfil,
+      });
       if (result?.error) {
         toast.error(result.error);
         return;
       }
-      setPitchGuardado(texto);
+      setGuardadoPrevio({ perfil, pitch: texto });
       toast.success("Guardado");
       router.refresh();
     } catch {
@@ -158,6 +165,20 @@ export function ProductPlaybookEditor({
 
       <CardContent className="space-y-5">
         <div className="space-y-1.5">
+          <Label htmlFor="pv2-perfil">Cliente ideal</Label>
+          <p className="-mt-1 text-xs text-muted-foreground">
+            A quién le sirve y a quién no. Es lo que le cambia el tono a todo lo demás.
+          </p>
+          <Textarea
+            id="pv2-perfil"
+            rows={3}
+            value={perfil}
+            onChange={(event) => setPerfil(event.target.value)}
+            placeholder="Ej. dueñas de spa o salón que están montando o renovando, con local propio…"
+          />
+        </div>
+
+        <div className="space-y-1.5">
           <Label htmlFor="pv2-pitch">Cómo se vende</Label>
           <Textarea
             id="pv2-pitch"
@@ -170,9 +191,9 @@ export function ProductPlaybookEditor({
             <Button type="button" size="sm" onClick={() => void guardarPitch()} disabled={ocupado}>
               Guardar
             </Button>
-            {texto !== pitchGuardado ? (
+            {texto !== guardadoPrevio.pitch || perfil !== guardadoPrevio.perfil ? (
               <span className="text-xs text-amber-700 dark:text-amber-300">Sin guardar</span>
-            ) : pitchGuardado ? (
+            ) : guardadoPrevio.pitch || guardadoPrevio.perfil ? (
               <span className="inline-flex items-center gap-1 text-xs text-emerald-700 dark:text-emerald-400">
                 <Check className="h-3.5 w-3.5" />
                 Guardado
