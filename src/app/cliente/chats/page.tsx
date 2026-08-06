@@ -1098,6 +1098,13 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       />
 
       <SharedInbox
+        /*
+         * La lista de chats se arma UNA vez al montar y despues vive del lado del cliente (para
+         * que el realtime la mueva sin recargar). Al cambiar de filtro eso jugaba en contra:
+         * seguian a la vista los chats del filtro anterior mientras "Mias 1" ya decia 1. Con la
+         * clave, cambiar de filtro rearma la lista desde cero y no queda nada viejo.
+         */
+        key={`${assignedFilter}|${statusFilter}|${selectedConnectionKey}`}
         searchAction="/cliente/chats"
         selectedConversationId={selectedUnified?.key ?? ""}
         mobileConversationActive={Boolean(selectedChatKeyParam)}
