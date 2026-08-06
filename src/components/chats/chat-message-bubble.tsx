@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import {
@@ -34,6 +34,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { SharedInboxMessageItem } from "./chat-inbox-types";
 import {
@@ -146,6 +147,170 @@ function getMessageReplyPreview(message: SharedInboxMessageItem): { author: stri
   return null;
 }
 
+function copyMessageText(message: SharedInboxMessageItem) {
+  const text = (message.content ?? "").trim();
+  if (!text) {
+    toast.info("Este mensaje no tiene texto para copiar");
+    return;
+  }
+  if (!navigator.clipboard?.writeText) {
+    toast.error("Tu navegador no permite copiar");
+    return;
+  }
+  void navigator.clipboard
+    .writeText(text)
+    .then(() => toast.success("Mensaje copiado"))
+    .catch(() => toast.error("No se pudo copiar el mensaje"));
+}
+
+// En el celular no hay hover: la flecha del menu nunca aparece. Igual que en
+// WhatsApp, se mantiene apretada la burbuja y sube la hoja de acciones.
+const LONG_PRESS_MS = 450;
+const LONG_PRESS_MOVE_TOLERANCE = 10;
+
+function useLongPress(onLongPress: () => void, enabled: boolean) {
+  const timerRef = useRef<number | null>(null);
+  const originRef = useRef<{ x: number; y: number } | null>(null);
+  // Un long press termina en "click" cuando el dedo se levanta: hay que tragarselo
+  // o abrir la hoja tambien abriria la foto / el documento de abajo.
+  const firedRef = useRef(false);
+
+  const cancel = useCallback(() => {
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    originRef.current = null;
+  }, []);
+
+  useEffect(() => cancel, [cancel]);
+
+  const handlePointerDown = useCallback(
+    (event: React.PointerEvent) => {
+      // Solo dedo: con mouse manda el menu de hover de siempre.
+      if (!enabled || event.pointerType !== "touch" || !event.isPrimary) {
+        return;
+      }
+      cancel();
+      firedRef.current = false;
+      originRef.current = { x: event.clientX, y: event.clientY };
+      timerRef.current = window.setTimeout(() => {
+        timerRef.current = null;
+        originRef.current = null;
+        firedRef.current = true;
+        onLongPress();
+      }, LONG_PRESS_MS);
+    },
+    [cancel, enabled, onLongPress],
+  );
+
+  const handlePointerMove = useCallback(
+    (event: React.PointerEvent) => {
+      const origin = originRef.current;
+      if (!origin) {
+        return;
+      }
+      // Si el dedo se movio, estaba scrolleando la conversacion, no apretando.
+      if (
+        Math.abs(event.clientX - origin.x) > LONG_PRESS_MOVE_TOLERANCE ||
+        Math.abs(event.clientY - origin.y) > LONG_PRESS_MOVE_TOLERANCE
+      ) {
+        cancel();
+      }
+    },
+    [cancel],
+  );
+
+  const handleClickCapture = useCallback((event: React.MouseEvent) => {
+    if (!firedRef.current) {
+      return;
+    }
+    firedRef.current = false;
+    event.preventDefault();
+    event.stopPropagation();
+  }, []);
+
+  const handleContextMenu = useCallback((event: React.MouseEvent) => {
+    // Android abre su propio menu de seleccion al mantener apretado: estorba.
+    if (originRef.current || firedRef.current) {
+      event.preventDefault();
+    }
+  }, []);
+
+  return {
+    onPointerDown: handlePointerDown,
+    onPointerMove: handlePointerMove,
+    onPointerUp: cancel,
+    onPointerCancel: cancel,
+    onClickCapture: handleClickCapture,
+    onContextMenu: handleContextMenu,
+  };
+}
+
+function MessageTouchActionsSheet({
+  message,
+  open,
+  onOpenChange,
+  onReply,
+  onForward,
+  onDelete,
+}: {
+  message: SharedInboxMessageItem;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onReply?: (message: SharedInboxMessageItem) => void;
+  onForward?: (message: SharedInboxMessageItem) => void;
+  onDelete?: (message: SharedInboxMessageItem) => void;
+}) {
+  // Se cierra primero y despues se actua: Eliminar levanta un confirm() del
+  // navegador y pelearia con el foco atrapado de la hoja.
+  const run = (action?: () => void) => () => {
+    onOpenChange(false);
+    if (action) {
+      window.setTimeout(action, 10);
+    }
+  };
+
+  const preview = (message.content ?? "").trim() || getMediaPreviewLabel(message.type) || "Mensaje";
+
+  const acciones = [
+    { label: "Responder", icon: Reply, onClick: onReply ? () => onReply(message) : undefined },
+    { label: "Reenviar", icon: Forward, onClick: onForward ? () => onForward(message) : undefined },
+    { label: "Copiar", icon: Copy, onClick: () => copyMessageText(message) },
+    { label: "Eliminar", icon: Trash2, onClick: onDelete ? () => onDelete(message) : undefined, destructive: true },
+  ];
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        side="bottom"
+        showCloseButton={false}
+        className="gap-0 rounded-t-2xl pb-[max(env(safe-area-inset-bottom),0.75rem)]"
+      >
+        <SheetTitle className="sr-only">Opciones del mensaje</SheetTitle>
+        <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-border" />
+        <p className="truncate px-4 pb-2 pt-3 text-xs text-muted-foreground">{preview}</p>
+        <div className="border-t border-border">
+          {acciones.map(({ label, icon: Icon, onClick, destructive }) => (
+            <button
+              key={label}
+              type="button"
+              disabled={!onClick}
+              onClick={run(onClick)}
+              className={`flex w-full items-center gap-3 px-4 py-3.5 text-left text-[15px] active:bg-muted disabled:opacity-40 ${
+                destructive ? "text-destructive" : "text-foreground"
+              }`}
+            >
+              <Icon className="size-[18px] shrink-0" />
+              {label}
+            </button>
+          ))}
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
 // Menu de acciones del mensaje (estilo WhatsApp): flecha que aparece al pasar el
 // mouse y abre las opciones. "Copiar" y "Responder" funcionan; el resto se
 // implementa por partes (varias requieren backend: Evolution API + schema + realtime).
@@ -168,21 +333,7 @@ function MessageActionsMenu({
   // cliente) para evitarlo sin setState dentro de un efecto.
   const mounted = useSyncExternalStore(subscribeNoop, getMountedClient, getMountedServer);
 
-  const handleCopy = () => {
-    const text = (message.content ?? "").trim();
-    if (!text) {
-      toast.info("Este mensaje no tiene texto para copiar");
-      return;
-    }
-    if (!navigator.clipboard?.writeText) {
-      toast.error("Tu navegador no permite copiar");
-      return;
-    }
-    void navigator.clipboard
-      .writeText(text)
-      .then(() => toast.success("Mensaje copiado"))
-      .catch(() => toast.error("No se pudo copiar el mensaje"));
-  };
+  const handleCopy = () => copyMessageText(message);
 
   const pending = (label: string) => () => toast.info(`${label}: disponible próximamente`);
 
@@ -346,6 +497,15 @@ export const MessageBubble = memo(function MessageBubble({
   const replyPreview = useMemo(() => getMessageReplyPreview(message), [message]);
   const activity = isActivityMessage(message);
 
+  // Acciones del mensaje: menu de hover en escritorio, hoja al mantener apretado en el celular.
+  const [isTouchMenuOpen, setIsTouchMenuOpen] = useState(false);
+  const tieneAcciones = !isDeleted && !callSummary;
+  const abrirMenuTactil = useCallback(() => {
+    navigator.vibrate?.(15);
+    setIsTouchMenuOpen(true);
+  }, []);
+  const longPress = useLongPress(abrirMenuTactil, tieneAcciones);
+
   return (
     <div
       className="space-y-2.5 md:space-y-3"
@@ -376,14 +536,25 @@ export const MessageBubble = memo(function MessageBubble({
       ) : (
       <div className={`flex ${outbound ? "justify-end" : "justify-start"}`}>
         <div
-          className={`group/bubble relative max-w-[88%] rounded-[8px] px-[7px] py-[6px] text-[14px] leading-5 shadow-[0_1px_1px_rgba(15,23,42,0.14)] md:max-w-[72%] ${
+          {...longPress}
+          className={`group/bubble relative max-w-[88%] rounded-[8px] px-[7px] py-[6px] text-[14px] leading-5 shadow-[0_1px_1px_rgba(15,23,42,0.14)] [-webkit-touch-callout:none] md:max-w-[72%] [@media(pointer:coarse)]:select-none ${
             outbound
               ? "rounded-tr-[3px] bg-[#d9fdd3] text-[#111b21]"
               : "rounded-tl-[3px] border border-border bg-card text-[#111b21] dark:text-foreground"
-          }`}
+          } ${isTouchMenuOpen ? "ring-2 ring-[var(--primary)]/40" : ""}`}
         >
-          {!isDeleted && !callSummary ? (
-            <MessageActionsMenu message={message} outbound={outbound} onReply={onReply} onForward={onForward} onDelete={onDelete} />
+          {tieneAcciones ? (
+            <>
+              <MessageActionsMenu message={message} outbound={outbound} onReply={onReply} onForward={onForward} onDelete={onDelete} />
+              <MessageTouchActionsSheet
+                message={message}
+                open={isTouchMenuOpen}
+                onOpenChange={setIsTouchMenuOpen}
+                onReply={onReply}
+                onForward={onForward}
+                onDelete={onDelete}
+              />
+            </>
           ) : null}
           {replyPreview ? (
             <div
