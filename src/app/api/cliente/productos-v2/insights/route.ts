@@ -127,9 +127,17 @@ export async function POST(request: Request) {
         continue;
       }
 
+      // El ultimo mensaje que el CLIENTE realmente vio. Los de tipo SYSTEM son notas nuestras
+      // ("Magilus cambio la etapa a Frio", auto-asignaciones): guardarlos como "lo ultimo que
+      // dijimos" ensucia justo el dato que sirve para saber que frase corregir.
       const ultimoNuestro = [...mensajes]
         .reverse()
-        .find((mensaje) => mensaje.direction === "OUTBOUND" && (mensaje.content ?? "").trim());
+        .find(
+          (mensaje) =>
+            mensaje.direction === "OUTBOUND" &&
+            mensaje.type !== "SYSTEM" &&
+            (mensaje.content ?? "").trim(),
+        );
 
       // El estado lo decide la regla de los dias, salvo que la IA haya visto una compra
       // confirmada: eso si esta en el texto y la regla no puede saberlo.

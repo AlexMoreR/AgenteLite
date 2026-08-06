@@ -84,7 +84,7 @@ export async function getProductInsights(input: {
        */
       prisma.$queryRaw<Array<{ frase: string; total: bigint }>>(Prisma.sql`
         SELECT
-          left(regexp_replace("lastOutbound", '^[^\n]*\*[^\n]*\n', ''), 90) AS frase,
+          left(regexp_replace("lastOutbound", '^[^\\n]*[*][^\\n]*\\n', ''), 90) AS frase,
           COUNT(*) AS total
         FROM "ConversationInsight"
         WHERE "workspaceId" = ${input.workspaceId}

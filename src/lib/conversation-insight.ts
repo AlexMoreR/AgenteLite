@@ -165,7 +165,9 @@ export async function saveConversationInsight(input: {
     status: input.resultado.status,
     stage: input.resultado.stage,
     lostReason: input.resultado.lostReason,
-    lastOutbound: input.lastOutbound?.slice(0, 400) ?? null,
+    // Se normaliza al guardar: venian con saltos y retornos de carro que partian la misma frase
+    // en variantes distintas al agrupar.
+    lastOutbound: input.lastOutbound?.replace(/\s+/g, " ").trim().slice(0, 400) || null,
     summary: input.resultado.summary || null,
     messageCount: input.messageCount,
     model: input.model,
