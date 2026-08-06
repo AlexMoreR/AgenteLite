@@ -132,7 +132,7 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
     <div className="space-y-4 p-4 sm:p-6">
       {/* Volver y nombre en la misma linea: la palabra "Productos" arriba del titulo era un
           renglon entero para decir lo que la flecha ya dice. */}
-      <div className="flex items-center gap-1">
+      <div className="flex min-w-0 items-center gap-1">
         <Button
           type="button"
           variant="ghost"
@@ -159,26 +159,31 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
         ve deja de existir, y "sin escribir" es justo lo que hay que ver.
       */}
       <Tabs defaultValue="embudo">
-        <TabsList variant="line">
-          <TabsTrigger value="producto">
+        {/*
+          La fila de pestañas se desliza sola en el celular en vez de empujar la pantalla entera a
+          lo ancho: sin esto, cuatro pestañas con sus numeros no entran en 360px y quedaba el
+          titulo cortado y la pagina corrida de lado.
+        */}
+        <TabsList variant="line" className="-mx-4 max-w-[calc(100%+2rem)] overflow-x-auto px-4 sm:mx-0 sm:max-w-full sm:px-0">
+          <TabsTrigger value="producto" className="shrink-0 whitespace-nowrap">
             <ShoppingCart className="size-4" />
             Producto
           </TabsTrigger>
-          <TabsTrigger value="embudo">
+          <TabsTrigger value="embudo" className="shrink-0 whitespace-nowrap">
             <Split className="size-4" />
             Embudo
             <span className={etapasEscritas === 5 ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}>
               {etapasEscritas}/5
             </span>
           </TabsTrigger>
-          <TabsTrigger value="playbook">
+          <TabsTrigger value="playbook" className="shrink-0 whitespace-nowrap">
             <BookOpen className="size-4" />
             Playbook
             {reglasPlaybook > 0 ? (
               <span className="text-muted-foreground">{reglasPlaybook}</span>
             ) : null}
           </TabsTrigger>
-          <TabsTrigger value="objeciones">
+          <TabsTrigger value="objeciones" className="shrink-0 whitespace-nowrap">
             <MessageCircleQuestion className="size-4" />
             Objeciones
             {objeciones > 0 ? <span className="text-muted-foreground">{objeciones}</span> : null}
