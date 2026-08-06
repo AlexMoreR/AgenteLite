@@ -543,6 +543,40 @@ export async function publishAgentV2Action(input: {
     );
   };
 
+  /**
+   * El embudo escrito en Producto V2 MANDA sobre el del diagrama.
+   *
+   * Tenerlo en dos lugares era administrar una contradiccion: el texto de uno y la ejecucion de
+   * flujos del otro. Ahora, si el producto tiene su embudo escrito, ese es el que se compila —y
+   * por lo tanto el que ve el escaneo de referencias /flujo, que es lo unico que dispara un flujo
+   * de forma determinista. Si no lo tiene, se sigue usando el del diagrama y no cambia nada.
+   */
+  const embudosDelProducto = new Map<string, Record<string, { goal: string; script: string }>>();
+  try {
+    const filas = await prisma.productPlaybook.findMany({
+      where: { workspaceId },
+      select: {
+        productId: true,
+        stages: { select: { stage: true, goal: true, script: true } },
+      },
+    });
+    for (const fila of filas) {
+      const porEtapa: Record<string, { goal: string; script: string }> = {};
+      for (const etapa of fila.stages) {
+        const goal = etapa.goal?.trim() || "";
+        const script = etapa.script?.trim() || "";
+        if (goal || script) {
+          porEtapa[etapa.stage] = { goal, script };
+        }
+      }
+      if (Object.keys(porEtapa).length > 0) {
+        embudosDelProducto.set(fila.productId, porEtapa);
+      }
+    }
+  } catch {
+    // Sin embudos propios se sigue con el del diagrama: publicar nunca puede fallar por esto.
+  }
+
   // 1) Upsert de knowledge products desde los nodos Producto.
   const graphProductIds: string[] = [];
   if (consultProducts) {
@@ -552,20 +586,37 @@ export async function publishAgentV2Action(input: {
         continue;
       }
       graphProductIds.push(productId);
-      const useFunnel = node.data?.useFunnel === true;
-      const opening = useFunnel ? textForStage(node.id, "empresa") : "";
-      const qualification = useFunnel ? textForStage(node.id, "necesidad") : "";
-      const presentation = useFunnel ? textForStage(node.id, "producto") : "";
-      const faq = useFunnel ? textForStage(node.id, "dudas") : "";
-      const closing = useFunnel ? textForStage(node.id, "cierre") : "";
+      // El del producto primero; el del diagrama solo si el producto no tiene el suyo.
+      const propio = embudosDelProducto.get(productId);
+      const useFunnel = Boolean(propio) || node.data?.useFunnel === true;
+      const delProducto = (etapa: string) => propio?.[etapa]?.script ?? "";
+      const objetivo = (etapa: string) => propio?.[etapa]?.goal ?? "";
+
+      const opening = propio ? delProducto("PRESENTACION") : useFunnel ? textForStage(node.id, "empresa") : "";
+      const qualification = propio ? delProducto("IDENTIFICACION") : useFunnel ? textForStage(node.id, "necesidad") : "";
+      const presentation = propio ? delProducto("PRODUCTO") : useFunnel ? textForStage(node.id, "producto") : "";
+      const faq = propio ? delProducto("OBJECIONES") : useFunnel ? textForStage(node.id, "dudas") : "";
+      const closing = propio ? delProducto("CIERRE") : useFunnel ? textForStage(node.id, "cierre") : "";
       const activation = activationForProduct(node);
 
+      // Con el embudo del producto se suma el OBJETIVO de cada etapa: es la condicion para
+      // pasar a la siguiente, y sin eso la IA no sabe cuando dio por cumplida una etapa (repite
+      // la pregunta o se adelanta).
+      const conObjetivo = (texto: string, etapa: string) => {
+        const meta = objetivo(etapa);
+        return meta ? `${texto} (objetivo: ${meta})` : texto;
+      };
+
       const funnelSteps = [
-        opening ? `Paso 1 - Presentacion: ${opening}` : null,
-        qualification ? `Paso 2 - Identificacion (descubre la necesidad): ${qualification}` : null,
-        presentation ? `Paso 3 - Presentacion del producto (construye valor): ${presentation}` : null,
-        faq ? `Paso 4 - Dudas y objeciones: ${faq}` : null,
-        closing ? `Paso 5 - Cierre y precio: ${closing}` : null,
+        opening ? `Paso 1 - Presentacion: ${conObjetivo(opening, "PRESENTACION")}` : null,
+        qualification
+          ? `Paso 2 - Identificacion (descubre la necesidad): ${conObjetivo(qualification, "IDENTIFICACION")}`
+          : null,
+        presentation
+          ? `Paso 3 - Presentacion del producto (construye valor): ${conObjetivo(presentation, "PRODUCTO")}`
+          : null,
+        faq ? `Paso 4 - Dudas y objeciones: ${conObjetivo(faq, "OBJECIONES")}` : null,
+        closing ? `Paso 5 - Cierre y precio: ${conObjetivo(closing, "CIERRE")}` : null,
       ].filter(Boolean);
       const funnelBlock =
         useFunnel && funnelSteps.length
