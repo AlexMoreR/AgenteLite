@@ -13,6 +13,7 @@ import { ChatsOfficialRealtime } from "@/components/chats/chats-official-realtim
 import { ChatIncomingNotifier } from "@/components/chats/chat-incoming-notifier";
 import { PushSubscriptionManager } from "@/components/chats/push-subscription-manager";
 import { loadAgentConversationDetail } from "@/lib/chat-message-loader";
+import { CopyConversationButton } from "@/components/chats/copy-conversation-button";
 import { SharedInbox } from "@/components/chats/shared-inbox";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { dedupeAndSortConversationListRows } from "@/lib/chat-conversation-list";
@@ -1180,14 +1181,25 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           ) : null
         }
         contactPanelHeaderActions={
-          // Traer el historial: se usa una vez por cliente, asi que vive en la ficha y no en la
-          // barra del chat, que es para lo de todos los dias. Solo el canal viejo lo expone.
-          selectedUnified?.source === "agent" && selectedConversation && selectedChannelKeepsHistory ? (
-            <ImportHistoryControl
-              key={`panel-history:${selectedConversation.id}`}
-              conversationId={selectedConversation.id}
-            />
-          ) : null
+          <>
+            {/* Copiar la conversacion para pegarsela a una IA. Va en la ficha y no en la barra
+                del chat: se usa cuando uno se sienta a analizar un caso, no todos los dias. */}
+            {selectedUnified?.key ? (
+              <CopyConversationButton
+                key={`panel-copy:${selectedUnified.key}`}
+                chatKey={selectedUnified.key}
+                label={selectedUnified.label}
+                phone={selectedUnified.secondaryLabel}
+              />
+            ) : null}
+            {/* Traer el historial: se usa una vez por cliente. Solo el canal viejo lo expone. */}
+            {selectedUnified?.source === "agent" && selectedConversation && selectedChannelKeepsHistory ? (
+              <ImportHistoryControl
+                key={`panel-history:${selectedConversation.id}`}
+                conversationId={selectedConversation.id}
+              />
+            ) : null}
+          </>
         }
         contactPanelActions={
           selectedUnified?.source === "agent" && selectedConversation ? (
