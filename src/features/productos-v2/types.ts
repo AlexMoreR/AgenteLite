@@ -19,7 +19,7 @@ export type ProductoV2Item = {
   matchAdTitles: string[];
   playbookIdealCustomer: string;
   playbookCustomerPain: string;
-  funnelStages: Array<{ stage: string; goal: string; script: string; stuckAfterMessages: number | null }>;
+  funnelStages: Array<{ stage: string; goal: string; script: string }>;
   /** El embudo que se muestra vino del agente y todavia no es del producto. */
   funnelFromAgent: boolean;
   /** Hasta donde llegaron los leads en los ultimos 30 dias. */

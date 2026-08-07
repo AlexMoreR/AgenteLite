@@ -66,7 +66,7 @@ export default async function ClienteProductoV2Page() {
         },
         stages: {
           orderBy: { sortOrder: "asc" },
-          select: { stage: true, goal: true, script: true, stuckAfterMessages: true },
+          select: { stage: true, goal: true, script: true },
         },
       },
     })
@@ -110,7 +110,7 @@ export default async function ClienteProductoV2Page() {
      * lo que de verdad esta pasando en los chats, y no un formulario vacio al lado de un agente
      * que ya dice otra cosa.
      */
-    const embudoDelAgente: Array<{ stage: string; goal: string; script: string; stuckAfterMessages: number | null }> = [
+    const embudoDelAgente: Array<{ stage: string; goal: string; script: string }> = [
       { stage: "PRESENTACION", texto: knowledge?.funnelOpening },
       { stage: "IDENTIFICACION", texto: knowledge?.funnelQualification },
       { stage: "PRODUCTO", texto: knowledge?.funnelPresentation },
@@ -118,13 +118,12 @@ export default async function ClienteProductoV2Page() {
       { stage: "CIERRE", texto: knowledge?.funnelClosing },
     ]
       .filter((item) => item.texto?.trim())
-      .map((item) => ({ stage: item.stage, goal: "", script: item.texto?.trim() ?? "", stuckAfterMessages: null }));
+      .map((item) => ({ stage: item.stage, goal: "", script: item.texto?.trim() ?? "" }));
 
     const etapasGuardadas = (playbook?.stages ?? []).map((stage) => ({
       stage: stage.stage,
       goal: stage.goal?.trim() || "",
       script: stage.script?.trim() || "",
-      stuckAfterMessages: stage.stuckAfterMessages ?? null,
     }));
     const tieneEmbudoPropio = etapasGuardadas.some((etapa) => etapa.goal || etapa.script);
 

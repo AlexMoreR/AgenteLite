@@ -39,8 +39,6 @@ export type ProductFunnelStageItem = {
   stage: string;
   goal: string;
   script: string;
-  /** Mensajes en la misma etapa antes de avisar a un asesor. Null = sin red de seguridad. */
-  stuckAfterMessages: number | null;
 };
 
 export type ProductPlaybookData = {
@@ -66,7 +64,7 @@ export async function getProductPlaybook(input: {
       pitch: true,
       stages: {
         orderBy: { sortOrder: "asc" },
-        select: { stage: true, goal: true, script: true, stuckAfterMessages: true },
+        select: { stage: true, goal: true, script: true },
       },
       rules: {
         where: { isActive: true },
@@ -93,7 +91,6 @@ export async function getProductPlaybook(input: {
       stage: stage.stage,
       goal: stage.goal?.trim() || "",
       script: stage.script?.trim() || "",
-      stuckAfterMessages: stage.stuckAfterMessages ?? null,
     })),
     rules: (playbook?.rules ?? [])
       .filter((rule) => isPlaybookRuleKind(rule.kind))

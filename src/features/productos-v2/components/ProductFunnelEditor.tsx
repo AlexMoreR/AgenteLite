@@ -14,7 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { saveProductFunnelAction } from "@/app/actions/product-playbook-actions";
 import { PRODUCT_FUNNEL_STAGES } from "@/lib/product-funnel-stages";
 
-type EtapaEditable = { stage: string; goal: string; script: string; stuckAfterMessages: number | null };
+type EtapaEditable = { stage: string; goal: string; script: string };
 
 /**
  * El embudo de ventas del producto, en sus cinco etapas.
@@ -53,7 +53,6 @@ export function ProductFunnelEditor({
         stage: meta.stage,
         goal: guardada?.goal ?? "",
         script: guardada?.script ?? "",
-        stuckAfterMessages: guardada?.stuckAfterMessages ?? null,
       };
     }),
   );
@@ -92,17 +91,6 @@ export function ProductFunnelEditor({
   const actualizar = (stage: string, campo: "goal" | "script", valor: string) => {
     setEtapas((actual) =>
       actual.map((etapa) => (etapa.stage === stage ? { ...etapa, [campo]: valor } : etapa)),
-    );
-  };
-
-  const actualizarLimite = (stage: string, valor: string) => {
-    const numero = Number.parseInt(valor, 10);
-    setEtapas((actual) =>
-      actual.map((etapa) =>
-        etapa.stage === stage
-          ? { ...etapa, stuckAfterMessages: Number.isFinite(numero) && numero > 0 ? numero : null }
-          : etapa,
-      ),
     );
   };
 
@@ -200,21 +188,6 @@ export function ProductFunnelEditor({
                       placeholder="El mensaje, como se lo dirías vos…"
                     />
 
-                    {/* La red de seguridad: el limite que se cumple decida lo que decida la IA. */}
-                    <div className="flex flex-wrap items-center gap-2 rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
-                      <span>Si lleva</span>
-                      <Input
-                        type="number"
-                        min={1}
-                        max={50}
-                        className="h-8 w-16"
-                        value={etapa?.stuckAfterMessages ?? ""}
-                        onChange={(event) => actualizarLimite(meta.stage, event.target.value)}
-                        placeholder="—"
-                      />
-                      <span>mensajes acá sin avanzar, avisar a un asesor.</span>
-                      {etapa?.stuckAfterMessages ? null : <span>Vacío: sin aviso.</span>}
-                    </div>
                   </div>
                 </AccordionContent>
               </AccordionItem>
