@@ -405,6 +405,10 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       includeSelectedConversation: true,
       // Respeta el filtro de la bandeja: resolver un chat oficial ahora lo saca de la lista.
       statusFilter,
+      // Y el de asignacion. Sin esto los chats del canal oficial entraban en la lista con
+      // CUALQUIER pestaña: se leia "Mias 1" y abajo salian los de Ingrid y los sin asignar.
+      assignedFilter,
+      currentUserId: access.userId,
     }),
   ]);
 

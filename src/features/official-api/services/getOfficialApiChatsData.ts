@@ -24,6 +24,14 @@ type OfficialMessageType =
 
 // Mismo juego de valores que usa la bandeja para el canal viejo.
 export type OfficialChatsStatusFilter = "all" | "open" | "resolved";
+/**
+ * Las pestañas Mias / Sin asignar / Todas, tambien para el canal oficial.
+ *
+ * Sus chats viven en otra tabla y se leen con otra consulta, y esa consulta no sabia nada de a
+ * quien estaban asignados: sus 37 conversaciones caian en la bandeja con CUALQUIER filtro puesto.
+ * Se veia "Mias 1" y abajo treinta y ocho chats, la mayoria de otras asesoras.
+ */
+export type OfficialChatsAssignedFilter = "all" | "mine" | "unassigned";
 
 type OfficialChatsCacheEntry = {
   expiresAt: number;
@@ -97,6 +105,8 @@ function buildOfficialChatsCacheKey(input: {
   q?: string;
   includeSelectedConversation?: boolean;
   statusFilter?: OfficialChatsStatusFilter;
+  assignedFilter?: OfficialChatsAssignedFilter;
+  currentUserId?: string;
 }) {
   return JSON.stringify({
     workspaceId: input.workspaceId,
@@ -105,6 +115,10 @@ function buildOfficialChatsCacheKey(input: {
     q: normalizeSearch(input.q),
     includeSelectedConversation: input.includeSelectedConversation ?? true,
     statusFilter: input.statusFilter ?? "open",
+    // Quien mira tambien entra en la clave: sin esto, "Mias" de una asesora servia el resultado
+    // cacheado de otra, o el de "Todas" que se pidio un segundo antes.
+    assignedFilter: input.assignedFilter ?? "all",
+    currentUserId: input.currentUserId ?? "",
   });
 }
 
@@ -124,6 +138,9 @@ export async function getOfficialApiChatsData(input: {
   q?: string;
   includeSelectedConversation?: boolean;
   statusFilter?: OfficialChatsStatusFilter;
+  assignedFilter?: OfficialChatsAssignedFilter;
+  /** Quien esta mirando la bandeja. Hace falta para resolver "Mias". */
+  currentUserId?: string;
 }): Promise<OfficialApiChatsData> {
   try {
     return await loadOfficialApiChatsData(input);
@@ -146,6 +163,9 @@ async function loadOfficialApiChatsData(input: {
   q?: string;
   includeSelectedConversation?: boolean;
   statusFilter?: OfficialChatsStatusFilter;
+  assignedFilter?: OfficialChatsAssignedFilter;
+  /** Quien esta mirando la bandeja. Hace falta para resolver "Mias". */
+  currentUserId?: string;
 }): Promise<OfficialApiChatsData> {
   const INITIAL_MESSAGE_LIMIT = 20;
   const config = await getOfficialApiConfigByWorkspaceId(input.workspaceId);
@@ -169,6 +189,8 @@ async function loadOfficialApiChatsData(input: {
     q: input.q,
     includeSelectedConversation: input.includeSelectedConversation,
     statusFilter: input.statusFilter,
+    assignedFilter: input.assignedFilter,
+    currentUserId: input.currentUserId,
   });
   const cachedEntry = officialChatsCache.get(cacheKey);
   if (cachedEntry && cachedEntry.expiresAt > Date.now()) {
@@ -198,6 +220,23 @@ async function loadOfficialApiChatsData(input: {
       : input.statusFilter === "all"
         ? Prisma.empty
         : Prisma.sql`AND c."status"::text IN ('OPEN', 'PENDING')`;
+
+  /**
+   * Mismo filtro de asignacion que la bandeja del canal viejo.
+   *
+   * "Mias" sin saber quien mira NO puede resolverse: en ese caso no se devuelve nada, en vez de
+   * devolver todo. Es la diferencia entre una lista vacia (se nota y se reporta) y una lista con
+   * los chats de otras asesoras adentro (parecen fantasmas y alguien pide borrarlos).
+   */
+  const currentUserId = input.currentUserId?.trim() || "";
+  const officialAssignedFilter =
+    input.assignedFilter === "unassigned"
+      ? Prisma.sql`AND c."assignedToUserId" IS NULL`
+      : input.assignedFilter === "mine"
+        ? currentUserId
+          ? Prisma.sql`AND c."assignedToUserId" = ${currentUserId}`
+          : Prisma.sql`AND false`
+        : Prisma.empty;
 
   type OfficialConversationDetailRow = {
     conversationId: string;
@@ -494,6 +533,7 @@ async function loadOfficialApiChatsData(input: {
         ) lm ON true
         WHERE c."configId" = ${activeConfig.id}
           ${officialStatusFilter}
+          ${officialAssignedFilter}
           ${officialSearchFilter}
         ORDER BY c."lastMessageAt" DESC NULLS LAST, c."updatedAt" DESC
         LIMIT ${conversationListLimit}
@@ -529,6 +569,7 @@ async function loadOfficialApiChatsData(input: {
           FROM "OfficialApiConversation" c
           WHERE c."configId" = ${activeConfig.id}
             ${officialStatusFilter}
+            ${officialAssignedFilter}
           ORDER BY c."lastMessageAt" DESC NULLS LAST, c."updatedAt" DESC
           LIMIT ${conversationListLimit}
         ),
