@@ -53,6 +53,24 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+
+  /*
+   * La burbuja de lo que MANDAMOS nosotros en el chat.
+   *
+   * Va en variables y no suelto en el componente porque no es un color: son ocho que tienen que
+   * moverse juntos. El verde claro del tema dia lleva texto negro y sombreados negros encima
+   * (hora, citas, adjuntos); en tema oscuro la burbuja es verde profundo y todo eso se invierte a
+   * blanco. Cambiar solo el fondo deja media burbuja ilegible, que es como estaba.
+   */
+  --chat-out-bubble: #d9fdd3;
+  --chat-out-text: #111b21;
+  --chat-out-text-soft: rgba(0, 0, 0, 0.6);
+  --chat-out-text-faint: rgba(0, 0, 0, 0.5);
+  --chat-out-overlay: rgba(0, 0, 0, 0.05);
+  --chat-out-overlay-strong: rgba(0, 0, 0, 0.1);
+  --chat-out-border: rgba(0, 0, 0, 0.1);
+  --chat-out-accent: #0a7d62;
+  --chat-out-quote-border: rgba(10, 125, 98, 0.5);
 }
 
 @theme inline {
@@ -745,6 +763,17 @@ body {
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+
+  /* Verde profundo con texto blanco, como el WhatsApp en tema oscuro. Ver el bloque de :root. */
+  --chat-out-bubble: #134d37;
+  --chat-out-text: #ffffff;
+  --chat-out-text-soft: rgba(255, 255, 255, 0.72);
+  --chat-out-text-faint: rgba(255, 255, 255, 0.58);
+  --chat-out-overlay: rgba(255, 255, 255, 0.08);
+  --chat-out-overlay-strong: rgba(255, 255, 255, 0.14);
+  --chat-out-border: rgba(255, 255, 255, 0.14);
+  --chat-out-accent: #7fe3b8;
+  --chat-out-quote-border: rgba(127, 227, 184, 0.6);
 }
 
 @layer base {

@@ -349,7 +349,7 @@ function MessageActionsMenu({
           aria-label="Opciones del mensaje"
           className={`absolute right-0.5 top-0.5 z-10 inline-flex size-6 items-center justify-center rounded-full opacity-0 shadow-sm transition group-hover/bubble:opacity-100 focus-visible:opacity-100 data-[popup-open]:opacity-100 ${
             outbound
-              ? "bg-black/[0.06] text-black/60 hover:bg-black/10"
+              ? "bg-[var(--chat-out-overlay)] text-[var(--chat-out-text-soft)] hover:bg-[var(--chat-out-overlay-strong)]"
               : "bg-card text-muted-foreground hover:bg-muted"
           }`}
         >
@@ -544,8 +544,8 @@ export const MessageBubble = memo(function MessageBubble({
           {...longPress}
           className={`group/bubble relative max-w-[88%] rounded-[8px] px-[7px] py-[6px] text-[14px] leading-5 shadow-[0_1px_1px_rgba(15,23,42,0.14)] [-webkit-touch-callout:none] md:max-w-[72%] [@media(pointer:coarse)]:select-none ${
             outbound
-              ? "rounded-tr-[3px] bg-[#d9fdd3] text-[#111b21]"
-              : "rounded-tl-[3px] border border-border bg-card text-[#111b21] dark:text-foreground"
+              ? "rounded-tr-[3px] bg-[var(--chat-out-bubble)] text-[var(--chat-out-text)]"
+              : "rounded-tl-[3px] border border-border bg-card text-card-foreground"
           } ${isTouchMenuOpen ? "ring-2 ring-[var(--primary)]/40" : ""}`}
         >
           {tieneAcciones ? (
@@ -564,15 +564,15 @@ export const MessageBubble = memo(function MessageBubble({
           {replyPreview ? (
             <div
               className={`mb-1 rounded-md border-l-2 px-2 py-1 text-[11px] ${
-                outbound ? "border-[#0a7d62]/50 bg-black/[0.05]" : "border-[var(--primary)] bg-muted"
+                outbound ? "border-[var(--chat-out-quote-border)] bg-[var(--chat-out-overlay)]" : "border-[var(--primary)] bg-muted"
               }`}
             >
               {replyPreview.author ? (
-                <p className={`font-semibold ${outbound ? "text-[#0a7d62]" : "text-[var(--primary)]"}`}>
+                <p className={`font-semibold ${outbound ? "text-[var(--chat-out-accent)]" : "text-[var(--primary)]"}`}>
                   {replyPreview.author}
                 </p>
               ) : null}
-              <p className={`truncate ${outbound ? "text-black/60" : "text-muted-foreground"}`}>
+              <p className={`truncate ${outbound ? "text-[var(--chat-out-text-soft)]" : "text-muted-foreground"}`}>
                 {replyPreview.text}
               </p>
             </div>
@@ -585,13 +585,13 @@ export const MessageBubble = memo(function MessageBubble({
             <div className="space-y-2">
               <Badge
                 className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-[12px] font-semibold normal-case tracking-normal shadow-none ${
-                  outbound ? "bg-black/[0.06] text-[#111b21]" : "bg-muted text-foreground"
+                  outbound ? "bg-[var(--chat-out-overlay)] text-[var(--chat-out-text)]" : "bg-muted text-foreground"
                 }`}
               >
-                {CallIcon ? <CallIcon className={`h-4 w-4 ${outbound ? "text-black/65" : "text-[var(--primary)]"}`} /> : null}
+                {CallIcon ? <CallIcon className={`h-4 w-4 ${outbound ? "text-[var(--chat-out-text-soft)]" : "text-[var(--primary)]"}`} /> : null}
                 <span>Llamada {callSummary.directionLabel}</span>
                 {callSummary.statusText ? (
-                  <span className={`font-normal ${outbound ? "text-black/55" : "text-muted-foreground"}`}>
+                  <span className={`font-normal ${outbound ? "text-[var(--chat-out-text-faint)]" : "text-muted-foreground"}`}>
                     {callSummary.statusText}
                   </span>
                 ) : null}
@@ -607,7 +607,7 @@ export const MessageBubble = memo(function MessageBubble({
                   title={adPreview.sourceUrl}
                   className={`group flex w-full max-w-[280px] items-center gap-3 overflow-hidden rounded-2xl border px-2.5 py-2 text-left transition ${
                     outbound
-                      ? "border-black/10 bg-black/[0.05] hover:bg-black/[0.08]"
+                      ? "border-[var(--chat-out-border)] bg-[var(--chat-out-overlay)] hover:bg-[var(--chat-out-overlay-strong)]"
                       : "border-border bg-muted hover:bg-muted/80"
                   }`}
                 >
@@ -633,18 +633,18 @@ export const MessageBubble = memo(function MessageBubble({
                   <div className="min-w-0 flex-1 space-y-0.5">
                     <div className="flex items-center gap-1.5">
                       {adPreview.sourceApp === "facebook" ? (
-                        <Facebook className={`h-3.5 w-3.5 ${outbound ? "text-black/60" : "text-blue-600"}`} />
+                        <Facebook className={`h-3.5 w-3.5 ${outbound ? "text-[var(--chat-out-text-soft)]" : "text-blue-600"}`} />
                       ) : (
-                        <MessageCircle className={`h-3.5 w-3.5 ${outbound ? "text-black/60" : "text-emerald-600"}`} />
+                        <MessageCircle className={`h-3.5 w-3.5 ${outbound ? "text-[var(--chat-out-text-soft)]" : "text-emerald-600"}`} />
                       )}
-                      <span className={`text-[11px] font-medium ${outbound ? "text-black/55" : "text-muted-foreground"}`}>
+                      <span className={`text-[11px] font-medium ${outbound ? "text-[var(--chat-out-text-faint)]" : "text-muted-foreground"}`}>
                         {adPreview.sourceApp === "facebook" ? "Anuncio de Facebook" : "Referencia de anuncio"}
                       </span>
                     </div>
-                    <p className={`truncate text-[13px] font-semibold leading-5 ${outbound ? "text-[#111b21]" : "text-foreground"}`}>
+                    <p className={`truncate text-[13px] font-semibold leading-5 ${outbound ? "text-[var(--chat-out-text)]" : "text-foreground"}`}>
                       {adPreview.title}
                     </p>
-                    <p className={`text-[11px] font-medium ${outbound ? "text-black/60" : "text-muted-foreground"}`}>
+                    <p className={`text-[11px] font-medium ${outbound ? "text-[var(--chat-out-text-soft)]" : "text-muted-foreground"}`}>
                       Ver detalles
                     </p>
                   </div>
@@ -653,7 +653,7 @@ export const MessageBubble = memo(function MessageBubble({
                 <div
                   className={`flex w-full max-w-[280px] items-center gap-3 overflow-hidden rounded-2xl border px-2.5 py-2 ${
                     outbound
-                      ? "border-black/10 bg-black/[0.05]"
+                      ? "border-[var(--chat-out-border)] bg-[var(--chat-out-overlay)]"
                       : "border-border bg-muted"
                   }`}
                 >
@@ -679,18 +679,18 @@ export const MessageBubble = memo(function MessageBubble({
                   <div className="min-w-0 flex-1 space-y-0.5">
                     <div className="flex items-center gap-1.5">
                       {adPreview.sourceApp === "facebook" ? (
-                        <Facebook className={`h-3.5 w-3.5 ${outbound ? "text-black/60" : "text-blue-600"}`} />
+                        <Facebook className={`h-3.5 w-3.5 ${outbound ? "text-[var(--chat-out-text-soft)]" : "text-blue-600"}`} />
                       ) : (
-                        <MessageCircle className={`h-3.5 w-3.5 ${outbound ? "text-black/60" : "text-emerald-600"}`} />
+                        <MessageCircle className={`h-3.5 w-3.5 ${outbound ? "text-[var(--chat-out-text-soft)]" : "text-emerald-600"}`} />
                       )}
-                      <span className={`text-[11px] font-medium ${outbound ? "text-black/55" : "text-muted-foreground"}`}>
+                      <span className={`text-[11px] font-medium ${outbound ? "text-[var(--chat-out-text-faint)]" : "text-muted-foreground"}`}>
                         {adPreview.sourceApp === "facebook" ? "Anuncio de Facebook" : "Referencia de anuncio"}
                       </span>
                     </div>
-                    <p className={`truncate text-[13px] font-semibold leading-5 ${outbound ? "text-[#111b21]" : "text-foreground"}`}>
+                    <p className={`truncate text-[13px] font-semibold leading-5 ${outbound ? "text-[var(--chat-out-text)]" : "text-foreground"}`}>
                       {adPreview.title}
                     </p>
-                    <p className={`text-[11px] font-medium ${outbound ? "text-black/60" : "text-muted-foreground"}`}>
+                    <p className={`text-[11px] font-medium ${outbound ? "text-[var(--chat-out-text-soft)]" : "text-muted-foreground"}`}>
                       Ver detalles
                     </p>
                   </div>
@@ -771,7 +771,7 @@ export const MessageBubble = memo(function MessageBubble({
           ) : imagePreviewExhausted ? (
             <div className="space-y-2">
               <div className={`flex h-[180px] w-full items-center justify-center rounded-xl border border-dashed ${
-                outbound ? "border-black/10 bg-black/[0.05] text-black/60" : "border-border bg-muted text-muted-foreground"
+                outbound ? "border-[var(--chat-out-border)] bg-[var(--chat-out-overlay)] text-[var(--chat-out-text-soft)]" : "border-border bg-muted text-muted-foreground"
               }`}>
                 <span className="text-sm font-medium">Imagen no disponible</span>
               </div>
@@ -826,7 +826,7 @@ export const MessageBubble = memo(function MessageBubble({
                 rel="noreferrer"
                 title={documentMeta?.fileName ?? "Abrir documento"}
                 className={`flex max-w-[min(230px,68vw)] items-center gap-2 rounded-xl p-1.5 pr-3 transition ${
-                  outbound ? "bg-black/[0.06] hover:bg-black/10" : "bg-background hover:bg-muted"
+                  outbound ? "bg-[var(--chat-out-overlay)] hover:bg-[var(--chat-out-overlay-strong)]" : "bg-background hover:bg-muted"
                 }`}
               >
                 {(() => {
@@ -834,10 +834,10 @@ export const MessageBubble = memo(function MessageBubble({
                   return <Icon className="size-8 shrink-0" style={{ color }} />;
                 })()}
                 <span className="flex min-w-0 flex-col">
-                  <span className={`truncate text-[13px] font-normal leading-tight ${outbound ? "text-[#111b21]" : "text-foreground"}`}>
+                  <span className={`truncate text-[13px] font-normal leading-tight ${outbound ? "text-[var(--chat-out-text)]" : "text-foreground"}`}>
                     {documentMeta?.fileName ?? "Documento"}
                   </span>
-                  <span className={`truncate text-[11px] leading-tight ${outbound ? "text-black/50" : "text-muted-foreground"}`}>
+                  <span className={`truncate text-[11px] leading-tight ${outbound ? "text-[var(--chat-out-text-faint)]" : "text-muted-foreground"}`}>
                     {documentMeta?.sizeLabel
                       ? `${documentMeta.typeLabel} • ${documentMeta.sizeLabel}`
                       : documentMeta?.typeLabel ?? "Documento"}
@@ -857,15 +857,15 @@ export const MessageBubble = memo(function MessageBubble({
               rel="noreferrer"
               title="Abrir ubicacion en el mapa"
               className={`flex max-w-[min(230px,68vw)] items-center gap-2 rounded-xl p-1.5 pr-3 transition ${
-                outbound ? "bg-black/[0.06] hover:bg-black/10" : "bg-background hover:bg-muted"
+                outbound ? "bg-[var(--chat-out-overlay)] hover:bg-[var(--chat-out-overlay-strong)]" : "bg-background hover:bg-muted"
               }`}
             >
-              <MapPin className={`size-8 shrink-0 ${outbound ? "text-[#111b21]" : "text-primary"}`} />
+              <MapPin className={`size-8 shrink-0 ${outbound ? "text-[var(--chat-out-text)]" : "text-primary"}`} />
               <span className="flex min-w-0 flex-col">
-                <span className={`truncate text-[13px] font-normal leading-tight ${outbound ? "text-[#111b21]" : "text-foreground"}`}>
+                <span className={`truncate text-[13px] font-normal leading-tight ${outbound ? "text-[var(--chat-out-text)]" : "text-foreground"}`}>
                   {locationInfo.name || locationInfo.address || "Ubicacion"}
                 </span>
-                <span className={`truncate text-[11px] leading-tight ${outbound ? "text-black/50" : "text-muted-foreground"}`}>
+                <span className={`truncate text-[11px] leading-tight ${outbound ? "text-[var(--chat-out-text-faint)]" : "text-muted-foreground"}`}>
                   {locationInfo.name && locationInfo.address
                     ? locationInfo.address
                     : `${locationInfo.latitude.toFixed(5)}, ${locationInfo.longitude.toFixed(5)}`}
@@ -884,12 +884,12 @@ export const MessageBubble = memo(function MessageBubble({
               <div
                 className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium ${
                   outbound
-                    ? "border-black/10 bg-black/[0.05] text-[#111b21]"
+                    ? "border-[var(--chat-out-border)] bg-[var(--chat-out-overlay)] text-[var(--chat-out-text)]"
                     : "border-border bg-muted text-foreground"
                 }`}
               >
                 {isPendingMedia ? (
-                  <LoaderCircle className={`h-4 w-4 shrink-0 animate-spin ${outbound ? "text-black/60" : "text-muted-foreground"}`} />
+                  <LoaderCircle className={`h-4 w-4 shrink-0 animate-spin ${outbound ? "text-[var(--chat-out-text-soft)]" : "text-muted-foreground"}`} />
                 ) : (
                   (() => {
                     const { Icon, color } = getDocumentIcon(documentMeta?.typeLabel ?? "ARCHIVO");
@@ -899,7 +899,7 @@ export const MessageBubble = memo(function MessageBubble({
                 <span className="flex min-w-0 flex-col">
                   <span className="truncate">{documentMeta?.fileName ?? mediaPreviewLabel}</span>
                   {!isPendingMedia ? (
-                    <span className={`truncate text-[11px] font-normal leading-tight ${outbound ? "text-black/50" : "text-muted-foreground"}`}>
+                    <span className={`truncate text-[11px] font-normal leading-tight ${outbound ? "text-[var(--chat-out-text-faint)]" : "text-muted-foreground"}`}>
                       Enviado · no se puede abrir desde acá
                     </span>
                   ) : null}
@@ -909,17 +909,17 @@ export const MessageBubble = memo(function MessageBubble({
             </div>
           ) : (
             renderMessageText(message.content) || (
-              <p className={`text-[12px] italic ${outbound ? "text-black/55" : "text-muted-foreground"}`}>
+              <p className={`text-[12px] italic ${outbound ? "text-[var(--chat-out-text-faint)]" : "text-muted-foreground"}`}>
                 {isDeleted ? "Mensaje eliminado" : "-"}
               </p>
             )
           )}
           </div>
 
-          <div className={`ml-auto flex shrink-0 items-center justify-end gap-1 text-[10px] ${outbound ? "text-black/60" : "text-muted-foreground"}`}>
+          <div className={`ml-auto flex shrink-0 items-center justify-end gap-1 text-[10px] ${outbound ? "text-[var(--chat-out-text-soft)]" : "text-muted-foreground"}`}>
             {isDeleted ? (
               <Badge className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-normal tracking-[0.08em] shadow-none ${
-                outbound ? "bg-black/[0.06] text-black/60" : "bg-rose-50 text-rose-600"
+                outbound ? "bg-[var(--chat-out-overlay)] text-[var(--chat-out-text-soft)]" : "bg-rose-50 text-rose-600"
               }`}>
                 <Trash2 className="h-2.5 w-2.5" />
                 Eliminado
@@ -927,7 +927,7 @@ export const MessageBubble = memo(function MessageBubble({
             ) : null}
             {message.editedAt ? (
               <Badge className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-normal tracking-[0.08em] shadow-none ${
-                outbound ? "bg-black/[0.06] text-black/60" : "bg-muted text-muted-foreground"
+                outbound ? "bg-[var(--chat-out-overlay)] text-[var(--chat-out-text-soft)]" : "bg-muted text-muted-foreground"
               }`}>
                 <Pencil className="h-2.5 w-2.5" />
                 Editado
@@ -959,7 +959,8 @@ export const MessageBubble = memo(function MessageBubble({
                 // tenia que mandar el archivo a mano sin saber por que. Ahora se dice, y el
                 // motivo exacto de WhatsApp queda en el tooltip.
                 <span
-                  className="ml-1 inline-flex items-center gap-1 font-medium text-amber-700"
+                  // El ambar oscuro se pierde sobre la burbuja verde profunda del tema noche.
+                  className="ml-1 inline-flex items-center gap-1 font-medium text-amber-700 dark:text-amber-300"
                   title={message.errorDetail?.trim() || "WhatsApp rechazó el mensaje."}
                 >
                   <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden="true" />
@@ -968,14 +969,14 @@ export const MessageBubble = memo(function MessageBubble({
               ) : message.outboundStatusLabel === "entregado" ? (
                 <CheckCheck className="ml-1 h-3 w-3 shrink-0" aria-hidden="true" />
               ) : message.outboundStatusLabel === "error" ? (
-                <span className="ml-1 inline-flex items-center gap-1 font-medium text-amber-700">
+                <span className="ml-1 inline-flex items-center gap-1 font-medium text-amber-700 dark:text-amber-300">
                   <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden="true" />
                   No se envió
                   {onRetry ? (
                     <button
                       type="button"
                       onClick={onRetry}
-                      className="ml-0.5 inline-flex cursor-pointer items-center gap-0.5 rounded-full bg-amber-600/15 px-1.5 py-0.5 font-semibold text-amber-800 transition hover:bg-amber-600/25"
+                      className="ml-0.5 inline-flex cursor-pointer items-center gap-0.5 rounded-full bg-amber-600/15 px-1.5 py-0.5 font-semibold text-amber-800 transition hover:bg-amber-600/25 dark:bg-amber-300/20 dark:text-amber-200 dark:hover:bg-amber-300/30"
                     >
                       <RotateCcw className="h-2.5 w-2.5" />
                       Reintentar
