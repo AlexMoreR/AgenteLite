@@ -326,7 +326,15 @@ export function ConversationList({
   const prefetchedHrefsRef = useRef(new Set<string>());
   // Lista siempre fresca para el listener de popstate, sin re-suscribirlo en cada cambio.
   const conversationsRef = useRef(conversations);
-  const loadMoreRequestedForCountRef = useRef<number | null>(null);
+  /**
+   * Hay una pagina pidiendose ahora mismo. Se suelta cuando esa peticion termina.
+   *
+   * Antes esto guardaba el largo de la lista y no se volvia a pedir hasta que ese largo cambiara.
+   * El problema es que una pagina puede traer cero chats nuevos y aun asi haber mas abajo (los
+   * pospuestos se descartan despues de leerlos): con el largo igual, el candado no se abria nunca
+   * y la lista quedaba trabada aunque quedaran cientos de chats.
+   */
+  const loadMoreInFlightRef = useRef(false);
   // El resaltado sale del prop, que ya es el chat abierto segun la fuente unica (shared-inbox lo
   // deriva con useOpenChatKey). Antes era `isPending && pendingId`, un estado local atado a la
   // transicion de router.push: sin navegacion isPending nunca seria true y el resaltado quedaria
@@ -453,14 +461,16 @@ export function ConversationList({
           hasMoreConversations &&
           !isLoadingMoreConversations &&
           onLoadMoreConversations &&
-          loadMoreRequestedForCountRef.current !== conversations.length
+          !loadMoreInFlightRef.current
         ) {
           debugConversationList("trigger load more", {
             count: conversations.length,
             distFromBottom,
           });
-          loadMoreRequestedForCountRef.current = conversations.length;
-          void onLoadMoreConversations();
+          loadMoreInFlightRef.current = true;
+          void Promise.resolve(onLoadMoreConversations()).finally(() => {
+            loadMoreInFlightRef.current = false;
+          });
         }
       });
     }
@@ -482,10 +492,6 @@ export function ConversationList({
       resizeObserver.disconnect();
     };
   }, [conversations.length, hasMoreConversations, isLoadingMoreConversations, onLoadMoreConversations, scrollContainerRef]);
-
-  useEffect(() => {
-    loadMoreRequestedForCountRef.current = null;
-  }, [conversations.length, selectedConversationId]);
 
   useEffect(() => {
     const container = scrollContainerRef?.current;
@@ -512,14 +518,16 @@ export function ConversationList({
           hasMoreConversations &&
           !isLoadingMoreConversations &&
           onLoadMoreConversations &&
-          loadMoreRequestedForCountRef.current !== conversations.length
+          !loadMoreInFlightRef.current
         ) {
           debugConversationList("sentinel intersected", {
             count: conversations.length,
             isIntersecting: entry.isIntersecting,
           });
-          loadMoreRequestedForCountRef.current = conversations.length;
-          void onLoadMoreConversations();
+          loadMoreInFlightRef.current = true;
+          void Promise.resolve(onLoadMoreConversations()).finally(() => {
+            loadMoreInFlightRef.current = false;
+          });
         }
       },
       {

@@ -512,7 +512,12 @@ export const MessageBubble = memo(function MessageBubble({
     >
       {showDateDivider ? (
         <div className="flex justify-center">
-          <span className="rounded-full border border-border bg-muted px-3 py-1 text-[11px] font-medium text-muted-foreground shadow-sm backdrop-blur">
+          {/*
+            Texto en `text-foreground` y no en `text-muted-foreground`: la pastilla flota sobre el
+            fondo estampado del chat, y en tema oscuro un gris medio sobre gris oscuro no se leia.
+            Es la unica referencia de "que dia es esto" en toda la conversacion.
+          */}
+          <span className="rounded-full border border-border bg-muted px-3 py-1 text-[11px] font-medium text-foreground shadow-sm backdrop-blur">
             {formatDateDivider(message.createdAt)}
           </span>
         </div>

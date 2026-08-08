@@ -140,6 +140,14 @@ export type SharedInboxProps = {
   conversationListApiPath?: string;
   initialConversationBatchSize?: number;
   initialHasMoreConversations?: boolean;
+  /**
+   * Desde que fila de la BASE sigue la proxima pagina.
+   *
+   * No es lo mismo que la cantidad de chats que se ven: el servidor descarta los leads pospuestos
+   * despues de leer, asi que muestra menos filas de las que consumio. Contando los mostrados el
+   * offset se corre hacia atras y la pagina siguiente devuelve chats repetidos.
+   */
+  initialConversationOffset?: number;
   sidebarItems?: SharedInboxSidebarItem[];
   conversations: SharedInboxConversationItem[];
   selectedConversation: SharedInboxSelectedConversation | null;

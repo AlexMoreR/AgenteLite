@@ -165,6 +165,7 @@ export function SharedInbox({
   conversationListApiPath = "/api/cliente/chats/list",
   initialConversationBatchSize = 20,
   initialHasMoreConversations,
+  initialConversationOffset,
   sidebarItems = [],
   conversations,
   selectedConversation,
@@ -190,6 +191,12 @@ export function SharedInbox({
     initialHasMoreConversations ?? conversations.length >= initialConversationBatchSize,
   );
   const [isLoadingMoreConversationItems, setIsLoadingMoreConversationItems] = useState(false);
+  // Por donde sigue la lista. Va en un ref y no en el largo de conversationItems porque son dos
+  // numeros distintos: el servidor lee 40 filas y puede mostrar 36 (los pospuestos no van a la
+  // bandeja). Pidiendo desde 36 la pagina siguiente repite cuatro chats que ya estaban, y al
+  // deduplicarlos la lista no crece: para el scroll es exactamente igual que si no hubiera nada
+  // mas, y deja de cargar.
+  const conversationOffsetRef = useRef(initialConversationOffset ?? conversations.length);
   const [assignedCounts, setAssignedCounts] = useState<{ mine: number; unassigned: number; all: number } | null>(null);
   const [optimisticConversation, setOptimisticConversation] = useState<SharedInboxSelectedConversation | null>(null);
   const [liveConversation, setLiveConversation] = useState<SharedInboxSelectedConversation | null>(null);
@@ -528,7 +535,7 @@ export function SharedInbox({
       return;
     }
 
-    const offset = conversationItems.length;
+    const offset = conversationOffsetRef.current;
     if (offset <= 0) {
       return;
     }
@@ -578,7 +585,12 @@ export function SharedInbox({
       }
 
       const payload = (await response.json().catch(() => null)) as
-        | { ok?: boolean; conversations?: SharedInboxConversationItem[]; hasMore?: boolean }
+        | {
+            ok?: boolean;
+            conversations?: SharedInboxConversationItem[];
+            hasMore?: boolean;
+            nextOffset?: number;
+          }
         | null;
 
       if (!payload?.ok || !Array.isArray(payload.conversations)) {
@@ -619,9 +631,16 @@ export function SharedInbox({
         return sorted;
       });
 
+      // El servidor dice donde quedo. El fallback avanza el lote completo igual: si el offset no
+      // se mueve, la proxima pagina vuelve a traer lo mismo y la lista se traba.
+      conversationOffsetRef.current =
+        typeof payload.nextOffset === "number" && payload.nextOffset > offset
+          ? payload.nextOffset
+          : offset + CONVERSATION_LIST_LOAD_BATCH_SIZE;
       setHasMoreConversationItems(Boolean(payload.hasMore));
       debugConversationList("loadMore applied", {
         offset,
+        nextOffset: conversationOffsetRef.current,
         nextHasMore: Boolean(payload.hasMore),
       });
     } catch {
@@ -639,6 +658,7 @@ export function SharedInbox({
     searchQuery,
     selectedConnectionKey,
     assignedFilter,
+    statusFilter,
   ]);
 
   const pendingConversation = usePendingConversationSelection();
@@ -668,6 +688,9 @@ export function SharedInbox({
     listQueryKeyRef.current = nextListQueryKey;
 
     if (queryChanged) {
+      // Otro filtro es otra lista: la paginacion arranca de cero, si no la segunda pagina se pide
+      // desde donde iba la lista anterior y se saltea la mitad de los chats del filtro nuevo.
+      conversationOffsetRef.current = initialConversationOffset ?? conversations.length;
       setHasMoreConversationItems(initialHasMoreConversations ?? conversations.length >= initialConversationBatchSize);
       setConversationItems(
         normalizeConversationItems(conversations, (item) =>
@@ -703,7 +726,7 @@ export function SharedInbox({
 
       return sorted;
     });
-  }, [conversations, initialConversationBatchSize, initialHasMoreConversations, searchAction, searchQuery, selectedConnectionKey, assignedFilter, statusFilter]);
+  }, [conversations, initialConversationBatchSize, initialConversationOffset, initialHasMoreConversations, searchAction, searchQuery, selectedConnectionKey, assignedFilter, statusFilter]);
 
   useEffect(() => {
     selectedConversationRef.current = selectedConversation;

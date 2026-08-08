@@ -246,11 +246,21 @@ async function getAgentConversationList(input: {
     });
 
   /**
+   * Las filas que se CONSUMIERON de la base en esta pagina. El +1 del take solo sirve para saber
+   * si quedan mas, y eso se decide aca —antes de sacar los pospuestos— porque son dos cuentas
+   * distintas: cuantas filas leimos y cuantos chats mostramos. Mezclarlas rompia la lista
+   * entera: con un solo lead pospuesto en el lote, el filtro dejaba 39 de 40 y "hay mas" daba
+   * falso, asi que el scroll no cargaba nunca mas nada aunque quedaran mil chats abajo.
+   */
+  const consumedConversationRows = activeAgentConversationsRaw.slice(0, input.limit);
+  const hasMoreConversationRows = activeAgentConversationsRaw.length > input.limit;
+
+  /**
    * Un lead pospuesto no aparece en la bandeja hasta que se cumpla el plazo, o hasta que el
    * cliente escriba (ahi el webhook lo despierta solo). Si posponer lo sacaba de "Mi dia" pero
    * lo dejaba aca, no servia de nada: la asesora lo veia igual en la lista que mira todo el dia.
    */
-  const activeAgentConversations = activeAgentConversationsRaw.filter(
+  const activeAgentConversations = consumedConversationRows.filter(
     (conversation) => !isSnoozed(conversation.contact?.metadata),
   );
 
@@ -464,8 +474,9 @@ async function getAgentConversationList(input: {
       );
     });
 
-  const sorted = merged;
-  const page = sorted.slice(0, input.limit);
+  // Ya no hace falta cortar: consumedConversationRows trae como mucho `limit` filas, y de ahi
+  // solo se pueden haber caido pospuestos.
+  const page = merged;
 
   // Refresco best-effort de las fotos de perfil de WhatsApp para los contactos visibles
   // (en segundo plano, con TTL/caché en Contact.metadata). Ver contact-avatar-refresh.ts.
@@ -483,9 +494,12 @@ async function getAgentConversationList(input: {
 
   return {
     conversations: page,
-    hasMore: sorted.length > input.limit,
-    nextOffset: input.offset + page.length,
-    total: sorted.length,
+    hasMore: hasMoreConversationRows,
+    // Por donde sigue la proxima pagina: filas leidas de la base, NO chats devueltos. Si se
+    // cuentan los devueltos, cada pospuesto corre el offset hacia atras y la pagina siguiente
+    // repite filas que el cliente ya tiene; al deduplicarlas la lista no crece y se traba igual.
+    nextOffset: input.offset + consumedConversationRows.length,
+    total: page.length,
     evolutionInstanceNames,
   };
 }

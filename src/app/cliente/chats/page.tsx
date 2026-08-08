@@ -428,11 +428,15 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
    * Se filtra despues de consultar y no en el WHERE: la fecha vive dentro del metadata y armar
    * ese filtro en la consulta es fragil. Como mucho la pagina trae unas filas menos.
    */
-  const agentConversationsVisibles = agentConversationsRaw.filter(
+  // Cuantas filas se consumieron de la base. El +1 solo sirve para saber si quedan mas, y eso se
+  // decide ANTES de sacar los pospuestos —nunca despues—: al reves alcanzaba UN solo lead
+  // pospuesto en el lote para que la lista dijera "no hay mas" y dejara de cargar al hacer
+  // scroll, con miles de chats abajo que nunca se podian ver.
+  const agentConversationsConsumidas = agentConversationsRaw.slice(0, conversationListTake);
+  const hasMoreConversationItems = agentConversationsRaw.length > conversationListTake;
+  const agentConversationsBase = agentConversationsConsumidas.filter(
     (conversation) => !isSnoozed(conversation.contact?.metadata),
   );
-  const hasMoreConversationItems = agentConversationsVisibles.length > conversationListTake;
-  const agentConversationsBase = agentConversationsVisibles.slice(0, conversationListTake);
   // Si el chat seleccionado (deep-link) no vino en el lote de la lista, lo agregamos para que el
   // panel lo abra. Va primero para que quede visible arriba al aterrizar desde Mi día.
   const agentConversations =
@@ -1116,6 +1120,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         chatSignature={chatSignature}
         initialConversationBatchSize={conversationListTake}
         initialHasMoreConversations={hasMoreConversationItems}
+        initialConversationOffset={agentConversationsConsumidas.length}
         conversationListApiPath="/api/cliente/chats/list"
         searchQuery={searchQuery}
         messageScrollBehavior={scrollMode === CHAT_MESSAGE_SCROLL_PRESERVE_QUERY ? "preserve" : "bottom"}
