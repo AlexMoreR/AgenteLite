@@ -935,7 +935,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                       role="status"
                       aria-label="Cargando conversación"
                     >
-                      <span className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-sm">
+                      <span className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-border bg-muted text-foreground shadow-sm">
                         <LoaderCircle className="h-4 w-4 animate-spin" />
                       </span>
                     </div>
@@ -943,12 +943,18 @@ export const ConversationPanel = memo(function ConversationPanel({
                   {canLoadOlderMessages ? (
                     <div className="pb-2 pt-1">
                       <div ref={loadMoreSentinelRef} aria-hidden="true" className="h-px w-full" />
+                      {/*
+                        Mismo tratamiento que la pastilla de fecha, y por el mismo motivo: flota
+                        sobre el fondo estampado del chat, asi que en tema oscuro un gris medio
+                        sobre `bg-card` (casi negro) no se leia. Es el unico camino para ver lo
+                        que se hablo antes.
+                      */}
                       {renderedConversation.loadMoreHref ? (
                         <div className="flex justify-center">
                           <Link
                             href={renderedConversation.loadMoreHref}
                             scroll={false}
-                            className="inline-flex items-center rounded-full border border-border bg-card px-3 py-1.5 text-[11px] font-medium text-muted-foreground shadow-sm transition hover:bg-muted hover:text-foreground"
+                            className="inline-flex items-center rounded-full border border-border bg-muted px-3 py-1.5 text-[11px] font-medium text-foreground shadow-sm transition hover:bg-accent"
                           >
                             Cargar mensajes anteriores
                           </Link>
@@ -956,7 +962,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                       ) : isLoadingOlderMessages ? (
                         <div className="flex justify-center px-3 py-1.5">
                           <span
-                            className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-sm"
+                            className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-border bg-muted text-foreground shadow-sm"
                             aria-label="Cargando historial"
                             role="status"
                           >
@@ -968,7 +974,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                           <button
                             type="button"
                             onClick={() => void onLoadOlderMessages()}
-                            className="inline-flex items-center rounded-full border border-border bg-card px-3 py-1.5 text-[11px] font-medium text-muted-foreground shadow-sm transition hover:bg-muted hover:text-foreground"
+                            className="inline-flex items-center rounded-full border border-border bg-muted px-3 py-1.5 text-[11px] font-medium text-foreground shadow-sm transition hover:bg-accent"
                           >
                             Cargar mensajes anteriores
                           </button>
