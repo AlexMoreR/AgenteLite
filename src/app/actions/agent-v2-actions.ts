@@ -348,15 +348,38 @@ export async function publishAgentV2Action(input: {
   );
   const textNodes = nodes.filter((node) => node.type === "texto");
   const conditionNodes = nodes.filter((node) => node.type === "condicion");
-  // Nodo "Notificar asesor": configura la acción de notificación global del agente
-  // (un solo número/instrucción por agente; si hay varios nodos, usamos el primero).
-  const notifyNode = nodes.find((node) => node.type === "notificar");
-  const rawNotifyPhones = notifyNode?.data?.phoneNumbers;
-  const notifyPhones = (Array.isArray(rawNotifyPhones) ? rawNotifyPhones : [])
-    .map((value) => asString(value).replace(/[^\d]/g, "").trim())
-    .filter(Boolean);
-  const notifyInstruction = asString(notifyNode?.data?.instruction).trim();
-  const notifyEnabled = Boolean(notifyNode) && notifyPhones.length > 0;
+  /**
+   * Nodos "Notificar asesor": arman la accion de notificacion global del agente.
+   *
+   * Se leen TODOS y se juntan. Antes se tomaba el primero del array y se descartaba el resto:
+   * en pantalla son dos nodos iguales, no hay forma de saber cual gana, y el texto del otro
+   * desaparecia en silencio. Quien lo escribia creia que estaba aplicando una regla que el
+   * agente nunca vio.
+   *
+   * El destino y el "cuando avisar" siguen siendo del AGENTE, no de cada nodo (la herramienta
+   * es una sola). Cada nodo aporta su caso al texto y su numero a la lista.
+   */
+  const notifyNodes = nodes.filter((node) => node.type === "notificar");
+  const notifyPhones = Array.from(
+    new Set(
+      notifyNodes.flatMap((node) => {
+        const raw = node.data?.phoneNumbers;
+        return (Array.isArray(raw) ? raw : [])
+          .map((value) => asString(value).replace(/[^\d]/g, "").trim())
+          .filter(Boolean);
+      }),
+    ),
+  );
+  // Distintos: si el mismo texto esta repetido en varios nodos (la forma en que hoy se evita
+  // depender de cual gana), va una sola vez.
+  const notifyInstruction = Array.from(
+    new Set(
+      notifyNodes
+        .map((node) => asString(node.data?.instruction).trim())
+        .filter(Boolean),
+    ),
+  ).join("\n\n");
+  const notifyEnabled = notifyNodes.length > 0 && notifyPhones.length > 0;
 
   const agentData = agentNode?.data ?? {};
   const agentPrompt = asString(agentData.prompt);
