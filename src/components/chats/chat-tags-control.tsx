@@ -1,9 +1,8 @@
 "use client";
 
 import { useActionState, useCallback, useEffect, useState, useTransition } from "react";
-import { Check, Plus, Trash2, X } from "lucide-react";
+import { Check, Plus, Tag, Trash2, X } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { BsFillTagFill } from "react-icons/bs";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { TAG_BADGE_CLASS, TAG_PRESET_COLORS, getTagBadgeColors } from "@/lib/tag-badge";
@@ -294,7 +293,7 @@ export function ChatTagsControl({
                         disabled={!contactId || busy}
                         className="flex min-w-0 flex-1 items-center gap-2.5 rounded-xl px-2 py-2 transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
                       >
-                        <BsFillTagFill className="h-3.5 w-3.5 shrink-0" style={{ color: getTagBadgeColors(tag.color).color }} />
+                        <Tag className="h-3.5 w-3.5 shrink-0 fill-current" style={{ color: getTagBadgeColors(tag.color).color }} />
                         <span className="flex-1 truncate text-left text-[13px] text-foreground">{tag.name}</span>
                         {isAssigned ? <Check className="h-3.5 w-3.5 shrink-0 text-[var(--primary)]" /> : null}
                       </button>

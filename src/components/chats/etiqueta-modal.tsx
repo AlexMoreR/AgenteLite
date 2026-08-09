@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useActionState, useState, useCallback, useTransition } from "react";
-import { X, Plus, Check } from "lucide-react";
-import { BsFillTagFill } from "react-icons/bs";
+import { X, Plus, Check, Tag } from "lucide-react";
 import {
   getEtiquetasAction,
   createEtiquetaAction,
@@ -146,8 +145,8 @@ export function EtiquetaModal({ open, onClose, contactId }: Props) {
                       disabled={!contactId || toggling}
                       className="flex w-full items-center gap-2.5 rounded-xl px-2 py-2 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      <BsFillTagFill
-                        className="h-3.5 w-3.5 shrink-0"
+                      <Tag
+                        className="h-3.5 w-3.5 shrink-0 fill-current"
                         style={{ color: getTagBadgeColors(tag.color).color }}
                       />
                       <span className="flex-1 text-left text-[13px] text-slate-700">{tag.name}</span>

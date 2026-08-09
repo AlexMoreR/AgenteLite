@@ -1,12 +1,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import {
-  FiCpu,
-  FiLink,
-  FiMail,
-  FiMessageCircle,
-} from "react-icons/fi";
-import { Bot, Smartphone } from "lucide-react";
+// `Link` ya es el de next/link en este archivo, asi que el icono entra con otro nombre.
+import { Bot, Cpu, Link as LinkIcon, Mail, MessageCircle, Smartphone } from "lucide-react";
 import {
   assignConnectionChannelAction,
   toggleConnectionChannelStatusAction,
@@ -70,7 +65,7 @@ export function ConnectionsWorkspaceV2({
           <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-start gap-3">
               <span className="inline-flex size-11 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <FiLink className="size-5" />
+                <LinkIcon className="size-5" />
               </span>
               <div className="space-y-1">
                 <p className="text-xs font-semibold uppercase tracking-wide text-primary">Agente seleccionado</p>
@@ -127,7 +122,7 @@ export function ConnectionsWorkspaceV2({
                                 </span>
                               ) : (
                                 <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-                                  <FiCpu className="size-3" />
+                                  <Cpu className="size-3" />
                                   Sin agente
                                 </span>
                               )}
@@ -155,8 +150,8 @@ export function ConnectionsWorkspaceV2({
                         ]}
                         wrapperClassName="pointer-events-auto relative z-20"
                       />
-                      <MetricPill icon={<FiMessageCircle className="size-4" />} value={String(item.conversationsCount)} />
-                      <MetricPill icon={<FiMail className="size-4" />} value={String(item.messagesCount)} />
+                      <MetricPill icon={<MessageCircle className="size-4" />} value={String(item.conversationsCount)} />
+                      <MetricPill icon={<Mail className="size-4" />} value={String(item.messagesCount)} />
 
                       {canAssignToTargetAgent ? (
                         <form action={assignConnectionChannelAction} className="relative z-20">
@@ -168,7 +163,7 @@ export function ConnectionsWorkspaceV2({
                             value={targetAgent ? `/cliente/conexion?agentId=${targetAgent.id}` : "/cliente/conexion"}
                           />
                           <Button type="submit" size="sm">
-                            <FiLink />
+                            <LinkIcon />
                             Asignar a este agente
                           </Button>
                         </form>

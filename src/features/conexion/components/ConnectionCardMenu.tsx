@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { FiTrash2 } from "react-icons/fi";
+import { Trash2 } from "lucide-react";
 import { MoreHorizontal } from "lucide-react";
 import { deleteConnectionChannelAction } from "@/app/actions/connection-actions";
 import { Button } from "@/components/ui/button";
@@ -30,7 +30,7 @@ export function ConnectionCardMenu({ channelId, channelName }: { channelId: stri
           <form action={deleteConnectionChannelAction}>
             <input type="hidden" name="channelId" value={channelId} />
             <DropdownMenuItem variant="destructive" className="w-full" render={<button type="submit" />}>
-              <FiTrash2 />
+              <Trash2 />
               Eliminar
             </DropdownMenuItem>
           </form>

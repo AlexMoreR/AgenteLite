@@ -72,12 +72,14 @@ export function ImportHistoryControl({ conversationId, withLabel = false }: Impo
     );
   }
 
+  // Sin borde ni fondo: va pegado al de copiar la conversacion en la cabecera de la ficha, y con
+  // caja propia parecia otra cosa —un boton principal— al lado de un icono suelto.
   return (
     <button
       type="button"
       onClick={handleClick}
       disabled={isPending}
-      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground transition hover:bg-muted disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-ring/50"
+      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-ring/50"
       aria-label="Traer historial de WhatsApp"
       title="Traer historial de WhatsApp"
     >

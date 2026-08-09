@@ -2,7 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { FiCalendar, FiEye, FiMoreVertical, FiPlus, FiTrash2, FiX } from "react-icons/fi";
+// `Calendar` ya es el componente de calendario aca abajo: el icono entra con otro nombre.
+import { CalendarDays, Eye, EllipsisVertical, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -152,7 +153,7 @@ export function DailyReportPanel({
                 inputMode="numeric"
               />
               <Button type="button" variant="outline" onClick={addRecipient}>
-                <FiPlus />
+                <Plus />
                 Añadir
               </Button>
             </div>
@@ -172,7 +173,7 @@ export function DailyReportPanel({
                       aria-label={`Quitar ${number}`}
                       className="text-muted-foreground hover:text-foreground"
                     >
-                      <FiX className="size-3" />
+                      <X className="size-3" />
                     </button>
                   </span>
                 ))
@@ -192,7 +193,7 @@ export function DailyReportPanel({
                 setGenerateOpen(true);
               }}
             >
-              <FiCalendar />
+              <CalendarDays />
               Generar ahora
             </Button>
           </div>
@@ -261,7 +262,7 @@ export function DailyReportPanel({
                   <div className="flex items-center gap-1">
                     <Button asChild variant="outline" size="sm">
                       <a href={`/reportes/${report.shareToken}`} target="_blank" rel="noopener noreferrer">
-                        <FiEye />
+                        <Eye />
                         Ver
                       </a>
                     </Button>
@@ -271,7 +272,7 @@ export function DailyReportPanel({
                           <Button type="button" variant="ghost" size="icon-sm" aria-label="Acciones del reporte" />
                         }
                       >
-                        <FiMoreVertical />
+                        <EllipsisVertical />
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem
@@ -279,7 +280,7 @@ export function DailyReportPanel({
                           disabled={isDeleting}
                           onClick={() => handleDelete(report.id)}
                         >
-                          <FiTrash2 />
+                          <Trash2 />
                           Eliminar
                         </DropdownMenuItem>
                       </DropdownMenuContent>

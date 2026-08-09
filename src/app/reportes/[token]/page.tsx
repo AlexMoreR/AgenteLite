@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { FiInbox, FiSend, FiUserPlus, FiThumbsUp, FiThumbsDown } from "react-icons/fi";
+import { Inbox, Send, UserPlus, ThumbsUp, ThumbsDown } from "lucide-react";
 
 import { stageLabel, type DailyReportRow } from "@/features/reportes/services/daily-report";
 import { getTagBadgeColors } from "@/lib/tag-badge";
@@ -55,11 +55,11 @@ export default async function DailyReportPublicPage({ params }: PageProps) {
   });
 
   const metrics = [
-    { label: "Mensajes recibidos", value: report.inboundCount, icon: FiInbox, tone: "text-sky-600" },
-    { label: "Mensajes enviados", value: report.outboundCount, icon: FiSend, tone: "text-indigo-600" },
-    { label: "Personas nuevas", value: report.newContacts, icon: FiUserPlus, tone: "text-violet-600" },
-    { label: "Negocios ganados", value: report.wonCount, icon: FiThumbsUp, tone: "text-emerald-600" },
-    { label: "Negocios perdidos", value: report.lostCount, icon: FiThumbsDown, tone: "text-rose-600" },
+    { label: "Mensajes recibidos", value: report.inboundCount, icon: Inbox, tone: "text-sky-600" },
+    { label: "Mensajes enviados", value: report.outboundCount, icon: Send, tone: "text-indigo-600" },
+    { label: "Personas nuevas", value: report.newContacts, icon: UserPlus, tone: "text-violet-600" },
+    { label: "Negocios ganados", value: report.wonCount, icon: ThumbsUp, tone: "text-emerald-600" },
+    { label: "Negocios perdidos", value: report.lostCount, icon: ThumbsDown, tone: "text-rose-600" },
   ];
 
   return (

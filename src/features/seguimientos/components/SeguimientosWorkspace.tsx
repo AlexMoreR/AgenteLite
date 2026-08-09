@@ -1,14 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import {
-  IconCircleCheckFilled,
-} from "@tabler/icons-react"
-
 import { useActionState, useEffect, useState } from "react";
 import {
   BarChart3,
   CheckCircle2,
+  CircleCheck,
   CircleSlash2,
   Clock3,
   Loader,
@@ -444,7 +441,7 @@ export function SeguimientosWorkspace({
                               className="cursor-default"
                             >
                               {follow.status === "EXECUTED" ? (
-                                <IconCircleCheckFilled className="fill-green-500 dark:fill-green-400" />
+                                <CircleCheck className="h-4 w-4 fill-green-500 text-white dark:fill-green-400" />
                               ) : null}
                               {follow.status === "PENDING" ? (
                                 <Loader className="h-3 w-3 animate-spin text-orange-500" />
@@ -467,7 +464,7 @@ export function SeguimientosWorkspace({
                         }
                       >
                         {follow.status === "EXECUTED" ? (
-                          <IconCircleCheckFilled className="fill-green-500 dark:fill-green-400" />
+                          <CircleCheck className="h-4 w-4 fill-green-500 text-white dark:fill-green-400" />
                         ) : null}
                         {follow.status === "PENDING" ? (
                           <Loader className="h-3 w-3 animate-spin text-orange-500" />
