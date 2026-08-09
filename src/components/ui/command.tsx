@@ -18,14 +18,25 @@ function Command({ className, ...props }: React.ComponentProps<typeof CommandPri
   );
 }
 
+/**
+ * `shouldFilter` va al Command de ADENTRO, que es el que envuelve al input y a la lista.
+ *
+ * Sin esto no habia forma de apagar el filtrado propio de cmdk desde afuera: la prop caia en el
+ * Dialog y el Command interno seguia filtrando por su cuenta. Con resultados que vienen del
+ * servidor eso esconde aciertos —un chat que coincidio por el CONTENIDO de un mensaje no lleva
+ * ese texto en el item, asi que cmdk lo descartaba.
+ */
 function CommandDialog({
   className,
   children,
+  shouldFilter,
   ...props
 }: React.ComponentProps<typeof CommandPrimitive.Dialog>) {
   return (
     <CommandPrimitive.Dialog {...props}>
-      <Command className={cn("rounded-lg shadow-md", className)}>{children}</Command>
+      <Command shouldFilter={shouldFilter} className={cn("rounded-lg shadow-md", className)}>
+        {children}
+      </Command>
     </CommandPrimitive.Dialog>
   );
 }

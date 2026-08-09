@@ -21,6 +21,7 @@ import { ClientPlanWarningBar } from "@/components/client-plan-warning-bar";
 import { Navbar } from "@/components/navbar";
 import { Separator } from "@/components/ui/separator";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { BuscadorGlobal } from "@/components/buscador-global";
 import { Button } from "@/components/ui/button";
 import { AppVersionGuard } from "@/components/app-version-guard";
 import { MobileKeyboardViewport } from "@/components/mobile-keyboard-viewport";
@@ -282,6 +283,7 @@ export function AppShell({
               <Separator orientation="vertical"/>
               {!isChatWorkspacePath ? <AppBreadcrumb pathname={pathname} /> : null}
               <div className="ml-auto flex items-center gap-0.5">
+                <BuscadorGlobal />
                 <ChatNotificationBell />
                 <Button
                   type="button"
