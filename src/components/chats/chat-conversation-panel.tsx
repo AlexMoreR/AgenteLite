@@ -899,7 +899,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                       escribiendo, y se mira de reojo mientras se escribe. Con 13px se leia como
                       un detalle secundario del encabezado.
                     */}
-                    <h2 className="truncate text-[16px] font-semibold leading-tight text-foreground md:text-[17px]">
+                    <h2 className="truncate text-[14px] font-semibold leading-tight text-foreground">
                       {renderedConversation.label}
                     </h2>
                     {/*
@@ -910,7 +910,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                     */}
                     {renderedConversation.secondaryLabel &&
                     renderedConversation.secondaryLabel !== renderedConversation.label ? (
-                      <p className="truncate text-[14px] leading-tight text-muted-foreground md:text-[15px]">
+                      <p className="truncate text-[13px] leading-tight text-muted-foreground">
                         {renderedConversation.secondaryLabel}
                       </p>
                     ) : null}
