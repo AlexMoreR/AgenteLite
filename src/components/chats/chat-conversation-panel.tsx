@@ -894,7 +894,12 @@ export const ConversationPanel = memo(function ConversationPanel({
                     </Tooltip>
                   </TooltipProvider>
                   <div className="min-w-0 space-y-0.5">
-                    <h2 className="truncate text-[13px] font-semibold text-foreground md:text-sm">
+                    {/*
+                      Nombre y telefono en grande: es el dato que confirma A QUIEN le estas
+                      escribiendo, y se mira de reojo mientras se escribe. Con 13px se leia como
+                      un detalle secundario del encabezado.
+                    */}
+                    <h2 className="truncate text-[16px] font-semibold leading-tight text-foreground md:text-[17px]">
                       {renderedConversation.label}
                     </h2>
                     {/*
@@ -905,7 +910,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                     */}
                     {renderedConversation.secondaryLabel &&
                     renderedConversation.secondaryLabel !== renderedConversation.label ? (
-                      <p className="truncate text-[11px] leading-tight text-muted-foreground md:text-xs">
+                      <p className="truncate text-[14px] leading-tight text-muted-foreground md:text-[15px]">
                         {renderedConversation.secondaryLabel}
                       </p>
                     ) : null}
