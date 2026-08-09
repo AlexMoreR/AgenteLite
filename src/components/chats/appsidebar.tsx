@@ -3,9 +3,9 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ListFilter, MessageSquareText, Search, X } from "lucide-react";
+import { ListFilter, MessageSquareText } from "lucide-react";
 import { ConversationList } from "@/components/chats/conversation-list";
-import { SidebarHeader, SidebarInput } from "@/components/ui/sidebar";
+import { SidebarHeader } from "@/components/ui/sidebar";
 import { type AssignedFilter, type StatusFilter, type SharedInboxConversationItem } from "./shared-inbox";
 import { Label } from "../ui/label";
 import { Switch } from "@base-ui/react";
@@ -20,11 +20,6 @@ type AppSidebarProps = {
   statusFilter?: StatusFilter;
   assignedCounts?: { mine: number; unassigned: number; all: number } | null;
   isManager?: boolean;
-  searchInputValue: string;
-  searchInputRef: React.RefObject<HTMLInputElement | null>;
-  onSearchChange: (value: string) => void;
-  onSearchClear: () => void;
-  onSearchSubmit: () => void;
   hasMoreConversationItems?: boolean;
   isLoadingMoreConversationItems?: boolean;
   onLoadMoreConversationItems?: () => void | Promise<void>;
@@ -55,11 +50,6 @@ export function AppSidebar({
   statusFilter = "open",
   assignedCounts = null,
   isManager = false,
-  searchInputValue,
-  searchInputRef,
-  onSearchChange,
-  onSearchClear,
-  onSearchSubmit,
   hasMoreConversationItems = false,
   isLoadingMoreConversationItems = false,
   onLoadMoreConversationItems,
@@ -136,39 +126,12 @@ export function AppSidebar({
     >
       <div className="flex min-h-0 w-full flex-col">
         <div className="relative z-30 shrink-0 border-b border-border bg-card px-3 py-2 backdrop-blur-sm md:px-3 md:py-2">
-          <div className="flex items-center gap-2">
-            <form
-              className="relative flex-1"
-              action={searchAction}
-              onSubmit={(event) => {
-                event.preventDefault();
-                onSearchSubmit();
-              }}
-            >
-              <input type="hidden" name="chatKey" value={selectedConversationId} />
-              {selectedConnectionKey ? <input type="hidden" name="connection" value={selectedConnectionKey} /> : null}
-              {assignedFilter !== "all" ? <input type="hidden" name="assigned" value={assignedFilter} /> : null}
-              <SidebarInput
-                ref={searchInputRef}
-                type="text"
-                name="q"
-                value={searchInputValue}
-                onChange={(event) => onSearchChange(event.target.value)}
-                placeholder="Buscar chats..."
-                className=""
-              />
-              {searchInputValue ? (
-                <button
-                  type="button"
-                  onClick={onSearchClear}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded text-muted-foreground transition hover:text-muted-foreground focus:outline-none"
-                  aria-label="Limpiar busqueda"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              ) : null}
-            </form>
-
+          {/*
+            Se saco el "Buscar chats...": ahora se busca desde la lupa del encabezado (Ctrl+K),
+            que ademas cruza contactos y productos. Dos cajas de busqueda en la misma pantalla
+            confundian mas de lo que ayudaban.
+          */}
+          <div className="flex items-center justify-end gap-2">
             <div ref={filterMenuRef} className="relative shrink-0">
               <button
                 type="button"

@@ -114,7 +114,10 @@ function CommandGroup({ className, ...props }: React.ComponentProps<typeof Comma
     <CommandPrimitive.Group
       data-slot="command-group"
       className={cn(
-        "overflow-hidden p-1 text-foreground [&_[data-slot=command-group-heading]]:px-2 [&_[data-slot=command-group-heading]]:py-1.5 [&_[data-slot=command-group-heading]]:text-xs [&_[data-slot=command-group-heading]]:font-medium [&_[data-slot=command-group-heading]]:text-muted-foreground",
+        // El titulo del grupo en negrita y en color pleno: es lo que separa "Chats" de
+        // "Contactos" en una lista donde todo se parece, y en gris claro se perdia entre los
+        // resultados en vez de ordenarlos.
+        "overflow-hidden p-1 text-foreground [&_[data-slot=command-group-heading]]:px-2 [&_[data-slot=command-group-heading]]:py-1.5 [&_[data-slot=command-group-heading]]:text-xs [&_[data-slot=command-group-heading]]:font-semibold [&_[data-slot=command-group-heading]]:text-foreground",
         className,
       )}
       {...props}

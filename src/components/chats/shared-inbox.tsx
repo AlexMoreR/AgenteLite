@@ -2253,14 +2253,6 @@ export function SharedInbox({
         statusFilter={statusFilter}
         assignedCounts={assignedCounts}
         isManager={isManager}
-        searchInputValue={searchInputValue}
-        searchInputRef={searchInputRef}
-        onSearchChange={handleSearchChange}
-        onSearchClear={handleSearchClear}
-        onSearchSubmit={() => {
-          if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
-          void runSearchAugmentation(searchInputValue);
-        }}
         hasMoreConversationItems={hasMoreConversationItems}
         isLoadingMoreConversationItems={isLoadingMoreConversationItems}
         onLoadMoreConversationItems={loadMoreConversationItems}
