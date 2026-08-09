@@ -125,7 +125,6 @@ export type AgentNotifyActionConfig = {
   destinationPhoneNumbers: string[];
   instruction: string;
   pauseConversationAfterNotify: boolean;
-  autoNotifyOnUnknownProduct: boolean;
 };
 
 export type AgentActionsConfig = {
@@ -199,7 +198,6 @@ export const defaultAgentTrainingConfig: AgentTrainingConfig = {
       destinationPhoneNumbers: [],
       instruction: "",
       pauseConversationAfterNotify: false,
-      autoNotifyOnUnknownProduct: false,
     },
   },
   useCustomPrompt: false,
@@ -272,7 +270,6 @@ export function buildAgentTrainingConfig(
         destinationPhoneNumbers: (notify.destinationPhoneNumbers ?? []).map((value) => value.trim()).filter(Boolean),
         instruction: notify.instruction.trim(),
         pauseConversationAfterNotify: Boolean(notify.pauseConversationAfterNotify),
-        autoNotifyOnUnknownProduct: Boolean(notify.autoNotifyOnUnknownProduct),
       },
     },
   };
@@ -555,10 +552,7 @@ export function buildAgentSystemPrompt(input: {
           training.actions.notify.instruction.trim()
             ? `Usa la herramienta Notificar_asesor cuando: ${training.actions.notify.instruction.trim()}.`
             : "Si el cliente pide hablar con un asesor, necesita validacion humana o la conversación requiere seguimiento comercial, usa la herramienta Notificar_asesor."
-        }\n- No la uses para dudas que puedas resolver por tu cuenta.\n- Cuando la uses, entrega un motivo claro y un resumen breve del caso.`
-      : null,
-    training.actions.notify.autoNotifyOnUnknownProduct
-      ? `REGLA EXTRA DE ESCALAMIENTO\n- Si el cliente pregunta por un producto o catalogo que no existe en la base de conocimiento, deriva inmediatamente a un asesor y no respondas con una negacion.`
+        }\n- Esa instruccion MANDA: si dice que notifiques en un caso, notifica aunque creas que podes resolverlo por tu cuenta.\n- Fuera de los casos que nombra, no la uses para dudas que puedas resolver solo.\n- Cuando la uses, entrega un motivo claro y un resumen breve del caso.`
       : null,
     `COSAS QUE NUNCA DEBES HACER\n- ${strictRules.join("\n- ")}`,
     `FORMA DE RESPONDER\n- Responde en texto plano para WhatsApp.\n- Prioriza mensajes claros, utiles y faciles de leer.\n- No des listas largas salvo que ayuden a vender o aclarar opciones.\n- Cuando puedas, termina con un siguiente paso concreto.`,
@@ -629,7 +623,6 @@ export function summarizeTraining(training: AgentTrainingConfig) {
       training.sendPaymentLink ? "Envia link de pago" : null,
       training.handoffToHuman ? "Escala a humano" : null,
       training.actions.notify.pauseConversationAfterNotify ? "Apaga la automatizacion al notificar" : null,
-      training.actions.notify.autoNotifyOnUnknownProduct ? "Notifica si no conoce el producto" : null,
       training.actions.notify.enabled ? "Notifica a asesor humano" : null,
     ].filter(Boolean) as string[],
   };
@@ -720,7 +713,6 @@ function normalizeAgentActionsConfig(value: unknown): AgentActionsConfig {
         : [],
       instruction: typeof notify.instruction === "string" ? notify.instruction.trim() : "",
       pauseConversationAfterNotify: Boolean(notify.pauseConversationAfterNotify),
-      autoNotifyOnUnknownProduct: Boolean(notify.autoNotifyOnUnknownProduct),
     },
   };
 }

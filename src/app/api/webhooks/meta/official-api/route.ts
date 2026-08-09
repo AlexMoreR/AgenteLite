@@ -45,7 +45,6 @@ import {
   executeConsultarFlujosTool,
   executeConsultarProductosTool,
   resolveNotifyHumanAction,
-  resolveUnknownProductNotifyAction,
   sendNotificarAsesorNotification,
 } from "@/features/agent-actions";
 
@@ -1416,38 +1415,10 @@ export async function POST(request: Request) {
         `;
       }
 
-      const hasActiveProductContext = Boolean(agentProductFlowResolution?.activeProductContext);
-      const autoUnknownProductNotifyAction =
-        linkedAgentChannel?.agent?.id &&
-        !shouldHandoffToHuman &&
-        !hasActiveProductContext &&
-        !agentProductFlowReply &&
-        !agentKnowledgeBaseReply &&
-        agentTraining?.actions.notify.autoNotifyOnUnknownProduct
-          ? resolveUnknownProductNotifyAction({
-              trainingConfig: linkedAgentChannel.agent.trainingConfig,
-              agentName: linkedAgentChannel.agent.name,
-              customerPhoneNumber: message.waId,
-              customerName: message.contactName,
-              latestUserMessage: message.content,
-            })
-          : null;
-      const autoUnknownProductNotifyPromise = autoUnknownProductNotifyAction
-        ? sendOfficialApiDirectTextMessage({
-            config,
-            to: autoUnknownProductNotifyAction.destinationPhoneNumber,
-            message: autoUnknownProductNotifyAction.message,
-          }).catch((error) => {
-            console.warn("[official-api] auto_unknown_product_notification_failed", {
-              configId: config.id,
-              conversationId: message.conversationId,
-              contactId: message.contactId,
-              destinationPhoneNumber: autoUnknownProductNotifyAction.destinationPhoneNumber,
-              error: error instanceof Error ? error.message : String(error),
-            });
-            return null;
-          })
-        : null;
+      // Se saco el aviso automatico por "producto desconocido": lo disparaba un matcher de
+      // palabras ("catalogo", "producto", "modelo", "referencia") que aparecen en cualquier
+      // conversacion de venta. Ahora lo decide la IA con Notificar_asesor, guiada por la
+      // instruccion del nodo "Notificar asesor". Ver el mismo cambio en el webhook de Evolution.
 
       // Conversacion IA libre (paridad con Evolution): cuando el agente no resolvio por
       // producto/flujo/conocimiento y no hay handoff/auto-notify, generamos la respuesta con
@@ -1457,7 +1428,6 @@ export async function POST(request: Request) {
       const shouldRunAgentIa =
         Boolean(iaAgent?.id) &&
         !shouldHandoffToHuman &&
-        !autoUnknownProductNotifyAction &&
         !agentProductFlowReply &&
         !agentKnowledgeBaseReply;
 
@@ -1472,7 +1442,7 @@ export async function POST(request: Request) {
 
       // El chatbot basico de la API oficial solo actua cuando NO hay agente IA que responda
       // (el agente vinculado tiene prioridad y no queremos avanzar escenarios en silencio).
-      const chatbotReply = !hasLinkedAgent || shouldHandoffToHuman || Boolean(autoUnknownProductNotifyAction) || shouldRunAgentIa
+      const chatbotReply = !hasLinkedAgent || shouldHandoffToHuman || shouldRunAgentIa
         ? null
         : await resolveOfficialApiAutomationReply({
             configId: config.id,
@@ -1620,17 +1590,7 @@ export async function POST(request: Request) {
           }
         : agentKnowledgeBaseReply
           ? agentKnowledgeBaseReply
-          : autoUnknownProductNotifyAction
-            ? {
-                text: composeAgentWelcomeReply({
-                  welcomeMessage: linkedAgentChannel?.agent?.welcomeMessage ?? null,
-                  reply: "Ya en un momento te atendera un asesor para ayudarte con esa solicitud.",
-                  hasConversationHistory: recentMessages.length > 1,
-                }),
-                image: null,
-                video: null,
-              }
-            : shouldHandoffToHuman
+          : shouldHandoffToHuman
               ? {
                   text: buildHandoffMessage(),
                   image: null,
@@ -1693,18 +1653,6 @@ export async function POST(request: Request) {
 
       if (contactMatchTasks.length > 0) {
         await Promise.allSettled(contactMatchTasks);
-      }
-
-      if (autoUnknownProductNotifyPromise) {
-        await autoUnknownProductNotifyPromise;
-        if (agentTraining?.actions.notify.pauseConversationAfterNotify) {
-          // message.conversationId es un id de OfficialApiConversation: usar el setter oficial
-          // (antes se usaba el de la tabla "Conversation" de Evolution, un no-op aqui).
-          await setOfficialApiConversationAutomationPaused({
-            conversationId: message.conversationId,
-            paused: true,
-          });
-        }
       }
 
       if (!reply || (!reply.image && !reply.text?.trim())) {

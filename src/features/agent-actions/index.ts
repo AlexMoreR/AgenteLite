@@ -4,7 +4,6 @@ export { buildNotifyHumanMessage } from "./services/build-notify-human-message";
 export { consultFlowsByWorkspace } from "./services/consult-flujos";
 export { consultProductsByAgent } from "./services/consult-productos";
 export { resolveNotifyHumanAction } from "./services/resolve-notify-human-action";
-export { resolveUnknownProductNotifyAction } from "./services/resolve-unknown-product-notify-action";
 export {
   CONSULTAR_FLUJOS_TOOL,
   CONSULTAR_PRODUCTOS_TOOL,

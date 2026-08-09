@@ -764,7 +764,6 @@ export async function publishAgentV2Action(input: {
         destinationPhoneNumbers: notifyPhones,
         instruction: notifyInstruction,
         pauseConversationAfterNotify: defaultAgentTrainingConfig.actions.notify.pauseConversationAfterNotify,
-        autoNotifyOnUnknownProduct: defaultAgentTrainingConfig.actions.notify.autoNotifyOnUnknownProduct,
       },
     },
   });

@@ -31,7 +31,6 @@ function getActionDraft(training: AgentTrainingConfig) {
     instruction: notifyAction.instruction,
     phoneNumber: notifyAction.destinationPhoneNumber,
     pauseConversationAfterNotify: Boolean(notifyAction.pauseConversationAfterNotify),
-    autoNotifyOnUnknownProduct: Boolean(notifyAction.autoNotifyOnUnknownProduct),
   };
 }
 
@@ -42,7 +41,6 @@ export function AgentActionsWorkspace({ agentId, training }: AgentActionsWorkspa
   const [instruction, setInstruction] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [pauseConversationAfterNotify, setPauseConversationAfterNotify] = useState(false);
-  const [autoNotifyOnUnknownProduct, setAutoNotifyOnUnknownProduct] = useState(false);
   const deleteFormRef = useRef<HTMLFormElement>(null);
   const notifyAction = training.actions?.notify ?? defaultAgentTrainingConfig.actions.notify;
   const titleId = useId();
@@ -51,8 +49,7 @@ export function AgentActionsWorkspace({ agentId, training }: AgentActionsWorkspa
     Boolean(notifyAction.enabled) ||
     Boolean(notifyAction.instruction.trim()) ||
     Boolean(notifyAction.destinationPhoneNumber.trim()) ||
-    Boolean(notifyAction.pauseConversationAfterNotify) ||
-    Boolean(notifyAction.autoNotifyOnUnknownProduct);
+    Boolean(notifyAction.pauseConversationAfterNotify);
 
   useEffect(() => {
     if (!open) {
@@ -75,14 +72,12 @@ export function AgentActionsWorkspace({ agentId, training }: AgentActionsWorkspa
       instruction: "",
       phoneNumber: "",
       pauseConversationAfterNotify: false,
-      autoNotifyOnUnknownProduct: false,
     };
 
     setActionType(actionDraft.actionType);
     setInstruction(actionDraft.instruction);
     setPhoneNumber(actionDraft.phoneNumber);
     setPauseConversationAfterNotify(Boolean(actionDraft.pauseConversationAfterNotify));
-    setAutoNotifyOnUnknownProduct(Boolean(actionDraft.autoNotifyOnUnknownProduct));
     setMode(nextMode);
     setOpen(true);
   };
@@ -254,11 +249,6 @@ export function AgentActionsWorkspace({ agentId, training }: AgentActionsWorkspa
                     name="notifyPauseConversationAfterNotify"
                     value={pauseConversationAfterNotify ? "on" : "off"}
                   />
-                  <input
-                    type="hidden"
-                    name="notifyAutoNotifyOnUnknownProduct"
-                    value={autoNotifyOnUnknownProduct ? "on" : "off"}
-                  />
 
                   <div className="space-y-4">
                     <label className="block space-y-2">
@@ -323,19 +313,13 @@ export function AgentActionsWorkspace({ agentId, training }: AgentActionsWorkspa
                       />
                     </label>
 
-                    <label className="flex items-center justify-between gap-4 rounded-[18px] border border-[rgba(148,163,184,0.14)] bg-slate-50/80 px-4 py-3.5">
-                      <div className="space-y-1">
-                        <span className="block text-sm font-semibold text-slate-900">Notificar si no conoce el producto</span>
-                        <span className="block text-xs leading-5 text-slate-500">
-                          Cuando el cliente pida un producto o catálogo que no esté en conocimiento, el sistema avisa al asesor automáticamente.
-                        </span>
-                      </div>
-                      <Switch
-                        checked={Boolean(autoNotifyOnUnknownProduct)}
-                        onCheckedChange={setAutoNotifyOnUnknownProduct}
-                        aria-label="Notificar si no conoce el producto"
-                      />
-                    </label>
+                    {/*
+                      Se saco el switch "Notificar si no conoce el producto".
+                      Cuando avisar por algo que no esta en el catalogo se escribe en la
+                      Instruccion de aca arriba: es texto que se lee y se corrige. El switch
+                      prendia un matcher de palabras escondido y ademas Agente V2 lo apagaba en
+                      cada publicacion, asi que prometia algo que no cumplia.
+                    */}
                   </div>
 
                   <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">

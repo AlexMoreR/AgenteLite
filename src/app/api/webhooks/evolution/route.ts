@@ -107,7 +107,6 @@ import {
   ENVIAR_FLUJO_TOOL,
   resolveEnviarFlujoTool,
   resolveNotifyHumanAction,
-  resolveUnknownProductNotifyAction,
   NOTIFICAR_ASESOR_TOOL,
   executeConsultarFlujosTool,
   executeConsultarProductosTool,
@@ -3131,55 +3130,17 @@ export async function POST(request: NextRequest) {
               history: recentMessagesForModel,
             });
 
-      const autoUnknownProductNotifyAction =
-        !shouldHandoffToHuman &&
-        !hasActiveProductContext &&
-        !hardFlowReply &&
-        !knowledgeBaseReply &&
-        agentTraining?.actions.notify.autoNotifyOnUnknownProduct
-          ? resolveUnknownProductNotifyAction({
-              trainingConfig: agent.trainingConfig,
-              agentName: agent.name,
-              customerPhoneNumber: phoneNumber,
-              customerName: contact.name,
-              latestUserMessage: inboundTextForProcessing,
-            })
-          : null;
-      const autoUnknownProductNotifyPromise = autoUnknownProductNotifyAction && channel.evolutionInstanceName
-        ? sendNotificarAsesorNotification({
-            trainingConfig: agent.trainingConfig,
-            agentName: agent.name,
-            customerPhoneNumber: phoneNumber,
-            customerName: contact.name,
-            latestUserMessage: inboundTextForProcessing,
-            toolInput: {
-              motivo: "Cliente pidió un producto o catálogo que no existe en la base de conocimiento",
-              prioridad: "media",
-              resumen_cliente: inboundTextForProcessing,
-              ultimo_mensaje: inboundTextForProcessing,
-            },
-            sendMessage: async (destinationPhoneNumber, text) => {
-              if (!channel.evolutionInstanceName) {
-                throw new Error("La instancia de Evolution no esta disponible");
-              }
-
-              return sendEvolutionTextMessageWithReconnect({
-                instanceName: channel.evolutionInstanceName,
-                phoneNumber: destinationPhoneNumber,
-                text,
-                delayMs: 0,
-              });
-            },
-          }).catch((error) => {
-            console.warn("[EVOLUTION] auto_unknown_product_notification_failed", {
-              conversationId: conversation.id,
-              agentId: agent.id,
-              phoneNumber,
-              error: error instanceof Error ? error.message : String(error),
-            });
-            return null;
-          })
-        : null;
+      /**
+       * Se saco el aviso automatico por "producto desconocido".
+       *
+       * Se disparaba con un matcher de palabras: "catalogo", "producto", "modelo", "referencia"
+       * — que aparecen en cualquier conversacion de venta normal. Notificaba al asesor y cortaba
+       * la charla con "un asesor te atendera en breve" sin que la IA mirara nada.
+       *
+       * Ahora eso lo decide la IA con la herramienta Notificar_asesor, guiada por la instruccion
+       * que se escribe en el nodo "Notificar asesor" del diagrama. Un texto que se lee y se
+       * corrige, en vez de una lista de palabras escondida en el codigo.
+       */
       const commercialStagePrompt = buildCommercialStagePromptSection(commercialStageResolution);
       const commercialContextPrompt = buildCommercialConversationContextPromptSection(commercialConversationContext);
 
@@ -3195,9 +3156,6 @@ export async function POST(request: NextRequest) {
         // steps executed directly in the flow engine block below
         replyText = null;
         shouldComposeWelcome = false;
-      } else if (autoUnknownProductNotifyAction) {
-        replyText = "👨🏻‍💻 Un asesor te atenderá en breve ⏰";
-        shouldComposeWelcome = true;
       } else if (knowledgeBaseReply) {
         replyText = knowledgeBaseReply.text ?? null;
         shouldComposeWelcome = Boolean(replyText);
@@ -3643,12 +3601,6 @@ export async function POST(request: NextRequest) {
           }
 
           if (notifyHumanPromise) await notifyHumanPromise;
-          const autoUnknownProductNotifyResult = autoUnknownProductNotifyPromise
-            ? await autoUnknownProductNotifyPromise
-            : null;
-          if (autoUnknownProductNotifyResult?.ok && agentTraining?.actions.notify.pauseConversationAfterNotify) {
-            await setConversationAutomationPaused({ conversationId: conversation.id, paused: true });
-          }
           await prisma.conversation.update({
             where: { id: conversation.id },
             data: { lastMessageAt: new Date(), status: "OPEN" },
@@ -3776,12 +3728,6 @@ export async function POST(request: NextRequest) {
 
             if (notifyHumanPromise) {
               await notifyHumanPromise;
-            }
-            const autoUnknownProductNotifyResult = autoUnknownProductNotifyPromise
-              ? await autoUnknownProductNotifyPromise
-              : null;
-            if (autoUnknownProductNotifyResult?.ok && agentTraining?.actions.notify.pauseConversationAfterNotify) {
-              await setConversationAutomationPaused({ conversationId: conversation.id, paused: true });
             }
 
             await prisma.conversation.update({

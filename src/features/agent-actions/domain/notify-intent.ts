@@ -29,27 +29,6 @@ const FOLLOW_UP_HINT_PATTERNS = [
   /\bayuda\b/i,
 ];
 
-const UNKNOWN_PRODUCT_HINT_PATTERNS = [
-  /\bcatalogo\b/i,
-  /\bcat[aá]logo\b/i,
-  /\bproducto\b/i,
-  /\bproductos\b/i,
-  /\bmodelo\b/i,
-  /\bmodelos\b/i,
-  /\breferencia\b/i,
-  /\breferencias\b/i,
-  /\bcotizar\b/i,
-  /\bcotizacion\b/i,
-  /\bcotizaci[oó]n\b/i,
-  /\bbusco\b/i,
-  /\bquiero\b/i,
-  /\bnecesito\b/i,
-  /\bmanejan\b/i,
-  /\bvenden\b/i,
-  /\btiene\b/i,
-  /\btienen\b/i,
-];
-
 function normalizeText(value: string) {
   return value
     .normalize("NFD")
@@ -60,42 +39,6 @@ function normalizeText(value: string) {
     .trim();
 }
 
-function stripUrls(value: string) {
-  return value.replace(/https?:\/\/\S+/gi, " ");
-}
-
-function looksLikeMarketplaceLinkMessage(messageText: string) {
-  const normalized = normalizeText(messageText);
-  return (
-    normalized.includes("facebook marketplace") ||
-    normalized.includes("marketplace item") ||
-    normalized.includes("marketplace/item") ||
-    normalized.includes("fb com marketplace") ||
-    normalized.includes("facebook com marketplace")
-  );
-}
-
-function hasOnlyLightContextAfterUrlRemoval(messageText: string) {
-  const withoutUrls = normalizeText(stripUrls(messageText));
-  if (!withoutUrls) {
-    return true;
-  }
-
-  const tokens = withoutUrls.split(" ").filter((token) => token.length >= 3);
-  return tokens.length <= 4;
-}
-
-function shouldSkipUnknownProductNotifyForLink(messageText: string) {
-  if (!/https?:\/\//i.test(messageText)) {
-    return false;
-  }
-
-  if (looksLikeMarketplaceLinkMessage(messageText)) {
-    return true;
-  }
-
-  return hasOnlyLightContextAfterUrlRemoval(messageText);
-}
 
 function hasRecentFollowUpHint(history: ConversationLine[]) {
   const recentOutbound = [...history]
@@ -135,16 +78,15 @@ export function detectNotifyHumanIntent(input: {
   return false;
 }
 
-export function detectUnknownProductIntent(latestUserMessage: string | null | undefined) {
-  const latestText = latestUserMessage?.trim() || "";
-  if (!latestText) {
-    return false;
-  }
-
-  if (shouldSkipUnknownProductNotifyForLink(latestText)) {
-    return false;
-  }
-
-  const normalizedLatest = normalizeText(latestText);
-  return UNKNOWN_PRODUCT_HINT_PATTERNS.some((pattern) => pattern.test(normalizedLatest));
-}
+/**
+ * Se saco `detectUnknownProductIntent`.
+ *
+ * Marcaba "el cliente pregunta por algo que no tenemos" buscando las palabras "catalogo",
+ * "producto", "modelo" o "referencia" en el mensaje — palabras que aparecen en cualquier
+ * conversacion de venta normal. Con eso disparaba un aviso al asesor y cortaba la charla, sin
+ * que la IA leyera nada.
+ *
+ * Ahora eso lo decide la IA llamando a Notificar_asesor, guiada por la instruccion que se
+ * escribe en el nodo "Notificar asesor" del diagrama: un texto que se lee y se corrige, en vez
+ * de una lista de palabras escondida en el codigo.
+ */
