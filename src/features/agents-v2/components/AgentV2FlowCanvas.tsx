@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   useTransition,
+  type ComponentProps,
   type ReactNode,
 } from "react";
 import {
@@ -18,8 +19,10 @@ import {
   Filter,
   Headset,
   HelpCircle,
+  Maximize2,
   Megaphone,
   MessageSquare,
+  Minimize2,
   Minus,
   Pencil,
   Phone,
@@ -96,6 +99,43 @@ const AGENT_NODE_ID = "agent-root";
 
 const SELECTED_NODE_CLASS =
   "border-blue-400 shadow-[0_24px_50px_-28px_rgba(37,99,235,0.52)]";
+
+/**
+ * Campo de texto largo con boton de expandir para el celular.
+ *
+ * En escritorio el campo se estira arrastrando la esquinita (resize-y). En una pantalla tactil esa
+ * esquina no se puede agarrar con el dedo —no existe el gesto—, asi que el campo queda del alto
+ * con el que nacio: para releer un prompt o una regla de varios parrafos hay que hacer scroll
+ * dentro de un cuadrito de cuatro lineas.
+ *
+ * El boton hace lo mismo que la esquinita, con un toque. Solo aparece en el celular: en escritorio
+ * ya esta la esquina y dos formas de hacer lo mismo estorban.
+ */
+function TextareaExpandible({
+  className,
+  ...props
+}: ComponentProps<"textarea">) {
+  const [expandido, setExpandido] = useState(false);
+
+  return (
+    <div className="relative">
+      <textarea
+        {...props}
+        // pb extra solo en movil: sin eso el boton flotante tapa el ultimo renglon del texto.
+        className={cn(className, "max-sm:pb-10", expandido && "max-sm:min-h-[55vh]")}
+      />
+      <button
+        type="button"
+        onClick={() => setExpandido((valor) => !valor)}
+        aria-label={expandido ? "Achicar el campo" : "Expandir el campo"}
+        title={expandido ? "Achicar" : "Expandir"}
+        className="absolute right-2 bottom-2 inline-flex h-8 w-8 items-center justify-center rounded-md border border-border bg-background/95 text-muted-foreground shadow-sm backdrop-blur transition active:scale-95 sm:hidden"
+      >
+        {expandido ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+      </button>
+    </div>
+  );
+}
 
 type EntradaKind = "general" | "keyword";
 
@@ -596,7 +636,7 @@ function AgentEditorDialog({
 
           {data.fixedWelcome ? (
             <div>
-              <textarea
+              <TextareaExpandible
                 value={data.welcome}
                 onChange={(event) => onChange({ welcome: event.target.value })}
                 placeholder="Hola, bienvenido a..."
@@ -610,7 +650,7 @@ function AgentEditorDialog({
               <MessageSquare className="h-4 w-4" />
               Prompt principal
             </label>
-            <textarea
+            <TextareaExpandible
               value={data.prompt}
               onChange={(event) => onChange({ prompt: event.target.value })}
               placeholder="Eres el asistente de... Tu objetivo es..."
@@ -1763,7 +1803,7 @@ function NotificarEditorDialog({
         <div className="space-y-4">
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-foreground">¿Cuándo notificar?</label>
-            <textarea
+            <TextareaExpandible
               value={data.instruction}
               onChange={(event) => onChange({ instruction: event.target.value })}
               placeholder="Ej: cuando el cliente pida hablar con un asesor o quiera cerrar la compra"
