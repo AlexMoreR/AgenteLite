@@ -1752,36 +1752,25 @@ function NotificarEditorDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {/*
-        Hoja completa en el celular.
-        La regla de cuando avisar es un texto largo —varios casos numerados— y en la tarjeta
-        centrada se veian tres lineas de quince: para releerla habia que hacer scroll dentro de
-        un cuadrito, dentro del modal, dentro del lienzo. En la pantalla entera el campo crece y
-        la regla se lee de una.
-      */}
-      <DialogContent
-        className="nodrag flex flex-col gap-0 overflow-hidden p-0 max-sm:top-0 max-sm:left-0 max-sm:h-dvh max-sm:max-h-dvh max-sm:w-screen max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-none sm:max-h-[85vh] sm:max-w-lg"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <DialogHeader className="shrink-0 border-b p-4 text-left">
+      <DialogContent className="nodrag sm:max-w-lg" onClick={(event) => event.stopPropagation()}>
+        <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Headset className="h-4 w-4 text-fuchsia-600" />
             Notificar asesor
           </DialogTitle>
         </DialogHeader>
 
-        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
-          {/* flex-1 para que el campo del texto se coma el alto que sobra en la hoja completa. */}
-          <div className="flex min-h-0 flex-1 flex-col gap-1.5">
+        <div className="space-y-4">
+          <div className="space-y-1.5">
             <label className="text-xs font-medium text-foreground">¿Cuándo notificar?</label>
             <textarea
               value={data.instruction}
               onChange={(event) => onChange({ instruction: event.target.value })}
               placeholder="Ej: cuando el cliente pida hablar con un asesor o quiera cerrar la compra"
-              className="block min-h-[120px] w-full flex-1 resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm leading-5 text-foreground outline-none transition placeholder:text-muted-foreground focus:border-fuchsia-400 focus:ring-2 focus:ring-fuchsia-100 dark:focus:ring-fuchsia-950"
+              className="block min-h-[96px] w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm leading-5 text-foreground outline-none transition placeholder:text-muted-foreground focus:border-fuchsia-400 focus:ring-2 focus:ring-fuchsia-100 dark:focus:ring-fuchsia-950"
             />
           </div>
-          <div className="shrink-0 space-y-1.5">
+          <div className="space-y-1.5">
             <label className="text-xs font-medium text-foreground">Números a notificar</label>
             <div className="space-y-2">
               {((data.phoneNumbers ?? []).length > 0 ? (data.phoneNumbers ?? []) : [""]).map((num, index) => (
@@ -1827,7 +1816,7 @@ function NotificarEditorDialog({
           </div>
         </div>
 
-        <DialogFooter className="shrink-0 border-t p-4">
+        <DialogFooter>
           <DialogClose render={<Button variant="outline" />}>Cerrar</DialogClose>
         </DialogFooter>
       </DialogContent>
