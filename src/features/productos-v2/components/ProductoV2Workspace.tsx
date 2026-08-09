@@ -160,11 +160,19 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
       */}
       <Tabs defaultValue="embudo">
         {/*
-          La fila de pestañas se desliza sola en el celular en vez de empujar la pantalla entera a
-          lo ancho: sin esto, cuatro pestañas con sus numeros no entran en 360px y quedaba el
-          titulo cortado y la pagina corrida de lado.
+          En el celular las cuatro pestañas van en rejilla de 2x2.
+
+          Antes la fila se deslizaba de lado: las cuatro con sus numeros no entran en 360px, asi
+          que SIEMPRE se veian palabras cortadas por la mitad en los dos bordes ("...ducto",
+          "Objec...") y nada indicaba que hubiera mas. Deslizar arregla el desborde pero no la
+          lectura. En dos filas entran completas, sin cortar y sin deslizar.
+
+          En escritorio siguen en una sola fila, que ahi sobra ancho.
         */}
-        <TabsList variant="line" className="-mx-4 max-w-[calc(100%+2rem)] overflow-x-auto px-4 sm:mx-0 sm:max-w-full sm:px-0">
+        <TabsList
+          variant="line"
+          className="max-sm:grid max-sm:w-full max-sm:grid-cols-2 max-sm:gap-x-2 max-sm:gap-y-1.5 max-sm:group-data-horizontal/tabs:h-auto sm:mx-0 sm:max-w-full sm:px-0"
+        >
           <TabsTrigger value="producto" className="shrink-0 whitespace-nowrap">
             <ShoppingCart className="size-4" />
             Producto
