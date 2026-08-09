@@ -131,7 +131,48 @@ export function AppSidebar({
             que ademas cruza contactos y productos. Dos cajas de busqueda en la misma pantalla
             confundian mas de lo que ayudaban.
           */}
-          <div className="flex items-center justify-end gap-2">
+          {/*
+            Pastillas y filtro en la MISMA fila: sin la caja de buscar, el embudo solo se quedaba
+            con un renglon entero para el —espacio caro en un celular, donde lo que importa es ver
+            chats.
+
+            Las pastillas se llevan el ancho que sobra (min-w-0 + scroll propio) para que "Todas
+            1632" no empuje el embudo fuera de la pantalla.
+          */}
+          <div className="flex items-center gap-2">
+            <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto">
+              {visibleTabs.map((tab) => {
+                const isActive = assignedFilter === tab.value;
+                const count = assignedCounts ? assignedCounts[tab.value] : null;
+                // Número real (sin cap "99+"): el conteo del servidor es exacto y Alex quiere el dato real.
+                const countLabel = count != null ? String(count) : null;
+                return (
+                  <Link
+                    key={tab.value}
+                    href={buildFilterHref(tab.value)}
+                    scroll={false}
+                    aria-current={isActive ? "page" : undefined}
+                    className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1 text-[13px] font-medium transition ${
+                      isActive
+                        ? "border-transparent bg-emerald-100 text-black"
+                        : "border-border text-muted-foreground hover:bg-muted"
+                    }`}
+                  >
+                    <span className="whitespace-nowrap">{tab.label}</span>
+                    {countLabel != null ? (
+                      <span
+                        className={`text-[11px] font-semibold leading-none ${
+                          isActive ? "text-black" : "text-muted-foreground"
+                        }`}
+                      >
+                        {countLabel}
+                      </span>
+                    ) : null}
+                  </Link>
+                );
+              })}
+            </div>
+
             <div ref={filterMenuRef} className="relative shrink-0">
               <button
                 type="button"
@@ -196,40 +237,6 @@ export function AppSidebar({
             </div>
           </div>
 
-          {/* Filtros tipo WhatsApp: pildoras separadas, activa en verde y las
-              inactivas con borde/texto gris. */}
-          <div className="mt-1 flex flex-wrap items-center gap-2">
-            {visibleTabs.map((tab) => {
-              const isActive = assignedFilter === tab.value;
-              const count = assignedCounts ? assignedCounts[tab.value] : null;
-              // Número real (sin cap "99+"): el conteo del servidor es exacto y Alex quiere el dato real.
-              const countLabel = count != null ? String(count) : null;
-              return (
-                <Link
-                  key={tab.value}
-                  href={buildFilterHref(tab.value)}
-                  scroll={false}
-                  aria-current={isActive ? "page" : undefined}
-                  className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1 text-[13px] font-medium transition ${
-                    isActive
-                      ? "border-transparent bg-emerald-100 text-black"
-                      : "border-border text-muted-foreground hover:bg-muted"
-                  }`}
-                >
-                  <span className="whitespace-nowrap">{tab.label}</span>
-                  {countLabel != null ? (
-                    <span
-                      className={`text-[11px] font-semibold leading-none ${
-                        isActive ? "text-black" : "text-muted-foreground"
-                      }`}
-                    >
-                      {countLabel}
-                    </span>
-                  ) : null}
-                </Link>
-              );
-            })}
-          </div>
         </div>
 
         <div

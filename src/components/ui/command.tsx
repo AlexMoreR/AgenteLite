@@ -53,9 +53,16 @@ function CommandDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
+      {/*
+        En el celular va ARRIBA, no centrado.
+        Centrado, al abrirse el teclado la mitad de abajo del modal queda tapada: se veia el campo
+        y nada mas. Anclado arriba, el teclado se come el espacio de la lista —que es scrolleable—
+        en vez del modal. El alto se mide con `--app-viewport-height`, que es lo unico que sabe
+        cuanto se ve DE VERDAD con el teclado encima (ver MobileKeyboardViewport).
+      */}
       <DialogContent
         showCloseButton={false}
-        className="overflow-hidden p-0 sm:max-w-xl"
+        className="overflow-hidden p-0 max-h-[calc(var(--app-viewport-height,100dvh)-2rem)] max-sm:top-4 max-sm:translate-y-0 sm:max-w-xl"
       >
         {/* El titulo va oculto: el lector de pantalla lo necesita, la vista no. */}
         <DialogHeader className="sr-only">

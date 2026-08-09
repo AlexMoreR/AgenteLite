@@ -137,7 +137,12 @@ export function BuscadorGlobal() {
           value={texto}
           onValueChange={setTexto}
         />
-        <CommandList>
+        {/*
+          La lista se achica con el teclado en vez de desbordar el modal: el modal recorta lo que
+          sobra (overflow-hidden), asi que sin este techo los ultimos resultados se cortaban sin
+          poder scrollear hasta ellos.
+        */}
+        <CommandList className="max-h-[min(320px,calc(var(--app-viewport-height,100dvh)-8rem))]">
           <CommandEmpty>
             {texto.trim().length < 2
               ? "Escribe al menos dos letras."
