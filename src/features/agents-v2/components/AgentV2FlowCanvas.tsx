@@ -2719,14 +2719,27 @@ function FlowCanvasInner({
           >
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <div className="pointer-events-none flex items-center gap-2">
-          <span className="inline-flex items-center gap-2 rounded-full bg-popover px-3 py-1.5 text-xs font-medium text-foreground ring-1 ring-border">
+          {/*
+            Solo el icono y el numero: con las palabras "bloques" y "conexiones" las dos
+            pastillas se le montaban encima a Publicar en el celular. El icono ya dice cual es
+            cual, y el dato que se mira es el numero.
+          */}
+          <div className="pointer-events-none flex items-center gap-1.5">
+          <span
+            className="inline-flex items-center gap-1.5 rounded-full bg-popover px-2.5 py-1.5 text-xs font-medium tabular-nums text-foreground ring-1 ring-border"
+            title={`${nodes.length} bloques`}
+            aria-label={`${nodes.length} bloques`}
+          >
             <Boxes className="h-3.5 w-3.5 text-sky-600" />
-            {nodes.length} bloques
+            {nodes.length}
           </span>
-          <span className="inline-flex items-center gap-2 rounded-full bg-popover px-3 py-1.5 text-xs font-medium text-foreground ring-1 ring-border">
+          <span
+            className="inline-flex items-center gap-1.5 rounded-full bg-popover px-2.5 py-1.5 text-xs font-medium tabular-nums text-foreground ring-1 ring-border"
+            title={`${edges.length} conexiones`}
+            aria-label={`${edges.length} conexiones`}
+          >
             <Split className="h-3.5 w-3.5 text-blue-600" />
-            {edges.length} conexiones
+            {edges.length}
           </span>
           </div>
           {avisosDelDiagrama.length > 0 ? (
