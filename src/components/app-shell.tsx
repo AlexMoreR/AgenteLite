@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { CircleHelp } from "lucide-react";
 import type { Role } from "@prisma/client";
 import { AppSidebar } from "@/components/app-sidebar";
 import {
@@ -22,7 +21,6 @@ import { Navbar } from "@/components/navbar";
 import { Separator } from "@/components/ui/separator";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { BuscadorGlobal } from "@/components/buscador-global";
-import { Button } from "@/components/ui/button";
 import { AppVersionGuard } from "@/components/app-version-guard";
 import { MobileKeyboardViewport } from "@/components/mobile-keyboard-viewport";
 import { ChatNotificationBell } from "@/components/ui/chat-notification-bell";
@@ -285,15 +283,11 @@ export function AppShell({
               <div className="ml-auto flex items-center gap-0.5">
                 <BuscadorGlobal />
                 <ChatNotificationBell />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="¿Necesitas ayuda?"
-                  onClick={() => setHelpOpen(true)}
-                >
-                  <CircleHelp data-icon="inline-start" />
-                </Button>
+                {/*
+                  El signo de pregunta (copiloto de ayuda) sale del encabezado por ahora: nadie
+                  lo usaba y ocupaba un lugar caro. El widget y su base de conocimiento siguen
+                  enteros —solo se quito el boton— asi que volver a ponerlo es una linea.
+                */}
                 <ThemeToggleButton />
               </div>
             </div>
