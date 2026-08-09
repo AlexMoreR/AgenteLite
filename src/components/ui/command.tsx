@@ -4,6 +4,13 @@ import * as React from "react";
 import { Command as CommandPrimitive } from "cmdk";
 import { SearchIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 function Command({ className, ...props }: React.ComponentProps<typeof CommandPrimitive>) {
   return (
@@ -19,25 +26,47 @@ function Command({ className, ...props }: React.ComponentProps<typeof CommandPri
 }
 
 /**
- * `shouldFilter` va al Command de ADENTRO, que es el que envuelve al input y a la lista.
+ * El modal de busqueda, sobre el Dialog de la app.
  *
- * Sin esto no habia forma de apagar el filtrado propio de cmdk desde afuera: la prop caia en el
- * Dialog y el Command interno seguia filtrando por su cuenta. Con resultados que vienen del
- * servidor eso esconde aciertos —un chat que coincidio por el CONTENIDO de un mensaje no lleva
- * ese texto en el item, asi que cmdk lo descartaba.
+ * Antes envolvia el Dialog CRUDO de cmdk, que no trae un solo estilo: ni overlay, ni centrado, ni
+ * z-index. Abria de verdad —quedaba en data-state="open"— pero se dibujaba como una tira dentro
+ * del flujo de la pagina, asi que parecia que el boton no hacia nada. Como el componente estaba
+ * instalado y sin usar, nadie lo habia notado.
+ *
+ * `shouldFilter` llega hasta el Command de adentro: con resultados que ya vienen filtrados del
+ * servidor, el filtro propio de cmdk esconde aciertos —un chat que coincidio por el CONTENIDO de
+ * un mensaje no lleva ese texto en el item, asi que lo descartaba.
  */
 function CommandDialog({
   className,
   children,
   shouldFilter,
-  ...props
-}: React.ComponentProps<typeof CommandPrimitive.Dialog>) {
+  title = "Buscar",
+  description = "Busca chats, contactos y productos",
+  open,
+  onOpenChange,
+}: React.ComponentProps<typeof CommandPrimitive> & {
+  title?: string;
+  description?: string;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}) {
   return (
-    <CommandPrimitive.Dialog {...props}>
-      <Command shouldFilter={shouldFilter} className={cn("rounded-lg shadow-md", className)}>
-        {children}
-      </Command>
-    </CommandPrimitive.Dialog>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        showCloseButton={false}
+        className="overflow-hidden p-0 sm:max-w-xl"
+      >
+        {/* El titulo va oculto: el lector de pantalla lo necesita, la vista no. */}
+        <DialogHeader className="sr-only">
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
+        <Command shouldFilter={shouldFilter} className={cn("rounded-lg", className)}>
+          {children}
+        </Command>
+      </DialogContent>
+    </Dialog>
   );
 }
 

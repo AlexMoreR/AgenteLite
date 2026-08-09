@@ -129,7 +129,7 @@ export function BuscadorGlobal() {
       <CommandDialog
         open={abierto}
         onOpenChange={setAbierto}
-        label="Buscar en todo"
+        title="Buscar en todo"
         shouldFilter={false}
       >
         <CommandInput
