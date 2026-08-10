@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Check } from "lucide-react";
 import { toast } from "sonner";
@@ -11,10 +12,26 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { saveProductFunnelAction } from "@/app/actions/product-playbook-actions";
 import { PRODUCT_FUNNEL_STAGES } from "@/lib/product-funnel-stages";
 
 type EtapaEditable = { stage: string; goal: string; script: string };
+
+type LeadDeEtapa = {
+  conversationId: string;
+  nombre: string;
+  telefono: string;
+  mensajes: number;
+  ultimo: string | null;
+  href: string;
+};
 
 /**
  * El embudo de ventas del producto, en sus cinco etapas.
@@ -58,6 +75,12 @@ export function ProductFunnelEditor({
   );
   const [guardado, setGuardado] = useState(() => JSON.stringify(etapas));
   const [ocupado, setOcupado] = useState(false);
+  const [etapaAbierta, setEtapaAbierta] = useState<{
+    etiqueta: string;
+    criterio: string;
+    leads: LeadDeEtapa[];
+    cargando: boolean;
+  } | null>(null);
 
   const hayCambios = JSON.stringify(etapas) !== guardado;
   const escritas = etapas.filter((etapa) => etapa.goal || etapa.script).length;
@@ -87,6 +110,52 @@ export function ProductFunnelEditor({
     });
     return [pendiente?.stage ?? PRODUCT_FUNNEL_STAGES[0].stage];
   });
+
+  /**
+   * Abrir la lista de leads que se quedaron en una etapa.
+   *
+   * Los grupos son los mismos cortes con los que se calculo el numero (cuantos mensajes mando el
+   * cliente); si cambian en getProductLeadProgress, cambian aca.
+   */
+  const GRUPO_POR_ETAPA: Record<string, string> = {
+    PRESENTACION: "primero",
+    IDENTIFICACION: "dos",
+    PRODUCTO: "converso",
+    OBJECIONES: "larga",
+  };
+
+  const abrirLeads = async (stage: string, etiqueta: string) => {
+    const grupo = GRUPO_POR_ETAPA[stage];
+    if (!grupo) {
+      return;
+    }
+    setEtapaAbierta({ etiqueta, criterio: "", leads: [], cargando: true });
+    try {
+      const respuesta = await fetch(
+        `/api/cliente/productos-v2/leads-etapa?productId=${encodeURIComponent(productId)}&grupo=${grupo}`,
+        { credentials: "same-origin", cache: "no-store" },
+      );
+      const datos = (await respuesta.json()) as {
+        ok?: boolean;
+        criterio?: string;
+        leads?: LeadDeEtapa[];
+      };
+      if (!datos.ok) {
+        toast.error("No se pudo traer la lista");
+        setEtapaAbierta(null);
+        return;
+      }
+      setEtapaAbierta({
+        etiqueta,
+        criterio: datos.criterio ?? "",
+        leads: datos.leads ?? [],
+        cargando: false,
+      });
+    } catch {
+      toast.error("No se pudo traer la lista");
+      setEtapaAbierta(null);
+    }
+  };
 
   const actualizar = (stage: string, campo: "goal" | "script", valor: string) => {
     setEtapas((actual) =>
@@ -152,10 +221,30 @@ export function ProductFunnelEditor({
                           Cierre queda sin numero a proposito: con este dato no se puede saber, y
                           poner uno inventado es exactamente lo que hacia el conteo anterior.
                         */}
+                        {/*
+                          El numero se puede ABRIR: un porcentaje que no se puede auditar es un
+                          acto de fe. Va como span con rol de boton y no como <button> porque el
+                          encabezado del acordeon YA es un boton, y un boton dentro de otro es
+                          HTML invalido. El stopPropagation evita que al abrir la lista se abra
+                          tambien la etapa.
+                        */}
                         {perdidosEnEtapa[meta.stage] ? (
                           <span
-                            title={`${perdidosEnEtapa[meta.stage]?.valor} leads no pasaron de "${meta.label}" (por cantidad de mensajes, últimos 30 días)`}
-                            className="shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium leading-none text-amber-700 tabular-nums dark:bg-amber-950 dark:text-amber-300"
+                            role="button"
+                            tabIndex={0}
+                            title={`Ver los ${perdidosEnEtapa[meta.stage]?.valor} leads que no pasaron de "${meta.label}"`}
+                            onClick={(evento) => {
+                              evento.preventDefault();
+                              evento.stopPropagation();
+                              void abrirLeads(meta.stage, meta.label);
+                            }}
+                            onKeyDown={(evento) => {
+                              if (evento.key !== "Enter" && evento.key !== " ") return;
+                              evento.preventDefault();
+                              evento.stopPropagation();
+                              void abrirLeads(meta.stage, meta.label);
+                            }}
+                            className="shrink-0 cursor-pointer rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium leading-none text-amber-700 tabular-nums underline-offset-2 hover:underline dark:bg-amber-950 dark:text-amber-300"
                           >
                             {perdidosEnEtapa[meta.stage]?.valor} · {perdidosEnEtapa[meta.stage]?.pct}%
                           </span>
@@ -209,6 +298,59 @@ export function ProductFunnelEditor({
           ) : null}
         </div>
       </CardContent>
+
+      {/*
+        La lista detras del numero. Cada fila dice CUANTOS mensajes mando ese cliente, que es el
+        criterio con el que se lo agrupo: sin eso no se puede comprobar si el numero esta bien.
+      */}
+      <Dialog open={Boolean(etapaAbierta)} onOpenChange={(abierto) => !abierto && setEtapaAbierta(null)}>
+        <DialogContent className="max-h-[85vh] overflow-hidden p-0 sm:max-w-lg">
+          <DialogHeader className="border-b p-4 text-left">
+            <DialogTitle className="text-sm">
+              Se quedaron en &quot;{etapaAbierta?.etiqueta}&quot;
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              {etapaAbierta?.criterio
+                ? `Últimos 30 días · el cliente mandó ${etapaAbierta.criterio}`
+                : "Últimos 30 días"}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="max-h-[60vh] overflow-y-auto p-2">
+            {etapaAbierta?.cargando ? (
+              <p className="p-4 text-center text-xs text-muted-foreground">Trayendo la lista…</p>
+            ) : etapaAbierta?.leads.length === 0 ? (
+              <p className="p-4 text-center text-xs text-muted-foreground">
+                No hay leads en esta etapa.
+              </p>
+            ) : (
+              (etapaAbierta?.leads ?? []).map((lead) => (
+                <Link
+                  key={lead.conversationId}
+                  href={lead.href}
+                  className="flex items-center gap-3 rounded-lg px-2 py-2 transition hover:bg-muted"
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[13px] text-foreground">{lead.nombre}</span>
+                    <span className="block truncate text-[11px] text-muted-foreground">
+                      {lead.telefono}
+                    </span>
+                  </span>
+                  <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] tabular-nums text-muted-foreground">
+                    {lead.mensajes} {lead.mensajes === 1 ? "mensaje" : "mensajes"}
+                  </span>
+                </Link>
+              ))
+            )}
+          </div>
+
+          {(etapaAbierta?.leads.length ?? 0) >= 100 ? (
+            <p className="border-t p-3 text-center text-[11px] text-muted-foreground">
+              Se muestran los 100 más recientes.
+            </p>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
