@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowRight, CalendarDays, Snowflake } from "lucide-react";
+
+import { ArrowRight, Snowflake } from "lucide-react";
 
 import { getCrmStageLabel } from "../domain/crm-config";
 import type { MiTableroData } from "../services/getMiTableroData";
+import { SelectorDeRango } from "./SelectorDeRango";
 
 /**
  * El tablero de UNA asesora.
@@ -14,31 +15,6 @@ import type { MiTableroData } from "../services/getMiTableroData";
  * Esta pantalla responde lo que a ella le importa —cuanto tengo, cuanto movi, cuanto cerre— y
  * termina siempre empujando a Mi dia, que es donde estan las tareas del dia.
  */
-
-/**
- * Elegir que dia mirar. Abre en HOY: es lo que el jefe quiere ver al entrar, y para revisar un
- * dia puntual ("¿que hizo el lunes?") cambia la fecha sin salir de la pantalla.
- */
-function SelectorDeDia({ dia }: { dia: string }) {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-
-  return (
-    <label className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-2 text-[13px] text-muted-foreground">
-      <CalendarDays className="size-4" />
-      <input
-        type="date"
-        value={dia}
-        onChange={(evento) => {
-          const parametros = new URLSearchParams(searchParams?.toString() ?? "");
-          parametros.set("dia", evento.target.value);
-          router.push(`/cliente/mi-tablero?${parametros.toString()}`);
-        }}
-        className="bg-transparent text-foreground outline-none"
-      />
-    </label>
-  );
-}
 
 /**
  * Tarjeta de estadistica: rotulo arriba, cifra y contexto en la misma linea.
@@ -96,20 +72,12 @@ export function MiTableroView({
             nombre cuesta lo mismo que un titulo mudo. */}
         <div>
           {/* Mirando a otra persona el saludo no va: no es su tablero, lo esta revisando. */}
-          {esDeOtraPersona ? (
-            <>
-              <h1 className="text-xl font-semibold text-foreground">{data.advisorName}</h1>
-              <p className="text-sm text-muted-foreground">Cómo viene con sus leads.</p>
-            </>
-          ) : (
-            <>
-              <h1 className="text-xl font-semibold text-foreground">Hola, {primerNombre} 👋</h1>
-              <p className="text-sm text-muted-foreground">Así venís con tus leads.</p>
-            </>
-          )}
+          <h1 className="text-xl font-semibold text-foreground">
+            {esDeOtraPersona ? data.advisorName : `Hola, ${primerNombre} 👋`}
+          </h1>
         </div>
 
-        <SelectorDeDia dia={data.dia} />
+        <SelectorDeRango desde={data.desde} hasta={data.hasta} />
 
         {esDeOtraPersona ? null : (
           <Link
@@ -123,24 +91,15 @@ export function MiTableroView({
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Tarjeta titulo="Leads a cargo" valor={data.leadsACargo} detalle={esDeOtraPersona ? "Chats que son suyos" : "Chats que son tuyos"} />
+        {/* "Leads a cargo" es una FOTO de hoy, no del rango: son los chats que tiene ahora. */}
         <Tarjeta
-          titulo="Movidos"
-          valor={data.movidosHoy}
-          detalle="Con movimiento ese día"
-          acento="azul"
+          titulo="Leads a cargo"
+          valor={data.leadsACargo}
+          detalle={esDeOtraPersona ? "Chats que son suyos" : "Chats que son tuyos"}
         />
-        <Tarjeta
-          titulo="Llamadas"
-          valor={data.llamadasHoy}
-          detalle={`Ese día · ${data.llamadasSemana} en la semana`}
-        />
-        <Tarjeta
-          titulo="Ventas"
-          valor={data.ventasDelDia}
-          detalle={`Ese día · ${data.ventasSemana} en la semana`}
-          acento="verde"
-        />
+        <Tarjeta titulo="Movidos" valor={data.movidos} detalle="Con movimiento" acento="azul" />
+        <Tarjeta titulo="Llamadas" valor={data.llamadas} detalle="Registradas" />
+        <Tarjeta titulo="Ventas" valor={data.ventas} detalle="Cerradas" acento="verde" />
       </div>
 
       <div className="grid gap-3 md:grid-cols-2">

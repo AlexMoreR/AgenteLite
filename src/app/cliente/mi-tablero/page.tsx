@@ -20,7 +20,10 @@ export default async function MiTableroPage({ searchParams }: PageProps) {
 
   const esJefe = access.isOwner || access.role === "ADMIN";
   const pedido = typeof params.userId === "string" ? params.userId.trim() : "";
-  const dia = typeof params.dia === "string" ? params.dia.trim() : "";
+  // Rango a mirar. Sin nada en la URL, hoy. Se acepta `dia` a secas por los enlaces viejos.
+  const diaSuelto = typeof params.dia === "string" ? params.dia.trim() : "";
+  const desde = typeof params.desde === "string" ? params.desde.trim() : diaSuelto;
+  const hasta = typeof params.hasta === "string" ? params.hasta.trim() : diaSuelto;
 
   /**
    * Solo el jefe puede mirar el tablero de OTRA persona.
@@ -48,7 +51,8 @@ export default async function MiTableroPage({ searchParams }: PageProps) {
     workspaceId: access.workspaceId,
     userId,
     advisorName: usuario?.name?.trim() || usuario?.email || "Asesora",
-    dia: dia || diaDeHoyBogota(),
+    desde: desde || diaDeHoyBogota(),
+    hasta: hasta || diaDeHoyBogota(),
   });
 
   return (
