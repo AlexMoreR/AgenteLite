@@ -194,10 +194,11 @@ export function buildProductPlaybookPrompt(
     // misma regla que se compila al publicar (ver delProducto en agent-v2-actions).
     bloques.push(
       `EMBUDO DE ESTE PRODUCTO (en orden; no saltes etapas y no vuelvas atras sin motivo).\n` +
-        `El "que decir" de cada etapa se envia TAL COMO ESTA ESCRITO: lo unico que podes cambiar ` +
-        `son los datos entre corchetes (por ejemplo [Nombre]), que reemplazas por el dato real; si ` +
-        `no lo sabes, quita el hueco y el texto que lo acompaña. No agregues frases antes ni ` +
-        `despues, no lo reformules y no cambies el orden.\n${lineas.join("\n")}`,
+        `El "que decir" de cada etapa se envia TAL COMO ESTA ESCRITO: no lo reformules, no cambies ` +
+        `el orden y no agregues frases propias antes ni despues. Lo unico que cambias son los ` +
+        `datos entre corchetes, que reemplazas por el dato real. Si no conoces ese dato, borra el ` +
+        `hueco Y las palabras que dependan de el: sin el nombre, "Perfecto, *Sra. [Nombre]*" queda ` +
+        `"Perfecto," — nunca "Perfecto, Sra.".\n${lineas.join("\n")}`,
     );
   }
 

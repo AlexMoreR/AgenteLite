@@ -613,31 +613,15 @@ export async function publishAgentV2Action(input: {
       const propio = embudosDelProducto.get(productId);
       const useFunnel = Boolean(propio) || node.data?.useFunnel === true;
       /**
-       * El guion del producto se manda TAL CUAL, rellenando solo los huecos.
+       * El guion del producto va CRUDO en estos campos.
        *
-       * Le faltaba esta orden y llegaba como texto pelado: para el modelo eso no es "deci esto"
-       * sino "esta es la idea", asi que lo reescribia con sus palabras. Con el guion
-       * "Perfecto, *Sra. [Nombre]* / ¿Que servicios vas a ofrecer...?" contestaba "¡Perfecto! Cali
-       * es una gran ciudad para ofrecer servicios de estetica..." — se inventaba una frase y se
-       * comia el nombre.
-       *
-       * No es el mismo texto que el del diagrama (VERBATIM_PREFIX, "sin modificarlo"): esos eran
-       * fijos y estos traen huecos como [Nombre]. Con un "exactamente" a secas, el agente le
-       * escribiria "Sra. [Nombre]" con corchetes a la clienta.
+       * La orden de mandarlo literal NO se pega aca: estos textos se guardan en
+       * AgentKnowledgeProduct y la pantalla de Producto V2 los vuelve a mostrar en el editor. Al
+       * pegarles la instruccion, quedaba guardada dentro del guion —y en la siguiente publicacion
+       * se le pegaba otra vez—. La orden va UNA sola vez en la cabecera del bloque del embudo
+       * (funnelBlock), que no vuelve a ninguna pantalla.
        */
-      const delProducto = (etapa: string) => {
-        const guion = propio?.[etapa]?.script ?? "";
-        if (!guion) {
-          return "";
-        }
-        return (
-          "Envia este mensaje TAL COMO ESTA ESCRITO. Lo unico que podes cambiar son los datos " +
-          "entre corchetes (por ejemplo [Nombre]), que reemplazas por el dato real de la " +
-          "conversacion; si no lo sabes, quita el hueco y el texto que lo acompaña. No agregues " +
-          "nada antes ni despues, no lo reformules y no cambies el orden:\n" +
-          guion
-        );
-      };
+      const delProducto = (etapa: string) => propio?.[etapa]?.script ?? "";
       const objetivo = (etapa: string) => propio?.[etapa]?.goal ?? "";
 
       const opening = propio ? delProducto("PRESENTACION") : useFunnel ? textForStage(node.id, "empresa") : "";
@@ -666,10 +650,23 @@ export async function publishAgentV2Action(input: {
         faq ? `Paso 4 - Dudas y objeciones: ${conObjetivo(faq, "OBJECIONES")}` : null,
         closing ? `Paso 5 - Cierre y precio: ${conObjetivo(closing, "CIERRE")}` : null,
       ].filter(Boolean);
+      /**
+       * La orden de literalidad va ACA, una sola vez, y no pegada a cada guion: este bloque se
+       * guarda en `instructions` y no vuelve a ninguna pantalla de edicion.
+       *
+       * Lo del hueco es lo que mas se rompe: al no saber el nombre, el agente borro "[Nombre]"
+       * pero dejo "Perfecto, *Sra.*" — un tratamiento colgando sin nombre. Por eso se dice
+       * explicitamente que se van las palabras que dependan del dato, con el ejemplo.
+       */
       const funnelBlock =
         useFunnel && funnelSteps.length
           ? "PASOS DEL EMBUDO DE ESTE PRODUCTO. Siguelos EN ORDEN, no te saltes pasos ni adelantes etapas. " +
             "NO menciones ni incluyas el precio hasta el Paso 5 (Cierre), salvo que el cliente lo pida explicitamente.\n" +
+            "El texto de cada paso se envia TAL COMO ESTA ESCRITO: no lo reformules, no cambies el " +
+            "orden y no agregues frases propias antes ni despues. Lo unico que cambias son los " +
+            "datos entre corchetes, que reemplazas por el dato real. Si no conoces ese dato, borra " +
+            "el hueco Y las palabras que dependan de el: sin el nombre, \"Perfecto, *Sra. [Nombre]*\" " +
+            "queda \"Perfecto,\" — nunca \"Perfecto, Sra.\".\n" +
             funnelSteps.join("\n")
           : null;
 
