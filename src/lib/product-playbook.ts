@@ -189,8 +189,15 @@ export function buildProductPlaybookPrompt(
         ].filter(Boolean);
         return `${orden.indexOf(etapa.stage as ProductFunnelStageKey) + 1}. ${meta?.label ?? etapa.stage} — ${partes.join(" | ")}`;
       });
+    // El "que decir" se manda tal cual. Sin decirlo, el modelo lo toma como una idea a reformular
+    // y contesta con sus palabras: se pierde el guion que alguien se sento a escribir. Es la
+    // misma regla que se compila al publicar (ver delProducto en agent-v2-actions).
     bloques.push(
-      `EMBUDO DE ESTE PRODUCTO (en orden; no saltes etapas y no vuelvas atras sin motivo):\n${lineas.join("\n")}`,
+      `EMBUDO DE ESTE PRODUCTO (en orden; no saltes etapas y no vuelvas atras sin motivo).\n` +
+        `El "que decir" de cada etapa se envia TAL COMO ESTA ESCRITO: lo unico que podes cambiar ` +
+        `son los datos entre corchetes (por ejemplo [Nombre]), que reemplazas por el dato real; si ` +
+        `no lo sabes, quita el hueco y el texto que lo acompaña. No agregues frases antes ni ` +
+        `despues, no lo reformules y no cambies el orden.\n${lineas.join("\n")}`,
     );
   }
 

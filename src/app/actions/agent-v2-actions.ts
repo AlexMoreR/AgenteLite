@@ -612,7 +612,32 @@ export async function publishAgentV2Action(input: {
       // El del producto primero; el del diagrama solo si el producto no tiene el suyo.
       const propio = embudosDelProducto.get(productId);
       const useFunnel = Boolean(propio) || node.data?.useFunnel === true;
-      const delProducto = (etapa: string) => propio?.[etapa]?.script ?? "";
+      /**
+       * El guion del producto se manda TAL CUAL, rellenando solo los huecos.
+       *
+       * Le faltaba esta orden y llegaba como texto pelado: para el modelo eso no es "deci esto"
+       * sino "esta es la idea", asi que lo reescribia con sus palabras. Con el guion
+       * "Perfecto, *Sra. [Nombre]* / ¿Que servicios vas a ofrecer...?" contestaba "¡Perfecto! Cali
+       * es una gran ciudad para ofrecer servicios de estetica..." — se inventaba una frase y se
+       * comia el nombre.
+       *
+       * No es el mismo texto que el del diagrama (VERBATIM_PREFIX, "sin modificarlo"): esos eran
+       * fijos y estos traen huecos como [Nombre]. Con un "exactamente" a secas, el agente le
+       * escribiria "Sra. [Nombre]" con corchetes a la clienta.
+       */
+      const delProducto = (etapa: string) => {
+        const guion = propio?.[etapa]?.script ?? "";
+        if (!guion) {
+          return "";
+        }
+        return (
+          "Envia este mensaje TAL COMO ESTA ESCRITO. Lo unico que podes cambiar son los datos " +
+          "entre corchetes (por ejemplo [Nombre]), que reemplazas por el dato real de la " +
+          "conversacion; si no lo sabes, quita el hueco y el texto que lo acompaña. No agregues " +
+          "nada antes ni despues, no lo reformules y no cambies el orden:\n" +
+          guion
+        );
+      };
       const objetivo = (etapa: string) => propio?.[etapa]?.goal ?? "";
 
       const opening = propio ? delProducto("PRESENTACION") : useFunnel ? textForStage(node.id, "empresa") : "";
