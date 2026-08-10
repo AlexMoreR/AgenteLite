@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowRight, CalendarDays, Flame, PhoneCall, Snowflake, TrendingUp, Users } from "lucide-react";
+import { ArrowRight, CalendarDays, Snowflake } from "lucide-react";
 
 import { getCrmStageLabel } from "../domain/crm-config";
 import type { MiTableroData } from "../services/getMiTableroData";
@@ -40,33 +40,38 @@ function SelectorDeDia({ dia }: { dia: string }) {
   );
 }
 
+/**
+ * Tarjeta de estadistica: rotulo arriba, cifra y contexto en la misma linea.
+ *
+ * Sin icono y con la cifra mas chica que antes. Cuatro tarjetas con icono grande y numero enorme
+ * competian entre si y con el resto de la pantalla; lo que se mira de reojo es el numero, y para
+ * eso no hace falta que grite. El contexto ("1 en la semana") va pegado a la cifra en vez de en
+ * un renglon aparte: se lee de un golpe.
+ */
 function Tarjeta({
   titulo,
   valor,
   detalle,
-  Icono,
   acento,
 }: {
   titulo: string;
   valor: number;
   detalle: string;
-  Icono: typeof Users;
   acento?: "verde" | "azul";
 }) {
   return (
     <div className="rounded-xl border border-border bg-card p-4">
-      <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
-        <Icono className="size-4" />
-        {titulo}
+      <p className="text-[13px] font-medium text-muted-foreground">{titulo}</p>
+      <div className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+        <span
+          className={`text-2xl font-semibold tabular-nums ${
+            acento === "verde" ? "text-emerald-600" : acento === "azul" ? "text-[var(--primary)]" : "text-foreground"
+          }`}
+        >
+          {valor}
+        </span>
+        <span className="text-[12px] text-muted-foreground">{detalle}</span>
       </div>
-      <p
-        className={`mt-1.5 text-3xl font-semibold tabular-nums ${
-          acento === "verde" ? "text-emerald-600" : acento === "azul" ? "text-[var(--primary)]" : "text-foreground"
-        }`}
-      >
-        {valor}
-      </p>
-      <p className="mt-0.5 text-[12px] text-muted-foreground">{detalle}</p>
     </div>
   );
 }
@@ -118,25 +123,22 @@ export function MiTableroView({
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Tarjeta titulo="Leads a cargo" valor={data.leadsACargo} detalle={esDeOtraPersona ? "Chats que son suyos" : "Chats que son tuyos"} Icono={Users} />
+        <Tarjeta titulo="Leads a cargo" valor={data.leadsACargo} detalle={esDeOtraPersona ? "Chats que son suyos" : "Chats que son tuyos"} />
         <Tarjeta
           titulo="Movidos"
           valor={data.movidosHoy}
           detalle="Con movimiento ese día"
-          Icono={Flame}
           acento="azul"
         />
         <Tarjeta
           titulo="Llamadas"
           valor={data.llamadasHoy}
           detalle={`Ese día · ${data.llamadasSemana} en la semana`}
-          Icono={PhoneCall}
         />
         <Tarjeta
           titulo="Ventas"
           valor={data.ventasDelDia}
           detalle={`Ese día · ${data.ventasSemana} en la semana`}
-          Icono={TrendingUp}
           acento="verde"
         />
       </div>
