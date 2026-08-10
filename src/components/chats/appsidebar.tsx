@@ -1,9 +1,8 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ListFilter, MessageSquareText } from "lucide-react";
+import { MessageSquareText, Plus } from "lucide-react";
 import { ConversationList } from "@/components/chats/conversation-list";
 import { SidebarHeader } from "@/components/ui/sidebar";
 import { type AssignedFilter, type StatusFilter, type SharedInboxConversationItem } from "./shared-inbox";
@@ -63,6 +62,7 @@ export function AppSidebar({
   const [filterMenuOpen, setFilterMenuOpen] = React.useState(false);
   // Selección provisional del menú (se aplica con el botón "Aplicar").
   const [draftStatus, setDraftStatus] = React.useState<StatusFilter>(statusFilter);
+  const [draftAssigned, setDraftAssigned] = React.useState<AssignedFilter>(assignedFilter);
 
   React.useEffect(() => {
     setDraftStatus(statusFilter);
@@ -80,43 +80,30 @@ export function AppSidebar({
     return () => document.removeEventListener("mousedown", onPointerDown);
   }, [filterMenuOpen]);
 
-  const buildFilterHref = React.useCallback(
-    (value: AssignedFilter) => {
-      const params = new URLSearchParams();
-      if (selectedConnectionKey) params.set("connection", selectedConnectionKey);
-      if (searchQuery.trim()) params.set("q", searchQuery.trim());
-      if (value !== "all") params.set("assigned", value);
-      if (statusFilter !== "open") params.set("status", statusFilter);
-      const qs = params.toString();
-      return qs ? `${searchAction}?${qs}` : searchAction;
-    },
-    [searchAction, selectedConnectionKey, searchQuery, statusFilter],
-  );
-
-  const buildStatusHref = React.useCallback(
-    (value: StatusFilter) => {
-      const params = new URLSearchParams();
-      if (selectedConnectionKey) params.set("connection", selectedConnectionKey);
-      if (searchQuery.trim()) params.set("q", searchQuery.trim());
-      if (assignedFilter !== "all") params.set("assigned", assignedFilter);
-      // "open" es el estado por defecto (oculta resueltas) → no necesita parámetro.
-      if (value !== "open") params.set("status", value);
-      const qs = params.toString();
-      return qs ? `${searchAction}?${qs}` : searchAction;
-    },
-    [searchAction, selectedConnectionKey, searchQuery, assignedFilter],
-  );
-
-  const applyStatusFilter = React.useCallback(
-    (value: StatusFilter) => {
+  /**
+   * Los dos filtros se aplican JUNTOS, en un solo viaje.
+   *
+   * Antes habia un href por cada uno y cada uno arrastraba el valor actual del otro. Ahora que se
+   * eligen en el mismo modal y se confirman con "Aplicar", mandarlos por separado significaria
+   * dos navegaciones —y la segunda pisando a la primera.
+   */
+  const aplicarFiltros = React.useCallback(
+    (asignacion: AssignedFilter, estado: StatusFilter) => {
       setFilterMenuOpen(false);
-      router.push(buildStatusHref(value), { scroll: false });
+      const params = new URLSearchParams();
+      if (selectedConnectionKey) params.set("connection", selectedConnectionKey);
+      if (searchQuery.trim()) params.set("q", searchQuery.trim());
+      // Los valores por defecto no van en la direccion: una URL corta se lee y se comparte mejor.
+      if (asignacion !== "all") params.set("assigned", asignacion);
+      if (estado !== "open") params.set("status", estado);
+      const qs = params.toString();
+      router.push(qs ? `${searchAction}?${qs}` : searchAction, { scroll: false });
     },
-    [buildStatusHref, router],
+    [router, searchAction, selectedConnectionKey, searchQuery],
   );
 
-  // El filtro "activo" (punto en el botón) es cuando NO estás en la vista por defecto (abiertas).
-  const filtersActive = statusFilter !== "open";
+  // El + se marca cuando NO estas en la vista por defecto: abiertas y sin filtro de asignacion.
+  const filtersActive = statusFilter !== "open" || (isManager && assignedFilter !== "all");
 
   const visibleTabs = ASSIGNED_FILTER_TABS.filter((tab) => isManager || !tab.managerOnly);
 
@@ -127,73 +114,96 @@ export function AppSidebar({
       <div className="flex min-h-0 w-full flex-col">
         <div className="relative z-30 shrink-0 border-b border-border bg-card px-3 py-2 backdrop-blur-sm md:px-3 md:py-2">
           {/*
-            Se saco el "Buscar chats...": ahora se busca desde la lupa del encabezado (Ctrl+K),
-            que ademas cruza contactos y productos. Dos cajas de busqueda en la misma pantalla
-            confundian mas de lo que ayudaban.
-          */}
-          {/*
-            Pastillas y filtro en la MISMA fila: sin la caja de buscar, el embudo solo se quedaba
-            con un renglon entero para el —espacio caro en un celular, donde lo que importa es ver
-            chats.
+            Solo el filtro PUESTO, y un + para cambiarlo.
 
-            Las pastillas se llevan el ancho que sobra (min-w-0 + scroll propio) para que "Todas
-            1632" no empuje el embudo fuera de la pantalla.
+            (La caja "Buscar chats..." tambien salio de aca: ahora se busca desde la lupa del
+            encabezado, con Ctrl+K, que ademas cruza contactos y productos.)
+
+            Antes estaban las tres pastillas siempre a la vista: en un celular no entraban y
+            aparecia una barra de scroll horizontal sobre la lista, que es lo ultimo que uno espera
+            tocar en una bandeja. Ahora la fila dice en que estas parado y nada mas; el resto vive
+            en el modal, con sus conteos.
           */}
           <div className="flex items-center gap-2">
-            <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto">
-              {visibleTabs.map((tab) => {
-                const isActive = assignedFilter === tab.value;
-                const count = assignedCounts ? assignedCounts[tab.value] : null;
-                // Número real (sin cap "99+"): el conteo del servidor es exacto y Alex quiere el dato real.
-                const countLabel = count != null ? String(count) : null;
-                return (
-                  <Link
-                    key={tab.value}
-                    href={buildFilterHref(tab.value)}
-                    scroll={false}
-                    aria-current={isActive ? "page" : undefined}
-                    className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1 text-[13px] font-medium transition ${
-                      isActive
-                        ? "border-transparent bg-emerald-100 text-black"
-                        : "border-border text-muted-foreground hover:bg-muted"
-                    }`}
-                  >
-                    <span className="whitespace-nowrap">{tab.label}</span>
-                    {countLabel != null ? (
-                      <span
-                        className={`text-[11px] font-semibold leading-none ${
-                          isActive ? "text-black" : "text-muted-foreground"
-                        }`}
-                      >
-                        {countLabel}
-                      </span>
-                    ) : null}
-                  </Link>
-                );
-              })}
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+              <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-transparent bg-emerald-100 px-3 py-1 text-[13px] font-medium text-black">
+                {ASSIGNED_FILTER_TABS.find((tab) => tab.value === assignedFilter)?.label ?? "Todas"}
+                {assignedCounts ? (
+                  <span className="text-[11px] font-semibold leading-none text-black">
+                    {assignedCounts[assignedFilter]}
+                  </span>
+                ) : null}
+              </span>
+
+              {/* El estado solo aparece cuando NO es el de siempre (Abiertas): si no, seria una
+                  pastilla que dice lo mismo todos los dias y no informa nada. */}
+              {statusFilter !== "open" ? (
+                <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-border px-3 py-1 text-[13px] font-medium text-muted-foreground">
+                  {STATUS_FILTER_OPTIONS.find((option) => option.value === statusFilter)?.label}
+                </span>
+              ) : null}
             </div>
 
             <div ref={filterMenuRef} className="relative shrink-0">
               <button
                 type="button"
-                onClick={() => setFilterMenuOpen((open) => !open)}
-                aria-label="Filtrar conversaciones"
+                onClick={() => {
+                  setDraftAssigned(assignedFilter);
+                  setDraftStatus(statusFilter);
+                  setFilterMenuOpen((open) => !open);
+                }}
+                aria-label="Cambiar filtro"
                 aria-expanded={filterMenuOpen}
                 aria-haspopup="dialog"
-                title="Filtrar"
-                className={`relative inline-flex h-7 w-7 items-center justify-center rounded-md transition hover:text-foreground ${
-                  filterMenuOpen || filtersActive ? "text-foreground" : "text-muted-foreground"
+                title="Cambiar filtro"
+                className={`relative inline-flex h-7 w-7 items-center justify-center rounded-full border border-dashed transition hover:border-solid hover:bg-muted hover:text-foreground ${
+                  filterMenuOpen || filtersActive
+                    ? "border-primary text-primary"
+                    : "border-border text-muted-foreground"
                 }`}
               >
-                <ListFilter className="h-3.5 w-3.5" />
-                {filtersActive ? (
-                  <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-primary" />
-                ) : null}
+                <Plus className="h-3.5 w-3.5" />
               </button>
 
               {filterMenuOpen ? (
                 <div className="absolute right-0 z-50 mt-2 w-64 rounded-xl border border-border bg-popover p-3 shadow-[0_18px_50px_-24px_rgba(15,23,42,0.35)]">
                   <p className="mb-2 text-[13px] font-semibold text-foreground">Filtrar conversaciones</p>
+
+                  {/* La asignacion se elige aca ahora que no esta a la vista. Cada opcion trae su
+                      conteo: es la mitad del valor de este filtro —saber que hay 980 sin dueño
+                      es la razon por la que uno lo abre. */}
+                  {visibleTabs.length > 1 ? (
+                    <>
+                      <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                        Asignación
+                      </p>
+                      <div className="mb-3 space-y-0.5">
+                        {visibleTabs.map((tab) => {
+                          const elegida = draftAssigned === tab.value;
+                          const count = assignedCounts ? assignedCounts[tab.value] : null;
+                          return (
+                            <button
+                              key={tab.value}
+                              type="button"
+                              onClick={() => setDraftAssigned(tab.value)}
+                              className={`flex w-full items-center justify-between rounded-md px-2 py-1.5 text-[13px] transition ${
+                                elegida
+                                  ? "bg-emerald-100 font-medium text-black"
+                                  : "text-foreground hover:bg-muted"
+                              }`}
+                            >
+                              <span>{tab.label}</span>
+                              {count != null ? (
+                                <span className="text-[11px] tabular-nums text-muted-foreground">
+                                  {count}
+                                </span>
+                              ) : null}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </>
+                  ) : null}
 
                   <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Estado</p>
                   <div className="flex items-center gap-1 rounded-lg bg-muted p-0.5">
@@ -219,14 +229,14 @@ export function AppSidebar({
                   <div className="mt-3 flex items-center justify-end gap-2">
                     <button
                       type="button"
-                      onClick={() => applyStatusFilter("open")}
+                      onClick={() => aplicarFiltros(isManager ? "all" : "mine", "open")}
                       className="rounded-md px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground transition hover:text-foreground"
                     >
                       Limpiar
                     </button>
                     <button
                       type="button"
-                      onClick={() => applyStatusFilter(draftStatus)}
+                      onClick={() => aplicarFiltros(draftAssigned, draftStatus)}
                       className="rounded-md bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground transition hover:opacity-90"
                     >
                       Aplicar
