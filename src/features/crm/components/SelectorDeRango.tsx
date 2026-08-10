@@ -4,10 +4,12 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { CalendarDays } from "lucide-react";
 import type { DateRange } from "react-day-picker";
+import { es } from "date-fns/locale";
 
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 /**
  * Elegir QUE PERIODO mirar en el tablero.
@@ -57,6 +59,7 @@ function rotulo(desde: string, hasta: string) {
 
 export function SelectorDeRango({ desde, hasta }: { desde: string; hasta: string }) {
   const router = useRouter();
+  const esMovil = useIsMobile();
   const [abierto, setAbierto] = useState(false);
   const [borrador, setBorrador] = useState<DateRange | undefined>({
     from: new Date(`${desde}T12:00:00Z`),
@@ -80,7 +83,9 @@ export function SelectorDeRango({ desde, hasta }: { desde: string; hasta: string
         </button>
       </PopoverTrigger>
 
-      <PopoverContent align="end" className="w-auto p-0">
+      {/* Ancho fijo al de la pantalla en el celular: con `w-auto`, el calendario quedaba angosto a
+          la izquierda y media tarjeta en blanco a la derecha. */}
+      <PopoverContent align="end" className="w-[calc(100vw-2rem)] p-0 sm:w-auto">
         {/* Los atajos arriba en el celular y a la izquierda en escritorio: dos meses de calendario
             al lado de una columna no entran en 360px. */}
         <div className="flex flex-col sm:flex-row">
@@ -103,13 +108,17 @@ export function SelectorDeRango({ desde, hasta }: { desde: string; hasta: string
           <div className="p-2">
             <Calendar
               mode="range"
-              numberOfMonths={2}
+              // UN mes en el celular: dos apilados ocupaban la pantalla entera y para llegar a
+              // Aplicar habia que scrollear. En escritorio siguen los dos, que es donde sirven.
+              numberOfMonths={esMovil ? 1 : 2}
+              // Sin esto sale en ingles: "August 2026" y "Su Mo Tu We Th Fr Sa".
+              locale={es}
               defaultMonth={borrador?.from}
               selected={borrador}
               onSelect={setBorrador}
               // Un rango futuro no tiene datos: no se puede elegir.
               disabled={{ after: new Date() }}
-              className="[--cell-size:2rem] sm:[--cell-size:2.25rem]"
+              className="w-full [--cell-size:2rem] sm:[--cell-size:2.25rem]"
             />
 
             <div className="flex items-center justify-end gap-2 border-t border-border pt-2">
