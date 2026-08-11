@@ -3228,6 +3228,20 @@ export async function POST(request: NextRequest) {
                 : undefined,
             });
 
+            /**
+             * Sin este log no hay forma de saber si la IA busco un flujo y no lo encontro, o si ni
+             * siquiera lo intento. Para el cliente las dos terminan igual —"no pude enviar las
+             * fotos"— pero se arreglan distinto: una es el filtro de flujos, la otra es el prompt.
+             */
+            console.log("[EVOLUTION] consultar_flujos", {
+              conversationId: conversation.id,
+              busqueda: typeof args?.query === "string" ? args.query : args,
+              productoActivo: currentActiveProductContext?.productName ?? null,
+              flujoDelProducto: currentActiveProductContext?.followUpFlowId ?? null,
+              encontrados: result?.matches?.length ?? 0,
+              titulos: (result?.matches ?? []).map((match) => match.title),
+            });
+
             return result ?? { found: false, matches: [], bestMatch: null, recommendation: "No hay coincidencias suficientes." };
           },
           // Solo existe con aiDrivenFlows: la IA MANDA el flujo (catalogo/fotos/PDFs). Reusa la
@@ -3235,6 +3249,12 @@ export async function POST(request: NextRequest) {
           // quien la dispara. Valida contra los flujos permitidos: la IA no puede mandar un id que
           // no corresponde.
           enviar_flujo: async (args: Record<string, unknown>) => {
+            // Par del log de consultar_flujos: con los dos se ve la cadena completa —busco, encontro,
+            // mando— o donde se corto.
+            console.log("[EVOLUTION] enviar_flujo_pedido", {
+              conversationId: conversation.id,
+              args,
+            });
             if (!channel.evolutionInstanceName) {
               return { enviados: [], error: "El canal no esta disponible para enviar." };
             }
