@@ -1113,7 +1113,21 @@ export async function resolveAgentProductFlowReply(input: {
     // deben dispararse en el primer turno por la activación chatbot, así que los
     // excluimos del escaneo de referencias de embudo.
     const branchingIdx = instructions.indexOf("REGLAS DE RAMIFICACION");
-    const funnelInstructions = branchingIdx >= 0 ? instructions.slice(0, branchingIdx) : instructions;
+    const sinRamificacion = branchingIdx >= 0 ? instructions.slice(0, branchingIdx) : instructions;
+
+    /**
+     * En la activacion por coincidencia solo cuenta el PASO 1.
+     *
+     * Antes se escaneaba el embudo entero: un /flujo escrito en "Dudas y objeciones" se disparaba
+     * en el primer mensaje del cliente. Paso de verdad — el lead del anuncio recibia las fotos y
+     * el precio antes de que nadie le preguntara el nombre, y las etapas 1 a 3 no ocurrian nunca.
+     *
+     * Un flujo puesto en el paso 4 significa "cuando lleguemos al paso 4". Los pasos siguientes
+     * los dispara la IA con su herramienta cuando la conversacion llega ahi.
+     */
+    const inicioPaso2 = sinRamificacion.search(/^Paso 2\b/m);
+    const funnelInstructions =
+      isChatbotActivation && inicioPaso2 > 0 ? sinRamificacion.slice(0, inicioPaso2) : sinRamificacion;
     const references = extractFlowReferences(funnelInstructions, flowTitles);
     const flowByNormalizedTitle = new Map(flowTargets.map((flow) => [normalizeText(flow.title), flow]));
     const referencedFlowIds = references
