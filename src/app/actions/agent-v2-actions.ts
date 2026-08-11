@@ -450,6 +450,43 @@ export async function publishAgentV2Action(input: {
   const allFlowItems = await getCreatedFlowItems({ workspaceId, includeOfficialApi: true });
   const flowTitleById = new Map(allFlowItems.map((flow) => [flow.id, flow.title] as const));
 
+  /**
+   * El /flujo escrito en el embudo ES la conexion del flujo con el producto.
+   *
+   * Asi es como se entiende al escribirlo —pones "/Foto de combo de camilla" en el paso 4 y
+   * esperas que ese flujo quede atado a ese producto— pero no era asi: el /nombre solo le decia a
+   * la IA que lo mandara, y ademas hay un filtro que ESCONDE los flujos que no estan anclados al
+   * producto activo. Resultado: el agente recibia la orden de mandar un flujo que su propia
+   * busqueda no podia ver, y terminaba disculpandose.
+   *
+   * El anclaje vivia en un campo aparte de la pantalla vieja del agente, que ya nadie abre.
+   * Ahora se deduce del texto, que es donde el usuario lo escribio.
+   */
+  const normalizarTitulo = (valor: string) =>
+    valor
+      .normalize("NFD")
+      .replace(/\p{Diacritic}/gu, "")
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const flujoReferidoEnElEmbudo = (textoDelEmbudo: string): string | null => {
+    const texto = normalizarTitulo(textoDelEmbudo);
+    if (!texto.includes("/")) {
+      return null;
+    }
+    // El titulo mas largo primero: si un flujo se llama "Fotos" y otro "Fotos combo camillas",
+    // gana el especifico.
+    const porLargo = [...allFlowItems].sort((a, b) => b.title.length - a.title.length);
+    for (const flujo of porLargo) {
+      const titulo = normalizarTitulo(flujo.title);
+      if (titulo && texto.includes(`/${titulo}`)) {
+        return flujo.id;
+      }
+    }
+    return null;
+  };
+
   const describeRuleTrigger = (rule: Record<string, unknown>): string => {
     const matchType = asString(rule.matchType);
     if (matchType === "ia") {
@@ -670,6 +707,12 @@ export async function publishAgentV2Action(input: {
             funnelSteps.join("\n")
           : null;
 
+      // El /flujo que el embudo nombre queda ANCLADO a este producto: es lo que lo hace visible
+      // para la busqueda del agente cuando esta hablando de el.
+      const flujoAnclado = flujoReferidoEnElEmbudo(
+        [opening, qualification, presentation, faq, closing].filter(Boolean).join("\n"),
+      );
+
       const branchingBlock = buildBranchingBlock(node.id);
 
       const instructions = [
@@ -695,6 +738,7 @@ export async function publishAgentV2Action(input: {
           funnelPresentation: presentation || null,
           funnelFaq: faq || null,
           funnelClosing: closing || null,
+          followUpFlowId: flujoAnclado,
         },
         update: {
           instructions,
@@ -703,6 +747,10 @@ export async function publishAgentV2Action(input: {
           funnelPresentation: presentation || null,
           funnelFaq: faq || null,
           funnelClosing: closing || null,
+          // Solo se pisa cuando el embudo NOMBRA un flujo. Si no nombra ninguno, se deja el que
+          // hubiera: puede venir anclado a mano desde la pantalla vieja del agente y publicar no
+          // tiene por que borrarlo.
+          ...(flujoAnclado ? { followUpFlowId: flujoAnclado } : {}),
         },
       });
     }
