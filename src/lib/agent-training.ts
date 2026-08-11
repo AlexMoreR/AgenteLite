@@ -546,7 +546,16 @@ export function buildAgentSystemPrompt(input: {
     flowKnowledgeSection,
     commercialStageSection,
     commercialConversationSection,
-    `REFERENCIAS A FLUJOS\n- Si un embudo de producto menciona un flujo con formato /nombre del flujo, interpretalo como una orden de aplicar ese flujo cuando la conversacion coincida.\n- Usa solo flujos que existan en CONOCIMIENTO DE FLUJOS. Si el flujo mencionado no esta disponible, no lo inventes y continua con una pregunta concreta para avanzar.`,
+    /**
+     * COMO se ejecuta un /flujo, no solo que hay que ejecutarlo.
+     *
+     * Decia "interpretalo como una orden de aplicar ese flujo" y nada mas. Pero enviar_flujo pide
+     * un flow_id y el embudo da un NOMBRE: para mandarlo hay que encadenar consultar_flujos
+     * (nombre -> id) y despues enviar_flujo (id). Sin decirlo, el agente se quedaba con una orden
+     * que no sabia cumplir y contestaba "parece que no pude enviar las fotos" — una disculpa
+     * inventada, sin haber intentado nada.
+     */
+    `REFERENCIAS A FLUJOS\n- Si un embudo de producto menciona un flujo con formato /nombre del flujo, es una orden de ENVIAR ese flujo cuando la conversacion llegue a ese paso.\n- Para enviarlo: primero llama a consultar_flujos buscando ese nombre, toma el flow_id que te devuelve, y despues llama a enviar_flujo con ese id. Son dos pasos y los haces vos, sin avisar ni pedir permiso.\n- NUNCA digas que no pudiste enviarlo sin haber llamado a las herramientas. Si consultar_flujos no lo encuentra, entonces si: no lo inventes, continua con una pregunta concreta para avanzar.\n- Usa solo flujos que existan en CONOCIMIENTO DE FLUJOS.`,
     training.actions.notify.enabled
       ? `HERRAMIENTA DISPONIBLE\n- ${
           training.actions.notify.instruction.trim()
