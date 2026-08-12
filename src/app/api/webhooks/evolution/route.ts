@@ -20,6 +20,7 @@ import {
   readLinkedLid,
 } from "@/lib/whatsapp-lid";
 import { syncCrmStageFromCommercialStage } from "@/lib/crm-stage-sync";
+import { syncFunnelStageFromCommercialStage } from "@/lib/funnel-stage-sync";
 import {
   buildActiveProductContextNote,
   resolveAgentProductFlowReply,
@@ -2976,6 +2977,23 @@ export async function POST(request: NextRequest) {
           channelId: channel.id,
           commercialContext: commercialConversationContext,
         }).catch(() => {});
+      });
+
+      // Anotar en que etapa del embudo quedo la conversacion. El motor ya la sabia (la etapa
+      // comercial de arriba); lo que faltaba era dejarla escrita en la conversacion, con el
+      // vocabulario de 5 etapas que ve el equipo. Sin esto no hay seguimiento por etapa ni
+      // porcentaje real del embudo. Tambien en after(): el cliente no espera por esto.
+      after(async () => {
+        const etapaDelEmbudo = await syncFunnelStageFromCommercialStage({
+          conversationId: conversation.id,
+          commercialContext: commercialConversationContext,
+        }).catch(() => null);
+        if (etapaDelEmbudo?.changed) {
+          console.log("[EVOLUTION] funnel_stage_anotada", {
+            conversationId: conversation.id,
+            etapa: etapaDelEmbudo.stage,
+          });
+        }
       });
 
       // Agente V2: al llegar el lead a una etapa nueva (con el producto activo),
