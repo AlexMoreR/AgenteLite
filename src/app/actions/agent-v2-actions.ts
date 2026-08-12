@@ -704,6 +704,11 @@ export async function publishAgentV2Action(input: {
             "datos entre corchetes, que reemplazas por el dato real. Si no conoces ese dato, borra " +
             "el hueco Y las palabras que dependan de el: sin el nombre, \"Perfecto, *Sra. [Nombre]*\" " +
             "queda \"Perfecto,\" — nunca \"Perfecto, Sra.\".\n" +
+            "ESO NO TE AMORDAZA: si el cliente hace una pregunta concreta (precio, medidas, envio, " +
+            "colores, formas de pago), CONTESTALA primero con el dato real, y despues segui con el " +
+            "paso que toca. Repetir el guion sin responder lo que preguntaron es lo peor que podes " +
+            "hacer: el cliente pregunta de nuevo, y a la tercera se va. La literalidad es para el " +
+            "guion, no una prohibicion de contestar.\n" +
             funnelSteps.join("\n")
           : null;
 
