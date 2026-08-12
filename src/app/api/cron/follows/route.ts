@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { executePendingFollows } from "@/features/seguimientos/services/follows";
 import { demoteUnresponsiveStaleLeads } from "@/features/llamadas/services/lead-cooldown";
+import { enfriarLeadsSinRespuesta } from "@/features/crm/services/lead-temperature";
 
 function resolveCronSecret() {
   return process.env.FOLLOW_CRON_SECRET?.trim() || process.env.EVOLUTION_WEBHOOK_SECRET?.trim() || "";
@@ -49,10 +50,23 @@ async function handleCron(request: Request) {
     }
   }
 
+  // Temperatura del lead: Tibio sin respuesta del cliente en 2 dias -> Frio. Caliente NO se toca
+  // (decision de Alex: si una asesora lo marco asi, el reloj no le pisa la decision). Mismo
+  // throttle de 5 min y mismo best-effort que el enfriamiento por llamadas de arriba.
+  let temperatura: { enfriados: number } | null = null;
+  if (new Date().getMinutes() % 5 === 0) {
+    try {
+      temperatura = await enfriarLeadsSinRespuesta();
+    } catch (error) {
+      console.error("[cron/follows] temperatura error", error);
+    }
+  }
+
   return NextResponse.json({
     ok: true,
     ...result,
     cooldown,
+    temperatura,
   });
 }
 

@@ -21,6 +21,7 @@ import {
 } from "@/lib/whatsapp-lid";
 import { syncCrmStageFromCommercialStage } from "@/lib/crm-stage-sync";
 import { syncFunnelStageFromCommercialStage } from "@/lib/funnel-stage-sync";
+import { recalentarLeadSiRespondio } from "@/features/crm/services/lead-temperature";
 import {
   buildActiveProductContextNote,
   resolveAgentProductFlowReply,
@@ -1836,6 +1837,17 @@ export async function POST(request: NextRequest) {
         conversationId: conversation.id,
         channelId: channel.id,
         workspaceId: channel.workspaceId,
+      });
+
+      // El cliente volvio a escribir: si el reloj lo habia enfriado, vuelve a Tibio. Va ACA y no
+      // en el bloque del agente a proposito: cuando una asesora toma el chat la IA queda en pausa
+      // y aquel bloque no corre, asi que justo los chats atendidos por una persona nunca
+      // recuperarian su temperatura.
+      after(async () => {
+        await recalentarLeadSiRespondio({
+          workspaceId: channel.workspaceId,
+          contactId: contact.id,
+        }).catch(() => false);
       });
     } catch {
       // La auto-asignación nunca debe romper el procesamiento del mensaje.
