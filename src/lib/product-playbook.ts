@@ -39,6 +39,9 @@ export type ProductFunnelStageItem = {
   stage: string;
   goal: string;
   script: string;
+  /** Si no contesta: a los cuantos dias y que mandarle. Null = esta etapa no hace seguimiento. */
+  followUpDays: number | null;
+  followUpMessage: string;
 };
 
 export type ProductPlaybookData = {
@@ -64,7 +67,13 @@ export async function getProductPlaybook(input: {
       pitch: true,
       stages: {
         orderBy: { sortOrder: "asc" },
-        select: { stage: true, goal: true, script: true },
+        select: {
+          stage: true,
+          goal: true,
+          script: true,
+          followUpDays: true,
+          followUpMessage: true,
+        },
       },
       rules: {
         where: { isActive: true },
@@ -91,6 +100,8 @@ export async function getProductPlaybook(input: {
       stage: stage.stage,
       goal: stage.goal?.trim() || "",
       script: stage.script?.trim() || "",
+      followUpDays: stage.followUpDays ?? null,
+      followUpMessage: stage.followUpMessage?.trim() || "",
     })),
     rules: (playbook?.rules ?? [])
       .filter((rule) => isPlaybookRuleKind(rule.kind))

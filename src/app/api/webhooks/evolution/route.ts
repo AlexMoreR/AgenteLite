@@ -22,6 +22,7 @@ import {
 import { syncCrmStageFromCommercialStage } from "@/lib/crm-stage-sync";
 import { syncFunnelStageFromCommercialStage } from "@/lib/funnel-stage-sync";
 import { recalentarLeadSiRespondio } from "@/features/crm/services/lead-temperature";
+import { agendarSeguimientoDeEtapa } from "@/features/crm/services/stage-follow-up";
 import {
   buildActiveProductContextNote,
   resolveAgentProductFlowReply,
@@ -3000,11 +3001,29 @@ export async function POST(request: NextRequest) {
           conversationId: conversation.id,
           commercialContext: commercialConversationContext,
         }).catch(() => null);
-        if (etapaDelEmbudo?.changed) {
-          console.log("[EVOLUTION] funnel_stage_anotada", {
-            conversationId: conversation.id,
-            etapa: etapaDelEmbudo.stage,
-          });
+        if (!etapaDelEmbudo?.changed) {
+          return;
+        }
+        console.log("[EVOLUTION] funnel_stage_anotada", {
+          conversationId: conversation.id,
+          etapa: etapaDelEmbudo.stage,
+        });
+
+        // Entro a una etapa nueva: se agenda el "si no contesta" que alguien escribio para ESA
+        // etapa de ESTE producto. Solo al cambiar, no en cada mensaje: si no, cada respuesta
+        // reprogramaria el mismo aviso.
+        const productoDelSeguimiento =
+          hardFlowResolution?.activeProductContext?.productId ??
+          previousActiveProductContext?.productId ??
+          "";
+        if (productoDelSeguimiento) {
+          await agendarSeguimientoDeEtapa({
+            workspaceId: channel.workspaceId,
+            contactId: contact.id,
+            productId: productoDelSeguimiento,
+            stage: etapaDelEmbudo.stage,
+            channelId: channel.id,
+          }).catch(() => null);
         }
       });
 

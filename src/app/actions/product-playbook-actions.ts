@@ -89,7 +89,13 @@ export async function saveProductPitchAction(input: {
  */
 export async function saveProductFunnelAction(input: {
   productId: string;
-  stages: Array<{ stage: string; goal: string; script: string }>;
+  stages: Array<{
+    stage: string;
+    goal: string;
+    script: string;
+    followUpDays?: number | null;
+    followUpMessage?: string | null;
+  }>;
 }): Promise<{ ok?: true; error?: string }> {
   const workspaceId = await getAccess();
   if (!workspaceId) {
@@ -116,12 +122,39 @@ export async function saveProductFunnelAction(input: {
     }
     const goal = etapa.goal?.trim() || null;
     const script = etapa.script?.trim() || null;
+
+    // El seguimiento existe solo si estan las DOS cosas: cuando mandarlo y que mandar. Guardar
+    // los dias sin mensaje agendaria un envio vacio, y un mensaje sin dias no se agenda nunca;
+    // en los dos casos alguien creeria que dejo un seguimiento armado y no hay ninguno.
+    const followUpMessage = etapa.followUpMessage?.trim() || null;
+    const diasCrudos = Number(etapa.followUpDays);
+    const followUpDays =
+      followUpMessage && Number.isInteger(diasCrudos) && diasCrudos > 0 && diasCrudos <= 90
+        ? diasCrudos
+        : null;
+
     await prisma.productFunnelStage.upsert({
       where: { playbookId_stage: { playbookId, stage: etapa.stage } },
       // stuckAfterMessages queda en null: la red de seguridad se saco (el agente ya escala solo
       // cuando no sabe algo, y contar mensajes se disparaba en conversaciones sanas).
-      create: { playbookId, stage: etapa.stage, goal, script, sortOrder: orden, stuckAfterMessages: null },
-      update: { goal, script, sortOrder: orden, stuckAfterMessages: null },
+      create: {
+        playbookId,
+        stage: etapa.stage,
+        goal,
+        script,
+        sortOrder: orden,
+        stuckAfterMessages: null,
+        followUpDays,
+        followUpMessage: followUpDays ? followUpMessage : null,
+      },
+      update: {
+        goal,
+        script,
+        sortOrder: orden,
+        stuckAfterMessages: null,
+        followUpDays,
+        followUpMessage: followUpDays ? followUpMessage : null,
+      },
     });
   }
 

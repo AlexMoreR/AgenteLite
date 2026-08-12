@@ -19,7 +19,14 @@ export type ProductoV2Item = {
   matchAdTitles: string[];
   playbookIdealCustomer: string;
   playbookCustomerPain: string;
-  funnelStages: Array<{ stage: string; goal: string; script: string }>;
+  funnelStages: Array<{
+    stage: string;
+    goal: string;
+    script: string;
+    /** Si no contesta: a los cuantos dias y que mandarle. Null = esta etapa no hace seguimiento. */
+    followUpDays: number | null;
+    followUpMessage: string;
+  }>;
   /** El embudo que se muestra vino del agente y todavia no es del producto. */
   funnelFromAgent: boolean;
   /** Hasta donde llegaron los leads en los ultimos 30 dias. */

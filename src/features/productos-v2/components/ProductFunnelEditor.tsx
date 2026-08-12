@@ -22,7 +22,14 @@ import {
 import { saveProductFunnelAction } from "@/app/actions/product-playbook-actions";
 import { PRODUCT_FUNNEL_STAGES } from "@/lib/product-funnel-stages";
 
-type EtapaEditable = { stage: string; goal: string; script: string };
+type EtapaEditable = {
+  stage: string;
+  goal: string;
+  script: string;
+  /** Si no contesta: a los cuantos dias mandarle el mensaje de abajo. Vacio = sin seguimiento. */
+  followUpDays: string;
+  followUpMessage: string;
+};
 
 type LeadDeEtapa = {
   conversationId: string;
@@ -50,7 +57,13 @@ export function ProductFunnelEditor({
   avance,
 }: {
   productId: string;
-  stages: EtapaEditable[];
+  stages: Array<{
+    stage: string;
+    goal: string;
+    script: string;
+    followUpDays: number | null;
+    followUpMessage: string;
+  }>;
   /** El texto se trajo del embudo que el agente ya tenia y todavia no se guardo aca. */
   vienenDelAgente: boolean;
   /** Hasta donde llegaron los leads en los ultimos 30 dias. */
@@ -70,6 +83,8 @@ export function ProductFunnelEditor({
         stage: meta.stage,
         goal: guardada?.goal ?? "",
         script: guardada?.script ?? "",
+        followUpDays: guardada?.followUpDays ? String(guardada.followUpDays) : "",
+        followUpMessage: guardada?.followUpMessage ?? "",
       };
     }),
   );
@@ -157,7 +172,11 @@ export function ProductFunnelEditor({
     }
   };
 
-  const actualizar = (stage: string, campo: "goal" | "script", valor: string) => {
+  const actualizar = (
+    stage: string,
+    campo: "goal" | "script" | "followUpDays" | "followUpMessage",
+    valor: string,
+  ) => {
     setEtapas((actual) =>
       actual.map((etapa) => (etapa.stage === stage ? { ...etapa, [campo]: valor } : etapa)),
     );
@@ -166,7 +185,14 @@ export function ProductFunnelEditor({
   const guardar = async () => {
     setOcupado(true);
     try {
-      const result = await saveProductFunnelAction({ productId, stages: etapas });
+      const result = await saveProductFunnelAction({
+        productId,
+        stages: etapas.map((etapa) => ({
+          ...etapa,
+          // El campo se escribe como texto (un input vacio no es un 0) y se manda como numero.
+          followUpDays: etapa.followUpDays.trim() ? Number(etapa.followUpDays) : null,
+        })),
+      });
       if (result?.error) {
         toast.error(result.error);
         return;
@@ -249,6 +275,18 @@ export function ProductFunnelEditor({
                             {perdidosEnEtapa[meta.stage]?.valor} · {perdidosEnEtapa[meta.stage]?.pct}%
                           </span>
                         ) : null}
+                        {/*
+                          Que la etapa tiene seguimiento se ve CERRADA: si hay que abrir las cinco
+                          para saber cuales avisan, nadie lo revisa.
+                        */}
+                        {etapa?.followUpDays && etapa?.followUpMessage ? (
+                          <span
+                            title={`Si no contesta, se le escribe a los ${etapa.followUpDays} días`}
+                            className="shrink-0 rounded-full bg-sky-50 px-2 py-0.5 text-[11px] font-medium leading-none text-sky-700 tabular-nums dark:bg-sky-950 dark:text-sky-300"
+                          >
+                            {etapa.followUpDays} d
+                          </span>
+                        ) : null}
                       </span>
                       <span
                         className={`block truncate text-xs ${
@@ -277,6 +315,42 @@ export function ProductFunnelEditor({
                       placeholder="El mensaje, como se lo dirías vos…"
                     />
 
+                    {/*
+                      El seguimiento vive ACA, dentro de la etapa, y no en una regla suelta del
+                      modulo Seguimientos: el mensaje correcto depende de donde se corto la charla.
+                      No es lo mismo que se calle en la presentacion —ni sabemos que quiere— que en
+                      el cierre, donde ya sabe el precio y lo esta pensando.
+                    */}
+                    <div className="mt-3 space-y-2 rounded-lg border border-dashed p-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Label className="text-xs">Si no contesta, escribirle a los</Label>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={90}
+                          inputMode="numeric"
+                          value={etapa?.followUpDays ?? ""}
+                          onChange={(event) =>
+                            actualizar(meta.stage, "followUpDays", event.target.value)
+                          }
+                          placeholder="2"
+                          className="h-8 w-20 tabular-nums"
+                        />
+                        <span className="text-xs text-muted-foreground">días</span>
+                      </div>
+                      <Textarea
+                        rows={2}
+                        value={etapa?.followUpMessage ?? ""}
+                        onChange={(event) =>
+                          actualizar(meta.stage, "followUpMessage", event.target.value)
+                        }
+                        placeholder="Qué mandarle para retomar la conversación…"
+                      />
+                      <p className="text-[11px] text-muted-foreground">
+                        Se cancela solo si el cliente responde antes. Dejalo vacío para no hacer
+                        seguimiento en esta etapa.
+                      </p>
+                    </div>
                   </div>
                 </AccordionContent>
               </AccordionItem>
