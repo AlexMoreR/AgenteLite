@@ -464,17 +464,22 @@ export function ProductFunnelEditor({
         </div>
       </CardContent>
 
-      <StageFollowUpDialog
-        abierto={Boolean(editando)}
-        etapaLabel={editando?.etiqueta ?? ""}
-        seguimiento={editando?.seguimiento ?? null}
-        onGuardar={(seguimiento) => {
-          if (editando) {
-            guardarSeguimiento(editando.stage, seguimiento);
-          }
-        }}
-        onCerrar={() => setEditando(null)}
-      />
+      {/*
+        Montado SOLO mientras se edita, en vez de estar siempre puesto con abierto=false.
+        Medido en produccion: al cerrarlo quedaban en el DOM el fondo y la ventana con data-closed
+        pero opacidad 1 y pointer-events auto, o sea una capa invisible sobre TODA la pantalla que
+        se comia los clicks —incluido el de "Guardar embudo", que por eso no guardaba nada—. La
+        salida del modal depende de que termine una animacion; desmontandolo no depende de nada.
+      */}
+      {editando ? (
+        <StageFollowUpDialog
+          abierto
+          etapaLabel={editando.etiqueta}
+          seguimiento={editando.seguimiento}
+          onGuardar={(seguimiento) => guardarSeguimiento(editando.stage, seguimiento)}
+          onCerrar={() => setEditando(null)}
+        />
+      ) : null}
 
       {/*
         La lista detras del numero. Cada fila dice CUANTOS mensajes mando ese cliente, que es el

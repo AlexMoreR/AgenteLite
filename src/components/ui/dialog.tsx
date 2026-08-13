@@ -31,7 +31,12 @@ function DialogOverlay({
     <DialogPrimitive.Backdrop
       data-slot="dialog-overlay"
       className={cn(
-        "fixed inset-0 isolate z-50 bg-black/10 duration-100 supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
+        // data-closed:pointer-events-none es un SEGURO, no un detalle de animacion. El fondo se
+        // desmonta cuando termina la animacion de salida; si esa animacion no termina, queda un
+        // panel invisible sobre toda la pantalla que se come cada click y la app parece colgada
+        // (visto en produccion el 13-ago-2026: tapaba el boton de guardar del embudo). Un fondo ya
+        // marcado como cerrado no tiene por que recibir clicks en ningun caso.
+        "fixed inset-0 isolate z-50 bg-black/10 duration-100 supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0 data-closed:pointer-events-none",
         className
       )}
       {...props}
