@@ -23,9 +23,14 @@ export type ProductoV2Item = {
     stage: string;
     goal: string;
     script: string;
-    /** Si no contesta: a los cuantos dias y que mandarle. Null = esta etapa no hace seguimiento. */
-    followUpDays: number | null;
-    followUpMessage: string;
+    /** Los "si no contesta" de esta etapa, en orden. Vacio = esta etapa no hace seguimiento. */
+    followUps: Array<{
+      id: string;
+      timeType: "MINUTES" | "HOURS" | "DAYS";
+      timeValue: number;
+      content: string;
+      cancelOnActivity: boolean;
+    }>;
   }>;
   /** El embudo que se muestra vino del agente y todavia no es del producto. */
   funnelFromAgent: boolean;

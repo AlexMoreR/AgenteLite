@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Check } from "lucide-react";
+import { Bell, Check, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -21,14 +21,20 @@ import {
 } from "@/components/ui/dialog";
 import { saveProductFunnelAction } from "@/app/actions/product-playbook-actions";
 import { PRODUCT_FUNNEL_STAGES } from "@/lib/product-funnel-stages";
+import { StageFollowUpDialog, type SeguimientoDeEtapa } from "./StageFollowUpDialog";
 
 type EtapaEditable = {
   stage: string;
   goal: string;
   script: string;
-  /** Si no contesta: a los cuantos dias mandarle el mensaje de abajo. Vacio = sin seguimiento. */
-  followUpDays: string;
-  followUpMessage: string;
+  /** Los "si no contesta" de esta etapa, en orden. Vacio = sin seguimiento. */
+  followUps: SeguimientoDeEtapa[];
+};
+
+const UNIDAD_CORTA: Record<SeguimientoDeEtapa["timeType"], string> = {
+  MINUTES: "min",
+  HOURS: "h",
+  DAYS: "d",
 };
 
 type LeadDeEtapa = {
@@ -61,8 +67,13 @@ export function ProductFunnelEditor({
     stage: string;
     goal: string;
     script: string;
-    followUpDays: number | null;
-    followUpMessage: string;
+    followUps: Array<{
+      id: string;
+      timeType: "MINUTES" | "HOURS" | "DAYS";
+      timeValue: number;
+      content: string;
+      cancelOnActivity: boolean;
+    }>;
   }>;
   /** El texto se trajo del embudo que el agente ya tenia y todavia no se guardo aca. */
   vienenDelAgente: boolean;
@@ -83,11 +94,21 @@ export function ProductFunnelEditor({
         stage: meta.stage,
         goal: guardada?.goal ?? "",
         script: guardada?.script ?? "",
-        followUpDays: guardada?.followUpDays ? String(guardada.followUpDays) : "",
-        followUpMessage: guardada?.followUpMessage ?? "",
+        followUps: (guardada?.followUps ?? []).map((seguimiento) => ({
+          key: seguimiento.id,
+          timeType: seguimiento.timeType,
+          timeValue: String(seguimiento.timeValue),
+          content: seguimiento.content,
+          cancelOnActivity: seguimiento.cancelOnActivity,
+        })),
       };
     }),
   );
+  const [editando, setEditando] = useState<{
+    stage: string;
+    etiqueta: string;
+    seguimiento: SeguimientoDeEtapa | null;
+  } | null>(null);
   const [guardado, setGuardado] = useState(() => JSON.stringify(etapas));
   const [ocupado, setOcupado] = useState(false);
   const [etapaAbierta, setEtapaAbierta] = useState<{
@@ -172,13 +193,39 @@ export function ProductFunnelEditor({
     }
   };
 
-  const actualizar = (
-    stage: string,
-    campo: "goal" | "script" | "followUpDays" | "followUpMessage",
-    valor: string,
-  ) => {
+  const actualizar = (stage: string, campo: "goal" | "script", valor: string) => {
     setEtapas((actual) =>
       actual.map((etapa) => (etapa.stage === stage ? { ...etapa, [campo]: valor } : etapa)),
+    );
+  };
+
+  // Alta y edicion en el mismo lugar: si el key ya esta en la lista se reemplaza, si no se suma
+  // al final. El orden de la lista es el orden en que salen los mensajes.
+  const guardarSeguimiento = (stage: string, seguimiento: SeguimientoDeEtapa) => {
+    setEtapas((actual) =>
+      actual.map((etapa) => {
+        if (etapa.stage !== stage) {
+          return etapa;
+        }
+        const existe = etapa.followUps.some((item) => item.key === seguimiento.key);
+        return {
+          ...etapa,
+          followUps: existe
+            ? etapa.followUps.map((item) => (item.key === seguimiento.key ? seguimiento : item))
+            : [...etapa.followUps, seguimiento],
+        };
+      }),
+    );
+    setEditando(null);
+  };
+
+  const borrarSeguimiento = (stage: string, key: string) => {
+    setEtapas((actual) =>
+      actual.map((etapa) =>
+        etapa.stage === stage
+          ? { ...etapa, followUps: etapa.followUps.filter((item) => item.key !== key) }
+          : etapa,
+      ),
     );
   };
 
@@ -189,8 +236,13 @@ export function ProductFunnelEditor({
         productId,
         stages: etapas.map((etapa) => ({
           ...etapa,
-          // El campo se escribe como texto (un input vacio no es un 0) y se manda como numero.
-          followUpDays: etapa.followUpDays.trim() ? Number(etapa.followUpDays) : null,
+          // El valor se escribe como texto (un input vacio no es un 0) y se manda como numero.
+          followUps: etapa.followUps.map((seguimiento) => ({
+            timeType: seguimiento.timeType,
+            timeValue: Number(seguimiento.timeValue),
+            content: seguimiento.content,
+            cancelOnActivity: seguimiento.cancelOnActivity,
+          })),
         })),
       });
       if (result?.error) {
@@ -279,12 +331,15 @@ export function ProductFunnelEditor({
                           Que la etapa tiene seguimiento se ve CERRADA: si hay que abrir las cinco
                           para saber cuales avisan, nadie lo revisa.
                         */}
-                        {etapa?.followUpDays && etapa?.followUpMessage ? (
+                        {etapa && etapa.followUps.length > 0 ? (
                           <span
-                            title={`Si no contesta, se le escribe a los ${etapa.followUpDays} días`}
-                            className="shrink-0 rounded-full bg-sky-50 px-2 py-0.5 text-[11px] font-medium leading-none text-sky-700 tabular-nums dark:bg-sky-950 dark:text-sky-300"
+                            title={`Si no contesta: ${etapa.followUps
+                              .map((item) => `${item.timeValue} ${UNIDAD_CORTA[item.timeType]}`)
+                              .join(" · ")}`}
+                            className="inline-flex shrink-0 items-center gap-1 rounded-full bg-sky-50 px-2 py-0.5 text-[11px] font-medium leading-none text-sky-700 tabular-nums dark:bg-sky-950 dark:text-sky-300"
                           >
-                            {etapa.followUpDays} d
+                            <Bell className="h-3 w-3" />
+                            {etapa.followUps.length}
                           </span>
                         ) : null}
                       </span>
@@ -320,36 +375,72 @@ export function ProductFunnelEditor({
                       modulo Seguimientos: el mensaje correcto depende de donde se corto la charla.
                       No es lo mismo que se calle en la presentacion —ni sabemos que quiere— que en
                       el cierre, donde ya sabe el precio y lo esta pensando.
+
+                      Lista + boton, y el formulario en un modal: aca solo se LEE la secuencia de
+                      un vistazo. Los campos sueltos alargaban la etapa y en el celular el renglon
+                      de los dias se partia en dos.
                     */}
                     <div className="mt-3 space-y-2 rounded-lg border border-dashed p-3">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Label className="text-xs">Si no contesta, escribirle a los</Label>
-                        <Input
-                          type="number"
-                          min={1}
-                          max={90}
-                          inputMode="numeric"
-                          value={etapa?.followUpDays ?? ""}
-                          onChange={(event) =>
-                            actualizar(meta.stage, "followUpDays", event.target.value)
+                      <div className="flex items-center justify-between gap-2">
+                        <Label className="text-xs">Si no contesta</Label>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 gap-1 text-xs"
+                          onClick={() =>
+                            setEditando({ stage: meta.stage, etiqueta: meta.label, seguimiento: null })
                           }
-                          placeholder="2"
-                          className="h-8 w-20 tabular-nums"
-                        />
-                        <span className="text-xs text-muted-foreground">días</span>
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          Agregar seguimiento
+                        </Button>
                       </div>
-                      <Textarea
-                        rows={2}
-                        value={etapa?.followUpMessage ?? ""}
-                        onChange={(event) =>
-                          actualizar(meta.stage, "followUpMessage", event.target.value)
-                        }
-                        placeholder="Qué mandarle para retomar la conversación…"
-                      />
-                      <p className="text-[11px] text-muted-foreground">
-                        Se cancela solo si el cliente responde antes. Dejalo vacío para no hacer
-                        seguimiento en esta etapa.
-                      </p>
+
+                      {(etapa?.followUps.length ?? 0) === 0 ? (
+                        <p className="text-[11px] text-muted-foreground">
+                          Sin seguimientos: si el cliente se calla en esta etapa, no se le escribe.
+                        </p>
+                      ) : (
+                        <ul className="space-y-1">
+                          {(etapa?.followUps ?? []).map((seguimiento, posicion) => (
+                            <li
+                              key={seguimiento.key}
+                              className="flex items-center gap-2 rounded-md bg-muted/50 px-2 py-1.5"
+                            >
+                              <span className="shrink-0 rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-medium leading-none text-sky-700 tabular-nums dark:bg-sky-950 dark:text-sky-300">
+                                {seguimiento.timeValue} {UNIDAD_CORTA[seguimiento.timeType]}
+                              </span>
+                              <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                                {seguimiento.content}
+                              </span>
+                              <button
+                                type="button"
+                                title="Editar"
+                                onClick={() =>
+                                  setEditando({
+                                    stage: meta.stage,
+                                    etiqueta: meta.label,
+                                    seguimiento,
+                                  })
+                                }
+                                className="shrink-0 rounded p-1 text-muted-foreground transition hover:bg-background hover:text-foreground"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                title={`Quitar el seguimiento de ${seguimiento.timeValue} ${UNIDAD_CORTA[seguimiento.timeType]}`}
+                                onClick={() => borrarSeguimiento(meta.stage, seguimiento.key)}
+                                className="shrink-0 rounded p-1 text-muted-foreground transition hover:bg-background hover:text-destructive"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                              <span className="sr-only">Seguimiento {posicion + 1}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </div>
                   </div>
                 </AccordionContent>
@@ -372,6 +463,18 @@ export function ProductFunnelEditor({
           ) : null}
         </div>
       </CardContent>
+
+      <StageFollowUpDialog
+        abierto={Boolean(editando)}
+        etapaLabel={editando?.etiqueta ?? ""}
+        seguimiento={editando?.seguimiento ?? null}
+        onGuardar={(seguimiento) => {
+          if (editando) {
+            guardarSeguimiento(editando.stage, seguimiento);
+          }
+        }}
+        onCerrar={() => setEditando(null)}
+      />
 
       {/*
         La lista detras del numero. Cada fila dice CUANTOS mensajes mando ese cliente, que es el

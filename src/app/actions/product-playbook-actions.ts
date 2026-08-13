@@ -93,8 +93,12 @@ export async function saveProductFunnelAction(input: {
     stage: string;
     goal: string;
     script: string;
-    followUpDays?: number | null;
-    followUpMessage?: string | null;
+    followUps?: Array<{
+      timeType?: string | null;
+      timeValue?: number | null;
+      content?: string | null;
+      cancelOnActivity?: boolean | null;
+    }>;
   }>;
 }): Promise<{ ok?: true; error?: string }> {
   const workspaceId = await getAccess();
@@ -123,39 +127,55 @@ export async function saveProductFunnelAction(input: {
     const goal = etapa.goal?.trim() || null;
     const script = etapa.script?.trim() || null;
 
-    // El seguimiento existe solo si estan las DOS cosas: cuando mandarlo y que mandar. Guardar
-    // los dias sin mensaje agendaria un envio vacio, y un mensaje sin dias no se agenda nunca;
-    // en los dos casos alguien creeria que dejo un seguimiento armado y no hay ninguno.
-    const followUpMessage = etapa.followUpMessage?.trim() || null;
-    const diasCrudos = Number(etapa.followUpDays);
-    const followUpDays =
-      followUpMessage && Number.isInteger(diasCrudos) && diasCrudos > 0 && diasCrudos <= 90
-        ? diasCrudos
-        : null;
-
-    await prisma.productFunnelStage.upsert({
+    const guardada = await prisma.productFunnelStage.upsert({
       where: { playbookId_stage: { playbookId, stage: etapa.stage } },
       // stuckAfterMessages queda en null: la red de seguridad se saco (el agente ya escala solo
       // cuando no sabe algo, y contar mensajes se disparaba en conversaciones sanas).
-      create: {
-        playbookId,
-        stage: etapa.stage,
-        goal,
-        script,
-        sortOrder: orden,
-        stuckAfterMessages: null,
-        followUpDays,
-        followUpMessage: followUpDays ? followUpMessage : null,
-      },
-      update: {
-        goal,
-        script,
-        sortOrder: orden,
-        stuckAfterMessages: null,
-        followUpDays,
-        followUpMessage: followUpDays ? followUpMessage : null,
-      },
+      create: { playbookId, stage: etapa.stage, goal, script, sortOrder: orden, stuckAfterMessages: null },
+      update: { goal, script, sortOrder: orden, stuckAfterMessages: null },
+      select: { id: true },
     });
+
+    /**
+     * Los seguimientos se reemplazan enteros, no se van fusionando uno por uno.
+     *
+     * Es una lista corta que se edita como un bloque —se agrega uno, se borra otro, se reordenan—
+     * y fusionar por id obligaria a arrastrar ids de filas borradas por la pantalla. Reemplazar
+     * deja el estado guardado igual a lo que se ve, que es la unica forma de que nadie descubra
+     * un seguimiento fantasma mandandole un WhatsApp a un cliente.
+     *
+     * Un seguimiento sin texto no se guarda: agendaria un envio vacio.
+     */
+    const seguimientos = (Array.isArray(etapa.followUps) ? etapa.followUps : [])
+      .map((seguimiento) => {
+        const valor = Number(seguimiento.timeValue);
+        const unidad =
+          seguimiento.timeType === "MINUTES" || seguimiento.timeType === "HOURS"
+            ? seguimiento.timeType
+            : "DAYS";
+        return {
+          timeType: unidad as "MINUTES" | "HOURS" | "DAYS",
+          timeValue: Number.isInteger(valor) && valor > 0 && valor <= 999 ? valor : 0,
+          content: seguimiento.content?.trim() || "",
+          cancelOnActivity: seguimiento.cancelOnActivity !== false,
+        };
+      })
+      .filter((seguimiento) => seguimiento.timeValue > 0 && seguimiento.content.length > 0);
+
+    await prisma.productStageFollowUp.deleteMany({ where: { stageId: guardada.id } });
+    if (seguimientos.length > 0) {
+      await prisma.productStageFollowUp.createMany({
+        data: seguimientos.map((seguimiento, indice) => ({
+          stageId: guardada.id,
+          sortOrder: indice,
+          timeType: seguimiento.timeType,
+          timeValue: seguimiento.timeValue,
+          messageType: "TEXT" as const,
+          content: seguimiento.content,
+          cancelOnActivity: seguimiento.cancelOnActivity,
+        })),
+      });
+    }
   }
 
   revalidatePath("/cliente/productos-v2");

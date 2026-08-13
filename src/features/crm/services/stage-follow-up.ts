@@ -27,27 +27,34 @@ export async function agendarSeguimientoDeEtapa(input: {
   productId: string;
   stage: string;
   channelId: string | null;
-}): Promise<{ agendado: boolean; dias?: number }> {
+}): Promise<{ agendados: number }> {
   try {
     const etapa = await prisma.productFunnelStage.findFirst({
       where: {
         stage: input.stage,
         playbook: { workspaceId: input.workspaceId, productId: input.productId },
       },
-      select: { followUpDays: true, followUpMessage: true, playbook: { select: { productId: true } } },
+      select: {
+        followUps: {
+          where: { isActive: true },
+          orderBy: { sortOrder: "asc" },
+          select: { timeType: true, timeValue: true, content: true, cancelOnActivity: true },
+        },
+      },
     });
 
-    const dias = etapa?.followUpDays ?? null;
-    const mensaje = etapa?.followUpMessage?.trim() || "";
-    if (!dias || !mensaje) {
-      return { agendado: false };
+    const seguimientos = (etapa?.followUps ?? []).filter(
+      (seguimiento) => seguimiento.timeValue > 0 && (seguimiento.content ?? "").trim(),
+    );
+    if (seguimientos.length === 0) {
+      return { agendados: 0 };
     }
 
     /**
-     * Un solo seguimiento pendiente por lead.
+     * Si ya hay algo pendiente, no se agenda la tanda.
      *
-     * Sin esto se apilarian: el lead avanza de etapa, se agenda el de la etapa nueva y el de la
-     * anterior sigue vivo, asi que el cliente recibiria dos mensajes distintos por el mismo
+     * Sin esto se apilarian: el lead avanza de etapa, se agenda la secuencia de la etapa nueva y
+     * la de la anterior sigue viva, asi que el cliente recibiria mensajes cruzados por el mismo
      * silencio. En la practica casi nunca hay uno pendiente en este punto —la etapa solo cambia
      * cuando el cliente escribe, y al escribir el webhook ya cancelo lo pendiente— pero el
      * candado tiene que estar igual: el dia que eso cambie, el que recibe los mensajes de mas es
@@ -58,36 +65,40 @@ export async function agendarSeguimientoDeEtapa(input: {
       select: { id: true },
     });
     if (pendiente) {
-      return { agendado: false };
+      return { agendados: 0 };
     }
 
     const etiqueta = ETIQUETA_POR_ETAPA.get(input.stage) ?? input.stage;
-    const creado = await createFollow({
-      workspaceId: input.workspaceId,
-      contactId: input.contactId,
-      // Sin followRuleId: este seguimiento no nace de una regla del modulo Seguimientos sino del
-      // Playbook del producto. La columna acepta null justamente para esto.
-      name: `Etapa ${etiqueta}`,
-      channelId: input.channelId,
-      timeType: "DAYS",
-      timeValue: dias,
-      messageType: "TEXT",
-      content: mensaje,
-      cancelOnActivity: true,
-    });
-
-    if (!creado) {
-      return { agendado: false };
+    let agendados = 0;
+    for (const [indice, seguimiento] of seguimientos.entries()) {
+      const creado = await createFollow({
+        workspaceId: input.workspaceId,
+        contactId: input.contactId,
+        // Sin followRuleId: este seguimiento no nace de una regla del modulo Seguimientos sino del
+        // Playbook del producto. La columna acepta null justamente para esto.
+        name: `Etapa ${etiqueta} · ${indice + 1}`,
+        channelId: input.channelId,
+        timeType: seguimiento.timeType,
+        timeValue: seguimiento.timeValue,
+        messageType: "TEXT",
+        content: (seguimiento.content ?? "").trim(),
+        cancelOnActivity: seguimiento.cancelOnActivity,
+      });
+      if (creado) {
+        agendados += 1;
+      }
     }
 
-    console.log("[stage-follow-up] agendado", {
-      contactId: input.contactId,
-      etapa: input.stage,
-      dias,
-    });
-    return { agendado: true, dias };
+    if (agendados > 0) {
+      console.log("[stage-follow-up] agendado", {
+        contactId: input.contactId,
+        etapa: input.stage,
+        cantidad: agendados,
+      });
+    }
+    return { agendados };
   } catch (error) {
     console.error("[stage-follow-up] error agendando", input.contactId, error);
-    return { agendado: false };
+    return { agendados: 0 };
   }
 }

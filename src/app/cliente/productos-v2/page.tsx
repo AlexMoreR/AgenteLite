@@ -70,8 +70,17 @@ export default async function ClienteProductoV2Page() {
             stage: true,
             goal: true,
             script: true,
-            followUpDays: true,
-            followUpMessage: true,
+            followUps: {
+              where: { isActive: true },
+              orderBy: { sortOrder: "asc" },
+              select: {
+                id: true,
+                timeType: true,
+                timeValue: true,
+                content: true,
+                cancelOnActivity: true,
+              },
+            },
           },
         },
       },
@@ -120,8 +129,13 @@ export default async function ClienteProductoV2Page() {
       stage: string;
       goal: string;
       script: string;
-      followUpDays: number | null;
-      followUpMessage: string;
+      followUps: Array<{
+        id: string;
+        timeType: "MINUTES" | "HOURS" | "DAYS";
+        timeValue: number;
+        content: string;
+        cancelOnActivity: boolean;
+      }>;
     }> = [
       { stage: "PRESENTACION", texto: knowledge?.funnelOpening },
       { stage: "IDENTIFICACION", texto: knowledge?.funnelQualification },
@@ -136,16 +150,20 @@ export default async function ClienteProductoV2Page() {
         script: item.texto?.trim() ?? "",
         // El embudo heredado del agente nunca trajo seguimientos: se escriben al guardar el
         // embudo propio del producto.
-        followUpDays: null,
-        followUpMessage: "",
+        followUps: [],
       }));
 
     const etapasGuardadas = (playbook?.stages ?? []).map((stage) => ({
       stage: stage.stage,
       goal: stage.goal?.trim() || "",
       script: stage.script?.trim() || "",
-      followUpDays: stage.followUpDays ?? null,
-      followUpMessage: stage.followUpMessage?.trim() || "",
+      followUps: (stage.followUps ?? []).map((seguimiento) => ({
+        id: seguimiento.id,
+        timeType: seguimiento.timeType,
+        timeValue: seguimiento.timeValue,
+        content: seguimiento.content?.trim() || "",
+        cancelOnActivity: seguimiento.cancelOnActivity,
+      })),
     }));
     const tieneEmbudoPropio = etapasGuardadas.some((etapa) => etapa.goal || etapa.script);
 

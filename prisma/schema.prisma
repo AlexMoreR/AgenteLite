@@ -1192,22 +1192,48 @@ model ProductFunnelStage {
   /// Red de seguridad: si el cliente lleva TANTOS mensajes sin salir de esta etapa, se avisa a un
   /// asesor. Null = sin red. Es el limite que no depende de lo que decida la IA.
   stuckAfterMessages Int?
-  /// SI NO CONTESTA: a los cuantos dias mandarle el mensaje de abajo, y que mandarle. Null = sin
-  /// seguimiento en esta etapa.
-  ///
-  /// Vive en la etapa del producto y no en una FollowRule suelta porque el seguimiento correcto
-  /// depende del producto Y de la etapa: no es lo mismo que se calle en Presentacion —ni sabemos
-  /// que quiere— que en Cierre, donde ya sabe el precio y lo esta pensando. Una regla por
-  /// workspace no puede expresar esa diferencia.
-  followUpDays    Int?
-  followUpMessage String?
   sortOrder  Int             @default(0)
   createdAt  DateTime        @default(now())
   updatedAt  DateTime        @updatedAt
   playbook   ProductPlaybook @relation(fields: [playbookId], references: [id], onDelete: Cascade)
+  /// Los "si no contesta" de esta etapa. Varios y no uno: un solo aviso es un recordatorio, y lo
+  /// que recupera una venta es una secuencia (al dia, a los dos, a los tres).
+  followUps  ProductStageFollowUp[]
 
   @@unique([playbookId, stage])
   @@index([playbookId, sortOrder])
+}
+
+/**
+ * Un "si no contesta" de una etapa: cuanto esperar y que mandar.
+ *
+ * Vive colgado de la ETAPA del producto y no de una FollowRule suelta porque el mensaje correcto
+ * depende de donde se corto la charla: no es lo mismo que el cliente se calle en Presentacion
+ * —ni sabemos que quiere— que en Cierre, donde ya sabe el precio y lo esta pensando. Una regla
+ * por workspace no puede expresar esa diferencia.
+ *
+ * Tabla propia (y no dos columnas en la etapa) porque son VARIOS por etapa: la secuencia de 1, 2
+ * y 3 dias es lo que de verdad recupera un lead, no un unico aviso.
+ */
+model ProductStageFollowUp {
+  id               String             @id @default(cuid())
+  stageId          String
+  sortOrder        Int                @default(0)
+  /// Cuanto esperar desde que el lead entro a la etapa. Se cuenta desde la entrada y no desde el
+  /// ultimo mensaje: es "hace tanto que esta en esta etapa sin avanzar".
+  timeType         FollowTimeType     @default(DAYS)
+  timeValue        Int
+  messageType      FollowMessageType  @default(TEXT)
+  content          String?
+  mediaUrl         String?
+  /// Si el cliente escribe antes, no sale. Es todo el sentido de "si no contesta".
+  cancelOnActivity Boolean            @default(true)
+  isActive         Boolean            @default(true)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  stage            ProductFunnelStage @relation(fields: [stageId], references: [id], onDelete: Cascade)
+
+  @@index([stageId, sortOrder])
 }
 
 /// Lo que paso en una conversacion, leido por la IA y guardado.

@@ -35,13 +35,21 @@ export type ProductPlaybookRuleItem = {
   createdAt: string;
 };
 
+/** Un "si no contesta" de una etapa: cuanto esperar y que mandar. */
+export type ProductStageFollowUpItem = {
+  id: string;
+  timeType: "MINUTES" | "HOURS" | "DAYS";
+  timeValue: number;
+  content: string;
+  cancelOnActivity: boolean;
+};
+
 export type ProductFunnelStageItem = {
   stage: string;
   goal: string;
   script: string;
-  /** Si no contesta: a los cuantos dias y que mandarle. Null = esta etapa no hace seguimiento. */
-  followUpDays: number | null;
-  followUpMessage: string;
+  /** Los "si no contesta" de esta etapa, en orden. Vacio = esta etapa no hace seguimiento. */
+  followUps: ProductStageFollowUpItem[];
 };
 
 export type ProductPlaybookData = {
@@ -71,8 +79,17 @@ export async function getProductPlaybook(input: {
           stage: true,
           goal: true,
           script: true,
-          followUpDays: true,
-          followUpMessage: true,
+          followUps: {
+            where: { isActive: true },
+            orderBy: { sortOrder: "asc" },
+            select: {
+              id: true,
+              timeType: true,
+              timeValue: true,
+              content: true,
+              cancelOnActivity: true,
+            },
+          },
         },
       },
       rules: {
@@ -100,8 +117,13 @@ export async function getProductPlaybook(input: {
       stage: stage.stage,
       goal: stage.goal?.trim() || "",
       script: stage.script?.trim() || "",
-      followUpDays: stage.followUpDays ?? null,
-      followUpMessage: stage.followUpMessage?.trim() || "",
+      followUps: (stage.followUps ?? []).map((seguimiento) => ({
+        id: seguimiento.id,
+        timeType: seguimiento.timeType,
+        timeValue: seguimiento.timeValue,
+        content: seguimiento.content?.trim() || "",
+        cancelOnActivity: seguimiento.cancelOnActivity,
+      })),
     })),
     rules: (playbook?.rules ?? [])
       .filter((rule) => isPlaybookRuleKind(rule.kind))
