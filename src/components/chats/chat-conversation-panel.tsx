@@ -39,6 +39,7 @@ import { clearPendingConversationSelection } from "@/components/chats/chat-selec
 import { ChatTagsControl } from "@/components/chats/chat-tags-control";
 import { QuickRepliesDialog } from "@/components/chats/quick-replies-dialog";
 import { MediaLibraryDialog } from "@/components/chats/media-library-dialog";
+import { subirArchivoPorPedazos } from "@/lib/subir-archivo-por-pedazos";
 import { PlaybookPanelDialog } from "@/components/chats/playbook-panel-dialog";
 import { ForwardMessageDialog } from "@/components/chats/forward-message-dialog";
 import { SendFlowDialog } from "@/components/chats/send-flow-dialog";
@@ -322,17 +323,23 @@ export const ConversationPanel = memo(function ConversationPanel({
       const trimmedCaption = caption?.trim() || "";
       let optimisticId: string | null = null;
       try {
-        const formData = new FormData();
-        formData.append("file", file);
-
-        const response = await fetch(mediaConfig.uploadPath, { method: "POST", body: formData });
-        const data = (await response.json().catch(() => null)) as
-          | { url?: string; fileName?: string; mimeType?: string; mediaType?: "IMAGE" | "VIDEO" | "DOCUMENT"; error?: string }
-          | null;
-        if (!response.ok || !data?.url || !data.mediaType) {
-          toast.error(data?.error || `No se pudo subir "${file.name}".`);
+        /**
+         * Por pedazos, con reintento por pedazo.
+         *
+         * Es el camino que mas se usa: la asesora toca adjuntar, entra a Drive, el catalogo se
+         * BAJA al celular y se SUBE aca. Con la señal de la calle (14-32 KB/s medidos el
+         * 14-ago-2026) 15 MB en una sola peticion tardan entre 8 y 18 minutos y no llegan a
+         * terminar: se cortaba sin dejar rastro y el chat decia "No se pudo enviar".
+         */
+        const subida = await subirArchivoPorPedazos({
+          file,
+          endpoint: `${mediaConfig.uploadPath}/chunk`,
+        });
+        if (subida.error || !subida.archivo) {
+          toast.error(subida.error || `No se pudo subir "${file.name}".`);
           return false;
         }
+        const data = subida.archivo;
 
         // Burbuja optimista: el archivo aparece en el chat con spinner mientras se envía.
         optimisticId = `optimistic-media:${data.url}`;

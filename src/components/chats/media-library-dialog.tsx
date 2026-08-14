@@ -13,6 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { subirArchivoPorPedazos } from "@/lib/subir-archivo-por-pedazos";
 import {
   agregarABibliotecaAction,
   borrarDeBibliotecaAction,
@@ -29,8 +30,8 @@ import {
  * siempre los mismos archivos, subirlos una vez convierte el envio en una referencia a algo que ya
  * esta guardado: sale en un segundo, sin importar la señal.
  *
- * Por eso el boton de mandar NO sube nada. Lo unico que sube es "Agregar archivo", que se usa una
- * vez y conviene hacerlo desde una computadora.
+ * Por eso el boton de mandar NO sube nada. Lo unico que sube es "Agregar archivo", que ademas va
+ * por pedazos con reintento, asi que tambien funciona desde el celular con mala señal.
  */
 export function MediaLibraryDialog({
   open,
@@ -40,7 +41,7 @@ export function MediaLibraryDialog({
 }: {
   open: boolean;
   onClose: () => void;
-  /** La misma ruta de subida del chat: se usa solo al AGREGAR, no al mandar. */
+  /** Base de la ruta de subida del chat: se usa solo al AGREGAR (con /chunk), no al mandar. */
   uploadPath: string;
   /** Manda el archivo ya subido por el camino normal del chat. */
   onSend: (item: MediaLibraryItemDto) => Promise<boolean>;
@@ -49,6 +50,7 @@ export function MediaLibraryDialog({
   const [cargando, setCargando] = useState(true);
   const [enviando, setEnviando] = useState<string | null>(null);
   const [subiendo, setSubiendo] = useState(false);
+  const [avance, setAvance] = useState(0);
   const inputArchivo = useRef<HTMLInputElement | null>(null);
   const [filtro, setFiltro] = useState("");
   /**
@@ -102,25 +104,28 @@ export function MediaLibraryDialog({
 
   const agregar = async (file: File) => {
     setSubiendo(true);
+    setAvance(0);
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const respuesta = await fetch(uploadPath, { method: "POST", body: formData });
-      const datos = (await respuesta.json().catch(() => null)) as
-        | { url?: string; fileName?: string; mimeType?: string; mediaType?: string; error?: string }
-        | null;
+      // Por pedazos SIEMPRE, tambien desde la computadora: es el mismo camino para todos, asi el
+      // que funciona es el que esta probado. Un segundo camino "para archivos chicos" seria un
+      // segundo lugar donde se rompen las subidas.
+      const resultado = await subirArchivoPorPedazos({
+        file,
+        endpoint: `${uploadPath}/chunk`,
+        onAvance: setAvance,
+      });
 
-      if (!respuesta.ok || !datos?.url || !datos.mediaType) {
-        toast.error(datos?.error || "No se pudo subir el archivo. Probá desde la computadora.");
+      if (resultado.error || !resultado.archivo) {
+        toast.error(resultado.error || "No se pudo subir el archivo.");
         return;
       }
 
       const guardado = await agregarABibliotecaAction({
         title: file.name.replace(/\.[^.]+$/, ""),
-        url: datos.url,
-        fileName: datos.fileName || file.name,
-        mimeType: datos.mimeType || file.type,
-        mediaType: datos.mediaType,
+        url: resultado.archivo.url,
+        fileName: resultado.archivo.fileName,
+        mimeType: resultado.archivo.mimeType,
+        mediaType: resultado.archivo.mediaType,
         sizeBytes: file.size,
       });
 
@@ -131,12 +136,9 @@ export function MediaLibraryDialog({
 
       toast.success("Guardado. Ya podés mandarlo desde cualquier chat.");
       await cargar();
-    } catch {
-      // La subida se corta cuando la señal es mala: decirlo asi evita que se busque el problema
-      // en el archivo o en el chat, que es donde no esta.
-      toast.error("Se cortó la subida. Con señal débil, subilo desde la computadora.");
     } finally {
       setSubiendo(false);
+      setAvance(0);
     }
   };
 
@@ -323,10 +325,12 @@ export function MediaLibraryDialog({
             onClick={() => inputArchivo.current?.click()}
           >
             {subiendo ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
-            {subiendo ? "Subiendo…" : "Agregar archivo"}
+            {subiendo ? `Subiendo… ${Math.round(avance * 100)}%` : "Agregar archivo"}
           </Button>
           <p className="mt-2 text-center text-[11px] text-muted-foreground">
-            Agregalo una vez desde la computadora y queda disponible para todas.
+            {subiendo
+              ? "Va por partes: si se corta la señal, sigue desde donde quedó."
+              : "Agregalo una vez y queda disponible para todo el equipo."}
           </p>
         </div>
       </DialogContent>
