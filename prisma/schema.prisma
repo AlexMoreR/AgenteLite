@@ -80,6 +80,7 @@ model Workspace {
   followRules          FollowRule[]
   follows              Follow[]
   campaigns            Campaign[]
+  mediaLibrary         MediaLibraryItem[]
   messages             Message[]
   officialApiConfig    OfficialApiClientConfig?
   quickReplies         QuickReply[]
@@ -1345,4 +1346,36 @@ enum CampaignRecipientStatus {
   PENDING
   SENT
   FAILED
+}
+
+/**
+ * BIBLIOTECA DE ARCHIVOS: los catalogos que se mandan todos los dias, subidos UNA vez.
+ *
+ * El problema que resuelve no es de formato ni de permisos: es de tiempo. Las asesoras trabajan
+ * desde el celular y con mala señal un catalogo de 15 MB tarda entre 8 y 18 minutos en subir —y
+ * antes de terminar, la subida se corta—. Pero son SIEMPRE los mismos ocho archivos.
+ *
+ * Subidos una vez desde una computadora, mandarlos deja de ser una subida y pasa a ser una
+ * referencia a algo que ya esta en el servidor: sale en un segundo, con señal o sin ella.
+ */
+model MediaLibraryItem {
+  id          String    @id @default(cuid())
+  workspaceId String
+  /// Como lo busca una persona apurada: "Catalogo camillas", no el nombre del archivo.
+  title       String
+  /// Ruta ya publicada del archivo. Es la misma que usa el chat para mandar media.
+  url         String
+  fileName    String
+  mimeType    String
+  /// IMAGE | VIDEO | DOCUMENT, igual que en el chat.
+  mediaType   String
+  sizeBytes   Int       @default(0)
+  /// Cuantas veces se mando. Sirve para ordenar por lo mas usado en vez de por fecha.
+  sentCount   Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, sentCount])
+  @@index([workspaceId, createdAt])
 }

@@ -27,6 +27,7 @@ import {
   StickyNote,
   Trash2,
   Workflow,
+  FolderOpen,
   X,
 } from "lucide-react";
 import { ChatScrollAnchor } from "@/components/agents/chat-scroll-anchor";
@@ -37,6 +38,7 @@ import { sendChatLocationReplyAction } from "@/app/actions/agent-actions";
 import { clearPendingConversationSelection } from "@/components/chats/chat-selection-store";
 import { ChatTagsControl } from "@/components/chats/chat-tags-control";
 import { QuickRepliesDialog } from "@/components/chats/quick-replies-dialog";
+import { MediaLibraryDialog } from "@/components/chats/media-library-dialog";
 import { PlaybookPanelDialog } from "@/components/chats/playbook-panel-dialog";
 import { ForwardMessageDialog } from "@/components/chats/forward-message-dialog";
 import { SendFlowDialog } from "@/components/chats/send-flow-dialog";
@@ -157,6 +159,7 @@ export const ConversationPanel = memo(function ConversationPanel({
   const [isQuickRepliesOpen, setIsQuickRepliesOpen] = useState(false);
   const [isPlaybookOpen, setIsPlaybookOpen] = useState(false);
   const [isSendFlowOpen, setIsSendFlowOpen] = useState(false);
+  const [isLibraryOpen, setIsLibraryOpen] = useState(false);
   const [isNoteOpen, setIsNoteOpen] = useState(false);
   // Mensaje que se esta reenviando (null = dialogo cerrado).
   const [mensajeAReenviar, setMensajeAReenviar] = useState<SharedInboxMessageItem | null>(null);
@@ -1238,6 +1241,23 @@ export const ConversationPanel = memo(function ConversationPanel({
                                   <Workflow className="size-5 shrink-0 text-[#0ea5e9]" />
                                   <span>Enviar flujos</span>
                                 </Button>
+                                {/* Los catalogos de siempre, ya subidos. Mandarlos desde aca NO
+                                    sube nada: con la señal de un celular en la calle, subir un
+                                    catalogo de 15 MB tarda entre 8 y 18 minutos y se corta antes
+                                    de terminar. Como son siempre los mismos archivos, se suben una
+                                    vez y despues salen en un segundo. */}
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  onClick={() => {
+                                    setIsAttachMenuOpen(false);
+                                    setIsLibraryOpen(true);
+                                  }}
+                                  className="flex h-auto w-full items-center justify-start gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-normal text-foreground transition hover:bg-muted focus:outline-none focus-visible:bg-muted"
+                                >
+                                  <FolderOpen className="size-5 shrink-0 text-[#8b5cf6]" />
+                                  <span>Biblioteca</span>
+                                </Button>
                                 {/* Lo que el equipo necesita saber del cliente y no se le manda
                                     a el. Antes se lo pasaban por WhatsApp entre ellas y se
                                     perdia. */}
@@ -1464,6 +1484,33 @@ export const ConversationPanel = memo(function ConversationPanel({
             source={mediaConfig.source === "official" ? "official" : "agent"}
             conversationId={mediaConfig.conversationId}
             agentId={mediaConfig.agentId ?? undefined}
+          />
+        ) : null}
+        {/* Montado solo mientras esta abierto: un modal que queda puesto y apagado puede dejar su
+            fondo en el DOM tapando la pantalla y comiendose los clicks (paso el 13-ago-2026). */}
+        {mediaConfig && isLibraryOpen ? (
+          <MediaLibraryDialog
+            open
+            onClose={() => setIsLibraryOpen(false)}
+            uploadPath={mediaConfig.uploadPath}
+            onSend={async (item) => {
+              const result = await mediaConfig.sendAction({
+                source: mediaConfig.source,
+                conversationId: mediaConfig.conversationId,
+                agentId: mediaConfig.agentId,
+                mediaUrl: item.url,
+                mediaType: item.mediaType,
+                fileName: item.fileName,
+                mimeType: item.mimeType,
+                returnTo: mediaConfig.returnTo,
+              });
+              if (result && "ok" in result && result.ok) {
+                onScrollToBottom();
+                return true;
+              }
+              toast.error((result && "error" in result && result.error) || `No se pudo enviar "${item.title}".`);
+              return false;
+            }}
           />
         ) : null}
         <PlaybookPanelDialog
