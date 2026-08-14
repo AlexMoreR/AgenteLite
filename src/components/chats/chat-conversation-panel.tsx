@@ -1038,8 +1038,18 @@ export const ConversationPanel = memo(function ConversationPanel({
               ) : null}
             </div>
 
+            {/*
+              El piso de 1.25rem del compositor no es estetico: evita que quede pegado al borde en
+              iPhone.
+
+              La app declara el viewport SIN `viewport-fit: cover`, asi que en iOS
+              `env(safe-area-inset-bottom)` vale 0 y el relleno se quedaba en 0.375rem — con la
+              barra de gestos justo encima, escribir ahi es incomodo y el boton de mandar queda al
+              filo. Con max() el area segura sigue mandando donde funciona (Android, y iOS el dia
+              que se active cover) y donde no, queda un piso usable.
+            */}
             {composer && renderedConversation ? (
-              <div className="chat-composer z-20 shrink-0 bg-transparent px-1.5 pb-[calc(env(safe-area-inset-bottom)+0.375rem)] pt-1.5 md:px-2 md:py-2">
+              <div className="chat-composer z-20 shrink-0 bg-transparent px-1.5 pb-[max(calc(env(safe-area-inset-bottom)+0.375rem),1.25rem)] pt-1.5 md:px-2 md:py-2 md:pb-2">
                 <form
                   className="mx-auto w-full max-w-5xl"
                   onSubmit={(event: FormEvent<HTMLFormElement>) => {
