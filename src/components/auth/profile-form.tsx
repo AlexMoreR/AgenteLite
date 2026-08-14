@@ -119,42 +119,25 @@ export function ProfileForm({
 
   const initials = (defaultName?.trim()?.charAt(0) || email.charAt(0) || "U").toUpperCase();
 
+  /*
+   * Se saco la tarjeta de resumen que iba arriba: mostraba el nombre, el correo y otra vez el
+   * correo, y justo debajo el formulario pedia exactamente lo mismo. Tres veces el mismo dato en
+   * una pantalla que se abre para CAMBIARLO. El unico dato que solo vivia ahi era el rol, que
+   * pasa al lado del titulo.
+   */
   return (
-    <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
-      <Card className="space-y-5 p-5">
-        <div className="flex items-center gap-3">
-          <Avatar className="h-14 w-14 rounded-xl border border-[var(--line)]">
-            <AvatarImage src={defaultImage} alt={defaultName || email} />
-            <AvatarFallback className="rounded-xl bg-slate-800 text-sm">
-              {initials}
-            </AvatarFallback>
-          </Avatar>
-          <div className="min-w-0">
-            <p className="truncate text-base font-semibold text-slate-900">
-              {defaultName || "Usuario"}
-            </p>
-            <p className="truncate text-xs text-slate-600">{email}</p>
-          </div>
-        </div>
-
-        <div className="space-y-3 border-t border-[var(--line)] pt-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Cuenta</p>
-          <div className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
-            <Mail className="h-4 w-4 text-slate-500" />
-            <span className="truncate">{email}</span>
-          </div>
-          <div className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
-            <ShieldCheck className="h-4 w-4 text-slate-500" />
-            <span>Rol: {role}</span>
-          </div>
-        </div>
-      </Card>
-
+    <div className="grid gap-4">
       <div className="space-y-4">
         <Card className="space-y-4 p-5">
-          <div className="inline-flex items-center gap-2 text-sm font-semibold text-slate-900">
-            <UserPen className="h-4 w-4 text-slate-500" />
-            Informacion personal
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="inline-flex items-center gap-2 text-sm font-semibold text-slate-900">
+              <UserPen className="h-4 w-4 text-slate-500" />
+              Informacion personal
+            </div>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600">
+              <ShieldCheck className="h-3.5 w-3.5 text-slate-500" />
+              {role}
+            </span>
           </div>
           <form action={profileAction} className="grid gap-3">
             <Input name="name" defaultValue={defaultName} placeholder="Nombre completo" required />

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FileText, Image as ImageIcon, Loader2, Trash2, Upload, Video } from "lucide-react";
+import { ArrowLeft, FileText, Image as ImageIcon, Loader2, Trash2, Upload, Video } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -164,24 +164,41 @@ export function MediaLibraryDialog({
   if (mirando) {
     return (
       <Dialog open={open} onOpenChange={(estado) => !estado && onClose()}>
-        <DialogContent className="max-h-[90vh] overflow-hidden p-0 sm:max-w-lg">
-          <DialogHeader className="border-b p-4 text-left">
-            <DialogTitle className="text-sm">{mirando.title}</DialogTitle>
-            <DialogDescription className="text-xs">
-              Mirá que sea el correcto antes de mandarlo.
-            </DialogDescription>
+        {/* Misma ventana que la lista: al abrir un archivo se sigue estando en la biblioteca, no
+            aparece una tarjeta distinta encima. */}
+        <DialogContent
+          showCloseButton={false}
+          className="inset-0 top-0 left-0 flex h-dvh max-h-dvh w-full max-w-full translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none p-0 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] ring-0 sm:inset-auto sm:top-1/2 sm:left-1/2 sm:h-auto sm:max-h-[85vh] sm:max-w-lg sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl sm:ring-1"
+        >
+          <DialogHeader className="flex-row items-center gap-2 border-b p-3 text-left sm:p-4">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => setMirando(null)}
+              aria-label="Volver a la biblioteca"
+              className="shrink-0"
+            >
+              <ArrowLeft className="size-5" />
+            </Button>
+            <div className="min-w-0">
+              <DialogTitle className="truncate text-sm">{mirando.title}</DialogTitle>
+              <DialogDescription className="text-xs">
+                Mirá que sea el correcto antes de mandarlo.
+              </DialogDescription>
+            </div>
           </DialogHeader>
 
-          <div className="max-h-[55vh] overflow-y-auto bg-muted/40 p-3">
+          <div className="min-h-0 flex-1 overflow-y-auto bg-muted/40 p-3">
             {mirando.mediaType === "IMAGE" ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={mirando.url}
                 alt={mirando.title}
-                className="mx-auto max-h-[50vh] w-auto rounded-lg object-contain"
+                className="mx-auto max-h-full w-auto rounded-lg object-contain"
               />
             ) : mirando.mediaType === "VIDEO" ? (
-              <video src={mirando.url} controls className="mx-auto max-h-[50vh] w-full rounded-lg" />
+              <video src={mirando.url} controls className="mx-auto max-h-full w-full rounded-lg" />
             ) : (
               <>
                 {/* El visor de PDF embebido no funciona en todos los celulares —algunos lo bajan
@@ -189,7 +206,7 @@ export function MediaLibraryDialog({
                 <iframe
                   src={mirando.url}
                   title={mirando.title}
-                  className="h-[45vh] w-full rounded-lg border bg-background"
+                  className="h-full min-h-[55vh] w-full rounded-lg border bg-background"
                 />
                 <a
                   href={mirando.url}
@@ -206,17 +223,8 @@ export function MediaLibraryDialog({
           <div className="flex gap-2 border-t p-3">
             <Button
               type="button"
-              variant="outline"
               size="sm"
-              className="flex-1"
-              onClick={() => setMirando(null)}
-            >
-              Volver
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              className="flex-1 gap-2"
+              className="w-full gap-2"
               disabled={enviando !== null}
               onClick={() => void mandar(mirando)}
             >
@@ -231,8 +239,26 @@ export function MediaLibraryDialog({
 
   return (
     <Dialog open={open} onOpenChange={(estado) => !estado && onClose()}>
-      <DialogContent className="max-h-[80vh] overflow-hidden p-0 sm:max-w-lg">
-        <DialogHeader className="border-b p-4 text-left">
+      {/*
+        Ventana, no tarjeta flotante: la biblioteca es una pantalla donde se BUSCA entre archivos,
+        y en un celular una tarjeta al medio deja ver dos o tres. Ocupando la pantalla entra la
+        grilla completa, como cualquier explorador de archivos.
+      */}
+      <DialogContent
+        showCloseButton={false}
+        className="inset-0 top-0 left-0 flex h-dvh max-h-dvh w-full max-w-full translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none p-0 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] ring-0 sm:inset-auto sm:top-1/2 sm:left-1/2 sm:h-auto sm:max-h-[80vh] sm:max-w-lg sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl sm:ring-1"
+      >
+        <DialogHeader className="flex-row items-center gap-2 border-b p-3 text-left sm:p-4">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            onClick={onClose}
+            aria-label="Volver al chat"
+            className="shrink-0 sm:hidden"
+          >
+            <ArrowLeft className="size-5" />
+          </Button>
           <DialogTitle className="text-sm">Biblioteca</DialogTitle>
           {/* Sin subtitulo: explicar como funciona ocupaba dos renglones en cada apertura, y lo
               que hace falta ver son los archivos. */}
@@ -241,7 +267,7 @@ export function MediaLibraryDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-2 p-3">
+        <div className="flex min-h-0 flex-1 flex-col gap-2 p-3">
           <Input
             value={filtro}
             onChange={(evento) => setFiltro(evento.target.value)}
@@ -252,7 +278,7 @@ export function MediaLibraryDialog({
           {/* En grilla y con tapa, como Drive: los catalogos se reconocen por la portada mucho
               antes que por el titulo, y aca todos empiezan igual ("CATALOGO ..."). Una lista de
               renglones obliga a leer ocho nombres parecidos para encontrar uno. */}
-          <div className="grid max-h-[48vh] grid-cols-2 gap-2 overflow-y-auto">
+          <div className="grid min-h-0 flex-1 grid-cols-2 content-start gap-2 overflow-y-auto sm:max-h-[48vh]">
             {cargando ? (
               <p className="col-span-2 p-4 text-center text-xs text-muted-foreground">Abriendo…</p>
             ) : visibles.length === 0 ? (
