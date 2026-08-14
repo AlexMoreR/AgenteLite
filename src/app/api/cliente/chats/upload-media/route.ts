@@ -6,7 +6,14 @@ import { auth } from "@/auth";
 import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
-const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024;
+// 100 MB es el tope de WhatsApp para documentos: por encima de eso no lo recibe ni el cliente,
+// asi que no tiene sentido aceptarlo. Estaba en 25 y un catalogo en PDF lo pasa sin esfuerzo.
+//
+// OJO si esto se sube mas: el archivo se lee ENTERO en memoria mas abajo (file.arrayBuffer), y
+// este servidor ya se queda sin RAM —el kernel viene matando Postgres por eso—. Subir el numero
+// sin pasar a escritura por partes es pedirle al servidor que se caiga con el archivo mas grande.
+const MAX_FILE_SIZE_MB = 100;
+const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 const ALLOWED_MIME_TYPES = new Set([
   "image/jpeg",
   "image/jpg",
@@ -78,7 +85,20 @@ export async function POST(request: Request) {
   }
 
   if (file.size <= 0 || file.size > MAX_FILE_SIZE_BYTES) {
-    return NextResponse.json({ ok: false, error: "El archivo debe pesar entre 1 byte y 25 MB." }, { status: 400 });
+    // El peso real en el mensaje, no solo el limite: "no se pudo enviar" mandaba a revisar el
+    // chat, el numero y el gateway cuando el problema estaba en el archivo que uno tenia en la
+    // mano. Un error que no dice el motivo cuesta una mañana de trabajo.
+    const pesa = Math.max(1, Math.round(file.size / (1024 * 1024)));
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          file.size <= 0
+            ? "El archivo está vacío."
+            : `El archivo pesa ${pesa} MB y el máximo es ${MAX_FILE_SIZE_MB} MB.`,
+      },
+      { status: 400 },
+    );
   }
 
   const uploadDir = path.join(process.cwd(), "public", "uploads", "chat-media");
