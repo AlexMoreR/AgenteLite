@@ -231,11 +231,13 @@ export function MediaLibraryDialog({
 
   return (
     <Dialog open={open} onOpenChange={(estado) => !estado && onClose()}>
-      <DialogContent className="max-h-[85vh] overflow-hidden p-0 sm:max-w-md">
+      <DialogContent className="max-h-[80vh] overflow-hidden p-0 sm:max-w-lg">
         <DialogHeader className="border-b p-4 text-left">
           <DialogTitle className="text-sm">Biblioteca</DialogTitle>
-          <DialogDescription className="text-xs">
-            Se manda al instante: el archivo ya está guardado, no se sube nada.
+          {/* Sin subtitulo: explicar como funciona ocupaba dos renglones en cada apertura, y lo
+              que hace falta ver son los archivos. */}
+          <DialogDescription className="sr-only">
+            Archivos guardados para mandar a un chat.
           </DialogDescription>
         </DialogHeader>
 
@@ -247,52 +249,59 @@ export function MediaLibraryDialog({
             className="h-9"
           />
 
-          <div className="max-h-[45vh] space-y-1 overflow-y-auto">
+          {/* En grilla y con tapa, como Drive: los catalogos se reconocen por la portada mucho
+              antes que por el titulo, y aca todos empiezan igual ("CATALOGO ..."). Una lista de
+              renglones obliga a leer ocho nombres parecidos para encontrar uno. */}
+          <div className="grid max-h-[48vh] grid-cols-2 gap-2 overflow-y-auto">
             {cargando ? (
-              <p className="p-4 text-center text-xs text-muted-foreground">Abriendo…</p>
+              <p className="col-span-2 p-4 text-center text-xs text-muted-foreground">Abriendo…</p>
             ) : visibles.length === 0 ? (
-              <p className="p-4 text-center text-xs text-muted-foreground">
+              <p className="col-span-2 p-4 text-center text-xs text-muted-foreground">
                 {items.length === 0
-                  ? "Todavía no hay archivos. Agregá los catálogos desde la computadora y quedan listos para todo el equipo."
+                  ? "Todavía no hay archivos. Agregá tus catálogos y quedan listos para todo el equipo."
                   : "Nada con ese nombre."}
               </p>
             ) : (
               visibles.map((item) => (
                 <div
                   key={item.id}
-                  className="flex items-center gap-2 rounded-lg px-2 py-2 transition hover:bg-muted"
+                  className="group relative overflow-hidden rounded-xl border transition hover:border-foreground/20"
                 >
-                  {/* Miniatura para las imagenes: entre ocho catalogos con nombres parecidos, se
-                      reconoce mucho mas rapido por la tapa que por el titulo. */}
-                  {item.mediaType === "IMAGE" ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={item.url}
-                      alt=""
-                      className="size-9 shrink-0 rounded-md border object-cover"
-                      loading="lazy"
-                    />
-                  ) : (
-                    <span className="flex size-9 shrink-0 items-center justify-center rounded-md border bg-background">
-                      {icono(item.mediaType)}
-                    </span>
-                  )}
                   <button
                     type="button"
                     onClick={() => setMirando(item)}
-                    className="min-w-0 flex-1 text-left"
+                    className="block w-full text-left"
                   >
-                    <span className="block truncate text-[13px] text-foreground">{item.title}</span>
-                    <span className="block truncate text-[11px] text-muted-foreground tabular-nums">
-                      {item.sizeBytes > 0 ? `${Math.max(1, Math.round(item.sizeBytes / (1024 * 1024)))} MB` : ""}
-                      {item.sentCount > 0 ? ` · enviado ${item.sentCount} ${item.sentCount === 1 ? "vez" : "veces"}` : ""}
+                    <span className="flex h-28 items-center justify-center overflow-hidden bg-muted/50">
+                      {item.mediaType === "IMAGE" ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={item.url}
+                          alt=""
+                          className="size-full object-cover"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <span className="scale-[2.2]">{icono(item.mediaType)}</span>
+                      )}
+                    </span>
+                    <span className="block px-2 pb-2 pt-1.5">
+                      <span className="block truncate text-[12px] font-medium text-foreground">
+                        {item.title}
+                      </span>
+                      <span className="block truncate text-[11px] text-muted-foreground tabular-nums">
+                        {item.sizeBytes > 0
+                          ? `${Math.max(1, Math.round(item.sizeBytes / (1024 * 1024)))} MB`
+                          : ""}
+                        {item.sentCount > 0 ? ` · ${item.sentCount}×` : ""}
+                      </span>
                     </span>
                   </button>
                   <button
                     type="button"
                     title={`Quitar "${item.title}" de la biblioteca`}
                     onClick={() => void borrar(item)}
-                    className="shrink-0 rounded p-1 text-muted-foreground transition hover:bg-background hover:text-destructive"
+                    className="absolute right-1 top-1 rounded-full bg-background/90 p-1.5 text-muted-foreground opacity-0 transition hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100 max-sm:opacity-100"
                   >
                     <Trash2 className="size-3.5" />
                   </button>
