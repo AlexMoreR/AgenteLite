@@ -31,6 +31,8 @@ export type MediaLibraryItemDto = {
   fileName: string;
   mimeType: string;
   mediaType: "IMAGE" | "VIDEO" | "DOCUMENT";
+  /** La tapa. Null = se muestra un icono. */
+  thumbnailUrl: string | null;
   sizeBytes: number;
   sentCount: number;
 };
@@ -62,6 +64,7 @@ export async function listarBibliotecaAction(): Promise<{
       fileName: true,
       mimeType: true,
       mediaType: true,
+      thumbnailUrl: true,
       sizeBytes: true,
       sentCount: true,
     },
@@ -81,6 +84,7 @@ export async function agregarABibliotecaAction(input: {
   fileName: string;
   mimeType: string;
   mediaType: string;
+  thumbnailUrl?: string | null;
   sizeBytes?: number;
 }): Promise<{ ok?: true; error?: string }> {
   const workspaceId = await getAccess();
@@ -109,6 +113,7 @@ export async function agregarABibliotecaAction(input: {
       fileName: input.fileName?.trim() || title,
       mimeType: input.mimeType?.trim() || "application/octet-stream",
       mediaType: input.mediaType === "IMAGE" || input.mediaType === "VIDEO" ? input.mediaType : "DOCUMENT",
+      thumbnailUrl: input.thumbnailUrl?.trim().includes("/uploads/") ? input.thumbnailUrl.trim() : null,
       sizeBytes: Number.isFinite(input.sizeBytes) ? Math.max(0, Math.round(input.sizeBytes ?? 0)) : 0,
     },
   });

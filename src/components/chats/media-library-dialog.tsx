@@ -14,6 +14,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { subirArchivoPorPedazos } from "@/lib/subir-archivo-por-pedazos";
+import { generarPortadaDePdf } from "@/lib/portada-de-pdf";
 import {
   agregarABibliotecaAction,
   borrarDeBibliotecaAction,
@@ -120,12 +121,33 @@ export function MediaLibraryDialog({
         return;
       }
 
+      /**
+       * La tapa se saca del archivo LOCAL, antes de tener nada en el servidor.
+       *
+       * Es lo que la hace gratis: leer 15 MB del disco del celular es instantaneo, bajarlos de
+       * internet para dibujarlos seria justo el problema que vinimos a resolver. Si no sale
+       * —PDF protegido, roto— el archivo se guarda igual y muestra el icono de siempre: una tapa
+       * que falta no puede impedir mandar un catalogo.
+       */
+      let thumbnailUrl: string | null = null;
+      if (resultado.archivo.mediaType === "DOCUMENT" && file.type.includes("pdf")) {
+        const portada = await generarPortadaDePdf(file);
+        if (portada) {
+          const subidaPortada = await subirArchivoPorPedazos({
+            file: portada,
+            endpoint: `${uploadPath}/chunk`,
+          });
+          thumbnailUrl = subidaPortada.archivo?.url ?? null;
+        }
+      }
+
       const guardado = await agregarABibliotecaAction({
         title: file.name.replace(/\.[^.]+$/, ""),
         url: resultado.archivo.url,
         fileName: resultado.archivo.fileName,
         mimeType: resultado.archivo.mimeType,
         mediaType: resultado.archivo.mediaType,
+        thumbnailUrl,
         sizeBytes: file.size,
       });
 
@@ -298,13 +320,16 @@ export function MediaLibraryDialog({
                     onClick={() => setMirando(item)}
                     className="block w-full text-left"
                   >
-                    <span className="flex h-28 items-center justify-center overflow-hidden bg-muted/50">
-                      {item.mediaType === "IMAGE" ? (
+                    {/* La tapa: la imagen misma, o la primera pagina del PDF si se pudo sacar.
+                        object-top porque en un catalogo lo que identifica es el encabezado, no el
+                        medio de la pagina. */}
+                    <span className="flex h-32 items-center justify-center overflow-hidden bg-muted/50">
+                      {item.mediaType === "IMAGE" || item.thumbnailUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
-                          src={item.url}
+                          src={item.thumbnailUrl ?? item.url}
                           alt=""
-                          className="size-full object-cover"
+                          className="size-full object-cover object-top"
                           loading="lazy"
                         />
                       ) : (

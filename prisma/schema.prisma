@@ -1369,6 +1369,9 @@ model MediaLibraryItem {
   mimeType    String
   /// IMAGE | VIDEO | DOCUMENT, igual que en el chat.
   mediaType   String
+  /// La tapa: primera pagina del PDF o miniatura del video, generada al agregarlo. Null = se
+  /// muestra un icono. Sin esto los ocho catalogos se ven identicos en la grilla.
+  thumbnailUrl String?
   sizeBytes   Int       @default(0)
   /// Cuantas veces se mando. Sirve para ordenar por lo mas usado en vez de por fecha.
   sentCount   Int       @default(0)
