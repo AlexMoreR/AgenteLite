@@ -52,6 +52,20 @@ const geistMono = Geist_Mono({
 export async function generateViewport(): Promise<Viewport> {
   return {
     themeColor: await getSystemPrimaryStrongColor(),
+    /**
+     * Sin esto, en iOS `env(safe-area-inset-*)` vale SIEMPRE 0 y todos los rellenos de area
+     * segura que ya hay en el codigo no hacen nada: el compositor del chat quedaba al filo de la
+     * barra de gestos del iPhone.
+     *
+     * Lo que NO se puede hacer es tapar eso con un margen fijo: en Android no hay barra que
+     * esquivar y el compositor queda levantado sin motivo. El area segura da el numero correcto
+     * en cada aparato —la altura real en iPhone, 0 en Android—, y por eso la respuesta es
+     * informarla, no inventar un numero.
+     *
+     * Contrapartida: la pagina pasa a dibujarse de borde a borde, asi que TODO lo que quede
+     * pegado a un borde necesita su relleno de area segura. Ver el encabezado de app-shell.
+     */
+    viewportFit: "cover",
   };
 }
 

@@ -138,7 +138,9 @@ export function HelpCopilotWidget({ open, onClose }: HelpCopilotWidgetProps) {
       {/* Panel de chat (se abre desde el ícono de ayuda del encabezado) */}
       {open ? (
         <div
-          className="fixed inset-x-0 bottom-0 z-50 flex h-[85dvh] flex-col overflow-hidden rounded-t-2xl border border-border bg-background shadow-2xl sm:inset-x-auto sm:bottom-6 sm:right-6 sm:h-[560px] sm:w-[380px] sm:rounded-2xl"
+          // pb con area segura: con `viewport-fit: cover` esto queda pegado al borde y en iPhone
+          // la barra de gestos le tapaba la ultima fila.
+          className="fixed inset-x-0 bottom-0 z-50 flex h-[85dvh] flex-col overflow-hidden rounded-t-2xl border border-border bg-background pb-[env(safe-area-inset-bottom)] shadow-2xl sm:inset-x-auto sm:bottom-6 sm:right-6 sm:h-[560px] sm:w-[380px] sm:rounded-2xl sm:pb-0"
           role="dialog"
           aria-label="Asistente de AgenteLite"
         >

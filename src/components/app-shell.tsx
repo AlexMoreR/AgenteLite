@@ -273,7 +273,11 @@ export function AppShell({
         >
           <header
             className={cn(
-              "flex h-12 shrink-0 items-center gap-1.5 border-b border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12",
+              // pt con area segura: con `viewport-fit: cover` la pagina se dibuja de borde a
+              // borde, asi que sin esto el encabezado se metia debajo de la hora y la señal en
+              // iPhone. min-h en vez de h para que el relleno del notch se sume a la altura en
+              // vez de comersela.
+              "flex min-h-12 shrink-0 items-center gap-1.5 border-b border-sidebar-border bg-sidebar pt-[env(safe-area-inset-top)] text-sidebar-foreground transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:min-h-12",
               hasActiveChatConversation && "hidden md:flex",
             )}
           >
