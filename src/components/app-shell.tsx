@@ -91,6 +91,7 @@ const breadcrumbLabels: Record<string, string> = {
   empleado: "Empleado",
   equipo: "Equipo",
   seguimientos: "Seguimientos",
+  campanas: "Campañas",
   settings: "Settings",
   whatsapp: "WhatsApp",
   "whatsapp-business": "WhatsApp Business",

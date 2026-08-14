@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { executePendingFollows } from "@/features/seguimientos/services/follows";
 import { demoteUnresponsiveStaleLeads } from "@/features/llamadas/services/lead-cooldown";
 import { enfriarLeadsSinRespuesta } from "@/features/crm/services/lead-temperature";
+import { procesarTandasDeCampanas } from "@/features/campanas/services/campaigns";
 
 function resolveCronSecret() {
   return process.env.FOLLOW_CRON_SECRET?.trim() || process.env.EVOLUTION_WEBHOOK_SECRET?.trim() || "";
@@ -62,11 +63,22 @@ async function handleCron(request: Request) {
     }
   }
 
+  // Campañas: la siguiente tanda de cada una que ya cumplio su espera. SIN el throttle de 5 min
+  // de los de arriba: cada campaña tiene su propia frecuencia y se fija sola si le toca, asi que
+  // saltear corridas solo le agregaria un retraso de hasta 5 minutos a una campaña de 5 minutos.
+  let campanas: { enviados: number } | null = null;
+  try {
+    campanas = await procesarTandasDeCampanas();
+  } catch (error) {
+    console.error("[cron/follows] campanas error", error);
+  }
+
   return NextResponse.json({
     ok: true,
     ...result,
     cooldown,
     temperatura,
+    campanas,
   });
 }
 

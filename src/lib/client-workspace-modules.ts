@@ -6,6 +6,7 @@ export const clientAssignableModuleKeys = [
   "crm",
   "flows",
   "seguimientos",
+  "campanas",
   "marketing_ia",
   "finanzas",
   "connection",

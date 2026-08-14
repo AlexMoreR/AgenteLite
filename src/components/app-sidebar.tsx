@@ -5,6 +5,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
   AlarmClock,
+  Send,
   Bot,
   BriefcaseBusiness,
   Cable,
@@ -61,6 +62,7 @@ const moduleIconMap: Record<AdminModuleKey, React.ComponentType> = {
   crm: KanbanSquare,
   flows: FileText,
   seguimientos: AlarmClock,
+  campanas: Send,
   marketing_ia: Megaphone,
   finanzas: Wallet,
   connection: Cable,

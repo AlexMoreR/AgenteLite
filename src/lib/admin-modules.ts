@@ -91,6 +91,13 @@ export const adminModuleDefinitions = [
     group: "Cliente",
   },
   {
+    key: "campanas",
+    label: "Campanas",
+    description: "Elegir un grupo de leads y mandarles un mensaje, una vez.",
+    path: "/cliente/campanas",
+    group: "Cliente",
+  },
+  {
     key: "marketing_ia",
     label: "Marketing IA",
     description: "Campanas, mensajes y activaciones inteligentes.",

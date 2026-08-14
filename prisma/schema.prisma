@@ -79,6 +79,7 @@ model Workspace {
   financeTransactions  FinanceTransaction[]
   followRules          FollowRule[]
   follows              Follow[]
+  campaigns            Campaign[]
   messages             Message[]
   officialApiConfig    OfficialApiClientConfig?
   quickReplies         QuickReply[]
@@ -184,6 +185,7 @@ model WhatsAppChannel {
   messages              Message[]
   followRules           FollowRule[]
   follows               Follow[]
+  campaigns             Campaign[]
   agent                 Agent?                @relation(fields: [agentId], references: [id])
   workspace             Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
@@ -224,6 +226,7 @@ model Contact {
   messages      Message[]
   follows       Follow[]
   callAttempts  CallAttempt[]
+  campaignRecipients CampaignRecipient[]
 
   @@unique([workspaceId, phoneNumber])
   @@index([workspaceId, createdAt])
@@ -1267,4 +1270,79 @@ model ConversationInsight {
 
   @@index([workspaceId, productId, status])
   @@index([workspaceId, lostReason])
+}
+
+/**
+ * Una CAMPAÑA: elegir un grupo de leads hoy y mandarles un mensaje, una vez.
+ *
+ * Es lo contrario de una FollowRule, y por eso vive aparte: la regla de seguimiento corre sola
+ * para siempre sobre el que cumpla la condicion; la campaña se arma, se dispara y se termina.
+ * Meterlas en el mismo modulo hacia que nadie supiera en cual entrar.
+ *
+ * NO manda todo de una: WhatsApp bloquea numeros por mandar muchos mensajes parecidos a gente que
+ * hace rato no escribe, y el numero que se cae es el que da de comer. Por eso la cantidad por
+ * tanda y cada cuanto sale una tanda son campos obligatorios y no una opcion avanzada.
+ */
+model Campaign {
+  id              String              @id @default(cuid())
+  workspaceId     String
+  name            String
+  /// Por que linea sale. Null = la primera disponible.
+  channelId       String?
+  /// La condicion del publico. Por ahora solo la etapa del CRM; se agregaran mas.
+  crmStage        String?
+  messageType     FollowMessageType   @default(TEXT)
+  content         String?
+  mediaUrl        String?
+  /// Cuantos leads por tanda y cada cuantos minutos sale una tanda. El freno contra el bloqueo.
+  batchSize       Int                 @default(20)
+  intervalMinutes Int                 @default(30)
+  status          CampaignStatus      @default(DRAFT)
+  /// Cuantos entraron al publico cuando se inicio. La foto NO se recalcula: si se recalculara,
+  /// un lead que cambia de etapa a mitad de campaña podria recibir el mensaje dos veces o
+  /// quedarse sin recibirlo.
+  totalRecipients Int                 @default(0)
+  sentCount       Int                 @default(0)
+  lastBatchAt     DateTime?
+  startedAt       DateTime?
+  finishedAt      DateTime?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  workspace       Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  channel         WhatsAppChannel?    @relation(fields: [channelId], references: [id], onDelete: SetNull)
+  recipients      CampaignRecipient[]
+
+  @@index([workspaceId, status])
+  @@index([status, lastBatchAt])
+}
+
+/// A quien le toca el mensaje de una campaña, y si ya salio. Es la foto del publico al iniciar.
+model CampaignRecipient {
+  id         String                  @id @default(cuid())
+  campaignId String
+  contactId  String
+  status     CampaignRecipientStatus @default(PENDING)
+  /// El envio que se creo para este lead. Se reusa el motor de seguimientos para mandar.
+  followId   String?
+  sentAt     DateTime?
+  error      String?
+  createdAt  DateTime                @default(now())
+  campaign   Campaign                @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  contact    Contact                 @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, contactId])
+  @@index([campaignId, status])
+}
+
+enum CampaignStatus {
+  DRAFT
+  RUNNING
+  PAUSED
+  DONE
+}
+
+enum CampaignRecipientStatus {
+  PENDING
+  SENT
+  FAILED
 }
