@@ -79,13 +79,9 @@ export function CampanasWorkspace({
 
   return (
     <div className="space-y-4 p-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h1 className="font-heading text-lg font-medium">Campañas</h1>
-          <p className="text-xs text-muted-foreground">
-            Elegí un grupo de leads y mandales un mensaje, una vez.
-          </p>
-        </div>
+      {/* Sin titulo ni bajada: el encabezado de la app ya dice "Campañas" y la pantalla
+          vacia ya explica para que sirven. Queda solo el boton. */}
+      <div className="flex justify-end">
         <Button type="button" size="sm" onClick={() => setAbierto(true)}>
           Nueva campaña
         </Button>
