@@ -11,7 +11,6 @@ import {
   Camera,
   ChevronDown,
   Copy,
-  FileText,
   Headphones,
   ImageIcon,
   LoaderCircle,
@@ -218,7 +217,6 @@ export const ConversationPanel = memo(function ConversationPanel({
   const audioConfig = composer?.audio;
   const mediaConfig = composer?.media;
   const mediaFileInputRef = useRef<HTMLInputElement | null>(null);
-  const documentFileInputRef = useRef<HTMLInputElement | null>(null);
   const [isSendingMedia, setIsSendingMedia] = useState(false);
   const [isSendingLocation, setIsSendingLocation] = useState(false);
   // Mensajes optimistas de archivos en envío: el documento/imagen aparece en el chat con un
@@ -1162,20 +1160,6 @@ export const ConversationPanel = memo(function ConversationPanel({
                                 }
                               }}
                             />
-                            <input
-                              ref={documentFileInputRef}
-                              type="file"
-                              accept="application/pdf"
-                              multiple
-                              className="hidden"
-                              onChange={(event) => {
-                                const files = Array.from(event.currentTarget.files ?? []);
-                                event.currentTarget.value = "";
-                                if (files.length > 0) {
-                                  setPendingMediaFiles(files);
-                                }
-                              }}
-                            />
                             <Popover open={isAttachMenuOpen} onOpenChange={setIsAttachMenuOpen}>
                               <PopoverTrigger asChild>
                                 <Button
@@ -1302,18 +1286,13 @@ export const ConversationPanel = memo(function ConversationPanel({
                                   <AlarmClock className="size-5 shrink-0 text-[#8b5cf6]" />
                                   <span>Agendar seguimiento</span>
                                 </Button>
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  onClick={() => {
-                                    setIsAttachMenuOpen(false);
-                                    documentFileInputRef.current?.click();
-                                  }}
-                                  className="flex h-auto w-full items-center justify-start gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-normal text-foreground transition hover:bg-muted focus:outline-none focus-visible:bg-muted"
-                                >
-                                  <FileText className="size-5 shrink-0 text-[#7c5cff]" />
-                                  <span>Documento</span>
-                                </Button>
+                                {/* Se saco "Documento".
+                                    Mandaba a buscar el PDF en Drive, bajarlo al celular y volver a
+                                    subirlo, cada vez, en cada conversacion: 15 MB por cliente que
+                                    con la señal de la calle no llegaban a subir. Los catalogos son
+                                    siempre los mismos ocho y ahora viven en la Biblioteca, donde
+                                    salen en un segundo. Para un archivo suelto que no esta ahi,
+                                    "Agregar archivo" dentro de la Biblioteca hace la subida. */}
                                 <Button
                                   type="button"
                                   variant="ghost"
