@@ -243,9 +243,6 @@ export function ProfileForm({
             <KeyRound className="h-4 w-4 text-slate-500" />
             Seguridad
           </div>
-          <p className="text-sm text-slate-600">
-            Gestiona tu acceso desde una ventana separada para mantener esta informacion protegida.
-          </p>
           <div className="pt-1">
             <Button
               type="button"
