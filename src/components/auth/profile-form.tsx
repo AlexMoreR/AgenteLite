@@ -11,6 +11,7 @@ import {
 } from "@/app/actions/auth-actions";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { ThemeToggleButton } from "@/components/ui/theme-toggle";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { ActionState } from "@/lib/validations/auth";
@@ -217,6 +218,24 @@ export function ProfileForm({
               </Button>
             </div>
           </form>
+        </Card>
+
+        {/*
+          El cambio de tema estaba en el encabezado de TODAS las pantallas, ocupando un lugar caro
+          al lado de buscar y las notificaciones. Es algo que se elige una vez, no en cada pantalla.
+
+          Va en su propia tarjeta, FUERA del formulario: cambia al instante y no se guarda con el
+          resto del perfil. Adentro haria pensar que hay que apretar "Guardar perfil" para que
+          valga, y quien lo apretara despues de cambiar el tema estaria guardando otra cosa.
+        */}
+        <Card className="p-5">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-slate-900">Tema oscuro</p>
+              <p className="text-xs text-slate-500">Se aplica al instante, solo en este equipo.</p>
+            </div>
+            <ThemeToggleButton />
+          </div>
         </Card>
 
         <Card className="space-y-4 p-5">

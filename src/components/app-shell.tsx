@@ -25,7 +25,6 @@ import { AppVersionGuard } from "@/components/app-version-guard";
 import { MobileKeyboardViewport } from "@/components/mobile-keyboard-viewport";
 import { ChatNotificationBell } from "@/components/ui/chat-notification-bell";
 import { HelpCopilotWidget } from "@/components/help/help-copilot-widget";
-import { ThemeToggleButton } from "@/components/ui/theme-toggle";
 import type { AdminModuleKey } from "@/lib/admin-modules";
 import { cn } from "@/lib/utils";
 
@@ -292,8 +291,11 @@ export function AppShell({
                   El signo de pregunta (copiloto de ayuda) sale del encabezado por ahora: nadie
                   lo usaba y ocupaba un lugar caro. El widget y su base de conocimiento siguen
                   enteros —solo se quito el boton— asi que volver a ponerlo es una linea.
+
+                  El cambio de tema tambien sale de aca y vive en Perfil: es algo que se elige una
+                  vez, no en cada pantalla, y en el celular el encabezado tiene lugar para tres
+                  botones. Los que se usan todo el dia son buscar y las notificaciones.
                 */}
-                <ThemeToggleButton />
               </div>
             </div>
           </header>
