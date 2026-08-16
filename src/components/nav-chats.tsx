@@ -46,11 +46,21 @@ export function NavChats({
   return (
     <SidebarMenu>
       <Collapsible open={open} onOpenChange={setManualOpen} render={<SidebarMenuItem />}>
+        {/*
+          "Chats" ES la bandeja: tocarlo lleva a todas las conversaciones. Antes solo desplegaba
+          un submenu cuyo primer renglon se llamaba "Bandeja" y hacia exactamente eso, o sea que
+          para llegar a los chats habia que tocar dos veces algo que decia lo mismo dos veces.
+
+          El desplegable queda en la flecha, que es donde estan los canales sueltos.
+        */}
         <div>
-          <CollapsibleTrigger render={<SidebarMenuButton isActive={isChatsRoute} />}>
+          <SidebarMenuButton
+            render={<Link href="/cliente/chats" prefetch />}
+            isActive={isChatsRoute && !currentConnectionKey}
+          >
             <MessageSquareText />
             <span>Chats</span>
-          </CollapsibleTrigger>
+          </SidebarMenuButton>
           <CollapsibleTrigger render={<SidebarMenuAction />}>
             <ChevronDown />
           </CollapsibleTrigger>
@@ -58,16 +68,6 @@ export function NavChats({
 
         <CollapsibleContent>
           <SidebarMenuSub>
-            <SidebarMenuSubItem key="general">
-              <SidebarMenuSubButton
-                render={<Link href="/cliente/chats" prefetch />}
-                isActive={isChatsRoute && !currentConnectionKey}
-              >
-                <MessageSquareText />
-                <span>Bandeja</span>
-              </SidebarMenuSubButton>
-            </SidebarMenuSubItem>
-
             {mappedChatSidebarItems.map((item) => (
               <SidebarMenuSubItem key={item.url}>
                 <SidebarMenuSubButton
