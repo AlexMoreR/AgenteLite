@@ -87,7 +87,12 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
                   key={product.id}
                   type="button"
                   onClick={() => setView({ mode: "editor", productId: product.id })}
-                  className="flex w-full items-center gap-3 rounded-xl bg-card px-4 py-3 text-left ring-1 ring-foreground/10 transition hover:bg-muted"
+                  // min-w-0: un elemento de grilla NO se achica por debajo de su contenido salvo
+                  // que se lo permitas. "Combo Lavacabezas+Silla Neumatica" no tiene espacios
+                  // alrededor del "+", asi que cuenta como una palabra larguisima: estiraba la
+                  // tarjeta mas alla de la pantalla y el truncate de adentro nunca llegaba a
+                  // actuar, porque ya habia lugar de sobra.
+                  className="flex w-full min-w-0 items-center gap-3 rounded-xl bg-card px-4 py-3 text-left ring-1 ring-foreground/10 transition hover:bg-muted"
                 >
                   <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
                     {product.sells ? <ShoppingCart className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
