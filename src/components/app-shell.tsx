@@ -281,7 +281,7 @@ export function AppShell({
             )}
           >
             <div className="flex w-full items-center gap-1.5 px-1.5">
-              <SidebarTrigger className="-ml-1 size-9 [&_svg]:size-5" />
+              <SidebarTrigger className="-ml-1 size-7 [&_svg]:size-7" />
               <Separator orientation="vertical"/>
               {!isChatWorkspacePath ? <AppBreadcrumb pathname={pathname} /> : null}
               <div className="ml-auto flex items-center gap-0.5">
