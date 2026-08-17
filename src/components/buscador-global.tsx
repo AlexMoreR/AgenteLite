@@ -118,7 +118,10 @@ export function BuscadorGlobal() {
       <Button
         type="button"
         variant="ghost"
-        size="icon-sm"
+        // Mas grande que el resto de los iconos de la app a proposito: en el encabezado quedan
+        // dos botones que se usan todo el dia y se tocan con el pulgar, muchas veces caminando.
+        size="icon-lg"
+        className="[&_svg]:size-5"
         aria-label="Buscar en todo (Ctrl+K)"
         title="Buscar en todo (Ctrl+K)"
         onClick={() => setAbierto(true)}
