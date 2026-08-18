@@ -1,7 +1,6 @@
-import type { ReactNode } from "react";
 import Link from "next/link";
 // `Link` ya es el de next/link en este archivo, asi que el icono entra con otro nombre.
-import { Link as LinkIcon, Mail, MessageCircle, Smartphone } from "lucide-react";
+import { Link as LinkIcon, Smartphone } from "lucide-react";
 import {
   assignConnectionChannelAction,
   toggleConnectionChannelStatusAction,
@@ -105,6 +104,14 @@ export function ConnectionsWorkspaceV2({
                     aria-label={`Abrir ${item.name}`}
                     className="absolute inset-0 z-10"
                   />
+
+                  {/* Los tres puntos van a la esquina, fuera de la fila de controles: son
+                      acciones sobre la tarjeta entera (renombrar, borrar), no un control mas del
+                      canal. En la fila competian con el interruptor, que es lo que se toca todos
+                      los dias. z-20 para quedar por encima del Link que cubre la tarjeta. */}
+                  <div className="absolute top-2 right-2 z-20">
+                    <ConnectionCardMenu channelId={item.id} channelName={item.name} />
+                  </div>
                   <CardContent className="relative flex flex-col gap-3 py-3.5 pl-5 sm:flex-row sm:items-center sm:justify-between">
                       <div className="min-w-0 sm:flex-1">
                         <div className="flex min-w-0 flex-1 items-center gap-3 rounded-md">
@@ -164,9 +171,6 @@ export function ConnectionsWorkspaceV2({
                         ]}
                         wrapperClassName="pointer-events-auto relative z-20"
                       />
-                      <MetricPill icon={<MessageCircle className="size-4" />} value={String(item.conversationsCount)} />
-                      <MetricPill icon={<Mail className="size-4" />} value={String(item.messagesCount)} />
-
                       {canAssignToTargetAgent ? (
                         <form action={assignConnectionChannelAction} className="relative z-20">
                           <input type="hidden" name="channelId" value={item.id} />
@@ -183,7 +187,6 @@ export function ConnectionsWorkspaceV2({
                         </form>
                       ) : null}
 
-                      <ConnectionCardMenu channelId={item.id} channelName={item.name} />
                     </div>
                   </CardContent>
                 </Card>
@@ -199,15 +202,6 @@ export function ConnectionsWorkspaceV2({
         )}
       </div>
     </section>
-  );
-}
-
-function MetricPill({ icon, value }: { icon: ReactNode; value: string }) {
-  return (
-    <span className="inline-flex items-center gap-1.5 rounded-full bg-muted/60 px-2.5 py-1 text-xs font-medium text-muted-foreground">
-      {icon}
-      <span className="tabular-nums">{value}</span>
-    </span>
   );
 }
 
