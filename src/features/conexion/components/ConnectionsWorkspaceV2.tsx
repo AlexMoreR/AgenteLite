@@ -108,8 +108,25 @@ export function ConnectionsWorkspaceV2({
                   <CardContent className="relative flex flex-col gap-3 py-3.5 pl-5 sm:flex-row sm:items-center sm:justify-between">
                       <div className="min-w-0 sm:flex-1">
                         <div className="flex min-w-0 flex-1 items-center gap-3 rounded-md">
-                          <span className="inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-muted text-emerald-600 ring-1 ring-border">
-                            <WhatsAppGlyph className="size-6" />
+                          {/* El estado va como punto sobre el avatar, igual que en WhatsApp: se
+                              lee de un vistazo y no gasta un renglon de la tarjeta. El texto
+                              sigue existiendo para lectores de pantalla. */}
+                          <span className="relative shrink-0">
+                            <span className="inline-flex size-11 items-center justify-center rounded-full bg-muted text-emerald-600 ring-1 ring-border">
+                              <WhatsAppGlyph className="size-6" />
+                            </span>
+                            <span
+                              className={`absolute right-0 bottom-0 size-3.5 rounded-full ring-2 ring-card ${
+                                isConnected
+                                  ? "bg-emerald-500"
+                                  : item.channelStatusLabel === "Esperando QR"
+                                    ? "bg-amber-500"
+                                    : "bg-muted-foreground/40"
+                              }`}
+                              title={item.channelStatusLabel}
+                              aria-hidden="true"
+                            />
+                            <span className="sr-only">{item.channelStatusLabel}</span>
                           </span>
 
                           <div className="flex min-w-0 flex-1 flex-col gap-1">
@@ -139,7 +156,6 @@ export function ConnectionsWorkspaceV2({
                       </div>
 
                       <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-                      <StatusPill label={item.channelStatusLabel} />
                       <FormActionSwitch
                         action={toggleConnectionChannelStatusAction}
                         checked={item.isActive}
@@ -185,26 +201,6 @@ export function ConnectionsWorkspaceV2({
         )}
       </div>
     </section>
-  );
-}
-
-function StatusPill({ label }: { label: string }) {
-  const connected = label === "Conectado";
-  const waiting = label === "Esperando QR";
-  const tone = connected
-    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-    : waiting
-      ? "border-amber-200 bg-amber-50 text-amber-700"
-      : "border-border bg-muted text-muted-foreground";
-  const dotTone = connected ? "bg-emerald-500" : waiting ? "bg-amber-500" : "bg-muted-foreground";
-
-  return (
-    <span
-      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ${tone}`}
-    >
-      <span className={`size-1.5 rounded-full ${dotTone}`} />
-      {label}
-    </span>
   );
 }
 

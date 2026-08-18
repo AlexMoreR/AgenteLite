@@ -1,9 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Cable } from "lucide-react";
 
-import { PageHeader } from "@/components/ui/page-header";
 
 export function ConnectionsTabsShell({
   conexiones,
@@ -15,11 +13,9 @@ export function ConnectionsTabsShell({
   return (
     <div className="w-full">
       <div className="px-6 pt-6">
-        <div className="flex w-full flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <PageHeader icon={Cable} title="Conexión" />
-
-          {action}
-        </div>
+        {/* Sin titulo: el encabezado de la app ya dice "Conexion" dos centimetros mas arriba.
+            Repetirlo gastaba una franja entera de pantalla en el celular. Queda el boton. */}
+        <div className="flex w-full justify-end">{action}</div>
       </div>
 
       {conexiones}
