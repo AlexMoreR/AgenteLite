@@ -220,6 +220,29 @@ export function AppShell({
   const isAgentWorkspacePath = pathname.startsWith("/cliente/agentes/");
   const isChatWorkspacePath = pathname.startsWith("/cliente/chats");
   const hasActiveChatConversation = Boolean(isChatWorkspacePath && searchParams.get("chatKey")?.trim());
+
+  /**
+   * Que dice el encabezado en Chats.
+   *
+   * Ahi el breadcrumb esta apagado —en el celular competia por el ancho con la conversacion— y
+   * quedaba un encabezado mudo: sin titulo no se sabe si se esta viendo TODO o un canal filtrado,
+   * que es justo lo que confunde cuando aparecen chats que uno no esperaba.
+   *
+   * Con canal seleccionado manda el nombre del canal; sin canal, "Chats".
+   */
+  const chatHeaderTitle = (() => {
+    if (!isChatWorkspacePath) {
+      return null;
+    }
+    if (!currentConnectionKey) {
+      return "Chats";
+    }
+    const canal = chatSidebarItems.find((item) => {
+      const clave = new URL(item.url, "http://localhost").searchParams.get("connection")?.trim() || "";
+      return clave === currentConnectionKey;
+    });
+    return canal?.title ?? "Chats";
+  })();
   const isClientPlanRole = user?.role === "CLIENTE" || user?.role === "EMPLEADO";
   const showClientPlanAlert = Boolean(isClientPlanRole && pathname.startsWith("/cliente") && clientPlanAlert);
   const showClientPlanBlock = Boolean(isClientPlanRole && pathname.startsWith("/cliente") && clientPlanBlock?.isExpired);
@@ -283,7 +306,11 @@ export function AppShell({
             <div className="flex w-full items-center gap-1.5 px-1.5">
               <SidebarTrigger className="-ml-1 size-7 [&_svg]:size-7" />
               <Separator orientation="vertical"/>
-              {!isChatWorkspacePath ? <AppBreadcrumb pathname={pathname} /> : null}
+              {isChatWorkspacePath ? (
+                <span className="truncate text-base font-medium text-foreground">{chatHeaderTitle}</span>
+              ) : (
+                <AppBreadcrumb pathname={pathname} />
+              )}
               <div className="ml-auto flex items-center gap-0.5">
                 <BuscadorGlobal />
                 <ChatNotificationBell />
