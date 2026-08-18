@@ -146,13 +146,6 @@ export function AppSidebar({
                 )
               })}
             </SidebarMenu>
-            {adminModuleAccess.chats ? (
-              <NavChats
-                currentConnectionKey={currentConnectionKey}
-                isChatsRoute={pathname.startsWith("/cliente/chats")}
-                chatSidebarItems={chatSidebarItems}
-              />
-            ) : null}
             {/* "Inicio" y aparte del CRM a proposito: el CRM es la herramienta del negocio y esta
                 pantalla es como viene UNA persona —es lo primero que abre en el dia—. Metida
                 adentro del CRM se leia como una vista mas del informe general, que es justo lo
@@ -169,6 +162,13 @@ export function AppSidebar({
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               </SidebarMenu>
+            ) : null}
+            {adminModuleAccess.chats ? (
+              <NavChats
+                currentConnectionKey={currentConnectionKey}
+                isChatsRoute={pathname.startsWith("/cliente/chats")}
+                chatSidebarItems={chatSidebarItems}
+              />
             ) : null}
             {adminModuleAccess.crm ? (
               <NavCrm
