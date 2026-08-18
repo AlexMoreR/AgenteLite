@@ -14,7 +14,6 @@ import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ConnectionTabs } from "./ConnectionTabs";
 import { EvolutionChatSyncDialog } from "./EvolutionChatSyncDialog";
-import { ConnectEvolutionApiCard } from "./ConnectEvolutionApiCard";
 import { AgentAssignAutosaveForm, ReactivationAutosaveForm, ResponseDelayAutosaveForm } from "./ConnectionAutosaveControls";
 import { NotificationSoundSelect } from "@/components/chats/notification-sound-select";
 import { NotificationPermissionToggle } from "@/components/chats/notification-permission-toggle";
@@ -269,9 +268,10 @@ export function WhatsAppBusinessConnectionWorkspace({
 
       {connection.provider === "EVOLUTION" ? <EvolutionChatSyncDialog channelId={connection.id} /> : null}
 
-      {connection.provider === "EVOLUTION" && canConnectEvolutionApi ? (
-        <ConnectEvolutionApiCard channelId={connection.id} gateways={evolutionApiGateways} />
-      ) : null}
+      {/* Se saca "Conectar Evolution API": los canales van por evogo y mover uno de gateway desde
+          esta pantalla es un boton caro —cambia por donde salen TODOS los mensajes de ese numero—
+          para lo poco que se usa. La tarjeta y su accion siguen en el codigo; volver a mostrarla
+          es esta linea. */}
     </div>
   );
 
