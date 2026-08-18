@@ -143,7 +143,7 @@ function AppBreadcrumb({ pathname }: { pathname: string }) {
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
-            <BreadcrumbPage>{resolveLastLabel(segments, overrideLabel)}</BreadcrumbPage>
+            <BreadcrumbPage className="text-base font-medium text-foreground">{resolveLastLabel(segments, overrideLabel)}</BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
@@ -155,7 +155,7 @@ function AppBreadcrumb({ pathname }: { pathname: string }) {
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
-            <BreadcrumbPage>{resolveLastLabel(segments, overrideLabel)}</BreadcrumbPage>
+            <BreadcrumbPage className="text-base font-medium text-foreground">{resolveLastLabel(segments, overrideLabel)}</BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
@@ -174,7 +174,7 @@ function AppBreadcrumb({ pathname }: { pathname: string }) {
         </BreadcrumbItem>
         <BreadcrumbSeparator className="hidden md:block" />
         <BreadcrumbItem>
-          <BreadcrumbPage>{resolveLastLabel(segments, overrideLabel)}</BreadcrumbPage>
+          <BreadcrumbPage className="text-base font-medium text-foreground">{resolveLastLabel(segments, overrideLabel)}</BreadcrumbPage>
         </BreadcrumbItem>
       </BreadcrumbList>
     </Breadcrumb>
