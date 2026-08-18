@@ -1,13 +1,9 @@
 import Link from "next/link";
 // `Link` ya es el de next/link en este archivo, asi que el icono entra con otro nombre.
 import { Link as LinkIcon, Smartphone } from "lucide-react";
-import {
-  assignConnectionChannelAction,
-  toggleConnectionChannelStatusAction,
-} from "@/app/actions/connection-actions";
+import { assignConnectionChannelAction } from "@/app/actions/connection-actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { FormActionSwitch } from "@/components/ui/form-action-switch";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { ConnectionCardMenu } from "./ConnectionCardMenu";
 
@@ -160,17 +156,10 @@ export function ConnectionsWorkspaceV2({
                         </div>
                       </div>
 
+                      {/* Sin interruptor aca: prender o apagar un canal corta TODOS los mensajes
+                          de ese numero, y en una lista se toca sin querer. Vive en el detalle del
+                          canal, que es donde uno entra a propósito a cambiarlo. */}
                       <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-                      <FormActionSwitch
-                        action={toggleConnectionChannelStatusAction}
-                        checked={item.isActive}
-                        ariaLabel={item.isActive ? `Apagar ${item.name}` : `Encender ${item.name}`}
-                        hiddenFields={[
-                          { name: "channelId", value: item.id },
-                          { name: "returnTo", value: "/cliente/conexion" },
-                        ]}
-                        wrapperClassName="pointer-events-auto relative z-20"
-                      />
                       {canAssignToTargetAgent ? (
                         <form action={assignConnectionChannelAction} className="relative z-20">
                           <input type="hidden" name="channelId" value={item.id} />
