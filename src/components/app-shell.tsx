@@ -97,6 +97,7 @@ const breadcrumbLabels: Record<string, string> = {
   usuarios: "Usuarios",
   avanzado: "Avanzado",
   chats: "Chats",
+  "mi-tablero": "Inicio",
   chatbots: "Chatbots",
   conocimiento: "Conocimiento",
   acciones: "Acciones",

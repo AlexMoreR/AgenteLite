@@ -4,6 +4,7 @@ import Link from "next/link";
 
 import { ArrowRight, Snowflake } from "lucide-react";
 
+import { useSetBreadcrumbLabel } from "@/components/breadcrumb-label-context";
 import { getCrmStageLabel } from "../domain/crm-config";
 import type { MiTableroData } from "../services/getMiTableroData";
 import { SelectorDeRango } from "./SelectorDeRango";
@@ -64,19 +65,17 @@ export function MiTableroView({
   // Solo el nombre de pila: "Hola, Angy Marcela Ortiz" suena a carta del banco.
   const primerNombre = data.advisorName.trim().split(/\s+/)[0] || data.advisorName;
 
+  // Mirando el tablero de otra persona va su nombre: no es su tablero, lo esta revisando.
+  useSetBreadcrumbLabel(esDeOtraPersona ? data.advisorName : `Hola, ${primerNombre} 👋`);
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        {/* Saludo y no "Mi tablero": el titulo ya esta arriba en la barra, repetirlo no sumaba
-            nada. Y esta es la primera pantalla del dia de la asesora — que la salude por su
-            nombre cuesta lo mismo que un titulo mudo. */}
-        <div>
-          {/* Mirando a otra persona el saludo no va: no es su tablero, lo esta revisando. */}
-          <h1 className="text-xl font-semibold text-foreground">
-            {esDeOtraPersona ? data.advisorName : `Hola, ${primerNombre} 👋`}
-          </h1>
-        </div>
-
+        {/*
+          El saludo se mudo ARRIBA, a la barra de la app: decia "Mi Tablero" —un titulo mudo— y
+          justo debajo estaba el saludo, o sea dos titulos para la misma pantalla. Ahora la barra
+          saluda y aca no queda nada repetido.
+        */}
         <SelectorDeRango desde={data.desde} hasta={data.hasta} />
 
         {esDeOtraPersona ? null : (

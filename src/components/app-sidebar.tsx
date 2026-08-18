@@ -11,8 +11,8 @@ import {
   Cable,
   Blocks,
   FileText,
+  Home,
   KanbanSquare,
-  LayoutDashboard,
   Megaphone,
   MessageSquare,
   MessageSquareMore,
@@ -153,9 +153,10 @@ export function AppSidebar({
                 chatSidebarItems={chatSidebarItems}
               />
             ) : null}
-            {/* Aparte del CRM a proposito: el CRM es la herramienta del negocio y "Mi tablero"
-                es como viene UNA persona. Metido adentro del CRM se leia como una vista mas del
-                informe general, que es justo lo que no es. */}
+            {/* "Inicio" y aparte del CRM a proposito: el CRM es la herramienta del negocio y esta
+                pantalla es como viene UNA persona —es lo primero que abre en el dia—. Metida
+                adentro del CRM se leia como una vista mas del informe general, que es justo lo
+                que no es. */}
             {adminModuleAccess.crm ? (
               <SidebarMenu>
                 <SidebarMenuItem>
@@ -163,8 +164,8 @@ export function AppSidebar({
                     render={<Link href="/cliente/mi-tablero" />}
                     isActive={pathname.startsWith("/cliente/mi-tablero")}
                   >
-                    <LayoutDashboard />
-                    <span>Mi tablero</span>
+                    <Home />
+                    <span>Inicio</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               </SidebarMenu>
