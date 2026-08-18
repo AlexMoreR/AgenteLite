@@ -1535,7 +1535,11 @@ export const ConversationPanel = memo(function ConversationPanel({
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <SheetTitle>Contacto</SheetTitle>
-                  <SheetDescription>Información del cliente y etiquetas.</SheetDescription>
+                  {/* Queda solo para lectores de pantalla: ocupaba dos renglones para explicar
+                      lo que ya se ve abajo (el nombre, el telefono, las etiquetas). */}
+                  <SheetDescription className="sr-only">
+                    Información del cliente y etiquetas.
+                  </SheetDescription>
                 </div>
                 <div className="flex items-center gap-1">
                 {contactPanelHeaderActions}
