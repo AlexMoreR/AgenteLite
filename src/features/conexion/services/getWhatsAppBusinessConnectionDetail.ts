@@ -249,6 +249,8 @@ export async function getWhatsAppBusinessConnectionDetail(workspaceId: string, c
           ? Math.max(0, Math.min(120, Math.round(agentTrainingConfig.responseDelaySeconds)))
           : 10,
       logoUrl: profilePictureUrl,
+      // "ADMIN" = numero administrativo con el CRM apagado.
+      feedsCrm: channel.purpose !== "ADMIN",
     },
     channel,
     officialApiConfig,

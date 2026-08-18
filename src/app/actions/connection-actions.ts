@@ -536,3 +536,80 @@ export async function toggleConnectionChannelStatusAction(formData: FormData): P
   const returnTo = parsed.data.returnTo?.trim() || `/cliente/conexion/whatsapp-business/${channel.id}`;
   redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}ok=${okMessage}`);
 }
+
+/**
+ * Prende o apaga el CRM para UN canal.
+ *
+ * Un numero administrativo —proveedores, logistica, facturas— no es un embudo de ventas: sus
+ * contactos no son leads, no tienen etapa ni seguimiento, y contarlos deforma cada metrica del
+ * negocio. Hasta hoy el campo `purpose` existia en la base con ese proposito escrito en un
+ * comentario, pero no lo leia nadie.
+ *
+ * Apagarlo NO esconde el chat: la conversacion y la ficha del contacto se siguen viendo. Lo unico
+ * que cambia es que ese numero deja de alimentar el CRM.
+ */
+export async function toggleConnectionChannelCrmAction(formData: FormData): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
+    redirect("/unauthorized");
+  }
+  await requireClientWorkspaceAccess("connection");
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    redirect("/cliente/conexion?error=Debes+crear+tu+negocio+primero");
+  }
+
+  const parsed = toggleConnectionChannelStatusSchema.safeParse({
+    channelId: getRequiredFormValue(formData, "channelId"),
+    returnTo: getOptionalFormValue(formData, "returnTo"),
+  });
+
+  if (!parsed.success) {
+    redirect("/cliente/conexion?error=Canal+invalido");
+  }
+
+  const channel = await prisma.whatsAppChannel.findFirst({
+    where: { id: parsed.data.channelId, workspaceId: membership.workspace.id },
+    select: { id: true, purpose: true },
+  });
+
+  if (!channel) {
+    redirect("/cliente/conexion?error=Canal+no+encontrado");
+  }
+
+  const crmEstabaPrendido = channel.purpose !== "ADMIN";
+  const nuevoPurpose = crmEstabaPrendido ? "ADMIN" : "SALES";
+
+  await prisma.whatsAppChannel.update({
+    where: { id: channel.id },
+    data: { purpose: nuevoPurpose },
+  });
+
+  /**
+   * Al apagarlo, los contactos que YA entraron por este canal salen del CRM.
+   *
+   * Sin esto el interruptor solo valdria para los mensajes futuros y los proveedores de ayer
+   * seguirian contando como leads —que es justo el desorden que se quiere limpiar—. Se toca solo
+   * a los que llegaron por ESTE canal.
+   *
+   * Al prenderlo NO se hace la vuelta: un contacto pudo ser escondido a mano por otro motivo, y
+   * devolverlo al CRM en masa pisaria esa decision.
+   */
+  if (crmEstabaPrendido) {
+    await prisma.$executeRaw`
+      UPDATE "Contact"
+      SET "excludedFromCrm" = true, "updatedAt" = NOW()
+      WHERE "id" IN (
+        SELECT DISTINCT c."contactId" FROM "Conversation" c WHERE c."channelId" = ${channel.id}
+      )
+    `;
+  }
+
+  revalidatePath("/cliente/conexion");
+  revalidatePath(`/cliente/conexion/whatsapp-business/${channel.id}`);
+
+  const okMessage = crmEstabaPrendido ? "CRM+apagado+para+este+canal" : "CRM+encendido+para+este+canal";
+  const returnTo = parsed.data.returnTo?.trim() || `/cliente/conexion/whatsapp-business/${channel.id}`;
+  redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}ok=${okMessage}`);
+}

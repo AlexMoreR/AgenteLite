@@ -1,10 +1,14 @@
-import { BellRing, MessageSquareReply, Power, Smartphone, TimerReset, UserRound, Volume2 } from "lucide-react";
+import { BellRing, KanbanSquare, MessageSquareReply, Power, Smartphone, TimerReset, UserRound, Volume2 } from "lucide-react";
 import {
   saveAgentReactivationMessageAction,
   saveAgentResponseDelayAction,
   toggleAgentStatusAction,
 } from "@/app/actions/agent-actions";
-import { assignConnectionChannelAction, toggleConnectionChannelStatusAction } from "@/app/actions/connection-actions";
+import {
+  assignConnectionChannelAction,
+  toggleConnectionChannelCrmAction,
+  toggleConnectionChannelStatusAction,
+} from "@/app/actions/connection-actions";
 import { WhatsappQrAutoRefresh } from "@/components/agents/whatsapp-qr-auto-refresh";
 import { WhatsappQrCountdown } from "@/components/agents/whatsapp-qr-countdown";
 import { WhatsappQrStaleWatcher } from "@/components/agents/whatsapp-qr-stale-watcher";
@@ -36,6 +40,8 @@ type WhatsAppBusinessConnectionWorkspaceProps = {
     agentReactivationMessage: string;
     agentResponseDelaySeconds: number;
     logoUrl: string | null;
+    /** false = numero administrativo: sus contactos no entran al CRM. */
+    feedsCrm: boolean;
   };
   isConnected: boolean;
   qrDataUrl: string;
@@ -184,6 +190,42 @@ export function WhatsAppBusinessConnectionWorkspace({
                 defaultValue={connection.agentId || ""}
                 availableAgents={availableAgents.map((agent) => ({ id: agent.id, name: agent.name }))}
               />
+            </CardContent>
+          </Card>
+
+          {/*
+            Apagar el CRM para un numero administrativo (proveedores, logistica, facturas).
+            Va aca arriba y no escondido en un menu: es una decision que se toma al conectar el
+            numero, y equivocarse llena el embudo de gente que nunca fue un lead.
+
+            No esconde el chat: eso se dice explicito abajo porque es lo primero que uno teme al
+            ver un interruptor que dice "apagar".
+          */}
+          <Card>
+            <CardContent className="space-y-2.5">
+              <p className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
+                <KanbanSquare className="size-4 text-primary" />
+                <span>CRM</span>
+              </p>
+              <FormActionSwitch
+                action={toggleConnectionChannelCrmAction}
+                checked={connection.feedsCrm}
+                ariaLabel={
+                  connection.feedsCrm
+                    ? `Apagar el CRM para ${connection.name}`
+                    : `Encender el CRM para ${connection.name}`
+                }
+                hiddenFields={[
+                  { name: "channelId", value: connection.id },
+                  { name: "returnTo", value: connectionReturnTo },
+                ]}
+                wrapperClassName="flex w-full items-center justify-start"
+              />
+              <p className="text-xs text-muted-foreground">
+                {connection.feedsCrm
+                  ? "Los contactos de este número entran al embudo, al Kanban y a las métricas."
+                  : "Número administrativo: los chats se siguen viendo, pero sus contactos no entran al CRM."}
+              </p>
             </CardContent>
           </Card>
 

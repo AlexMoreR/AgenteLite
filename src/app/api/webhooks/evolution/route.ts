@@ -1031,6 +1031,8 @@ export async function POST(request: NextRequest) {
     agentId: true,
     name: true,
     isActive: true,
+    // "ADMIN" = numero administrativo con el CRM apagado: sus contactos no son leads.
+    purpose: true,
     evolutionInstanceName: true,
     evolutionExternalKey: true,
     metadata: true,
@@ -1618,6 +1620,9 @@ export async function POST(request: NextRequest) {
         create: {
           workspaceId: channel.workspaceId,
           phoneNumber,
+          // Entro por un numero administrativo: nace fuera del CRM. Se decide al CREARLO y no
+          // despues porque un proveedor no tiene que aparecer ni un minuto en el embudo.
+          ...(channel.purpose === "ADMIN" ? { excludedFromCrm: true } : {}),
           // Si el cliente llego identificado solo con un LID, ese "numero" NO se puede marcar.
           // Se deja anotado en la ficha para que el CRM diga "sin numero para llamar" en vez de
           // mostrarle a la asesora 15 digitos que no existen.
@@ -2982,7 +2987,20 @@ export async function POST(request: NextRequest) {
       // arrastre manual del kanban, y por eso el 92% de los leads quedaba en NUEVO aunque ya se
       // les hubiera mandado catalogo y precio. Con after() para no demorar la respuesta al
       // cliente; el helper solo avanza y nunca toca un lead ya cerrado por una persona.
+      /**
+       * Canal administrativo: el CRM no se toca.
+       *
+       * Un proveedor no es un lead. Sin esto, el numero de logistica movia etapas, entraba al
+       * Kanban y contaba en cada metrica del negocio, que es exactamente lo que deforma el
+       * embudo. El chat y la ficha se siguen viendo igual: lo unico que no pasa es que alimente
+       * el CRM.
+       */
+      const canalAlimentaElCrm = channel.purpose !== "ADMIN";
+
       after(async () => {
+        if (!canalAlimentaElCrm) {
+          return;
+        }
         await syncCrmStageFromCommercialStage({
           workspaceId: channel.workspaceId,
           contactId: contact.id,
@@ -2997,6 +3015,9 @@ export async function POST(request: NextRequest) {
       // vocabulario de 5 etapas que ve el equipo. Sin esto no hay seguimiento por etapa ni
       // porcentaje real del embudo. Tambien en after(): el cliente no espera por esto.
       after(async () => {
+        if (!canalAlimentaElCrm) {
+          return;
+        }
         const etapaDelEmbudo = await syncFunnelStageFromCommercialStage({
           conversationId: conversation.id,
           commercialContext: commercialConversationContext,
