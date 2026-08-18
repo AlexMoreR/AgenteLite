@@ -847,7 +847,7 @@ export const ConversationPanel = memo(function ConversationPanel({
       {renderedConversation ? (
         <div className="relative z-10 flex min-h-0 h-full w-full flex-1">
         <div className="flex min-h-0 h-full min-w-0 flex-1 flex-col">
-          <div className="shrink-0 border-b border-border bg-card px-3 pb-2.5 pt-[max(env(safe-area-inset-top),0.875rem)] min-h-[4.5rem] md:min-h-0 md:px-[10px] md:py-[10px]">
+          <div className="shrink-0 border-b border-border bg-card px-3 pb-2 pt-[max(env(safe-area-inset-top),0.5rem)] min-h-[3.25rem] md:min-h-0 md:px-[10px] md:py-[10px]">
             <div className="@container/chathdr flex min-w-0 items-center justify-between gap-3">
               <div className="flex min-w-0 flex-1 items-center gap-3">
                 <Link
@@ -866,10 +866,10 @@ export const ConversationPanel = memo(function ConversationPanel({
                     clearPendingConversationSelection();
                     window.history.pushState(null, "", backHref);
                   }}
-                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center text-black transition hover:opacity-70 md:hidden"
+                  className="inline-flex h-8 w-8 shrink-0 items-center justify-center text-black transition hover:opacity-70 md:hidden"
                   aria-label="Volver a chats"
                 >
-                  <ArrowLeft className="h-7 w-7" />
+                  <ArrowLeft className="h-6 w-6" />
                 </Link>
                 <div
                   className={`flex min-w-0 items-center gap-3 transition-opacity duration-200 ease-out ${
@@ -889,7 +889,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                           <ContactAvatar
                             avatarUrl={renderedConversation.avatarUrl}
                             label={renderedConversation.label}
-                            className="h-10 w-10 rounded-full border-0 bg-muted text-muted-foreground after:border-0 transition"
+                            className="h-9 w-9 rounded-full border-0 bg-muted text-muted-foreground after:border-0 transition"
                             fallbackClassName="rounded-full bg-muted text-muted-foreground"
                           />
                         </span>
