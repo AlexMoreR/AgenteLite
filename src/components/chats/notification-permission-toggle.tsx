@@ -182,10 +182,8 @@ export function NotificationPermissionToggle() {
   // status === "off"
   return (
     <div className="space-y-2">
-      <p className="text-sm text-muted-foreground">
-        Recibe un aviso con sonido cuando entre un mensaje nuevo, aunque tengas la app
-        cerrada o en segundo plano.
-      </p>
+      {/* Sin explicacion: el boton dice "Activar notificaciones" y lo que hacen las
+          notificaciones no hay que explicarlo. */}
       <Button type="button" size="sm" onClick={handleActivate} disabled={busy}>
         {busy ? <Loader2 className="size-4 animate-spin" /> : <Bell className="size-4" />}
         Activar notificaciones en este dispositivo
