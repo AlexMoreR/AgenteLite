@@ -55,7 +55,9 @@ export function MiDiaView({ data }: { data: MiDiaData }) {
     <section className="space-y-3 p-4 md:p-6">
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
-          <h1 className="text-lg font-semibold text-foreground">Mi día</h1>
+          {/* Sin titulo: la barra de la app ya dice "Mi Dia". Queda la linea de abajo, que no es
+              un titulo sino el dato —cuantos son tuyos, cuantos estan sin dueño y como vienen
+              ordenados—. */}
           <p className="text-sm text-muted-foreground">
             {mios > 0 && sinDuenio > 0
               ? `${mios} ${mios === 1 ? "tuyo" : "tuyos"} y ${sinDuenio} sin dueño. De más urgente a menos.`
