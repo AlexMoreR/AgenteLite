@@ -203,6 +203,9 @@ export function WhatsAppBusinessConnectionWorkspace({
           */}
           <Card>
             <CardContent className="space-y-2.5">
+              {/* Titulo e interruptor en la misma fila: es una sola cosa —prendido o apagado— y
+                  en dos renglones parecia un titulo con un control suelto debajo. */}
+              <div className="flex items-center justify-between gap-3">
               <p className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
                 <KanbanSquare className="size-4 text-primary" />
                 <span>CRM</span>
@@ -219,8 +222,9 @@ export function WhatsAppBusinessConnectionWorkspace({
                   { name: "channelId", value: connection.id },
                   { name: "returnTo", value: connectionReturnTo },
                 ]}
-                wrapperClassName="flex w-full items-center justify-start"
+                wrapperClassName="flex shrink-0 items-center"
               />
+              </div>
               <p className="text-xs text-muted-foreground">
                 {connection.feedsCrm
                   ? "Los contactos de este número entran al embudo, al Kanban y a las métricas."
@@ -232,7 +236,8 @@ export function WhatsAppBusinessConnectionWorkspace({
           {connection.agentId ? (
             <>
               <Card>
-                <CardContent className="space-y-2.5">
+                <CardContent>
+                  <div className="flex items-center justify-between gap-3">
                   <p className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
                     <Power className="size-4 text-primary" />
                     <span>Agente activo</span>
@@ -249,8 +254,9 @@ export function WhatsAppBusinessConnectionWorkspace({
                       { name: "agentId", value: connection.agentId },
                       { name: "returnTo", value: connectionReturnTo },
                     ]}
-                    wrapperClassName="flex w-full items-center justify-start"
+                    wrapperClassName="flex shrink-0 items-center"
                   />
+                  </div>
                 </CardContent>
               </Card>
 
