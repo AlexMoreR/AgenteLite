@@ -126,10 +126,13 @@ export function AppSidebar({
           */}
           <div className="flex items-center gap-2">
             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
-              <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-transparent bg-emerald-100 px-3 py-1 text-[13px] font-medium text-black">
+              {/* Azul de la marca y no verde suelto: es la pastilla que dice que estas mirando,
+                  y con el color del resto de la app se lee como parte de ella. */}
+              <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-transparent bg-primary px-3 py-1 text-[13px] font-medium text-primary-foreground">
+                <span aria-hidden="true">💬</span>
                 {ASSIGNED_FILTER_TABS.find((tab) => tab.value === assignedFilter)?.label ?? "Todas"}
                 {assignedCounts ? (
-                  <span className="text-[11px] font-semibold leading-none text-black">
+                  <span className="text-[11px] font-semibold leading-none">
                     {assignedCounts[assignedFilter]}
                   </span>
                 ) : null}
