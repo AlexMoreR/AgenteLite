@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 // `Link` ya es el de next/link en este archivo, asi que el icono entra con otro nombre.
-import { Bot, Cpu, Link as LinkIcon, Mail, MessageCircle, Smartphone } from "lucide-react";
+import { Link as LinkIcon, Mail, MessageCircle, Smartphone } from "lucide-react";
 import {
   assignConnectionChannelAction,
   toggleConnectionChannelStatusAction,
@@ -133,13 +133,11 @@ export function ConnectionsWorkspaceV2({
                             <div className="flex min-w-0 flex-wrap items-center gap-2">
                               <h3 className="text-sm font-semibold text-foreground">{item.name}</h3>
                               {item.linkedAgentName ? (
-                                <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
-                                  <Bot className="size-3" />
+                                <span className="inline-flex items-center rounded-full bg-primary px-2 py-0.5 text-[11px] font-medium text-primary-foreground">
                                   {item.linkedAgentName}
                                 </span>
                               ) : (
-                                <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-                                  <Cpu className="size-3" />
+                                <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
                                   Sin agente
                                 </span>
                               )}

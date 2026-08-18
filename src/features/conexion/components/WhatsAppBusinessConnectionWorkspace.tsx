@@ -1,4 +1,4 @@
-import { BellRing, Bot, Cpu, MessageSquareReply, Power, Smartphone, TimerReset, UserRound, Volume2 } from "lucide-react";
+import { BellRing, MessageSquareReply, Power, Smartphone, TimerReset, UserRound, Volume2 } from "lucide-react";
 import {
   saveAgentReactivationMessageAction,
   saveAgentResponseDelayAction,
@@ -134,13 +134,11 @@ export function WhatsAppBusinessConnectionWorkspace({
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <h2 className="truncate text-sm font-semibold text-foreground">{connection.name}</h2>
               {connection.agentName ? (
-                <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
-                  <Bot className="size-3" />
+                <span className="inline-flex items-center rounded-full bg-primary px-2 py-0.5 text-[11px] font-medium text-primary-foreground">
                   {connection.agentName}
                 </span>
               ) : (
-                <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-                  <Cpu className="size-3" />
+                <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
                   Sin agente
                 </span>
               )}
