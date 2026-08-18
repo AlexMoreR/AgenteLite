@@ -223,20 +223,38 @@ export function MediaLibraryDialog({
               <video src={mirando.url} controls className="mx-auto max-h-full w-full rounded-lg" />
             ) : (
               <>
-                {/* El visor de PDF embebido no funciona en todos los celulares —algunos lo bajan
-                    en vez de mostrarlo—, por eso siempre va el enlace de abajo como salida. */}
-                <iframe
-                  src={mirando.url}
-                  title={mirando.title}
-                  className="h-full min-h-[55vh] w-full rounded-lg border bg-background"
-                />
+                {/*
+                  NADA de PDF incrustado: Chrome en Android no sabe dibujar un PDF dentro de un
+                  iframe y lo DESCARGA. Abrir la vista previa terminaba bajando 15 MB al celular
+                  de la asesora, que es justo lo que la biblioteca vino a evitar.
+
+                  Se muestra la portada que ya se genero al agregarlo. Alcanza para lo unico que
+                  se necesita aca: confirmar que es el catalogo correcto antes de mandarlo.
+                */}
+                {mirando.thumbnailUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={mirando.thumbnailUrl}
+                    alt={`Portada de ${mirando.title}`}
+                    className="mx-auto max-h-full w-auto rounded-lg border bg-background object-contain"
+                  />
+                ) : (
+                  <div className="flex h-full min-h-[40vh] flex-col items-center justify-center gap-2 text-center">
+                    <FileText className="size-10 text-rose-500" />
+                    <p className="text-xs text-muted-foreground">
+                      Este archivo se agregó antes de que se guardaran las portadas.
+                      <br />
+                      Quitalo y volvé a agregarlo para verla acá.
+                    </p>
+                  </div>
+                )}
                 <a
                   href={mirando.url}
                   target="_blank"
                   rel="noreferrer"
                   className="mt-2 block text-center text-[11px] text-muted-foreground underline underline-offset-2"
                 >
-                  ¿No se ve? Abrilo en otra pestaña
+                  Abrir el archivo completo
                 </a>
               </>
             )}
