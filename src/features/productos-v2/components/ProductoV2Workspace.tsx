@@ -1,8 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
-  ArrowLeft,
   Banknote,
   BookOpen,
   ChevronRight,
@@ -45,7 +44,33 @@ type View = { mode: "list" } | { mode: "editor"; productId: string | null };
  * seccion dice si se puede tocar o no, en vez de aparentar que si y no guardar nada.
  */
 export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }) {
-  const [view, setView] = useState<View>({ mode: "list" });
+  /**
+   * Que se esta viendo sale de la DIRECCION, no de un estado del componente.
+   *
+   * Con el estado en memoria, tocar "Producto V2" en el menu no volvia a la lista —la ruta no
+   * cambia, el componente no se vuelve a montar— y sin el boton de atras se quedaba uno
+   * encerrado en el producto. En la direccion tambien funciona el boton del celular y el enlace
+   * a un producto se puede guardar.
+   */
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const productoEnLaUrl = searchParams.get("producto")?.trim() || "";
+
+  const view: View =
+    productoEnLaUrl === "nuevo"
+      ? { mode: "editor", productId: null }
+      : productoEnLaUrl
+        ? { mode: "editor", productId: productoEnLaUrl }
+        : { mode: "list" };
+
+  const setView = (siguiente: View) => {
+    if (siguiente.mode === "list") {
+      router.push(pathname);
+      return;
+    }
+    router.push(`${pathname}?producto=${siguiente.productId ?? "nuevo"}`);
+  };
 
   const selected =
     view.mode === "editor" && view.productId
@@ -172,37 +197,26 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
 
           En escritorio siguen en una sola fila, que ahi sobra ancho.
         */}
-        {/* La flecha de volver va en la MISMA fila que las pestañas: sola en su renglon dejaba
-            una franja vacia de punta a punta para un solo boton. */}
-        <div className="flex items-center gap-2">
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="-ml-2 h-8 w-8 shrink-0"
-          aria-label="Volver a productos"
-          title="Volver a productos"
-          onClick={() => setView({ mode: "list" })}
-        >
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
+        {/* Sin boton de atras: se vuelve desde "Producto V2" en el menu o con el boton del
+            celular, porque la vista ahora vive en la direccion. */}
+        <div className="flex items-center">
         {/* Control segmentado: caja gris con la pestaña activa en blanco. Es el estilo que ya
             trae el componente; las pastillas azules con contorno gritaban mas que el contenido
             de la pantalla. */}
-        <TabsList className="min-w-0 max-w-full flex-wrap group-data-horizontal/tabs:h-auto">
-          <TabsTrigger value="producto" className="h-auto flex-none whitespace-nowrap px-3 py-1.5 data-active:bg-background data-active:text-foreground">
+        <TabsList className="w-full max-w-full justify-start overflow-x-auto">
+          <TabsTrigger value="producto" className="shrink-0 whitespace-nowrap px-3 data-active:bg-background data-active:text-foreground">
             <ShoppingCart className="size-4" />
             Producto
           </TabsTrigger>
-          <TabsTrigger value="embudo" className="h-auto flex-none whitespace-nowrap px-3 py-1.5 data-active:bg-background data-active:text-foreground">
+          <TabsTrigger value="embudo" className="shrink-0 whitespace-nowrap px-3 data-active:bg-background data-active:text-foreground">
             <Split className="size-4" />
             Embudo
           </TabsTrigger>
-          <TabsTrigger value="playbook" className="h-auto flex-none whitespace-nowrap px-3 py-1.5 data-active:bg-background data-active:text-foreground">
+          <TabsTrigger value="playbook" className="shrink-0 whitespace-nowrap px-3 data-active:bg-background data-active:text-foreground">
             <BookOpen className="size-4" />
             Playbook
           </TabsTrigger>
-          <TabsTrigger value="objeciones" className="h-auto flex-none whitespace-nowrap px-3 py-1.5 data-active:bg-background data-active:text-foreground">
+          <TabsTrigger value="objeciones" className="shrink-0 whitespace-nowrap px-3 data-active:bg-background data-active:text-foreground">
             <MessageCircleQuestion className="size-4" />
             Objeciones
           </TabsTrigger>
