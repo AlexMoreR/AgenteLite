@@ -316,3 +316,54 @@ export async function deleteProductPlaybookRuleAction(input: {
   revalidatePath("/cliente/productos-v2");
   return { ok: true };
 }
+
+/**
+ * Editar lo basico del producto desde Producto V2: nombre, descripcion y precio.
+ *
+ * Existe aparte de la accion del panel de administrador —que pide codigo, costo, margen,
+ * categoria, proveedor e imagenes— porque desde aca se corrige lo que afecta a la VENTA, y pedir
+ * doce campos para cambiar una descripcion hace que nadie la cambie.
+ *
+ * El "tipo" (Vende / Catalogo) NO es un campo: sale de si hay precio. Por eso pasar a catalogo se
+ * manda como precio nulo, y el precio se guarda en 0.
+ */
+export async function saveProductBasicsAction(input: {
+  productId: string;
+  name: string;
+  description: string;
+  /** null = producto de catalogo (sin precio). */
+  price: number | null;
+}): Promise<{ ok?: true; error?: string }> {
+  const workspaceId = await getAccess();
+  if (!workspaceId) {
+    return { error: "No autorizado" };
+  }
+
+  const productId = input.productId?.trim();
+  const name = input.name?.trim();
+  if (!productId || !name) {
+    return { error: "El nombre no puede quedar vacío" };
+  }
+
+  const producto = await prisma.product.findUnique({ where: { id: productId }, select: { id: true } });
+  if (!producto) {
+    return { error: "Producto no encontrado" };
+  }
+
+  const precio = input.price === null ? 0 : Number(input.price);
+  if (!Number.isFinite(precio) || precio < 0) {
+    return { error: "El precio no es válido" };
+  }
+
+  await prisma.product.update({
+    where: { id: productId },
+    data: {
+      name,
+      description: input.description?.trim() || null,
+      price: precio,
+    },
+  });
+
+  revalidatePath("/cliente/productos-v2");
+  return { ok: true };
+}

@@ -24,6 +24,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { PageHeader } from "@/components/ui/page-header";
 import type { ProductoV2Item } from "../types";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ProductBasicsForm } from "./ProductBasicsForm";
 import { ProductFunnelEditor } from "./ProductFunnelEditor";
 import { ProductInsightsCard } from "./ProductInsightsCard";
 import { ProductMatchForm } from "./ProductMatchForm";
@@ -229,78 +230,13 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
         </div>
 
         <TabsContent value="producto" className="pt-4 space-y-4">
-          <Card>
-            {/* Sin titulo: los campos de abajo se llaman "Nombre" y "Precio", asi que el titulo
-                los repetia palabra por palabra. */}
-            <CardContent className="space-y-3">
-              {/* Vende / Catalogo: en fila tambien en el celular, porque son dos palabras. */}
-              <div className="space-y-1.5">
-                <Label>
-                  <Tag className="size-4 text-muted-foreground" />
-                  Tipo
-                </Label>
-                <div className="grid grid-cols-2 gap-2">
-                  {[
-                    { activo: Boolean(selected?.sells), titulo: "Vende", icono: ShoppingCart },
-                    { activo: Boolean(selected && !selected.sells), titulo: "Catálogo", icono: FileText },
-                  ].map((opcion) => (
-                    <div
-                      key={opcion.titulo}
-                      className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm ${
-                        opcion.activo
-                          ? "border-primary bg-primary/5 font-medium text-foreground"
-                          : "border-border text-muted-foreground"
-                      }`}
-                    >
-                      <opcion.icono className="h-4 w-4 shrink-0" />
-                      <span className="truncate">{opcion.titulo}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_200px]">
-                <div className="space-y-1.5">
-                  <Label htmlFor="pv2-nombre">
-                    <Package className="size-4 text-muted-foreground" />
-                    Nombre
-                  </Label>
-                  <Input id="pv2-nombre" value={selected?.name ?? ""} placeholder="Ej. Combo de camillas" readOnly />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="pv2-precio">
-                    <Banknote className="size-4 text-muted-foreground" />
-                    Precio
-                  </Label>
-                  <Input
-                    id="pv2-precio"
-                    value={selected?.sells ? formatPrice(selected.price) : ""}
-                    placeholder="Sin precio"
-                    readOnly
-                  />
-                </div>
-              </div>
-
-                {/*
-                  La descripcion no es adorno: el motor la usa para reconocer el producto en un
-                  mensaje. Un producto sin descripcion queda dependiendo solo del nombre, y ahi es
-                  donde se confunden dos combos que comparten palabras.
-                */}
-                <div className="space-y-1.5">
-                  <Label htmlFor="pv2-descripcion">
-                    <FileText className="size-4 text-muted-foreground" />
-                    Descripción
-                  </Label>
-                  <Textarea
-                    id="pv2-descripcion"
-                    rows={3}
-                    value={selected?.description ?? ""}
-                    placeholder="Sin descripción"
-                    readOnly
-                  />
-                </div>
-            </CardContent>
-          </Card>
+          <ProductBasicsForm
+            productId={selected?.id ?? ""}
+            name={selected?.name ?? ""}
+            description={selected?.description ?? ""}
+            price={selected?.price ?? null}
+            sells={Boolean(selected?.sells)}
+          />
 
           {selected ? (
             <ProductMatchForm
