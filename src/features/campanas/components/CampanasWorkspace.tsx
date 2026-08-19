@@ -77,8 +77,12 @@ export function CampanasWorkspace({
     }
   };
 
+  /*
+   * Ancho con techo: en escritorio las tarjetas se estiraban a 1500 px para mostrar un nombre y
+   * una barra de avance, y el ojo tenia que cruzar la pantalla entera para leer un renglon.
+   */
   return (
-    <div className="space-y-4 p-4">
+    <div className="mx-auto w-full max-w-5xl space-y-4 p-4">
       {/* Sin titulo ni bajada: el encabezado de la app ya dice "Campañas" y la pantalla
           vacia ya explica para que sirven. Queda solo el boton. */}
       <div className="flex justify-end">
@@ -90,7 +94,7 @@ export function CampanasWorkspace({
 
       {campanas.length === 0 ? (
         <Card>
-          <CardContent className="flex flex-col items-center gap-2 py-10 text-center">
+          <CardContent className="mx-auto flex max-w-md flex-col items-center gap-2 py-12 text-center">
             <Megaphone className="h-6 w-6 text-muted-foreground" />
             <p className="text-sm text-foreground">Todavía no hay campañas</p>
             <p className="max-w-sm text-xs text-muted-foreground">
@@ -100,7 +104,7 @@ export function CampanasWorkspace({
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-2">
+        <div className="grid gap-3 lg:grid-cols-2">
           {campanas.map((campana) => {
             const estado = ESTADO[campana.status];
             const avance =
