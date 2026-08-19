@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -76,9 +75,6 @@ export default async function MiNegocioPage({ searchParams }: PageProps) {
                 </span>
                 <div className="space-y-1">
                   <CardTitle>Nuevo lead por defecto</CardTitle>
-                  <CardDescription>
-                    Cuando entra un contacto nuevo por WhatsApp, el sistema puede asignarle esta etiqueta de forma automática.
-                  </CardDescription>
                 </div>
               </div>
             </CardHeader>
@@ -120,11 +116,6 @@ export default async function MiNegocioPage({ searchParams }: PageProps) {
                 </span>
                 <div className="space-y-1">
                   <CardTitle>Enviar ubicación por WhatsApp</CardTitle>
-                  <CardDescription>
-                    Pegá el link de Google Maps de tu local. Después, en cualquier chat, con el
-                    botón <span className="font-medium text-foreground">+ → Ubicación del local</span> se
-                    envía el pin al cliente en un toque.
-                  </CardDescription>
                 </div>
               </div>
             </CardHeader>
