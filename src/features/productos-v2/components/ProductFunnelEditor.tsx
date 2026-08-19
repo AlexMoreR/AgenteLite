@@ -397,11 +397,9 @@ export function ProductFunnelEditor({
                         </Button>
                       </div>
 
-                      {(etapa?.followUps.length ?? 0) === 0 ? (
-                        <p className="text-[11px] text-muted-foreground">
-                          Sin seguimientos: si el cliente se calla en esta etapa, no se le escribe.
-                        </p>
-                      ) : (
+                      {/* Sin texto cuando no hay ninguno: la etapa vacia ya se ve vacia, y el
+                          boton de arriba dice que se puede agregar. */}
+                      {(etapa?.followUps.length ?? 0) === 0 ? null : (
                         <ul className="space-y-1">
                           {(etapa?.followUps ?? []).map((seguimiento, posicion) => (
                             <li
