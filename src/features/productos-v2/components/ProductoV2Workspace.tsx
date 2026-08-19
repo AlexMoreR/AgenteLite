@@ -156,10 +156,6 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
         significados distintos en la misma fila, y para leerlos habia que acordarse de cual era
         cual.
 
-        Las cuatro con contorno azul, y la que estas mirando RELLENA en azul con letra blanca. Si
-        fueran las cuatro rellenas no se sabria en cual estas parado, que es lo unico que la fila
-        tiene que decir.
-
         OJO con el estado activo: este componente lo marca con `data-active`, NO con
         `data-selected`. Escrito mal, la pastilla no se pinta y no falla nada —simplemente no pasa
         nada—. Y sin `variant="line"` a proposito: esa variante fuerza fondo transparente en la
@@ -190,22 +186,23 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
         >
           <ArrowLeft className="h-4 w-4" />
         </Button>
-        <TabsList
-          className="grid min-w-0 flex-1 grid-cols-2 gap-1.5 rounded-none bg-transparent p-0 group-data-horizontal/tabs:h-auto sm:flex sm:flex-1 sm:flex-wrap"
-        >
-          <TabsTrigger value="producto" className="h-auto flex-none whitespace-nowrap rounded-full border border-primary px-3 py-1.5 text-primary shadow-none data-active:bg-primary data-active:text-primary-foreground">
+        {/* Control segmentado: caja gris con la pestaña activa en blanco. Es el estilo que ya
+            trae el componente; las pastillas azules con contorno gritaban mas que el contenido
+            de la pantalla. */}
+        <TabsList className="min-w-0 max-w-full flex-wrap group-data-horizontal/tabs:h-auto">
+          <TabsTrigger value="producto" className="h-auto flex-none whitespace-nowrap px-3 py-1.5 data-active:bg-background data-active:text-foreground">
             <ShoppingCart className="size-4" />
             Producto
           </TabsTrigger>
-          <TabsTrigger value="embudo" className="h-auto flex-none whitespace-nowrap rounded-full border border-primary px-3 py-1.5 text-primary shadow-none data-active:bg-primary data-active:text-primary-foreground">
+          <TabsTrigger value="embudo" className="h-auto flex-none whitespace-nowrap px-3 py-1.5 data-active:bg-background data-active:text-foreground">
             <Split className="size-4" />
             Embudo
           </TabsTrigger>
-          <TabsTrigger value="playbook" className="h-auto flex-none whitespace-nowrap rounded-full border border-primary px-3 py-1.5 text-primary shadow-none data-active:bg-primary data-active:text-primary-foreground">
+          <TabsTrigger value="playbook" className="h-auto flex-none whitespace-nowrap px-3 py-1.5 data-active:bg-background data-active:text-foreground">
             <BookOpen className="size-4" />
             Playbook
           </TabsTrigger>
-          <TabsTrigger value="objeciones" className="h-auto flex-none whitespace-nowrap rounded-full border border-primary px-3 py-1.5 text-primary shadow-none data-active:bg-primary data-active:text-primary-foreground">
+          <TabsTrigger value="objeciones" className="h-auto flex-none whitespace-nowrap px-3 py-1.5 data-active:bg-background data-active:text-foreground">
             <MessageCircleQuestion className="size-4" />
             Objeciones
           </TabsTrigger>

@@ -8,7 +8,7 @@ import { toast } from "sonner";
 
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -252,13 +252,8 @@ export function ProductFunnelEditor({
 
   return (
     <Card>
-      <CardHeader className="pb-0">
-        {/* Sin la linea de "5 de 5 escritas · se fueron aca...": cuantas etapas estan escritas se
-            ve en la lista de abajo, y cuantos leads se fueron en cada una ya lo dice el numero
-            naranja de cada etapa. Era el resumen de algo que esta a dos centimetros. */}
-        <CardTitle className="text-sm">Embudo de ventas</CardTitle>
-      </CardHeader>
-
+      {/* Sin titulo: la pestaña de arriba ya dice "Embudo", y las cinco etapas numeradas debajo
+          no se pueden confundir con otra cosa. */}
       <CardContent className="space-y-3">
         {/* Todas cerradas al entrar: abierta la primera, lo que se veia era UNA etapa a media
             pantalla en vez de las cinco. El embudo se revisa mirando el recorrido completo, y
