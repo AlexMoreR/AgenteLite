@@ -12,6 +12,7 @@ import {
   Split,
 } from "lucide-react";
 
+import { useSetBreadcrumbLabel } from "@/components/breadcrumb-label-context";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -48,6 +49,17 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
       ? products.find((product) => product.id === view.productId) ?? null
       : null;
   const isNew = view.mode === "editor" && view.productId === null;
+
+  /**
+   * El nombre del producto va en la barra de la app, no en la pagina.
+   *
+   * Abajo ya esta el campo "Nombre" con lo mismo escrito, y en las otras tres pestañas ese campo
+   * no se ve: sin esto, estando en Embudo u Objeciones no habria forma de saber de que producto
+   * es lo que se esta editando.
+   */
+  useSetBreadcrumbLabel(
+    view.mode === "editor" ? (isNew ? "Nuevo producto" : selected?.name ?? "Producto") : null,
+  );
 
   if (view.mode === "list") {
     return (
@@ -141,7 +153,6 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
         >
           <ArrowLeft className="h-4 w-4" />
         </Button>
-        <PageHeader icon={ShoppingCart} title={isNew ? "Nuevo producto" : selected?.name ?? "Producto"} />
       </div>
 
       {/*
@@ -203,7 +214,7 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
           <Card>
             {/* Sin titulo: los campos de abajo se llaman "Nombre" y "Precio", asi que el titulo
                 los repetia palabra por palabra. */}
-            <CardContent className="space-y-3 pt-6">
+            <CardContent className="space-y-3">
               <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_200px]">
                 <div className="space-y-1.5">
                   <Label htmlFor="pv2-nombre">Nombre</Label>

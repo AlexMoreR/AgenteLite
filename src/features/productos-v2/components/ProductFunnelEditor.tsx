@@ -138,15 +138,6 @@ export function ProductFunnelEditor({
     perdidosEnEtapa.OBJECIONES = { valor: avance.larga, pct: pct(avance.larga) };
   }
 
-  // Se abre en la primera etapa que falta: es la que hay que trabajar.
-  const [abierta] = useState<string[]>(() => {
-    const pendiente = PRODUCT_FUNNEL_STAGES.find((meta) => {
-      const etapa = stages.find((item) => item.stage === meta.stage);
-      return !etapa?.goal && !etapa?.script;
-    });
-    return [pendiente?.stage ?? PRODUCT_FUNNEL_STAGES[0].stage];
-  });
-
   /**
    * Abrir la lista de leads que se quedaron en una etapa.
    *
@@ -269,7 +260,10 @@ export function ProductFunnelEditor({
       </CardHeader>
 
       <CardContent className="space-y-3">
-        <Accordion defaultValue={abierta} keepMounted>
+        {/* Todas cerradas al entrar: abierta la primera, lo que se veia era UNA etapa a media
+            pantalla en vez de las cinco. El embudo se revisa mirando el recorrido completo, y
+            para eso hay que poder verlo entero. */}
+        <Accordion defaultValue={[]} keepMounted>
           {PRODUCT_FUNNEL_STAGES.map((meta, indice) => {
             const etapa = etapas.find((item) => item.stage === meta.stage);
             const resumen = etapa?.goal || etapa?.script || "";
