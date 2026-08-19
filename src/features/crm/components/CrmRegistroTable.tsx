@@ -124,9 +124,17 @@ function downloadTextFile(filename: string, content: string, mimeType: string) {
 export function CrmRegistroTable({
   records,
   referenceNow,
+  filtroExtra,
 }: {
   records: CrmRecord[];
   referenceNow: string;
+  /**
+   * Control que se suma a la fila de filtros (hoy: el selector de asesora del jefe).
+   *
+   * Entra como prop y no lo arma la tabla porque depende de quien esta mirando —una asesora no
+   * lo ve— y eso lo sabe la pagina, no la tabla.
+   */
+  filtroExtra?: React.ReactNode;
 }) {
   const router = useRouter();
   const [editableRecords, setEditableRecords] = React.useState(records);
@@ -294,6 +302,7 @@ export function CrmRegistroTable({
   return (
     <div className="space-y-3">
       <div className="flex w-full flex-col gap-2 lg:flex-row lg:items-center">
+        {filtroExtra}
         <div className="relative w-full flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input

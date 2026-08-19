@@ -24,17 +24,23 @@ export default async function ClienteCrmRegistroPage({ searchParams }: PageProps
 
   return (
     <section className="space-y-3 p-6">
-      {/* El selector solo aparece para el jefe; para una asesora la lista viene vacia y no se
-          dibuja nada. */}
-      {data.asesoras.length > 0 ? (
-        <div className="flex justify-end">
-          <SelectorDeAsesora asesoras={data.asesoras} elegida={data.asesoraElegida} />
-        </div>
-      ) : null}
-
       <CrmStatsCards data={data} />
 
-      <CrmRegistroTable records={data.records} referenceNow={data.generatedAt} />
+      {/*
+        El selector va DENTRO de la fila de filtros y no en un renglon propio: es un filtro mas
+        —de quien son estos leads— y separado gastaba una franja entera para un solo control.
+
+        Para una asesora la lista viene vacia y no se dibuja nada.
+      */}
+      <CrmRegistroTable
+        records={data.records}
+        referenceNow={data.generatedAt}
+        filtroExtra={
+          data.asesoras.length > 0 ? (
+            <SelectorDeAsesora asesoras={data.asesoras} elegida={data.asesoraElegida} />
+          ) : null
+        }
+      />
 
       <div className="flex justify-end">
         <CrmUpdatedAt generatedAt={data.generatedAt} />
