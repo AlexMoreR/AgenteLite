@@ -156,7 +156,11 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
 
         Solo icono y nombre: los contadores (5/5, 1, 2) eran tres numeros distintos con tres
         significados distintos en la misma fila, y para leerlos habia que acordarse de cual era
-        cual. La que estas mirando se marca con la pastilla azul.
+        cual.
+
+        Las cuatro con contorno azul, y la que estas mirando RELLENA en azul con letra blanca. Si
+        fueran las cuatro rellenas no se sabria en cual estas parado, que es lo unico que la fila
+        tiene que decir.
       */}
       <Tabs defaultValue="embudo">
         {/*
@@ -173,19 +177,19 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
           variant="line"
           className="flex flex-wrap gap-1.5 border-0 max-sm:w-full sm:mx-0 sm:max-w-full sm:px-0"
         >
-          <TabsTrigger value="producto" className="shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 data-[selected]:bg-primary data-[selected]:text-primary-foreground">
+          <TabsTrigger value="producto" className="shrink-0 whitespace-nowrap rounded-full border border-primary px-3 py-1.5 text-primary data-[selected]:bg-primary data-[selected]:text-primary-foreground">
             <ShoppingCart className="size-4" />
             Producto
           </TabsTrigger>
-          <TabsTrigger value="embudo" className="shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 data-[selected]:bg-primary data-[selected]:text-primary-foreground">
+          <TabsTrigger value="embudo" className="shrink-0 whitespace-nowrap rounded-full border border-primary px-3 py-1.5 text-primary data-[selected]:bg-primary data-[selected]:text-primary-foreground">
             <Split className="size-4" />
             Embudo
           </TabsTrigger>
-          <TabsTrigger value="playbook" className="shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 data-[selected]:bg-primary data-[selected]:text-primary-foreground">
+          <TabsTrigger value="playbook" className="shrink-0 whitespace-nowrap rounded-full border border-primary px-3 py-1.5 text-primary data-[selected]:bg-primary data-[selected]:text-primary-foreground">
             <BookOpen className="size-4" />
             Playbook
           </TabsTrigger>
-          <TabsTrigger value="objeciones" className="shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 data-[selected]:bg-primary data-[selected]:text-primary-foreground">
+          <TabsTrigger value="objeciones" className="shrink-0 whitespace-nowrap rounded-full border border-primary px-3 py-1.5 text-primary data-[selected]:bg-primary data-[selected]:text-primary-foreground">
             <MessageCircleQuestion className="size-4" />
             Objeciones
           </TabsTrigger>

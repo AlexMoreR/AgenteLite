@@ -262,13 +262,10 @@ export function ProductFunnelEditor({
   return (
     <Card>
       <CardHeader className="pb-0">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <CardTitle className="text-sm">Embudo de ventas</CardTitle>
-          <span className="text-xs text-muted-foreground">
-            {escritas} de 5 escritas
-            {avance && avance.total > 0 ? ` · se fueron acá, últimos 30 días (${avance.total} leads)` : ""}
-          </span>
-        </div>
+        {/* Sin la linea de "5 de 5 escritas · se fueron aca...": cuantas etapas estan escritas se
+            ve en la lista de abajo, y cuantos leads se fueron en cada una ya lo dice el numero
+            naranja de cada etapa. Era el resumen de algo que esta a dos centimetros. */}
+        <CardTitle className="text-sm">Embudo de ventas</CardTitle>
       </CardHeader>
 
       <CardContent className="space-y-3">
