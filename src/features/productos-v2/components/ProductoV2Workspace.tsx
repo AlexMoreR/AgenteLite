@@ -139,22 +139,6 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
 
   return (
     <div className="space-y-4 p-4 sm:p-6">
-      {/* Volver y nombre en la misma linea: la palabra "Productos" arriba del titulo era un
-          renglon entero para decir lo que la flecha ya dice. */}
-      <div className="flex min-w-0 items-center gap-1">
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="-ml-2 h-8 w-8 shrink-0"
-          aria-label="Volver a productos"
-          title="Volver a productos"
-          onClick={() => setView({ mode: "list" })}
-        >
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
-      </div>
-
       {/*
         Nombre y precio juntos y nada mas. Antes esto eran TRES tarjetas —Identidad, Tipo y
         Precio— para dos datos: la "palabra distintiva" sale sola del nombre y el "tipo"
@@ -189,8 +173,22 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
 
           En escritorio siguen en una sola fila, que ahi sobra ancho.
         */}
+        {/* La flecha de volver va en la MISMA fila que las pestañas: sola en su renglon dejaba
+            una franja vacia de punta a punta para un solo boton. */}
+        <div className="flex items-center gap-2">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="-ml-2 h-8 w-8 shrink-0"
+          aria-label="Volver a productos"
+          title="Volver a productos"
+          onClick={() => setView({ mode: "list" })}
+        >
+          <ArrowLeft className="h-4 w-4" />
+        </Button>
         <TabsList
-          className="grid w-full grid-cols-2 gap-1.5 rounded-none bg-transparent p-0 group-data-horizontal/tabs:h-auto sm:flex sm:w-auto sm:flex-wrap"
+          className="grid min-w-0 flex-1 grid-cols-2 gap-1.5 rounded-none bg-transparent p-0 group-data-horizontal/tabs:h-auto sm:flex sm:flex-1 sm:flex-wrap"
         >
           <TabsTrigger value="producto" className="h-auto flex-none whitespace-nowrap rounded-full border border-primary px-3 py-1.5 text-primary shadow-none data-active:bg-primary data-active:text-primary-foreground">
             <ShoppingCart className="size-4" />
@@ -209,6 +207,7 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
             Objeciones
           </TabsTrigger>
         </TabsList>
+        </div>
 
         <TabsContent value="producto" className="pt-4 space-y-4">
           <Card>
