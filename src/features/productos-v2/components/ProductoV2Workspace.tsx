@@ -232,28 +232,6 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
             {/* Sin titulo: los campos de abajo se llaman "Nombre" y "Precio", asi que el titulo
                 los repetia palabra por palabra. */}
             <CardContent className="space-y-3">
-              <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_200px]">
-                <div className="space-y-1.5">
-                  <Label htmlFor="pv2-nombre">
-                    <Package className="size-4 text-muted-foreground" />
-                    Nombre
-                  </Label>
-                  <Input id="pv2-nombre" value={selected?.name ?? ""} placeholder="Ej. Combo de camillas" readOnly />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="pv2-precio">
-                    <Banknote className="size-4 text-muted-foreground" />
-                    Precio
-                  </Label>
-                  <Input
-                    id="pv2-precio"
-                    value={selected?.sells ? formatPrice(selected.price) : ""}
-                    placeholder="Sin precio"
-                    readOnly
-                  />
-                </div>
-              </div>
-
               {/* Vende / Catalogo: en fila tambien en el celular, porque son dos palabras. */}
               <div className="space-y-1.5">
                 <Label>
@@ -277,6 +255,28 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
                       <span className="truncate">{opcion.titulo}</span>
                     </div>
                   ))}
+                </div>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_200px]">
+                <div className="space-y-1.5">
+                  <Label htmlFor="pv2-nombre">
+                    <Package className="size-4 text-muted-foreground" />
+                    Nombre
+                  </Label>
+                  <Input id="pv2-nombre" value={selected?.name ?? ""} placeholder="Ej. Combo de camillas" readOnly />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="pv2-precio">
+                    <Banknote className="size-4 text-muted-foreground" />
+                    Precio
+                  </Label>
+                  <Input
+                    id="pv2-precio"
+                    value={selected?.sells ? formatPrice(selected.price) : ""}
+                    placeholder="Sin precio"
+                    readOnly
+                  />
                 </div>
               </div>
             </CardContent>
