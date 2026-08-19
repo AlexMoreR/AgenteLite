@@ -3,13 +3,16 @@
 import { useState } from "react";
 import {
   ArrowLeft,
+  Banknote,
   BookOpen,
   ChevronRight,
   FileText,
   MessageCircleQuestion,
+  Package,
   Plus,
   ShoppingCart,
   Split,
+  Tag,
 } from "lucide-react";
 
 import { useSetBreadcrumbLabel } from "@/components/breadcrumb-label-context";
@@ -216,11 +219,17 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
             <CardContent className="space-y-3">
               <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_200px]">
                 <div className="space-y-1.5">
-                  <Label htmlFor="pv2-nombre">Nombre</Label>
+                  <Label htmlFor="pv2-nombre">
+                    <Package className="size-4 text-muted-foreground" />
+                    Nombre
+                  </Label>
                   <Input id="pv2-nombre" value={selected?.name ?? ""} placeholder="Ej. Combo de camillas" readOnly />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="pv2-precio">Precio</Label>
+                  <Label htmlFor="pv2-precio">
+                    <Banknote className="size-4 text-muted-foreground" />
+                    Precio
+                  </Label>
                   <Input
                     id="pv2-precio"
                     value={selected?.sells ? formatPrice(selected.price) : ""}
@@ -232,7 +241,10 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
 
               {/* Vende / Solo catalogo: en fila tambien en el celular, porque son dos palabras. */}
               <div className="space-y-1.5">
-                <Label>Tipo</Label>
+                <Label>
+                  <Tag className="size-4 text-muted-foreground" />
+                  Tipo
+                </Label>
                 <div className="grid grid-cols-2 gap-2">
                   {[
                     { activo: Boolean(selected?.sells), titulo: "Vende", icono: ShoppingCart },
