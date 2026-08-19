@@ -9,6 +9,11 @@ export type ProductoV2PlaybookRule = {
 export type ProductoV2Item = {
   id: string;
   name: string;
+  /**
+   * Lo que el producto ES, en palabras. No es adorno: el motor la usa para reconocer el producto
+   * en un mensaje, asi que una descripcion vacia lo deja dependiendo solo del nombre.
+   */
+  description: string;
   distinctiveWord: string;
   sells: boolean; // true = tiene precio (vende); false = solo catálogo
   price: number | null;

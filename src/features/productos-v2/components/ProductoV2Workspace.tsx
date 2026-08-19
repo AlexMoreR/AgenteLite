@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { PageHeader } from "@/components/ui/page-header";
 import type { ProductoV2Item } from "../types";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -279,6 +280,25 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
                   />
                 </div>
               </div>
+
+                {/*
+                  La descripcion no es adorno: el motor la usa para reconocer el producto en un
+                  mensaje. Un producto sin descripcion queda dependiendo solo del nombre, y ahi es
+                  donde se confunden dos combos que comparten palabras.
+                */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="pv2-descripcion">
+                    <FileText className="size-4 text-muted-foreground" />
+                    Descripción
+                  </Label>
+                  <Textarea
+                    id="pv2-descripcion"
+                    rows={3}
+                    value={selected?.description ?? ""}
+                    placeholder="Sin descripción"
+                    readOnly
+                  />
+                </div>
             </CardContent>
           </Card>
 

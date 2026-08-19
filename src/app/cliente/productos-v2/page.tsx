@@ -29,6 +29,7 @@ export default async function ClienteProductoV2Page() {
       select: {
         id: true,
         name: true,
+        description: true,
         price: true,
         agentKnowledge: {
           select: {
@@ -170,6 +171,7 @@ export default async function ClienteProductoV2Page() {
     return {
       id: product.id,
       name: product.name,
+      description: product.description?.trim() || "",
       distinctiveWord: guessDistinctiveWord(product.name),
       sells: priceNumber > 0,
       price: priceNumber > 0 ? priceNumber : null,
