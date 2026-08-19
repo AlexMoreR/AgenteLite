@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Megaphone, Pause, Play, Trash2 } from "lucide-react";
+import { Megaphone, Pause, Play, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -83,6 +83,7 @@ export function CampanasWorkspace({
           vacia ya explica para que sirven. Queda solo el boton. */}
       <div className="flex justify-end">
         <Button type="button" size="sm" onClick={() => setAbierto(true)}>
+          <Plus className="h-4 w-4" />
           Nueva campaña
         </Button>
       </div>
