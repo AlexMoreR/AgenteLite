@@ -133,7 +133,7 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
                     <span className="block truncate text-sm font-medium text-foreground">{product.name}</span>
                     <span className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                       <Badge variant={product.sells ? "default" : "secondary"} className="font-normal">
-                        {product.sells ? "Vende" : "Solo catálogo"}
+                        {product.sells ? "Vende" : "Catálogo"}
                       </Badge>
                       {product.price ? (
                         <span className="tabular-nums text-foreground">{formatPrice(product.price)}</span>
@@ -203,7 +203,11 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
         {/* Control segmentado: caja gris con la pestaña activa en blanco. Es el estilo que ya
             trae el componente; las pastillas azules con contorno gritaban mas que el contenido
             de la pantalla. */}
-        <TabsList className="w-full max-w-full justify-start overflow-x-auto">
+        <TabsList
+          // La barra de desplazamiento se oculta: la fila se desliza igual con el dedo, y una
+          // barra gris debajo de las pestañas se lee como si algo estuviera cortado.
+          className="w-full max-w-full justify-start overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+        >
           <TabsTrigger value="producto" className="shrink-0 whitespace-nowrap px-3 data-active:bg-background data-active:text-foreground">
             <ShoppingCart className="size-4" />
             Producto
@@ -250,7 +254,7 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
                 </div>
               </div>
 
-              {/* Vende / Solo catalogo: en fila tambien en el celular, porque son dos palabras. */}
+              {/* Vende / Catalogo: en fila tambien en el celular, porque son dos palabras. */}
               <div className="space-y-1.5">
                 <Label>
                   <Tag className="size-4 text-muted-foreground" />
@@ -259,7 +263,7 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
                 <div className="grid grid-cols-2 gap-2">
                   {[
                     { activo: Boolean(selected?.sells), titulo: "Vende", icono: ShoppingCart },
-                    { activo: Boolean(selected && !selected.sells), titulo: "Solo catálogo", icono: FileText },
+                    { activo: Boolean(selected && !selected.sells), titulo: "Catálogo", icono: FileText },
                   ].map((opcion) => (
                     <div
                       key={opcion.titulo}
