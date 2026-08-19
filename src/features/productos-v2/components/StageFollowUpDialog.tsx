@@ -87,7 +87,9 @@ export function StageFollowUpDialog({
           <DialogTitle className="text-sm">
             {seguimiento ? "Editar seguimiento" : "Nuevo seguimiento"}
           </DialogTitle>
-          <DialogDescription className="text-xs">
+          {/* Solo para lectores de pantalla: lo que hace el seguimiento ya lo dicen los campos
+              ("Cuando mandarlo", "Que mandarle") y la casilla de abajo. */}
+          <DialogDescription className="sr-only">
             Se manda solo si el cliente no responde, contando desde que entra a &quot;{etapaLabel}&quot;.
           </DialogDescription>
         </DialogHeader>
