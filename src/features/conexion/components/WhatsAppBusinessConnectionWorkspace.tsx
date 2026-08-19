@@ -455,19 +455,27 @@ export function WhatsAppBusinessConnectionWorkspace({
                 <h2 className="text-lg font-semibold text-foreground">Escanea el QR</h2>
               </div>
 
-              <div className="grid gap-3 md:grid-cols-3">
-                <StepCard step="1" title="Abre WhatsApp" description="En tu telefono, abre la app principal." />
-                <StepCard
-                  step="2"
-                  title="Ve a dispositivos vinculados"
-                  description="Entra al menu y toca la opcion para vincular un dispositivo."
-                />
-                <StepCard
-                  step="3"
-                  title="Escanea el codigo QR"
-                  description="Apunta la camara y espera la confirmacion de conexion."
-                />
-              </div>
+              {/*
+                Los tres pasos en una lista de un renglon cada uno, no en tres tarjetas.
+
+                Eran tres cajas apiladas con titulo y bajada: en el celular ocupaban una pantalla
+                entera para decir "abri WhatsApp, entra a dispositivos vinculados, escanea". Y se
+                leen UNA vez en la vida, mirando el telefono con la otra mano.
+              */}
+              <ol className="space-y-2">
+                {[
+                  "Abrí WhatsApp en tu teléfono",
+                  "Entrá al menú → Dispositivos vinculados",
+                  "Escaneá el código y esperá la confirmación",
+                ].map((paso, indice) => (
+                  <li key={paso} className="flex items-center gap-3 text-sm text-foreground">
+                    <span className="inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                      {indice + 1}
+                    </span>
+                    <span className="min-w-0">{paso}</span>
+                  </li>
+                ))}
+              </ol>
 
               <div className="rounded-lg border border-dashed border-border bg-muted/30 p-4">
                 <p className="text-sm font-medium text-foreground">¿El QR no funciona o no aparece?</p>
@@ -495,14 +503,3 @@ function WhatsAppGlyph({ className }: { className?: string }) {
   );
 }
 
-function StepCard({ step, title, description }: { step: string; title: string; description: string }) {
-  return (
-    <div className="rounded-lg border bg-muted/50 p-4">
-      <div className="inline-flex size-7 items-center justify-center rounded-lg bg-primary/10 text-xs font-semibold text-primary">
-        {step}
-      </div>
-      <p className="mt-3 text-sm font-semibold text-foreground">{title}</p>
-      <p className="mt-2 text-sm text-muted-foreground">{description}</p>
-    </div>
-  );
-}
