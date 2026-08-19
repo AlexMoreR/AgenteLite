@@ -14,7 +14,7 @@ import {
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PageHeader } from "@/components/ui/page-header";
@@ -201,10 +201,9 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
 
         <TabsContent value="producto" className="pt-4 space-y-4">
           <Card>
-            <CardHeader className="pb-0">
-              <CardTitle className="text-sm">Nombre del producto y precio</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
+            {/* Sin titulo: los campos de abajo se llaman "Nombre" y "Precio", asi que el titulo
+                los repetia palabra por palabra. */}
+            <CardContent className="space-y-3 pt-6">
               <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_200px]">
                 <div className="space-y-1.5">
                   <Label htmlFor="pv2-nombre">Nombre</Label>
