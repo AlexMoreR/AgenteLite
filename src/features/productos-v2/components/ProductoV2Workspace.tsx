@@ -49,14 +49,6 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
       : null;
   const isNew = view.mode === "editor" && view.productId === null;
 
-  const etapasEscritas = (selected?.funnelStages ?? []).filter(
-    (etapa) => etapa.goal || etapa.script,
-  ).length;
-  const reglasPlaybook = (selected?.playbookRules ?? []).filter(
-    (regla) => regla.kind !== "OBJECION",
-  ).length;
-  const objeciones = (selected?.playbookRules ?? []).filter((regla) => regla.kind === "OBJECION").length;
-
   if (view.mode === "list") {
     return (
       <div className="space-y-4 p-4 sm:p-6">
@@ -160,8 +152,11 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
       */}
       {/*
         Cuatro pestañas y no una pagina larga: el producto casi no se toca, el embudo cada tanto y
-        las objeciones todo el tiempo. Cada una lleva su numero porque con pestañas lo que no se
-        ve deja de existir, y "sin escribir" es justo lo que hay que ver.
+        las objeciones todo el tiempo.
+
+        Solo icono y nombre: los contadores (5/5, 1, 2) eran tres numeros distintos con tres
+        significados distintos en la misma fila, y para leerlos habia que acordarse de cual era
+        cual. La que estas mirando se marca con la pastilla azul.
       */}
       <Tabs defaultValue="embudo">
         {/*
@@ -176,30 +171,23 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
         */}
         <TabsList
           variant="line"
-          className="max-sm:grid max-sm:w-full max-sm:grid-cols-2 max-sm:gap-x-2 max-sm:gap-y-1.5 max-sm:group-data-horizontal/tabs:h-auto sm:mx-0 sm:max-w-full sm:px-0"
+          className="flex flex-wrap gap-1.5 border-0 max-sm:w-full sm:mx-0 sm:max-w-full sm:px-0"
         >
-          <TabsTrigger value="producto" className="shrink-0 whitespace-nowrap">
+          <TabsTrigger value="producto" className="shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 data-[selected]:bg-primary data-[selected]:text-primary-foreground">
             <ShoppingCart className="size-4" />
             Producto
           </TabsTrigger>
-          <TabsTrigger value="embudo" className="shrink-0 whitespace-nowrap">
+          <TabsTrigger value="embudo" className="shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 data-[selected]:bg-primary data-[selected]:text-primary-foreground">
             <Split className="size-4" />
             Embudo
-            <span className={etapasEscritas === 5 ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}>
-              {etapasEscritas}/5
-            </span>
           </TabsTrigger>
-          <TabsTrigger value="playbook" className="shrink-0 whitespace-nowrap">
+          <TabsTrigger value="playbook" className="shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 data-[selected]:bg-primary data-[selected]:text-primary-foreground">
             <BookOpen className="size-4" />
             Playbook
-            {reglasPlaybook > 0 ? (
-              <span className="text-muted-foreground">{reglasPlaybook}</span>
-            ) : null}
           </TabsTrigger>
-          <TabsTrigger value="objeciones" className="shrink-0 whitespace-nowrap">
+          <TabsTrigger value="objeciones" className="shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 data-[selected]:bg-primary data-[selected]:text-primary-foreground">
             <MessageCircleQuestion className="size-4" />
             Objeciones
-            {objeciones > 0 ? <span className="text-muted-foreground">{objeciones}</span> : null}
           </TabsTrigger>
         </TabsList>
 
