@@ -161,6 +161,11 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
         Las cuatro con contorno azul, y la que estas mirando RELLENA en azul con letra blanca. Si
         fueran las cuatro rellenas no se sabria en cual estas parado, que es lo unico que la fila
         tiene que decir.
+
+        OJO con el estado activo: este componente lo marca con `data-active`, NO con
+        `data-selected`. Escrito mal, la pastilla no se pinta y no falla nada —simplemente no pasa
+        nada—. Y sin `variant="line"` a proposito: esa variante fuerza fondo transparente en la
+        activa y le agrega un subrayado, o sea pelea contra el relleno.
       */}
       <Tabs defaultValue="embudo">
         {/*
@@ -174,22 +179,21 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
           En escritorio siguen en una sola fila, que ahi sobra ancho.
         */}
         <TabsList
-          variant="line"
-          className="flex flex-wrap gap-1.5 border-0 max-sm:w-full sm:mx-0 sm:max-w-full sm:px-0"
+          className="grid w-full grid-cols-2 gap-1.5 rounded-none bg-transparent p-0 group-data-horizontal/tabs:h-auto sm:flex sm:w-auto sm:flex-wrap"
         >
-          <TabsTrigger value="producto" className="shrink-0 whitespace-nowrap rounded-full border border-primary px-3 py-1.5 text-primary data-[selected]:bg-primary data-[selected]:text-primary-foreground">
+          <TabsTrigger value="producto" className="h-auto flex-none whitespace-nowrap rounded-full border border-primary px-3 py-1.5 text-primary shadow-none data-active:bg-primary data-active:text-primary-foreground">
             <ShoppingCart className="size-4" />
             Producto
           </TabsTrigger>
-          <TabsTrigger value="embudo" className="shrink-0 whitespace-nowrap rounded-full border border-primary px-3 py-1.5 text-primary data-[selected]:bg-primary data-[selected]:text-primary-foreground">
+          <TabsTrigger value="embudo" className="h-auto flex-none whitespace-nowrap rounded-full border border-primary px-3 py-1.5 text-primary shadow-none data-active:bg-primary data-active:text-primary-foreground">
             <Split className="size-4" />
             Embudo
           </TabsTrigger>
-          <TabsTrigger value="playbook" className="shrink-0 whitespace-nowrap rounded-full border border-primary px-3 py-1.5 text-primary data-[selected]:bg-primary data-[selected]:text-primary-foreground">
+          <TabsTrigger value="playbook" className="h-auto flex-none whitespace-nowrap rounded-full border border-primary px-3 py-1.5 text-primary shadow-none data-active:bg-primary data-active:text-primary-foreground">
             <BookOpen className="size-4" />
             Playbook
           </TabsTrigger>
-          <TabsTrigger value="objeciones" className="shrink-0 whitespace-nowrap rounded-full border border-primary px-3 py-1.5 text-primary data-[selected]:bg-primary data-[selected]:text-primary-foreground">
+          <TabsTrigger value="objeciones" className="h-auto flex-none whitespace-nowrap rounded-full border border-primary px-3 py-1.5 text-primary shadow-none data-active:bg-primary data-active:text-primary-foreground">
             <MessageCircleQuestion className="size-4" />
             Objeciones
           </TabsTrigger>
