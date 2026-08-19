@@ -167,7 +167,7 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
         nada—. Y sin `variant="line"` a proposito: esa variante fuerza fondo transparente en la
         activa y le agrega un subrayado, o sea pelea contra el relleno.
       */}
-      <Tabs defaultValue="embudo">
+      <Tabs defaultValue="producto">
         {/*
           En el celular las cuatro pestañas van en rejilla de 2x2.
 
