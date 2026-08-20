@@ -140,21 +140,17 @@ export function ProductoV2Workspace({ products }: { products: ProductoV2Item[] }
                       {product.price ? (
                         <span className="tabular-nums text-foreground">{formatPrice(product.price)}</span>
                       ) : null}
-                      {/* Embudo y playbook: las dos cosas que hay que mantener vivas. */}
-                      {etapas > 0 ? (
-                        <span className="text-emerald-600 dark:text-emerald-400">
-                          embudo · {etapas}/5
-                        </span>
-                      ) : (
+                      {/*
+                        Solo se avisa lo que FALTA. El verde ("embudo · 5/5", "playbook · 3
+                        reglas") era ruido en cada fila: decia que algo esta bien, que es el estado
+                        normal. Quedan los avisos en ambar, que son los que piden hacer algo.
+                      */}
+                      {etapas === 0 ? (
                         <span className="text-amber-600 dark:text-amber-400">sin embudo</span>
-                      )}
-                      {reglas > 0 || product.playbookIdealCustomer || product.playbookCustomerPain ? (
-                        <span className="text-emerald-600 dark:text-emerald-400">
-                          playbook{reglas > 0 ? ` · ${reglas} ${reglas === 1 ? "regla" : "reglas"}` : ""}
-                        </span>
-                      ) : (
+                      ) : null}
+                      {reglas === 0 && !product.playbookIdealCustomer && !product.playbookCustomerPain ? (
                         <span className="text-amber-600 dark:text-amber-400">sin playbook</span>
-                      )}
+                      ) : null}
                     </span>
                   </span>
                   <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
