@@ -169,9 +169,28 @@ export const CALL_RESULTS = [
 
 export type CallResult = (typeof CALL_RESULTS)[number]["value"];
 
+/**
+ * Resultado provisional de una llamada que el sistema anotó solo y todavía nadie clasificó.
+ *
+ * Lo pone el buzón de WaCalls cuando la llamada SÍ se habló: que hayan hablado es un hecho, pero
+ * cómo quedó el cliente —interesada, lo piensa, perdido— mueve la etapa del lead, y eso lo decide
+ * la asesora. Queda a la espera de que ella elija el resultado de verdad.
+ *
+ * A propósito NO está en CALL_RESULTS: nadie tiene que poder elegir "sin registrar" a mano, es un
+ * estado de paso, no un desenlace. Por lo mismo no tiene efecto sobre la etapa.
+ */
+export const CALL_RESULT_PENDING = "por_registrar";
+
+export function isPendingCallResult(value: string | null | undefined) {
+  return value === CALL_RESULT_PENDING;
+}
+
 export function getCallResultLabel(value: string | null | undefined) {
   if (!value) {
     return null;
+  }
+  if (value === CALL_RESULT_PENDING) {
+    return "Sin registrar";
   }
   return CALL_RESULTS.find((result) => result.value === value)?.label ?? value;
 }

@@ -4,25 +4,24 @@ import { revalidatePath } from "next/cache";
 
 import { prisma } from "@/lib/prisma";
 import { normalizePhoneFromJid } from "@/lib/evolution-webhook";
+import { CALL_RESULT_PENDING } from "@/features/crm/domain/crm-config";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Buzón de WaCalls: registra solo las llamadas QUE NADIE ATENDIÓ.
+ * Buzón de WaCalls: anota TODAS las llamadas del lead, las haga quien las haga.
  *
- * WaCalls avisa acá cada vez que termina una llamada. De todos los finales posibles, este buzón
- * anota únicamente los que significan "no hablé con el cliente" (no contestó, rechazó, ocupado,
- * no molestar, o la asesora cortó antes de que atendieran). Son los más comunes y los más
- * aburridos de cargar a mano, y sobre todo son los únicos que el CRM puede deducir SIN inventar
- * nada.
+ * WaCalls avisa acá cada vez que termina una llamada —salientes y entrantes, atendidas y
+ * perdidas— y todas quedan registradas en el historial del lead. Que la llamada existió es un
+ * hecho, y hasta ahora dependía de que alguien se acordara de anotarla.
  *
- * Cuando la llamada SÍ se atendió no se anota nada a propósito. El resultado de una llamada
- * atendida —interesada, lo piensa, perdido— mueve la etapa del lead y dispara seguimientos, y eso
- * no se puede adivinar del audio: lo elige la asesora. Un registro automático equivocado ahí no
- * sería un dato de más, sería un lead movido de etapa por error.
+ * Lo que el buzón NO hace es decidir cómo quedó el cliente:
  *
- * Por eso también "no contestó" es seguro de automatizar: es el único resultado del Playbook que
- * NO tiene efecto sobre la etapa (ver CALL_RESULT_STAGE_EFFECT en crm-config).
+ *  - Si NO se habló → se cierra sola como "no contestó". Es el único resultado del Playbook SIN
+ *    efecto sobre la etapa (ver CALL_RESULT_STAGE_EFFECT), así que anotarlo no mueve nada.
+ *  - Si SÍ se habló → queda "sin registrar" esperando a la asesora, que elige el resultado desde
+ *    Llamadas. Interesada / lo piensa / perdido mueven la etapa del lead y disparan seguimientos:
+ *    deducir eso del audio no sería un dato de más, sería un lead movido de etapa por error.
  */
 
 /**
@@ -85,6 +84,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "no configurado" }, { status: 503 });
   }
 
+  const workspaceFijado = process.env.WACALLS_WORKSPACE_ID?.trim() || null;
   const cuerpo = await request.text();
   const firma = request.headers.get("x-wacalls-signature");
   const timestamp = request.headers.get("x-wacalls-timestamp");
@@ -116,16 +116,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, ignorado: "sin datos" });
   }
 
-  // Solo las llamadas que HIZO la asesora. Un intento de llamada es algo que hicimos nosotros;
-  // que un cliente nos llame y no alcancemos a atender no es un intento nuestro.
-  if (llamada.direction !== "outbound") {
-    return NextResponse.json({ ok: true, ignorado: "entrante" });
-  }
-
-  if (!FINALES_SIN_CONTACTO.has((llamada.endReason ?? "").trim())) {
-    return NextResponse.json({ ok: true, ignorado: "atendida" });
-  }
-
   const telefono = normalizePhoneFromJid(llamada.peer ?? null);
   if (!telefono) {
     return NextResponse.json({ ok: true, ignorado: "sin teléfono" });
@@ -133,16 +123,22 @@ export async function POST(request: Request) {
 
   /**
    * La ficha se busca por teléfono. Si el número no está en el CRM no se crea una ficha nueva:
-   * una llamada sin contestar a un número suelto no es un lead, y crear fichas desde acá llenaría
-   * el embudo de equivocaciones de marcado.
+   * una llamada a un número suelto no es un lead, y crear fichas desde acá llenaría el embudo de
+   * equivocaciones de marcado y de llamadas a proveedores.
    */
   const contacto = await prisma.contact.findFirst({
-    where: { phoneNumber: telefono },
+    where: {
+      phoneNumber: telefono,
+      // El mismo teléfono puede existir en dos negocios distintos. Sin acotarlo, una llamada
+      // podría anotarse en el equivocado; con WACALLS_WORKSPACE_ID puesto, eso deja de ser
+      // posible. Sin la variable sigue funcionando como antes (el más reciente).
+      ...(workspaceFijado ? { workspaceId: workspaceFijado } : {}),
+    },
     orderBy: { updatedAt: "desc" },
     select: { id: true, workspaceId: true },
   });
   if (!contacto) {
-    console.info(`[wacalls] llamada sin contestar a ${telefono}: no hay ficha en el CRM`);
+    console.info(`[wacalls] llamada con ${telefono}: no hay ficha en el CRM`);
     return NextResponse.json({ ok: true, ignorado: "sin ficha" });
   }
 
@@ -166,22 +162,41 @@ export async function POST(request: Request) {
     where: { workspaceId: contacto.workspaceId, contactId: contacto.id },
   });
 
+  const saliente = llamada.direction === "outbound";
+  const huboContacto = !FINALES_SIN_CONTACTO.has((llamada.endReason ?? "").trim());
+
+  /**
+   * La única pregunta que decide el resultado es: ¿se habló con el cliente?
+   *
+   * Si NO se habló —da igual que la llamada fuera nuestra o de él— se cierra sola como "no
+   * contestó": es el único resultado del Playbook sin efecto sobre la etapa, así que anotarlo no
+   * mueve nada, y el resumen del día la cuenta bien (como llamada no atendida). Una entrante
+   * perdida marcada "sin registrar" le habría dicho a la asesora que habló con alguien que en
+   * realidad no atendió.
+   *
+   * Si SÍ se habló, queda SIN CLASIFICAR esperando a la asesora. Que hablaron es un hecho y por
+   * eso se anota; cómo quedó el cliente no se deduce del audio, y equivocarse ahí no sería un
+   * dato de más sino un lead movido de etapa por error.
+   */
+  const result = huboContacto ? CALL_RESULT_PENDING : "no_contesto";
+
   await prisma.callAttempt.create({
     data: {
       workspaceId: contacto.workspaceId,
       contactId: contacto.id,
       // Queda sin autora: WaCalls sabe desde qué línea se llamó, no qué persona marcó. Inventar
-      // una asesora acá le atribuiría llamadas a alguien que capaz no las hizo.
+      // una asesora acá le atribuiría llamadas a alguien que capaz no las hizo. Se completa sola
+      // cuando alguien clasifica la llamada.
       calledByUserId: null,
       attemptNumber: intentosPrevios + 1,
-      result: "no_contesto",
-      summary: motivoEnPalabras(llamada.endReason ?? ""),
+      result,
+      summary: comoFue(saliente, huboContacto, llamada.endReason ?? "", duracionEnSegundos(llamada)),
       calledAt,
     },
   });
 
   console.info(
-    `[wacalls] anotada llamada sin contestar a ${telefono} (${llamada.endReason}) como intento ${intentosPrevios + 1}`,
+    `[wacalls] anotada llamada ${saliente ? "saliente" : "entrante"} a ${telefono} (${llamada.endReason}) como ${result}, intento ${intentosPrevios + 1}`,
   );
 
   revalidatePath("/cliente/llamadas");
@@ -189,8 +204,34 @@ export async function POST(request: Request) {
   return NextResponse.json({ ok: true, registrada: true });
 }
 
-/** El motivo, como lo diría una persona. Es lo que la asesora ve en el historial del lead. */
-function motivoEnPalabras(endReason: string) {
+function duracionEnSegundos(llamada: { startedAt?: number; endedAt?: number }) {
+  if (!llamada.startedAt || !llamada.endedAt || llamada.endedAt <= llamada.startedAt) {
+    return 0;
+  }
+  return Math.round((llamada.endedAt - llamada.startedAt) / 1000);
+}
+
+/**
+ * Qué pasó, en palabras. Es lo que la asesora lee en el historial del lead.
+ *
+ * En las que se hablaron va la duración: al clasificar una llamada de hace un rato, "hablaron
+ * 4 min" es lo que le permite acordarse de cuál fue.
+ */
+function comoFue(saliente: boolean, huboContacto: boolean, endReason: string, segundos: number) {
+  if (huboContacto) {
+    const duracion =
+      segundos >= 60
+        ? `${Math.floor(segundos / 60)} min ${segundos % 60}s`
+        : `${segundos}s`;
+    return saliente
+      ? `Llamada atendida · ${duracion} (WaCalls)`
+      : `El cliente llamó y se atendió · ${duracion} (WaCalls)`;
+  }
+
+  if (!saliente) {
+    return "El cliente llamó y no se atendió (WaCalls)";
+  }
+
   switch (endReason) {
     case "timeout":
       return "No contestó (llamada por WaCalls)";

@@ -43,7 +43,18 @@ import type {
 import type { ResumenDiaData } from "@/features/llamadas/services/getResumenDia";
 import { ResumenDiaView } from "@/features/llamadas/components/ResumenDiaView";
 
-type PresetContact = { contactId: string; name: string; phoneNumber?: string };
+type PresetContact = {
+  contactId: string;
+  name: string;
+  phoneNumber?: string;
+  /**
+   * Cuando viene, el diálogo COMPLETA esa llamada en vez de anotar una nueva.
+   *
+   * Es la llamada que WaCalls ya registró sola y a la que solo le falta el resultado. Sin esto,
+   * clasificarla crearía un segundo intento y el lead figuraría con el doble de llamadas.
+   */
+  pendingAttemptId?: string | null;
+};
 
 function todayInputValue() {
   const now = new Date();
@@ -145,12 +156,13 @@ function RegisterCallDialog({
         nextContactAt: nextContact || undefined,
         lostReason: isLost ? lostReason : undefined,
         calledAt: calledAt || undefined,
+        completeAttemptId: selected.pendingAttemptId || undefined,
       });
       if ("error" in res) {
         toast.error(res.error);
         return;
       }
-      toast.success("Llamada registrada");
+      toast.success(selected.pendingAttemptId ? "Llamada clasificada" : "Llamada registrada");
       onOpenChange(false);
       router.refresh();
     });
@@ -160,7 +172,9 @@ function RegisterCallDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Registrar llamada</DialogTitle>
+          <DialogTitle>
+            {selected?.pendingAttemptId ? "¿Cómo quedó la llamada?" : "Registrar llamada"}
+          </DialogTitle>
           <DialogDescription>
             {selected ? selected.name : "Buscá el contacto al que llamaste."}
           </DialogDescription>
@@ -250,17 +264,24 @@ function RegisterCallDialog({
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          {/*
+            Al clasificar una llamada que el sistema ya anotó, la fecha no se ofrece: la hora real
+            la puso WaCalls cuando la llamada ocurrió y se conserva. Un campo editable que el
+            servidor ignora es peor que no tenerlo.
+          */}
+          <div className={selected?.pendingAttemptId ? "" : "grid grid-cols-2 gap-3"}>
             {/* Próximo contacto. */}
             <div className="space-y-1">
               <label className="text-xs font-medium text-muted-foreground">Próximo contacto</label>
               <Input type="date" value={nextContact} onChange={(event) => setNextContact(event.target.value)} />
             </div>
             {/* Fecha de la llamada (editable para registro retroactivo). */}
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">Fecha de la llamada</label>
-              <Input type="date" value={calledAt} onChange={(event) => setCalledAt(event.target.value)} />
-            </div>
+            {selected?.pendingAttemptId ? null : (
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">Fecha de la llamada</label>
+                <Input type="date" value={calledAt} onChange={(event) => setCalledAt(event.target.value)} />
+              </div>
+            )}
           </div>
         </div>
 
@@ -279,7 +300,7 @@ function RegisterCallDialog({
 
 // ── Tarjeta de lead (vista vendedora) ─────────────────────────────────────────────────────────
 
-function LeadCard({ lead, mode, onRegister }: { lead: LlamadaLead; mode: "call" | "whatsapp" | "new"; onRegister: (preset: PresetContact) => void }) {
+function LeadCard({ lead, mode, onRegister }: { lead: LlamadaLead; mode: "call" | "whatsapp" | "new" | "pending"; onRegister: (preset: PresetContact) => void }) {
   const router = useRouter();
   const [abriendo, setAbriendo] = useState(false);
   const telLink = lead.callablePhone ? `tel:${lead.callablePhone.replace(/[^0-9+]/g, "")}` : null;
@@ -354,9 +375,16 @@ function LeadCard({ lead, mode, onRegister }: { lead: LlamadaLead; mode: "call" 
         )}
         <Button
           size="sm"
-          onClick={() => onRegister({ contactId: lead.contactId, name: lead.name, phoneNumber: lead.phoneNumber })}
+          onClick={() =>
+            onRegister({
+              contactId: lead.contactId,
+              name: lead.name,
+              phoneNumber: lead.phoneNumber,
+              pendingAttemptId: lead.pendingAttemptId ?? null,
+            })
+          }
         >
-          Registrar
+          {lead.pendingAttemptId ? "Clasificar" : "Registrar"}
         </Button>
       </div>
     </div>
@@ -374,7 +402,7 @@ function Section({
   title: string;
   hint: string;
   leads: LlamadaLead[];
-  mode: "call" | "whatsapp" | "new";
+  mode: "call" | "whatsapp" | "new" | "pending";
   onRegister: (preset: PresetContact) => void;
   emptyText: string;
 }) {
@@ -585,6 +613,20 @@ export function LlamadasWorkspace({
 
   const vendedoraView = (
     <div className="space-y-5">
+      {/*
+        Va primera y solo aparece si hay algo: son llamadas que YA pasaron y todavía no quedaron
+        asentadas. Una sección vacía permanente arriba de todo entrena a saltearla.
+      */}
+      {vendedora.sinRegistrar.length > 0 ? (
+        <Section
+          title="📞 Sin registrar"
+          hint="Ya hablaste, falta decir cómo quedó"
+          leads={vendedora.sinRegistrar}
+          mode="pending"
+          onRegister={openRegister}
+          emptyText=""
+        />
+      ) : null}
       <Section
         title="🔴 Llamar hoy"
         hint="Calientes con contacto para hoy"

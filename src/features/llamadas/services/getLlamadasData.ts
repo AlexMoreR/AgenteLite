@@ -1,6 +1,10 @@
 import { prisma } from "@/lib/prisma";
 import { resolveCallablePhone } from "@/lib/whatsapp-lid";
-import { getCallResultLabel, getCrmLostReasonLabel } from "@/features/crm/domain/crm-config";
+import {
+  CALL_RESULT_PENDING,
+  getCallResultLabel,
+  getCrmLostReasonLabel,
+} from "@/features/crm/domain/crm-config";
 import type { CrmStage } from "@/features/crm/types";
 
 // ── Utilidades de fecha (día de HOY en Bogotá, UTC-5) ───────────────────────────────────────
@@ -53,10 +57,20 @@ export type LlamadaLead = {
   lastResultLabel: string | null;
   attemptCount: number;
   nextContactAt: string | null; // ISO
+  /**
+   * El intento que el sistema anotó solo y falta clasificar, si lo hay.
+   *
+   * Va acá y no en un tipo aparte para que la tarjeta y el diálogo de siempre sirvan igual: con
+   * esto puesto, "Registrar" completa ESA llamada en vez de crear una nueva, y el lead no queda
+   * contado con el doble de intentos de los que tuvo.
+   */
+  pendingAttemptId?: string | null;
 };
 
 export type LlamadasVendedoraData = {
   generatedAt: string;
+  // 📞 Llamadas que ya ocurrieron (las anotó WaCalls) y falta decir cómo quedaron.
+  sinRegistrar: LlamadaLead[];
   // 🔴 Calientes (NEGOCIACION) con próximo contacto para hoy → LLAMAR.
   llamarHoy: LlamadaLead[];
   // 🟡 Tibios (PROPUESTA) con próximo contacto para hoy → WhatsApp.
@@ -93,6 +107,7 @@ export async function getLlamadasVendedoraData(
   const now = new Date();
   const dueBefore = endOfTodayUtc(now);
 
+  let sinRegistrar: LlamadaLead[] = [];
   let llamarHoy: LlamadaLead[] = [];
   let whatsappHoy: LlamadaLead[] = [];
   let nuevos: LlamadaLead[] = [];
@@ -150,6 +165,61 @@ export async function getLlamadasVendedoraData(
     llamarHoy = due.filter((row) => row.crmStage === "NEGOCIACION").map(toLead).sort(byNextAsc);
     whatsappHoy = due.filter((row) => row.crmStage === "PROPUESTA").map(toLead).sort(byNextAsc);
 
+    /**
+     * Llamadas que ya ocurrieron y falta clasificar.
+     *
+     * Van PRIMERAS en la pantalla: son las únicas que hablan de algo que ya pasó y todavía no
+     * quedó asentado. Si se dejan para el final, la asesora arranca a llamar gente nueva con
+     * la conversación de hace media hora sin registrar, que es exactamente lo que este módulo
+     * vino a resolver.
+     */
+    const pendientes = await prisma.callAttempt.findMany({
+      where: {
+        workspaceId,
+        result: CALL_RESULT_PENDING,
+        contact: {
+          excludedFromCrm: false,
+          conversations: {
+            some: { OR: [{ assignedToUserId: userId }, { assignedToUserId: null }] },
+          },
+        },
+      },
+      orderBy: { calledAt: "desc" },
+      take: 20,
+      select: {
+        id: true,
+        summary: true,
+        attemptNumber: true,
+        calledAt: true,
+        contact: {
+          select: {
+            id: true,
+            name: true,
+            phoneNumber: true,
+            avatarUrl: true,
+            crmStage: true,
+            metadata: true,
+            conversations: { select: { id: true }, orderBy: { lastMessageAt: "desc" }, take: 1 },
+          },
+        },
+      },
+    });
+    sinRegistrar = pendientes.map((intento) => ({
+      contactId: intento.contact.id,
+      name: intento.contact.name?.trim() || intento.contact.phoneNumber,
+      phoneNumber: intento.contact.phoneNumber,
+      callablePhone: resolveCallablePhone(intento.contact),
+      conversationId: intento.contact.conversations[0]?.id ?? null,
+      avatarUrl: intento.contact.avatarUrl,
+      stage: intento.contact.crmStage,
+      // Acá no sirve "Sin registrar" (ya lo dice el título de la sección): lo que la asesora
+      // necesita para acordarse de cuál llamada fue es qué pasó y cuánto duró.
+      lastResultLabel: intento.summary?.trim() || "Llamada sin clasificar",
+      attemptCount: intento.attemptNumber,
+      nextContactAt: null,
+      pendingAttemptId: intento.id,
+    }));
+
     // Nuevos sin tocar: etapa NUEVO y CERO llamadas registradas. Máx. 10, los más recientes.
     const nuevosRows = await prisma.contact.findMany({
       where: {
@@ -195,6 +265,7 @@ export async function getLlamadasVendedoraData(
 
   return {
     generatedAt: now.toISOString(),
+    sinRegistrar,
     llamarHoy,
     whatsappHoy,
     nuevos,

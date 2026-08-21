@@ -27,6 +27,14 @@ const registerCallSchema = z.object({
   lostReason: z.string().trim().min(1).max(60).optional(),
   // Fecha REAL de la llamada (para registro retroactivo del Google Sheet). Si no viene, es ahora.
   calledAt: z.string().trim().min(1).optional(),
+  /**
+   * Id del intento que hay que COMPLETAR, en vez de crear uno nuevo.
+   *
+   * Lo usa la asesora cuando la llamada ya fue anotada sola por WaCalls y solo falta decir cómo
+   * quedó. Si se creara un intento nuevo, la misma llamada quedaría contada dos veces y el lead
+   * figuraría con el doble de intentos de los que tuvo.
+   */
+  completeAttemptId: z.string().trim().min(1).optional(),
 });
 
 export type RegisterCallInput = z.infer<typeof registerCallSchema>;
@@ -111,24 +119,55 @@ export async function registerCallAttemptAction(input: RegisterCallInput) {
   const nextContactAt = parseOptionalDate(parsed.data.nextContactAt) ?? null;
   const calledAt = resolveCalledAt(parsed.data.calledAt, now);
 
-  // intento_numero = cuántas llamadas ya tiene este lead + 1.
-  const previousAttempts = await prisma.callAttempt.count({
-    where: { workspaceId, contactId: contact.id },
-  });
+  /**
+   * Completar una llamada que ya estaba anotada, o anotar una nueva.
+   *
+   * Al completar se respetan el número de intento y la hora ORIGINALES: los puso el sistema
+   * cuando la llamada de verdad ocurrió, y son más fiables que la fecha que muestra el formulario
+   * (que es "hoy"). Lo que sí queda es quién la clasificó.
+   */
+  const paraCompletar = parsed.data.completeAttemptId
+    ? await prisma.callAttempt.findFirst({
+        where: { id: parsed.data.completeAttemptId, workspaceId, contactId: contact.id },
+        select: { id: true, calledAt: true },
+      })
+    : null;
 
-  await prisma.callAttempt.create({
-    data: {
-      workspaceId,
-      contactId: contact.id,
-      calledByUserId: session.user.id,
-      attemptNumber: previousAttempts + 1,
-      result: parsed.data.result,
-      summary: parsed.data.summary?.trim() || null,
-      nextContactAt,
-      lostReason,
-      calledAt,
-    },
-  });
+  if (parsed.data.completeAttemptId && !paraCompletar) {
+    return { error: "Esa llamada ya no está disponible. Recargá la página." };
+  }
+
+  if (paraCompletar) {
+    await prisma.callAttempt.update({
+      where: { id: paraCompletar.id },
+      data: {
+        calledByUserId: session.user.id,
+        result: parsed.data.result,
+        summary: parsed.data.summary?.trim() || null,
+        nextContactAt,
+        lostReason,
+      },
+    });
+  } else {
+    // intento_numero = cuántas llamadas ya tiene este lead + 1.
+    const previousAttempts = await prisma.callAttempt.count({
+      where: { workspaceId, contactId: contact.id },
+    });
+
+    await prisma.callAttempt.create({
+      data: {
+        workspaceId,
+        contactId: contact.id,
+        calledByUserId: session.user.id,
+        attemptNumber: previousAttempts + 1,
+        result: parsed.data.result,
+        summary: parsed.data.summary?.trim() || null,
+        nextContactAt,
+        lostReason,
+        calledAt,
+      },
+    });
+  }
 
   // Regla de etapa del Playbook (si aplica). Se reutiliza updateCrmStageAction para heredar el
   // disparo de seguimientos por CRM_STAGE y el registro de actividad, igual que el kanban.
@@ -139,8 +178,13 @@ export async function registerCallAttemptAction(input: RegisterCallInput) {
       status: stageEffect,
       lostReason: isLost ? lostReason ?? undefined : undefined,
       // Playbook: "Ganado el día del pago, ligado al intento que lo cerró" → la fecha de venta
-      // es la fecha de ESTA llamada (calledAt, editable para registro retroactivo).
-      wonAt: stageEffect === "GANADO" ? calledAt.toISOString() : undefined,
+      // es la fecha de ESTA llamada (calledAt, editable para registro retroactivo). Al completar
+      // una llamada ya anotada vale la fecha ORIGINAL: la venta se cerró cuando se habló, no
+      // cuando la asesora se sentó a clasificarla.
+      wonAt:
+        stageEffect === "GANADO"
+          ? (paraCompletar?.calledAt ?? calledAt).toISOString()
+          : undefined,
     });
   }
 
