@@ -63,6 +63,7 @@ import {
 import { ConversationPanel } from "./chat-conversation-panel";
 import { ChatHeaderActions } from "./chat-header-actions";
 import type { CrmStage } from "@/features/crm/types";
+import { resolveCallablePhone } from "@/lib/whatsapp-lid";
 
 const CONVERSATION_LIST_LOAD_BATCH_SIZE = 10;
 // Logs de depuración de la lista desactivados (ensuciaban la consola en desarrollo).
@@ -1760,6 +1761,14 @@ export function SharedInbox({
         key={`header-actions:${conversation.id}:${conversation.status ?? "OPEN"}`}
         contactId={conversation.contactId}
         stage={conversation.crmStage as CrmStage}
+        /*
+          El numero se pasa por resolveCallablePhone: cuando el cliente llego identificado solo
+          con un LID, secondaryLabel guarda ese LID -sirve para chatear, no es un telefono- y
+          ofrecer "Llamar" ahi mandaba a marcar quince digitos que no existen.
+        */
+        telefono={resolveCallablePhone({ phoneNumber: conversation.secondaryLabel })}
+        nombreContacto={conversation.label}
+        avatarUrl={conversation.avatarUrl ?? null}
         conversationId={conversation.id}
         automationPaused={Boolean(conversation.automationPaused)}
         status={conversation.status ?? "OPEN"}

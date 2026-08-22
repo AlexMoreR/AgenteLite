@@ -7,10 +7,15 @@ import { CrmStageControl } from "./crm-stage-control";
 import { ResolveChatControl } from "./resolve-chat-control";
 import { SnoozeChatControl } from "./snooze-chat-control";
 import type { CrmStage } from "@/features/crm/types";
+import { BotonLlamar } from "@/features/llamadas/components/BotonLlamar";
 
 type ChatHeaderActionsProps = {
   contactId: string | null;
   stage: CrmStage;
+  /** Numero marcable del cliente. Null cuando solo hay un LID y no se puede llamar. */
+  telefono?: string | null;
+  nombreContacto?: string;
+  avatarUrl?: string | null;
   conversationId: string;
   automationPaused: boolean;
   status: "OPEN" | "PENDING" | "CLOSED" | "ARCHIVED";
@@ -28,6 +33,9 @@ type ChatHeaderActionsProps = {
 export function ChatHeaderActions({
   contactId,
   stage,
+  telefono = null,
+  nombreContacto = "",
+  avatarUrl = null,
   conversationId,
   automationPaused,
   status,
@@ -45,6 +53,8 @@ export function ChatHeaderActions({
     <>
       {/* Variante EN LÍNEA — solo visible cuando la cabecera es ancha (≥520px de contenedor). */}
       <div className="hidden items-center gap-1 @min-[520px]/chathdr:flex">
+        {/* Llamar va primero: es la accion que se toma leyendo la conversacion, no al cerrarla. */}
+        <BotonLlamar telefono={telefono} nombre={nombreContacto} avatarUrl={avatarUrl} />
         {contactId ? <CrmStageControl contactId={contactId} stage={stage} /> : null}
         <FormActionSwitch
           action={toggleAutomationAction}
@@ -80,6 +90,14 @@ export function ChatHeaderActions({
             className="w-64 rounded-2xl border border-border bg-popover p-2 shadow-[0_24px_60px_-24px_rgba(15,23,42,0.35)]"
           >
             <div className="space-y-0.5">
+              {telefono ? (
+                <BotonLlamar
+                  telefono={telefono}
+                  nombre={nombreContacto}
+                  avatarUrl={avatarUrl}
+                  compacto
+                />
+              ) : null}
               {contactId ? (
                 <div className="flex items-center justify-between gap-2 rounded-xl px-2 py-2">
                   <span className="text-[13px] font-medium text-foreground">Etapa</span>

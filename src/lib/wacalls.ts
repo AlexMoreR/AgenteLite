@@ -37,6 +37,76 @@ export function buildWaCallsDialerUrl(phone?: string | null): string | null {
   return limpio ? `${base}/?to=${encodeURIComponent(limpio)}` : base;
 }
 
+/**
+ * Una llamada a la API de WaCalls, hecha SIEMPRE desde el servidor.
+ *
+ * El token no puede viajar al navegador: con él se puede llamar a cualquier número desde la línea
+ * del negocio. Por eso el marcador del CRM no habla con WaCalls directo, sino contra nuestras
+ * rutas, que son las que ponen el token acá.
+ *
+ * `operadorId` viaja como `X-Client-Id` y es lo que WaCalls devuelve después en el webhook como
+ * dueño de la llamada: es lo que permite registrar QUIÉN llamó, en vez de dejarlo en blanco.
+ */
+export async function waCallsRequest<T>(input: {
+  path: string;
+  method?: "GET" | "POST" | "DELETE";
+  body?: unknown;
+  operadorId?: string;
+  timeoutMs?: number;
+}): Promise<{ ok: true; data: T } | { ok: false; status: number; error: string }> {
+  const base = getWaCallsBaseUrl();
+  const token = process.env.WACALLS_API_TOKEN?.trim();
+  if (!base || !token) {
+    return { ok: false, status: 503, error: "El servicio de llamadas no está configurado." };
+  }
+
+  try {
+    const response = await fetch(`${base}${input.path}`, {
+      method: input.method ?? "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        ...(input.operadorId ? { "X-Client-Id": input.operadorId } : {}),
+      },
+      body: input.body === undefined ? undefined : JSON.stringify(input.body),
+      cache: "no-store",
+      // El intercambio de audio tarda más que una consulta cualquiera: la línea tiene que
+      // negociar con WhatsApp antes de contestar.
+      signal: AbortSignal.timeout(input.timeoutMs ?? 15000),
+    });
+
+    const texto = await response.text();
+    const data = texto ? (JSON.parse(texto) as T) : ({} as T);
+    if (!response.ok) {
+      const mensaje =
+        (data as { error?: string })?.error?.trim() || "El servicio de llamadas rechazó la operación.";
+      return { ok: false, status: response.status, error: mensaje };
+    }
+    return { ok: true, data };
+  } catch {
+    return { ok: false, status: 504, error: "El servicio de llamadas no respondió." };
+  }
+}
+
+/**
+ * El id de la línea con la que se llama.
+ *
+ * Hoy hay una sola sesión (el WhatsApp vinculado por QR) y se resuelve preguntando, en vez de
+ * guardarla en una variable: si algún día se re-vincula la línea, el id cambia y una variable
+ * escrita a mano dejaría el marcador roto sin que nadie entienda por qué.
+ */
+export async function getWaCallsSessionId(): Promise<string | null> {
+  const respuesta = await waCallsRequest<{ sessions?: Array<{ id?: string; paired?: boolean }> }>({
+    path: "/api/sessions",
+    timeoutMs: 5000,
+  });
+  if (!respuesta.ok) {
+    return null;
+  }
+  const sesion = respuesta.data.sessions?.find((s) => s.paired !== false) ?? respuesta.data.sessions?.[0];
+  return sesion?.id?.trim() || null;
+}
+
 export type WaCallsEstado = {
   /** El número de WhatsApp vinculado, listo para mostrar. */
   numero: string | null;

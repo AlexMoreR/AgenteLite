@@ -42,7 +42,7 @@ import type {
 } from "@/features/llamadas/services/getLlamadasData";
 import type { ResumenDiaData } from "@/features/llamadas/services/getResumenDia";
 import { ResumenDiaView } from "@/features/llamadas/components/ResumenDiaView";
-import { MarcadorView } from "@/features/llamadas/components/MarcadorView";
+import { BotonLlamar } from "@/features/llamadas/components/BotonLlamar";
 
 type PresetContact = {
   contactId: string;
@@ -369,22 +369,22 @@ function LeadCard({ lead, mode, onRegister, puedeMarcarEnLaApp }: { lead: Llamad
           </Button>
         ) : (
           /*
-            Llama por WhatsApp desde la app, no con el marcador del telefono. Abre el marcador
-            embebido con el numero YA puesto: copiarlo a mano es donde se marca mal y se termina
-            llamando a otra persona. Sin marcador configurado se cae al tel: de siempre.
+            Llama por WhatsApp desde la app: la llamada queda flotando y la asesora sigue viendo
+            la lista mientras habla. Sin el servicio configurado se cae al tel: del telefono.
           */
-          <a
-            href={
-              puedeMarcarEnLaApp && lead.callablePhone
-                ? `/cliente/llamadas?tab=marcador&to=${encodeURIComponent(lead.callablePhone)}`
-                : telLink
-            }
-            aria-label="Llamar"
-          >
-            <Button variant="outline" size="icon" className="h-8 w-8 text-sky-600">
-              <Phone className="h-4 w-4" />
-            </Button>
-          </a>
+          puedeMarcarEnLaApp ? (
+            <BotonLlamar
+              telefono={lead.callablePhone}
+              nombre={lead.name}
+              avatarUrl={lead.avatarUrl}
+            />
+          ) : (
+            <a href={telLink} aria-label="Llamar">
+              <Button variant="outline" size="icon" className="h-8 w-8 text-sky-600">
+                <Phone className="h-4 w-4" />
+              </Button>
+            </a>
+          )
         )}
         <Button
           size="sm"
@@ -625,9 +625,8 @@ export function LlamadasWorkspace({
   owner: LlamadasOwnerData | null;
   canSeeOwner: boolean;
   resumen: ResumenDiaData;
-  /** Direccion del marcador embebido, o null si todavia no esta configurado. */
+  /** Hay servicio de llamadas configurado: sin el, el boton se cae al marcador del telefono. */
   marcadorUrl: string | null;
-  /** Pestaña con la que abre. Llega en "marcador" cuando se toco Llamar en un lead. */
   pestanaInicial: string;
 }) {
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -701,16 +700,10 @@ export function LlamadasWorkspace({
       <Tabs defaultValue={pestanaInicial}>
         <TabsList className="mb-4">
           <TabsTrigger value="vendedora">Mi día</TabsTrigger>
-          {marcadorUrl ? <TabsTrigger value="marcador">Marcador</TabsTrigger> : null}
           <TabsTrigger value="resumen">Resumen</TabsTrigger>
           {canSeeOwner && owner ? <TabsTrigger value="tablero">Tablero</TabsTrigger> : null}
         </TabsList>
         <TabsContent value="vendedora">{vendedoraView}</TabsContent>
-        {marcadorUrl ? (
-          <TabsContent value="marcador">
-            <MarcadorView url={marcadorUrl} />
-          </TabsContent>
-        ) : null}
         <TabsContent value="resumen">
           <ResumenDiaView data={resumen} />
         </TabsContent>

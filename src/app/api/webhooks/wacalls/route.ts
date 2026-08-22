@@ -47,6 +47,8 @@ type WaCallsWebhookBody = {
   event?: string;
   call?: {
     callId?: string;
+    /** Quien marco. Viaja como X-Client-Id al iniciar y vuelve aca; es el id del usuario del CRM. */
+    owner?: string | null;
     direction?: string;
     peer?: string;
     peerName?: string;
@@ -158,6 +160,21 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, ignorado: "repetida" });
   }
 
+  /**
+   * El operador que manda WaCalls es el id de usuario que puso el CRM al marcar. Se verifica
+   * contra el workspace de la ficha antes de usarlo: es un dato que entra desde afuera, y sin
+   * comprobarlo se le podrian atribuir llamadas a cualquier usuario.
+   */
+  const operador = typeof llamada.owner === "string" ? llamada.owner.trim() : "";
+  const autora = operador
+    ? (
+        await prisma.workspaceMember.findFirst({
+          where: { userId: operador, workspaceId: contacto.workspaceId, isActive: true },
+          select: { userId: true },
+        })
+      )?.userId ?? null
+    : null;
+
   const intentosPrevios = await prisma.callAttempt.count({
     where: { workspaceId: contacto.workspaceId, contactId: contacto.id },
   });
@@ -184,10 +201,15 @@ export async function POST(request: Request) {
     data: {
       workspaceId: contacto.workspaceId,
       contactId: contacto.id,
-      // Queda sin autora: WaCalls sabe desde qué línea se llamó, no qué persona marcó. Inventar
-      // una asesora acá le atribuiría llamadas a alguien que capaz no las hizo. Se completa sola
-      // cuando alguien clasifica la llamada.
-      calledByUserId: null,
+      /**
+       * Quien llamo, cuando se sabe.
+       *
+       * Las llamadas hechas desde el CRM viajan con el id de la asesora, asi que vuelven
+       * identificadas. Las hechas desde el marcador de WaCalls a secas no traen a nadie, y ahi
+       * queda en blanco: inventar una asesora le atribuiria llamadas que capaz no hizo. Se
+       * completa sola cuando alguien clasifica la llamada.
+       */
+      calledByUserId: autora,
       attemptNumber: intentosPrevios + 1,
       result,
       summary: comoFue(saliente, huboContacto, llamada.endReason ?? "", duracionEnSegundos(llamada)),

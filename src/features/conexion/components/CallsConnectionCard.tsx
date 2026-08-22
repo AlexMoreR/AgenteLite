@@ -58,9 +58,9 @@ export function CallsConnectionCard({ estado }: { estado: WaCallsEstado }) {
 
         {/* Link envolviendo al Button, no <Button asChild>: este Button es de Base UI y con
             asChild el build local pasa pero el de Docker falla. Ya nos costó un despliegue. */}
-        <Link href="/cliente/llamadas?tab=marcador" className="shrink-0">
+        <Link href="/cliente/llamadas" className="shrink-0">
           <Button size="sm" variant="outline">
-            Abrir marcador
+            Ver llamadas
           </Button>
         </Link>
       </CardContent>
