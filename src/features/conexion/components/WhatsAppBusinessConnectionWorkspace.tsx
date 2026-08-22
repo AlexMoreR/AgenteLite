@@ -113,7 +113,11 @@ export function WhatsAppBusinessConnectionWorkspace({
         className={`absolute inset-y-0 left-0 w-1 ${isConnected ? "bg-emerald-500" : "bg-muted-foreground/25"}`}
         aria-hidden="true"
       />
-      <CardContent className="relative flex flex-col gap-3 py-3.5 pl-5 sm:flex-row sm:items-center sm:justify-between">
+      {/*
+        Una sola fila SIEMPRE, tambien en el celular. Apilado, el interruptor caia solo debajo del
+        numero y quedaba flotando contra el borde izquierdo, como si fuera otra cosa.
+      */}
+      <CardContent className="relative flex flex-row items-center justify-between gap-3 py-3.5 pl-5">
         <div className="flex min-w-0 items-center gap-3">
           {/* Mismo punto de estado que en la lista de canales: se entra aca desde ahi, asi que
               tiene que verse igual. Aca el estado solo tiene dos valores (esta pantalla no
@@ -160,7 +164,7 @@ export function WhatsAppBusinessConnectionWorkspace({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+        <div className="flex shrink-0 items-center gap-2">
           <FormActionSwitch
             action={toggleConnectionChannelStatusAction}
             checked={connection.isActive}
