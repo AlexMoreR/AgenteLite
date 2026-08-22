@@ -11,6 +11,7 @@ import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AD_CAMPAIGN_ROUTING_METADATA_KEY } from "@/lib/ad-campaign-routing";
+import { leerColaboradores, leerPausadosDeReparto } from "@/lib/channel-collaborators";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -101,9 +102,8 @@ async function ConnectionDetailContent({
     detail.channel?.metadata && typeof detail.channel.metadata === "object" && !Array.isArray(detail.channel.metadata)
       ? (detail.channel.metadata as Record<string, unknown>)
       : {};
-  const collaboratorIds = Array.isArray(channelMetadata.collaboratorIds)
-    ? (channelMetadata.collaboratorIds as unknown[]).filter((id): id is string => typeof id === "string")
-    : [];
+  const collaboratorIds = leerColaboradores(channelMetadata);
+  const pausedAssignmentIds = leerPausadosDeReparto(channelMetadata);
   // Regla de campana: a quien le tocan los leads que entran por un anuncio.
   const adRouting = channelMetadata[AD_CAMPAIGN_ROUTING_METADATA_KEY];
   const adRoutingRecord =
@@ -151,6 +151,7 @@ async function ConnectionDetailContent({
       availableAgents={availableAgents}
       collaboratorMembers={collaboratorMembers}
       collaboratorIds={collaboratorIds}
+      pausedAssignmentIds={pausedAssignmentIds}
       adRoutingKeywords={adRoutingKeywords}
       adRoutingUserIds={adRoutingUserIds}
       canConnectEvolutionApi={!isChannelAlreadyEvolutionApi}

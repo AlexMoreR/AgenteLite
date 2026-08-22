@@ -89,6 +89,7 @@ import {
 import { buildProductPlaybookPrompt, getProductPlaybook } from "@/lib/product-playbook";
 import { reconocerProductoDelLead } from "@/lib/product-auto-tag";
 import { recordContactMatch } from "@/lib/contact-matches";
+import { calcularReparto } from "@/lib/channel-collaborators";
 import { buildConversationMatchContextNote, getLatestConversationMatch } from "@/lib/contact-matches";
 import { buildFlowExecutionContextNote, getConversationExecutedFlowSlugs, getFlowSlug } from "@/lib/flow-execution-history";
 import {
@@ -940,9 +941,9 @@ async function autoAssignConversationToCollaborator(args: {
       ? (channel.metadata as Record<string, unknown>)
       : {};
 
-  const collaboratorIds = Array.isArray(metadata.collaboratorIds)
-    ? (metadata.collaboratorIds as unknown[]).filter((id): id is string => typeof id === "string")
-    : [];
+  // Los que trabajan el canal MENOS los que están en pausa de reparto: una asesora pausada sigue
+  // viendo y atendiendo lo suyo, solo deja de recibir leads nuevos.
+  const collaboratorIds = calcularReparto(metadata);
 
   if (collaboratorIds.length === 0) {
     return;

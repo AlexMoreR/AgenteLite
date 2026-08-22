@@ -6,7 +6,7 @@ import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/cl
 import { scheduleContactAvatarRefresh, type ContactAvatarTarget } from "@/lib/contact-avatar-refresh";
 import { extractEvolutionMessageText, extractEvolutionPushName } from "@/lib/evolution-webhook";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
-import { getVisibleChannelIds } from "@/lib/channel-visibility";
+import { getVisibleChannelIds, resolverConexionElegida } from "@/lib/channel-visibility";
 import { isSnoozed } from "@/lib/lead-snooze";
 import { prisma } from "@/lib/prisma";
 
@@ -553,7 +553,11 @@ export async function GET(request: Request) {
   const data = await getAgentConversationList({
     workspaceId: membership.workspace.id,
     searchQuery,
-    selectedConnectionKey,
+    selectedConnectionKey: await resolverConexionElegida({
+      workspaceId: membership.workspace.id,
+      connectionKey: selectedConnectionKey,
+      visibleChannelIds,
+    }),
     assignedFilter,
     statusFilter,
     currentUserId: session.user.id,

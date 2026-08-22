@@ -1843,6 +1843,13 @@ export async function updateConversationStatusAction(input: {
 export async function updateChannelCollaboratorsAction(input: {
   channelId: string;
   collaboratorIds: string[];
+  /**
+   * De los colaboradores, quiénes NO reciben leads nuevos.
+   *
+   * Es lo que uno quiere casi siempre al "sacarle los chats" a alguien: que deje de entrarle
+   * trabajo nuevo, no que pierda de vista lo que ya venía atendiendo.
+   */
+  pausedAssignmentIds?: string[];
 }): Promise<{ error?: string }> {
   const session = await auth();
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
@@ -1878,6 +1885,22 @@ export async function updateChannelCollaboratorsAction(input: {
     new Set((Array.isArray(input.collaboratorIds) ? input.collaboratorIds : []).filter((id) => validIds.has(id))),
   );
 
+  /**
+   * Los pausados se recortan a los que siguen siendo colaboradores.
+   *
+   * Sin esto, sacar a alguien del canal le dejaría la pausa colgada en el metadata, y volver a
+   * agregarlo lo devolvería mudo: estaría en la lista pero no recibiría ningún lead, sin que nada
+   * en la pantalla lo explique.
+   */
+  const colaboradoresSet = new Set(collaboratorIds);
+  const pausedAssignmentIds = Array.from(
+    new Set(
+      (Array.isArray(input.pausedAssignmentIds) ? input.pausedAssignmentIds : []).filter((id) =>
+        colaboradoresSet.has(id),
+      ),
+    ),
+  );
+
   const baseMetadata =
     channel.metadata && typeof channel.metadata === "object" && !Array.isArray(channel.metadata)
       ? (channel.metadata as Record<string, unknown>)
@@ -1886,7 +1909,7 @@ export async function updateChannelCollaboratorsAction(input: {
   await prisma.whatsAppChannel.update({
     where: { id: channel.id },
     data: {
-      metadata: { ...baseMetadata, collaboratorIds } as Prisma.InputJsonValue,
+      metadata: { ...baseMetadata, collaboratorIds, pausedAssignmentIds } as Prisma.InputJsonValue,
     },
   });
 

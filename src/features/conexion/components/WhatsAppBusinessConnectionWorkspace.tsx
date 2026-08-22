@@ -67,6 +67,7 @@ type WhatsAppBusinessConnectionWorkspaceProps = {
   }>;
   collaboratorMembers?: Array<{ id: string; name: string | null; email: string }>;
   collaboratorIds?: string[];
+  pausedAssignmentIds?: string[];
   // Regla "los leads de esta campana son de tal persona" (por titulo del anuncio).
   adRoutingKeywords?: string[];
   adRoutingUserIds?: string[];
@@ -92,6 +93,7 @@ export function WhatsAppBusinessConnectionWorkspace({
   availableAgents,
   collaboratorMembers = [],
   collaboratorIds = [],
+  pausedAssignmentIds = [],
   adRoutingKeywords = [],
   adRoutingUserIds = [],
   evolutionApiGateways = [],
@@ -371,6 +373,7 @@ export function WhatsAppBusinessConnectionWorkspace({
                       channelId={connection.id}
                       members={collaboratorMembers}
                       collaboratorIds={collaboratorIds}
+                      pausedAssignmentIds={pausedAssignmentIds}
                     />
                   </CardContent>
                 </Card>
@@ -402,6 +405,7 @@ export function WhatsAppBusinessConnectionWorkspace({
                       channelId={connection.id}
                       members={collaboratorMembers}
                       collaboratorIds={collaboratorIds}
+                      pausedAssignmentIds={pausedAssignmentIds}
                     />
                   </CardContent>
                 </Card>

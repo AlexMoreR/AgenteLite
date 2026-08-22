@@ -28,7 +28,7 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
-import { getVisibleChannelIds } from "@/lib/channel-visibility";
+import { getVisibleChannelIds, resolverConexionElegida } from "@/lib/channel-visibility";
 import { isSnoozed } from "@/lib/lead-snooze";
 import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
 
@@ -280,12 +280,22 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     esJefe: access.isOwner || access.role === "ADMIN",
   });
 
+  /**
+   * La conexion elegida se valida contra ESTE negocio antes de filtrar por ella: una que quedo
+   * guardada de otro workspace vaciaba la bandeja entera sin decir por que.
+   */
+  const conexionElegida = await resolverConexionElegida({
+    workspaceId: membership.workspace.id,
+    connectionKey: selectedConnectionParam,
+    visibleChannelIds: canalesVisibles,
+  });
+
   const conversationWhere: Prisma.ConversationWhereInput = {
     workspaceId: membership.workspace.id,
     AND: [
       canalesVisibles ? { channelId: { in: canalesVisibles } } : {},
-      selectedConnectionParam.startsWith("channel:")
-        ? { channelId: selectedConnectionParam.slice("channel:".length) }
+      conexionElegida.startsWith("channel:")
+        ? { channelId: conexionElegida.slice("channel:".length) }
         : {},
       assignedWhere,
       statusWhere,
@@ -672,8 +682,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     selectedChatRef?.source === "agent"
       ? activeAgentConversations.find((item) => item.id === selectedChatRef.conversationId) || null
       : null;
-  const selectedConnectionChannelId = selectedConnectionParam.startsWith("channel:")
-    ? selectedConnectionParam.slice("channel:".length)
+  const selectedConnectionChannelId = conexionElegida.startsWith("channel:")
+    ? conexionElegida.slice("channel:".length)
     : "";
 
   // Los avatares NO se piden aquí: este bloque disparaba hasta 10 fetches EN
@@ -758,7 +768,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     activeProductContext: null,
   }));
 
-  const selectedConnectionKey = selectedConnectionParam;
+  const selectedConnectionKey = conexionElegida;
   const selectedConnectionChannel = selectedConnectionChannelId
     ? channelsById.get(selectedConnectionChannelId) ?? null
     : null;

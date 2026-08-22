@@ -4,7 +4,7 @@ import { auth } from "@/auth";
 import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { prisma } from "@/lib/prisma";
-import { getVisibleChannelIds } from "@/lib/channel-visibility";
+import { getVisibleChannelIds, resolverConexionElegida } from "@/lib/channel-visibility";
 
 export const dynamic = "force-dynamic";
 
@@ -167,10 +167,20 @@ export async function GET(request: Request) {
     esJefe: isManager,
   });
 
+  /**
+   * El contador tiene que contar lo mismo que muestra la lista, incluida la conexion elegida: si
+   * la lista descarta una conexion que no es de este negocio, el numero de al lado tambien.
+   */
+  const conexionElegida = await resolverConexionElegida({
+    workspaceId: membership.workspace.id,
+    connectionKey: selectedConnectionKey,
+    visibleChannelIds,
+  });
+
   const baseWhere = buildBaseWhere({
     workspaceId: membership.workspace.id,
     searchQuery,
-    selectedConnectionKey,
+    selectedConnectionKey: conexionElegida,
     statusFilter,
     snoozedContactIds: snoozedRows.map((fila) => fila.id),
     visibleChannelIds,
@@ -180,7 +190,7 @@ export async function GET(request: Request) {
     countOfficialConversations({
       workspaceId: membership.workspace.id,
       searchQuery,
-      selectedConnectionKey,
+      selectedConnectionKey: conexionElegida,
       userId: session.user.id,
       assignedTo: "mine",
       statusFilter,
@@ -188,7 +198,7 @@ export async function GET(request: Request) {
     countOfficialConversations({
       workspaceId: membership.workspace.id,
       searchQuery,
-      selectedConnectionKey,
+      selectedConnectionKey: conexionElegida,
       userId: session.user.id,
       assignedTo: "unassigned",
       statusFilter,
@@ -196,7 +206,7 @@ export async function GET(request: Request) {
     countOfficialConversations({
       workspaceId: membership.workspace.id,
       searchQuery,
-      selectedConnectionKey,
+      selectedConnectionKey: conexionElegida,
       userId: session.user.id,
       assignedTo: "all",
       statusFilter,
