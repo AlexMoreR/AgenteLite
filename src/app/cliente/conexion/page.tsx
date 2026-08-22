@@ -9,6 +9,8 @@ import { NewConnectionChannelModal } from "@/features/conexion/components/NewCon
 import { getAdminModuleAccess } from "@/lib/admin-module-access";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { prisma } from "@/lib/prisma";
+import { getWaCallsEstado } from "@/lib/wacalls";
+import { CallsConnectionCard } from "@/features/conexion/components/CallsConnectionCard";
 import { getEvolutionGateways, getOfficialApiProviderSettings } from "@/lib/system-settings";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
@@ -31,13 +33,17 @@ export default async function ClienteConexionPage({ searchParams }: PageProps) {
     redirect("/cliente?error=Debes+crear+tu+negocio+primero");
   }
 
-  const [connections, moduleAccess, providerSettings, evolutionGateways, params] = await Promise.all([
-    getWhatsAppBusinessConnections(membership.workspace.id),
-    getAdminModuleAccess(access.userId, access.role),
-    getOfficialApiProviderSettings(),
-    getEvolutionGateways(),
-    searchParams,
-  ]);
+  const [connections, moduleAccess, providerSettings, evolutionGateways, params, estadoLlamadas] =
+    await Promise.all([
+      getWhatsAppBusinessConnections(membership.workspace.id),
+      getAdminModuleAccess(access.userId, access.role),
+      getOfficialApiProviderSettings(),
+      getEvolutionGateways(),
+      searchParams,
+      // Va en el mismo Promise.all para que consultar el servicio de llamadas no agregue espera
+      // a la pantalla. Si no responde, devuelve null y la tarjeta simplemente no aparece.
+      getWaCallsEstado(),
+    ]);
   const canSeeOfficialApiModule = access.role === "ADMIN" || moduleAccess.client_official_api;
   const officialApiEmbeddedSignupReady = Boolean(
     providerSettings.appId.trim() && providerSettings.configId.trim(),
@@ -75,6 +81,7 @@ export default async function ClienteConexionPage({ searchParams }: PageProps) {
           }))}
         />
       }
+      llamadas={estadoLlamadas ? <CallsConnectionCard estado={estadoLlamadas} /> : null}
       conexiones={
         <ConnectionsWorkspace
           officialApiEmbeddedSignupReady={officialApiEmbeddedSignupReady}
