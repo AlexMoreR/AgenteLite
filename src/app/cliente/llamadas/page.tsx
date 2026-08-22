@@ -7,6 +7,7 @@ import {
 import { getResumenDiaData } from "@/features/llamadas/services/getResumenDia";
 import { LlamadasWorkspace } from "@/features/llamadas/components/LlamadasWorkspace";
 import { prisma } from "@/lib/prisma";
+import { buildWaCallsDialerUrl } from "@/lib/wacalls";
 
 export const metadata: Metadata = {
   robots: { index: false, follow: false },
@@ -14,9 +15,22 @@ export const metadata: Metadata = {
 
 export const dynamic = "force-dynamic";
 
-export default async function ClienteLlamadasPage() {
+type PageProps = {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
+
+export default async function ClienteLlamadasPage({ searchParams }: PageProps) {
   const access = await requireClientWorkspaceAccess("llamadas");
   const canSeeOwner = access.isOwner || access.role === "ADMIN";
+
+  /**
+   * El marcador se abre con el número puesto cuando se llega desde el botón "Llamar" de un lead
+   * (?tab=marcador&to=...). Es lo que evita que la asesora copie el número a mano.
+   */
+  const params = await searchParams;
+  const telefono = typeof params.to === "string" ? params.to : "";
+  const marcadorUrl = buildWaCallsDialerUrl(telefono);
+  const pestanaInicial = params.tab === "marcador" && marcadorUrl ? "marcador" : "vendedora";
 
   // El resumen es de QUIEN abre la pantalla: cada asesora ve y manda el suyo.
   const currentUser = await prisma.user.findUnique({
@@ -32,6 +46,13 @@ export default async function ClienteLlamadasPage() {
   ]);
 
   return (
-    <LlamadasWorkspace vendedora={vendedora} owner={owner} canSeeOwner={canSeeOwner} resumen={resumen} />
+    <LlamadasWorkspace
+      vendedora={vendedora}
+      owner={owner}
+      canSeeOwner={canSeeOwner}
+      resumen={resumen}
+      marcadorUrl={marcadorUrl}
+      pestanaInicial={pestanaInicial}
+    />
   );
 }

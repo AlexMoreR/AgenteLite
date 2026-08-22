@@ -42,6 +42,7 @@ import type {
 } from "@/features/llamadas/services/getLlamadasData";
 import type { ResumenDiaData } from "@/features/llamadas/services/getResumenDia";
 import { ResumenDiaView } from "@/features/llamadas/components/ResumenDiaView";
+import { MarcadorView } from "@/features/llamadas/components/MarcadorView";
 
 type PresetContact = {
   contactId: string;
@@ -300,7 +301,7 @@ function RegisterCallDialog({
 
 // ── Tarjeta de lead (vista vendedora) ─────────────────────────────────────────────────────────
 
-function LeadCard({ lead, mode, onRegister }: { lead: LlamadaLead; mode: "call" | "whatsapp" | "new" | "pending"; onRegister: (preset: PresetContact) => void }) {
+function LeadCard({ lead, mode, onRegister, puedeMarcarEnLaApp }: { lead: LlamadaLead; mode: "call" | "whatsapp" | "new" | "pending"; onRegister: (preset: PresetContact) => void; puedeMarcarEnLaApp: boolean }) {
   const router = useRouter();
   const [abriendo, setAbriendo] = useState(false);
   const telLink = lead.callablePhone ? `tel:${lead.callablePhone.replace(/[^0-9+]/g, "")}` : null;
@@ -367,7 +368,19 @@ function LeadCard({ lead, mode, onRegister }: { lead: LlamadaLead; mode: "call" 
             <MessageCircle className="h-4 w-4" />
           </Button>
         ) : (
-          <a href={telLink} aria-label="Llamar">
+          /*
+            Llama por WhatsApp desde la app, no con el marcador del telefono. Abre el marcador
+            embebido con el numero YA puesto: copiarlo a mano es donde se marca mal y se termina
+            llamando a otra persona. Sin marcador configurado se cae al tel: de siempre.
+          */
+          <a
+            href={
+              puedeMarcarEnLaApp && lead.callablePhone
+                ? `/cliente/llamadas?tab=marcador&to=${encodeURIComponent(lead.callablePhone)}`
+                : telLink
+            }
+            aria-label="Llamar"
+          >
             <Button variant="outline" size="icon" className="h-8 w-8 text-sky-600">
               <Phone className="h-4 w-4" />
             </Button>
@@ -398,6 +411,7 @@ function Section({
   mode,
   onRegister,
   emptyText,
+  puedeMarcarEnLaApp,
 }: {
   title: string;
   hint: string;
@@ -405,6 +419,7 @@ function Section({
   mode: "call" | "whatsapp" | "new" | "pending";
   onRegister: (preset: PresetContact) => void;
   emptyText: string;
+  puedeMarcarEnLaApp: boolean;
 }) {
   return (
     <div className="space-y-2">
@@ -420,7 +435,13 @@ function Section({
       ) : (
         <div className="space-y-2">
           {leads.map((lead) => (
-            <LeadCard key={lead.contactId} lead={lead} mode={mode} onRegister={onRegister} />
+            <LeadCard
+              key={lead.contactId}
+              lead={lead}
+              mode={mode}
+              onRegister={onRegister}
+              puedeMarcarEnLaApp={puedeMarcarEnLaApp}
+            />
           ))}
         </div>
       )}
@@ -597,11 +618,17 @@ export function LlamadasWorkspace({
   owner,
   canSeeOwner,
   resumen,
+  marcadorUrl,
+  pestanaInicial,
 }: {
   vendedora: LlamadasVendedoraData;
   owner: LlamadasOwnerData | null;
   canSeeOwner: boolean;
   resumen: ResumenDiaData;
+  /** Direccion del marcador embebido, o null si todavia no esta configurado. */
+  marcadorUrl: string | null;
+  /** Pestaña con la que abre. Llega en "marcador" cuando se toco Llamar en un lead. */
+  pestanaInicial: string;
 }) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [preset, setPreset] = useState<PresetContact | null>(null);
@@ -624,6 +651,7 @@ export function LlamadasWorkspace({
           leads={vendedora.sinRegistrar}
           mode="pending"
           onRegister={openRegister}
+          puedeMarcarEnLaApp={Boolean(marcadorUrl)}
           emptyText=""
         />
       ) : null}
@@ -633,6 +661,7 @@ export function LlamadasWorkspace({
         leads={vendedora.llamarHoy}
         mode="call"
         onRegister={openRegister}
+        puedeMarcarEnLaApp={Boolean(marcadorUrl)}
         emptyText="Nada urgente para llamar hoy."
       />
       <Section
@@ -641,6 +670,7 @@ export function LlamadasWorkspace({
         leads={vendedora.whatsappHoy}
         mode="whatsapp"
         onRegister={openRegister}
+        puedeMarcarEnLaApp={Boolean(marcadorUrl)}
         emptyText="Sin tibios agendados para hoy."
       />
       <Section
@@ -649,6 +679,7 @@ export function LlamadasWorkspace({
         leads={vendedora.nuevos}
         mode="new"
         onRegister={openRegister}
+        puedeMarcarEnLaApp={Boolean(marcadorUrl)}
         emptyText="No hay leads nuevos sin llamar."
       />
     </div>
@@ -667,13 +698,19 @@ export function LlamadasWorkspace({
       </div>
 
       {/* "Resumen" lo ve CUALQUIERA (cada una manda el suyo); "Tablero" solo el dueño. */}
-      <Tabs defaultValue="vendedora">
+      <Tabs defaultValue={pestanaInicial}>
         <TabsList className="mb-4">
           <TabsTrigger value="vendedora">Mi día</TabsTrigger>
+          {marcadorUrl ? <TabsTrigger value="marcador">Marcador</TabsTrigger> : null}
           <TabsTrigger value="resumen">Resumen</TabsTrigger>
           {canSeeOwner && owner ? <TabsTrigger value="tablero">Tablero</TabsTrigger> : null}
         </TabsList>
         <TabsContent value="vendedora">{vendedoraView}</TabsContent>
+        {marcadorUrl ? (
+          <TabsContent value="marcador">
+            <MarcadorView url={marcadorUrl} />
+          </TabsContent>
+        ) : null}
         <TabsContent value="resumen">
           <ResumenDiaView data={resumen} />
         </TabsContent>
