@@ -50,9 +50,9 @@ export function BotonLlamar({
         disabled={ocupada}
         title={ocupada ? "Ya hay una llamada en curso" : `Llamar a ${nombre}`}
         aria-label={`Llamar a ${nombre}`}
-        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sky-600 transition hover:bg-muted disabled:opacity-40"
+        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sky-600 transition hover:bg-muted disabled:opacity-40"
       >
-        <Phone className="h-4 w-4" />
+        <Phone className="h-5 w-5" />
       </button>
 
       <PanelDeLlamada

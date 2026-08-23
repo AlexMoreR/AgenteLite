@@ -80,11 +80,11 @@ export function ChatHeaderActions({
           <PopoverTrigger asChild>
             <button
               type="button"
-              className="inline-flex h-9 w-9 shrink-0 items-center justify-center text-foreground transition hover:opacity-70 focus:outline-none focus:ring-2 focus:ring-ring/50"
+              className="inline-flex h-10 w-10 shrink-0 items-center justify-center text-foreground transition hover:opacity-70 focus:outline-none focus:ring-2 focus:ring-ring/50"
               aria-label="Acciones de la conversación"
               title="Acciones"
             >
-              <MoreVertical className="h-5 w-5" />
+              <MoreVertical className="h-6 w-6" />
             </button>
           </PopoverTrigger>
           <PopoverContent
