@@ -196,8 +196,83 @@ export async function loadAgentConversationDetail(input: {
     automationPaused: conversation.automationPaused,
     contact: conversation.contact,
     channel: conversation.channel,
-    messages: orderedMessages,
+    messages: await conLlamadas({
+      workspaceId: input.workspaceId,
+      contactId: conversation.contact.id,
+      mensajes: orderedMessages,
+      // La pagina mas nueva no tiene tope superior: una llamada de hace un minuto es posterior
+      // al ultimo mensaje y tiene que aparecer igual.
+      esPaginaMasNueva: !cursorMessage,
+    }),
     hasMoreMessages: messages.length > batchSize,
     loadMoreCursor: orderedMessages.at(0)?.id ?? null,
   } satisfies LoadedAgentConversationDetail;
+}
+
+/**
+ * Mete las llamadas del lead en la conversacion, en su lugar cronologico.
+ *
+ * Van como mensajes de tipo SYSTEM con el texto "Llamada saliente/entrante · ...", que es el
+ * formato que el chat ya dibuja como nota de llamada con su iconito (getCallMessageSummary). No
+ * se guardan como Message en la base a proposito: son un CallAttempt, y duplicarlas obligaria a
+ * mantener dos copias sincronizadas de lo mismo.
+ *
+ * Se acotan a la ventana de la pagina —entre el mensaje mas viejo y el mas nuevo que se estan
+ * mostrando— para que al pedir "ver mas" no reaparezcan las mismas arriba.
+ */
+async function conLlamadas(input: {
+  workspaceId: string;
+  contactId: string;
+  mensajes: AgentConversationMessageRecord[];
+  esPaginaMasNueva: boolean;
+}): Promise<AgentConversationMessageRecord[]> {
+  const desde = input.mensajes.at(0)?.createdAt;
+  if (!desde) {
+    return input.mensajes;
+  }
+  const hasta = input.esPaginaMasNueva ? null : input.mensajes.at(-1)?.createdAt ?? null;
+
+  const llamadas = await prisma.callAttempt
+    .findMany({
+      where: {
+        workspaceId: input.workspaceId,
+        contactId: input.contactId,
+        calledAt: { gte: desde, ...(hasta ? { lte: hasta } : {}) },
+      },
+      select: { id: true, calledAt: true, summary: true, result: true },
+      take: 50,
+    })
+    .catch(() => []);
+
+  if (llamadas.length === 0) {
+    return input.mensajes;
+  }
+
+  const comoMensajes: AgentConversationMessageRecord[] = llamadas.map((llamada) => {
+    const texto = llamada.summary?.trim() || "";
+    // Las llamadas cargadas a mano no traen el texto con formato; se les arma uno para que se
+    // vean igual que las automaticas en vez de quedar mudas en el chat.
+    const contenido = /^llamada\s+(entrante|saliente)/i.test(texto)
+      ? texto
+      : `Llamada saliente · ${texto || llamada.result.replace(/_/g, " ")}`;
+
+    return {
+      id: `llamada:${llamada.id}`,
+      externalId: null,
+      content: contenido,
+      direction: /^llamada\s+entrante/i.test(contenido) ? "INBOUND" : "OUTBOUND",
+      createdAt: llamada.calledAt,
+      editedAt: null,
+      deletedAt: null,
+      type: "SYSTEM",
+      mediaUrl: null,
+      reactionEmoji: null,
+      rawPayload: null,
+    };
+  });
+
+  return [...input.mensajes, ...comoMensajes].sort((izq, der) => {
+    const diff = izq.createdAt.getTime() - der.createdAt.getTime();
+    return diff !== 0 ? diff : izq.id.localeCompare(der.id);
+  });
 }

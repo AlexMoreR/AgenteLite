@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Phone } from "lucide-react";
 import { toast } from "sonner";
 
@@ -34,6 +35,11 @@ export function BotonLlamar({
     onError: (mensaje) => toast.error(mensaje),
   });
 
+  // Cada llamada arranca en pantalla completa; minimizar es una decision de la asesora DENTRO de
+  // esa llamada, no una preferencia que deba sobrevivir a la siguiente. Se decide al marcar y no
+  // reaccionando al estado despues, que era una vuelta de mas.
+  const [expandido, setExpandido] = useState(true);
+
   // Sin número marcable no se ofrece: es el caso de los leads que llegan solo con un LID de
   // WhatsApp, donde el "teléfono" son quince dígitos que no existen.
   if (!telefono) {
@@ -46,7 +52,10 @@ export function BotonLlamar({
     <>
       <button
         type="button"
-        onClick={() => void llamar(telefono)}
+        onClick={() => {
+          setExpandido(true);
+          void llamar(telefono);
+        }}
         disabled={ocupada}
         title={ocupada ? "Ya hay una llamada en curso" : `Llamar a ${nombre}`}
         aria-label={`Llamar a ${nombre}`}
@@ -62,6 +71,9 @@ export function BotonLlamar({
         avatarUrl={avatarUrl}
         silenciado={silenciado}
         segundos={segundos}
+        expandido={expandido}
+        onMinimizar={() => setExpandido(false)}
+        onExpandir={() => setExpandido(true)}
         onColgar={() => void colgar()}
         onAlternarSilencio={() => void alternarSilencio()}
       />

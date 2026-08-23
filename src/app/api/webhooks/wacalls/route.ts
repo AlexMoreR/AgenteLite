@@ -234,38 +234,42 @@ function duracionEnSegundos(llamada: { startedAt?: number; endedAt?: number }) {
 }
 
 /**
- * Qué pasó, en palabras. Es lo que la asesora lee en el historial del lead.
+ * Qué pasó, en palabras.
  *
- * En las que se hablaron va la duración: al clasificar una llamada de hace un rato, "hablaron
- * 4 min" es lo que le permite acordarse de cuál fue.
+ * El texto arranca SIEMPRE con "Llamada saliente" o "Llamada entrante" porque ese es el formato
+ * que el chat ya sabe dibujar como una nota de llamada (ver getCallMessageSummary): la misma
+ * frase sirve para el historial del lead en Llamadas y para la burbuja en la conversación, sin
+ * guardar el dato dos veces.
+ *
+ * En las que se hablaron va la duración: al clasificar una llamada de hace un rato, "4 min" es lo
+ * que le permite a la asesora acordarse de cuál fue.
  */
 function comoFue(saliente: boolean, huboContacto: boolean, endReason: string, segundos: number) {
+  const cabecera = saliente ? "Llamada saliente" : "Llamada entrante";
+
   if (huboContacto) {
     const duracion =
-      segundos >= 60
-        ? `${Math.floor(segundos / 60)} min ${segundos % 60}s`
-        : `${segundos}s`;
-    return saliente
-      ? `Llamada atendida · ${duracion} (WaCalls)`
-      : `El cliente llamó y se atendió · ${duracion} (WaCalls)`;
+      segundos >= 60 ? `${Math.floor(segundos / 60)} min ${segundos % 60}s` : `${segundos}s`;
+    return `${cabecera} · ${duracion}`;
   }
 
   if (!saliente) {
-    return "El cliente llamó y no se atendió (WaCalls)";
+    return `${cabecera} · perdida`;
   }
 
   switch (endReason) {
     case "timeout":
-      return "No contestó (llamada por WaCalls)";
+      return `${cabecera} · no contestó`;
     case "declined":
-      return "Rechazó la llamada (WaCalls)";
+      return `${cabecera} · rechazada`;
     case "busy":
-      return "Ocupado (WaCalls)";
+      return `${cabecera} · ocupado`;
     case "do_not_disturb":
-      return "Tenía el teléfono en no molestar (WaCalls)";
+      return `${cabecera} · tenía no molestar`;
     case "cancelled":
-      return "Se cortó antes de que atendiera (WaCalls)";
+      return `${cabecera} · se cortó antes de que atendiera`;
     default:
-      return "Sin contacto (WaCalls)";
+      return `${cabecera} · sin contacto`;
   }
 }
+
