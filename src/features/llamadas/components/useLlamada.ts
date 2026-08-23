@@ -5,19 +5,23 @@ import { useCallback, useEffect, useRef, useState } from "react";
 /**
  * Una llamada de WhatsApp hecha desde el CRM, sin salir de la pantalla.
  *
- * El audio va por WebRTC directo entre el navegador y el servicio de llamadas; el CRM solo hace
- * de intermediario para el saludo inicial (por eso el token nunca llega acá). El recorrido es:
+ * OJO con cómo viaja el audio, porque no es lo que uno supone: WaCalls NO usa pistas de audio de
+ * WebRTC. El sonido va crudo —PCM de 16 kHz, mono, enteros de 16 bits— por un CANAL DE DATOS
+ * llamado "pcm", en las dos direcciones (ver internal/app/session/bridge.go). Implementarlo con
+ * `addTrack`/`ontrack`, que es lo normal, da una llamada que suena, conecta, y no se escucha a
+ * nadie de ninguno de los dos lados: la señalización funciona pero el audio va por otro carril.
  *
- *   1. pedir el micrófono
- *   2. crear la conexión y esperar a tener TODAS las rutas de red (ICE)
- *   3. mandar esa oferta a nuestra ruta, que la reenvía y devuelve la respuesta
- *   4. reproducir lo que llega
+ * De ahí el rodeo del AudioContext: hay que capturar el micrófono a mano, convertirlo a enteros y
+ * mandarlo por el canal; y a la inversa, recibir enteros y reproducirlos. Los dos procesadores
+ * (`/worklets/*.js`) son los mismos que usa el cliente original.
  *
- * El paso 2 es el que no se puede saltear: el servicio recibe la oferta como UN texto y no acepta
- * candidatos sueltos después. Mandarla antes de tiempo da una llamada que conecta y no se escucha.
+ * El CRM solo hace de intermediario para el saludo inicial (por eso el token nunca llega acá).
  */
 
 export type EstadoLlamada = "libre" | "marcando" | "sonando" | "hablando" | "cortando";
+
+const FRECUENCIA = 16000;
+const CANAL_PCM = "pcm";
 
 type Opciones = {
   onError?: (mensaje: string) => void;
@@ -38,11 +42,33 @@ async function pedir(body: unknown) {
   return data ?? {};
 }
 
+function aEnteros(pcm: Float32Array): ArrayBuffer {
+  const view = new DataView(new ArrayBuffer(pcm.length * 2));
+  for (let i = 0; i < pcm.length; i += 1) {
+    let s = pcm[i];
+    if (Number.isNaN(s)) s = 0;
+    else if (s > 1) s = 1;
+    else if (s < -1) s = -1;
+    view.setInt16(i * 2, s < 0 ? Math.round(s * 32768) : Math.round(s * 32767), true);
+  }
+  return view.buffer;
+}
+
+function aFlotantes(buf: ArrayBuffer): Float32Array {
+  const view = new DataView(buf);
+  const n = Math.floor(buf.byteLength / 2);
+  const out = new Float32Array(n);
+  for (let i = 0; i < n; i += 1) {
+    out[i] = view.getInt16(i * 2, true) / 32768;
+  }
+  return out;
+}
+
 /**
  * Espera a que el navegador termine de juntar rutas de red, con un tope.
  *
- * El tope existe porque un STUN que no responde puede dejar el proceso colgado para siempre, y
- * es preferible llamar con las rutas que se alcanzaron a juntar que no llamar nunca.
+ * El tope existe porque un STUN que no responde puede dejar el proceso colgado para siempre, y es
+ * preferible llamar con las rutas que se alcanzaron a juntar que no llamar nunca.
  */
 function esperarRutas(pc: RTCPeerConnection, topeMs = 3000) {
   if (pc.iceGatheringState === "complete") {
@@ -71,15 +97,18 @@ export function useLlamada({ onError, onTerminada }: Opciones = {}) {
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const micRef = useRef<MediaStream | null>(null);
+  const ctxRef = useRef<AudioContext | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const callIdRef = useRef<string | null>(null);
 
-  /** Suelta micrófono, conexión y audio. Se llama al colgar y al desmontar. */
+  /** Suelta micrófono, audio y conexión. Se llama al colgar y al desmontar. */
   const limpiar = useCallback(() => {
     // El micrófono se apaga SIEMPRE, incluso si algo falló antes: dejar la lucecita del micro
     // encendida después de colgar es lo que hace que la gente desconfíe de la herramienta.
     micRef.current?.getTracks().forEach((track) => track.stop());
     micRef.current = null;
+    void ctxRef.current?.close().catch(() => {});
+    ctxRef.current = null;
     pcRef.current?.close();
     pcRef.current = null;
     if (audioRef.current) {
@@ -141,27 +170,53 @@ export function useLlamada({ onError, onTerminada }: Opciones = {}) {
         });
         pcRef.current = pc;
 
-        mic.getTracks().forEach((track) => pc.addTrack(track, mic));
+        // El canal se crea ANTES de la oferta: si no, no aparece en el saludo y del otro lado
+        // nunca llega el audio.
+        const canal = pc.createDataChannel(CANAL_PCM, { ordered: true });
+        canal.binaryType = "arraybuffer";
 
-        pc.ontrack = (evento) => {
-          if (audioRef.current) {
-            audioRef.current.srcObject = evento.streams[0];
-            void audioRef.current.play().catch(() => {
-              onError?.("El navegador bloqueó el audio. Tocá la pantalla y volvé a intentar.");
-            });
+        const ctx = new AudioContext({ sampleRate: FRECUENCIA });
+        ctxRef.current = ctx;
+        await ctx.audioWorklet.addModule("/worklets/capture-processor.js");
+        await ctx.audioWorklet.addModule("/worklets/playback-processor.js");
+        await ctx.resume();
+
+        // Micrófono → canal de datos.
+        const fuenteMic = ctx.createMediaStreamSource(mic);
+        const captura = new AudioWorkletNode(ctx, "capture-processor");
+        captura.port.onmessage = (evento: MessageEvent<Float32Array>) => {
+          if (canal.readyState === "open") {
+            canal.send(aEnteros(evento.data));
           }
         };
+        fuenteMic.connect(captura);
+        // El procesador no escribe nada en su salida; conectarlo al destino es lo que lo mantiene
+        // vivo, no se escucha a si misma la asesora.
+        captura.connect(ctx.destination);
+
+        // Canal de datos → parlante.
+        const reproduccion = new AudioWorkletNode(ctx, "playback-processor");
+        const destino = ctx.createMediaStreamDestination();
+        reproduccion.connect(destino);
+        canal.onmessage = (evento: MessageEvent<ArrayBuffer>) => {
+          reproduccion.port.postMessage(aFlotantes(evento.data));
+        };
+        if (audioRef.current) {
+          audioRef.current.srcObject = destino.stream;
+          void audioRef.current.play().catch(() => {
+            onError?.("El navegador bloqueó el audio. Tocá la pantalla y volvé a intentar.");
+          });
+        }
+
+        canal.onopen = () => setEstado("hablando");
 
         pc.onconnectionstatechange = () => {
-          if (pc.connectionState === "connected") {
-            setEstado("hablando");
-          }
           if (pc.connectionState === "failed" || pc.connectionState === "closed") {
             void colgar();
           }
         };
 
-        const oferta = await pc.createOffer({ offerToReceiveAudio: true });
+        const oferta = await pc.createOffer();
         await pc.setLocalDescription(oferta);
         await esperarRutas(pc);
 
@@ -183,8 +238,8 @@ export function useLlamada({ onError, onTerminada }: Opciones = {}) {
               ? error.message
               : "No se pudo iniciar la llamada.";
         onError?.(mensaje);
-        // Si ya se habia creado la llamada del otro lado, se corta: si no, el numero queda
-        // sonando en el telefono del cliente sin nadie del otro lado.
+        // Si ya se había creado la llamada del otro lado, se corta: si no, el número queda
+        // sonando en el teléfono del cliente sin nadie del otro lado.
         if (callIdRef.current) {
           void pedir({ accion: "colgar", callId: callIdRef.current }).catch(() => {});
         }
