@@ -24,6 +24,8 @@ const FRECUENCIA = 16000;
 const CANAL_PCM = "pcm";
 
 type Opciones = {
+  /** Canal del chat: la llamada sale por SU numero. */
+  channelId?: string | null;
   onError?: (mensaje: string) => void;
   onTerminada?: () => void;
 };
@@ -90,7 +92,7 @@ function esperarRutas(pc: RTCPeerConnection, topeMs = 3000) {
   });
 }
 
-export function useLlamada({ onError, onTerminada }: Opciones = {}) {
+export function useLlamada({ channelId, onError, onTerminada }: Opciones = {}) {
   const [estado, setEstado] = useState<EstadoLlamada>("libre");
   const [silenciado, setSilenciado] = useState(false);
   const [segundos, setSegundos] = useState(0);
@@ -157,7 +159,11 @@ export function useLlamada({ onError, onTerminada }: Opciones = {}) {
         const mic = await navigator.mediaDevices.getUserMedia({ audio: true });
         micRef.current = mic;
 
-        const iniciada = (await pedir({ accion: "iniciar", phone: telefono })) as { callId?: string };
+        const iniciada = (await pedir({
+          accion: "iniciar",
+          phone: telefono,
+          channelId: channelId ?? undefined,
+        })) as { callId?: string };
         const callId = iniciada.callId;
         if (!callId) {
           throw new Error("El servicio no devolvió la llamada.");
@@ -247,7 +253,7 @@ export function useLlamada({ onError, onTerminada }: Opciones = {}) {
         setEstado("libre");
       }
     },
-    [estado, colgar, limpiar, onError],
+    [estado, channelId, colgar, limpiar, onError],
   );
 
   const alternarSilencio = useCallback(async () => {

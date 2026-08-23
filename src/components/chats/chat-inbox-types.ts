@@ -71,6 +71,8 @@ export type SharedInboxSelectedConversation = {
   // trae /api/cliente/chats/live para poder dibujar esos botones en el CLIENTE: antes los armaba
   // el servidor por chat y, al abrir un chat sin navegar, quedaban congelados o desaparecian.
   crmStage?: string | null;
+  // Canal al que pertenece el chat: define por QUE numero sale una llamada hecha desde aca.
+  channelId?: string | null;
   status?: "OPEN" | "PENDING" | "CLOSED" | "ARCHIVED" | null;
   assignedTo?: { id: string; name: string | null; email: string | null } | null;
   canImportHistory?: boolean;

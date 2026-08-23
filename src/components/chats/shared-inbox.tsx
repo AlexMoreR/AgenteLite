@@ -1768,6 +1768,7 @@ export function SharedInbox({
         */
         telefono={resolveCallablePhone({ phoneNumber: conversation.secondaryLabel })}
         nombreContacto={conversation.label}
+        channelId={conversation.channelId ?? null}
         avatarUrl={conversation.avatarUrl ?? null}
         conversationId={conversation.id}
         automationPaused={Boolean(conversation.automationPaused)}

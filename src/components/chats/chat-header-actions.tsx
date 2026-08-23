@@ -15,6 +15,7 @@ type ChatHeaderActionsProps = {
   /** Numero marcable del cliente. Null cuando solo hay un LID y no se puede llamar. */
   telefono?: string | null;
   nombreContacto?: string;
+  channelId?: string | null;
   avatarUrl?: string | null;
   conversationId: string;
   automationPaused: boolean;
@@ -35,6 +36,7 @@ export function ChatHeaderActions({
   stage,
   telefono = null,
   nombreContacto = "",
+  channelId = null,
   avatarUrl = null,
   conversationId,
   automationPaused,
@@ -54,7 +56,7 @@ export function ChatHeaderActions({
       {/* Variante EN LÍNEA — solo visible cuando la cabecera es ancha (≥520px de contenedor). */}
       <div className="hidden items-center gap-1 @min-[520px]/chathdr:flex">
         {/* Llamar va primero: es la accion que se toma leyendo la conversacion, no al cerrarla. */}
-        <BotonLlamar telefono={telefono} nombre={nombreContacto} avatarUrl={avatarUrl} />
+        <BotonLlamar telefono={telefono} nombre={nombreContacto} avatarUrl={avatarUrl} channelId={channelId} />
         {contactId ? <CrmStageControl contactId={contactId} stage={stage} /> : null}
         <FormActionSwitch
           action={toggleAutomationAction}
@@ -75,7 +77,7 @@ export function ChatHeaderActions({
           leyendo un chat, y sepultarla a dos toques la volvia invisible. Va suelta, a la
           izquierda del menu, igual que en WhatsApp. */}
       <div className="flex items-center gap-0.5 @min-[520px]/chathdr:hidden">
-        <BotonLlamar telefono={telefono} nombre={nombreContacto} avatarUrl={avatarUrl} />
+        <BotonLlamar telefono={telefono} nombre={nombreContacto} avatarUrl={avatarUrl} channelId={channelId} />
         <Popover>
           <PopoverTrigger asChild>
             <button

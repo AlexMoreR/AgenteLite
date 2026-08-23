@@ -24,9 +24,12 @@ import {
  */
 export function VincularLlamadasDialog({
   abierto,
+  channelId,
   onOpenChange,
 }: {
   abierto: boolean;
+  /** El canal al que pertenece esta linea: la llamada saldra de SU numero. */
+  channelId: string;
   onOpenChange: (abierto: boolean) => void;
 }) {
   const router = useRouter();
@@ -36,10 +39,12 @@ export function VincularLlamadasDialog({
   // Corta el bucle cuando se cierra el diálogo: sin esto seguiría pidiendo QR para siempre.
   const vivoRef = useRef(false);
 
-  const escuchar = useCallback(async () => {
+  const escuchar = useCallback(async (sid: string) => {
     while (vivoRef.current) {
       try {
-        const respuesta = await fetch("/api/wacalls/vincular", { cache: "no-store" });
+        const respuesta = await fetch(`/api/wacalls/vincular?sid=${encodeURIComponent(sid)}`, {
+          cache: "no-store",
+        });
         const data = (await respuesta.json().catch(() => null)) as {
           qr?: string | null;
           vinculado?: boolean;
@@ -88,22 +93,28 @@ export function VincularLlamadasDialog({
     vivoRef.current = true;
 
     void (async () => {
-      const arranque = await fetch("/api/wacalls/vincular", { method: "POST" }).catch(() => null);
+      const arranque = await fetch("/api/wacalls/vincular", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channelId }),
+      }).catch(() => null);
       if (!vivoRef.current) {
         return;
       }
-      if (!arranque?.ok) {
-        const data = (await arranque?.json().catch(() => null)) as { error?: string } | null;
-        setError(data?.error || "No se pudo iniciar la vinculación.");
+      const datos = (await arranque?.json().catch(() => null)) as
+        | { sid?: string; error?: string }
+        | null;
+      if (!arranque?.ok || !datos?.sid) {
+        setError(datos?.error || "No se pudo iniciar la vinculación.");
         return;
       }
-      await escuchar();
+      await escuchar(datos.sid);
     })();
 
     return () => {
       vivoRef.current = false;
     };
-  }, [abierto, escuchar]);
+  }, [abierto, channelId, escuchar]);
 
   return (
     <Dialog open={abierto} onOpenChange={onOpenChange}>
@@ -157,7 +168,13 @@ export function VincularLlamadasDialog({
   );
 }
 
-export function BotonVincularLlamadas({ etiqueta }: { etiqueta: string }) {
+export function BotonVincularLlamadas({
+  channelId,
+  etiqueta,
+}: {
+  channelId: string;
+  etiqueta: string;
+}) {
   const [abierto, setAbierto] = useState(false);
   return (
     <>
@@ -165,7 +182,9 @@ export function BotonVincularLlamadas({ etiqueta }: { etiqueta: string }) {
         <QrCode className="mr-1.5 size-4" />
         {etiqueta}
       </Button>
-      {abierto ? <VincularLlamadasDialog abierto onOpenChange={setAbierto} /> : null}
+      {abierto ? (
+        <VincularLlamadasDialog abierto channelId={channelId} onOpenChange={setAbierto} />
+      ) : null}
     </>
   );
 }

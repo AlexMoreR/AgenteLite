@@ -1,3 +1,5 @@
+import { prisma } from "@/lib/prisma";
+
 /**
  * WaCalls: las llamadas de WhatsApp que salen desde el CRM.
  *
@@ -88,12 +90,38 @@ export async function waCallsRequest<T>(input: {
   }
 }
 
+/** Donde vive, en el metadata del canal, la linea de llamadas que le corresponde. */
+export const WACALLS_SESSION_METADATA_KEY = "wacallsSessionId";
+
+export function leerSesionDeLlamadas(metadata: unknown): string | null {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return null;
+  }
+  const valor = (metadata as Record<string, unknown>)[WACALLS_SESSION_METADATA_KEY];
+  return typeof valor === "string" && valor.trim() ? valor.trim() : null;
+}
+
 /**
- * El id de la línea con la que se llama.
+ * La linea de llamadas de UN canal.
  *
- * Hoy hay una sola sesión (el WhatsApp vinculado por QR) y se resuelve preguntando, en vez de
- * guardarla en una variable: si algún día se re-vincula la línea, el id cambia y una variable
- * escrita a mano dejaría el marcador roto sin que nadie entienda por qué.
+ * Cada canal tiene la suya, vinculada con su propio QR, para que la llamada salga del MISMO
+ * numero con el que el cliente viene chateando. Con una sola linea global, alguien que hablaba
+ * con Ventas 1 recibia la llamada desde el administrativo y no reconocia quien lo llamaba.
+ */
+export async function getWaCallsSessionIdForChannel(channelId: string | null): Promise<string | null> {
+  if (!channelId) {
+    return null;
+  }
+  const canal = await prisma.whatsAppChannel
+    .findUnique({ where: { id: channelId }, select: { metadata: true } })
+    .catch(() => null);
+  return leerSesionDeLlamadas(canal?.metadata ?? null);
+}
+
+/**
+ * El id de una linea cualquiera, para cuando no se sabe de que canal viene la llamada.
+ *
+ * Es el ultimo recurso —marcar desde un lugar que no conoce el canal— y no el camino normal.
  */
 export async function getWaCallsSessionId(): Promise<string | null> {
   const respuesta = await waCallsRequest<{ sessions?: Array<{ id?: string; paired?: boolean }> }>({
@@ -105,6 +133,29 @@ export async function getWaCallsSessionId(): Promise<string | null> {
   }
   const sesion = respuesta.data.sessions?.find((s) => s.paired !== false) ?? respuesta.data.sessions?.[0];
   return sesion?.id?.trim() || null;
+}
+
+/** El estado de la linea de llamadas de un canal, para dibujarlo en su pantalla. */
+export async function getEstadoDeCanal(channelId: string): Promise<WaCallsEstado | null> {
+  const sid = await getWaCallsSessionIdForChannel(channelId);
+  if (!sid) {
+    return null;
+  }
+  const respuesta = await waCallsRequest<{
+    sessions?: Array<{ id?: string; name?: string; jid?: string; state?: string; paired?: boolean }>;
+  }>({ path: "/api/sessions", timeoutMs: 4000 });
+  if (!respuesta.ok) {
+    return null;
+  }
+  const sesion = respuesta.data.sessions?.find((s) => s.id === sid);
+  if (!sesion) {
+    return null;
+  }
+  return {
+    numero: sesion.jid?.split(/[:@]/)[0]?.trim() || null,
+    nombre: sesion.name?.trim() || null,
+    conectado: sesion.state === "open" && sesion.paired !== false,
+  };
 }
 
 export type WaCallsEstado = {

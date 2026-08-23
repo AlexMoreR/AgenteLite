@@ -1,4 +1,4 @@
-import { BellRing, KanbanSquare, MessageSquareReply, Power, Smartphone, TimerReset, UserRound, Volume2 } from "lucide-react";
+import { BellRing, KanbanSquare, MessageSquareReply, PhoneCall, Power, Smartphone, TimerReset, UserRound, Volume2 } from "lucide-react";
 import {
   saveAgentReactivationMessageAction,
   saveAgentResponseDelayAction,
@@ -25,6 +25,8 @@ import { ChannelCollaboratorsForm } from "./ChannelCollaboratorsForm";
 import { ChannelAdRoutingForm } from "@/features/conexion/components/ChannelAdRoutingForm";
 import { OfficialApiConnectionSetupCard } from "./OfficialApiConnectionSetupCard";
 import { RegenerateInstanceButton } from "./RegenerateInstanceButton";
+import { BotonVincularLlamadas } from "./VincularLlamadasDialog";
+import type { WaCallsEstado } from "@/lib/wacalls";
 
 type WhatsAppBusinessConnectionWorkspaceProps = {
   connection: {
@@ -67,6 +69,8 @@ type WhatsAppBusinessConnectionWorkspaceProps = {
   }>;
   collaboratorMembers?: Array<{ id: string; name: string | null; email: string }>;
   collaboratorIds?: string[];
+  /** Estado de la linea de llamadas de ESTE canal, o null si todavia no tiene. */
+  estadoLlamadas?: WaCallsEstado | null;
   pausedAssignmentIds?: string[];
   // Regla "los leads de esta campana son de tal persona" (por titulo del anuncio).
   adRoutingKeywords?: string[];
@@ -93,6 +97,7 @@ export function WhatsAppBusinessConnectionWorkspace({
   availableAgents,
   collaboratorMembers = [],
   collaboratorIds = [],
+  estadoLlamadas = null,
   pausedAssignmentIds = [],
   adRoutingKeywords = [],
   adRoutingUserIds = [],
@@ -235,6 +240,41 @@ export function WhatsAppBusinessConnectionWorkspace({
                 {connection.feedsCrm
                   ? "Los contactos de este número entran al embudo, al Kanban y a las métricas."
                   : "Número administrativo: los chats se siguen viendo, pero sus contactos no entran al CRM."}
+              </p>
+            </CardContent>
+          </Card>
+
+          {/*
+            Las llamadas se vinculan POR CANAL, con su propio QR.
+            
+            Al principio habia una sola linea global y todas las llamadas salian de ese numero:
+            alguien que venia chateando con Ventas 1 recibia la llamada desde el administrativo y
+            no reconocia quien lo llamaba. Vinculada aca, la llamada sale del MISMO numero de la
+            conversacion.
+          */}
+          <Card>
+            <CardContent className="space-y-2.5">
+              <div className="flex items-center justify-between gap-3">
+                <p className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
+                  <PhoneCall className="size-4 text-primary" />
+                  <span>Llamadas</span>
+                </p>
+                {estadoLlamadas?.conectado && estadoLlamadas.numero ? (
+                  <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-300">
+                    <span className="inline-block size-1.5 rounded-full bg-emerald-500" aria-hidden="true" />
+                    <span className="tabular-nums">{estadoLlamadas.numero}</span>
+                  </span>
+                ) : (
+                  <BotonVincularLlamadas
+                    channelId={connection.id}
+                    etiqueta={estadoLlamadas ? "Reconectar" : "Conectar llamadas"}
+                  />
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {estadoLlamadas?.conectado
+                  ? "Las llamadas desde los chats de este canal salen de este número."
+                  : "Vinculá un WhatsApp con su QR para poder llamar desde los chats de este canal."}
               </p>
             </CardContent>
           </Card>

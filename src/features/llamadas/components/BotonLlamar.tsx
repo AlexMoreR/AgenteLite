@@ -22,16 +22,20 @@ export function BotonLlamar({
   telefono,
   nombre,
   avatarUrl,
+  channelId,
 }: {
   /** Número marcable, o null si el contacto solo tiene un LID de WhatsApp. */
   telefono: string | null;
   nombre: string;
   avatarUrl?: string | null;
+  /** Canal del chat: la llamada sale por SU numero, el mismo con el que el cliente viene hablando. */
+  channelId?: string | null;
 }) {
   // Se desestructura en vez de guardar el objeto entero: la referencia del audio va aparte de
   // los valores que sí se leen al dibujar, y así no parece que estuvieramos mirando una
   // referencia durante el render.
   const { estado, silenciado, segundos, llamar, colgar, alternarSilencio, audioRef } = useLlamada({
+    channelId,
     onError: (mensaje) => toast.error(mensaje),
   });
 

@@ -12,6 +12,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AD_CAMPAIGN_ROUTING_METADATA_KEY } from "@/lib/ad-campaign-routing";
 import { leerColaboradores, leerPausadosDeReparto } from "@/lib/channel-collaborators";
+import { getEstadoDeCanal } from "@/lib/wacalls";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -103,6 +104,9 @@ async function ConnectionDetailContent({
       ? (detail.channel.metadata as Record<string, unknown>)
       : {};
   const collaboratorIds = leerColaboradores(channelMetadata);
+  // Estado de la linea de llamadas de ESTE canal. Si no responde da null y la tarjeta ofrece
+  // vincular, que es lo unico accionable cuando no se sabe nada de ella.
+  const estadoLlamadas = detail.channel?.id ? await getEstadoDeCanal(detail.channel.id) : null;
   const pausedAssignmentIds = leerPausadosDeReparto(channelMetadata);
   // Regla de campana: a quien le tocan los leads que entran por un anuncio.
   const adRouting = channelMetadata[AD_CAMPAIGN_ROUTING_METADATA_KEY];
@@ -152,6 +156,7 @@ async function ConnectionDetailContent({
       collaboratorMembers={collaboratorMembers}
       collaboratorIds={collaboratorIds}
       pausedAssignmentIds={pausedAssignmentIds}
+      estadoLlamadas={estadoLlamadas}
       adRoutingKeywords={adRoutingKeywords}
       adRoutingUserIds={adRoutingUserIds}
       canConnectEvolutionApi={!isChannelAlreadyEvolutionApi}

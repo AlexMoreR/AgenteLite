@@ -5,12 +5,9 @@ import type { ReactNode } from "react";
 
 export function ConnectionsTabsShell({
   conexiones,
-  llamadas,
   action,
 }: {
   conexiones: ReactNode;
-  /** La linea de llamadas. Null cuando el servicio no esta configurado o no responde. */
-  llamadas?: ReactNode;
   action?: ReactNode;
 }) {
   return (
@@ -23,9 +20,6 @@ export function ConnectionsTabsShell({
 
       {conexiones}
 
-      {/* Las llamadas van DESPUES de los canales de chat: son la conexion que menos se toca, y
-          arriba empujarian hacia abajo lo que la gente viene a mirar todos los dias. */}
-      {llamadas ? <div className="px-6 pb-6">{llamadas}</div> : null}
     </div>
   );
 }

@@ -27,6 +27,7 @@ export type LoadedAgentConversationDetail = {
     avatarUrl: string | null;
   };
   channel: {
+    id: string;
     evolutionInstanceName: string | null;
   } | null;
   messages: AgentConversationMessageRecord[];
@@ -126,6 +127,8 @@ export async function loadAgentConversationDetail(input: {
         },
         channel: {
           select: {
+            // El id hace falta para saber por que numero sale una llamada hecha desde este chat.
+            id: true,
             evolutionInstanceName: true,
           },
         },

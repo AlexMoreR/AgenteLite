@@ -3,7 +3,14 @@ import QRCode from "qrcode";
 
 import { auth } from "@/auth";
 import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
-import { getWaCallsBaseUrl, getWaCallsSessionId, waCallsRequest } from "@/lib/wacalls";
+import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
+import {
+  WACALLS_SESSION_METADATA_KEY,
+  getWaCallsBaseUrl,
+  getWaCallsSessionIdForChannel,
+  waCallsRequest,
+} from "@/lib/wacalls";
 
 export const dynamic = "force-dynamic";
 
@@ -36,38 +43,90 @@ async function verificarPermiso() {
   return { ok: true as const };
 }
 
-export async function POST() {
+export async function POST(request: Request) {
   const permiso = await verificarPermiso();
   if ("error" in permiso) {
     return permiso.error;
   }
 
-  const sid = await getWaCallsSessionId();
+  const { channelId } = (await request.json().catch(() => ({}))) as { channelId?: string };
+  if (!channelId) {
+    return NextResponse.json({ error: "Falta el canal" }, { status: 400 });
+  }
+
+  const canal = await prisma.whatsAppChannel.findUnique({
+    where: { id: channelId },
+    select: { id: true, name: true, metadata: true },
+  });
+  if (!canal) {
+    return NextResponse.json({ error: "Canal no encontrado" }, { status: 404 });
+  }
+
+  const sid = await getWaCallsSessionIdForChannel(channelId);
 
   /**
-   * Si no hay ninguna línea todavía se crea una; si ya existe, se le pide un QR nuevo.
+   * Si el canal todavía no tiene línea de llamadas se le crea una CON SU NOMBRE; si ya la tiene,
+   * se le pide un QR nuevo.
    *
    * No se borra ni se recrea la existente a proposito: la sesión guarda el historial de llamadas,
    * y volver a vincular el mismo número no tiene por qué costarle eso a nadie.
    */
-  const respuesta = sid
-    ? await waCallsRequest<unknown>({ path: `/api/sessions/${sid}/pair`, method: "POST" })
-    : await waCallsRequest<{ id?: string }>({
-        path: "/api/sessions",
-        method: "POST",
-        body: { name: "Llamadas" },
-      });
-
-  if (!respuesta.ok) {
-    return NextResponse.json({ error: respuesta.error }, { status: respuesta.status });
+  if (sid) {
+    const respuesta = await waCallsRequest<unknown>({
+      path: `/api/sessions/${sid}/pair`,
+      method: "POST",
+    });
+    if (!respuesta.ok) {
+      return NextResponse.json({ error: respuesta.error }, { status: respuesta.status });
+    }
+    return NextResponse.json({ ok: true, sid });
   }
-  return NextResponse.json({ ok: true });
+
+  const creada = await waCallsRequest<{ id?: string }>({
+    path: "/api/sessions",
+    method: "POST",
+    body: { name: canal.name || "Llamadas" },
+  });
+  if (!creada.ok) {
+    return NextResponse.json({ error: creada.error }, { status: creada.status });
+  }
+  const nuevo = creada.data.id?.trim();
+  if (!nuevo) {
+    return NextResponse.json({ error: "El servicio no devolvió la línea." }, { status: 502 });
+  }
+
+  // Se guarda EN EL CANAL: es lo que después permite que la llamada salga del mismo número con
+  // el que el cliente viene chateando.
+  const base =
+    canal.metadata && typeof canal.metadata === "object" && !Array.isArray(canal.metadata)
+      ? (canal.metadata as Record<string, unknown>)
+      : {};
+  await prisma.whatsAppChannel.update({
+    where: { id: canal.id },
+    data: {
+      metadata: { ...base, [WACALLS_SESSION_METADATA_KEY]: nuevo } as Prisma.InputJsonValue,
+    },
+  });
+
+  return NextResponse.json({ ok: true, sid: nuevo });
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const permiso = await verificarPermiso();
   if ("error" in permiso) {
     return permiso.error;
+  }
+
+  /**
+   * De que linea es el QR que estamos esperando.
+   *
+   * Con varias lineas vinculadas, el canal de eventos trae las novedades de TODAS. Sin filtrar,
+   * la pantalla podia mostrar el QR de otro canal —o darse por vinculada porque se conecto uno
+   * distinto— y quedarse esperando para siempre.
+   */
+  const sidEsperado = new URL(request.url).searchParams.get("sid")?.trim() || "";
+  if (!sidEsperado) {
+    return NextResponse.json({ error: "Falta la linea" }, { status: 400 });
   }
 
   const base = getWaCallsBaseUrl();
@@ -109,10 +168,14 @@ export async function GET() {
         if (!linea.startsWith("data:")) {
           continue;
         }
-        let evento: { type?: string; qr?: string; paired?: boolean; state?: string };
+        let evento: { type?: string; sessionId?: string; qr?: string; paired?: boolean; state?: string };
         try {
           evento = JSON.parse(linea.slice(5).trim());
         } catch {
+          continue;
+        }
+
+        if (evento.sessionId && evento.sessionId !== sidEsperado) {
           continue;
         }
 

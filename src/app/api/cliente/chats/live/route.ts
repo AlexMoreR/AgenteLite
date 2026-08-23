@@ -282,6 +282,7 @@ export async function GET(request: Request) {
       // server component: solo los canales con instancia de Evolution guardan historial (evogo
       // responde 404), y sin esto el boton aparecia y fallaba en la cara de la asesora.
       crmStage: conversation.contact.crmStage ?? null,
+      channelId: conversation.channel?.id ?? null,
       canImportHistory: Boolean(conversation.channel?.evolutionInstanceName),
       messages,
     },

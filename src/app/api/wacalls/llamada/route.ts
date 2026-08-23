@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { auth } from "@/auth";
 import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
-import { getWaCallsSessionId, waCallsRequest } from "@/lib/wacalls";
+import { getWaCallsSessionId, getWaCallsSessionIdForChannel, waCallsRequest } from "@/lib/wacalls";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +23,8 @@ type Accion = "iniciar" | "webrtc" | "colgar" | "silenciar";
 
 type Cuerpo = {
   accion?: Accion;
+  /** Canal del chat desde donde se llama: define POR QUE numero sale la llamada. */
+  channelId?: string;
   phone?: string;
   callId?: string;
   sdpOffer?: string;
@@ -48,10 +50,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Datos inválidos" }, { status: 400 });
   }
 
-  const sid = await getWaCallsSessionId();
+  /**
+   * La linea con la que se marca es la DEL CANAL del chat, para que al cliente le entre la
+   * llamada desde el mismo numero con el que viene hablando. Solo si no se sabe de que canal
+   * viene —marcar desde una pantalla que no lo conoce— se cae a cualquier linea vinculada.
+   */
+  const sid =
+    (await getWaCallsSessionIdForChannel(cuerpo.channelId ?? null)) ?? (await getWaCallsSessionId());
   if (!sid) {
     return NextResponse.json(
-      { error: "La línea de llamadas no está conectada." },
+      { error: "Este canal todavía no tiene línea de llamadas. Vinculala en Conexión." },
       { status: 503 },
     );
   }
