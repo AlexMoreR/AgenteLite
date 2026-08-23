@@ -4,6 +4,7 @@ import { PhoneCall, Smartphone } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import type { WaCallsEstado } from "@/lib/wacalls";
+import { BotonVincularLlamadas } from "./VincularLlamadasDialog";
 
 /**
  * La línea de llamadas, junto a las conexiones de WhatsApp.
@@ -56,13 +57,22 @@ export function CallsConnectionCard({ estado }: { estado: WaCallsEstado }) {
           </div>
         </div>
 
-        {/* Link envolviendo al Button, no <Button asChild>: este Button es de Base UI y con
-            asChild el build local pasa pero el de Docker falla. Ya nos costó un despliegue. */}
-        <Link href="/cliente/llamadas" className="shrink-0">
-          <Button size="sm" variant="outline">
-            Ver llamadas
-          </Button>
-        </Link>
+        {/*
+          Sin número vinculado el boton lleva al QR, no a la lista: entrar a Llamadas cuando la
+          linea esta caida no resuelve nada, y era justo lo que habia que poder hacer desde aca.
+
+          Link envolviendo al Button y no <Button asChild>: este Button es de Base UI y con
+          asChild el build local pasa pero el de Docker falla. Ya nos costó un despliegue.
+        */}
+        {estado.conectado && estado.numero ? (
+          <Link href="/cliente/llamadas" className="shrink-0">
+            <Button size="sm" variant="outline">
+              Ver llamadas
+            </Button>
+          </Link>
+        ) : (
+          <BotonVincularLlamadas etiqueta={estado.numero ? "Reconectar" : "Vincular"} />
+        )}
       </CardContent>
     </Card>
   );

@@ -142,9 +142,15 @@ export async function getWaCallsEstado(): Promise<WaCallsEstado | null> {
     const payload = (await response.json()) as {
       sessions?: Array<{ name?: string; jid?: string; state?: string; paired?: boolean }>;
     };
+    /**
+     * Sin ninguna línea creada la tarjeta se muestra IGUAL, vacía y con el botón de vincular.
+     *
+     * Devolver null acá la escondía, y entonces no había desde dónde vincular la primera línea:
+     * el único lugar para hacerlo desaparecía justo cuando hacía falta.
+     */
     const sesion = payload.sessions?.[0];
     if (!sesion) {
-      return null;
+      return { numero: null, nombre: null, conectado: false };
     }
 
     // El jid viene como "573046481994:24@s.whatsapp.net": el número es lo de antes de los dos
