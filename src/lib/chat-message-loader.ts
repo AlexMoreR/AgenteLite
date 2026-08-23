@@ -249,12 +249,7 @@ async function conLlamadas(input: {
   }
 
   const comoMensajes: AgentConversationMessageRecord[] = llamadas.map((llamada) => {
-    const texto = llamada.summary?.trim() || "";
-    // Las llamadas cargadas a mano no traen el texto con formato; se les arma uno para que se
-    // vean igual que las automaticas en vez de quedar mudas en el chat.
-    const contenido = /^llamada\s+(entrante|saliente)/i.test(texto)
-      ? texto
-      : `Llamada saliente · ${texto || llamada.result.replace(/_/g, " ")}`;
+    const contenido = comoNotaDeLlamada(llamada.summary, llamada.result);
 
     return {
       id: `llamada:${llamada.id}`,
@@ -275,4 +270,31 @@ async function conLlamadas(input: {
     const diff = izq.createdAt.getTime() - der.createdAt.getTime();
     return diff !== 0 ? diff : izq.id.localeCompare(der.id);
   });
+}
+
+/**
+ * El texto de la nota de llamada en el chat.
+ *
+ * Tiene que empezar con "Llamada saliente/entrante" porque es lo que el chat reconoce para
+ * dibujarla con su iconito. Ademas normaliza los registros VIEJOS: los primeros que escribio el
+ * buzon decian "Llamada atendida ... (WaCalls)", con el nombre del servicio colgando y un
+ * "Llamada" que quedaba repetido al anteponerle la cabecera. El nombre del programa no le dice
+ * nada a la asesora: lo que necesita saber es si hablaron y cuanto.
+ */
+function comoNotaDeLlamada(summary: string | null, result: string): string {
+  const texto = (summary ?? "")
+    .replace(/\s*\([^)]*wacalls[^)]*\)\s*$/i, "")
+    .trim();
+
+  if (/^llamada\s+(entrante|saliente)/i.test(texto)) {
+    return texto;
+  }
+
+  if (/^el cliente llam/i.test(texto)) {
+    return `Llamada entrante · ${texto.replace(/^el cliente llamó y /i, "").trim() || "perdida"}`;
+  }
+
+  // "Llamada atendida · 15s" → "Llamada saliente · atendida · 15s"
+  const sinCabecera = texto.replace(/^llamada\s+/i, "").trim();
+  return `Llamada saliente · ${sinCabecera || result.replace(/_/g, " ")}`;
 }
