@@ -487,10 +487,8 @@ export function WhatsAppBusinessConnectionWorkspace({
 
               <div className="rounded-lg border border-dashed border-border bg-muted/30 p-4">
                 <p className="text-sm font-medium text-foreground">¿El QR no funciona o no aparece?</p>
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                  Crea una cuenta nueva para este canal con un QR nuevo. Tus chats, contactos, CRM,
-                  etiquetas y el agente vinculado se conservan; solo tendrás que volver a escanear.
-                </p>
+                {/* La explicacion larga se saco: el titulo ya dice cuando usar esto y el boton
+                    dice que hace. Tres renglones de letra chica que nadie lee. */}
                 <div className="mt-3">
                   <RegenerateInstanceButton channelId={connection.id} returnTo={connectionReturnTo} />
                 </div>
