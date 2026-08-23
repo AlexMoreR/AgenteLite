@@ -4,10 +4,9 @@ import Link from "next/link";
 
 import { useCallback, useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Phone, MessageCircle, Search, Clock, AlertTriangle } from "lucide-react";
+import { Phone, MessageCircle, Search, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { ContactAvatar } from "@/components/chats/contact-avatar";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -686,14 +685,19 @@ export function LlamadasWorkspace({
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-5">
-      <div className="mb-4 flex items-center justify-between gap-2">
-        <div>
-          <h1 className="text-lg font-semibold">Llamadas</h1>
-          <p className="flex items-center gap-1 text-xs text-muted-foreground">
-            <Clock className="h-3 w-3" /> A quién llamar hoy y qué pasó la última vez.
-          </p>
-        </div>
-        <Button onClick={() => openRegister(null)}>Registrar llamada</Button>
+      {/*
+        Sin titulo ni bajada: el encabezado de la app ya dice "Llamadas" dos centimetros mas
+        arriba, y la bajada explicaba una pantalla que se explica sola.
+
+        "Registrar llamada" queda, pero en secundario: desde que WaCalls las anota solas, cargar
+        una a mano es la excepcion —una hecha desde el celular, o una vieja que hay que meter
+        retroactiva—, y en azul competia con el trabajo de verdad, que es clasificar las que ya
+        estan.
+      */}
+      <div className="mb-4 flex justify-end">
+        <Button variant="outline" size="sm" onClick={() => openRegister(null)}>
+          Registrar llamada
+        </Button>
       </div>
 
       {/* "Resumen" lo ve CUALQUIERA (cada una manda el suyo); "Tablero" solo el dueño. */}
