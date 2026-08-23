@@ -21,14 +21,11 @@ export function BotonLlamar({
   telefono,
   nombre,
   avatarUrl,
-  compacto = false,
 }: {
   /** Número marcable, o null si el contacto solo tiene un LID de WhatsApp. */
   telefono: string | null;
   nombre: string;
   avatarUrl?: string | null;
-  /** En el menú de tres puntos el botón va con texto, no como ícono suelto. */
-  compacto?: boolean;
 }) {
   // Se desestructura en vez de guardar el objeto entero: la referencia del audio va aparte de
   // los valores que sí se leen al dibujar, y así no parece que estuvieramos mirando una
@@ -53,14 +50,9 @@ export function BotonLlamar({
         disabled={ocupada}
         title={ocupada ? "Ya hay una llamada en curso" : `Llamar a ${nombre}`}
         aria-label={`Llamar a ${nombre}`}
-        className={
-          compacto
-            ? "inline-flex items-center gap-2 rounded-xl px-2 py-2 text-[13px] font-medium text-foreground transition hover:bg-muted disabled:opacity-40"
-            : "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sky-600 transition hover:bg-muted disabled:opacity-40"
-        }
+        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sky-600 transition hover:bg-muted disabled:opacity-40"
       >
         <Phone className="h-4 w-4" />
-        {compacto ? <span>Llamar</span> : null}
       </button>
 
       <PanelDeLlamada

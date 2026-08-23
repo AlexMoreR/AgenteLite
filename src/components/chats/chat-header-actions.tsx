@@ -71,7 +71,11 @@ export function ChatHeaderActions({
       </div>
 
       {/* Variante 3 PUNTOS — visible cuando la cabecera es angosta (panel abierto o móvil). */}
-      <div className="@min-[520px]/chathdr:hidden">
+      {/* En el celular "Llamar" NO se esconde en los tres puntos: es la accion mas frecuente
+          leyendo un chat, y sepultarla a dos toques la volvia invisible. Va suelta, a la
+          izquierda del menu, igual que en WhatsApp. */}
+      <div className="flex items-center gap-0.5 @min-[520px]/chathdr:hidden">
+        <BotonLlamar telefono={telefono} nombre={nombreContacto} avatarUrl={avatarUrl} />
         <Popover>
           <PopoverTrigger asChild>
             <button
@@ -90,14 +94,6 @@ export function ChatHeaderActions({
             className="w-64 rounded-2xl border border-border bg-popover p-2 shadow-[0_24px_60px_-24px_rgba(15,23,42,0.35)]"
           >
             <div className="space-y-0.5">
-              {telefono ? (
-                <BotonLlamar
-                  telefono={telefono}
-                  nombre={nombreContacto}
-                  avatarUrl={avatarUrl}
-                  compacto
-                />
-              ) : null}
               {contactId ? (
                 <div className="flex items-center justify-between gap-2 rounded-xl px-2 py-2">
                   <span className="text-[13px] font-medium text-foreground">Etapa</span>
