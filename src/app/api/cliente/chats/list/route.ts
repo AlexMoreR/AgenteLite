@@ -530,9 +530,16 @@ export async function GET(request: Request) {
   const limit = Math.max(1, Math.min(40, Number.parseInt(requestUrl.searchParams.get("limit") || "20", 10) || 20));
 
   const isManager = membership.role === "OWNER" || membership.role === "ADMIN";
+  /**
+   * Por defecto, LO MIO.
+   *
+   * Antes abria en "Todas": una asesora entraba a 1.800 conversaciones y tenia que filtrar a mano
+   * para encontrar las suyas, todos los dias. Ver el trabajo propio primero es lo que uno espera
+   * al abrir una bandeja; "Todas" sigue a un toque de distancia.
+   */
   const requestedFilterRaw = requestUrl.searchParams.get("assigned")?.trim() || "";
   let assignedFilter: "all" | "mine" | "unassigned" =
-    requestedFilterRaw === "mine" || requestedFilterRaw === "unassigned" ? requestedFilterRaw : "all";
+    requestedFilterRaw === "all" || requestedFilterRaw === "unassigned" ? requestedFilterRaw : "mine";
   // Los no-managers (empleados) solo pueden ver sus chats asignados: nunca "Todos" ni "Sin asignar".
   if (!isManager) {
     assignedFilter = "mine";

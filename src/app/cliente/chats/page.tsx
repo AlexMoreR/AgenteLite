@@ -235,9 +235,16 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       select: { chatSignature: true },
     })
   )?.chatSignature?.trim() ?? "";
+  /**
+   * Por defecto, LO MIO.
+   *
+   * Antes abria en "Todas": una asesora entraba a 1.800 conversaciones y tenia que filtrar a mano
+   * para encontrar las suyas, todos los dias. Ver el trabajo propio primero es lo que uno espera
+   * al abrir una bandeja; "Todas" sigue a un toque de distancia.
+   */
   const assignedParam = typeof params.assigned === "string" ? params.assigned.trim() : "";
   let assignedFilter: "all" | "mine" | "unassigned" =
-    assignedParam === "mine" || assignedParam === "unassigned" ? assignedParam : "all";
+    assignedParam === "all" || assignedParam === "unassigned" ? assignedParam : "mine";
   // Los no-managers (empleados) solo pueden ver sus chats asignados: nunca "Todos" ni "Sin asignar".
   if (!isManager) {
     assignedFilter = "mine";

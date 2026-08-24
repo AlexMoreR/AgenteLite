@@ -33,6 +33,9 @@ const ASSIGNED_FILTER_TABS: Array<{ value: AssignedFilter; label: string; manage
   { value: "all", label: "Todas", managerOnly: true },
 ];
 
+/** Las que se ven sin abrir el modal, en este orden. */
+const PASTILLAS_A_LA_VISTA = ["mine", "all"] as const;
+
 const STATUS_FILTER_OPTIONS: Array<{ value: StatusFilter; label: string }> = [
   { value: "all", label: "Todas" },
   { value: "open", label: "Abiertas" },
@@ -45,7 +48,7 @@ export function AppSidebar({
   searchAction,
   selectedConnectionKey = "",
   searchQuery = "",
-  assignedFilter = "all",
+  assignedFilter = "mine",
   statusFilter = "open",
   assignedCounts = null,
   isManager = false,
@@ -94,7 +97,7 @@ export function AppSidebar({
       if (selectedConnectionKey) params.set("connection", selectedConnectionKey);
       if (searchQuery.trim()) params.set("q", searchQuery.trim());
       // Los valores por defecto no van en la direccion: una URL corta se lee y se comparte mejor.
-      if (asignacion !== "all") params.set("assigned", asignacion);
+      if (asignacion !== "mine") params.set("assigned", asignacion);
       if (estado !== "open") params.set("status", estado);
       const qs = params.toString();
       router.push(qs ? `${searchAction}?${qs}` : searchAction, { scroll: false });
@@ -103,7 +106,7 @@ export function AppSidebar({
   );
 
   // El + se marca cuando NO estas en la vista por defecto: abiertas y sin filtro de asignacion.
-  const filtersActive = statusFilter !== "open" || (isManager && assignedFilter !== "all");
+  const filtersActive = statusFilter !== "open" || (isManager && assignedFilter !== "mine");
 
   const visibleTabs = ASSIGNED_FILTER_TABS.filter((tab) => isManager || !tab.managerOnly);
 
@@ -126,17 +129,37 @@ export function AppSidebar({
           */}
           <div className="flex items-center gap-2">
             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
-              {/* Azul de la marca y no verde suelto: es la pastilla que dice que estas mirando,
-                  y con el color del resto de la app se lee como parte de ella. */}
-              <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-transparent bg-primary px-3 py-1 text-[13px] font-medium text-primary-foreground">
-                <span aria-hidden="true">💬</span>
-                {ASSIGNED_FILTER_TABS.find((tab) => tab.value === assignedFilter)?.label ?? "Todas"}
-                {assignedCounts ? (
-                  <span className="text-[11px] font-semibold leading-none">
-                    {assignedCounts[assignedFilter]}
-                  </span>
-                ) : null}
-              </span>
+              {/*
+                "Mias" y "Todas" a la vista, con Mias primero: el trabajo de una asesora empieza
+                por lo suyo, y verlo requeria abrir el modal de filtros. La que esta activa va en
+                azul de la marca; la otra en contorno, para que se lea cual estas mirando.
+
+                "Sin asignar" sigue solo en el modal: es una vista de reparto, no del dia a dia.
+              */}
+              {(isManager ? PASTILLAS_A_LA_VISTA : (["mine"] as const)).map((valor) => {
+                const activa = assignedFilter === valor;
+                const tab = ASSIGNED_FILTER_TABS.find((item) => item.value === valor);
+                return (
+                  <button
+                    key={valor}
+                    type="button"
+                    onClick={() => aplicarFiltros(valor, statusFilter)}
+                    className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1 text-[13px] font-medium transition ${
+                      activa
+                        ? "border-transparent bg-primary text-primary-foreground"
+                        : "border-border text-muted-foreground hover:bg-muted"
+                    }`}
+                  >
+                    <span aria-hidden="true">{valor === "mine" ? "🙋" : "💬"}</span>
+                    {tab?.label ?? "Todas"}
+                    {assignedCounts ? (
+                      <span className="text-[11px] font-semibold leading-none">
+                        {assignedCounts[valor]}
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })}
 
               {/* El estado solo aparece cuando NO es el de siempre (Abiertas): si no, seria una
                   pastilla que dice lo mismo todos los dias y no informa nada. */}
@@ -232,7 +255,7 @@ export function AppSidebar({
                   <div className="mt-3 flex items-center justify-end gap-2">
                     <button
                       type="button"
-                      onClick={() => aplicarFiltros(isManager ? "all" : "mine", "open")}
+                      onClick={() => aplicarFiltros("mine", "open")}
                       className="rounded-md px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground transition hover:text-foreground"
                     >
                       Limpiar
