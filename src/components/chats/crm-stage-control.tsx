@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Check, ChevronDown, Target, X } from "lucide-react";
+import { ArrowLeft, Check, ChevronDown, MoreVertical, Target, X } from "lucide-react";
 import { updateCrmStageAction } from "@/app/actions/crm-actions";
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,14 @@ import type { CrmStage } from "@/features/crm/types";
 type CrmStageControlProps = {
   contactId: string;
   stage: CrmStage;
+  /**
+   * Como se abre el selector.
+   *
+   * "pill" es el boton de color con el nombre de la etapa (cabecera del chat). "menu" son tres
+   * puntos, para la lista de chats: ahi cada fila ya muestra la etapa debajo del avatar y un
+   * segundo boton de color al lado de la hora era repetir el dato y comerse el ancho.
+   */
+  variant?: "pill" | "menu";
 };
 
 // Color del punto indicador por etapa (consistente con los acentos del CRM).
@@ -34,7 +42,7 @@ const STAGE_BUTTON_CLASS: Record<CrmStage, string> = {
   PERDIDO: "bg-slate-400 hover:bg-slate-500",
 };
 
-export function CrmStageControl({ contactId, stage }: CrmStageControlProps) {
+export function CrmStageControl({ contactId, stage, variant = "pill" }: CrmStageControlProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [currentStage, setCurrentStage] = useState<CrmStage>(stage);
@@ -96,10 +104,24 @@ export function CrmStageControl({ contactId, stage }: CrmStageControlProps) {
       <DialogTrigger
         disabled={isPending}
         title={error ?? `Etapa CRM: ${currentLabel}`}
-        className={`inline-flex h-7 max-w-[160px] items-center gap-1.5 rounded-md px-2.5 text-[12px] font-medium text-white transition disabled:opacity-60 ${STAGE_BUTTON_CLASS[currentStage]}`}
+        className={
+          variant === "menu"
+            ? "inline-flex size-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:opacity-60"
+            : `inline-flex h-7 max-w-[160px] items-center gap-1.5 rounded-md px-2.5 text-[12px] font-medium text-white transition disabled:opacity-60 ${STAGE_BUTTON_CLASS[currentStage]}`
+        }
       >
-        <span className="truncate">{currentLabel}</span>
-        <ChevronDown className="h-3 w-3 shrink-0 opacity-80" />
+        {variant === "menu" ? (
+          <>
+            <MoreVertical className="size-4" />
+            <span className="sr-only">Cambiar la etapa de {currentLabel}</span>
+          </>
+        ) : null}
+        {variant === "menu" ? null : (
+          <>
+            <span className="truncate">{currentLabel}</span>
+            <ChevronDown className="h-3 w-3 shrink-0 opacity-80" />
+          </>
+        )}
       </DialogTrigger>
 
       {/* Modal con header y footer fijos; solo la lista de etapas scrollea. */}

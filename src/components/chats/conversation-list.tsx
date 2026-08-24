@@ -5,6 +5,7 @@ import Link from "next/link";
 import { BadgeCheck, Facebook, FileText, Image as ImageIcon, Instagram, LoaderCircle, Mic, Sticker, UserRound, Video } from "lucide-react";
 import { WhatsAppGlyph } from "@/components/icons/whatsapp-glyph";
 import { Badge } from "@/components/ui/badge";
+import { CrmStageControl } from "./crm-stage-control";
 import { TAG_BADGE_CLASS, getTagBadgeColors } from "@/lib/tag-badge";
 import { ContactAvatar } from "./contact-avatar";
 import { warmConversationCache } from "./chat-conversation-warmup";
@@ -125,7 +126,7 @@ function renderStageBadge(crmStage?: string | null) {
 
   return (
     <span
-      className={`inline-flex max-w-full items-center whitespace-nowrap rounded-full border px-1.5 py-[1px] text-[9px] font-semibold leading-[1.3] ${meta.borderClassName} ${meta.backgroundClassName} ${meta.accentClassName}`}
+      className={`inline-flex max-w-full items-center whitespace-nowrap rounded-full border px-2 py-[2px] text-[11px] font-semibold leading-[1.3] ${meta.borderClassName} ${meta.backgroundClassName} ${meta.accentClassName}`}
       title={`Etapa: ${meta.label}`}
     >
       {meta.label}
@@ -276,6 +277,28 @@ const ConversationListItem = memo(function ConversationListItem({
           >
             {conversation.lastMessageAt ? formatConversationTime(conversation.lastMessageAt) : ""}
           </span>
+          {/*
+            Cambiar la etapa sin abrir el chat: al repasar la bandeja uno ya sabe en que quedo
+            cada lead, y tener que entrar a cada uno para moverlo era el paso que no se hacia.
+
+            Va dentro de un <Link>, asi que el clic se corta aca: si no, tocar los tres puntos
+            abria la conversacion por debajo del modal.
+          */}
+          {conversation.contactId && conversation.crmStage ? (
+            <span
+              className="-mr-1 shrink-0"
+              onClick={(evento) => {
+                evento.preventDefault();
+                evento.stopPropagation();
+              }}
+            >
+              <CrmStageControl
+                contactId={conversation.contactId}
+                stage={conversation.crmStage as CrmStage}
+                variant="menu"
+              />
+            </span>
+          ) : null}
         </div>
 
         {/* Preview + contador de no leidos alineados a la derecha (patron WhatsApp):
