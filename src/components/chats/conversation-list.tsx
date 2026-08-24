@@ -2,13 +2,11 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import Link from "next/link";
-import { BadgeCheck, Facebook, FileText, Image as ImageIcon, Instagram, LoaderCircle, Mic, MoreVertical, Sticker, UserRound, Video } from "lucide-react";
+import { BadgeCheck, Facebook, FileText, Image as ImageIcon, Instagram, LoaderCircle, Mic, Sticker, UserRound, Video } from "lucide-react";
 import { WhatsAppGlyph } from "@/components/icons/whatsapp-glyph";
 import { Badge } from "@/components/ui/badge";
 import { CrmStageControl } from "./crm-stage-control";
-import { ResolveChatControl } from "./resolve-chat-control";
-import { SnoozeChatControl } from "./snooze-chat-control";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { ConversationRowMenu } from "./conversation-row-menu";
 import { TAG_BADGE_CLASS, getTagBadgeColors } from "@/lib/tag-badge";
 import { ContactAvatar } from "./contact-avatar";
 import { warmConversationCache } from "./chat-conversation-warmup";
@@ -149,56 +147,6 @@ const MAX_VISIBLE_TAGS = 2;
 // Muestra hasta MAX_VISIBLE_TAGS etiquetas en una sola fila. Se encogen y se cortan
 // (truncate) para compartir el ancho disponible; si hay más, agrega un badge "+N".
 
-/**
- * Los tres puntos de la fila: resolver y posponer sin abrir el chat.
- *
- * La etapa NO esta aca —se cambia tocando su chapita, que es lo que uno intenta al verla—. Lo
- * que queda son las dos salidas de la bandeja: "esto se termino" y "sigue, pero no hoy". Son las
- * que se toman repasando la lista, y hasta ahora obligaban a entrar a cada conversacion.
- *
- * Todo el menu corta el clic: la fila entera es un enlace al chat.
- */
-function AccionesDeFila({
-  conversationId,
-  contactId,
-  status,
-}: {
-  conversationId: string;
-  contactId: string;
-  status: "OPEN" | "PENDING" | "CLOSED" | "ARCHIVED";
-}) {
-  return (
-    <span
-      className="-mr-1 shrink-0"
-      onClick={(evento) => {
-        evento.preventDefault();
-        evento.stopPropagation();
-      }}
-    >
-      <Popover>
-        <PopoverTrigger
-          className="inline-flex size-7 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground"
-          aria-label="Acciones de la conversación"
-          title="Acciones"
-        >
-          <MoreVertical className="size-4" />
-        </PopoverTrigger>
-        <PopoverContent
-          align="end"
-          side="bottom"
-          sideOffset={6}
-          className="w-auto rounded-2xl border border-border bg-popover p-2 shadow-[0_24px_60px_-24px_rgba(15,23,42,0.35)]"
-        >
-          <div className="flex items-center gap-2">
-            <ResolveChatControl conversationId={conversationId} status={status} />
-            <SnoozeChatControl contactId={contactId} conversationId={conversationId} />
-          </div>
-        </PopoverContent>
-      </Popover>
-    </span>
-  );
-}
-
 function ConversationTagsRow({
   tags,
   conversationId,
@@ -318,7 +266,11 @@ const ConversationListItem = memo(function ConversationListItem({
         }`}
       />
 
-      <div className="flex flex-col items-center gap-1">
+      {/*
+        Columna del avatar. La etapa va abajo con mt-auto: asi cae en la MISMA linea horizontal
+        que la fila de etiquetas de la derecha, en vez de flotar a media altura.
+      */}
+      <div className="flex flex-col items-center gap-1 self-stretch">
         <div className="relative size-12 shrink-0">
           <ContactAvatar
             avatarUrl={conversation.avatarUrl}
@@ -334,6 +286,25 @@ const ConversationListItem = memo(function ConversationListItem({
           ) : null}
         </div>
 
+        {/* Al tocar la etapa se elige la nueva: es lo que uno intenta al verla. El clic se corta
+            porque la fila entera es un enlace al chat. */}
+        {conversation.contactId && CRM_STAGE_META[(conversation.crmStage ?? "").trim() as CrmStage] ? (
+          <span
+            className="mt-auto"
+            onClick={(evento) => {
+              evento.preventDefault();
+              evento.stopPropagation();
+            }}
+          >
+            <CrmStageControl
+              contactId={conversation.contactId}
+              stage={(conversation.crmStage ?? "").trim() as CrmStage}
+              variant="chip"
+            />
+          </span>
+        ) : (
+          <span className="mt-auto">{renderStageBadge(conversation.crmStage)}</span>
+        )}
       </div>
 
       <div className="min-w-0 space-y-[1px] overflow-hidden">
@@ -367,13 +338,13 @@ const ConversationListItem = memo(function ConversationListItem({
             Va dentro de un <Link>, asi que el clic se corta aca: si no, tocar los tres puntos
             abria la conversacion por debajo del modal.
           */}
-          {conversation.contactId ? (
-            <AccionesDeFila
-              conversationId={conversation.id}
-              contactId={conversation.contactId}
-              status={conversation.status ?? "OPEN"}
-            />
-          ) : null}
+          <ConversationRowMenu
+            conversationId={conversation.id}
+            contactId={conversation.contactId ?? null}
+            phoneNumber={conversation.secondaryLabel ?? null}
+            status={conversation.status ?? "OPEN"}
+            chatHref={conversation.href}
+          />
         </div>
 
         {/* Preview + contador de no leidos alineados a la derecha (patron WhatsApp):
