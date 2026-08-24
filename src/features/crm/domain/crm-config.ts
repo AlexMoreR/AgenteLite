@@ -45,12 +45,20 @@ export const CRM_STAGE_META: Record<CrmStage, CrmStageMeta> = {
     borderClassName: "border-emerald-300",
     backgroundClassName: "bg-emerald-50",
   },
+  /**
+   * Descartado va en ROJO, no en violeta.
+   *
+   * Compartia color con "Nuevo" y en una lista de leads eran la misma chapita lila: la etapa que
+   * dice "esto se perdio" y la que dice "esto recien llega" tienen que distinguirse de un
+   * vistazo. Se usa `red` y no `rose` para que tampoco se confunda con "Caliente", que es el
+   * rosado de al lado, y el fondo va un tono mas fuerte para que se lea como un alto.
+   */
   PERDIDO: {
     value: "PERDIDO",
     label: "Descartado",
-    accentClassName: "text-violet-700",
-    borderClassName: "border-violet-200",
-    backgroundClassName: "bg-violet-50",
+    accentClassName: "text-red-700",
+    borderClassName: "border-red-300",
+    backgroundClassName: "bg-red-100",
   },
 };
 

@@ -25,7 +25,7 @@ const SENTIMENT: Record<string, { face: string; label: string; tone: string }> =
 
 const STAGE_TONE: Record<string, string> = {
   GANADO: "bg-emerald-100 text-emerald-700",
-  PERDIDO: "bg-rose-100 text-rose-700",
+  PERDIDO: "bg-red-100 text-red-700",
   NUEVO: "bg-sky-100 text-sky-700",
 };
 

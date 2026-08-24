@@ -29,7 +29,7 @@ const STAGE_DOT_CLASS: Record<CrmStage, string> = {
   PROPUESTA: "bg-amber-500",
   NEGOCIACION: "bg-rose-500",
   GANADO: "bg-emerald-500",
-  PERDIDO: "bg-slate-400",
+  PERDIDO: "bg-red-600",
 };
 
 // Color de relleno del botón por etapa.
@@ -39,7 +39,7 @@ const STAGE_BUTTON_CLASS: Record<CrmStage, string> = {
   PROPUESTA: "bg-amber-500 hover:bg-amber-600",
   NEGOCIACION: "bg-rose-500 hover:bg-rose-600",
   GANADO: "bg-emerald-500 hover:bg-emerald-600",
-  PERDIDO: "bg-slate-400 hover:bg-slate-500",
+  PERDIDO: "bg-red-600 hover:bg-red-700",
 };
 
 export function CrmStageControl({ contactId, stage, variant = "pill" }: CrmStageControlProps) {
