@@ -150,46 +150,22 @@ const MAX_VISIBLE_TAGS = 2;
 function ConversationTagsRow({
   tags,
   conversationId,
-  contactId,
-  crmStage,
 }: {
   tags: NonNullable<SharedInboxConversationItem["tags"]>;
   conversationId: string;
-  contactId: string | null;
-  crmStage: string | null;
 }) {
   const visibleTags = tags.slice(0, MAX_VISIBLE_TAGS);
   const hidden = tags.length - visibleTags.length;
-  const stage = (crmStage ?? "").trim() as CrmStage;
-  const puedeCambiarEtapa = Boolean(contactId && CRM_STAGE_META[stage]);
 
-  if (!visibleTags.length && !crmStage) {
+  // La etapa NO va aca: vive debajo del avatar, alineada con esta misma fila. Estuvo un rato en
+  // los dos lugares y se veia dos veces por conversacion.
+  if (!visibleTags.length) {
     return null;
   }
 
   return (
     <div className="pt-0.5">
       <div className="flex flex-nowrap items-center gap-1 overflow-hidden">
-        {/*
-          La etapa va PRIMERA y en la misma fila que las etiquetas: es el mismo tipo de dato -una
-          chapita del estado del lead- y debajo del avatar quedaba en una columna aparte, lejos de
-          lo demas. Al tocarla se elige la etapa; es lo que uno intenta hacer al verla.
-
-          El clic se corta aca porque la fila entera es un enlace al chat.
-        */}
-        {puedeCambiarEtapa && contactId ? (
-          <span
-            className="shrink-0"
-            onClick={(evento) => {
-              evento.preventDefault();
-              evento.stopPropagation();
-            }}
-          >
-            <CrmStageControl contactId={contactId} stage={stage} variant="chip" />
-          </span>
-        ) : (
-          renderStageBadge(crmStage)
-        )}
         {visibleTags.map((tag) => (
           <Badge
             key={`${conversationId}:${tag.label}`}
@@ -362,12 +338,7 @@ const ConversationListItem = memo(function ConversationListItem({
           ) : null}
         </div>
 
-        <ConversationTagsRow
-          tags={conversation.tags ?? []}
-          conversationId={conversation.id}
-          contactId={conversation.contactId ?? null}
-          crmStage={conversation.crmStage ?? null}
-        />
+        <ConversationTagsRow tags={conversation.tags ?? []} conversationId={conversation.id} />
       </div>
     </Link>
   );
