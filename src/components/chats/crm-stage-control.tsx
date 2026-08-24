@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Check, ChevronDown, MoreVertical, Target, X } from "lucide-react";
+import { ArrowLeft, Check, ChevronDown, Target, X } from "lucide-react";
 import { updateCrmStageAction } from "@/app/actions/crm-actions";
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -15,11 +15,11 @@ type CrmStageControlProps = {
   /**
    * Como se abre el selector.
    *
-   * "pill" es el boton de color con el nombre de la etapa (cabecera del chat). "menu" son tres
-   * puntos, para la lista de chats: ahi cada fila ya muestra la etapa debajo del avatar y un
-   * segundo boton de color al lado de la hora era repetir el dato y comerse el ancho.
+   * "pill" es el boton de color con el nombre de la etapa (cabecera del chat). "chip" es la
+   * chapita chica que va en la fila de etiquetas de la lista de chats: ahi tiene que verse como
+   * una etiqueta mas, no como un boton, pero se toca y abre el mismo selector.
    */
-  variant?: "pill" | "menu";
+  variant?: "pill" | "chip";
 };
 
 // Color del punto indicador por etapa (consistente con los acentos del CRM).
@@ -105,23 +105,13 @@ export function CrmStageControl({ contactId, stage, variant = "pill" }: CrmStage
         disabled={isPending}
         title={error ?? `Etapa CRM: ${currentLabel}`}
         className={
-          variant === "menu"
-            ? "inline-flex size-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:opacity-60"
+          variant === "chip"
+            ? `inline-flex max-w-full shrink-0 items-center whitespace-nowrap rounded-full border px-2 py-[2px] text-[11px] font-semibold leading-[1.3] transition disabled:opacity-60 ${CRM_STAGE_META[currentStage].borderClassName} ${CRM_STAGE_META[currentStage].backgroundClassName} ${CRM_STAGE_META[currentStage].accentClassName}`
             : `inline-flex h-7 max-w-[160px] items-center gap-1.5 rounded-md px-2.5 text-[12px] font-medium text-white transition disabled:opacity-60 ${STAGE_BUTTON_CLASS[currentStage]}`
         }
       >
-        {variant === "menu" ? (
-          <>
-            <MoreVertical className="size-4" />
-            <span className="sr-only">Cambiar la etapa de {currentLabel}</span>
-          </>
-        ) : null}
-        {variant === "menu" ? null : (
-          <>
-            <span className="truncate">{currentLabel}</span>
-            <ChevronDown className="h-3 w-3 shrink-0 opacity-80" />
-          </>
-        )}
+        <span className="truncate">{currentLabel}</span>
+        {variant === "chip" ? null : <ChevronDown className="h-3 w-3 shrink-0 opacity-80" />}
       </DialogTrigger>
 
       {/* Modal con header y footer fijos; solo la lista de etapas scrollea. */}

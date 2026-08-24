@@ -28,6 +28,8 @@ export type SharedInboxConversationItem = {
   assignedToName?: string | null;
   // Etapa del CRM del contacto, para mostrar el badge de etapa en la fila de la lista.
   crmStage?: string | null;
+  // Abierta o resuelta: el menu de la fila necesita saberlo para ofrecer "Resolver" o "Reabrir".
+  status?: "OPEN" | "PENDING" | "CLOSED" | "ARCHIVED" | null;
   lastMessage: string | null;
   lastMessageType?: SharedInboxMessageItem["type"] | null;
   lastMessageDirection?: "INBOUND" | "OUTBOUND" | null;

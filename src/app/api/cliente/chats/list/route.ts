@@ -228,6 +228,8 @@ async function getAgentConversationList(input: {
       id: true,
       agentId: true,
       channelId: true,
+      // Abierta o resuelta: el menu de cada fila ofrece "Resolver" o "Reabrir" segun esto.
+      status: true,
       assignedToUserId: true,
       assignedTo: { select: { name: true, email: true } },
       activeProductContext: true,
@@ -447,6 +449,7 @@ async function getAgentConversationList(input: {
         : getAgentContactLabel(conversation.contact),
       secondaryLabel: conversation.contact.phoneNumber,
       crmStage: conversation.contact.crmStage ?? null,
+      status: conversation.status ?? null,
       tags,
       avatarUrl: conversation.contact.avatarUrl ?? null,
       incomingCount: agentIncomingCountById.get(conversation.id) ?? 0,
