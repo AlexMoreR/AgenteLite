@@ -941,7 +941,7 @@ export const ConversationPanel = memo(function ConversationPanel({
             Pestañas del chat. "Cotizaciones" todavia no existe: se deja armada la navegacion con
             un aviso, en vez de esconderla hasta que este lista, para que se vea a donde va esto.
           */}
-          <div className="flex shrink-0 items-center gap-4 border-b border-border px-3 md:px-5">
+          <div className="flex shrink-0 items-center gap-4 border-b border-border bg-card px-3 md:px-5">
             {(["mensajes", "cotizaciones"] as const).map((pestana) => {
               const activa = pestanaChat === pestana;
               return (
