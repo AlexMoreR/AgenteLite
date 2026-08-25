@@ -11,6 +11,7 @@ import {
   Camera,
   ChevronDown,
   Copy,
+  FileText,
   Headphones,
   ImageIcon,
   LoaderCircle,
@@ -168,6 +169,7 @@ export const ConversationPanel = memo(function ConversationPanel({
   const [pendingMediaFiles, setPendingMediaFiles] = useState<File[]>([]);
   const [isSuggestingReply, setIsSuggestingReply] = useState(false);
   const [emojiSearchQuery, setEmojiSearchQuery] = useState("");
+  const [pestanaChat, setPestanaChat] = useState<"mensajes" | "cotizaciones">("mensajes");
   const [emojiPickerTab, setEmojiPickerTab] = useState<ComposerEmojiTab>("todos");
   const [recentComposerEmojis, setRecentComposerEmojis] = useState<string[]>([]);
   const [recentComposerEmojisReady, setRecentComposerEmojisReady] = useState(false);
@@ -935,7 +937,42 @@ export const ConversationPanel = memo(function ConversationPanel({
             </div>
           </div>
 
+          {/*
+            Pestañas del chat. "Cotizaciones" todavia no existe: se deja armada la navegacion con
+            un aviso, en vez de esconderla hasta que este lista, para que se vea a donde va esto.
+          */}
+          <div className="flex shrink-0 items-center gap-4 border-b border-border px-3 md:px-5">
+            {(["mensajes", "cotizaciones"] as const).map((pestana) => {
+              const activa = pestanaChat === pestana;
+              return (
+                <button
+                  key={pestana}
+                  type="button"
+                  onClick={() => setPestanaChat(pestana)}
+                  aria-current={activa ? "page" : undefined}
+                  className={`-mb-px border-b-2 px-1 py-2 text-[13px] font-medium transition ${
+                    activa
+                      ? "border-primary text-foreground"
+                      : "border-transparent text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {pestana === "mensajes" ? "Mensajes" : "Cotizaciones"}
+                </button>
+              );
+            })}
+          </div>
+
           <div className="relative flex min-h-0 flex-1 flex-col bg-transparent">
+            {pestanaChat === "cotizaciones" ? (
+              <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-2 bg-background px-6 text-center">
+                <FileText className="size-8 text-muted-foreground" />
+                <p className="text-sm font-medium text-foreground">Cotizaciones</p>
+                <p className="max-w-xs text-xs text-muted-foreground">
+                  En desarrollo. Acá vas a poder armarle la cotización al cliente y mandársela por
+                  este mismo chat.
+                </p>
+              </div>
+            ) : null}
             <div className="relative min-h-0 flex-1">
               <div
                 ref={messagesScrollRef}
