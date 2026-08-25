@@ -213,3 +213,89 @@ export async function createContactAction(formData: FormData): Promise<CreateCon
 
   return { ok: true, contactId: created.id };
 }
+
+/**
+ * Abrir el chat de un contacto, aunque nunca haya escrito.
+ *
+ * Hasta ahora solo se podia responder a quien escribia primero: un numero cargado a mano —el que
+ * te pasan por telefono, el del cliente que llamo— no tenia como recibir un mensaje desde la app,
+ * y la asesora terminaba escribiendole desde su WhatsApp personal. Ahi el mensaje no queda
+ * registrado, el lead no cambia de etapa y nadie mas se entera de que lo trabajaron.
+ *
+ * Si el contacto ya tiene conversacion se devuelve esa; si no, se crea vacia sobre el canal de
+ * ventas conectado. Una conversacion sin mensajes se dibuja bien (dice "Sin mensajes visibles
+ * aun") y se llena en cuanto se manda el primero.
+ */
+export async function abrirConversacionConContactoAction(
+  contactId: string,
+): Promise<{ conversationId?: string; error?: string }> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { error: "No autorizado" };
+  }
+  await requireClientWorkspaceAccess("chats");
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    return { error: "Workspace no encontrado" };
+  }
+  const workspaceId = membership.workspace.id;
+
+  const contacto = await prisma.contact.findFirst({
+    where: { id: contactId.trim(), workspaceId },
+    select: { id: true },
+  });
+  if (!contacto) {
+    return { error: "Contacto no encontrado" };
+  }
+
+  // La mas reciente: si el contacto escribio alguna vez, se sigue esa conversacion en vez de
+  // abrir una nueva al lado y partir el historial en dos.
+  const existente = await prisma.conversation.findFirst({
+    where: { workspaceId, contactId: contacto.id },
+    orderBy: { lastMessageAt: { sort: "desc", nulls: "last" } },
+    select: { id: true },
+  });
+  if (existente) {
+    return { conversationId: existente.id };
+  }
+
+  /**
+   * Por que canal sale. Se elige uno CONECTADO y de ventas: mandar por un numero apagado deja el
+   * mensaje en la nada, y hacerlo por el administrativo le muestra al cliente un numero que no
+   * reconoce.
+   */
+  const canalDeVentas = await prisma.whatsAppChannel.findFirst({
+    where: { workspaceId, status: "CONNECTED", purpose: "SALES" },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, agentId: true },
+  });
+  // Sin ninguno de ventas conectado se usa el que haya: es preferible que el mensaje salga por un
+  // numero raro a que la asesora no pueda escribir.
+  const canal =
+    canalDeVentas ??
+    (await prisma.whatsAppChannel.findFirst({
+      where: { workspaceId, status: "CONNECTED" },
+      orderBy: { createdAt: "asc" },
+      select: { id: true, agentId: true },
+    }));
+  if (!canal) {
+    return { error: "No hay ningún canal de WhatsApp conectado para enviar el mensaje." };
+  }
+
+  const creada = await prisma.conversation.create({
+    data: {
+      workspaceId,
+      contactId: contacto.id,
+      channelId: canal.id,
+      agentId: canal.agentId,
+      // Queda a nombre de quien la abre: la escribio ella, es suya.
+      assignedToUserId: session.user.id,
+      status: "OPEN",
+    },
+    select: { id: true },
+  });
+
+  revalidatePath("/cliente/chats");
+  return { conversationId: creada.id };
+}

@@ -3,9 +3,10 @@
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useFormStatus } from "react-dom";
-import { Activity, AlarmClock, BarChart3, Facebook, Instagram, Loader2, Music2, Plus, SquarePen, StickyNote, Trash2 } from "lucide-react";
+import { Activity, AlarmClock, BarChart3, Facebook, Instagram, Loader2, MessageCircle, Music2, Plus, SquarePen, StickyNote, Trash2 } from "lucide-react";
 import { deleteContactAction } from "@/app/actions/chats-actions";
-import { updateContactDetailsAction } from "@/app/actions/contactos-actions";
+import { abrirConversacionConContactoAction, updateContactDetailsAction } from "@/app/actions/contactos-actions";
+import { toast } from "sonner";
 import { ContactAvatar } from "@/components/chats/contact-avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -257,9 +258,13 @@ function formatRelative(value: string | null) {
 // detalle: header y footer fijos, cuerpo scrolleable (por ahora solo avatar,
 // nombre y numero; el detalle crecera aqui pieza por pieza).
 export function ContactosCardsList({ contacts }: { contacts: ContactosCardItem[] }) {
+  const router = useRouter();
   const [selected, setSelected] = useState<ContactosCardItem | null>(null);
   const [activeTab, setActiveTab] = useState<DetailTabKey>("editar");
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  // Abrir el chat del contacto: navega, asi que conviene avisar que algo esta pasando.
+  const [abriendoChat, setAbriendoChat] = useState(false);
+  const [, startTransitionChat] = useTransition();
   // El boton "Guardar cambios" vive en el footer, fuera del form, asi que el estado de
   // guardado lo reporta el form hacia aqui.
   const [isSavingContact, setIsSavingContact] = useState(false);
@@ -416,15 +421,48 @@ export function ContactosCardsList({ contacts }: { contacts: ContactosCardItem[]
               </div>
 
               <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t p-4">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setConfirmDeleteOpen(true)}
-                  className="border-destructive/30 text-destructive hover:bg-destructive/5 hover:text-destructive"
-                >
-                  <Trash2 className="h-4 w-4" />
-                  Eliminar
-                </Button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setConfirmDeleteOpen(true)}
+                    className="border-destructive/30 text-destructive hover:bg-destructive/5 hover:text-destructive"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Eliminar
+                  </Button>
+                  {/*
+                    Escribirle a un numero cargado a mano. Sin esto solo se podia responder a quien
+                    escribia primero, y la asesora terminaba usando su WhatsApp personal: ahi el
+                    mensaje no queda registrado y nadie se entera de que trabajo ese lead.
+                  */}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={abriendoChat}
+                    onClick={() => {
+                      setAbriendoChat(true);
+                      startTransitionChat(async () => {
+                        const resultado = await abrirConversacionConContactoAction(selected.id);
+                        setAbriendoChat(false);
+                        if (resultado.error || !resultado.conversationId) {
+                          toast.error(resultado.error ?? "No se pudo abrir el chat.");
+                          return;
+                        }
+                        router.push(
+                          `/cliente/chats?chatKey=${encodeURIComponent(`agent:${resultado.conversationId}`)}`,
+                        );
+                      });
+                    }}
+                  >
+                    {abriendoChat ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <MessageCircle className="h-4 w-4" />
+                    )}
+                    Enviar mensaje
+                  </Button>
+                </div>
                 {/* Fuera del <form>: lo envia por su atributo `form`. Asi la accion
                     principal queda siempre visible sin tener que bajar el scroll. */}
                 {activeTab === "editar" ? (
