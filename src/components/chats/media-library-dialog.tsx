@@ -317,8 +317,13 @@ export function MediaLibraryDialog({
 
           {/* En grilla y con tapa, como Drive: los catalogos se reconocen por la portada mucho
               antes que por el titulo, y aca todos empiezan igual ("CATALOGO ..."). Una lista de
-              renglones obliga a leer ocho nombres parecidos para encontrar uno. */}
-          <div className="grid min-h-0 flex-1 grid-cols-2 content-start gap-2 overflow-y-auto sm:max-h-[48vh]">
+              renglones obliga a leer ocho nombres parecidos para encontrar uno.
+
+              El pb-6 es para el celular: al llegar al final, la ultima fila quedaba cortada por la
+              mitad y no bajaba mas. En Chrome de Android la barra de direcciones aparece y
+              desaparece, y el alto de la ventana cambia bajo los pies del scroll; ese colchon deja
+              que la ultima fila entre entera igual. */}
+          <div className="grid min-h-0 flex-1 grid-cols-2 content-start gap-2 overflow-y-auto pb-6 sm:max-h-[48vh] sm:pb-2">
             {cargando ? (
               <p className="col-span-2 p-4 text-center text-xs text-muted-foreground">Abriendo…</p>
             ) : visibles.length === 0 ? (
