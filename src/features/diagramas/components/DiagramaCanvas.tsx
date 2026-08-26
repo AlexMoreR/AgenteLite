@@ -173,6 +173,9 @@ export function DiagramaCanvas({
         id: `idea-${Date.now()}-${Math.round(Math.random() * 1000)}`,
         type: "idea",
         position: centro,
+        // Ancho inicial comodo para escribir. Despues se puede achicar hasta el tamano del texto
+        // con la manija de la esquina: el minimo del nodo es chico a proposito.
+        style: { width: 180 },
         data: { texto: "" },
       };
       setNodes((actuales) => [...actuales, nuevo]);

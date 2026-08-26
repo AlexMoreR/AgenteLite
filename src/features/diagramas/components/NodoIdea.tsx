@@ -91,7 +91,12 @@ export function NodoIdea({
 
   return (
     <div
-      className={`group relative flex size-full min-h-[52px] min-w-[150px] flex-col rounded-xl border px-3 py-2 shadow-sm transition ${cajaDelColor(
+      /*
+        Los minimos son chicos a proposito: la caja tiene que poder achicarse hasta el tamano de
+        lo que dice. Un minimo comodo para escribir se logra con el ancho INICIAL de las cajas
+        nuevas, no impidiendo que se achiquen despues.
+      */
+      className={`group relative flex size-full min-h-[30px] min-w-[56px] flex-col rounded-xl border px-2.5 py-1.5 shadow-sm transition ${cajaDelColor(
         data?.color,
       )} ${selected ? "ring-1 ring-primary/40" : ""}`}
     >
@@ -217,8 +222,8 @@ export function NodoIdea({
       {selected ? (
         <NodeResizeControl
           position="bottom-right"
-          minWidth={150}
-          minHeight={52}
+          minWidth={56}
+          minHeight={30}
           style={{ background: "transparent", border: "none" }}
         >
           <span className="absolute -bottom-1 -right-1 size-3 cursor-nwse-resize rounded-sm border-b-2 border-r-2 border-muted-foreground/60" />
