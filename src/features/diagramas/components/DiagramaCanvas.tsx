@@ -156,6 +156,17 @@ export function DiagramaCanvas({
     [programarGuardado, setNodes],
   );
 
+  /** El color de una idea. Va en su `data`, asi viaja con el resto del guardado. */
+  const cambiarColor = useCallback(
+    (idNodo: string, color: string) => {
+      setNodes((actuales) =>
+        actuales.map((nodo) => (nodo.id === idNodo ? { ...nodo, data: { ...nodo.data, color } } : nodo)),
+      );
+      programarGuardado();
+    },
+    [programarGuardado, setNodes],
+  );
+
   const borrarNodo = useCallback(
     (idNodo: string) => {
       setNodes((actuales) => actuales.filter((nodo) => nodo.id !== idNodo));
@@ -170,10 +181,15 @@ export function DiagramaCanvas({
   const tiposDeNodo = useMemo(
     () => ({
       idea: (props: NodeProps) => (
-        <NodoIdea {...props} onTexto={cambiarTexto} onBorrar={borrarNodo} />
+        <NodoIdea
+          {...props}
+          onTexto={cambiarTexto}
+          onColor={cambiarColor}
+          onBorrar={borrarNodo}
+        />
       ),
     }),
-    [borrarNodo, cambiarTexto],
+    [borrarNodo, cambiarColor, cambiarTexto],
   );
 
   return (

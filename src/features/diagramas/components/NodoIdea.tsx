@@ -4,6 +4,8 @@ import { useEffect, useRef } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { X } from "lucide-react";
 
+import { COLORES_DE_IDEA, cajaDelColor } from "./colores";
+
 /**
  * Una idea del mapa: una caja con texto que se escribe encima.
  *
@@ -18,9 +20,11 @@ export function NodoIdea({
   data,
   selected,
   onTexto,
+  onColor,
   onBorrar,
 }: NodeProps & {
   onTexto: (id: string, texto: string) => void;
+  onColor: (id: string, color: string) => void;
   onBorrar: (id: string) => void;
 }) {
   const texto = typeof data?.texto === "string" ? data.texto : "";
@@ -48,10 +52,33 @@ export function NodoIdea({
 
   return (
     <div
-      className={`group relative min-w-[150px] max-w-[240px] rounded-xl border bg-card px-3 py-2 shadow-sm transition ${
-        selected ? "border-primary ring-1 ring-primary/40" : "border-border"
-      }`}
+      className={`group relative min-w-[150px] max-w-[240px] rounded-xl border px-3 py-2 shadow-sm transition ${cajaDelColor(
+        data?.color,
+      )} ${selected ? "ring-1 ring-primary/40" : ""}`}
     >
+      {/*
+        La paleta aparece SOLO con la caja seleccionada. Seis puntitos permanentes en cada idea
+        convertian el mapa en una grilla de colorcitos y tapaban lo unico que importa, que es lo
+        que dice cada caja.
+      */}
+      {selected ? (
+        <div className="nodrag absolute -top-8 left-0 flex items-center gap-1 rounded-full border border-border bg-popover px-1.5 py-1 shadow-sm">
+          {COLORES_DE_IDEA.map((opcion) => (
+            <button
+              key={opcion.valor}
+              type="button"
+              onClick={() => onColor(id, opcion.valor)}
+              aria-label={opcion.nombre}
+              title={opcion.nombre}
+              className={`size-3.5 rounded-full border transition hover:scale-125 ${opcion.punto} ${
+                data?.color === opcion.valor || (!data?.color && opcion.valor === "neutro")
+                  ? "ring-1 ring-foreground/40 ring-offset-1"
+                  : ""
+              }`}
+            />
+          ))}
+        </div>
+      ) : null}
       {/* Los cuatro bordes conectan: un mapa mental crece para cualquier lado, y obligar a que las
           uniones salgan siempre de abajo lo endereza en un organigrama. */}
       <Handle type="target" position={Position.Top} className="!size-2 !bg-muted-foreground/50" />
