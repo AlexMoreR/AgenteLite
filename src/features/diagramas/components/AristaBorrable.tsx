@@ -1,6 +1,6 @@
 "use client";
 
-import { BaseEdge, EdgeLabelRenderer, getSmoothStepPath, type EdgeProps } from "@xyflow/react";
+import { BaseEdge, EdgeLabelRenderer, getStraightPath, type EdgeProps } from "@xyflow/react";
 import { X } from "lucide-react";
 
 /**
@@ -23,26 +23,23 @@ export function AristaBorrable({
   sourceY,
   targetX,
   targetY,
-  sourcePosition,
-  targetPosition,
   selected,
   markerEnd,
   style,
   onBorrar,
 }: EdgeProps & { onBorrar: (id: string) => void }) {
   /*
-    Lineas escalonadas y no curvas: en un mapa con varias ramas las curvas se cruzan entre si y
-    cuesta seguir cual sale de donde. Los angulos rectos, con la esquina apenas redondeada, se
-    leen como un diagrama de flujo.
+    Linea recta, punto a punto.
+    
+    Las curvas se cruzaban entre si con varias ramas. Las escalonadas arreglaban eso pero salen
+    rectas un tramo antes de girar, y con dos cajas cerca y apenas desalineadas ese tramo dibujaba
+    una Z que no lleva a ningun lado. La recta no tiene ese problema en ninguna distancia.
   */
-  const [camino, centroX, centroY] = getSmoothStepPath({
+  const [camino, centroX, centroY] = getStraightPath({
     sourceX,
     sourceY,
-    sourcePosition,
     targetX,
     targetY,
-    targetPosition,
-    borderRadius: 8,
   });
 
   return (
