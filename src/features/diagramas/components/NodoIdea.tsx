@@ -1,7 +1,13 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import { Handle, NodeResizeControl, Position, type NodeProps } from "@xyflow/react";
+import { useEffect, useMemo, useRef } from "react";
+import {
+  Handle,
+  NodeResizeControl,
+  Position,
+  useNodeConnections,
+  type NodeProps,
+} from "@xyflow/react";
 import { Bold, Copy, X } from "lucide-react";
 
 import { COLORES_DE_IDEA, cajaDelColor } from "./colores";
@@ -41,6 +47,27 @@ export function NodoIdea({
   onDuplicar: (id: string) => void;
   onBorrar: (id: string) => void;
 }) {
+  /**
+   * Qué puntos están realmente en uso.
+   *
+   * Los cuatro puntitos en cada caja ensuciaban el mapa: en un diagrama de veinte ideas son
+   * ochenta lunares compitiendo con el texto. Se muestran solo los que tienen una unión colgando;
+   * los demás aparecen al seleccionar la caja, que es cuando uno va a conectar algo.
+   */
+  const conexiones = useNodeConnections({ id });
+  const puntosEnUso = useMemo(() => {
+    const usados = new Set<string>();
+    for (const conexion of conexiones) {
+      if (conexion.source === id && conexion.sourceHandle) {
+        usados.add(conexion.sourceHandle.replace(/-(in|out)$/, ""));
+      }
+      if (conexion.target === id && conexion.targetHandle) {
+        usados.add(conexion.targetHandle.replace(/-(in|out)$/, ""));
+      }
+    }
+    return usados;
+  }, [conexiones, id]);
+
   const texto = typeof data?.texto === "string" ? data.texto : "";
   const icono = typeof data?.icono === "string" ? data.icono : "";
   const areaRef = useRef<HTMLTextAreaElement>(null);
@@ -169,22 +196,23 @@ export function NodoIdea({
         El de salida queda encima para que arrastrar empiece una unión; al soltar, la librería
         busca el conector válido más cercano.
       */}
-      {PUNTOS.map(({ posicion, clave }) => (
-        <div key={clave}>
-          <Handle
-            type="target"
-            id={`${clave}-in`}
-            position={posicion}
-            className="!size-2.5 !border-0 !bg-muted-foreground/40 transition hover:!bg-primary"
-          />
-          <Handle
-            type="source"
-            id={`${clave}-out`}
-            position={posicion}
-            className="!size-2.5 !border-0 !bg-muted-foreground/40 transition hover:!bg-primary"
-          />
-        </div>
-      ))}
+      {PUNTOS.map(({ posicion, clave }) => {
+        /*
+          Se esconden con opacidad y NO con display:none: invisible pero presente sigue sirviendo
+          para soltarle una union encima. Quitandolo del todo, arrastrar hacia una caja sin
+          seleccionar no enganchaba en ningun lado.
+        */
+        const visible = selected || puntosEnUso.has(clave);
+        const estilo = `!size-2.5 !border-0 !bg-muted-foreground/40 transition hover:!bg-primary ${
+          visible ? "opacity-100" : "opacity-0"
+        }`;
+        return (
+          <div key={clave}>
+            <Handle type="target" id={`${clave}-in`} position={posicion} className={estilo} />
+            <Handle type="source" id={`${clave}-out`} position={posicion} className={estilo} />
+          </div>
+        );
+      })}
 
       {/* overflow-auto: una vez que la caja tiene un tamano fijo puesto a mano, un texto largo
           se desbordaria por fuera del borde. Asi se desplaza adentro. */}
