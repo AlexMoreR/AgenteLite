@@ -206,6 +206,33 @@ export function DiagramaCanvas({
     [programarGuardado, setNodes],
   );
 
+  /**
+   * Copiar una idea con todo lo suyo: texto, ícono, color y tamaño.
+   *
+   * La copia cae corrida y queda SELECCIONADA, así se puede arrastrar o editar de una. Encimada
+   * sobre el original parecía que no había pasado nada.
+   */
+  const duplicarNodo = useCallback(
+    (idNodo: string) => {
+      setNodes((actuales) => {
+        const original = actuales.find((nodo) => nodo.id === idNodo);
+        if (!original) {
+          return actuales;
+        }
+        const copia: Node = {
+          ...original,
+          id: `idea-${Date.now()}-${Math.round(Math.random() * 1000)}`,
+          position: { x: original.position.x + 28, y: original.position.y + 28 },
+          data: { ...original.data },
+          selected: true,
+        };
+        return [...actuales.map((nodo) => ({ ...nodo, selected: false })), copia];
+      });
+      programarGuardado();
+    },
+    [programarGuardado, setNodes],
+  );
+
   const borrarArista = useCallback(
     (idArista: string) => {
       setEdges((actuales) => actuales.filter((arista) => arista.id !== idArista));
@@ -247,12 +274,20 @@ export function DiagramaCanvas({
     cambiarTexto,
     cambiarColor,
     cambiarIcono,
+    duplicarNodo,
     borrarNodo,
     borrarArista,
   });
   useEffect(() => {
-    manejadoresRef.current = { cambiarTexto, cambiarColor, cambiarIcono, borrarNodo, borrarArista };
-  }, [borrarArista, borrarNodo, cambiarColor, cambiarIcono, cambiarTexto]);
+    manejadoresRef.current = {
+      cambiarTexto,
+      cambiarColor,
+      cambiarIcono,
+      duplicarNodo,
+      borrarNodo,
+      borrarArista,
+    };
+  }, [borrarArista, borrarNodo, cambiarColor, cambiarIcono, cambiarTexto, duplicarNodo]);
 
   const tiposDeNodo = useMemo(
     () => ({
@@ -262,6 +297,7 @@ export function DiagramaCanvas({
           onTexto={(idNodo, texto) => manejadoresRef.current.cambiarTexto(idNodo, texto)}
           onColor={(idNodo, color) => manejadoresRef.current.cambiarColor(idNodo, color)}
           onIcono={(idNodo, icono) => manejadoresRef.current.cambiarIcono(idNodo, icono)}
+          onDuplicar={(idNodo) => manejadoresRef.current.duplicarNodo(idNodo)}
           onBorrar={(idNodo) => manejadoresRef.current.borrarNodo(idNodo)}
         />
       ),

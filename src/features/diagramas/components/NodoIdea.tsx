@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { Handle, NodeResizeControl, Position, type NodeProps } from "@xyflow/react";
-import { Bold, X } from "lucide-react";
+import { Bold, Copy, X } from "lucide-react";
 
 import { COLORES_DE_IDEA, cajaDelColor } from "./colores";
 import { ICONOS_DE_IDEA } from "./iconos";
@@ -32,11 +32,13 @@ export function NodoIdea({
   onTexto,
   onColor,
   onIcono,
+  onDuplicar,
   onBorrar,
 }: NodeProps & {
   onTexto: (id: string, texto: string) => void;
   onColor: (id: string, color: string) => void;
   onIcono: (id: string, icono: string) => void;
+  onDuplicar: (id: string) => void;
   onBorrar: (id: string) => void;
 }) {
   const texto = typeof data?.texto === "string" ? data.texto : "";
@@ -131,6 +133,15 @@ export function NodoIdea({
               className="flex size-6 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground"
             >
               <Bold className="size-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => onDuplicar(id)}
+              title="Copiar esta idea"
+              aria-label="Copiar esta idea"
+              className="flex size-6 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground"
+            >
+              <Copy className="size-3.5" />
             </button>
             <span className="mx-0.5 h-4 w-px bg-border" aria-hidden="true" />
             {COLORES_DE_IDEA.map((opcion) => (
