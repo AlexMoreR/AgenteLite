@@ -26,6 +26,7 @@ import {
   Wallet,
   Workflow,
   PhoneCall,
+  Share2,
   X,
 } from "lucide-react";
 import { adminUpdateUserModuleAccessAction } from "@/app/actions/auth-actions";
@@ -84,6 +85,7 @@ const moduleIconMap = {
   agents_v2: Workflow,
   products_v2: Package,
   llamadas: PhoneCall,
+  diagramas: Share2,
   client_official_api: MessageSquare,
   client_team: Users,
 } satisfies Record<AdminModuleKey, React.ComponentType<{ className?: string }>>;

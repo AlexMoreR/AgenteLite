@@ -18,6 +18,7 @@ import {
   MessageSquareMore,
   Package,
   PhoneCall,
+  Share2,
   Tags,
   Truck,
   UserCog,
@@ -70,6 +71,7 @@ const moduleIconMap: Record<AdminModuleKey, React.ComponentType> = {
   agents_v2: Workflow,
   products_v2: Package,
   llamadas: PhoneCall,
+  diagramas: Share2,
   client_official_api: MessageSquare,
   client_team: Users,
 }

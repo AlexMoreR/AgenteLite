@@ -147,6 +147,13 @@ export const adminModuleDefinitions = [
     group: "Cliente",
   },
   {
+    key: "diagramas",
+    label: "Diagramas",
+    description: "Mapas mentales para pensar el negocio. Cada quien ve solo los suyos.",
+    path: "/cliente/diagramas",
+    group: "Cliente",
+  },
+  {
     key: "client_official_api",
     label: "Api oficial (Cliente)",
     description: "Permite ver y operar el modulo Api oficial en el area cliente.",

@@ -8,33 +8,34 @@ datasource db {
 }
 
 model User {
-  id                   String            @id @default(cuid())
-  name                 String?
-  email                String            @unique
-  password             String
-  role                 Role              @default(CLIENTE)
-  image                String?
-  emailVerified        DateTime?
-  createdAt            DateTime          @default(now())
-  updatedAt            DateTime          @updatedAt
-  document             String?
-  phone                String?
-  address              String?
-  neighborhood         String?
-  department           String?
-  city                 String?
+  id                    String                @id @default(cuid())
+  name                  String?
+  email                 String                @unique
+  password              String
+  role                  Role                  @default(CLIENTE)
+  image                 String?
+  emailVerified         DateTime?
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+  document              String?
+  phone                 String?
+  address               String?
+  neighborhood          String?
+  department            String?
+  city                  String?
   // Firma que se agrega al final de los mensajes que esta persona escribe A MANO en los chats.
   // No aplica a los mensajes del agente: el bot no es una persona y firmar sus respuestas
   // confundiria al cliente sobre con quien esta hablando.
-  chatSignature        String?
-  emailAuthTokens      EmailAuthToken[]
-  quotesAsClient       Quote[]           @relation("QuoteClient")
-  quotesCreated        Quote[]           @relation("QuoteCreatedBy")
-  ownedWorkspaces      Workspace[]       @relation("WorkspaceOwner")
-  workspaceMemberships WorkspaceMember[]
-  assignedConversations Conversation[]   @relation("ConversationAssignee")
-  webPushSubscriptions WebPushSubscription[]
-  callAttempts         CallAttempt[]     @relation("CallAttemptCaller")
+  chatSignature         String?
+  emailAuthTokens       EmailAuthToken[]
+  quotesAsClient        Quote[]               @relation("QuoteClient")
+  quotesCreated         Quote[]               @relation("QuoteCreatedBy")
+  ownedWorkspaces       Workspace[]           @relation("WorkspaceOwner")
+  workspaceMemberships  WorkspaceMember[]
+  assignedConversations Conversation[]        @relation("ConversationAssignee")
+  webPushSubscriptions  WebPushSubscription[]
+  callAttempts          CallAttempt[]         @relation("CallAttemptCaller")
+  diagrams              Diagram[]             @relation("DiagramCreatedBy")
 }
 
 model EmailAuthToken {
@@ -53,45 +54,46 @@ model EmailAuthToken {
 }
 
 model Workspace {
-  id                   String                   @id @default(cuid())
-  name                 String
-  slug                 String                   @unique
-  ownerId              String?
-  isActive             Boolean                  @default(true)
-  createdAt            DateTime                 @default(now())
-  updatedAt            DateTime                 @updatedAt
-  planTier             WorkspacePlanTier?
-  planStartedAt        DateTime?
-  planExpiresAt        DateTime?
-  businessConfig       Json?
-  dailyReportEnabled    Boolean                 @default(false)
-  dailyReportRecipients String[]                @default([])
-  agents               Agent[]
-  agentCopilotMessages AgentCopilotMessage[]
-  contacts             Contact[]
-  ContactTag           ContactTag[]
-  contactMatches       ContactMatch[]
-  conversations        Conversation[]
-  dailyReports         DailyReport[]
-  financeAgentConfig   FinanceAgentConfig?
-  financeChatMessages  FinanceChatMessage[]
-  financeGoogleSheet   FinanceGoogleSheet?
-  financeTransactions  FinanceTransaction[]
-  followRules          FollowRule[]
-  follows              Follow[]
-  campaigns            Campaign[]
-  mediaLibrary         MediaLibraryItem[]
-  messages             Message[]
-  officialApiConfig    OfficialApiClientConfig?
-  quickReplies         QuickReply[]
-  Tag                  Tag[]
-  channels             WhatsAppChannel[]
-  owner                User?                    @relation("WorkspaceOwner", fields: [ownerId], references: [id])
-  memberships          WorkspaceMember[]
-  webPushSubscriptions WebPushSubscription[]
-  callAttempts         CallAttempt[]
-  playbookScripts      PlaybookScript[]
-  productPlaybooks     ProductPlaybook[]
+  id                    String                   @id @default(cuid())
+  name                  String
+  slug                  String                   @unique
+  ownerId               String?
+  isActive              Boolean                  @default(true)
+  createdAt             DateTime                 @default(now())
+  updatedAt             DateTime                 @updatedAt
+  planTier              WorkspacePlanTier?
+  planStartedAt         DateTime?
+  planExpiresAt         DateTime?
+  businessConfig        Json?
+  dailyReportEnabled    Boolean                  @default(false)
+  dailyReportRecipients String[]                 @default([])
+  agents                Agent[]
+  agentCopilotMessages  AgentCopilotMessage[]
+  contacts              Contact[]
+  ContactTag            ContactTag[]
+  contactMatches        ContactMatch[]
+  conversations         Conversation[]
+  dailyReports          DailyReport[]
+  financeAgentConfig    FinanceAgentConfig?
+  financeChatMessages   FinanceChatMessage[]
+  financeGoogleSheet    FinanceGoogleSheet?
+  financeTransactions   FinanceTransaction[]
+  followRules           FollowRule[]
+  follows               Follow[]
+  campaigns             Campaign[]
+  mediaLibrary          MediaLibraryItem[]
+  diagrams              Diagram[]
+  messages              Message[]
+  officialApiConfig     OfficialApiClientConfig?
+  quickReplies          QuickReply[]
+  Tag                   Tag[]
+  channels              WhatsAppChannel[]
+  owner                 User?                    @relation("WorkspaceOwner", fields: [ownerId], references: [id])
+  memberships           WorkspaceMember[]
+  webPushSubscriptions  WebPushSubscription[]
+  callAttempts          CallAttempt[]
+  playbookScripts       PlaybookScript[]
+  productPlaybooks      ProductPlaybook[]
 
   @@index([ownerId])
 }
@@ -109,19 +111,19 @@ model QuickReply {
 }
 
 model WorkspaceMember {
-  id          String              @id @default(cuid())
-  workspaceId String
-  userId      String
-  role        WorkspaceMemberRole @default(ADMIN)
-  moduleAccess Json?
-  isActive    Boolean             @default(true)
-  invitedAt   DateTime?
-  acceptedAt  DateTime?
+  id            String              @id @default(cuid())
+  workspaceId   String
+  userId        String
+  role          WorkspaceMemberRole @default(ADMIN)
+  moduleAccess  Json?
+  isActive      Boolean             @default(true)
+  invitedAt     DateTime?
+  acceptedAt    DateTime?
   deactivatedAt DateTime?
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime            @updatedAt
-  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  workspace   Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  user          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace     Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@unique([workspaceId, userId])
   @@index([userId])
@@ -196,37 +198,37 @@ model WhatsAppChannel {
 }
 
 model Contact {
-  id            String         @id @default(cuid())
-  workspaceId   String
-  name          String?
-  phoneNumber   String
-  email         String?
-  notes         String?
-  aiSummary     String?
-  aiSummaryAt   DateTime?
-  excludedFromCrm Boolean      @default(false)
-  metadata      Json?
-  crmStage      CrmStage       @default(NUEVO)
+  id                 String              @id @default(cuid())
+  workspaceId        String
+  name               String?
+  phoneNumber        String
+  email              String?
+  notes              String?
+  aiSummary          String?
+  aiSummaryAt        DateTime?
+  excludedFromCrm    Boolean             @default(false)
+  metadata           Json?
+  crmStage           CrmStage            @default(NUEVO)
   // Fecha REAL de la venta (dia del pago). Solo tiene sentido con crmStage = GANADO. Se setea al
   // marcar Ganado (desde Llamadas = la fecha del intento que lo cerro, o desde el kanban = la
   // fecha elegida). Es la fuente de verdad para "ganado hoy" en el reporte y para la tarjeta del
   // kanban, en vez de deducirlo de updatedAt/ultima actividad (que fechaba mal las ventas).
-  wonAt         DateTime?
+  wonAt              DateTime?
   // Por que se perdio el lead. Solo tiene sentido con crmStage = PERDIDO. Es texto y no enum a
   // proposito: las razones son de negocio y cambian (hoy precio/desconfianza/sin dinero/decide
   // otro/comparando/no responde/otro), y un enum obligaria a migrar la BD de produccion cada vez
   // que Alex quiera agregar una. Los valores validos viven en crm-config.
-  lostReason    String?
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  avatarUrl     String?
-  workspace     Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  ContactTag    ContactTag[]
-  contactMatches ContactMatch[]
-  conversations Conversation[]
-  messages      Message[]
-  follows       Follow[]
-  callAttempts  CallAttempt[]
+  lostReason         String?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  avatarUrl          String?
+  workspace          Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  ContactTag         ContactTag[]
+  contactMatches     ContactMatch[]
+  conversations      Conversation[]
+  messages           Message[]
+  follows            Follow[]
+  callAttempts       CallAttempt[]
   campaignRecipients CampaignRecipient[]
 
   @@unique([workspaceId, phoneNumber])
@@ -235,39 +237,39 @@ model Contact {
 }
 
 model Conversation {
-  id                 String             @id @default(cuid())
-  workspaceId        String
-  agentId            String?
-  channelId          String?
-  contactId          String
-  assignedToUserId   String?
-  status             ConversationStatus @default(OPEN)
-  lastMessageAt      DateTime?
+  id                      String             @id @default(cuid())
+  workspaceId             String
+  agentId                 String?
+  channelId               String?
+  contactId               String
+  assignedToUserId        String?
+  status                  ConversationStatus @default(OPEN)
+  lastMessageAt           DateTime?
   autoReplyBatchStartedAt DateTime?
   autoReplyBatchDueAt     DateTime?
   autoReplyBatchToken     String?
-  autoReplyBuffer    Json?
-  startedAt          DateTime           @default(now())
-  closedAt           DateTime?
-  createdAt          DateTime           @default(now())
-  updatedAt          DateTime           @updatedAt
-  automationPaused   Boolean            @default(false)
-  automationPausedAt DateTime?
-  activeProductContext Json?
-  commercialContext  Json?
+  autoReplyBuffer         Json?
+  startedAt               DateTime           @default(now())
+  closedAt                DateTime?
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
+  automationPaused        Boolean            @default(false)
+  automationPausedAt      DateTime?
+  activeProductContext    Json?
+  commercialContext       Json?
   /// En que etapa del embudo del producto viene la conversacion, cuantos mensajes lleva ahi y si
   /// ya se aviso. Se guarda aparte del commercialContext (que lo reescribe el motor en cada
   /// turno) para que el contador no se pierda.
-  funnelStage        String?
-  funnelStageCount   Int                @default(0)
-  funnelNotifiedAt   DateTime?
-  agent              Agent?             @relation(fields: [agentId], references: [id])
-  channel            WhatsAppChannel?   @relation(fields: [channelId], references: [id])
-  contact            Contact            @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  workspace          Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  assignedTo         User?              @relation("ConversationAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
-  messages           Message[]
-  contactMatches     ContactMatch[]
+  funnelStage             String?
+  funnelStageCount        Int                @default(0)
+  funnelNotifiedAt        DateTime?
+  agent                   Agent?             @relation(fields: [agentId], references: [id])
+  channel                 WhatsAppChannel?   @relation(fields: [channelId], references: [id])
+  contact                 Contact            @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  workspace               Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assignedTo              User?              @relation("ConversationAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  messages                Message[]
+  contactMatches          ContactMatch[]
 
   @@index([workspaceId, status])
   @@index([workspaceId, assignedToUserId])
@@ -305,19 +307,19 @@ model Product {
 }
 
 model AgentKnowledgeProduct {
-  agentId              String
-  productId            String
-  createdAt            DateTime @default(now())
-  instructions         String?
-  funnelOpening        String?
-  funnelQualification  String?
-  funnelPresentation   String?
-  funnelFaq            String?
-  funnelClosing        String?
-  followUpFlowId       String?
-  updatedAt            DateTime @updatedAt
-  agent        Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
-  product      Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  agentId             String
+  productId           String
+  createdAt           DateTime @default(now())
+  instructions        String?
+  funnelOpening       String?
+  funnelQualification String?
+  funnelPresentation  String?
+  funnelFaq           String?
+  funnelClosing       String?
+  followUpFlowId      String?
+  updatedAt           DateTime @updatedAt
+  agent               Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  product             Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@id([agentId, productId])
   @@index([productId])
@@ -437,36 +439,36 @@ model QuoteItem {
 }
 
 model Message {
-  id             String           @id @default(cuid())
-  workspaceId    String
-  conversationId String
-  channelId      String?
-  contactId      String?
-  agentId        String?
-  externalId     String?
-  direction      MessageDirection
-  type           MessageType      @default(TEXT)
-  status         MessageStatus    @default(RECEIVED)
-  content        String?
-  mediaUrl       String?
-  editedAt       DateTime?
-  deletedAt      DateTime?
+  id                String           @id @default(cuid())
+  workspaceId       String
+  conversationId    String
+  channelId         String?
+  contactId         String?
+  agentId           String?
+  externalId        String?
+  direction         MessageDirection
+  type              MessageType      @default(TEXT)
+  status            MessageStatus    @default(RECEIVED)
+  content           String?
+  mediaUrl          String?
+  editedAt          DateTime?
+  deletedAt         DateTime?
   // Reaccion del CLIENTE sobre este mensaje (👍 ❤️ …), como la muestra WhatsApp: pegada a la
   // burbuja, no como un mensaje aparte. Null = sin reaccion (o la quito).
-  reactionEmoji  String?
-  rawPayload     Json?
-  isStatusBroadcast Boolean        @default(false)
-  sentAt         DateTime?
-  deliveredAt    DateTime?
-  readAt         DateTime?
-  failedAt       DateTime?
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
-  agent          Agent?           @relation(fields: [agentId], references: [id])
-  channel        WhatsAppChannel? @relation(fields: [channelId], references: [id])
-  contact        Contact?         @relation(fields: [contactId], references: [id])
-  conversation   Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  workspace      Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  reactionEmoji     String?
+  rawPayload        Json?
+  isStatusBroadcast Boolean          @default(false)
+  sentAt            DateTime?
+  deliveredAt       DateTime?
+  readAt            DateTime?
+  failedAt          DateTime?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  agent             Agent?           @relation(fields: [agentId], references: [id])
+  channel           WhatsAppChannel? @relation(fields: [channelId], references: [id])
+  contact           Contact?         @relation(fields: [contactId], references: [id])
+  conversation      Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  workspace         Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@unique([channelId, externalId])
   @@index([workspaceId, createdAt])
@@ -521,25 +523,25 @@ model OfficialApiContact {
 }
 
 model OfficialApiConversation {
-  id               String                        @id @default(cuid())
-  configId         String
-  contactId        String
-  externalThreadId String?
-  status           OfficialApiConversationStatus @default(OPEN)
-  lastMessageAt    DateTime?
-  createdAt        DateTime                      @default(now())
-  updatedAt        DateTime                      @updatedAt
+  id                   String                        @id @default(cuid())
+  configId             String
+  contactId            String
+  externalThreadId     String?
+  status               OfficialApiConversationStatus @default(OPEN)
+  lastMessageAt        DateTime?
+  createdAt            DateTime                      @default(now())
+  updatedAt            DateTime                      @updatedAt
   activeProductContext Json?
-  commercialContext Json?
-  automationPaused   Boolean                     @default(false)
-  automationPausedAt DateTime?
+  commercialContext    Json?
+  automationPaused     Boolean                       @default(false)
+  automationPausedAt   DateTime?
   // Asesora que atiende este chat. Sin esto, todo lo que entraba por el canal oficial salia
   // como "Sin asignar" y el equipo no se lo podia repartir como hace en el canal viejo.
   // Se guarda el id suelto (sin relacion) porque las consultas de la bandeja son SQL crudo.
-  assignedToUserId   String?
-  config           OfficialApiClientConfig       @relation(fields: [configId], references: [id], onDelete: Cascade)
-  contact          OfficialApiContact            @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  messages         OfficialApiMessage[]
+  assignedToUserId     String?
+  config               OfficialApiClientConfig       @relation(fields: [configId], references: [id], onDelete: Cascade)
+  contact              OfficialApiContact            @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  messages             OfficialApiMessage[]
 
   @@unique([configId, externalThreadId])
   @@index([configId, status, lastMessageAt])
@@ -695,42 +697,42 @@ model ContactTag {
 }
 
 model Tag {
-  id          String       @id
-  workspaceId String
-  name        String
-  slug        String
-  description String?
-  color       String       @default("slate")
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime
-  ContactTag  ContactTag[]
+  id             String         @id
+  workspaceId    String
+  name           String
+  slug           String
+  description    String?
+  color          String         @default("slate")
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime
+  ContactTag     ContactTag[]
   contactMatches ContactMatch[]
-  Workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  Workspace      Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@unique([workspaceId, slug])
   @@index([workspaceId, createdAt])
 }
 
 model ContactMatch {
-  id              String                @id @default(cuid())
-  workspaceId     String
-  contactId       String
-  conversationId  String?
-  tagId           String?
-  matchType       ContactMatchType
-  sourceType      ContactMatchSourceType
-  targetId        String?
-  targetName      String
-  targetSlug      String
-  dedupeKey       String
-  confidence      Int                   @default(100)
-  detectedAt      DateTime              @default(now())
-  createdAt       DateTime              @default(now())
-  updatedAt       DateTime              @updatedAt
-  workspace       Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  contact         Contact               @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  conversation    Conversation?         @relation(fields: [conversationId], references: [id], onDelete: SetNull)
-  tag             Tag?                  @relation(fields: [tagId], references: [id], onDelete: SetNull)
+  id             String                 @id @default(cuid())
+  workspaceId    String
+  contactId      String
+  conversationId String?
+  tagId          String?
+  matchType      ContactMatchType
+  sourceType     ContactMatchSourceType
+  targetId       String?
+  targetName     String
+  targetSlug     String
+  dedupeKey      String
+  confidence     Int                    @default(100)
+  detectedAt     DateTime               @default(now())
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  workspace      Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contact        Contact                @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  conversation   Conversation?          @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  tag            Tag?                   @relation(fields: [tagId], references: [id], onDelete: SetNull)
 
   @@unique([workspaceId, dedupeKey])
   @@index([workspaceId, contactId, detectedAt])
@@ -972,26 +974,26 @@ enum FollowProvider {
 }
 
 model FollowRule {
-  id              String            @id @default(cuid())
-  workspaceId     String
-  channelId       String?
-  name            String
-  sourceType      FollowSourceType
-  sourceId        String?
-  timeType        FollowTimeType
-  timeValue       Int
-  messageType     FollowMessageType
-  content         String?
-  mediaUrl        String?
-  actions         Json?
-  cancelOnActivity Boolean          @default(true)
-  provider        FollowProvider    @default(EVOLUTION)
-  isActive        Boolean           @default(true)
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
-  workspace       Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  channel         WhatsAppChannel?  @relation(fields: [channelId], references: [id], onDelete: SetNull)
-  follows         Follow[]
+  id               String            @id @default(cuid())
+  workspaceId      String
+  channelId        String?
+  name             String
+  sourceType       FollowSourceType
+  sourceId         String?
+  timeType         FollowTimeType
+  timeValue        Int
+  messageType      FollowMessageType
+  content          String?
+  mediaUrl         String?
+  actions          Json?
+  cancelOnActivity Boolean           @default(true)
+  provider         FollowProvider    @default(EVOLUTION)
+  isActive         Boolean           @default(true)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  workspace        Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  channel          WhatsAppChannel?  @relation(fields: [channelId], references: [id], onDelete: SetNull)
+  follows          Follow[]
 
   @@index([workspaceId, sourceType, sourceId])
   @@index([workspaceId, isActive])
@@ -999,7 +1001,7 @@ model FollowRule {
 }
 
 model Follow {
-  id               String           @id @default(cuid())
+  id               String            @id @default(cuid())
   workspaceId      String
   contactId        String
   name             String?
@@ -1012,20 +1014,20 @@ model Follow {
   content          String?
   mediaUrl         String?
   actions          Json?
-  status           FollowStatus     @default(PENDING)
-  provider         FollowProvider   @default(EVOLUTION)
-  cancelOnActivity Boolean          @default(true)
+  status           FollowStatus      @default(PENDING)
+  provider         FollowProvider    @default(EVOLUTION)
+  cancelOnActivity Boolean           @default(true)
   executionError   String?
   executedAt       DateTime?
   cancelledAt      DateTime?
   lockedAt         DateTime?
   lockedBy         String?
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
-  workspace        Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  contact          Contact          @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  followRule       FollowRule?      @relation(fields: [followRuleId], references: [id], onDelete: SetNull)
-  channel          WhatsAppChannel? @relation(fields: [channelId], references: [id], onDelete: SetNull)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  workspace        Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contact          Contact           @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  followRule       FollowRule?       @relation(fields: [followRuleId], references: [id], onDelete: SetNull)
+  channel          WhatsAppChannel?  @relation(fields: [channelId], references: [id], onDelete: SetNull)
 
   @@index([workspaceId, contactId, status, executeAt])
   @@index([workspaceId, status, executeAt])
@@ -1125,27 +1127,27 @@ model CallAttempt {
 /// a cada objecion. Es lo que se corrige cuando una venta se pierde, y por eso tiene que poder
 /// cambiar todos los dias sin volver a publicar el agente.
 model ProductPlaybook {
-  id          String                @id @default(cuid())
-  workspaceId String
-  productId   String
+  id            String                @id @default(cuid())
+  workspaceId   String
+  productId     String
   /// A quien le sirve este producto y a quien no. Es lo primero que cambia el tono: no se le
   /// habla igual a la dueña de un spa que a quien pregunta de curiosidad.
   /// Palabras que, dichas por el cliente, identifican a este producto ("camilla", "combo").
-  matchKeywords String[] @default([])
+  matchKeywords String[]              @default([])
   /// Titulos (o parte) de los anuncios que traen a este producto.
-  matchAdTitles String[] @default([])
+  matchAdTitles String[]              @default([])
   idealCustomer String?
   /// Que le duele a ese cliente. Es lo que se vende de verdad: nadie compra una camilla, compra
   /// dejar de perder clientas porque el local se ve improvisado.
   customerPain  String?
   /// Con que abrir y como llevar la conversacion de este producto.
-  pitch       String?
-  createdAt   DateTime              @default(now())
-  updatedAt   DateTime              @updatedAt
-  workspace   Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  product     Product               @relation(fields: [productId], references: [id], onDelete: Cascade)
-  rules       ProductPlaybookRule[]
-  stages      ProductFunnelStage[]
+  pitch         String?
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+  workspace     Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  product       Product               @relation(fields: [productId], references: [id], onDelete: Cascade)
+  rules         ProductPlaybookRule[]
+  stages        ProductFunnelStage[]
 
   @@unique([workspaceId, productId])
   @@index([workspaceId])
@@ -1157,23 +1159,23 @@ model ProductPlaybook {
 /// saber CUANDO se agrego y de donde salio: si una regla nacio de una venta perdida, eso es lo
 /// que convierte la auditoria en memoria en vez de en una reunion.
 model ProductPlaybookRule {
-  id         String          @id @default(cuid())
-  playbookId String
+  id                   String          @id @default(cuid())
+  playbookId           String
   /// "DECIR" | "NO_DECIR" | "OBJECION". Texto y no enum: sumar un tipo no deberia obligar a
   /// migrar la base de produccion (mismo criterio que PlaybookScript.kind).
-  kind       String
+  kind                 String
   /// En las objeciones, lo que dice el cliente ("esta caro"). Null en las demas.
-  trigger    String?
-  text       String
-  sortOrder  Int             @default(0)
-  isActive   Boolean         @default(true)
+  trigger              String?
+  text                 String
+  sortOrder            Int             @default(0)
+  isActive             Boolean         @default(true)
   /// "manual" | "auditoria". De donde salio la regla.
-  source     String          @default("manual")
+  source               String          @default("manual")
   /// El chat que la origino, cuando sale de revisar una venta perdida.
   originConversationId String?
-  createdAt  DateTime        @default(now())
-  updatedAt  DateTime        @updatedAt
-  playbook   ProductPlaybook @relation(fields: [playbookId], references: [id], onDelete: Cascade)
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+  playbook             ProductPlaybook @relation(fields: [playbookId], references: [id], onDelete: Cascade)
 
   @@index([playbookId, kind, sortOrder])
 }
@@ -1184,25 +1186,25 @@ model ProductPlaybookRule {
 /// y cierre—, pero editables desde el producto y leidas AL RESPONDER. Antes solo se podian tocar
 /// dentro del diagrama del agente y habia que republicar para que aplicaran.
 model ProductFunnelStage {
-  id         String          @id @default(cuid())
-  playbookId String
+  id                 String                 @id @default(cuid())
+  playbookId         String
   /// PRESENTACION | IDENTIFICACION | PRODUCTO | OBJECIONES | CIERRE. Texto y no enum:
   /// si mañana una venta necesita otra etapa, no deberia obligar a migrar la base.
-  stage      String
+  stage              String
   /// Que hay que lograr en esta etapa antes de pasar a la siguiente.
-  goal       String?
+  goal               String?
   /// Que decir para lograrlo.
-  script     String?
+  script             String?
   /// Red de seguridad: si el cliente lleva TANTOS mensajes sin salir de esta etapa, se avisa a un
   /// asesor. Null = sin red. Es el limite que no depende de lo que decida la IA.
   stuckAfterMessages Int?
-  sortOrder  Int             @default(0)
-  createdAt  DateTime        @default(now())
-  updatedAt  DateTime        @updatedAt
-  playbook   ProductPlaybook @relation(fields: [playbookId], references: [id], onDelete: Cascade)
+  sortOrder          Int                    @default(0)
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+  playbook           ProductPlaybook        @relation(fields: [playbookId], references: [id], onDelete: Cascade)
   /// Los "si no contesta" de esta etapa. Varios y no uno: un solo aviso es un recordatorio, y lo
   /// que recupera una venta es una secuencia (al dia, a los dos, a los tres).
-  followUps  ProductStageFollowUp[]
+  followUps          ProductStageFollowUp[]
 
   @@unique([playbookId, stage])
   @@index([playbookId, sortOrder])
@@ -1210,12 +1212,10 @@ model ProductFunnelStage {
 
 /**
  * Un "si no contesta" de una etapa: cuanto esperar y que mandar.
- *
  * Vive colgado de la ETAPA del producto y no de una FollowRule suelta porque el mensaje correcto
  * depende de donde se corto la charla: no es lo mismo que el cliente se calle en Presentacion
  * —ni sabemos que quiere— que en Cierre, donde ya sabe el precio y lo esta pensando. Una regla
  * por workspace no puede expresar esa diferencia.
- *
  * Tabla propia (y no dos columnas en la etapa) porque son VARIOS por etapa: la secuencia de 1, 2
  * y 3 dias es lo que de verdad recupera un lead, no un unico aviso.
  */
@@ -1275,11 +1275,9 @@ model ConversationInsight {
 
 /**
  * Una CAMPAÑA: elegir un grupo de leads hoy y mandarles un mensaje, una vez.
- *
  * Es lo contrario de una FollowRule, y por eso vive aparte: la regla de seguimiento corre sola
  * para siempre sobre el que cumpla la condicion; la campaña se arma, se dispara y se termina.
  * Meterlas en el mismo modulo hacia que nadie supiera en cual entrar.
- *
  * NO manda todo de una: WhatsApp bloquea numeros por mandar muchos mensajes parecidos a gente que
  * hace rato no escribe, y el numero que se cae es el que da de comer. Por eso la cantidad por
  * tanda y cada cuanto sale una tanda son campos obligatorios y no una opcion avanzada.
@@ -1350,35 +1348,58 @@ enum CampaignRecipientStatus {
 
 /**
  * BIBLIOTECA DE ARCHIVOS: los catalogos que se mandan todos los dias, subidos UNA vez.
- *
  * El problema que resuelve no es de formato ni de permisos: es de tiempo. Las asesoras trabajan
  * desde el celular y con mala señal un catalogo de 15 MB tarda entre 8 y 18 minutos en subir —y
  * antes de terminar, la subida se corta—. Pero son SIEMPRE los mismos ocho archivos.
- *
  * Subidos una vez desde una computadora, mandarlos deja de ser una subida y pasa a ser una
  * referencia a algo que ya esta en el servidor: sale en un segundo, con señal o sin ella.
  */
 model MediaLibraryItem {
-  id          String    @id @default(cuid())
-  workspaceId String
+  id           String    @id @default(cuid())
+  workspaceId  String
   /// Como lo busca una persona apurada: "Catalogo camillas", no el nombre del archivo.
-  title       String
+  title        String
   /// Ruta ya publicada del archivo. Es la misma que usa el chat para mandar media.
-  url         String
-  fileName    String
-  mimeType    String
+  url          String
+  fileName     String
+  mimeType     String
   /// IMAGE | VIDEO | DOCUMENT, igual que en el chat.
-  mediaType   String
+  mediaType    String
   /// La tapa: primera pagina del PDF o miniatura del video, generada al agregarlo. Null = se
   /// muestra un icono. Sin esto los ocho catalogos se ven identicos en la grilla.
   thumbnailUrl String?
-  sizeBytes   Int       @default(0)
+  sizeBytes    Int       @default(0)
   /// Cuantas veces se mando. Sirve para ordenar por lo mas usado en vez de por fecha.
-  sentCount   Int       @default(0)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  sentCount    Int       @default(0)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, sentCount])
   @@index([workspaceId, createdAt])
+}
+
+/**
+ * Un mapa mental. Lienzo en blanco para pensar el negocio.
+ * El contenido (cajas, texto y conexiones) va entero en `data` como JSON y no en tablas aparte:
+ * un diagrama se lee y se guarda SIEMPRE completo, nunca se consulta "todas las cajas que
+ * digan X", y partirlo en dos tablas solo agregaria trabajo para volver a armarlo en cada
+ * apertura.
+ * Es PRIVADO de quien lo creo (`createdById`): se penso como herramienta personal, asi que las
+ * consultas filtran por autor y no solo por workspace.
+ */
+model Diagram {
+  id          String   @id @default(cuid())
+  workspaceId String
+  createdById String
+  title       String   @default("Sin titulo")
+  /// Nodos y conexiones tal como los guarda el lienzo.
+  data        Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy User      @relation("DiagramCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdById, updatedAt])
 }
