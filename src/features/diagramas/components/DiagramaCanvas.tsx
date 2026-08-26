@@ -152,6 +152,74 @@ export function DiagramaCanvas({
     };
   }, [guardarAhora]);
 
+  /**
+   * Copiar y pegar con Ctrl+C / Ctrl+V.
+   *
+   * El portapapeles es propio del diagrama, no el del sistema: lo que se copia es una idea con su
+   * texto, ícono, color y tamaño, y eso no entra en el portapapeles del navegador.
+   *
+   * Se ignora cuando el cursor está dentro de un texto: ahí Ctrl+C tiene que copiar las palabras
+   * que uno marcó, no la caja entera.
+   */
+  const portapapelesRef = useRef<Node[]>([]);
+  const pegadasRef = useRef(0);
+
+  useEffect(() => {
+    const alTeclado = (evento: KeyboardEvent) => {
+      if (!(evento.ctrlKey || evento.metaKey)) {
+        return;
+      }
+      const destino = evento.target as HTMLElement | null;
+      if (destino?.closest("input, textarea, [contenteditable='true']")) {
+        return;
+      }
+
+      const tecla = evento.key.toLowerCase();
+
+      if (tecla === "c") {
+        const elegidas = nodesRef.current.filter((nodo) => nodo.selected);
+        if (elegidas.length === 0) {
+          return;
+        }
+        portapapelesRef.current = elegidas;
+        pegadasRef.current = 0;
+        toast.success(elegidas.length === 1 ? "Idea copiada" : `${elegidas.length} ideas copiadas`);
+        return;
+      }
+
+      if (tecla === "v") {
+        const copiadas = portapapelesRef.current;
+        if (copiadas.length === 0) {
+          return;
+        }
+        evento.preventDefault();
+        // Cada pegada se corre un poco mas: pegar dos veces seguidas dejaba las copias una encima
+        // de la otra y parecia que la segunda no habia funcionado.
+        pegadasRef.current += 1;
+        const corrimiento = 28 * pegadasRef.current;
+        const marca = Date.now();
+
+        setNodes((actuales) => [
+          ...actuales.map((nodo) => ({ ...nodo, selected: false })),
+          ...copiadas.map((original, indice) => ({
+            ...original,
+            id: `idea-${marca}-${indice}-${Math.round(Math.random() * 1000)}`,
+            position: {
+              x: original.position.x + corrimiento,
+              y: original.position.y + corrimiento,
+            },
+            data: { ...original.data },
+            selected: true,
+          })),
+        ]);
+        programarGuardado();
+      }
+    };
+
+    window.addEventListener("keydown", alTeclado);
+    return () => window.removeEventListener("keydown", alTeclado);
+  }, [programarGuardado, setNodes]);
+
   const alConectar = useCallback(
     (conexion: Connection) => {
       setEdges((actuales) => addEdge({ ...conexion, type: "borrable", animated: false }, actuales));
