@@ -8,4 +8,16 @@
  * Están elegidos por lo que suele aparecer al planear un negocio: idea, objetivo, dinero, gente,
  * tiempo, alerta, hecho y pregunta.
  */
-export const ICONOS_DE_IDEA = ["💡", "🎯", "💰", "👥", "⏰", "⚠️", "✅", "❓"] as const;
+export const ICONOS_DE_IDEA = [
+  "💡",
+  "🎯",
+  "💰",
+  "👥",
+  "⏰",
+  "⚠️",
+  "✅",
+  "❓",
+  // Los dos de los flujos del agente: el bot que responde y la persona que atiende.
+  "🤖",
+  "👨🏻‍💻",
+] as const;
