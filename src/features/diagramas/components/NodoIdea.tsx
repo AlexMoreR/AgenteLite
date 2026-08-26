@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Handle,
   NodeResizeControl,
@@ -8,8 +8,15 @@ import {
   useNodeConnections,
   type NodeProps,
 } from "@xyflow/react";
-import { Bold, Copy, X } from "lucide-react";
+import { Bold, Copy, Plus, StickyNote, X } from "lucide-react";
 
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { COLORES_DE_IDEA, cajaDelColor } from "./colores";
 import { ICONOS_DE_IDEA } from "./iconos";
 import { TextoConNegrita } from "./TextoConNegrita";
@@ -39,12 +46,14 @@ export function NodoIdea({
   onColor,
   onIcono,
   onDuplicar,
+  onAgregarConectada,
   onBorrar,
 }: NodeProps & {
   onTexto: (id: string, texto: string) => void;
   onColor: (id: string, color: string) => void;
   onIcono: (id: string, icono: string) => void;
   onDuplicar: (id: string) => void;
+  onAgregarConectada: (id: string) => void;
   onBorrar: (id: string) => void;
 }) {
   /**
@@ -71,6 +80,7 @@ export function NodoIdea({
   const texto = typeof data?.texto === "string" ? data.texto : "";
   const icono = typeof data?.icono === "string" ? data.icono : "";
   const areaRef = useRef<HTMLTextAreaElement>(null);
+  const [eligiendoQueAgregar, setEligiendoQueAgregar] = useState(false);
 
   const ajustarAlto = () => {
     const area = areaRef.current;
@@ -252,6 +262,51 @@ export function NodoIdea({
       >
         <X className="size-3" />
       </button>
+
+      {/*
+        El "+" para seguir la cadena. Aparece al seleccionar la caja, a su derecha, que es hacia
+        donde crece un flujo. Abre un modal para elegir QUE agregar: hoy hay una sola opción, pero
+        el gesto es el mismo cuando haya mas, y asi no hay que reaprenderlo despues.
+      */}
+      {selected ? (
+        <button
+          type="button"
+          onClick={() => setEligiendoQueAgregar(true)}
+          aria-label="Agregar una idea conectada a esta"
+          title="Agregar conectada"
+          className="nodrag nopan absolute -right-9 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded-md border border-dashed border-muted-foreground/50 bg-background text-muted-foreground transition hover:border-solid hover:border-primary hover:text-primary"
+        >
+          <Plus className="size-3.5" />
+        </button>
+      ) : null}
+
+      <Dialog open={eligiendoQueAgregar} onOpenChange={setEligiendoQueAgregar}>
+        <DialogContent className="sm:max-w-xs">
+          <DialogHeader>
+            <DialogTitle className="text-base">¿Qué querés agregar?</DialogTitle>
+            <DialogDescription className="text-xs">
+              Se conecta sola a esta caja.
+            </DialogDescription>
+          </DialogHeader>
+
+          <button
+            type="button"
+            onClick={() => {
+              setEligiendoQueAgregar(false);
+              onAgregarConectada(id);
+            }}
+            className="flex w-full items-center gap-3 rounded-xl border border-border px-3 py-2.5 text-left transition hover:bg-muted"
+          >
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <StickyNote className="size-4" />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-sm font-medium text-foreground">Idea</span>
+              <span className="block text-xs text-muted-foreground">Una caja con texto</span>
+            </span>
+          </button>
+        </DialogContent>
+      </Dialog>
 
       {/*
         La manija para estirar la caja, en la esquina de abajo a la derecha. Solo con la caja

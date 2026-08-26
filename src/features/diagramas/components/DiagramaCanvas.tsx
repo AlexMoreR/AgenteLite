@@ -301,6 +301,57 @@ export function DiagramaCanvas({
     [programarGuardado, setNodes],
   );
 
+  /**
+   * Agregar una idea YA CONECTADA a la actual, a su derecha.
+   *
+   * Es el camino rapido para armar una cadena: sin esto habia que crear la caja, arrastrarla al
+   * lugar y despues tirar la union a mano, tres pasos para lo que en un diagrama de flujo es uno
+   * solo -"y despues pasa esto"-.
+   */
+  const agregarConectada = useCallback(
+    (idOrigen: string) => {
+      const marca = Date.now();
+      const idNueva = `idea-${marca}-${Math.round(Math.random() * 1000)}`;
+
+      setNodes((actuales) => {
+        const origen = actuales.find((nodo) => nodo.id === idOrigen);
+        if (!origen) {
+          return actuales;
+        }
+        const anchoOrigen =
+          typeof origen.style?.width === "number" ? origen.style.width : (origen.measured?.width ?? 180);
+        return [
+          ...actuales.map((nodo) => ({ ...nodo, selected: false })),
+          {
+            id: idNueva,
+            type: "idea",
+            position: { x: origen.position.x + anchoOrigen + 90, y: origen.position.y },
+            style: { width: 180 },
+            data: { texto: "" },
+            selected: true,
+          } satisfies Node,
+        ];
+      });
+
+      // Sale del punto derecho del original y entra por el izquierdo de la nueva: es el sentido
+      // en que se lee un flujo.
+      setEdges((actuales) => [
+        ...actuales,
+        {
+          id: `union-${marca}`,
+          source: idOrigen,
+          sourceHandle: "derecha-out",
+          target: idNueva,
+          targetHandle: "izquierda-in",
+          type: "borrable",
+        } satisfies Edge,
+      ]);
+
+      programarGuardado();
+    },
+    [programarGuardado, setEdges, setNodes],
+  );
+
   const borrarArista = useCallback(
     (idArista: string) => {
       setEdges((actuales) => actuales.filter((arista) => arista.id !== idArista));
@@ -343,6 +394,7 @@ export function DiagramaCanvas({
     cambiarColor,
     cambiarIcono,
     duplicarNodo,
+    agregarConectada,
     borrarNodo,
     borrarArista,
   });
@@ -352,10 +404,19 @@ export function DiagramaCanvas({
       cambiarColor,
       cambiarIcono,
       duplicarNodo,
+      agregarConectada,
       borrarNodo,
       borrarArista,
     };
-  }, [borrarArista, borrarNodo, cambiarColor, cambiarIcono, cambiarTexto, duplicarNodo]);
+  }, [
+    agregarConectada,
+    borrarArista,
+    borrarNodo,
+    cambiarColor,
+    cambiarIcono,
+    cambiarTexto,
+    duplicarNodo,
+  ]);
 
   const tiposDeNodo = useMemo(
     () => ({
@@ -366,6 +427,7 @@ export function DiagramaCanvas({
           onColor={(idNodo, color) => manejadoresRef.current.cambiarColor(idNodo, color)}
           onIcono={(idNodo, icono) => manejadoresRef.current.cambiarIcono(idNodo, icono)}
           onDuplicar={(idNodo) => manejadoresRef.current.duplicarNodo(idNodo)}
+          onAgregarConectada={(idNodo) => manejadoresRef.current.agregarConectada(idNodo)}
           onBorrar={(idNodo) => manejadoresRef.current.borrarNodo(idNodo)}
         />
       ),
