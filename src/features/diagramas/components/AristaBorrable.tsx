@@ -1,6 +1,6 @@
 "use client";
 
-import { BaseEdge, EdgeLabelRenderer, getBezierPath, type EdgeProps } from "@xyflow/react";
+import { BaseEdge, EdgeLabelRenderer, getSmoothStepPath, type EdgeProps } from "@xyflow/react";
 import { X } from "lucide-react";
 
 /**
@@ -30,13 +30,19 @@ export function AristaBorrable({
   style,
   onBorrar,
 }: EdgeProps & { onBorrar: (id: string) => void }) {
-  const [camino, centroX, centroY] = getBezierPath({
+  /*
+    Lineas escalonadas y no curvas: en un mapa con varias ramas las curvas se cruzan entre si y
+    cuesta seguir cual sale de donde. Los angulos rectos, con la esquina apenas redondeada, se
+    leen como un diagrama de flujo.
+  */
+  const [camino, centroX, centroY] = getSmoothStepPath({
     sourceX,
     sourceY,
     sourcePosition,
     targetX,
     targetY,
     targetPosition,
+    borderRadius: 8,
   });
 
   return (
