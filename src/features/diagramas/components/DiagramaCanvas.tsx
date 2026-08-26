@@ -192,6 +192,17 @@ export function DiagramaCanvas({
     [programarGuardado, setNodes],
   );
 
+  /** El ícono de una idea. Vacío = sin ícono. */
+  const cambiarIcono = useCallback(
+    (idNodo: string, icono: string) => {
+      setNodes((actuales) =>
+        actuales.map((nodo) => (nodo.id === idNodo ? { ...nodo, data: { ...nodo.data, icono } } : nodo)),
+      );
+      programarGuardado();
+    },
+    [programarGuardado, setNodes],
+  );
+
   const borrarArista = useCallback(
     (idArista: string) => {
       setEdges((actuales) => actuales.filter((arista) => arista.id !== idArista));
@@ -229,10 +240,16 @@ export function DiagramaCanvas({
    * cambia, remonta todas las cajas. Pasando los manejadores por una ref, el memo se crea una
    * sola vez y las cajas nunca se destruyen mientras se escribe.
    */
-  const manejadoresRef = useRef({ cambiarTexto, cambiarColor, borrarNodo, borrarArista });
+  const manejadoresRef = useRef({
+    cambiarTexto,
+    cambiarColor,
+    cambiarIcono,
+    borrarNodo,
+    borrarArista,
+  });
   useEffect(() => {
-    manejadoresRef.current = { cambiarTexto, cambiarColor, borrarNodo, borrarArista };
-  }, [borrarArista, borrarNodo, cambiarColor, cambiarTexto]);
+    manejadoresRef.current = { cambiarTexto, cambiarColor, cambiarIcono, borrarNodo, borrarArista };
+  }, [borrarArista, borrarNodo, cambiarColor, cambiarIcono, cambiarTexto]);
 
   const tiposDeNodo = useMemo(
     () => ({
@@ -241,6 +258,7 @@ export function DiagramaCanvas({
           {...props}
           onTexto={(idNodo, texto) => manejadoresRef.current.cambiarTexto(idNodo, texto)}
           onColor={(idNodo, color) => manejadoresRef.current.cambiarColor(idNodo, color)}
+          onIcono={(idNodo, icono) => manejadoresRef.current.cambiarIcono(idNodo, icono)}
           onBorrar={(idNodo) => manejadoresRef.current.borrarNodo(idNodo)}
         />
       ),
@@ -298,8 +316,17 @@ export function DiagramaCanvas({
           edges={edges}
           onNodesChange={(cambios) => {
             onNodesChange(cambios);
-            // Mover o seleccionar no ensucia el guardado; agregar o borrar sí.
-            if (cambios.some((cambio) => cambio.type === "position" && !cambio.dragging)) {
+            // Mover o seleccionar no ensucia el guardado; soltar despues de mover, estirar la
+            // caja, agregar o borrar si.
+            if (
+              cambios.some(
+                (cambio) =>
+                  (cambio.type === "position" && !cambio.dragging) ||
+                  (cambio.type === "dimensions" && cambio.resizing === false) ||
+                  cambio.type === "add" ||
+                  cambio.type === "remove",
+              )
+            ) {
               programarGuardado();
             }
           }}
