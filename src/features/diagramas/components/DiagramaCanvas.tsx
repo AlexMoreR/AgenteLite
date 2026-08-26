@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Background,
+  ConnectionMode,
   Controls,
   ReactFlow,
   addEdge,
@@ -10,6 +11,7 @@ import {
   useNodesState,
   type Connection,
   type Edge,
+  type EdgeProps,
   type Node,
   type NodeProps,
   type ReactFlowInstance,
@@ -22,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { guardarDiagramaAction } from "@/app/actions/diagram-actions";
 import { NodoIdea } from "./NodoIdea";
+import { AristaBorrable } from "./AristaBorrable";
 
 /**
  * El lienzo de un mapa mental.
@@ -51,7 +54,13 @@ export function DiagramaCanvas({
   contenidoInicial: DiagramaGuardado | null;
 }) {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>(contenidoInicial?.nodes ?? []);
-  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(contenidoInicial?.edges ?? []);
+  /*
+    Las conexiones guardadas ANTES de que existiera el boton de quitar no traen tipo, y sin tipo
+    se dibujan como una linea pelada. Se les pone al abrir para que todas se puedan borrar igual.
+  */
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(
+    (contenidoInicial?.edges ?? []).map((arista) => ({ ...arista, type: "borrable" })),
+  );
   const [titulo, setTitulo] = useState(tituloInicial);
   const [guardando, setGuardando] = useState(false);
   const [guardado, setGuardado] = useState(true);
@@ -145,7 +154,7 @@ export function DiagramaCanvas({
 
   const alConectar = useCallback(
     (conexion: Connection) => {
-      setEdges((actuales) => addEdge({ ...conexion, animated: false }, actuales));
+      setEdges((actuales) => addEdge({ ...conexion, type: "borrable", animated: false }, actuales));
       programarGuardado();
     },
     [programarGuardado, setEdges],
@@ -183,6 +192,14 @@ export function DiagramaCanvas({
     [programarGuardado, setNodes],
   );
 
+  const borrarArista = useCallback(
+    (idArista: string) => {
+      setEdges((actuales) => actuales.filter((arista) => arista.id !== idArista));
+      programarGuardado();
+    },
+    [programarGuardado, setEdges],
+  );
+
   /** El color de una idea. Va en su `data`, asi viaja con el resto del guardado. */
   const cambiarColor = useCallback(
     (idNodo: string, color: string) => {
@@ -212,10 +229,10 @@ export function DiagramaCanvas({
    * cambia, remonta todas las cajas. Pasando los manejadores por una ref, el memo se crea una
    * sola vez y las cajas nunca se destruyen mientras se escribe.
    */
-  const manejadoresRef = useRef({ cambiarTexto, cambiarColor, borrarNodo });
+  const manejadoresRef = useRef({ cambiarTexto, cambiarColor, borrarNodo, borrarArista });
   useEffect(() => {
-    manejadoresRef.current = { cambiarTexto, cambiarColor, borrarNodo };
-  }, [borrarNodo, cambiarColor, cambiarTexto]);
+    manejadoresRef.current = { cambiarTexto, cambiarColor, borrarNodo, borrarArista };
+  }, [borrarArista, borrarNodo, cambiarColor, cambiarTexto]);
 
   const tiposDeNodo = useMemo(
     () => ({
@@ -226,6 +243,16 @@ export function DiagramaCanvas({
           onColor={(idNodo, color) => manejadoresRef.current.cambiarColor(idNodo, color)}
           onBorrar={(idNodo) => manejadoresRef.current.borrarNodo(idNodo)}
         />
+      ),
+    }),
+    [],
+  );
+
+  // Mismo motivo que nodeTypes: si el objeto cambia, React Flow rehace las lineas.
+  const tiposDeArista = useMemo(
+    () => ({
+      borrable: (props: EdgeProps) => (
+        <AristaBorrable {...props} onBorrar={(idArista) => manejadoresRef.current.borrarArista(idArista)} />
       ),
     }),
     [],
@@ -300,6 +327,15 @@ export function DiagramaCanvas({
             agregarIdea(posicion);
           }}
           nodeTypes={tiposDeNodo}
+          edgeTypes={tiposDeArista}
+          defaultEdgeOptions={{ type: "borrable" }}
+          /*
+            Modo suelto: CUALQUIER punto sirve para empezar o terminar una union. Con el modo
+            estricto, arriba e izquierda solo recibian y abajo y derecha solo salian, asi que
+            unir dos ideas dependia de por donde estuvieran paradas. Ademas no toca los ids de
+            los puntos, asi que las conexiones ya hechas siguen funcionando.
+          */
+          connectionMode={ConnectionMode.Loose}
           fitView
           proOptions={{ hideAttribution: true }}
           className="bg-muted/30"
