@@ -470,6 +470,14 @@ export function DiagramaCanvas({
             los puntos, asi que las conexiones ya hechas siguen funcionando.
           */
           connectionMode={ConnectionMode.Loose}
+          /*
+            React Flow por defecto no deja alejarse mas alla de la mitad ni acercarse mas del
+            doble. Un mapa de treinta ideas no entra en pantalla con ese tope: se llega al limite
+            y todavia queda diagrama afuera. Se abre el rango para poder ver el conjunto entero y
+            tambien meterse a leer una caja.
+          */
+          minZoom={0.1}
+          maxZoom={3}
           fitView
           proOptions={{ hideAttribution: true }}
           className="bg-muted/30"
