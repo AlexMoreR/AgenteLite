@@ -15,6 +15,13 @@ import { COLORES_DE_IDEA, cajaDelColor } from "./colores";
  * La caja crece con el texto. Un alto fijo obligaba a resumir la idea para que entrara, que es lo
  * contrario de para qué sirve esto.
  */
+const PUNTOS = [
+  { posicion: Position.Top, clave: "arriba" },
+  { posicion: Position.Right, clave: "derecha" },
+  { posicion: Position.Bottom, clave: "abajo" },
+  { posicion: Position.Left, clave: "izquierda" },
+] as const;
+
 export function NodoIdea({
   id,
   data,
@@ -79,10 +86,34 @@ export function NodoIdea({
           ))}
         </div>
       ) : null}
-      {/* Los cuatro bordes conectan: un mapa mental crece para cualquier lado, y obligar a que las
-          uniones salgan siempre de abajo lo endereza en un organigrama. */}
-      <Handle type="target" position={Position.Top} className="!size-2 !bg-muted-foreground/50" />
-      <Handle type="target" position={Position.Left} className="!size-2 !bg-muted-foreground/50" />
+      {/*
+        Los cuatro bordes conectan, y cada uno sirve para SALIR y para ENTRAR.
+        
+        Antes cada punto tenia un solo rol —arriba e izquierda recibian, abajo y derecha salian—,
+        asi que poder unir dos ideas dependia de como hubieran quedado paradas en el lienzo. Un
+        mapa mental crece para cualquier lado; obligar a que las uniones salgan siempre de abajo
+        lo endereza en un organigrama.
+
+        Van dos conectores superpuestos por punto (uno de entrada y otro de salida) porque React
+        Flow le da UN solo rol a cada conector. El de salida queda encima para que arrastrar
+        empiece una union; al soltar, la libreria busca el conector valido mas cercano.
+      */}
+      {PUNTOS.map(({ posicion, clave }) => (
+        <div key={clave}>
+          <Handle
+            type="target"
+            id={`${clave}-in`}
+            position={posicion}
+            className="!size-2.5 !border-0 !bg-muted-foreground/40 transition hover:!bg-primary"
+          />
+          <Handle
+            type="source"
+            id={`${clave}-out`}
+            position={posicion}
+            className="!size-2.5 !border-0 !bg-muted-foreground/40 transition hover:!bg-primary"
+          />
+        </div>
+      ))}
 
       <textarea
         ref={areaRef}
@@ -105,8 +136,6 @@ export function NodoIdea({
         <X className="size-3" />
       </button>
 
-      <Handle type="source" position={Position.Right} className="!size-2 !bg-muted-foreground/50" />
-      <Handle type="source" position={Position.Bottom} className="!size-2 !bg-muted-foreground/50" />
     </div>
   );
 }
