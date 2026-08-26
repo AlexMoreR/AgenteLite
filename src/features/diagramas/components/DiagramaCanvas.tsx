@@ -62,6 +62,28 @@ export function DiagramaCanvas({
   // estado más nuevo, y no el que existía cuando se programó.
   const pendienteRef = useRef<{ titulo: string; data: DiagramaGuardado } | null>(null);
 
+  /**
+   * El estado actual, en refs.
+   *
+   * `programarGuardado` NO puede depender de `nodes`: si dependiera, cambiaria de identidad con
+   * cada tecla, y con el los manejadores y el `nodeTypes` de React Flow. React Flow trata un
+   * nodeTypes nuevo como tipos nuevos y REMONTA todas las cajas: el textarea se destruia a cada
+   * letra y el cursor se perdia. Leyendo de refs, la funcion es estable y el guardado igual manda
+   * lo ultimo.
+   */
+  const nodesRef = useRef(nodes);
+  const edgesRef = useRef(edges);
+  const tituloRef = useRef(titulo);
+  useEffect(() => {
+    nodesRef.current = nodes;
+  }, [nodes]);
+  useEffect(() => {
+    edgesRef.current = edges;
+  }, [edges]);
+  useEffect(() => {
+    tituloRef.current = titulo;
+  }, [titulo]);
+
   const guardarAhora = useCallback(async () => {
     const pendiente = pendienteRef.current;
     if (!pendiente) {
@@ -84,17 +106,22 @@ export function DiagramaCanvas({
 
   const programarGuardado = useCallback(
     (siguienteTitulo?: string) => {
-      pendienteRef.current = {
-        titulo: siguienteTitulo ?? titulo,
-        data: { nodes, edges },
-      };
+      // El contenido se lee al DISPARAR el temporizador, no al programarlo: entre una tecla y la
+      // siguiente el mapa sigue cambiando, y guardar la foto vieja perderia las ultimas letras.
+      pendienteRef.current = { titulo: siguienteTitulo ?? tituloRef.current, data: { nodes: [], edges: [] } };
       setGuardado(false);
       if (temporizadorRef.current) {
         clearTimeout(temporizadorRef.current);
       }
-      temporizadorRef.current = setTimeout(() => void guardarAhora(), RETARDO_GUARDADO_MS);
+      temporizadorRef.current = setTimeout(() => {
+        pendienteRef.current = {
+          titulo: siguienteTitulo ?? tituloRef.current,
+          data: { nodes: nodesRef.current, edges: edgesRef.current },
+        };
+        void guardarAhora();
+      }, RETARDO_GUARDADO_MS);
     },
-    [edges, guardarAhora, nodes, titulo],
+    [guardarAhora],
   );
 
   /**
@@ -178,18 +205,30 @@ export function DiagramaCanvas({
     [programarGuardado, setEdges, setNodes],
   );
 
+  /**
+   * Los manejadores, en una ref.
+   *
+   * `nodeTypes` tiene que ser SIEMPRE el mismo objeto: React Flow compara por identidad y, si
+   * cambia, remonta todas las cajas. Pasando los manejadores por una ref, el memo se crea una
+   * sola vez y las cajas nunca se destruyen mientras se escribe.
+   */
+  const manejadoresRef = useRef({ cambiarTexto, cambiarColor, borrarNodo });
+  useEffect(() => {
+    manejadoresRef.current = { cambiarTexto, cambiarColor, borrarNodo };
+  }, [borrarNodo, cambiarColor, cambiarTexto]);
+
   const tiposDeNodo = useMemo(
     () => ({
       idea: (props: NodeProps) => (
         <NodoIdea
           {...props}
-          onTexto={cambiarTexto}
-          onColor={cambiarColor}
-          onBorrar={borrarNodo}
+          onTexto={(idNodo, texto) => manejadoresRef.current.cambiarTexto(idNodo, texto)}
+          onColor={(idNodo, color) => manejadoresRef.current.cambiarColor(idNodo, color)}
+          onBorrar={(idNodo) => manejadoresRef.current.borrarNodo(idNodo)}
         />
       ),
     }),
-    [borrarNodo, cambiarColor, cambiarTexto],
+    [],
   );
 
   return (
