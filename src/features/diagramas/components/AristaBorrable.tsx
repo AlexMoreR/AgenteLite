@@ -1,6 +1,12 @@
 "use client";
 
-import { BaseEdge, EdgeLabelRenderer, getStraightPath, type EdgeProps } from "@xyflow/react";
+import {
+  BaseEdge,
+  EdgeLabelRenderer,
+  getSmoothStepPath,
+  getStraightPath,
+  type EdgeProps,
+} from "@xyflow/react";
 import { X } from "lucide-react";
 
 /**
@@ -17,30 +23,50 @@ import { X } from "lucide-react";
  * La línea es fina pero tiene una banda invisible mucho más ancha alrededor (interactionWidth),
  * que es lo que hace posible acertarle con el dedo.
  */
+/**
+ * A partir de cuantos pixeles conviene doblar la linea.
+ *
+ * Por debajo, dos cajas se ven como vecinas y una recta las une sin ruido. Por encima, la recta
+ * se vuelve una diagonal larga que atraviesa el mapa.
+ */
+const DISTANCIA_PARA_DOBLAR = 170;
+
 export function AristaBorrable({
   id,
   sourceX,
   sourceY,
   targetX,
   targetY,
+  sourcePosition,
+  targetPosition,
   selected,
   markerEnd,
   style,
   onBorrar,
 }: EdgeProps & { onBorrar: (id: string) => void }) {
   /*
-    Linea recta, punto a punto.
-    
-    Las curvas se cruzaban entre si con varias ramas. Las escalonadas arreglaban eso pero salen
-    rectas un tramo antes de girar, y con dos cajas cerca y apenas desalineadas ese tramo dibujaba
-    una Z que no lleva a ningun lado. La recta no tiene ese problema en ninguna distancia.
+    Recta si estan cerca; escalonada si el trecho es largo.
+
+    Cada forma falla en el caso de la otra. La escalonada sale recta un tramo antes de girar, y
+    con dos cajas pegadas ese tramo dibuja una Z que no lleva a ningun lado. La recta, en cambio,
+    con las cajas lejos y a distinta altura se convierte en una diagonal que cruza el mapa por el
+    medio y se mete entre las demas.
+
+    Asi que se elige por distancia: de cerca manda la recta, de lejos el angulo recto.
   */
-  const [camino, centroX, centroY] = getStraightPath({
-    sourceX,
-    sourceY,
-    targetX,
-    targetY,
-  });
+  const distancia = Math.hypot(targetX - sourceX, targetY - sourceY);
+  const [camino, centroX, centroY] =
+    distancia > DISTANCIA_PARA_DOBLAR
+      ? getSmoothStepPath({
+          sourceX,
+          sourceY,
+          sourcePosition,
+          targetX,
+          targetY,
+          targetPosition,
+          borderRadius: 8,
+        })
+      : getStraightPath({ sourceX, sourceY, targetX, targetY });
 
   return (
     <>
