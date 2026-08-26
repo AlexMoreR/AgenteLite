@@ -24,12 +24,12 @@ import { X } from "lucide-react";
  * que es lo que hace posible acertarle con el dedo.
  */
 /**
- * A partir de cuantos pixeles conviene doblar la linea.
+ * Cuanto se le perdona a una linea para seguir considerandola derecha.
  *
- * Por debajo, dos cajas se ven como vecinas y una recta las une sin ruido. Por encima, la recta
- * se vuelve una diagonal larga que atraviesa el mapa.
+ * Es la desalineacion en pixeles entre los dos puntos. Por debajo de esto la recta se ve
+ * horizontal o vertical y limpia; por encima empieza a inclinarse y se nota.
  */
-const DISTANCIA_PARA_DOBLAR = 170;
+const TOLERANCIA_DE_ALINEACION = 14;
 
 export function AristaBorrable({
   id,
@@ -45,18 +45,21 @@ export function AristaBorrable({
   onBorrar,
 }: EdgeProps & { onBorrar: (id: string) => void }) {
   /*
-    Recta si estan cerca; escalonada si el trecho es largo.
+    Recta solo si los dos puntos estan ALINEADOS; si no, angulo recto.
 
-    Cada forma falla en el caso de la otra. La escalonada sale recta un tramo antes de girar, y
-    con dos cajas pegadas ese tramo dibuja una Z que no lleva a ningun lado. La recta, en cambio,
-    con las cajas lejos y a distinta altura se convierte en una diagonal que cruza el mapa por el
-    medio y se mete entre las demas.
+    Lo que afea una union no es que sea larga, es que vaya en diagonal: una linea inclinada entre
+    dos cajas parece dibujada a mano y se cruza con las demas. Cuando los puntos comparten fila o
+    columna, la recta se ve impecable a cualquier distancia.
 
-    Asi que se elige por distancia: de cerca manda la recta, de lejos el angulo recto.
+    (Primero se probo decidir por distancia y quedaba mal: las diagonales cortas seguian feas.)
   */
-  const distancia = Math.hypot(targetX - sourceX, targetY - sourceY);
+  const desvioVertical = Math.abs(targetY - sourceY);
+  const desvioHorizontal = Math.abs(targetX - sourceX);
+  const estaAlineado =
+    desvioVertical <= TOLERANCIA_DE_ALINEACION || desvioHorizontal <= TOLERANCIA_DE_ALINEACION;
+
   const [camino, centroX, centroY] =
-    distancia > DISTANCIA_PARA_DOBLAR
+    !estaAlineado
       ? getSmoothStepPath({
           sourceX,
           sourceY,
