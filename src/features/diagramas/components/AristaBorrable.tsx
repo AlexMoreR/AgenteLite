@@ -10,8 +10,12 @@ import { X } from "lucide-react";
  * deshacer ahí mismo. La alternativa de React Flow —seleccionar la línea y apretar Suprimir— no
  * existe en un celular, que es donde más se usa esto.
  *
- * Está siempre a la vista, apenas marcado: esconderlo hasta pasar el mouse por encima lo volvía
- * un blanco invisible, y en el celular directamente no hay "pasar por encima".
+ * Aparece al TOCAR la línea, no siempre: en un mapa con veinte uniones eran veinte cruces
+ * flotando entre las cajas, y competían con lo que uno está leyendo. Al seleccionarla, la línea
+ * entera se pone roja junto con su cruz, así queda claro cuál se va a borrar.
+ *
+ * La línea es fina pero tiene una banda invisible mucho más ancha alrededor (interactionWidth),
+ * que es lo que hace posible acertarle con el dedo.
  */
 export function AristaBorrable({
   id,
@@ -37,7 +41,16 @@ export function AristaBorrable({
 
   return (
     <>
-      <BaseEdge id={id} path={camino} markerEnd={markerEnd} style={style} />
+      <BaseEdge
+        id={id}
+        path={camino}
+        markerEnd={markerEnd}
+        interactionWidth={24}
+        style={{
+          ...style,
+          ...(selected ? { stroke: "var(--destructive)", strokeWidth: 2 } : {}),
+        }}
+      />
 
       <EdgeLabelRenderer>
         <div
@@ -46,7 +59,7 @@ export function AristaBorrable({
             transform: `translate(-50%, -50%) translate(${centroX}px, ${centroY}px)`,
           }}
           // nopan: sin esto, tocar el boton arrastraba el lienzo entero.
-          className="nopan pointer-events-auto"
+          className={`nopan ${selected ? "pointer-events-auto" : "pointer-events-none"}`}
         >
           <button
             type="button"
@@ -56,10 +69,10 @@ export function AristaBorrable({
             }}
             aria-label="Quitar esta conexión"
             title="Quitar conexión"
-            /* Siempre visible, apenas marcado. Esconderlo hasta pasar por encima lo volvia un
-               blanco invisible: habia que adivinar donde estaba para poder verlo. */
-            className={`inline-flex size-5 items-center justify-center rounded-full border border-border bg-background shadow-sm transition hover:scale-110 hover:text-destructive ${
-              selected ? "text-destructive" : "text-muted-foreground/70"
+            className={`inline-flex size-5 items-center justify-center rounded-full border shadow-sm transition ${
+              selected
+                ? "border-destructive bg-destructive text-white opacity-100 hover:scale-110"
+                : "border-border bg-background opacity-0"
             }`}
           >
             <X className="size-3" />
