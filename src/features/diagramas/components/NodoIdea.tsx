@@ -258,7 +258,12 @@ export function NodoIdea({
         onClick={() => onBorrar(id)}
         aria-label="Borrar esta idea"
         title="Borrar"
-        className="absolute -right-2 -top-2 hidden size-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-sm transition hover:text-destructive group-hover:flex max-sm:flex"
+        /* Solo con la caja seleccionada. En el celular estaba siempre visible en TODAS las cajas:
+           un mapa lleno de cruces, y una de ellas a un toque de distancia de borrar algo sin
+           querer. */
+        className={`absolute -right-2 -top-2 size-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-sm transition hover:text-destructive ${
+          selected ? "flex" : "hidden"
+        }`}
       >
         <X className="size-3" />
       </button>
