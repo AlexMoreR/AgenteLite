@@ -325,7 +325,9 @@ export function DiagramaCanvas({
           {
             id: idNueva,
             type: "idea",
-            position: { x: origen.position.x + anchoOrigen + 90, y: origen.position.y },
+            // Pegada a la anterior, apenas separada: naciendo lejos obligaba a arrastrarla de
+            // vuelta en cada paso, y armar una cadena era mover cajas todo el tiempo.
+            position: { x: origen.position.x + anchoOrigen + 40, y: origen.position.y },
             style: { width: 180 },
             data: { texto: "" },
             selected: true,
