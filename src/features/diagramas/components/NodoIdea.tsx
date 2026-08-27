@@ -8,7 +8,7 @@ import {
   useNodeConnections,
   type NodeProps,
 } from "@xyflow/react";
-import { Bold, Copy, Plus, StickyNote, X } from "lucide-react";
+import { Bold, Copy, Pencil, Plus, StickyNote, X } from "lucide-react";
 
 import {
   Dialog,
@@ -27,9 +27,14 @@ import { TextoConNegrita } from "./TextoConNegrita";
  * El texto se edita EN LA CAJA, no en un panel al costado: en un mapa mental uno escribe mientras
  * mira el conjunto, y mandar la escritura a otro lado rompe justo eso.
  *
- * Mientras la caja está seleccionada se ve el texto CRUDO, con sus asteriscos, para poder
- * editarlo; al soltarla se ve ya formateado. Es el mismo ida y vuelta de cualquier editor y evita
- * el enredo de escribir encima de texto con formato.
+ * Un toque la SELECCIONA (y ahí se arrastra entera); el doble toque o el lápiz de la barra entran
+ * a ESCRIBIR. Están separados porque un campo de texto se traga el dedo: sobre él se escribe o se
+ * marcan letras, nunca se arrastra, y con la caja siempre en modo escritura moverla en el celular
+ * era imposible salvo agarrándola del borde.
+ *
+ * Mientras se escribe se ve el texto CRUDO, con sus asteriscos; al salir se ve ya formateado. Es
+ * el mismo ida y vuelta de cualquier editor y evita el enredo de escribir encima de texto con
+ * formato.
  */
 const PUNTOS = [
   { posicion: Position.Top, clave: "arriba" },
@@ -81,6 +86,17 @@ export function NodoIdea({
   const icono = typeof data?.icono === "string" ? data.icono : "";
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const [eligiendoQueAgregar, setEligiendoQueAgregar] = useState(false);
+  /**
+   * Escribir es un modo aparte de estar seleccionado.
+   *
+   * Antes, seleccionar la caja convertia casi toda su superficie en un campo de texto, y sobre un
+   * campo de texto el dedo escribe o marca letras: no arrastra. Mover una caja en el celular se
+   * volvia imposible salvo agarrandola del borde.
+   *
+   * Ahora un toque selecciona -y la caja se puede arrastrar entera- y el doble toque entra a
+   * escribir, que es como funcionan las herramientas de diagramas.
+   */
+  const [editando, setEditando] = useState(false);
 
   const ajustarAlto = () => {
     const area = areaRef.current;
@@ -91,16 +107,29 @@ export function NodoIdea({
     area.style.height = `${area.scrollHeight}px`;
   };
 
-  useEffect(ajustarAlto, [texto, selected]);
+  useEffect(ajustarAlto, [texto, editando]);
 
-  // Una caja recién creada llega vacía: se le pone el cursor adentro para poder escribir de una,
-  // sin un clic extra.
   useEffect(() => {
+    // Una caja recién creada llega vacía: entra directo a escribir, sin un toque extra.
     if (!texto) {
-      areaRef.current?.focus();
+      setEditando(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Al soltar la caja se sale de escribir: si no, quedaba un cursor titilando en una caja que ya
+  // nadie estaba mirando.
+  useEffect(() => {
+    if (!selected) {
+      setEditando(false);
+    }
+  }, [selected]);
+
+  useEffect(() => {
+    if (editando) {
+      areaRef.current?.focus();
+    }
+  }, [editando]);
 
   /**
    * Poner en negrita lo seleccionado, envolviéndolo en asteriscos.
@@ -162,6 +191,22 @@ export function NodoIdea({
           </div>
 
           <div className="flex items-center gap-1">
+            {/*
+              El lápiz es el camino seguro en el celular: el doble toque no siempre llega como
+              doble clic —el navegador se lo queda para hacer zoom—, y sin este botón la caja
+              podía quedar sin forma de escribirle.
+            */}
+            <button
+              type="button"
+              onClick={() => setEditando(true)}
+              title="Escribir en esta idea"
+              aria-label="Escribir en esta idea"
+              className={`flex size-6 items-center justify-center rounded-md transition hover:bg-muted hover:text-foreground ${
+                editando ? "bg-muted text-foreground" : "text-muted-foreground"
+              }`}
+            >
+              <Pencil className="size-3.5" />
+            </button>
             <button
               type="button"
               onClick={alternarNegrita}
@@ -226,14 +271,19 @@ export function NodoIdea({
 
       {/* overflow-auto: una vez que la caja tiene un tamano fijo puesto a mano, un texto largo
           se desbordaria por fuera del borde. Asi se desplaza adentro. */}
-      <div className="flex min-h-0 flex-1 gap-1.5 overflow-auto">
+      <div
+        className="flex min-h-0 flex-1 gap-1.5 overflow-auto"
+        onDoubleClick={() => setEditando(true)}
+        title={editando ? undefined : "Doble clic para escribir"}
+        role="presentation"
+      >
         {icono ? (
           <span className="shrink-0 select-none text-base leading-snug" aria-hidden="true">
             {icono}
           </span>
         ) : null}
 
-        {selected ? (
+        {editando ? (
           <textarea
             ref={areaRef}
             value={texto}
@@ -241,6 +291,12 @@ export function NodoIdea({
             onInput={ajustarAlto}
             rows={1}
             placeholder="Escribí acá…"
+            onBlur={() => setEditando(false)}
+            onKeyDown={(evento) => {
+              if (evento.key === "Escape") {
+                evento.currentTarget.blur();
+              }
+            }}
             // nodrag: sin esto, arrastrar para seleccionar texto movía la caja entera.
             className="nodrag min-h-0 w-full flex-1 resize-none bg-transparent text-[13px] leading-snug text-foreground outline-none placeholder:text-muted-foreground"
           />
