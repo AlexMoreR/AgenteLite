@@ -59,6 +59,7 @@ import type {
   SharedInboxProps,
   SharedInboxSelectedConversation,
 } from "./chat-inbox-types";
+import { FichaDeCotizacion } from "@/features/cotizaciones/components/FichaDeCotizacion";
 import { CHAT_COMPOSER_RECENT_KEY, type ComposerEmojiTab } from "./chat-inbox-emojis";
 import { MessageBubble } from "./chat-message-bubble";
 import { ComposerEmojiPicker, ComposerSendButton } from "./chat-composer";
@@ -938,8 +939,8 @@ export const ConversationPanel = memo(function ConversationPanel({
           </div>
 
           {/*
-            Pestañas del chat. "Cotizaciones" todavia no existe: se deja armada la navegacion con
-            un aviso, en vez de esconderla hasta que este lista, para que se vea a donde va esto.
+            Pestañas del chat. "Cotizaciones" tiene la ficha de datos del cliente: la que hoy se
+            llena releyendo la conversacion hacia arriba para copiar la cedula y la direccion.
           */}
           <div className="flex shrink-0 items-center gap-4 border-b border-border bg-card px-3 md:px-5">
             {(["mensajes", "cotizaciones"] as const).map((pestana) => {
@@ -964,13 +965,27 @@ export const ConversationPanel = memo(function ConversationPanel({
 
           <div className="relative flex min-h-0 flex-1 flex-col bg-transparent">
             {pestanaChat === "cotizaciones" ? (
-              <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-2 bg-background px-6 text-center">
-                <FileText className="size-8 text-muted-foreground" />
-                <p className="text-sm font-medium text-foreground">Cotizaciones</p>
-                <p className="max-w-xs text-xs text-muted-foreground">
-                  En desarrollo. Acá vas a poder armarle la cotización al cliente y mandársela por
-                  este mismo chat.
-                </p>
+              <div className="absolute inset-0 z-30 flex flex-col bg-background">
+                {renderedConversation?.contactId ? (
+                  /*
+                    Con `key` por contacto: al saltar de un chat a otro el componente arranca de
+                    cero. Sin eso quedaban a la vista las sugerencias de un cliente sobre la ficha
+                    del siguiente, que es la peor forma posible de equivocar una direccion.
+                  */
+                  <FichaDeCotizacion
+                    key={renderedConversation.contactId}
+                    contactId={renderedConversation.contactId}
+                    conversationId={selectedConversationId ?? undefined}
+                  />
+                ) : (
+                  <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
+                    <FileText className="size-8 text-muted-foreground" />
+                    <p className="text-sm font-medium text-foreground">Cotizaciones</p>
+                    <p className="max-w-xs text-xs text-muted-foreground">
+                      Abrí un chat para ver los datos del cliente.
+                    </p>
+                  </div>
+                )}
               </div>
             ) : null}
             <div className="relative min-h-0 flex-1">
