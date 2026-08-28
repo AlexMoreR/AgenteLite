@@ -17,11 +17,25 @@ import {
   type ReactFlowInstance,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { Check, Loader2, Plus } from "lucide-react";
+import { Check, Download, EllipsisVertical, Loader2, Plus, Upload } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { guardarDiagramaAction } from "@/app/actions/diagram-actions";
 import { NodoIdea } from "./NodoIdea";
 import { AristaBorrable } from "./AristaBorrable";
@@ -447,6 +461,133 @@ export function DiagramaCanvas({
     [],
   );
 
+  /**
+   * Llevarse el diagrama en un archivo, y traerlo de vuelta.
+   *
+   * Un mapa mental vive dentro de la cuenta de quien lo hizo y es privado: sin esto, pasarle un
+   * esquema a alguien -o guardarse una copia antes de reordenarlo entero- no tiene camino.
+   *
+   * El archivo es el mismo JSON que se guarda en la base, con el titulo adentro. Asi lo que se
+   * exporta se vuelve a importar igual, sin conversiones que puedan perder algo por el medio.
+   */
+  const entradaArchivoRef = useRef<HTMLInputElement>(null);
+  const [porImportar, setPorImportar] = useState<{
+    titulo: string;
+    nodes: Node[];
+    edges: Edge[];
+  } | null>(null);
+
+  const exportar = useCallback(() => {
+    const contenido = JSON.stringify(
+      {
+        version: 1,
+        titulo: tituloRef.current,
+        nodes: nodesRef.current,
+        edges: edgesRef.current,
+      },
+      null,
+      2,
+    );
+    const url = URL.createObjectURL(new Blob([contenido], { type: "application/json" }));
+    const enlace = document.createElement("a");
+    enlace.href = url;
+    /*
+      El nombre del archivo sale del titulo, que es texto libre.
+
+      Se deja pasar solo letras, numeros y separadores simples en vez de listar lo prohibido: los
+      caracteres que Windows rechaza (\\ / : * ? " < > |) son justo los dificiles de escribir en
+      una expresion regular, y olvidarse de uno da un archivo que no se puede guardar.
+    */
+    const nombre = (tituloRef.current || "diagrama")
+      .replace(/[^\p{L}\p{N} _.-]/gu, "-")
+      .trim()
+      .slice(0, 60);
+    enlace.download = `${nombre || "diagrama"}.json`;
+    document.body.appendChild(enlace);
+    enlace.click();
+    enlace.remove();
+    URL.revokeObjectURL(url);
+    toast.success("Diagrama exportado");
+  }, []);
+
+  const aplicarImportado = useCallback(
+    (datos: { titulo: string; nodes: Node[]; edges: Edge[] }) => {
+      setNodes(datos.nodes);
+      setEdges(datos.edges);
+      if (datos.titulo) {
+        setTitulo(datos.titulo);
+      }
+      programarGuardado(datos.titulo || undefined);
+      setPorImportar(null);
+      // Se encuadra despues de pintar: el mapa que viene puede estar en otras coordenadas y
+      // quedaria fuera de la pantalla, pareciendo que la importacion no hizo nada.
+      requestAnimationFrame(() => flujoRef.current?.fitView({ padding: 0.2 }));
+      toast.success(
+        datos.nodes.length === 1 ? "Diagrama importado" : `${datos.nodes.length} ideas importadas`,
+      );
+    },
+    [programarGuardado, setEdges, setNodes],
+  );
+
+  const leerArchivo = useCallback(
+    async (archivo: File) => {
+      try {
+        const crudo = JSON.parse(await archivo.text()) as Record<string, unknown>;
+        /*
+          Se valida antes de tocar el lienzo.
+
+          Un JSON cualquiera -o uno de otra app- dejaria el mapa vacio y encima lo guardaria dos
+          segundos despues, borrando lo que habia. Se descarta el archivo entero antes que eso.
+        */
+        const crudosNodos = Array.isArray(crudo.nodes) ? (crudo.nodes as Node[]) : [];
+        const nodos = crudosNodos
+          .filter(
+            (nodo) =>
+              nodo &&
+              typeof nodo.id === "string" &&
+              nodo.position &&
+              typeof nodo.position.x === "number" &&
+              typeof nodo.position.y === "number",
+          )
+          .map((nodo) => ({ ...nodo, type: nodo.type ?? "idea", selected: false }));
+
+        if (nodos.length === 0) {
+          toast.error("Ese archivo no tiene ideas adentro");
+          return;
+        }
+
+        const idsValidos = new Set(nodos.map((nodo) => nodo.id));
+        const crudasAristas = Array.isArray(crudo.edges) ? (crudo.edges as Edge[]) : [];
+        const aristas = crudasAristas
+          // Una union que apunta a una caja que no vino deja una linea al vacio.
+          .filter(
+            (arista) =>
+              arista &&
+              typeof arista.id === "string" &&
+              idsValidos.has(arista.source) &&
+              idsValidos.has(arista.target),
+          )
+          .map((arista) => ({ ...arista, type: "borrable" }));
+
+        const datos = {
+          titulo: typeof crudo.titulo === "string" ? crudo.titulo : "",
+          nodes: nodos,
+          edges: aristas,
+        };
+
+        // Sobre un lienzo vacio no hay nada que perder: entra directo.
+        if (nodesRef.current.length === 0) {
+          aplicarImportado(datos);
+          return;
+        }
+        setPorImportar(datos);
+      } catch {
+        toast.error("No se pudo leer el archivo");
+      }
+    },
+    [aplicarImportado],
+  );
+
   return (
     <div className="flex h-[calc(100dvh-3.5rem)] flex-col">
       <div className="flex shrink-0 items-center gap-2 border-b border-border bg-card px-3 py-2">
@@ -479,6 +620,43 @@ export function DiagramaCanvas({
           <Plus className="size-4" />
           Idea
         </Button>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              aria-label="Opciones del diagrama"
+              className="inline-flex size-9 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground"
+            >
+              <EllipsisVertical className="size-5" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-48">
+            {/* onClick y no onSelect: este menu es Base UI, y ahi onSelect se ignora en silencio. */}
+            <DropdownMenuItem onClick={exportar}>
+              <Download className="size-4" /> Exportar diagrama
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => entradaArchivoRef.current?.click()}>
+              <Upload className="size-4" /> Importar diagrama
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <input
+          ref={entradaArchivoRef}
+          type="file"
+          accept="application/json,.json"
+          className="hidden"
+          onChange={(evento) => {
+            const archivo = evento.target.files?.[0];
+            // Se limpia SIEMPRE: sin esto, elegir el mismo archivo dos veces seguidas no dispara
+            // el evento y parece que el boton dejo de funcionar.
+            evento.target.value = "";
+            if (archivo) {
+              void leerArchivo(archivo);
+            }
+          }}
+        />
       </div>
 
       <div className="min-h-0 flex-1">
@@ -556,6 +734,36 @@ export function DiagramaCanvas({
           Doble clic en el lienzo para poner una idea. Arrastrá de un borde a otro para unirlas.
         </p>
       ) : null}
+
+      {/*
+        Importar PISA lo que hay, y hay que decirlo antes.
+
+        El guardado es automatico: dos segundos despues de reemplazar el lienzo, lo anterior ya no
+        existe en ningun lado. Por eso se avisa cuantas ideas se van y cuantas entran, en vez de
+        confiar en que se entienda que "importar" borra.
+      */}
+      <Dialog open={Boolean(porImportar)} onOpenChange={(abierto) => !abierto && setPorImportar(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Reemplazar este diagrama</DialogTitle>
+            <DialogDescription>
+              Este mapa tiene {nodes.length} {nodes.length === 1 ? "idea" : "ideas"} y se van a
+              perder. En su lugar entran las {porImportar?.nodes.length ?? 0} del archivo.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="secondary" size="sm" onClick={() => setPorImportar(null)}>
+              Cancelar
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => porImportar && aplicarImportado(porImportar)}
+            >
+              Reemplazar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
