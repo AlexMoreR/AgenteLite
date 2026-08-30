@@ -38,6 +38,23 @@ function maskApiKey(apiKey: string) {
   return `${trimmed.slice(0, 6)}••••••••`;
 }
 
+/**
+ * A donde avisa cada servidor cuando entra un mensaje.
+ *
+ * No es la misma URL para todos: WAHA manda su propio formato y entra por su endpoint, que lo
+ * traduce. Mostrar la de Evolution en una fila de WAHA seria un dato falso justo en la tabla que
+ * uno mira para diagnosticar por que no llegan los mensajes.
+ */
+function webhookDelServidor(kind: GatewayRow["kind"], webhookUrl: string): string {
+  if (kind !== "WAHA") {
+    return webhookUrl;
+  }
+  if (!webhookUrl) {
+    return "";
+  }
+  return webhookUrl.replace("/api/webhooks/evolution", "/api/webhooks/waha");
+}
+
 export function WhatsAppConnectionsSettings({ gateways, webhookUrl }: WhatsAppConnectionsSettingsProps) {
   const [createOpen, setCreateOpen] = useState(false);
   const [kind, setKind] = useState<GatewayRow["kind"]>("EVOLUTION_GO");
@@ -101,8 +118,11 @@ export function WhatsAppConnectionsSettings({ gateways, webhookUrl }: WhatsAppCo
                     {gateway.baseUrl}
                   </td>
                   <td className="px-4 py-3 font-mono text-xs text-slate-600">{maskApiKey(gateway.apiKey)}</td>
-                  <td className="max-w-[18rem] truncate px-4 py-3 text-slate-600" title={webhookUrl}>
-                    {webhookUrl || "No configurado por entorno"}
+                  <td
+                    className="max-w-[18rem] truncate px-4 py-3 text-slate-600"
+                    title={webhookDelServidor(gateway.kind, webhookUrl)}
+                  >
+                    {webhookDelServidor(gateway.kind, webhookUrl) || "No configurado por entorno"}
                   </td>
                   <td className="px-4 py-3 text-right">
                     <form action={adminDeleteEvolutionGatewayAction} className="inline">

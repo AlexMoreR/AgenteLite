@@ -121,7 +121,7 @@ export async function adminUpdateBrandNameAction(formData: FormData): Promise<vo
 }
 
 const createEvolutionGatewaySchema = z.object({
-  kind: z.enum(["EVOLUTION_GO", "EVOLUTION_API"]),
+  kind: z.enum(["EVOLUTION_GO", "EVOLUTION_API", "WAHA"]),
   baseUrl: z.string().trim().url("URL invalida"),
   apiKey: z.string().trim().optional(),
 });
