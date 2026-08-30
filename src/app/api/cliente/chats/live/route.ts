@@ -203,7 +203,18 @@ export async function GET(request: Request) {
 
   const messages = await Promise.all(
     conversation.messages.map(async (message) => {
-      const base = { ...message, createdAt: message.createdAt.toISOString() };
+      const base = {
+        ...message,
+        createdAt: message.createdAt.toISOString(),
+        /*
+          El acuse, con el nombre que espera la burbuja.
+
+          Sin esta linea el refresco en vivo devolvia el estado crudo y no el campo que la burbuja
+          mira, asi que el check aparecia al abrir el chat -eso lo pinta el servidor- y desaparecia
+          un segundo despues, cuando el refresco pisaba los mensajes con una version sin acuse.
+        */
+        outboundStatusLabel: message.direction === "OUTBOUND" ? message.status : null,
+      };
 
       if (!isResolvableMediaType(message.type)) {
         return { ...base, mediaUrl: message.mediaUrl };
