@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { ConnectionCardMenu } from "./ConnectionCardMenu";
+import { ConexionAutoRefresh } from "./ConexionAutoRefresh";
 
 type ConnectionsWorkspaceProps = {
   officialApiEmbeddedSignupReady: boolean;
@@ -52,6 +53,7 @@ export function ConnectionsWorkspaceV2({
 }: ConnectionsWorkspaceProps) {
   return (
     <section className="app-page w-full space-y-5 px-6 pb-6 pt-4">
+      <ConexionAutoRefresh />
       <QueryFeedbackToast
         okMessage={okMessage}
         errorMessage={errorMessage}

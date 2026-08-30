@@ -2135,10 +2135,39 @@ export async function recreateEvolutionInstanceForChannel(input: {
 }) {
   const channel = await prisma.whatsAppChannel.findFirst({
     where: { id: input.channelId, workspaceId: input.workspaceId, provider: "EVOLUTION" },
-    select: { id: true, evolutionInstanceName: true, metadata: true },
+    select: { id: true, name: true, evolutionInstanceName: true, metadata: true },
   });
   if (!channel) {
     throw new Error("Canal no encontrado");
+  }
+
+  /*
+    En un canal WAHA, "Crear cuenta nueva" tiene que crear una SESION de WAHA.
+
+    Sin esto se iba por el camino de Evolution: le asignaba un nombre estilo `agente-lite-N`, la
+    sesion no se creaba en ningun lado, y el canal quedaba apuntando al vacio -esperando un QR que
+    no podia llegar nunca-. Le paso a Admin.
+  */
+  const wahaExistente = await conexionWahaDe(channel.evolutionInstanceName ?? "");
+  if (wahaExistente) {
+    const sesion = await nombreDeSesionWahaLibre(wahaExistente, channel.name);
+    const creada = await asegurarSesionWaha({
+      connection: wahaExistente,
+      sesion,
+      webhookUrl: urlDeWebhookWaha(),
+    });
+
+    await prisma.whatsAppChannel.update({
+      where: { id: channel.id },
+      data: {
+        evolutionInstanceName: sesion,
+        evolutionExternalKey: null,
+        status: creada?.status === "WORKING" ? "CONNECTED" : "QRCODE",
+        qrCode: null,
+      },
+    });
+
+    return { instanceName: sesion };
   }
 
   const oldInstanceName = channel.evolutionInstanceName;
