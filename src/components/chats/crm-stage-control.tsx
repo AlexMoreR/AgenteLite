@@ -22,15 +22,6 @@ type CrmStageControlProps = {
   variant?: "pill" | "chip";
 };
 
-// Color del punto indicador por etapa (consistente con los acentos del CRM).
-const STAGE_DOT_CLASS: Record<CrmStage, string> = {
-  NUEVO: "bg-violet-500",
-  CALIFICADO: "bg-cyan-500",
-  PROPUESTA: "bg-amber-500",
-  NEGOCIACION: "bg-rose-500",
-  GANADO: "bg-emerald-500",
-  PERDIDO: "bg-red-600",
-};
 
 // Color de relleno del botón por etapa.
 const STAGE_BUTTON_CLASS: Record<CrmStage, string> = {
@@ -160,9 +151,17 @@ export function CrmStageControl({ contactId, stage, variant = "pill" }: CrmStage
                 onClick={() => handleSelect(stageValue)}
                 className="flex w-full items-center justify-between gap-2 px-4 py-2.5 text-left text-[13px] text-foreground transition hover:bg-muted disabled:opacity-50"
               >
-                <span className="flex min-w-0 items-center gap-2">
-                  <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${STAGE_DOT_CLASS[stageValue]}`} />
-                  <span className="truncate">{CRM_STAGE_META[stageValue].label}</span>
+                {/*
+                  La MISMA pastilla que se ve en la lista y en el chat, no un puntito de color.
+
+                  Eran dos formas de mostrar lo mismo: afuera una etiqueta con su color de fondo,
+                  adentro un punto con el texto en negro. Al elegir la etapa uno tenia que traducir
+                  entre las dos, en vez de reconocer la que ya conoce.
+                */}
+                <span
+                  className={`inline-flex max-w-full shrink-0 items-center whitespace-nowrap rounded-full border px-2.5 py-[3px] text-[12px] font-semibold leading-[1.3] ${CRM_STAGE_META[stageValue].borderClassName} ${CRM_STAGE_META[stageValue].backgroundClassName} ${CRM_STAGE_META[stageValue].accentClassName}`}
+                >
+                  {CRM_STAGE_META[stageValue].label}
                 </span>
                 {selected ? <Check className="h-4 w-4 shrink-0 text-emerald-500" /> : null}
               </button>
