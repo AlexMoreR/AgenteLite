@@ -719,3 +719,54 @@ export async function enviarMediaWaha(input: {
 
   return { externalId: leerIdDeMensaje(respuesta), raw: respuesta };
 }
+
+/* -------------------------------------------------------- fotos de perfil */
+
+/**
+ * La foto de perfil de un contacto.
+ *
+ * Es lo que con evogo estaba APAGADO: alli cada consulta colgaba ~75s cuando WhatsApp
+ * rate-limitea, y el goteo automatico saturaba el gateway hasta bloquear los ENVIOS. Medido en
+ * WAHA: 272 ms la primera vez y 21 ms despues. Por eso aca si se puede tener fotos.
+ *
+ * La URL que devuelve es del CDN de WhatsApp (pps.whatsapp.net): se abre sin clave, pero CADUCA.
+ * Por eso arriba se guarda con vencimiento y se vuelve a pedir, no se toma como definitiva.
+ */
+export async function fotoDeContactoWaha(input: {
+  connection: WahaConnection;
+  sesion: string;
+  telefono: string;
+}): Promise<string | null> {
+  try {
+    const chatId = chatIdDeTelefono(input.telefono);
+    const datos = await wahaRequest<{ profilePictureURL?: unknown }>(
+      input.connection,
+      `/api/contacts/profile-picture?session=${encodeURIComponent(input.sesion)}&contactId=${encodeURIComponent(chatId)}`,
+    );
+    const url = datos?.profilePictureURL;
+    return typeof url === "string" && url.trim() ? url : null;
+  } catch (error) {
+    console.error("[waha] no pude traer la foto de", input.telefono, error);
+    return null;
+  }
+}
+
+/** La foto y el nombre del NUMERO conectado, para la tarjeta del canal. */
+export async function perfilDeLaLineaWaha(
+  connection: WahaConnection,
+  sesion: string,
+): Promise<{ nombre: string | null; foto: string | null } | null> {
+  try {
+    const datos = await wahaRequest<{ name?: unknown; picture?: unknown }>(
+      connection,
+      `/api/${encodeURIComponent(sesion)}/profile`,
+    );
+    return {
+      nombre: typeof datos?.name === "string" ? datos.name : null,
+      foto: typeof datos?.picture === "string" && datos.picture.trim() ? datos.picture : null,
+    };
+  } catch {
+    // La foto es cosmetica: si falla, la tarjeta muestra el avatar generico y nada mas.
+    return null;
+  }
+}

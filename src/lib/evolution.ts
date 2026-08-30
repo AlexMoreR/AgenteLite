@@ -4,7 +4,9 @@ import {
   WAHA_GATEWAY_KIND,
   asegurarSesionWaha,
   enviarMediaWaha,
+  fotoDeContactoWaha,
   leerSesionWaha,
+  perfilDeLaLineaWaha,
   enviarTextoWaha,
   estadoDeSesionWaha,
   perfilDeSesionWaha,
@@ -1515,7 +1517,15 @@ export async function getEvolutionConnectionQr(instanceName: string) {
 export async function fetchEvolutionInstanceProfile(instanceName: string) {
   const waha = await conexionWahaDe(instanceName);
   if (waha) {
-    return perfilDeSesionWaha(waha, instanceName);
+    const [sesion, linea] = await Promise.all([
+      perfilDeSesionWaha(waha, instanceName),
+      perfilDeLaLineaWaha(waha, instanceName),
+    ]);
+    if (!sesion) {
+      return null;
+    }
+    // La foto viene del perfil de la linea, que la sesion no trae.
+    return { ...sesion, profilePictureUrl: linea?.foto ?? null };
   }
   const settings = await getEvolutionSettings();
   if (!settings.apiBaseUrl || !settings.apiToken || !instanceName) {
@@ -2755,6 +2765,15 @@ export async function fetchEvolutionProfilePictureUrl(input: {
   instanceName: string;
   phoneNumber: string;
 }) {
+  const waha = await conexionWahaDe(input.instanceName);
+  if (waha) {
+    return fotoDeContactoWaha({
+      connection: waha,
+      sesion: input.instanceName,
+      telefono: input.phoneNumber,
+    });
+  }
+
   const settings = await getEvolutionSettings();
   if (!settings.apiBaseUrl || !settings.apiToken || !input.instanceName || !input.phoneNumber) {
     return null;

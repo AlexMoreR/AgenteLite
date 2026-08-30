@@ -1,7 +1,8 @@
 import { after } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { fetchEvolutionProfilePictureUrl } from "@/lib/evolution";
+import { fetchEvolutionProfilePictureUrl, readGatewayConnection } from "@/lib/evolution";
+import { WAHA_GATEWAY_KIND } from "@/lib/waha";
 import { isPersistedChatMediaUrl, persistChatMediaFromDataUrl } from "@/lib/chat-media-storage";
 
 // Cache "on-demand" de las fotos de perfil de WhatsApp por contacto.
@@ -110,11 +111,45 @@ function readMetadataObject(value: Prisma.JsonValue | null): Record<string, unkn
 // Cambiar a true para reactivar el refresco automático en segundo plano.
 const AVATAR_AUTO_REFRESH_ENABLED = false;
 
-export function scheduleContactAvatarRefresh(targets: ContactAvatarTarget[]) {
-  if (!AVATAR_AUTO_REFRESH_ENABLED) {
-    return;
+/**
+ * En WAHA si se pueden traer fotos.
+ *
+ * La bandera de arriba existe por evogo, no por la funcion: alli cada consulta cuelga ~75s cuando
+ * WhatsApp rate-limitea y el goteo automatico saturaba el gateway hasta bloquear los ENVIOS.
+ * Medido en WAHA el 29-ago: 272 ms la primera vez, 21 ms despues. Esa razon no aplica.
+ *
+ * Por eso el permiso es POR CANAL y no global: prender la bandera de arriba volveria a tumbar los
+ * envios de los canales que siguen en evogo.
+ */
+async function objetivosConFotoPermitida(
+  targets: ContactAvatarTarget[],
+): Promise<ContactAvatarTarget[]> {
+  if (AVATAR_AUTO_REFRESH_ENABLED) {
+    return targets;
   }
 
+  const instancias = Array.from(
+    new Set(targets.map((target) => target.instanceName?.trim()).filter((valor): valor is string => Boolean(valor))),
+  );
+  if (instancias.length === 0) {
+    return [];
+  }
+
+  const canales = await prisma.whatsAppChannel.findMany({
+    where: { evolutionInstanceName: { in: instancias } },
+    select: { evolutionInstanceName: true, metadata: true },
+  });
+  const permitidas = new Set(
+    canales
+      .filter((canal) => readGatewayConnection(canal.metadata)?.kind === WAHA_GATEWAY_KIND)
+      .map((canal) => canal.evolutionInstanceName)
+      .filter((nombre): nombre is string => Boolean(nombre)),
+  );
+
+  return targets.filter((target) => target.instanceName && permitidas.has(target.instanceName));
+}
+
+export function scheduleContactAvatarRefresh(targets: ContactAvatarTarget[]) {
   if (!targets.length) {
     return;
   }
@@ -128,7 +163,12 @@ export function scheduleContactAvatarRefresh(targets: ContactAvatarTarget[]) {
 
   after(async () => {
     try {
-      await refreshContactAvatars(targets);
+      // Se filtra ACA y no antes: saber de que gateway es cada canal necesita ir a la base, y eso
+      // no puede pasar en el camino que responde la pantalla.
+      const permitidos = await objetivosConFotoPermitida(targets);
+      if (permitidos.length) {
+        await refreshContactAvatars(permitidos);
+      }
     } catch {
       // silencioso a propósito: es un mejor-esfuerzo en segundo plano
     }
@@ -144,10 +184,6 @@ const SINGLE_NO_PHOTO_RETRY_MS = 15 * 60 * 1000;
  * Bajo costo (un solo contacto) y con TTL corto para que la foto se vea pronto en el CRM.
  */
 export function scheduleSingleContactAvatarRefresh(target: ContactAvatarTarget) {
-  if (!AVATAR_AUTO_REFRESH_ENABLED) {
-    return;
-  }
-
   if (!target.contactId || !target.phoneNumber || !target.instanceName) {
     return;
   }
@@ -156,7 +192,11 @@ export function scheduleSingleContactAvatarRefresh(target: ContactAvatarTarget) 
     try {
       // bypassCircuit: al abrir un chat queremos intentar SU foto aunque el cortacircuitos
       // global esté en pausa (es 1 solo contacto, bajo costo) y sin afectar ese contador.
-      await refreshContactAvatars([target], {
+      const permitidos = await objetivosConFotoPermitida([target]);
+      if (!permitidos.length) {
+        return;
+      }
+      await refreshContactAvatars(permitidos, {
         noPhotoRetryMs: SINGLE_NO_PHOTO_RETRY_MS,
         maxPerRun: 1,
         bypassCircuit: true,
