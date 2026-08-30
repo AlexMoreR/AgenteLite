@@ -567,3 +567,18 @@ export function leerAckWaha(
   }
   return { sesion, idMensaje, estado };
 }
+
+/**
+ * El id CRUDO del mensaje, sin el destinatario pegado adelante.
+ *
+ * WAHA compone el identificador como `<fromMe>_<jid>_<ID>`, y el jid del medio NO es estable: al
+ * enviar nos devuelve el numero (`true_573001112233@c.us_3EB0...`) y en el acuse nos manda el LID
+ * (`true_37898875334784@lid_3EB0...`). Comparando la cadena entera, el acuse de un mensaje nuestro
+ * jamas encuentra a su mensaje, y el doble check nunca aparece.
+ *
+ * Lo unico que se mantiene igual en los dos es el pedazo final, que es el id de verdad.
+ */
+export function idCrudoDeMensaje(id: string): string {
+  const partes = id.split("_");
+  return partes[partes.length - 1] ?? "";
+}

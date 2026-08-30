@@ -3,7 +3,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { POST as recibirEvolution } from "@/app/api/webhooks/evolution/route";
 import { prisma } from "@/lib/prisma";
 import { getEvolutionSettings } from "@/lib/system-settings";
-import { avanzaElEstado, leerAckWaha, traducirEventoWaha, type EstadoDeEntrega } from "@/lib/waha";
+import {
+  avanzaElEstado,
+  idCrudoDeMensaje,
+  leerAckWaha,
+  traducirEventoWaha,
+  type EstadoDeEntrega,
+} from "@/lib/waha";
 
 /**
  * Por donde entran los mensajes de WAHA.
@@ -92,13 +98,28 @@ export async function GET() {
 
 /** Marca en el mensaje lo que WhatsApp acaba de contarnos: llego, lo leyeron, o fallo. */
 async function aplicarAck(ack: { sesion: string; idMensaje: string; estado: EstadoDeEntrega }) {
+  /*
+    Se busca tambien por el id CRUDO, no solo por la cadena completa.
+
+    Al enviar, WAHA nos devuelve el id compuesto con el numero
+    (`true_573001112233@c.us_3EB0...`); en el acuse lo compone con el LID
+    (`true_37898875334784@lid_3EB0...`). Son el mismo mensaje y nunca coinciden como texto: por eso
+    ningun acuse encontraba a su mensaje y el doble check no aparecia jamas.
+
+    El canal sigue acotando la busqueda: el mismo id podria existir en otra linea, y marcarle el
+    acuse al mensaje de otra conversacion seria peor que no marcar nada.
+  */
+  const crudo = idCrudoDeMensaje(ack.idMensaje);
   const mensaje = await prisma.message.findFirst({
-    // Se busca por el id de WhatsApp Y por el canal: el mismo id podria existir en otra linea, y
-    // marcarle el doble check al mensaje de otra conversacion seria peor que no marcar nada.
     where: {
-      externalId: ack.idMensaje,
       channel: { evolutionInstanceName: ack.sesion },
+      OR: [
+        { externalId: ack.idMensaje },
+        // El minimo de largo evita que un id raro y corto matchee cualquier cosa por casualidad.
+        ...(crudo.length >= 8 ? [{ externalId: { endsWith: `_${crudo}` } }] : []),
+      ],
     },
+    orderBy: { createdAt: "desc" },
     select: { id: true, status: true },
   });
 
