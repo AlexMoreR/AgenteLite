@@ -766,6 +766,15 @@ export async function fotoDeContactoWaha(input: {
     const url = datos?.profilePictureURL;
     return typeof url === "string" && url.trim() ? url : null;
   } catch (error) {
+    /*
+      Que la sesion no este lista NO es un error.
+
+      WAHA responde 422 mientras la linea espera el QR. Anotarlo como error llenaba el registro de
+      ruido y escondia los problemas de verdad.
+    */
+    if (error instanceof WahaError && error.status === 422) {
+      return null;
+    }
     console.error("[waha] no pude traer la foto de", input.telefono, error);
     return null;
   }

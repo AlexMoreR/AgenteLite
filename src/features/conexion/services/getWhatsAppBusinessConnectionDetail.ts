@@ -125,7 +125,14 @@ export async function getWhatsAppBusinessConnectionDetail(workspaceId: string, c
           pairingCode: null,
         })
       : Promise.resolve({ qrCode: null as string | null, pairingCode: null as string | null }),
-    !instanceProfile?.profilePictureUrl && instanceName && resolvedPhoneNumber
+    /*
+      A una linea que NO esta conectada no se le pide la foto.
+
+      Esta pantalla se refresca cada pocos segundos mientras espera el QR, y en cada refresco
+      pedia una foto que el gateway no puede dar todavia: 57 llamadas fallidas en 5 minutos, y la
+      pantalla trabada en el esqueleto. La foto es cosmetica; ver el QR no.
+    */
+    remoteIsConnected && !instanceProfile?.profilePictureUrl && instanceName && resolvedPhoneNumber
       ? withTimeout(
           fetchEvolutionProfilePictureUrl({ instanceName, phoneNumber: resolvedPhoneNumber }),
           EVOLUTION_CALL_TIMEOUT_MS,
