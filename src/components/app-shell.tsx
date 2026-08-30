@@ -24,6 +24,7 @@ import { BuscadorGlobal } from "@/components/buscador-global";
 import { AppVersionGuard } from "@/components/app-version-guard";
 import { MobileKeyboardViewport } from "@/components/mobile-keyboard-viewport";
 import { ChatNotificationBell } from "@/components/ui/chat-notification-bell";
+import { AvisoDeCanalCaido } from "@/features/monitoreo/components/AvisoDeCanalCaido";
 import { HelpCopilotWidget } from "@/components/help/help-copilot-widget";
 import type { AdminModuleKey } from "@/lib/admin-modules";
 import { cn } from "@/lib/utils";
@@ -339,6 +340,11 @@ export function AppShell({
           </main>
           {showClientPlanBlock && clientPlanBlock ? <ClientPlanBlockModal {...clientPlanBlock} /> : null}
         </SidebarInset>
+        {/*
+          Va en el armazon y no en la pantalla de Chats: una linea caida importa en cualquier
+          lugar de la app, y quien esta en el CRM o en Campanas tambien tiene que enterarse.
+        */}
+        <AvisoDeCanalCaido />
         <HelpCopilotWidget open={helpOpen} onClose={() => setHelpOpen(false)} />
       </SidebarProvider>
     );

@@ -152,3 +152,41 @@ export async function sendEmployeeInviteEmail(params: EmployeeInviteEmailParams)
     html: `<p>Hola <strong>${displayName}</strong>,</p><p>Te invitaron al equipo de <strong>${workspaceName}</strong>.</p><p>Crea tu contrasena para entrar al panel:</p><p><a href="${params.inviteUrl}">${params.inviteUrl}</a></p>`,
   });
 }
+
+type AvisoDeCanalParams = {
+  to: string;
+  nombre: string;
+  asunto: string;
+  cuerpo: string;
+};
+
+/**
+ * Aviso de que una linea de WhatsApp se cayo (o volvio).
+ *
+ * Va por correo y NO por WhatsApp a proposito: avisar de que WhatsApp esta caido usando WhatsApp
+ * es apostar a que quede alguna linea sana. El correo no depende del gateway.
+ */
+export async function sendAvisoDeCanalEmail(params: AvisoDeCanalParams): Promise<void> {
+  const config = getSmtpConfig();
+  if (!config) {
+    return;
+  }
+
+  const nodemailer = await import("nodemailer");
+  const transporter = nodemailer.createTransport({
+    host: config.host,
+    port: config.port,
+    secure: config.secure,
+    auth: { user: config.user, pass: config.pass },
+  });
+
+  const nombre = params.nombre?.trim() || "";
+
+  await transporter.sendMail({
+    from: config.from,
+    to: params.to,
+    subject: params.asunto,
+    text: `${nombre ? `Hola ${nombre},\n\n` : ""}${params.cuerpo}\n\nRevisá el canal en https://app.aizenbot.com/cliente/conexion`,
+    html: `${nombre ? `<p>Hola <strong>${nombre}</strong>,</p>` : ""}<p>${params.cuerpo}</p><p><a href="https://app.aizenbot.com/cliente/conexion">Ver las conexiones</a></p>`,
+  });
+}
