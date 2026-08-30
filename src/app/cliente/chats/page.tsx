@@ -966,7 +966,9 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       editedAt: message.editedAt,
       deletedAt: message.deletedAt,
       authorType: (message.direction === "OUTBOUND" ? "bot" : "user") as "user" | "bot",
-      outboundStatusLabel: null,
+      // Venia fijo en null: los acuses solo funcionaban en el canal de API oficial, y en los
+      // chats de WhatsApp NUNCA se vio un check aunque la base tuviera el estado correcto.
+      outboundStatusLabel: message.direction === "OUTBOUND" ? message.status : null,
       type: (message.type ?? "TEXT") as NonNullable<UnifiedConversation["lastMessageType"]>,
       mediaUrl: message.mediaUrl,
       reactionEmoji: message.reactionEmoji,

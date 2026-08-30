@@ -103,10 +103,12 @@ async function aplicarAck(ack: { sesion: string; idMensaje: string; estado: Esta
   });
 
   if (!mensaje) {
-    // Normal para lo que enviamos desde el celular, fuera del CRM: no tenemos ese mensaje.
+    // Normal para lo que se envia desde el celular, fuera del CRM: ese mensaje no es nuestro.
+    console.log(`[waha ack] sin mensaje para ${ack.idMensaje} en ${ack.sesion}`);
     return;
   }
   if (!avanzaElEstado(mensaje.status, ack.estado)) {
+    console.log(`[waha ack] ${ack.estado} no avanza sobre ${mensaje.status}`);
     return;
   }
 
