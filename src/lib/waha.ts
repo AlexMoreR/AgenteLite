@@ -356,8 +356,83 @@ export async function qrDeSesionWaha(
 
 /** El destinatario como lo quiere WAHA: solo digitos y sufijo @c.us. */
 export function chatIdDeTelefono(telefono: string): string {
-  const digitos = telefono.replace(/\D/g, "");
+  const limpio = telefono.trim();
+
+  // Grupos, canales y los LID ya guardados con su dominio viajan tal cual.
+  if (/@(g\.us|newsletter|lid|c\.us|s\.whatsapp\.net)$/i.test(limpio)) {
+    return limpio;
+  }
+
+  const digitos = limpio.replace(/\D/g, "");
+
+  /**
+   * Un LID no es un telefono, y mandarlo como tal no llega a ningun lado.
+   *
+   * Los leads que entran por un anuncio ocultan su numero: WhatsApp los identifica con un LID, que
+   * en la ficha del contacto queda pelado ("271498354913364"). Pegarle "@c.us" lo convierte en
+   * "271498354913364@s.whatsapp.net", una direccion que no existe, y el gateway corta con
+   * "no LID found for ... from server" en la cara de la asesora.
+   *
+   * Un telefono real no pasa de 13 digitos con indicativo; de 14 para arriba es un LID. Es el
+   * mismo criterio que ya usaba el camino de Evolution (normalizeEvolutionSendNumber): quedo sin
+   * portar al pasar las lineas a WAHA, y por eso volvio a aparecer.
+   */
+  if (digitos.length >= 14) {
+    return `${digitos}@lid`;
+  }
+
   return `${digitos}@c.us`;
+}
+
+/**
+ * Un LID no es un telefono: hay que preguntarle a WhatsApp cual es.
+ *
+ * Los leads que entran por un anuncio ocultan su numero. WhatsApp los identifica con un LID, que
+ * en la ficha del contacto queda pelado ("271498354913364"). Enviado como telefono se convierte en
+ * "271498354913364@s.whatsapp.net" —una direccion que no existe— y el gateway corta con
+ * "no LID found for ... from server" en la cara de la asesora, con el mensaje sin salir.
+ *
+ * WAHA tiene la tabla de equivalencias de la propia linea, asi que se le pregunta y se manda al
+ * numero de verdad. Si no la tiene (el LID nunca escribio por esta linea), se manda al "@lid", que
+ * es lo unico que puede llegar; peor es lo de antes, que no llegaba nunca.
+ *
+ * La respuesta se guarda: la equivalencia no cambia, y sin esto seria una consulta extra en cada
+ * mensaje de una conversacion.
+ */
+const telefonoDeLid = new Map<string, string>();
+
+async function chatIdParaEnviar(input: {
+  connection: WahaConnection;
+  sesion: string;
+  telefono: string;
+}): Promise<string> {
+  const directo = chatIdDeTelefono(input.telefono);
+  if (!directo.endsWith("@lid")) {
+    return directo;
+  }
+
+  const lid = directo.slice(0, -"@lid".length);
+  const enMemoria = telefonoDeLid.get(`${input.sesion}:${lid}`);
+  if (enMemoria) {
+    return enMemoria;
+  }
+
+  try {
+    const respuesta = await wahaRequest<{ pn?: string | null }>(
+      input.connection,
+      `/api/${encodeURIComponent(input.sesion)}/lids/${encodeURIComponent(lid)}`,
+    );
+    const telefono = respuesta?.pn?.trim();
+    if (telefono) {
+      const resuelto = chatIdDeTelefono(telefono);
+      telefonoDeLid.set(`${input.sesion}:${lid}`, resuelto);
+      return resuelto;
+    }
+  } catch {
+    // Sin equivalencia se sigue con el "@lid": preguntar es una mejora, no un requisito para enviar.
+  }
+
+  return directo;
 }
 
 export async function enviarTextoWaha(input: {
@@ -374,7 +449,7 @@ export async function enviarTextoWaha(input: {
       method: "POST",
       body: JSON.stringify({
         session: input.sesion,
-        chatId: chatIdDeTelefono(input.telefono),
+        chatId: await chatIdParaEnviar(input),
         text: input.texto,
         ...(input.citarId ? { reply_to: input.citarId } : {}),
       }),
@@ -746,7 +821,7 @@ export async function enviarMediaWaha(input: {
 
   const cuerpo: Record<string, unknown> = {
     session: input.sesion,
-    chatId: chatIdDeTelefono(input.telefono),
+    chatId: await chatIdParaEnviar(input),
     file: {
       // La nota de voz grabada en el CRM no tiene URL publica todavia: viaja como contenido.
       ...(url ? { url } : { data: base64 }),
