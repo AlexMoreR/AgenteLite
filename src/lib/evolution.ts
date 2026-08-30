@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import {
   WAHA_GATEWAY_KIND,
   asegurarSesionWaha,
+  enviarMediaWaha,
   leerSesionWaha,
   enviarTextoWaha,
   estadoDeSesionWaha,
@@ -2594,6 +2595,20 @@ export async function sendEvolutionMediaUrl(input: {
   delayMs?: number;
 }) {
   const normalizedCaption = input.caption?.trim() || "";
+
+  const waha = await conexionWahaDe(input.instanceName);
+  if (waha) {
+    return enviarMediaWaha({
+      connection: waha,
+      sesion: input.instanceName,
+      telefono: input.phoneNumber,
+      tipo: input.mediatype,
+      url: input.url,
+      mimetype: input.mimetype,
+      nombreDeArchivo: input.fileName,
+      epigrafe: normalizedCaption,
+    });
+  }
 
   const buildLegacyBody = (media: string) => ({
     number: normalizeEvolutionSendNumber(input.phoneNumber),

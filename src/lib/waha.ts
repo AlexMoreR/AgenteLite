@@ -410,9 +410,38 @@ function jidDeWaha(valor: string): string {
  * Devuelve null para lo que todavia no soportamos; el que llama responde 200 igual, porque un
  * evento que no sabemos leer no es un error de WAHA y reintentarlo no lo va a mejorar.
  */
+export type MediaPendiente = { url: string; mimetype: string };
+
+/**
+ * A que nodo del formato de Evolution corresponde cada tipo de archivo.
+ *
+ * El webhook viejo deduce el tipo del mensaje por el NOMBRE del nodo (`imageMessage`,
+ * `audioMessage`...), no por un campo aparte. Poniendo el nodo correcto, toda la tuberia -tipo,
+ * miniatura, descarga, burbuja- funciona sin tocar una linea de ella.
+ */
+function nodoSegunMime(mimetype: string): string {
+  const tipo = mimetype.toLowerCase();
+  // El webp es como WhatsApp manda los stickers; tratarlo como imagen los mostraria gigantes.
+  if (tipo.startsWith("image/webp")) {
+    return "stickerMessage";
+  }
+  if (tipo.startsWith("image/")) {
+    return "imageMessage";
+  }
+  if (tipo.startsWith("video/")) {
+    return "videoMessage";
+  }
+  if (tipo.startsWith("audio/")) {
+    return "audioMessage";
+  }
+  return "documentMessage";
+}
+
 export function traducirEventoWaha(
   cuerpo: unknown,
-): { evolution: Record<string, unknown>; motivo?: undefined } | { evolution?: undefined; motivo: string } {
+):
+  | { evolution: Record<string, unknown>; media?: MediaPendiente; motivo?: undefined }
+  | { evolution?: undefined; media?: undefined; motivo: string } {
   if (!cuerpo || typeof cuerpo !== "object") {
     return { motivo: "el cuerpo no es un objeto" };
   }
@@ -446,6 +475,7 @@ export function traducirEventoWaha(
     fromMe?: unknown;
     body?: unknown;
     hasMedia?: unknown;
+    media?: unknown;
     participant?: unknown;
     _data?: unknown;
   };
@@ -455,19 +485,30 @@ export function traducirEventoWaha(
     return { motivo: "el mensaje no dice de quien viene" };
   }
 
-  /*
-    Por ahora solo texto.
-
-    Un mensaje con foto se ignora en vez de guardarse vacio: una burbuja en blanco en el chat es
-    peor que ninguna, porque la asesora cree que el cliente no mando nada. Media es el siguiente
-    paso, y hasta que este, esto tiene que ser evidente.
-  */
   const texto = typeof mensaje.body === "string" ? mensaje.body : "";
-  if (mensaje.hasMedia === true) {
-    return { motivo: "mensaje con media: todavia no soportado en WAHA" };
+
+  const archivo = (mensaje.media ?? {}) as {
+    url?: unknown;
+    mimetype?: unknown;
+    filename?: unknown;
+  };
+  const urlDelArchivo = typeof archivo.url === "string" ? archivo.url : "";
+  const mimetype = typeof archivo.mimetype === "string" ? archivo.mimetype : "";
+  const nombreDelArchivo = typeof archivo.filename === "string" ? archivo.filename : "";
+  const tieneMedia = mensaje.hasMedia === true && Boolean(urlDelArchivo);
+
+  /*
+    Un mensaje con media pero SIN url no se guarda.
+
+    Pasa cuando WAHA todavia no termino de bajar el archivo. Guardarlo igual dejaria una burbuja
+    vacia en el chat, y la asesora creeria que el cliente no mando nada; WAHA vuelve a avisar
+    cuando lo tiene.
+  */
+  if (mensaje.hasMedia === true && !urlDelArchivo) {
+    return { motivo: "media sin url todavia (WAHA aun la esta bajando)" };
   }
-  if (!texto.trim()) {
-    return { motivo: "mensaje sin texto" };
+  if (!tieneMedia && !texto.trim()) {
+    return { motivo: "mensaje sin texto ni media" };
   }
 
   const datosCrudos = (mensaje._data ?? {}) as { notifyName?: unknown; pushName?: unknown };
@@ -491,12 +532,55 @@ export function traducirEventoWaha(
             ? { participant: jidDeWaha(mensaje.participant) }
             : {}),
         },
-        message: { conversation: texto },
+        message: tieneMedia
+          ? {
+              [nodoSegunMime(mimetype)]: {
+                url: urlDelArchivo,
+                mimetype,
+                // En WhatsApp el texto que acompana una foto ES el caption, no un mensaje aparte.
+                caption: texto,
+                ...(nombreDelArchivo ? { fileName: nombreDelArchivo } : {}),
+              },
+            }
+          : { conversation: texto },
         pushName: nombreDeQuienEscribe,
         messageTimestamp: typeof mensaje.timestamp === "number" ? mensaje.timestamp : undefined,
       },
     },
+    ...(tieneMedia ? { media: { url: urlDelArchivo, mimetype } } : {}),
   };
+}
+
+/**
+ * Baja un archivo de WAHA y lo devuelve en base64.
+ *
+ * Hay que bajarlo NOSOTROS: `/api/files/...` exige la clave (probado: 401 sin ella), asi que el
+ * navegador de la asesora no puede abrir esa URL. Ademas el archivo vive en el volumen de WAHA;
+ * guardandolo de nuestro lado sobrevive a que se recree el contenedor.
+ *
+ * El base64 se deja en el payload donde el resolver de siempre ya lo busca, asi la persistencia,
+ * la miniatura y la burbuja funcionan sin cambiarles nada.
+ */
+export async function descargarMediaWaha(
+  connection: WahaConnection,
+  url: string,
+): Promise<string | null> {
+  try {
+    const respuesta = await fetch(url, {
+      headers: { "X-Api-Key": connection.apiToken },
+      cache: "no-store",
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (!respuesta.ok) {
+      console.error("[waha media] no pude bajar el archivo:", respuesta.status, url);
+      return null;
+    }
+    const bytes = Buffer.from(await respuesta.arrayBuffer());
+    return bytes.toString("base64");
+  } catch (error) {
+    console.error("[waha media] fallo la descarga", error);
+    return null;
+  }
 }
 
 /* -------------------------------------------------------------- doble check */
@@ -581,4 +665,57 @@ export function leerAckWaha(
 export function idCrudoDeMensaje(id: string): string {
   const partes = id.split("_");
   return partes[partes.length - 1] ?? "";
+}
+
+/* --------------------------------------------------------- envio de archivos */
+
+/** A que ruta de WAHA va cada tipo de archivo. */
+const RUTA_POR_TIPO: Record<"image" | "video" | "audio" | "document", string> = {
+  image: "/api/sendImage",
+  video: "/api/sendVideo",
+  audio: "/api/sendVoice",
+  document: "/api/sendFile",
+};
+
+export async function enviarMediaWaha(input: {
+  connection: WahaConnection;
+  sesion: string;
+  telefono: string;
+  tipo: "image" | "video" | "audio" | "document";
+  url: string;
+  mimetype?: string | null;
+  nombreDeArchivo?: string | null;
+  epigrafe?: string | null;
+}): Promise<{ externalId: string | null; raw: unknown }> {
+  /*
+    Se manda la URL, no el archivo.
+
+    WAHA la descarga por su cuenta (RemoteFile), asi que el pedido viaja liviano. Mandar el binario
+    en base64 dentro del JSON es lo que hace fallar los envios grandes.
+  */
+  const cuerpo: Record<string, unknown> = {
+    session: input.sesion,
+    chatId: chatIdDeTelefono(input.telefono),
+    file: {
+      url: input.url,
+      ...(input.mimetype?.trim() ? { mimetype: input.mimetype.trim() } : {}),
+      ...(input.nombreDeArchivo?.trim() ? { filename: input.nombreDeArchivo.trim() } : {}),
+    },
+  };
+
+  // La nota de voz y el video llevan `convert` obligatorio: sin el, WAHA rechaza el pedido.
+  if (input.tipo === "audio" || input.tipo === "video") {
+    cuerpo.convert = true;
+  }
+  // El audio de WhatsApp no tiene epigrafe; mandarlo hace que WAHA rechace el pedido.
+  if (input.tipo !== "audio" && input.epigrafe?.trim()) {
+    cuerpo.caption = input.epigrafe.trim();
+  }
+
+  const respuesta = await wahaRequest<unknown>(input.connection, RUTA_POR_TIPO[input.tipo], {
+    method: "POST",
+    body: JSON.stringify(cuerpo),
+  });
+
+  return { externalId: leerIdDeMensaje(respuesta), raw: respuesta };
 }

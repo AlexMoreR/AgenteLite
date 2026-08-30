@@ -4,8 +4,10 @@ import { POST as recibirEvolution } from "@/app/api/webhooks/evolution/route";
 import { prisma } from "@/lib/prisma";
 import { notifyRealtimeUpdate } from "@/lib/realtime-notify";
 import { getEvolutionSettings } from "@/lib/system-settings";
+import { readGatewayConnection } from "@/lib/evolution";
 import {
   avanzaElEstado,
+  descargarMediaWaha,
   idCrudoDeMensaje,
   leerAckWaha,
   traducirEventoWaha,
@@ -76,6 +78,41 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, ignorado: traduccion.motivo });
   }
 
+  const sesion = typeof (cuerpo as { session?: unknown }).session === "string"
+    ? ((cuerpo as { session: string }).session)
+    : "";
+  const canal = sesion
+    ? await prisma.whatsAppChannel.findUnique({
+        where: { evolutionInstanceName: sesion },
+        select: { workspaceId: true, metadata: true },
+      })
+    : null;
+
+  /*
+    La media se baja ACA, antes de procesar el mensaje.
+
+    `/api/files/...` de WAHA exige la clave, asi que el navegador no puede abrir esa URL. Bajandola
+    nosotros y dejando el contenido en `data.base64` -donde el resolver de siempre ya lo busca-, la
+    persistencia y la burbuja funcionan sin cambiarles una linea.
+
+    Si la descarga falla se sigue igual: queda el mensaje con su texto y sin archivo, que es mejor
+    que perder el mensaje entero.
+  */
+  if (traduccion.media && canal) {
+    const conexion = readGatewayConnection(canal.metadata);
+    if (conexion?.apiToken) {
+      const base64 = await descargarMediaWaha(
+        { baseUrl: conexion.baseUrl, apiToken: conexion.apiToken },
+        traduccion.media.url,
+      );
+      if (base64) {
+        const datos = traduccion.evolution.data as Record<string, unknown>;
+        datos.base64 = base64;
+        datos.mimetype = traduccion.media.mimetype;
+      }
+    }
+  }
+
   /*
     Se rearma la URL apuntando al webhook de Evolution CONSERVANDO la query.
 
@@ -110,15 +147,8 @@ export async function POST(request: NextRequest) {
     Va DESPUES de procesar y sin esperar: si el altavoz esta caido, el mensaje ya quedo guardado y
     el chat se actualiza igual por el refresco de respaldo.
   */
-  const sesion = (cuerpo as { session?: unknown }).session;
-  if (typeof sesion === "string" && sesion) {
-    const canal = await prisma.whatsAppChannel.findUnique({
-      where: { evolutionInstanceName: sesion },
-      select: { workspaceId: true },
-    });
-    if (canal) {
-      void notifyRealtimeUpdate({ workspaceId: canal.workspaceId, type: "waha-update" });
-    }
+  if (canal) {
+    void notifyRealtimeUpdate({ workspaceId: canal.workspaceId, type: "waha-update" });
   }
 
   return respuesta;
