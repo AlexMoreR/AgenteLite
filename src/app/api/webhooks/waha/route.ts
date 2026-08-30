@@ -273,11 +273,20 @@ async function avisarPresencia(sesion: string, presencia: PresenciaWaha) {
     select: { id: true, phoneNumber: true, metadata: true },
   });
   if (!contacto) {
+    console.log(`[waha presencia] sin contacto para ${identidad}`);
     return;
   }
 
-  // Se manda el telefono del CONTACTO, no la identidad cruda: es lo que la pantalla conoce.
-  void notifyRealtimeUpdate({
+  /*
+    Se ESPERA el aviso, no se lanza y se olvida.
+
+    En el camino de los mensajes alcanza con lanzarlo porque antes hay trabajo que demora y le da
+    tiempo a salir. Aca la respuesta se devuelve enseguida, y un pedido sin esperar se corta
+    cuando la funcion termina: el aviso no llegaba nunca. Tiene su propio limite de 1,5s, asi que
+    esperarlo no retrasa nada.
+  */
+  console.log(`[waha presencia] ${contacto.phoneNumber} ${presencia.que ?? "paro"}`);
+  await notifyRealtimeUpdate({
     workspaceId: canal.workspaceId,
     type: "presence",
     data: {
