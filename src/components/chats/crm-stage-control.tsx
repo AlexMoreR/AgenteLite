@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Check, ChevronDown, Target } from "lucide-react";
 import { updateCrmStageAction } from "@/app/actions/crm-actions";
@@ -95,12 +96,60 @@ export function CrmStageControl({ contactId, stage, variant = "pill" }: CrmStage
     porque uno lo abre de paso y sigue trabajando.
   */
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const botonRef = useRef<HTMLButtonElement | null>(null);
+  /*
+    El panel se dibuja FUERA de la lista, contra la pantalla.
+
+    Dentro de la fila quedaba cortado: la lista de chats tiene su propio recorte y su scroll, y
+    cualquier cosa que se salga de la fila se corta contra ese borde. Se veia apenas una franja
+    blanca asomando. Por eso se mide donde quedo la etiqueta y se dibuja encima de todo.
+  */
+  const [posicion, setPosicion] = useState<{ top: number; left: number } | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      setPosicion(null);
+      return;
+    }
+
+    const ubicar = () => {
+      const caja = botonRef.current?.getBoundingClientRect();
+      if (!caja) {
+        return;
+      }
+      const ancho = 224;
+      const margen = 12;
+      // Se pega al boton, pero sin salirse de la pantalla por ninguno de los dos lados.
+      const izquierda = Math.min(
+        Math.max(margen, caja.left),
+        Math.max(margen, window.innerWidth - ancho - margen),
+      );
+      setPosicion({ top: caja.bottom + 6, left: izquierda });
+    };
+
+    ubicar();
+    // Si la lista se desplaza con el panel abierto, seguirlo seria peor que cerrarlo: quedaria
+    // flotando lejos de la fila que lo abrio.
+    const cerrar = () => setOpen(false);
+    window.addEventListener("resize", cerrar);
+    window.addEventListener("scroll", cerrar, true);
+    return () => {
+      window.removeEventListener("resize", cerrar);
+      window.removeEventListener("scroll", cerrar, true);
+    };
+  }, [open]);
+
   useEffect(() => {
     if (!open) {
       return;
     }
     const alTocarAfuera = (evento: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(evento.target as Node)) {
+      const destino = evento.target as Node;
+      // El panel vive fuera de este contenedor, asi que se revisan los dos por separado.
+      if (
+        !menuRef.current?.contains(destino) &&
+        !botonRef.current?.contains(destino)
+      ) {
         setOpen(false);
         setAskingLostReason(false);
       }
@@ -127,8 +176,9 @@ export function CrmStageControl({ contactId, stage, variant = "pill" }: CrmStage
       conversacion, oscurece todo y hay que cerrarlo aparte. Se abre pegado a la etiqueta que
       tocaste, como el panel de filtros, y se cierra tocando afuera.
     */
-    <div ref={menuRef} className="relative inline-flex max-w-full">
+    <div className="relative inline-flex max-w-full">
       <button
+        ref={botonRef}
         type="button"
         disabled={isPending}
         onClick={() => setOpen((abierto) => !abierto)}
@@ -145,16 +195,12 @@ export function CrmStageControl({ contactId, stage, variant = "pill" }: CrmStage
         {variant === "chip" ? null : <ChevronDown className="h-3 w-3 shrink-0 opacity-80" />}
       </button>
 
-      {open ? (
+      {open && posicion && typeof document !== "undefined"
+        ? createPortal(
         <div
-          /*
-            El chip vive a la izquierda de la fila y la pastilla a la derecha del encabezado, asi
-            que cada una se abre hacia adentro. Sin esto, en el celular el panel se sale de la
-            pantalla justo del lado donde esta el boton.
-          */
-          className={`absolute top-full z-50 mt-1.5 w-56 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-border bg-popover shadow-[0_18px_50px_-24px_rgba(15,23,42,0.35)] ${
-            variant === "chip" ? "left-0" : "right-0"
-          }`}
+          ref={menuRef}
+          style={{ top: posicion.top, left: posicion.left, width: 224 }}
+          className="fixed z-[100] max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-xl border border-border bg-popover shadow-[0_18px_50px_-24px_rgba(15,23,42,0.35)]"
         >
           <div className="flex items-center gap-1.5 border-b border-border px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
             {askingLostReason ? (
@@ -207,8 +253,10 @@ export function CrmStageControl({ contactId, stage, variant = "pill" }: CrmStage
                   </button>
                 ))}
           </div>
-        </div>
-      ) : null}
+        </div>,
+        document.body,
+          )
+        : null}
     </div>
   );
 }
