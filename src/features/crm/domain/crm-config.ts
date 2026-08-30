@@ -24,19 +24,25 @@ export const CRM_STAGE_META: Record<CrmStage, CrmStageMeta> = {
     borderClassName: "border-cyan-200",
     backgroundClassName: "bg-cyan-50",
   },
+  /*
+    Frio celeste, Tibio amarillo, Caliente naranja: la temperatura se lee de un vistazo.
+
+    Antes Tibio era ambar -que tira a marron- y Caliente rosa, asi que la escala no contaba nada
+    y habia que leer la palabra. El color esta para no tener que leerla.
+  */
   PROPUESTA: {
     value: "PROPUESTA",
     label: "Tibio",
-    accentClassName: "text-amber-700",
-    borderClassName: "border-amber-200",
-    backgroundClassName: "bg-amber-50",
+    accentClassName: "text-yellow-800",
+    borderClassName: "border-yellow-300",
+    backgroundClassName: "bg-yellow-50",
   },
   NEGOCIACION: {
     value: "NEGOCIACION",
     label: "Caliente",
-    accentClassName: "text-rose-700",
-    borderClassName: "border-rose-200",
-    backgroundClassName: "bg-rose-50",
+    accentClassName: "text-orange-700",
+    borderClassName: "border-orange-300",
+    backgroundClassName: "bg-orange-50",
   },
   GANADO: {
     value: "GANADO",

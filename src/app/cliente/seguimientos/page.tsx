@@ -15,13 +15,20 @@ export const metadata: Metadata = {
   },
 };
 
+/*
+  Los MISMOS nombres y colores que en el resto de la app.
+
+  Aca decia "Propuesta", "Negociacion" y "Calificado" -los nombres tecnicos de la base- mientras
+  en Chats y en el CRM las mismas etapas se llaman "Tibio", "Caliente" y "Frio". Eran las mismas
+  etapas con dos vocabularios, y quien filtraba aca no encontraba lo que veia alla.
+*/
 const CRM_STAGES = [
-  { value: "NUEVO", label: "Nuevo", color: "#64748b" },
-  { value: "CALIFICADO", label: "Calificado", color: "#3b82f6" },
-  { value: "PROPUESTA", label: "Propuesta", color: "#8b5cf6" },
-  { value: "NEGOCIACION", label: "Negociación", color: "#f59e0b" },
+  { value: "NUEVO", label: "Nuevo", color: "#8b5cf6" },
+  { value: "CALIFICADO", label: "Frio", color: "#06b6d4" },
+  { value: "PROPUESTA", label: "Tibio", color: "#eab308" },
+  { value: "NEGOCIACION", label: "Caliente", color: "#f97316" },
   { value: "GANADO", label: "Ganado", color: "#22c55e" },
-  { value: "PERDIDO", label: "Perdido", color: "#ef4444" },
+  { value: "PERDIDO", label: "Descartado", color: "#dc2626" },
 ];
 
 export default async function SeguimientosPage() {

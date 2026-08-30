@@ -27,8 +27,8 @@ type CrmStageControlProps = {
 const STAGE_BUTTON_CLASS: Record<CrmStage, string> = {
   NUEVO: "bg-violet-500 hover:bg-violet-600",
   CALIFICADO: "bg-cyan-500 hover:bg-cyan-600",
-  PROPUESTA: "bg-amber-500 hover:bg-amber-600",
-  NEGOCIACION: "bg-rose-500 hover:bg-rose-600",
+  PROPUESTA: "bg-yellow-500 hover:bg-yellow-600",
+  NEGOCIACION: "bg-orange-500 hover:bg-orange-600",
   GANADO: "bg-emerald-500 hover:bg-emerald-600",
   PERDIDO: "bg-red-600 hover:bg-red-700",
 };

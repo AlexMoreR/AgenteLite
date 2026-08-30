@@ -94,7 +94,7 @@ export function CrmFugaPanel({ records, generatedAt }: { records: CrmRecord[]; g
               <tr key={fila.stage} className="border-t border-border">
                 <td className="px-3 py-2">
                   <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
-                    {fila.stage === "NEGOCIACION" ? <Flame className="h-3.5 w-3.5 text-rose-500" /> : null}
+                    {fila.stage === "NEGOCIACION" ? <Flame className="h-3.5 w-3.5 text-orange-500" /> : null}
                     {getCrmStageLabel(fila.stage)}
                   </span>
                 </td>
