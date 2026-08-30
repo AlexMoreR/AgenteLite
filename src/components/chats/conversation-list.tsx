@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { usePresenciaDeChats } from "./usePresenciaDeChats";
 import Link from "next/link";
 import { BadgeCheck, Check, CheckCheck, Facebook, FileText, Image as ImageIcon, Instagram, LoaderCircle, Mic, Sticker, UserRound, Video } from "lucide-react";
 import { WhatsAppGlyph } from "@/components/icons/whatsapp-glyph";
@@ -199,6 +200,8 @@ const ConversationListItem = memo(function ConversationListItem({
 }) {
   const incomingCountLabel = renderIncomingCountLabel(conversation.incomingCount);
   const previewText = renderConversationPreview(conversation);
+  // "escribiendo…" del cliente de ESTA fila, si esta escribiendo ahora.
+  const escribiendo = usePresenciaDeChats(conversation.secondaryLabel);
 
   return (
     <Link
@@ -333,7 +336,7 @@ const ConversationListItem = memo(function ConversationListItem({
             Es la misma regla de WhatsApp, y sirve para leer la lista de un vistazo: un chulo solo
             significa "todavia no le llego", que es distinto de "no me contesto".
           */}
-          {conversation.lastMessageDirection === "OUTBOUND" && conversation.lastMessageStatus ? (
+          {escribiendo ? null : conversation.lastMessageDirection === "OUTBOUND" && conversation.lastMessageStatus ? (
             <span className="shrink-0 text-muted-foreground" aria-hidden="true">
               {conversation.lastMessageStatus === "READ" ? (
                 <CheckCheck className="size-4 text-sky-500" />
@@ -344,8 +347,23 @@ const ConversationListItem = memo(function ConversationListItem({
               ) : null}
             </span>
           ) : null}
-          <p className="block min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[14px] leading-[1.12] text-muted-foreground md:text-[14px]">
-            {previewText}
+          {/*
+            Mientras el cliente escribe, la fila lo dice en vez del ultimo mensaje.
+
+            Es lo mismo que hace WhatsApp, y es informacion que caduca en segundos: mostrarla donde
+            uno esta mirando -la lista- es lo que la hace util. El acuse se esconde mientras dura,
+            porque hablan de mensajes distintos y juntos confunden.
+          */}
+          <p
+            className={`block min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[14px] leading-[1.12] md:text-[14px] ${
+              escribiendo ? "font-medium text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"
+            }`}
+          >
+            {escribiendo === "grabando"
+              ? "grabando audio…"
+              : escribiendo
+                ? "escribiendo…"
+                : previewText}
           </p>
           {incomingCountLabel ? (
             <span className="inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-[#1DDA61] px-1.5">

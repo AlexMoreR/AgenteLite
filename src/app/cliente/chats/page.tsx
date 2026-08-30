@@ -907,11 +907,12 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     return Boolean(channel?.evolutionInstanceName);
   })();
   const chatListHref = `/cliente/chats${
-    selectedConnectionKey || searchQuery || assignedFilter !== "all" || statusFilter !== "open"
+    selectedConnectionKey || searchQuery || assignedFilter !== "mine" || statusFilter !== "open"
       ? `?${new URLSearchParams([
           ...(selectedConnectionKey ? [["connection", selectedConnectionKey]] : []),
           ...(searchQuery ? [["q", searchQuery]] : []),
-          ...(assignedFilter !== "all" ? [["assigned", assignedFilter]] : []),
+          // Se omite "mine", que es el default REAL: omitir "all" mandaba de vuelta a "Mias".
+          ...(assignedFilter !== "mine" ? [["assigned", assignedFilter]] : []),
           ...(statusFilter !== "open" ? [["status", statusFilter]] : []),
         ]).toString()}`
       : ""
@@ -921,7 +922,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         ["chatKey", selectedUnified.key],
         ...(selectedConnectionKey ? [["connection", selectedConnectionKey]] : []),
         ...(searchQuery ? [["q", searchQuery]] : []),
-        ...(assignedFilter !== "all" ? [["assigned", assignedFilter]] : []),
+        ...(assignedFilter !== "mine" ? [["assigned", assignedFilter]] : []),
         ...(statusFilter !== "open" ? [["status", statusFilter]] : []),
         ...(messagePage > 1 ? [["messagePage", String(messagePage)]] : []),
       ]).toString()}`
@@ -1193,7 +1194,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           lastMessageDirection: item.lastMessageDirection,
           lastMessageStatus: item.lastMessageStatus,
           lastMessageAt: item.lastMessageAt,
-          href: `/cliente/chats?chatKey=${encodeURIComponent(item.key)}${selectedConnectionKey ? `&connection=${encodeURIComponent(selectedConnectionKey)}` : ""}${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ""}${assignedFilter !== "all" ? `&assigned=${assignedFilter}` : ""}${statusFilter !== "open" ? `&status=${statusFilter}` : ""}`,
+          href: `/cliente/chats?chatKey=${encodeURIComponent(item.key)}${selectedConnectionKey ? `&connection=${encodeURIComponent(selectedConnectionKey)}` : ""}${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ""}${assignedFilter !== "mine" ? `&assigned=${assignedFilter}` : ""}${statusFilter !== "open" ? `&status=${statusFilter}` : ""}`,
         }))}
         // La etapa viaja CON la conversación abierta: es la que usa "Qué decir ahora" para
         // elegir el guion. Sin esto el panel abría en blanco por no saber en qué etapa está.
