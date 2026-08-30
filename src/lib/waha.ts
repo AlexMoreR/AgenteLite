@@ -201,6 +201,19 @@ export async function asegurarSesionWaha(input: {
     }
     ultimoIntentoDeLevantar.set(input.sesion, ahora);
 
+    /*
+      DETENER y despues arrancar. Arrancar solo NO alcanza.
+
+      Con una sesion en FAILED, WAHA contesta "Session is already running": para el, el objeto
+      sigue vivo aunque el cliente de WhatsApp se haya caido. El /start no hace nada y la sesion
+      queda tildada para siempre, pidiendo un QR que no llega nunca. Solo el stop la desarma de
+      verdad. Le paso a Admin, y desde afuera se veia como "WhatsApp no deja conectar".
+    */
+    await wahaRequest(input.connection, `/api/sessions/${encodeURIComponent(input.sesion)}/stop`, {
+      method: "POST",
+    }).catch(() => null);
+    await new Promise((listo) => setTimeout(listo, 2000));
+
     await wahaRequest(input.connection, `/api/sessions/${encodeURIComponent(input.sesion)}/start`, {
       method: "POST",
     });
