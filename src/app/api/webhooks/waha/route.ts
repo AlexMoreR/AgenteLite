@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { POST as recibirEvolution } from "@/app/api/webhooks/evolution/route";
 import { prisma } from "@/lib/prisma";
+import { getEvolutionSettings } from "@/lib/system-settings";
 import { avanzaElEstado, leerAckWaha, traducirEventoWaha, type EstadoDeEntrega } from "@/lib/waha";
 
 /**
@@ -21,6 +22,23 @@ export async function POST(request: NextRequest) {
   const cuerpo = await request.json().catch(() => null);
   if (!cuerpo) {
     return NextResponse.json({ ok: false, message: "JSON invalido" }, { status: 400 });
+  }
+
+  /*
+    El secreto se valida ANTES de tocar nada.
+
+    El camino del ack no pasa por el webhook de Evolution, asi que no hereda su validacion: sin
+    esto, cualquiera podria mandar acks inventados y pintar de leidos mensajes que nunca llegaron.
+  */
+  const settings = await getEvolutionSettings();
+  if (settings.webhookSecret) {
+    const entregado =
+      request.headers.get("x-webhook-secret") ||
+      request.headers.get("authorization") ||
+      request.nextUrl.searchParams.get("token");
+    if (entregado?.replace(/^Bearer\s+/i, "").trim() !== settings.webhookSecret) {
+      return NextResponse.json({ ok: false, message: "Webhook no autorizado" }, { status: 401 });
+    }
   }
 
   /*
@@ -91,6 +109,10 @@ async function aplicarAck(ack: { sesion: string; idMensaje: string; estado: Esta
   if (!avanzaElEstado(mensaje.status, ack.estado)) {
     return;
   }
+
+  // Se deja rastro: sin esto, el camino del ack era mudo y averiguar por que un mensaje no
+  // mostraba el doble check obligaba a adivinar entre "no llego", "no coincidio" y "no avanzo".
+  console.log(`[waha ack] ${ack.sesion} ${mensaje.status} -> ${ack.estado}`);
 
   const ahora = new Date();
   await prisma.message.update({
