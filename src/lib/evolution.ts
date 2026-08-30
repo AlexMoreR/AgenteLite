@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import {
   WAHA_GATEWAY_KIND,
   asegurarSesionWaha,
+  leerSesionWaha,
   enviarTextoWaha,
   estadoDeSesionWaha,
   perfilDeSesionWaha,
@@ -1836,12 +1837,113 @@ function buildGatewayMetadata(connection: EvolutionConnection | null): Record<st
   };
 }
 
+/**
+ * El nombre de la sesion en WAHA, sacado del nombre del canal.
+ *
+ * Se usa el nombre real ("verzay-atencion") y no un correlativo tipo "agente-lite-11": el panel de
+ * WAHA lista las sesiones por nombre, y ahi uno necesita reconocer cual es cual sin cruzar ids
+ * contra la base. Es la diferencia entre diagnosticar en diez segundos o en diez minutos.
+ *
+ * Se verifica que este libre en los DOS lados: en nuestra base, y tambien en WAHA. Sin lo segundo,
+ * un canal nuevo podria adoptar una sesion ajena que ya existiera con ese nombre y quedarse
+ * hablando por el WhatsApp de otro.
+ */
+async function nombreDeSesionWahaLibre(
+  conexion: WahaConnection,
+  nombreDelCanal: string,
+): Promise<string> {
+  /*
+    Las tildes se cambian letra por letra, NO normalizando a NFD.
+
+    Con NFD la tilde queda como un caracter aparte que no es [a-z0-9], asi que se convertia en un
+    guion: "Atencion Clientes" salia "atencio-n-clientes". Un mapa de las seis letras del español
+    es aburrido y correcto.
+  */
+  const sinTildes: Record<string, string> = {
+    á: "a", é: "e", í: "i", ó: "o", ú: "u", ü: "u", ñ: "n",
+  };
+  const base =
+    nombreDelCanal
+      .toLowerCase()
+      .replace(/[áéíóúüñ]/g, (letra) => sinTildes[letra] ?? letra)
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 40)
+      .replace(/-+$/g, "") || "waha";
+
+  for (let intento = 1; intento <= 50; intento += 1) {
+    const candidato = intento === 1 ? base : `${base}-${intento}`;
+    const enNuestraBase = await prisma.whatsAppChannel.findUnique({
+      where: { evolutionInstanceName: candidato },
+      select: { id: true },
+    });
+    if (enNuestraBase) {
+      continue;
+    }
+    const enWaha = await leerSesionWaha(conexion, candidato).catch(() => null);
+    if (!enWaha) {
+      return candidato;
+    }
+  }
+  throw new Error(`No pude encontrar un nombre libre para la sesion de WAHA a partir de "${base}"`);
+}
+
+/**
+ * Alta de un canal que va por WAHA.
+ *
+ * Va aparte de provisionEvolutionInstance porque ese camino habla el dialecto de Evolution: manda
+ * el header `apikey` y pega en /instance/create. Contra WAHA eso da 401 -que es justo el error que
+ * aparecio la primera vez que se intento crear un canal- porque WAHA pide X-Api-Key y otra ruta.
+ */
+async function createWahaChannel(input: {
+  workspaceId: string;
+  name: string;
+  agentId?: string | null;
+  gateway?: EvolutionGatewayInput | null;
+}) {
+  const connection = buildConnectionFromGatewayInput(input.gateway);
+  if (!connection?.baseUrl || !connection.apiToken) {
+    throw new Error("Falta la URL o la clave del servidor WAHA");
+  }
+  const conexion: WahaConnection = {
+    baseUrl: connection.baseUrl,
+    apiToken: connection.apiToken,
+  };
+
+  const sesion = await nombreDeSesionWahaLibre(conexion, input.name);
+  const creada = await asegurarSesionWaha({
+    connection: conexion,
+    sesion,
+    webhookUrl: urlDeWebhookWaha(),
+  });
+
+  const channel = await prisma.whatsAppChannel.create({
+    data: {
+      workspaceId: input.workspaceId,
+      agentId: input.agentId ?? null,
+      provider: "EVOLUTION",
+      name: input.name,
+      evolutionInstanceName: sesion,
+      // Recien creada casi siempre esta en SCAN_QR_CODE: el QR lo pide la pantalla del canal.
+      status: creada?.status === "WORKING" ? "CONNECTED" : "QRCODE",
+      metadata: (buildGatewayMetadata(connection) ?? {}) as Prisma.InputJsonValue,
+    },
+    select: { id: true, evolutionInstanceName: true },
+  });
+
+  return { channelId: channel.id, instanceName: channel.evolutionInstanceName };
+}
+
 export async function createEvolutionChannel(input: {
   workspaceId: string;
   name: string;
   agentId?: string | null;
   gateway?: EvolutionGatewayInput | null;
 }) {
+  if (input.gateway?.kind === WAHA_GATEWAY_KIND) {
+    return createWahaChannel(input);
+  }
+
   const connection = buildConnectionFromGatewayInput(input.gateway);
   const provisioned = await provisionEvolutionInstance(connection);
   const gatewayMetadata = buildGatewayMetadata(connection);
