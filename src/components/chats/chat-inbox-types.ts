@@ -33,6 +33,8 @@ export type SharedInboxConversationItem = {
   lastMessage: string | null;
   lastMessageType?: SharedInboxMessageItem["type"] | null;
   lastMessageDirection?: "INBOUND" | "OUTBOUND" | null;
+  /** Acuse del ultimo mensaje. Solo se dibuja si es NUESTRO: al del cliente no le corresponde. */
+  lastMessageStatus?: string | null;
   lastMessageAt?: Date | null;
   href: string;
 };

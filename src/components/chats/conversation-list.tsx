@@ -2,7 +2,7 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import Link from "next/link";
-import { BadgeCheck, Facebook, FileText, Image as ImageIcon, Instagram, LoaderCircle, Mic, Sticker, UserRound, Video } from "lucide-react";
+import { BadgeCheck, Check, CheckCheck, Facebook, FileText, Image as ImageIcon, Instagram, LoaderCircle, Mic, Sticker, UserRound, Video } from "lucide-react";
 import { WhatsAppGlyph } from "@/components/icons/whatsapp-glyph";
 import { Badge } from "@/components/ui/badge";
 import { CrmStageControl } from "./crm-stage-control";
@@ -326,6 +326,24 @@ const ConversationListItem = memo(function ConversationListItem({
         {/* Preview + contador de no leidos alineados a la derecha (patron WhatsApp):
             hora y contador forman una sola columna de estado y el avatar queda libre. */}
         <div className="mt-0.5 flex min-w-0 max-w-full items-center gap-2 overflow-hidden">
+          {/*
+            El acuse del ultimo mensaje, SOLO si es nuestro.
+
+            Al mensaje del cliente no le corresponde: nosotros no le decimos a el si lo recibimos.
+            Es la misma regla de WhatsApp, y sirve para leer la lista de un vistazo: un chulo solo
+            significa "todavia no le llego", que es distinto de "no me contesto".
+          */}
+          {conversation.lastMessageDirection === "OUTBOUND" && conversation.lastMessageStatus ? (
+            <span className="shrink-0 text-muted-foreground" aria-hidden="true">
+              {conversation.lastMessageStatus === "READ" ? (
+                <CheckCheck className="size-4 text-sky-500" />
+              ) : conversation.lastMessageStatus === "DELIVERED" ? (
+                <CheckCheck className="size-4" />
+              ) : conversation.lastMessageStatus === "SENT" ? (
+                <Check className="size-4" />
+              ) : null}
+            </span>
+          ) : null}
           <p className="block min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[14px] leading-[1.12] text-muted-foreground md:text-[14px]">
             {previewText}
           </p>

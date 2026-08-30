@@ -29,6 +29,7 @@ type UnifiedConversation = {
   lastMessage: string | null;
   lastMessageType?: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
   lastMessageDirection?: "INBOUND" | "OUTBOUND" | null;
+  lastMessageStatus?: string | null;
   lastMessageAt?: Date | null;
 };
 
@@ -293,6 +294,7 @@ async function getAgentConversationList(input: {
           createdAt: Date;
           deletedAt: Date | null;
           type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
+          status: string | null;
         }>>`
         SELECT DISTINCT ON (m."conversationId")
           m."conversationId" AS "conversationId",
@@ -300,7 +302,9 @@ async function getAgentConversationList(input: {
           m."direction" AS "direction",
           m."createdAt" AS "createdAt",
           m."deletedAt" AS "deletedAt",
-          m."type" AS "type"
+          m."type" AS "type",
+          -- El acuse del ULTIMO mensaje, para dibujar el chulo en la fila de la lista.
+          m."status" AS "status"
         FROM "Message" m
         WHERE m."workspaceId" = ${input.workspaceId}
           AND m."conversationId" IN (${Prisma.join(activeAgentConversationIds)})
@@ -316,6 +320,7 @@ async function getAgentConversationList(input: {
         createdAt: Date;
         deletedAt: Date | null;
         type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
+        status: string | null;
       }>);
 
   const agentIncomingCountRowsPromise = activeAgentConversationIds.length
@@ -462,6 +467,7 @@ async function getAgentConversationList(input: {
         : null,
       lastMessageType: latestMessage?.type ?? null,
       lastMessageDirection: latestMessage?.direction ?? null,
+      lastMessageStatus: latestMessage?.status ?? null,
       lastMessageAt: latestMessage?.createdAt ?? null,
     };
   });

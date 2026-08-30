@@ -62,6 +62,7 @@ type UnifiedConversation = {
   lastMessage: string | null;
   lastMessageType?: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "CONTACTS" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
   lastMessageDirection?: "INBOUND" | "OUTBOUND" | null;
+  lastMessageStatus?: string | null;
   lastMessageAt?: Date | null;
   activeProductContext?: ActiveProductContextSummary | null;
 };
@@ -497,6 +498,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           createdAt: Date;
           deletedAt: Date | null;
           type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "CONTACTS" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
+          status: string | null;
         }>>`
         SELECT DISTINCT ON (m."conversationId")
           m."conversationId" AS "conversationId",
@@ -504,7 +506,9 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           m."direction" AS "direction",
           m."createdAt" AS "createdAt",
           m."deletedAt" AS "deletedAt",
-          m."type" AS "type"
+          m."type" AS "type",
+          -- El acuse del ULTIMO mensaje, para dibujar el chulo en la fila de la lista.
+          m."status" AS "status"
         FROM "Message" m
         WHERE m."workspaceId" = ${membership.workspace.id}
           AND m."conversationId" IN (${Prisma.join(activeAgentConversationIds)})
@@ -519,6 +523,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         createdAt: Date;
         deletedAt: Date | null;
         type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "CONTACTS" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
+        status: string | null;
       }>);
   if (autoTagNewLeads && contactIds.length > 0) {
     after(async () => {
@@ -743,6 +748,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         : null,
       lastMessageType: latestMessage?.type ?? null,
       lastMessageDirection: latestMessage?.direction ?? null,
+      lastMessageStatus: latestMessage?.status ?? null,
       lastMessageAt: latestMessage?.createdAt ?? null,
       activeProductContext,
     };
@@ -1185,6 +1191,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           lastMessage: item.lastMessage,
           lastMessageType: item.lastMessageType ?? null,
           lastMessageDirection: item.lastMessageDirection,
+          lastMessageStatus: item.lastMessageStatus,
           lastMessageAt: item.lastMessageAt,
           href: `/cliente/chats?chatKey=${encodeURIComponent(item.key)}${selectedConnectionKey ? `&connection=${encodeURIComponent(selectedConnectionKey)}` : ""}${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ""}${assignedFilter !== "all" ? `&assigned=${assignedFilter}` : ""}${statusFilter !== "open" ? `&status=${statusFilter}` : ""}`,
         }))}
