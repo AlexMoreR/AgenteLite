@@ -366,7 +366,9 @@ export function SharedInbox({
         const params = new URLSearchParams();
         if (searchQuery.trim()) params.set("q", searchQuery.trim());
         if (selectedConnectionKey.trim()) params.set("connection", selectedConnectionKey.trim());
-        if (assignedFilter !== "all") params.set("assigned", assignedFilter);
+        // Siempre se manda: la ruta lee la ausencia como "mine", asi que omitirlo
+        // estando en "Todas" hacia que el refresco de la lista la pasara sola a "Mias".
+        params.set("assigned", assignedFilter);
         if (statusFilter !== "open") params.set("status", statusFilter);
 
         const response = await fetch(`${conversationListApiPath}?${params.toString()}`, {
@@ -429,7 +431,9 @@ export function SharedInbox({
         params.set("q", q);
         params.set("limit", "40");
         if (selectedConnectionKey.trim()) params.set("connection", selectedConnectionKey.trim());
-        if (assignedFilter !== "all") params.set("assigned", assignedFilter);
+        // Siempre se manda: la ruta lee la ausencia como "mine", asi que omitirlo
+        // estando en "Todas" hacia que el refresco de la lista la pasara sola a "Mias".
+        params.set("assigned", assignedFilter);
         if (statusFilter !== "open") params.set("status", statusFilter);
 
         const response = await fetch(`${conversationListApiPath}?${params.toString()}`, {
@@ -564,9 +568,8 @@ export function SharedInbox({
         params.set("connection", selectedConnectionKey.trim());
       }
 
-      if (assignedFilter !== "all") {
-        params.set("assigned", assignedFilter);
-      }
+      // Siempre se manda: ver arriba. La ausencia significa "mine" del lado de la ruta.
+      params.set("assigned", assignedFilter);
 
       if (statusFilter !== "open") {
         params.set("status", statusFilter);

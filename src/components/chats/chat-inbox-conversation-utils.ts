@@ -113,7 +113,7 @@ export function buildConversationItemHrefFromParams(
   selectedConnectionKey: string,
   searchQuery: string,
   conversation: SharedInboxConversationItemLike,
-  assignedFilter: AssignedFilter = "all",
+  assignedFilter: AssignedFilter = "mine",
   statusFilter: StatusFilter = "open",
 ) {
   const chatKey =
@@ -130,7 +130,13 @@ export function buildConversationItemHrefFromParams(
   params.set("chatKey", chatKey);
   if (selectedConnectionKey) params.set("connection", selectedConnectionKey);
   if (searchQuery.trim()) params.set("q", searchQuery.trim());
-  if (assignedFilter !== "all") params.set("assigned", assignedFilter);
+  /*
+    Se omite cuando es "mine", que es el default REAL.
+
+    Estaba al reves -se omitia "all"-, y el servidor lee la ausencia como "mine": estando en
+    "Todas", cada enlace de conversacion devolvia a "Mias" sin que nadie tocara el filtro.
+  */
+  if (assignedFilter !== "mine") params.set("assigned", assignedFilter);
   if (statusFilter !== "open") params.set("status", statusFilter);
   const qs = params.toString();
   return qs ? `${searchAction}?${qs}` : searchAction;
