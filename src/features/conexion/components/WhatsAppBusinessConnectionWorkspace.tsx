@@ -8,12 +8,11 @@ import {
   assignConnectionChannelAction,
   toggleConnectionChannelCrmAction,
   toggleConnectionChannelStatusAction,
-  pasarCanalAWahaAction,
 } from "@/app/actions/connection-actions";
 import { WhatsappQrAutoRefresh } from "@/components/agents/whatsapp-qr-auto-refresh";
 import { WhatsappQrCountdown } from "@/components/agents/whatsapp-qr-countdown";
 import { WhatsappQrStaleWatcher } from "@/components/agents/whatsapp-qr-stale-watcher";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { FormActionSwitch } from "@/components/ui/form-action-switch";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -78,8 +77,6 @@ type WhatsAppBusinessConnectionWorkspaceProps = {
   adRoutingUserIds?: string[];
   // Conexiones Evolution API del catalogo del admin (sin apikey).
   evolutionApiGateways?: Array<{ id: string; baseUrl: string }>;
-  /** Servidores WAHA a los que se puede pasar este canal. Vacio si ya esta en WAHA. */
-  wahaGateways?: Array<{ id: string; baseUrl: string }>;
   // Solo para canales que AUN no estan en Evolution API (migrar evogo -> API).
   canConnectEvolutionApi?: boolean;
 };
@@ -105,7 +102,6 @@ export function WhatsAppBusinessConnectionWorkspace({
   adRoutingKeywords = [],
   adRoutingUserIds = [],
   evolutionApiGateways = [],
-  wahaGateways = [],
   canConnectEvolutionApi = false,
 }: WhatsAppBusinessConnectionWorkspaceProps) {
   const effectiveErrorMessage = hasQrCode || channelStatus === "QRCODE" || isConnected ? "" : errorMessage;
@@ -381,47 +377,6 @@ export function WhatsAppBusinessConnectionWorkspace({
   const officialApiNeedsSetup =
     !officialApiConfig?.phoneNumberId?.trim() || !officialApiConfig?.accessToken?.trim();
 
-  /*
-    La tarjeta para mover el canal a WAHA.
-
-    Se dibuja en los DOS estados -conectado y pidiendo QR-. Antes vivia dentro de las pestañas,
-    que solo aparecen con el canal conectado, y era justo al reves de lo que conviene: un canal
-    caido es el mejor momento para moverlo, porque no hay nada funcionando que se pueda romper.
-  */
-  const tarjetaPasarAWaha =
-    connection.provider === "EVOLUTION" && wahaGateways.length > 0 ? (
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Pasar este canal a WAHA</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <p className="text-sm text-muted-foreground">
-            El número no cambia y <strong>no se pierde nada</strong>: conversaciones, mensajes,
-            contactos, etapas, etiquetas, seguimientos y el agente siguen igual, porque cuelgan
-            del canal y no del servidor. Solo cambia por dónde entran y salen los mensajes.
-          </p>
-          <p className="text-sm text-muted-foreground">
-            Vas a tener que <strong>escanear el QR una vez</strong>. La conexión anterior queda
-            guardada por si hay que volver atrás.
-          </p>
-          <form action={pasarCanalAWahaAction} className="flex flex-wrap items-center gap-2">
-            <input type="hidden" name="channelId" value={connection.id} />
-            <input type="hidden" name="gatewayId" value={wahaGateways[0].id} />
-            <button
-              type="submit"
-              className="inline-flex items-center rounded-md border border-border bg-muted px-3 py-1.5 text-sm font-medium text-foreground transition hover:bg-muted/70"
-            >
-              Pasar a WAHA ({wahaGateways[0].baseUrl.replace(/^https?:\/\//, "")})
-            </button>
-          </form>
-          <p className="text-xs text-muted-foreground">
-            Después de verificar que anda, hay que desconectar la conexión vieja: mientras las
-            dos estén activas sobre el mismo número, las dos reciben todo.
-          </p>
-        </CardContent>
-      </Card>
-    ) : null;
-
   const settingsTabContent =
     connection.provider === "OFFICIAL_API" && officialApiNeedsSetup ? (
       <OfficialApiConnectionSetupCard
@@ -450,7 +405,6 @@ export function WhatsAppBusinessConnectionWorkspace({
       {isConnected ? (
         <>
           {headerCard}
-          {tarjetaPasarAWaha}
 
           <ConnectionTabs
             agente={agentTabContent}
@@ -514,9 +468,7 @@ export function WhatsAppBusinessConnectionWorkspace({
           />
         </>
       ) : (
-        <div className="space-y-4">
-          {tarjetaPasarAWaha}
-          <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
+        <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
           <Card>
             <CardContent className="flex flex-col items-center">
               <div className="flex aspect-square w-full max-w-[248px] items-center justify-center rounded-lg bg-muted">
@@ -583,7 +535,6 @@ export function WhatsAppBusinessConnectionWorkspace({
               </div>
             </CardContent>
           </Card>
-          </div>
         </div>
       )}
     </section>

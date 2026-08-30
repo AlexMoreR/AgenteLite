@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { readGatewayConnection } from "@/lib/evolution";
 
 function getConnectionLabel(status: string | null | undefined) {
   if (status === "CONNECTED") {
@@ -27,6 +28,8 @@ export async function getWhatsAppBusinessConnections(workspaceId: string) {
       updatedAt: true,
       phoneNumber: true,
       status: true,
+      // De aca sale por que servidor sale hoy el canal, para poder cambiarlo desde la lista.
+      metadata: true,
       lastConnectionAt: true,
       agent: {
         select: {
@@ -57,6 +60,7 @@ export async function getWhatsAppBusinessConnections(workspaceId: string) {
       linkedAgentStatus: channel.agent?.status ?? "",
       channelStatus: channel.status,
       channelStatusLabel: getConnectionLabel(channel.status),
+      gatewayKind: readGatewayConnection(channel.metadata)?.kind ?? "EVOLUTION_GO",
       phoneNumber: channel.phoneNumber ?? "",
       lastConnectionAt: channel.lastConnectionAt ?? null,
       updatedAt: channel.updatedAt ?? channel.createdAt,

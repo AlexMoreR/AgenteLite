@@ -138,19 +138,6 @@ async function ConnectionDetailContent({
   // sin motivo.
   const isChannelAlreadyEvolutionApi = readGatewayConnection(detail.channel?.metadata)?.kind === "EVOLUTION_API";
 
-  /*
-    Servidores WAHA disponibles, para poder pasar este canal.
-
-    Solo se ofrecen si el canal NO esta ya en WAHA: mover un canal de gateway cambia por donde
-    salen TODOS los mensajes de ese numero, y ofrecerlo cuando ya esta ahi solo invita a un clic
-    que no hace falta.
-  */
-  const yaEstaEnWaha = readGatewayConnection(detail.channel?.metadata)?.kind === "WAHA";
-  const wahaGateways = yaEstaEnWaha
-    ? []
-    : (await getEvolutionGateways())
-        .filter((gateway) => gateway.kind === "WAHA")
-        .map((gateway) => ({ id: gateway.id, baseUrl: gateway.baseUrl }));
 
   return (
     <WhatsAppBusinessConnectionWorkspace
@@ -172,7 +159,6 @@ async function ConnectionDetailContent({
       pausedAssignmentIds={pausedAssignmentIds}
       estadoLlamadas={estadoLlamadas}
       adRoutingKeywords={adRoutingKeywords}
-      wahaGateways={wahaGateways}
       adRoutingUserIds={adRoutingUserIds}
       canConnectEvolutionApi={!isChannelAlreadyEvolutionApi}
       evolutionApiGateways={evolutionGateways

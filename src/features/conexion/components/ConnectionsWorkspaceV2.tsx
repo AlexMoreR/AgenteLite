@@ -33,7 +33,10 @@ type ConnectionsWorkspaceProps = {
     phoneNumber: string;
     conversationsCount: number;
     messagesCount: number;
+    gatewayKind?: string;
   }>;
+  /** Servidores configurados por el admin, para poder mover un canal de uno a otro. */
+  gateways?: Array<{ id: string; kind: string; baseUrl: string }>;
 };
 
 export function ConnectionsWorkspaceV2({
@@ -45,6 +48,7 @@ export function ConnectionsWorkspaceV2({
   errorMessage,
   targetAgent,
   items,
+  gateways = [],
 }: ConnectionsWorkspaceProps) {
   return (
     <section className="app-page w-full space-y-5 px-6 pb-6 pt-4">
@@ -106,7 +110,14 @@ export function ConnectionsWorkspaceV2({
                       canal. En la fila competian con el interruptor, que es lo que se toca todos
                       los dias. z-20 para quedar por encima del Link que cubre la tarjeta. */}
                   <div className="absolute top-2 right-2 z-20">
-                    <ConnectionCardMenu channelId={item.id} channelName={item.name} />
+                    <ConnectionCardMenu
+                      channelId={item.id}
+                      channelName={item.name}
+                      gatewayKind={item.gatewayKind ?? "EVOLUTION_GO"}
+                      // Solo canales de WhatsApp por QR: la API oficial de Meta no tiene servidor
+                      // que cambiar, y ofrecerlo ahi seria prometer algo que no existe.
+                      gateways={item.provider === "EVOLUTION" ? gateways : []}
+                    />
                   </div>
                   <CardContent className="relative flex flex-col gap-3 py-3.5 pl-5 sm:flex-row sm:items-center sm:justify-between">
                       <div className="min-w-0 sm:flex-1">

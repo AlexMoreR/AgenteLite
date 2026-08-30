@@ -85,6 +85,11 @@ export default async function ClienteConexionPage({ searchParams }: PageProps) {
           errorMessage={errorMessage}
           targetAgent={targetAgent}
           items={connections.items}
+          gateways={evolutionGateways.map((gateway) => ({
+            id: gateway.id,
+            kind: gateway.kind,
+            baseUrl: gateway.baseUrl,
+          }))}
         />
       }
     />

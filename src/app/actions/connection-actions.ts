@@ -623,7 +623,16 @@ export async function toggleConnectionChannelCrmAction(formData: FormData): Prom
  *
  * La instancia anterior queda anotada en el canal para poder volver atras.
  */
-export async function pasarCanalAWahaAction(formData: FormData): Promise<void> {
+/**
+ * Cambia el servidor por el que sale un canal.
+ *
+ * Apunta el MISMO canal al servidor nuevo. Crear otro canal seria la forma de perderlo todo: las
+ * conversaciones, los contactos y el CRM seguirian colgando del viejo.
+ *
+ * El anterior queda anotado dentro del canal para poder volver atras, y NO se borra su instancia:
+ * un cambio de servidor sin camino de regreso no es una migracion, es una apuesta.
+ */
+export async function cambiarProveedorDeCanalAction(formData: FormData): Promise<void> {
   const session = await auth();
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
     redirect("/unauthorized");
@@ -651,21 +660,34 @@ export async function pasarCanalAWahaAction(formData: FormData): Promise<void> {
 
   // La URL y la clave salen del catalogo del admin, nunca del formulario.
   const gateways = await getEvolutionGateways();
-  const gateway = gateways.find((item) => item.id === gatewayId && item.kind === "WAHA");
+  const gateway = gateways.find((item) => item.id === gatewayId);
   if (!gateway) {
-    redirect("/cliente/conexion?error=El+servidor+WAHA+elegido+ya+no+existe");
+    redirect("/cliente/conexion?error=El+servidor+elegido+ya+no+existe");
   }
 
   const detailPath = `/cliente/conexion/whatsapp-business/${channel.id}`;
   try {
-    await connectWahaToChannel({
-      channelId: channel.id,
-      workspaceId: membership.workspace.id,
-      baseUrl: gateway.baseUrl,
-      apiKey: gateway.apiKey,
-    });
+    if (gateway.kind === "WAHA") {
+      await connectWahaToChannel({
+        channelId: channel.id,
+        workspaceId: membership.workspace.id,
+        baseUrl: gateway.baseUrl,
+        apiKey: gateway.apiKey,
+      });
+    } else if (gateway.kind === "EVOLUTION_API") {
+      await connectEvolutionApiToChannel({
+        channelId: channel.id,
+        workspaceId: membership.workspace.id,
+        baseUrl: gateway.baseUrl,
+        apiKey: gateway.apiKey,
+      });
+    } else {
+      // Evolution GO no tiene camino de "mover un canal existente": se crea instancia nueva, que
+      // es otra operacion. Mejor decirlo que hacer algo distinto de lo que la pantalla promete.
+      redirect(`${detailPath}?error=${encodeURIComponent("Mover un canal a Evolution GO todavia no esta disponible")}`);
+    }
   } catch (error) {
-    const message = error instanceof Error ? error.message : "No se pudo pasar el canal a WAHA";
+    const message = error instanceof Error ? error.message : "No se pudo cambiar el proveedor";
     redirect(`${detailPath}?error=${encodeURIComponent(message)}`);
   }
 
@@ -673,7 +695,7 @@ export async function pasarCanalAWahaAction(formData: FormData): Promise<void> {
   revalidatePath(detailPath);
   redirect(
     `${detailPath}?ok=${encodeURIComponent(
-      "Canal pasado a WAHA. Escaneá el QR; el historial y el CRM quedaron intactos.",
+      "Proveedor cambiado. Escaneá el QR; el historial y el CRM quedaron intactos.",
     )}`,
   );
 }
