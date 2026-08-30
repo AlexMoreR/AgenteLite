@@ -880,6 +880,17 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
 
     return gateways;
   })();
+
+  /*
+    Los canales de WAHA no tienen socket propio.
+
+    evogo trae su WebSocket y Evolution API su socket.io; WAHA no expone nada equivalente, asi que
+    sus mensajes solo aparecian al recargar. Se reusa el altavoz interno -el mismo que usa la API
+    oficial-: el webhook avisa al servidor de realtime y el navegador refresca al instante.
+  */
+  const hayCanalWaha = Array.from(channelsById.values()).some(
+    (channel) => readGatewayConnection(channel.metadata)?.kind === "WAHA",
+  );
   // Los dos gateways de WhatsApp traen historial, cada uno a su manera (Evolution API lee su
   // base y responde en el momento; evogo se lo pide al celular del usuario y contesta despues,
   // por el evento HISTORYSYNC). La API oficial no tiene historial que traer, y ese caso ya lo
@@ -1089,10 +1100,10 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         enabled
         realtimeEnabled={chatsRealtimeSyncEnabled}
         selectedConversationKey={selectedUnified?.key ?? null}
-        officialRefreshMs={officialChatsData.conversations.length > 0 ? 8000 : 0}
+        officialRefreshMs={officialChatsData.conversations.length > 0 || hayCanalWaha ? 8000 : 0}
       />
       <ChatsOfficialRealtime
-        enabled={officialChatsData.conversations.length > 0}
+        enabled={officialChatsData.conversations.length > 0 || hayCanalWaha}
         workspaceId={membership.workspace.id}
       />
       <ChatsRealtimeSync

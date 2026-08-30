@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { POST as recibirEvolution } from "@/app/api/webhooks/evolution/route";
 import { prisma } from "@/lib/prisma";
+import { notifyRealtimeUpdate } from "@/lib/realtime-notify";
 import { getEvolutionSettings } from "@/lib/system-settings";
 import {
   avanzaElEstado,
@@ -88,7 +89,29 @@ export async function POST(request: NextRequest) {
     body: JSON.stringify(traduccion.evolution),
   });
 
-  return recibirEvolution(pedido);
+  const respuesta = await recibirEvolution(pedido);
+
+  /*
+    Se toca el altavoz para que el chat abierto se entere ya.
+
+    WAHA no tiene socket propio como los otros dos gateways, asi que sin esto un mensaje recien
+    llegado -o el eco del que acabamos de enviar- solo aparecia al recargar la pagina.
+
+    Va DESPUES de procesar y sin esperar: si el altavoz esta caido, el mensaje ya quedo guardado y
+    el chat se actualiza igual por el refresco de respaldo.
+  */
+  const sesion = (cuerpo as { session?: unknown }).session;
+  if (typeof sesion === "string" && sesion) {
+    const canal = await prisma.whatsAppChannel.findUnique({
+      where: { evolutionInstanceName: sesion },
+      select: { workspaceId: true },
+    });
+    if (canal) {
+      void notifyRealtimeUpdate({ workspaceId: canal.workspaceId, type: "waha-update" });
+    }
+  }
+
+  return respuesta;
 }
 
 /** WAHA no verifica la URL como Meta, pero tener el GET ayuda a probar que el endpoint existe. */
