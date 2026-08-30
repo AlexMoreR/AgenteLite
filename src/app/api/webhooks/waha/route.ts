@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { POST as recibirEvolution } from "@/app/api/webhooks/evolution/route";
-import { traducirEventoWaha } from "@/lib/waha";
+import { prisma } from "@/lib/prisma";
+import { avanzaElEstado, leerAckWaha, traducirEventoWaha, type EstadoDeEntrega } from "@/lib/waha";
 
 /**
  * Por donde entran los mensajes de WAHA.
@@ -20,6 +21,18 @@ export async function POST(request: NextRequest) {
   const cuerpo = await request.json().catch(() => null);
   if (!cuerpo) {
     return NextResponse.json({ ok: false, message: "JSON invalido" }, { status: 400 });
+  }
+
+  /*
+    El doble check se maneja ACA, no se traduce.
+
+    El webhook de Evolution nunca supo de acks: para evogo el doble check jamas funciono. No hay a
+    donde traducirlo, asi que se resuelve directo contra la base.
+  */
+  const ack = leerAckWaha(cuerpo);
+  if (ack) {
+    await aplicarAck(ack);
+    return NextResponse.json({ ok: true });
   }
 
   const traduccion = traducirEventoWaha(cuerpo);
@@ -57,4 +70,37 @@ export async function POST(request: NextRequest) {
 /** WAHA no verifica la URL como Meta, pero tener el GET ayuda a probar que el endpoint existe. */
 export async function GET() {
   return NextResponse.json({ ok: true, endpoint: "waha" });
+}
+
+/** Marca en el mensaje lo que WhatsApp acaba de contarnos: llego, lo leyeron, o fallo. */
+async function aplicarAck(ack: { sesion: string; idMensaje: string; estado: EstadoDeEntrega }) {
+  const mensaje = await prisma.message.findFirst({
+    // Se busca por el id de WhatsApp Y por el canal: el mismo id podria existir en otra linea, y
+    // marcarle el doble check al mensaje de otra conversacion seria peor que no marcar nada.
+    where: {
+      externalId: ack.idMensaje,
+      channel: { evolutionInstanceName: ack.sesion },
+    },
+    select: { id: true, status: true },
+  });
+
+  if (!mensaje) {
+    // Normal para lo que enviamos desde el celular, fuera del CRM: no tenemos ese mensaje.
+    return;
+  }
+  if (!avanzaElEstado(mensaje.status, ack.estado)) {
+    return;
+  }
+
+  const ahora = new Date();
+  await prisma.message.update({
+    where: { id: mensaje.id },
+    data: {
+      status: ack.estado,
+      ...(ack.estado === "SENT" ? { sentAt: ahora } : {}),
+      ...(ack.estado === "DELIVERED" ? { deliveredAt: ahora } : {}),
+      ...(ack.estado === "READ" ? { readAt: ahora, deliveredAt: ahora } : {}),
+      ...(ack.estado === "FAILED" ? { failedAt: ahora } : {}),
+    },
+  });
 }

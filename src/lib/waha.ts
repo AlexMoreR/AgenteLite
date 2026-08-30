@@ -37,6 +37,9 @@ export type WahaSessionStatus =
 export type WahaSession = {
   name: string;
   status: WahaSessionStatus | string;
+  config?: {
+    webhooks?: Array<{ url?: string; events?: string[] }>;
+  } | null;
   /** Datos del numero conectado. Null mientras no haya sesion. */
   me: {
     id?: string;
@@ -58,6 +61,15 @@ class WahaError extends Error {
 
 /** Cuanto se espera a WAHA antes de cortar. Sin limite, un gateway colgado cuelga la pantalla. */
 const TIMEOUT_MS = 20_000;
+
+/**
+ * Los eventos que le pedimos a WAHA.
+ *
+ * `message.ack` es el doble check: sin el sabemos que WhatsApp acepto el mensaje, pero no si le
+ * llego al cliente ni si lo leyo. Es exactamente el dato que falto para diagnosticar la caida del
+ * 28-ago, donde todo "figuraba enviado".
+ */
+const EVENTOS = ["message", "message.any", "message.ack", "session.status"] as const;
 
 async function wahaRequest<T>(
   connection: WahaConnection,
@@ -170,13 +182,15 @@ export async function asegurarSesionWaha(input: {
             de quien es cada mensaje. Aca cada linea avisa por su propia URL.
           */
           webhooks: input.webhookUrl
-            ? [{ url: input.webhookUrl, events: ["message", "message.any", "session.status"] }]
+            ? [{ url: input.webhookUrl, events: [...EVENTOS] }]
             : [],
         },
       }),
     });
     return leerSesionWaha(input.connection, input.sesion);
   }
+
+  await sincronizarWebhookUnaVez(input.connection, existente, input.webhookUrl ?? "");
 
   if (existente.status === "STOPPED" || existente.status === "FAILED") {
     await wahaRequest(input.connection, `/api/sessions/${encodeURIComponent(input.sesion)}/start`, {
@@ -186,6 +200,58 @@ export async function asegurarSesionWaha(input: {
   }
 
   return existente;
+}
+
+/**
+ * Sesiones a las que ya intentamos corregirle la suscripcion en esta corrida.
+ *
+ * El candado es la parte importante. `asegurarSesionWaha` se llama en CADA consulta de la pantalla
+ * de conexion, y actualizar la config de una sesion la reinicia; si nuestra comparacion no
+ * coincidiera nunca con lo que WAHA guarda, estariamos reiniciando la linea cada pocos segundos.
+ * Ese es exactamente el bucle que ya nos comimos con el healthcheck. Un intento por proceso: si
+ * no alcanza, se reintenta en el proximo despliegue y mientras tanto nada se rompe.
+ */
+const webhookYaSincronizado = new Set<string>();
+
+async function sincronizarWebhookUnaVez(
+  connection: WahaConnection,
+  sesion: WahaSession,
+  webhookUrl: string,
+): Promise<void> {
+  if (!webhookUrl || webhookYaSincronizado.has(sesion.name)) {
+    return;
+  }
+  webhookYaSincronizado.add(sesion.name);
+
+  const configurados = Array.isArray(sesion.config?.webhooks) ? sesion.config.webhooks : [];
+  /*
+    Se compara por SUBCONJUNTO, no por igualdad.
+
+    WAHA puede reordenar los eventos o agregar los suyos; exigir una lista identica daria siempre
+    "distinto" y volveria a escribir para siempre. Lo unico que nos importa es que exista un
+    webhook con nuestra URL y que cubra los eventos que pedimos.
+  */
+  const alDia = configurados.some(
+    (webhook) =>
+      webhook?.url === webhookUrl &&
+      EVENTOS.every((evento) => (webhook.events ?? []).includes(evento)),
+  );
+  if (alDia) {
+    return;
+  }
+
+  const otros = configurados.filter((webhook) => webhook?.url !== webhookUrl);
+  await wahaRequest(connection, `/api/sessions/${encodeURIComponent(sesion.name)}`, {
+    method: "PUT",
+    body: JSON.stringify({
+      config: {
+        ...(sesion.config ?? {}),
+        webhooks: [...otros, { url: webhookUrl, events: [...EVENTOS] }],
+      },
+    }),
+  }).catch((error) => {
+    console.error("[waha] no pude actualizar la suscripcion de", sesion.name, error);
+  });
 }
 
 /**
@@ -431,4 +497,73 @@ export function traducirEventoWaha(
       },
     },
   };
+}
+
+/* -------------------------------------------------------------- doble check */
+
+export type EstadoDeEntrega = "QUEUED" | "SENT" | "DELIVERED" | "READ" | "FAILED";
+
+/**
+ * Cuanto avanzo un mensaje. Sirve para NO retroceder.
+ *
+ * Los acks llegan por su cuenta y pueden cruzarse: el "entregado" puede aparecer despues del
+ * "leido". Sin este orden, un ack viejo que llega tarde le borraria el doble check azul a un
+ * mensaje que el cliente ya leyo.
+ */
+const RANGO: Record<Exclude<EstadoDeEntrega, "FAILED">, number> = {
+  QUEUED: 0,
+  SENT: 1,
+  DELIVERED: 2,
+  READ: 3,
+};
+
+export function avanzaElEstado(actual: string | null | undefined, siguiente: EstadoDeEntrega): boolean {
+  // Un error explicito de WhatsApp siempre vale: es informacion que nadie mas nos va a dar.
+  if (siguiente === "FAILED") {
+    return actual !== "FAILED";
+  }
+  const desde = RANGO[actual as Exclude<EstadoDeEntrega, "FAILED">] ?? -1;
+  return RANGO[siguiente] > desde;
+}
+
+/**
+ * Lee un evento `message.ack`.
+ *
+ * Los niveles son los de WhatsApp: -1 error, 0 pendiente, 1 llego al servidor, 2 llego al
+ * telefono, 3 leido, 4 escuchado (audio). Para nosotros 4 es leido tambien: el cliente lo abrio.
+ */
+export function leerAckWaha(
+  cuerpo: unknown,
+): { sesion: string; idMensaje: string; estado: EstadoDeEntrega } | null {
+  if (!cuerpo || typeof cuerpo !== "object") {
+    return null;
+  }
+  const evento = cuerpo as EventoWaha;
+  if (evento.event !== "message.ack" && evento.event !== "message.ack.group") {
+    return null;
+  }
+  const sesion = typeof evento.session === "string" ? evento.session : "";
+  const datos = (evento.payload ?? {}) as { id?: unknown; ack?: unknown };
+  const idMensaje = typeof datos.id === "string" ? datos.id : "";
+  if (!sesion || !idMensaje) {
+    return null;
+  }
+
+  const estado =
+    datos.ack === -1
+      ? "FAILED"
+      : datos.ack === 0
+        ? "QUEUED"
+        : datos.ack === 1
+          ? "SENT"
+          : datos.ack === 2
+            ? "DELIVERED"
+            : datos.ack === 3 || datos.ack === 4
+              ? "READ"
+              : null;
+
+  if (!estado) {
+    return null;
+  }
+  return { sesion, idMensaje, estado };
 }
