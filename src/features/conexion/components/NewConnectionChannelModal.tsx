@@ -53,7 +53,7 @@ type EmbeddedSignupFinishPayload = {
 // servidor la resuelve del catalogo por id, nunca viaja al navegador.
 type EvolutionGatewayOption = {
   id: string;
-  kind: "EVOLUTION_GO" | "EVOLUTION_API";
+  kind: "EVOLUTION_GO" | "EVOLUTION_API" | "WAHA";
   baseUrl: string;
 };
 
@@ -72,6 +72,7 @@ type NewConnectionChannelModalProps = {
 const GATEWAY_KIND_LABEL: Record<EvolutionGatewayOption["kind"], string> = {
   EVOLUTION_GO: "Evolution GO",
   EVOLUTION_API: "Evolution API",
+  WAHA: "WAHA",
 };
 
 export function NewConnectionChannelModal({

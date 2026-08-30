@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 
 type GatewayRow = {
   id: string;
-  kind: "EVOLUTION_GO" | "EVOLUTION_API";
+  kind: "EVOLUTION_GO" | "EVOLUTION_API" | "WAHA";
   baseUrl: string;
   apiKey: string;
 };
@@ -27,6 +27,7 @@ type WhatsAppConnectionsSettingsProps = {
 const KIND_LABEL: Record<GatewayRow["kind"], string> = {
   EVOLUTION_GO: "Evolution GO",
   EVOLUTION_API: "Evolution API",
+  WAHA: "WAHA",
 };
 
 // Enmascara la apikey: se muestra solo el inicio para poder identificarla sin exponerla.
@@ -134,7 +135,7 @@ export function WhatsAppConnectionsSettings({ gateways, webhookUrl }: WhatsAppCo
               <div className="space-y-1.5">
                 <span className="text-sm font-medium text-slate-700">Tipo de servidor</span>
                 <div className="grid grid-cols-2 gap-2">
-                  {(["EVOLUTION_GO", "EVOLUTION_API"] as const).map((option) => (
+                  {(["EVOLUTION_GO", "EVOLUTION_API", "WAHA"] as const).map((option) => (
                     <button
                       key={option}
                       type="button"
@@ -157,7 +158,13 @@ export function WhatsAppConnectionsSettings({ gateways, webhookUrl }: WhatsAppCo
                 <Input
                   name="baseUrl"
                   type="url"
-                  placeholder={kind === "EVOLUTION_GO" ? "https://evogo-1.tudominio.com" : "https://evo-api.tudominio.com"}
+                  placeholder={
+                    kind === "EVOLUTION_GO"
+                      ? "https://evogo-1.tudominio.com"
+                      : kind === "WAHA"
+                        ? "https://waha-1.tudominio.com"
+                        : "https://evo-api.tudominio.com"
+                  }
                   className="h-11"
                   required
                 />

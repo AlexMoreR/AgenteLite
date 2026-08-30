@@ -1,5 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
+import {
+  WAHA_GATEWAY_KIND,
+  asegurarSesionWaha,
+  enviarTextoWaha,
+  estadoDeSesionWaha,
+  perfilDeSesionWaha,
+  qrDeSesionWaha,
+  urlDeWebhookWaha,
+  type WahaConnection,
+} from "@/lib/waha";
 import { prisma } from "@/lib/prisma";
 import { getEvolutionSettings } from "@/lib/system-settings";
 import { persistedChatMediaFileExists } from "@/lib/chat-media-storage";
@@ -88,8 +98,9 @@ type EvolutionInstanceRecord = {
 
 type EvolutionPresence = "available" | "unavailable" | "composing" | "recording" | "paused";
 
-// Gateway al que pertenece un canal. EVOLUTION_GO = whatsmeow; EVOLUTION_API = Baileys.
-export type EvolutionGatewayKind = "EVOLUTION_GO" | "EVOLUTION_API";
+// Gateway al que pertenece un canal. EVOLUTION_GO = whatsmeow; EVOLUTION_API = Baileys;
+// WAHA = el tercero, que vive entero en lib/waha.ts y no pasa por la logica de este archivo.
+export type EvolutionGatewayKind = "EVOLUTION_GO" | "EVOLUTION_API" | "WAHA";
 
 // Conexión (URL base + apikey de nivel-gateway) resuelta POR-CANAL. Cuando es null se usa
 // la configuración global (getEvolutionSettings) — comportamiento histórico / evogo.
@@ -552,7 +563,11 @@ export function readGatewayConnection(metadata: unknown): EvolutionConnection | 
   }
 
   const rawKind = readString(gateway.kind);
-  const kind: EvolutionGatewayKind = rawKind === "EVOLUTION_API" ? "EVOLUTION_API" : "EVOLUTION_GO";
+  // El default sigue siendo GO: los canales viejos no tienen kind guardado y son de evogo.
+  const kind: EvolutionGatewayKind =
+    rawKind === "EVOLUTION_API" || rawKind === WAHA_GATEWAY_KIND
+      ? (rawKind as EvolutionGatewayKind)
+      : "EVOLUTION_GO";
 
   return {
     baseUrl: baseUrl.replace(/\/+$/, ""),
@@ -581,6 +596,21 @@ async function getStoredEvolutionInstanceAuth(instanceName: string): Promise<Evo
     token: readString(metadata?.instanceToken) || readString(metadata?.token),
     connection: readGatewayConnection(channel.metadata),
   };
+}
+
+/**
+ * La conexion de WAHA de este canal, o null si el canal no es de WAHA.
+ *
+ * Es la puerta: cada operacion publica pregunta primero por aca y, si la respuesta no es null, se
+ * va a lib/waha.ts sin entrar jamas a la logica de evogo / Evolution API que hay mas abajo.
+ */
+async function conexionWahaDe(instanceName: string): Promise<WahaConnection | null> {
+  const almacenada = await getStoredEvolutionInstanceAuth(instanceName.trim());
+  const conexion = almacenada?.connection;
+  if (!conexion || conexion.kind !== WAHA_GATEWAY_KIND || !conexion.baseUrl) {
+    return null;
+  }
+  return { baseUrl: conexion.baseUrl, apiToken: conexion.apiToken };
 }
 
 async function resolveEvolutionInstance(instanceName: string): Promise<EvolutionResolvedInstance | null> {
@@ -705,6 +735,16 @@ async function evolutionInstanceRequest<T>(input: {
   // BD. En canales Evolution API nos saltamos esa enumeracion (enviar pasa de 3 llamadas
   // a 1). El camino de evogo se deja intacto para no arriesgar lo que ya funciona.
   const storedAuth = await getStoredEvolutionInstanceAuth(input.instanceName);
+  /*
+    Un canal de WAHA no puede pasar por aca.
+
+    Las rutas de mas abajo son de evogo y de Evolution API; contra WAHA darian 404 y el error que
+    veria la asesora seria "404 page not found", que no dice nada. Justamente eso nos costo horas
+    de diagnostico el 28-ago. Mejor un mensaje que nombre la operacion que falta.
+  */
+  if (storedAuth?.connection?.kind === WAHA_GATEWAY_KIND) {
+    throw new Error(`Esta operacion todavia no esta implementada para WAHA (${input.path}).`);
+  }
   const instance: EvolutionResolvedInstance | null =
     storedAuth?.connection?.kind === "EVOLUTION_API" && storedAuth.token
       ? {
@@ -1295,6 +1335,10 @@ export async function resolveEvolutionMessageMediaUrl(input: {
 }
 
 export async function getEvolutionConnectionState(instanceName: string) {
+  const waha = await conexionWahaDe(instanceName);
+  if (waha) {
+    return estadoDeSesionWaha(waha, instanceName);
+  }
   const settings = await getEvolutionSettings();
   if (!settings.apiBaseUrl || !settings.apiToken) {
     return null;
@@ -1367,6 +1411,23 @@ export async function getEvolutionConnectionState(instanceName: string) {
 }
 
 export async function getEvolutionConnectionQr(instanceName: string) {
+  const waha = await conexionWahaDe(instanceName);
+  if (waha) {
+    /*
+      La sesion se crea ACA, al pedir el QR por primera vez.
+
+      Asi el alta de un canal WAHA no necesita un flujo propio: abrir la pantalla de conexion lo
+      crea y lo arranca. Y es idempotente, que importa porque esa pantalla repregunta cada pocos
+      segundos: si la sesion ya esta viva no se toca -reiniciarla desconectaria a quien este
+      trabajando con esa linea.
+    */
+    await asegurarSesionWaha({
+      connection: waha,
+      sesion: instanceName,
+      webhookUrl: urlDeWebhookWaha(),
+    }).catch(() => null);
+    return qrDeSesionWaha(waha, instanceName);
+  }
   const settings = await getEvolutionSettings();
   if (!settings.apiBaseUrl || !settings.apiToken) {
     return { qrCode: null, pairingCode: null };
@@ -1450,6 +1511,10 @@ export async function getEvolutionConnectionQr(instanceName: string) {
 }
 
 export async function fetchEvolutionInstanceProfile(instanceName: string) {
+  const waha = await conexionWahaDe(instanceName);
+  if (waha) {
+    return perfilDeSesionWaha(waha, instanceName);
+  }
   const settings = await getEvolutionSettings();
   if (!settings.apiBaseUrl || !settings.apiToken || !instanceName) {
     return null;
@@ -2029,6 +2094,17 @@ export async function sendEvolutionTextMessage(input: {
   delayMs?: number;
   quoted?: { id: string; remoteJid?: string; fromMe?: boolean; text?: string } | null;
 }) {
+  const waha = await conexionWahaDe(input.instanceName);
+  if (waha) {
+    return enviarTextoWaha({
+      connection: waha,
+      sesion: input.instanceName,
+      telefono: input.phoneNumber,
+      texto: input.text,
+      citarId: input.quoted?.id ?? null,
+    });
+  }
+
   const sendNumber = normalizeEvolutionSendNumber(input.phoneNumber);
   const response = await evolutionInstanceRequest<EvolutionSendTextResponse>({
     instanceName: input.instanceName,

@@ -230,7 +230,7 @@ export const getEvolutionSettings = cache(async (): Promise<EvolutionSettings> =
 // Catalogo de conexiones (gateways) que el admin configura una sola vez. Los canales
 // eligen una de estas; la conexion elegida se copia a WhatsAppChannel.metadata.gateway.
 // Se guarda como JSON en AppSetting (key/value), sin migracion de BD.
-export type EvolutionGatewayKindSetting = "EVOLUTION_GO" | "EVOLUTION_API";
+export type EvolutionGatewayKindSetting = "EVOLUTION_GO" | "EVOLUTION_API" | "WAHA";
 
 export type EvolutionGatewayRecord = {
   id: string;
@@ -245,7 +245,9 @@ function isEvolutionGatewayRecord(value: unknown): value is EvolutionGatewayReco
   return (
     typeof record.id === "string" &&
     record.id.trim().length > 0 &&
-    (record.kind === "EVOLUTION_GO" || record.kind === "EVOLUTION_API") &&
+    (record.kind === "EVOLUTION_GO" ||
+      record.kind === "EVOLUTION_API" ||
+      record.kind === "WAHA") &&
     typeof record.baseUrl === "string" &&
     record.baseUrl.trim().length > 0 &&
     typeof record.apiKey === "string"
