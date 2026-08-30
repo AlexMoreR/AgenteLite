@@ -193,6 +193,14 @@ export async function asegurarSesionWaha(input: {
   await sincronizarWebhookUnaVez(input.connection, existente, input.webhookUrl ?? "");
 
   if (existente.status === "STOPPED" || existente.status === "FAILED") {
+    const ahora = Date.now();
+    const ultimo = ultimoIntentoDeLevantar.get(input.sesion) ?? 0;
+    // Se le da tiempo a levantarse antes de volver a insistir.
+    if (ahora - ultimo < ESPERA_ENTRE_INTENTOS_MS) {
+      return existente;
+    }
+    ultimoIntentoDeLevantar.set(input.sesion, ahora);
+
     await wahaRequest(input.connection, `/api/sessions/${encodeURIComponent(input.sesion)}/start`, {
       method: "POST",
     });
@@ -212,6 +220,17 @@ export async function asegurarSesionWaha(input: {
  * no alcanza, se reintenta en el proximo despliegue y mientras tanto nada se rompe.
  */
 const webhookYaSincronizado = new Set<string>();
+
+/**
+ * Cuando se intento levantar cada sesion por ultima vez.
+ *
+ * La pantalla del QR pregunta cada ~3 segundos, y en cada pregunta se pasaba por aca. Con una
+ * sesion caida eso disparaba un /start cada 3 segundos: un reinicio en medio del emparejamiento lo
+ * corta, asi que la sesion NUNCA llegaba a estabilizarse y el QR no aparecia jamas. Le paso a
+ * Admin: se veia como "no deja conectar", y en realidad la estabamos pisando nosotros.
+ */
+const ultimoIntentoDeLevantar = new Map<string, number>();
+const ESPERA_ENTRE_INTENTOS_MS = 30_000;
 
 async function sincronizarWebhookUnaVez(
   connection: WahaConnection,
