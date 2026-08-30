@@ -366,39 +366,6 @@ export function WhatsAppBusinessConnectionWorkspace({
 
       {connection.provider === "EVOLUTION" ? <EvolutionChatSyncDialog channelId={connection.id} /> : null}
 
-      {connection.provider === "EVOLUTION" && wahaGateways.length > 0 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Pasar este canal a WAHA</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <p className="text-sm text-muted-foreground">
-              El número no cambia y <strong>no se pierde nada</strong>: conversaciones, mensajes,
-              contactos, etapas, etiquetas, seguimientos y el agente siguen igual, porque cuelgan
-              del canal y no del servidor. Solo cambia por dónde entran y salen los mensajes.
-            </p>
-            <p className="text-sm text-muted-foreground">
-              Vas a tener que <strong>escanear el QR una vez</strong>. La conexión anterior queda
-              guardada por si hay que volver atrás.
-            </p>
-            <form action={pasarCanalAWahaAction} className="flex flex-wrap items-center gap-2">
-              <input type="hidden" name="channelId" value={connection.id} />
-              <input type="hidden" name="gatewayId" value={wahaGateways[0].id} />
-              <button
-                type="submit"
-                className="inline-flex items-center rounded-md border border-border bg-muted px-3 py-1.5 text-sm font-medium text-foreground transition hover:bg-muted/70"
-              >
-                Pasar a WAHA ({wahaGateways[0].baseUrl.replace(/^https?:\/\//, "")})
-              </button>
-            </form>
-            <p className="text-xs text-muted-foreground">
-              Después de verificar que anda, hay que desconectar la conexión vieja: mientras las
-              dos estén activas sobre el mismo número, las dos reciben todo.
-            </p>
-          </CardContent>
-        </Card>
-      ) : null}
-
       {/* Se saca "Conectar Evolution API": los canales van por evogo y mover uno de gateway desde
           esta pantalla es un boton caro —cambia por donde salen TODOS los mensajes de ese numero—
           para lo poco que se usa. La tarjeta y su accion siguen en el codigo; volver a mostrarla
@@ -413,6 +380,47 @@ export function WhatsAppBusinessConnectionWorkspace({
   // falte configurar; una vez cargadas, la pestaña Ajustes queda limpia.
   const officialApiNeedsSetup =
     !officialApiConfig?.phoneNumberId?.trim() || !officialApiConfig?.accessToken?.trim();
+
+  /*
+    La tarjeta para mover el canal a WAHA.
+
+    Se dibuja en los DOS estados -conectado y pidiendo QR-. Antes vivia dentro de las pestañas,
+    que solo aparecen con el canal conectado, y era justo al reves de lo que conviene: un canal
+    caido es el mejor momento para moverlo, porque no hay nada funcionando que se pueda romper.
+  */
+  const tarjetaPasarAWaha =
+    connection.provider === "EVOLUTION" && wahaGateways.length > 0 ? (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Pasar este canal a WAHA</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            El número no cambia y <strong>no se pierde nada</strong>: conversaciones, mensajes,
+            contactos, etapas, etiquetas, seguimientos y el agente siguen igual, porque cuelgan
+            del canal y no del servidor. Solo cambia por dónde entran y salen los mensajes.
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Vas a tener que <strong>escanear el QR una vez</strong>. La conexión anterior queda
+            guardada por si hay que volver atrás.
+          </p>
+          <form action={pasarCanalAWahaAction} className="flex flex-wrap items-center gap-2">
+            <input type="hidden" name="channelId" value={connection.id} />
+            <input type="hidden" name="gatewayId" value={wahaGateways[0].id} />
+            <button
+              type="submit"
+              className="inline-flex items-center rounded-md border border-border bg-muted px-3 py-1.5 text-sm font-medium text-foreground transition hover:bg-muted/70"
+            >
+              Pasar a WAHA ({wahaGateways[0].baseUrl.replace(/^https?:\/\//, "")})
+            </button>
+          </form>
+          <p className="text-xs text-muted-foreground">
+            Después de verificar que anda, hay que desconectar la conexión vieja: mientras las
+            dos estén activas sobre el mismo número, las dos reciben todo.
+          </p>
+        </CardContent>
+      </Card>
+    ) : null;
 
   const settingsTabContent =
     connection.provider === "OFFICIAL_API" && officialApiNeedsSetup ? (
@@ -442,6 +450,7 @@ export function WhatsAppBusinessConnectionWorkspace({
       {isConnected ? (
         <>
           {headerCard}
+          {tarjetaPasarAWaha}
 
           <ConnectionTabs
             agente={agentTabContent}
@@ -505,7 +514,9 @@ export function WhatsAppBusinessConnectionWorkspace({
           />
         </>
       ) : (
-        <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
+        <div className="space-y-4">
+          {tarjetaPasarAWaha}
+          <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
           <Card>
             <CardContent className="flex flex-col items-center">
               <div className="flex aspect-square w-full max-w-[248px] items-center justify-center rounded-lg bg-muted">
@@ -572,6 +583,7 @@ export function WhatsAppBusinessConnectionWorkspace({
               </div>
             </CardContent>
           </Card>
+          </div>
         </div>
       )}
     </section>
