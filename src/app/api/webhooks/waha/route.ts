@@ -5,13 +5,16 @@ import { prisma } from "@/lib/prisma";
 import { notifyRealtimeUpdate } from "@/lib/realtime-notify";
 import { getEvolutionSettings } from "@/lib/system-settings";
 import { readGatewayConnection } from "@/lib/evolution";
+import { readLinkedLid } from "@/lib/whatsapp-lid";
 import {
   avanzaElEstado,
   descargarMediaWaha,
   idCrudoDeMensaje,
   leerAckWaha,
+  leerPresenciaWaha,
   traducirEventoWaha,
   type EstadoDeEntrega,
+  type PresenciaWaha,
 } from "@/lib/waha";
 
 /**
@@ -56,6 +59,19 @@ export async function POST(request: NextRequest) {
     El webhook de Evolution nunca supo de acks: para evogo el doble check jamas funciono. No hay a
     donde traducirlo, asi que se resuelve directo contra la base.
   */
+  /*
+    La presencia se resuelve antes que nada y no toca la base.
+
+    "Esta escribiendo" dura segundos y no es historia: guardarlo seria escribir en la base varias
+    veces por cada persona que teclea, para un dato que caduca antes de servir. Va directo al
+    navegador por el altavoz.
+  */
+  const presencia = leerPresenciaWaha(cuerpo);
+  if (presencia) {
+    await avisarPresencia(presencia.sesion, presencia.presencia);
+    return NextResponse.json({ ok: true });
+  }
+
   const ack = leerAckWaha(cuerpo);
   if (ack) {
     /*
@@ -74,10 +90,6 @@ export async function POST(request: NextRequest) {
 
   const traduccion = traducirEventoWaha(cuerpo);
   if (!traduccion.evolution) {
-    // TEMPORAL: se imprime el evento entero para ver que trae la presencia. Se quita enseguida.
-    if ((cuerpo as { event?: unknown }).event === "presence.update") {
-      console.log("[waha presencia CRUDA]", JSON.stringify(cuerpo).slice(0, 700));
-    }
     console.log("[waha webhook] evento ignorado:", traduccion.motivo);
     return NextResponse.json({ ok: true, ignorado: traduccion.motivo });
   }
@@ -226,4 +238,53 @@ async function aplicarAck(ack: {
   });
 
   return mensaje.workspaceId;
+}
+
+/**
+ * Le cuenta al navegador que alguien esta escribiendo.
+ *
+ * El evento identifica al contacto por su LID o por su telefono, segun el caso -es el tercer lugar
+ * donde aparece esa dualidad-, asi que se buscan las dos formas. Si se comparara solo por telefono,
+ * la burbuja no se mostraria justo en los chats de leads nuevos, que llegan con LID.
+ */
+async function avisarPresencia(sesion: string, presencia: PresenciaWaha) {
+  const canal = await prisma.whatsAppChannel.findUnique({
+    where: { evolutionInstanceName: sesion },
+    select: { workspaceId: true },
+  });
+  if (!canal) {
+    return;
+  }
+
+  const identidad = presencia.identidad;
+  const soloDigitos = identidad.split("@")[0]?.replace(/\D/g, "") ?? "";
+  if (!soloDigitos) {
+    return;
+  }
+
+  const contacto = await prisma.contact.findFirst({
+    where: {
+      workspaceId: canal.workspaceId,
+      OR: [
+        { phoneNumber: soloDigitos },
+        { metadata: { path: ["whatsappLidId"], equals: soloDigitos } },
+      ],
+    },
+    select: { id: true, phoneNumber: true, metadata: true },
+  });
+  if (!contacto) {
+    return;
+  }
+
+  // Se manda el telefono del CONTACTO, no la identidad cruda: es lo que la pantalla conoce.
+  void notifyRealtimeUpdate({
+    workspaceId: canal.workspaceId,
+    type: "presence",
+    data: {
+      telefono: contacto.phoneNumber,
+      lid: readLinkedLid(contacto.metadata),
+      activo: presencia.activo,
+      que: presencia.que,
+    },
+  });
 }

@@ -876,3 +876,79 @@ export function comoMensajeDeEvolution(
   const datos = traduccion.evolution.data;
   return datos && typeof datos === "object" ? (datos as Record<string, unknown>) : null;
 }
+
+/* ----------------------------------------------------------------- presencia */
+
+export type PresenciaWaha = {
+  /** Como identifica WhatsApp al contacto: puede ser su numero O su LID. */
+  identidad: string;
+  /** true mientras escribe o graba; false cuando paro. */
+  activo: boolean;
+  /** "typing" | "recording" — para decir "escribiendo..." o "grabando audio...". */
+  que: "escribiendo" | "grabando" | null;
+};
+
+/**
+ * Lee un evento `presence.update`.
+ *
+ * Verificado contra el servidor (GOWS 2026.8.1). El payload real:
+ *   { id: "37898875334784@lid",
+ *     presences: [{ participant: "...", lastKnownPresence: "typing", lastSeen: null }] }
+ *
+ * Dos cosas que solo se ven mirando el evento de verdad:
+ *
+ * 1. El contacto viene identificado por su LID, NO por su telefono. Es el tercer lugar donde
+ *    aparece lo mismo; comparando por telefono la burbuja no se mostraria nunca.
+ * 2. La lectura `GET /presence/{chat}` devuelve vacio en GOWS: hay que construir sobre el EVENTO,
+ *    no sobre la consulta.
+ *
+ * Ademas la suscripcion CADUCA a los pocos minutos: hay que renovarla al abrir cada chat, o la
+ * funcion andaria al principio y dejaria de andar sin motivo aparente.
+ */
+export function leerPresenciaWaha(
+  cuerpo: unknown,
+): { sesion: string; presencia: PresenciaWaha } | null {
+  if (!cuerpo || typeof cuerpo !== "object") {
+    return null;
+  }
+  const evento = cuerpo as EventoWaha;
+  if (evento.event !== "presence.update") {
+    return null;
+  }
+  const sesion = typeof evento.session === "string" ? evento.session : "";
+  const datos = (evento.payload ?? {}) as { id?: unknown; presences?: unknown };
+  const identidad = typeof datos.id === "string" ? datos.id : "";
+  if (!sesion || !identidad) {
+    return null;
+  }
+
+  const lista = Array.isArray(datos.presences) ? datos.presences : [];
+  const primera = (lista[0] ?? {}) as { lastKnownPresence?: unknown };
+  const estado =
+    typeof primera.lastKnownPresence === "string" ? primera.lastKnownPresence.toLowerCase() : "";
+
+  const que = estado === "typing" ? "escribiendo" : estado === "recording" ? "grabando" : null;
+
+  return { sesion, presencia: { identidad, activo: Boolean(que), que } };
+}
+
+/**
+ * Avisa a WhatsApp que queremos saber cuando este contacto escribe.
+ *
+ * Sin esto no llega ningun evento. Y caduca: se vuelve a llamar cada vez que alguien abre el chat.
+ */
+export async function suscribirPresenciaWaha(input: {
+  connection: WahaConnection;
+  sesion: string;
+  telefono: string;
+}): Promise<void> {
+  try {
+    await wahaRequest(
+      input.connection,
+      `/api/${encodeURIComponent(input.sesion)}/presence/${encodeURIComponent(chatIdDeTelefono(input.telefono))}/subscribe`,
+      { method: "POST", body: "{}" },
+    );
+  } catch {
+    // Es cosmetico: si falla, el chat funciona igual y solo no se ve "escribiendo...".
+  }
+}

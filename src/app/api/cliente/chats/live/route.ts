@@ -3,7 +3,8 @@ import { auth } from "@/auth";
 import { loadAgentConversationDetail } from "@/lib/chat-message-loader";
 import { getOfficialApiChatsData } from "@/features/official-api/services/getOfficialApiChatsData";
 import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
-import { resolveEvolutionMessageMediaUrl } from "@/lib/evolution";
+import { readGatewayConnection, resolveEvolutionMessageMediaUrl } from "@/lib/evolution";
+import { WAHA_GATEWAY_KIND, suscribirPresenciaWaha } from "@/lib/waha";
 import { scheduleSingleContactAvatarRefresh } from "@/lib/contact-avatar-refresh";
 import { persistChatMediaFromDataUrl } from "@/lib/chat-media-storage";
 import { prisma } from "@/lib/prisma";
@@ -196,6 +197,32 @@ export async function GET(request: Request) {
   }
 
   const instanceName = conversation.channel?.evolutionInstanceName?.trim() || null;
+
+  /*
+    Suscribir la presencia de ESTE contacto, cada vez que se abre el chat.
+
+    WhatsApp solo avisa "esta escribiendo" de los contactos suscritos, y la suscripcion CADUCA a
+    los pocos minutos. Hacerlo una sola vez daria una funcion que anda al principio y despues deja
+    de andar sin motivo aparente, que es peor que no tenerla.
+
+    Va en segundo plano y solo al ABRIR el chat: paginar hacia arriba no tiene por que resuscribir.
+  */
+  if (instanceName && !beforeMessageId) {
+    const conexionPresencia = readGatewayConnection(conversation.channel?.metadata ?? null);
+    const telefonoPresencia = conversation.contact?.phoneNumber?.trim();
+    if (conexionPresencia?.kind === WAHA_GATEWAY_KIND && telefonoPresencia) {
+      after(() =>
+        suscribirPresenciaWaha({
+          connection: {
+            baseUrl: conexionPresencia.baseUrl,
+            apiToken: conexionPresencia.apiToken,
+          },
+          sesion: instanceName,
+          telefono: telefonoPresencia,
+        }),
+      );
+    }
+  }
   // Saneos de BD (mediaUrl → ruta persistida) y resoluciones lentas que se terminan
   // después de responder, para que la próxima apertura del chat sea instantánea.
   const mediaUrlDbUpdates: Array<{ id: string; mediaUrl: string }> = [];

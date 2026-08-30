@@ -139,6 +139,10 @@ const server = http.createServer(async (request, response) => {
     const delivered = broadcast(workspaceId, {
       type: typeof body?.type === "string" ? body.type : "official-api-update",
       conversationId: typeof body?.conversationId === "string" ? body.conversationId : null,
+      // Un dato chico y opcional. Lo usa la presencia ("esta escribiendo"), que no se puede
+      // resolver con un simple "algo cambio": para cuando el navegador volviera a preguntar, la
+      // persona ya dejo de escribir.
+      data: body?.data && typeof body.data === "object" ? body.data : null,
       at: Date.now(),
     });
 

@@ -11,6 +11,8 @@ export async function notifyRealtimeUpdate(input: {
   workspaceId: string;
   conversationId?: string | null;
   type?: string;
+  /** Dato chico que viaja con el aviso. Hoy lo usa la presencia. */
+  data?: Record<string, unknown> | null;
 }): Promise<void> {
   const url = process.env.REALTIME_NOTIFY_URL?.trim();
   if (!url || !input.workspaceId) {
@@ -28,6 +30,7 @@ export async function notifyRealtimeUpdate(input: {
         workspaceId: input.workspaceId,
         conversationId: input.conversationId ?? null,
         type: input.type || "official-api-update",
+        ...(input.data ? { data: input.data } : {}),
       }),
       signal: AbortSignal.timeout(NOTIFY_TIMEOUT_MS),
       cache: "no-store",

@@ -52,15 +52,30 @@ export function ChatsOfficialRealtime({
       };
 
       socket.onmessage = (event) => {
-        let payload: { type?: string } | null = null;
+        let payload: { type?: string; data?: Record<string, unknown> | null } | null = null;
         try {
-          payload = JSON.parse(event.data as string) as { type?: string };
+          payload = JSON.parse(event.data as string) as {
+            type?: string;
+            data?: Record<string, unknown> | null;
+          };
         } catch {
           return;
         }
 
         // "ready" es el saludo del altavoz al conectar: no es un cambio que refrescar.
         if (!payload || payload.type === "ready") {
+          return;
+        }
+
+        /*
+          La presencia NO refresca la pantalla.
+
+          "Esta escribiendo" dura segundos: para cuando el navegador volviera a pedir los datos, la
+          persona ya paro. Por eso viaja EN el aviso y se reparte por su propio evento, sin tocar
+          el resto -y sin provocar un refresco completo cada vez que alguien teclea-.
+        */
+        if (payload.type === "presence") {
+          window.dispatchEvent(new CustomEvent("chat-presence", { detail: payload.data ?? null }));
           return;
         }
 

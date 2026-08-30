@@ -171,6 +171,64 @@ export const ConversationPanel = memo(function ConversationPanel({
   const [isSuggestingReply, setIsSuggestingReply] = useState(false);
   const [emojiSearchQuery, setEmojiSearchQuery] = useState("");
   const [pestanaChat, setPestanaChat] = useState<"mensajes" | "cotizaciones">("mensajes");
+  /**
+   * "Escribiendo…", como en WhatsApp.
+   *
+   * No se guarda en la base: dura segundos y no es historia. Llega por el altavoz con el dato
+   * adentro, porque un simple "algo cambio" no serviria -para cuando el navegador volviera a
+   * preguntar, la persona ya paro-.
+   */
+  const [escribiendo, setEscribiendo] = useState<"escribiendo" | "grabando" | null>(null);
+  const telefonoDelChat = renderedConversation?.secondaryLabel?.replace(/\D/g, "") ?? "";
+
+  useEffect(() => {
+    if (!telefonoDelChat) {
+      return;
+    }
+    let apagar: ReturnType<typeof setTimeout> | null = null;
+
+    const alLlegar = (evento: Event) => {
+      const detalle = (evento as CustomEvent).detail as
+        | { telefono?: string; activo?: boolean; que?: "escribiendo" | "grabando" | null }
+        | null;
+      if (!detalle?.telefono) {
+        return;
+      }
+      if (detalle.telefono.replace(/\D/g, "") !== telefonoDelChat) {
+        return;
+      }
+
+      if (apagar) {
+        clearTimeout(apagar);
+        apagar = null;
+      }
+      setEscribiendo(detalle.activo ? detalle.que ?? "escribiendo" : null);
+
+      /*
+        Apagado por las dudas a los 10 segundos.
+
+        WhatsApp avisa cuando alguien PARA de escribir, pero ese aviso se puede perder -se corto la
+        red, se cerro el chat-. Sin este limite, el "escribiendo…" quedaria clavado para siempre y
+        la asesora esperaria un mensaje que no viene.
+      */
+      if (detalle.activo) {
+        apagar = setTimeout(() => setEscribiendo(null), 10_000);
+      }
+    };
+
+    window.addEventListener("chat-presence", alLlegar);
+    return () => {
+      window.removeEventListener("chat-presence", alLlegar);
+      if (apagar) {
+        clearTimeout(apagar);
+      }
+    };
+  }, [telefonoDelChat]);
+
+  // Al cambiar de chat se limpia: si no, se arrastraria el "escribiendo…" del anterior.
+  useEffect(() => {
+    setEscribiendo(null);
+  }, [selectedConversationId]);
   const [emojiPickerTab, setEmojiPickerTab] = useState<ComposerEmojiTab>("todos");
   const [recentComposerEmojis, setRecentComposerEmojis] = useState<string[]>([]);
   const [recentComposerEmojisReady, setRecentComposerEmojisReady] = useState(false);
@@ -919,8 +977,13 @@ export const ConversationPanel = memo(function ConversationPanel({
                       escribiendo tocaba abrir el panel del contacto. Se omite cuando el nombre
                       YA es el numero (contacto sin nombre), para no escribirlo dos veces.
                     */}
-                    {renderedConversation.secondaryLabel &&
-                    renderedConversation.secondaryLabel !== renderedConversation.label ? (
+                    {escribiendo ? (
+                      /* Reemplaza al telefono, como hace WhatsApp: el dato de ahora importa mas. */
+                      <p className="truncate text-[13px] font-medium leading-tight text-emerald-600 dark:text-emerald-400">
+                        {escribiendo === "grabando" ? "grabando audio…" : "escribiendo…"}
+                      </p>
+                    ) : renderedConversation.secondaryLabel &&
+                      renderedConversation.secondaryLabel !== renderedConversation.label ? (
                       <p className="truncate text-[13px] leading-tight text-muted-foreground">
                         {renderedConversation.secondaryLabel}
                       </p>
@@ -1061,6 +1124,31 @@ export const ConversationPanel = memo(function ConversationPanel({
                         onDelete={onDeleteMessage}
                       />
                     ))}
+                    {/*
+                      La burbujita de los tres puntos, al final de la conversacion.
+
+                      Va DESPUES del ultimo mensaje y no en el encabezado porque es ahi donde uno
+                      esta mirando mientras espera una respuesta. Es la misma senal que da WhatsApp
+                      y significa lo mismo: no te vayas, esta contestando.
+                    */}
+                    {escribiendo ? (
+                      <div className="flex justify-start px-1 pb-1 pt-0.5">
+                        <div className="inline-flex items-center gap-1 rounded-2xl rounded-bl-sm border border-border bg-card px-3 py-2 shadow-sm">
+                          <span className="sr-only">
+                            {escribiendo === "grabando" ? "Grabando audio" : "Escribiendo"}
+                          </span>
+                          {[0, 1, 2].map((punto) => (
+                            <span
+                              key={punto}
+                              aria-hidden="true"
+                              className="size-1.5 animate-bounce rounded-full bg-muted-foreground/70"
+                              // El desfase es lo que hace que "salten" en ola en vez de a la vez.
+                              style={{ animationDelay: `${punto * 150}ms`, animationDuration: "1s" }}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
                     {messageScrollBehavior === "preserve" ? (
                       <ChatScrollAnchor dependencyKey={selectedConversationScrollKey} behavior="preserve" />
                     ) : null}

@@ -31,6 +31,8 @@ export type LoadedAgentConversationDetail = {
   channel: {
     id: string;
     evolutionInstanceName: string | null;
+    /** De aca sale a que gateway pertenece el canal. Lo usa la presencia. */
+    metadata: unknown;
   } | null;
   messages: AgentConversationMessageRecord[];
   hasMoreMessages: boolean;
@@ -132,6 +134,8 @@ export async function loadAgentConversationDetail(input: {
             // El id hace falta para saber por que numero sale una llamada hecha desde este chat.
             id: true,
             evolutionInstanceName: true,
+            // metadata: de ahi sale a que gateway pertenece el canal (lo usa la presencia).
+            metadata: true,
           },
         },
       },
