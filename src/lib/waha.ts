@@ -682,7 +682,9 @@ export async function enviarMediaWaha(input: {
   sesion: string;
   telefono: string;
   tipo: "image" | "video" | "audio" | "document";
-  url: string;
+  /** Una URL publica, o el contenido en base64 si no hay URL (notas de voz grabadas en la app). */
+  url?: string | null;
+  base64?: string | null;
   mimetype?: string | null;
   nombreDeArchivo?: string | null;
   epigrafe?: string | null;
@@ -693,11 +695,18 @@ export async function enviarMediaWaha(input: {
     WAHA la descarga por su cuenta (RemoteFile), asi que el pedido viaja liviano. Mandar el binario
     en base64 dentro del JSON es lo que hace fallar los envios grandes.
   */
+  const url = input.url?.trim() || "";
+  const base64 = input.base64?.trim() || "";
+  if (!url && !base64) {
+    throw new Error("No hay archivo para enviar (ni URL ni contenido)");
+  }
+
   const cuerpo: Record<string, unknown> = {
     session: input.sesion,
     chatId: chatIdDeTelefono(input.telefono),
     file: {
-      url: input.url,
+      // La nota de voz grabada en el CRM no tiene URL publica todavia: viaja como contenido.
+      ...(url ? { url } : { data: base64 }),
       ...(input.mimetype?.trim() ? { mimetype: input.mimetype.trim() } : {}),
       ...(input.nombreDeArchivo?.trim() ? { filename: input.nombreDeArchivo.trim() } : {}),
     },

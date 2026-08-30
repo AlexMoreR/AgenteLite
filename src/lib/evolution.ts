@@ -2331,6 +2331,28 @@ async function sendEvolutionMediaRequest(input: {
   const mediaSource = input.mediaSource ?? "url";
   const mediaValue = input.media.trim();
   const normalizedCaption = input.caption?.trim() || "";
+
+  /*
+    La rama de WAHA va ACA y no en cada funcion de envio.
+
+    Este es el punto UNICO por donde pasan todos los archivos: foto, video, documento, audio y
+    nota de voz. Ramificar arriba, en sendEvolutionMediaUrl, dejaba afuera a la nota de voz y al
+    audio, que arman su pedido por su cuenta -y por eso fallaban con "todavia no implementada".
+  */
+  const waha = await conexionWahaDe(input.instanceName);
+  if (waha) {
+    return enviarMediaWaha({
+      connection: waha,
+      sesion: input.instanceName,
+      telefono: input.phoneNumber,
+      tipo: input.type,
+      ...(mediaSource === "base64" ? { base64: mediaValue } : { url: mediaValue }),
+      mimetype: input.mimetype,
+      nombreDeArchivo: input.fileName,
+      epigrafe: normalizedCaption,
+    });
+  }
+
   const baseMediaBody = {
     number: sendNumber,
     type: input.type,
@@ -2605,20 +2627,6 @@ export async function sendEvolutionMediaUrl(input: {
   delayMs?: number;
 }) {
   const normalizedCaption = input.caption?.trim() || "";
-
-  const waha = await conexionWahaDe(input.instanceName);
-  if (waha) {
-    return enviarMediaWaha({
-      connection: waha,
-      sesion: input.instanceName,
-      telefono: input.phoneNumber,
-      tipo: input.mediatype,
-      url: input.url,
-      mimetype: input.mimetype,
-      nombreDeArchivo: input.fileName,
-      epigrafe: normalizedCaption,
-    });
-  }
 
   const buildLegacyBody = (media: string) => ({
     number: normalizeEvolutionSendNumber(input.phoneNumber),
