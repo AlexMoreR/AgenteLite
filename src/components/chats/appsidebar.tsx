@@ -2,12 +2,16 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { MessageSquareText, Plus } from "lucide-react";
+import { MessageSquareText, Plus, X } from "lucide-react";
 import { ConversationList } from "@/components/chats/conversation-list";
-import { SidebarHeader } from "@/components/ui/sidebar";
 import { type AssignedFilter, type StatusFilter, type SharedInboxConversationItem } from "./shared-inbox";
-import { Label } from "../ui/label";
-import { Switch } from "@base-ui/react";
+import { FiltrosDeBandejaModal } from "./filtros-de-bandeja-modal";
+import {
+  paramsDeFiltros,
+  SIN_FILTROS,
+  type FiltrosDeBandeja,
+} from "@/features/chats/domain/filtros-de-bandeja";
+import { CRM_STAGE_META } from "@/features/crm/domain/crm-config";
 
 type AppSidebarProps = {
   conversationItems: SharedInboxConversationItem[];
@@ -19,6 +23,7 @@ type AppSidebarProps = {
   statusFilter?: StatusFilter;
   assignedCounts?: { mine: number; unassigned: number; all: number } | null;
   isManager?: boolean;
+  filtros?: FiltrosDeBandeja;
   hasMoreConversationItems?: boolean;
   isLoadingMoreConversationItems?: boolean;
   onLoadMoreConversationItems?: () => void | Promise<void>;
@@ -52,6 +57,7 @@ export function AppSidebar({
   statusFilter = "open",
   assignedCounts = null,
   isManager = false,
+  filtros = SIN_FILTROS,
   hasMoreConversationItems = false,
   isLoadingMoreConversationItems = false,
   onLoadMoreConversationItems,
@@ -61,27 +67,7 @@ export function AppSidebar({
 }: AppSidebarProps) {
   const conversationListScrollRef = React.useRef<HTMLDivElement | null>(null);
   const router = useRouter();
-  const filterMenuRef = React.useRef<HTMLDivElement | null>(null);
   const [filterMenuOpen, setFilterMenuOpen] = React.useState(false);
-  // Selección provisional del menú (se aplica con el botón "Aplicar").
-  const [draftStatus, setDraftStatus] = React.useState<StatusFilter>(statusFilter);
-  const [draftAssigned, setDraftAssigned] = React.useState<AssignedFilter>(assignedFilter);
-
-  React.useEffect(() => {
-    setDraftStatus(statusFilter);
-  }, [statusFilter]);
-
-  // Cerrar el menú al hacer clic fuera.
-  React.useEffect(() => {
-    if (!filterMenuOpen) return;
-    function onPointerDown(event: MouseEvent) {
-      if (filterMenuRef.current && !filterMenuRef.current.contains(event.target as Node)) {
-        setFilterMenuOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", onPointerDown);
-    return () => document.removeEventListener("mousedown", onPointerDown);
-  }, [filterMenuOpen]);
 
   /**
    * Los dos filtros se aplican JUNTOS, en un solo viaje.
@@ -91,7 +77,7 @@ export function AppSidebar({
    * dos navegaciones —y la segunda pisando a la primera.
    */
   const aplicarFiltros = React.useCallback(
-    (asignacion: AssignedFilter, estado: StatusFilter) => {
+    (asignacion: AssignedFilter, estado: StatusFilter, nuevos: FiltrosDeBandeja = filtros) => {
       setFilterMenuOpen(false);
       const params = new URLSearchParams();
       if (selectedConnectionKey) params.set("connection", selectedConnectionKey);
@@ -99,6 +85,28 @@ export function AppSidebar({
       // Los valores por defecto no van en la direccion: una URL corta se lee y se comparte mejor.
       if (asignacion !== "mine") params.set("assigned", asignacion);
       if (estado !== "open") params.set("status", estado);
+      for (const [clave, valor] of paramsDeFiltros(nuevos)) {
+        params.set(clave, valor);
+      }
+      const qs = params.toString();
+      router.push(qs ? `${searchAction}?${qs}` : searchAction, { scroll: false });
+    },
+    [router, searchAction, selectedConnectionKey, searchQuery, filtros],
+  );
+
+  /**
+   * Volver a un filtro guardado.
+   *
+   * Se guarda la direccion entera, asi que aplicarlo es ir a esa direccion: no se rearma campo por
+   * campo. La conexion y la busqueda de ahora se conservan —uno guarda una forma de mirar, no el
+   * canal en el que estaba parado ese dia.
+   */
+  const aplicarGuardado = React.useCallback(
+    (query: string) => {
+      setFilterMenuOpen(false);
+      const params = new URLSearchParams(query);
+      if (selectedConnectionKey) params.set("connection", selectedConnectionKey);
+      if (searchQuery.trim()) params.set("q", searchQuery.trim());
       const qs = params.toString();
       router.push(qs ? `${searchAction}?${qs}` : searchAction, { scroll: false });
     },
@@ -106,9 +114,11 @@ export function AppSidebar({
   );
 
   // El + se marca cuando NO estas en la vista por defecto: abiertas y sin filtro de asignacion.
-  const filtersActive = statusFilter !== "open" || (isManager && assignedFilter !== "mine");
-
-  const visibleTabs = ASSIGNED_FILTER_TABS.filter((tab) => isManager || !tab.managerOnly);
+  const filtersActive =
+    statusFilter !== "open" ||
+    (isManager && assignedFilter !== "mine") ||
+    filtros.etapas.length > 0 ||
+    filtros.sinResponder;
 
   return (
     <aside
@@ -168,16 +178,53 @@ export function AppSidebar({
                   {STATUS_FILTER_OPTIONS.find((option) => option.value === statusFilter)?.label}
                 </span>
               ) : null}
+
+              {/*
+                Lo que esta filtrado se VE, y se saca de un toque.
+
+                Un filtro puesto que no se nota es la peor version de esto: la asesora ve pocos
+                chats, no entiende por que, y termina pensando que se perdieron conversaciones.
+              */}
+              {filtros.etapas.map((etapa) => {
+                const meta = CRM_STAGE_META[etapa];
+                return (
+                  <button
+                    key={etapa}
+                    type="button"
+                    onClick={() =>
+                      aplicarFiltros(assignedFilter, statusFilter, {
+                        ...filtros,
+                        etapas: filtros.etapas.filter((valor) => valor !== etapa),
+                      })
+                    }
+                    title={`Quitar el filtro ${meta.label}`}
+                    className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-3 py-1 text-[13px] font-medium ${meta.borderClassName} ${meta.backgroundClassName} ${meta.accentClassName}`}
+                  >
+                    {meta.label}
+                    <X className="h-3 w-3 opacity-60" />
+                  </button>
+                );
+              })}
+
+              {filtros.sinResponder ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    aplicarFiltros(assignedFilter, statusFilter, { ...filtros, sinResponder: false })
+                  }
+                  title="Quitar el filtro Sin responder"
+                  className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-primary bg-primary/10 px-3 py-1 text-[13px] font-medium text-primary"
+                >
+                  Sin responder
+                  <X className="h-3 w-3 opacity-60" />
+                </button>
+              ) : null}
             </div>
 
-            <div ref={filterMenuRef} className="relative shrink-0">
+            <div className="shrink-0">
               <button
                 type="button"
-                onClick={() => {
-                  setDraftAssigned(assignedFilter);
-                  setDraftStatus(statusFilter);
-                  setFilterMenuOpen((open) => !open);
-                }}
+                onClick={() => setFilterMenuOpen(true)}
                 aria-label="Cambiar filtro"
                 aria-expanded={filterMenuOpen}
                 aria-haspopup="dialog"
@@ -190,86 +237,6 @@ export function AppSidebar({
               >
                 <Plus className="h-3.5 w-3.5" />
               </button>
-
-              {filterMenuOpen ? (
-                <div className="absolute right-0 z-50 mt-2 w-64 rounded-xl border border-border bg-popover p-3 shadow-[0_18px_50px_-24px_rgba(15,23,42,0.35)]">
-                  <p className="mb-2 text-[13px] font-semibold text-foreground">Filtrar conversaciones</p>
-
-                  {/* La asignacion se elige aca ahora que no esta a la vista. Cada opcion trae su
-                      conteo: es la mitad del valor de este filtro —saber que hay 980 sin dueño
-                      es la razon por la que uno lo abre. */}
-                  {visibleTabs.length > 1 ? (
-                    <>
-                      <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                        Asignación
-                      </p>
-                      <div className="mb-3 space-y-0.5">
-                        {visibleTabs.map((tab) => {
-                          const elegida = draftAssigned === tab.value;
-                          const count = assignedCounts ? assignedCounts[tab.value] : null;
-                          return (
-                            <button
-                              key={tab.value}
-                              type="button"
-                              onClick={() => setDraftAssigned(tab.value)}
-                              className={`flex w-full items-center justify-between rounded-md px-2 py-1.5 text-[13px] transition ${
-                                elegida
-                                  ? "bg-emerald-100 font-medium text-black"
-                                  : "text-foreground hover:bg-muted"
-                              }`}
-                            >
-                              <span>{tab.label}</span>
-                              {count != null ? (
-                                <span className="text-[11px] tabular-nums text-muted-foreground">
-                                  {count}
-                                </span>
-                              ) : null}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </>
-                  ) : null}
-
-                  <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Estado</p>
-                  <div className="flex items-center gap-1 rounded-lg bg-muted p-0.5">
-                    {STATUS_FILTER_OPTIONS.map((option) => {
-                      const isActive = draftStatus === option.value;
-                      return (
-                        <button
-                          key={option.value}
-                          type="button"
-                          onClick={() => setDraftStatus(option.value)}
-                          className={`flex-1 rounded-md px-2 py-1.5 text-[12px] font-medium transition ${
-                            isActive
-                              ? "bg-background text-foreground shadow-sm"
-                              : "text-muted-foreground hover:text-foreground"
-                          }`}
-                        >
-                          {option.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  <div className="mt-3 flex items-center justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() => aplicarFiltros("mine", "open")}
-                      className="rounded-md px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground transition hover:text-foreground"
-                    >
-                      Limpiar
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => aplicarFiltros(draftAssigned, draftStatus)}
-                      className="rounded-md bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground transition hover:opacity-90"
-                    >
-                      Aplicar
-                    </button>
-                  </div>
-                </div>
-              ) : null}
             </div>
           </div>
 
@@ -303,6 +270,18 @@ export function AppSidebar({
           )}
         </div>
       </div>
+
+      <FiltrosDeBandejaModal
+        abierto={filterMenuOpen}
+        alCerrar={() => setFilterMenuOpen(false)}
+        isManager={isManager}
+        assignedFilter={assignedFilter}
+        statusFilter={statusFilter}
+        filtros={filtros}
+        assignedCounts={assignedCounts}
+        alAplicar={aplicarFiltros}
+        alAplicarGuardado={aplicarGuardado}
+      />
     </aside>
   );
 }

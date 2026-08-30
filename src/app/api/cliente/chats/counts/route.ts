@@ -5,6 +5,13 @@ import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/cl
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { prisma } from "@/lib/prisma";
 import { getVisibleChannelIds, resolverConexionElegida } from "@/lib/channel-visibility";
+import { fragmentosDeFiltrosOficiales } from "@/features/official-api/services/getOfficialApiChatsData";
+import {
+  idsSinResponder,
+  leerFiltrosDeBandeja,
+  whereDeEtapas,
+  type FiltrosDeBandeja,
+} from "@/features/chats/services/filtros-de-bandeja";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +36,9 @@ function buildBaseWhere(input: {
   // numero. Si no, la asesora pospone diez chats, la bandeja se vacia y el contador sigue igual.
   snoozedContactIds: string[];
   visibleChannelIds: string[] | null;
+  filtros: FiltrosDeBandeja;
+  // Las que quedaron sin responder, o null si ese filtro no esta puesto.
+  sinResponder: string[] | null;
 }): Prisma.ConversationWhereInput {
   const normalizedSearchQuery = input.searchQuery.trim();
 
@@ -36,6 +46,10 @@ function buildBaseWhere(input: {
     workspaceId: input.workspaceId,
     AND: [
       buildStatusWhere(input.statusFilter),
+      // El numero de la pastilla tiene que contar LO MISMO que muestra la lista: si no, la asesora
+      // filtra, ve 20 chats y al lado un "Todas 1956" que no le dice nada de lo que esta mirando.
+      whereDeEtapas(input.filtros),
+      input.sinResponder ? { id: { in: input.sinResponder } } : {},
       input.snoozedContactIds.length ? { contactId: { notIn: input.snoozedContactIds } } : {},
       input.visibleChannelIds ? { channelId: { in: input.visibleChannelIds } } : {},
       input.selectedConnectionKey.startsWith("channel:")
@@ -72,6 +86,7 @@ async function countOfficialConversations(input: {
   userId: string;
   assignedTo: "mine" | "unassigned" | "all";
   statusFilter: ChatsStatusFilter;
+  filtros: FiltrosDeBandeja;
 }): Promise<number> {
   if (input.selectedConnectionKey.startsWith("channel:")) {
     const channelId = input.selectedConnectionKey.slice("channel:".length);
@@ -96,6 +111,40 @@ async function countOfficialConversations(input: {
   }
 
   const normalizedSearchQuery = input.searchQuery.trim();
+
+  /**
+   * Con los filtros nuevos puestos el conteo va por SQL.
+   *
+   * La ficha del CRM (donde vive la etapa) cuelga del contacto oficial por un id suelto, sin
+   * relacion declarada, asi que Prisma no puede llegar hasta ella. Se usan los MISMOS fragmentos
+   * que arma la lista: si el contador se escribiera aparte, terminarian diciendo cosas distintas.
+   */
+  if (input.filtros.etapas.length > 0 || input.filtros.sinResponder) {
+    const { etapa, sinResponder } = fragmentosDeFiltrosOficiales(input.filtros);
+    const estado =
+      input.statusFilter === "resolved"
+        ? Prisma.sql`AND c."status"::text IN ('CLOSED', 'ARCHIVED')`
+        : input.statusFilter === "all"
+          ? Prisma.empty
+          : Prisma.sql`AND c."status"::text IN ('OPEN', 'PENDING')`;
+    const asignacion =
+      input.assignedTo === "mine"
+        ? Prisma.sql`AND c."assignedToUserId" = ${input.userId}`
+        : input.assignedTo === "unassigned"
+          ? Prisma.sql`AND c."assignedToUserId" IS NULL`
+          : Prisma.empty;
+
+    const filas = await prisma.$queryRaw<Array<{ total: bigint }>>`
+      SELECT COUNT(*)::bigint AS "total"
+      FROM "OfficialApiConversation" c
+      WHERE c."configId" = ${config.id}
+        ${estado}
+        ${asignacion}
+        ${etapa}
+        ${sinResponder}
+    `;
+    return Number(filas[0]?.total ?? 0);
+  }
 
   return prisma.officialApiConversation.count({
     where: {
@@ -177,6 +226,8 @@ export async function GET(request: Request) {
     visibleChannelIds,
   });
 
+  const filtros = leerFiltrosDeBandeja((clave) => requestUrl.searchParams.get(clave));
+
   const baseWhere = buildBaseWhere({
     workspaceId: membership.workspace.id,
     searchQuery,
@@ -184,6 +235,16 @@ export async function GET(request: Request) {
     statusFilter,
     snoozedContactIds: snoozedRows.map((fila) => fila.id),
     visibleChannelIds,
+    filtros,
+    sinResponder: filtros.sinResponder
+      ? await idsSinResponder({
+          workspaceId: membership.workspace.id,
+          visibleChannelIds,
+          channelId: conexionElegida.startsWith("channel:")
+            ? conexionElegida.slice("channel:".length)
+            : null,
+        })
+      : null,
   });
 
   const [officialMine, officialUnassigned, officialAll] = await Promise.all([
@@ -194,6 +255,7 @@ export async function GET(request: Request) {
       userId: session.user.id,
       assignedTo: "mine",
       statusFilter,
+      filtros,
     }),
     countOfficialConversations({
       workspaceId: membership.workspace.id,
@@ -202,6 +264,7 @@ export async function GET(request: Request) {
       userId: session.user.id,
       assignedTo: "unassigned",
       statusFilter,
+      filtros,
     }),
     countOfficialConversations({
       workspaceId: membership.workspace.id,
@@ -210,6 +273,7 @@ export async function GET(request: Request) {
       userId: session.user.id,
       assignedTo: "all",
       statusFilter,
+      filtros,
     }),
   ]);
 

@@ -29,6 +29,12 @@ import { Prisma } from "@prisma/client";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { getVisibleChannelIds, resolverConexionElegida } from "@/lib/channel-visibility";
+import {
+  idsSinResponder,
+  leerFiltrosDeBandeja,
+  paramsDeFiltros,
+  whereDeEtapas,
+} from "@/features/chats/services/filtros-de-bandeja";
 import { isSnoozed } from "@/lib/lead-snooze";
 import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
 
@@ -268,6 +274,17 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       : statusFilter === "all"
         ? {}
         : { status: { in: ["OPEN", "PENDING"] } };
+
+  /**
+   * Los filtros nuevos (etapa del embudo y "sin responder").
+   *
+   * Se leen aca pero se aplican en cuatro consultas distintas, por eso el criterio vive en un
+   * modulo aparte: la lista mezcla dos fuentes y se refresca contra otras dos rutas, y un filtro
+   * que se olvide en una de ellas deja pasar esa fuente entera, sin error ni aviso.
+   */
+  const filtros = leerFiltrosDeBandeja((clave) =>
+    typeof params[clave] === "string" ? (params[clave] as string) : "",
+  );
   const messagePage = clampMessagePage(parsePositiveInteger(typeof params.messagePage === "string" ? params.messagePage : undefined, 1));
   const okMessage = typeof params.ok === "string" ? params.ok : "";
   const errorMessage = typeof params.error === "string" ? params.error : "";
@@ -298,9 +315,27 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     visibleChannelIds: canalesVisibles,
   });
 
+  /**
+   * Las que quedaron sin responder, cuando ese filtro esta puesto.
+   *
+   * Se pide una vez y entra como una lista de ids: es lo mismo que mira el contador y lo que
+   * devuelve el scroll infinito, asi que los tres coinciden.
+   */
+  const conversacionesSinResponder = filtros.sinResponder
+    ? await idsSinResponder({
+        workspaceId: membership.workspace.id,
+        visibleChannelIds: canalesVisibles,
+        channelId: conexionElegida.startsWith("channel:")
+          ? conexionElegida.slice("channel:".length)
+          : null,
+      })
+    : null;
+
   const conversationWhere: Prisma.ConversationWhereInput = {
     workspaceId: membership.workspace.id,
     AND: [
+      whereDeEtapas(filtros),
+      conversacionesSinResponder ? { id: { in: conversacionesSinResponder } } : {},
       canalesVisibles ? { channelId: { in: canalesVisibles } } : {},
       conexionElegida.startsWith("channel:")
         ? { channelId: conexionElegida.slice("channel:".length) }
@@ -426,6 +461,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       // Y el de asignacion. Sin esto los chats del canal oficial entraban en la lista con
       // CUALQUIER pestaña: se leia "Mias 1" y abajo salian los de Ingrid y los sin asignar.
       assignedFilter,
+      // Y los nuevos (etapa del embudo, sin responder), por lo mismo.
+      filtros,
       currentUserId: access.userId,
     }),
   ]);
@@ -907,13 +944,19 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     return Boolean(channel?.evolutionInstanceName);
   })();
   const chatListHref = `/cliente/chats${
-    selectedConnectionKey || searchQuery || assignedFilter !== "mine" || statusFilter !== "open"
+    selectedConnectionKey ||
+    searchQuery ||
+    assignedFilter !== "mine" ||
+    statusFilter !== "open" ||
+    paramsDeFiltros(filtros).length > 0
       ? `?${new URLSearchParams([
           ...(selectedConnectionKey ? [["connection", selectedConnectionKey]] : []),
           ...(searchQuery ? [["q", searchQuery]] : []),
           // Se omite "mine", que es el default REAL: omitir "all" mandaba de vuelta a "Mias".
           ...(assignedFilter !== "mine" ? [["assigned", assignedFilter]] : []),
           ...(statusFilter !== "open" ? [["status", statusFilter]] : []),
+          // Los filtros nuevos viajan igual que los viejos: sin esto, abrir un chat los borraba.
+          ...paramsDeFiltros(filtros),
         ]).toString()}`
       : ""
   }`;
@@ -924,6 +967,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         ...(searchQuery ? [["q", searchQuery]] : []),
         ...(assignedFilter !== "mine" ? [["assigned", assignedFilter]] : []),
         ...(statusFilter !== "open" ? [["status", statusFilter]] : []),
+        ...paramsDeFiltros(filtros),
         ...(messagePage > 1 ? [["messagePage", String(messagePage)]] : []),
       ]).toString()}`
     : "";
@@ -1194,7 +1238,9 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           lastMessageDirection: item.lastMessageDirection,
           lastMessageStatus: item.lastMessageStatus,
           lastMessageAt: item.lastMessageAt,
-          href: `/cliente/chats?chatKey=${encodeURIComponent(item.key)}${selectedConnectionKey ? `&connection=${encodeURIComponent(selectedConnectionKey)}` : ""}${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ""}${assignedFilter !== "mine" ? `&assigned=${assignedFilter}` : ""}${statusFilter !== "open" ? `&status=${statusFilter}` : ""}`,
+          href: `/cliente/chats?chatKey=${encodeURIComponent(item.key)}${selectedConnectionKey ? `&connection=${encodeURIComponent(selectedConnectionKey)}` : ""}${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ""}${assignedFilter !== "mine" ? `&assigned=${assignedFilter}` : ""}${statusFilter !== "open" ? `&status=${statusFilter}` : ""}${paramsDeFiltros(filtros)
+            .map(([clave, valor]) => `&${clave}=${encodeURIComponent(valor)}`)
+            .join("")}`,
         }))}
         // La etapa viaja CON la conversación abierta: es la que usa "Qué decir ahora" para
         // elegir el guion. Sin esto el panel abría en blanco por no saber en qué etapa está.

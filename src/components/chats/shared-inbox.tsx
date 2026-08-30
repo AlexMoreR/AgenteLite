@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { BadgeCheck, ChevronRight, MessageCircle, MessageSquareText } from "lucide-react";
 import {
@@ -20,6 +20,7 @@ import {
 } from "./chat-selection-store";
 import { deleteChatMessageAction, toggleConversationAutomationAction } from "@/app/actions/chats-actions";
 import { AppSidebar } from "./appsidebar";
+import type { EtapaCrm } from "@/features/chats/domain/filtros-de-bandeja";
 import type {
   SharedInboxConversationItem,
   SharedInboxMessageItem,
@@ -198,6 +199,24 @@ export function SharedInbox({
   // deduplicarlos la lista no crece: para el scroll es exactamente igual que si no hubiera nada
   // mas, y deja de cargar.
   const conversationOffsetRef = useRef(initialConversationOffset ?? conversations.length);
+  /**
+   * Los filtros nuevos (etapa del embudo, sin responder), leidos de la direccion.
+   *
+   * Tienen que viajar en TODOS los pedidos que refrescan la bandeja sola, no solo en el primero.
+   * Si faltan en uno, la asesora filtra, ve la lista corta un segundo y despues se le vuelve a
+   * llenar de todo: es exactamente lo que paso con el estado y con la asignacion.
+   */
+  const parametrosDeLaUrl = useSearchParams();
+  const etapasEnLaUrl = parametrosDeLaUrl.get("stage") ?? "";
+  const sinResponderEnLaUrl = parametrosDeLaUrl.get("pending") === "1";
+  const ponerFiltrosNuevos = useCallback(
+    (params: URLSearchParams) => {
+      if (etapasEnLaUrl) params.set("stage", etapasEnLaUrl);
+      if (sinResponderEnLaUrl) params.set("pending", "1");
+    },
+    [etapasEnLaUrl, sinResponderEnLaUrl],
+  );
+
   const [assignedCounts, setAssignedCounts] = useState<{ mine: number; unassigned: number; all: number } | null>(null);
   const [optimisticConversation, setOptimisticConversation] = useState<SharedInboxSelectedConversation | null>(null);
   const [liveConversation, setLiveConversation] = useState<SharedInboxSelectedConversation | null>(null);
@@ -321,6 +340,7 @@ export function SharedInbox({
         // El contador tiene que contar lo mismo que se ve en la lista: si estas en "Resueltas",
         // el numero de al lado de la pestaña es el de las resueltas.
         if (statusFilter !== "open") params.set("status", statusFilter);
+        ponerFiltrosNuevos(params);
         const qs = params.toString();
 
         const response = await fetch(`${countsApiPath}${qs ? `?${qs}` : ""}`, {
@@ -352,7 +372,7 @@ export function SharedInbox({
       cancelled = true;
       if (timeoutId) clearTimeout(timeoutId);
     };
-  }, [conversationListApiPath, searchQuery, selectedConnectionKey, statusFilter]);
+  }, [conversationListApiPath, searchQuery, selectedConnectionKey, statusFilter, ponerFiltrosNuevos]);
 
   // Al montar / cambiar de conexión o filtros, refresca la lista base desde el servidor
   // (fetch directo, cache: no-store) y hace upsert. Evita depender del RSC cacheado en
@@ -370,6 +390,7 @@ export function SharedInbox({
         // estando en "Todas" hacia que el refresco de la lista la pasara sola a "Mias".
         params.set("assigned", assignedFilter);
         if (statusFilter !== "open") params.set("status", statusFilter);
+        ponerFiltrosNuevos(params);
 
         const response = await fetch(`${conversationListApiPath}?${params.toString()}`, {
           credentials: "same-origin",
@@ -406,7 +427,7 @@ export function SharedInbox({
     return () => {
       cancelled = true;
     };
-  }, [conversationListApiPath, searchAction, searchQuery, selectedConnectionKey, assignedFilter, statusFilter]);
+  }, [conversationListApiPath, searchAction, searchQuery, selectedConnectionKey, assignedFilter, statusFilter, ponerFiltrosNuevos]);
 
   // Búsqueda aumentativa: trae del servidor los chats que coinciden por contenido de
   // mensaje o que están más allá de lo ya cargado, y los AGREGA (nunca quita) a la lista.
@@ -435,6 +456,7 @@ export function SharedInbox({
         // estando en "Todas" hacia que el refresco de la lista la pasara sola a "Mias".
         params.set("assigned", assignedFilter);
         if (statusFilter !== "open") params.set("status", statusFilter);
+        ponerFiltrosNuevos(params);
 
         const response = await fetch(`${conversationListApiPath}?${params.toString()}`, {
           credentials: "same-origin",
@@ -472,7 +494,7 @@ export function SharedInbox({
         }
       }
     },
-    [conversationListApiPath, searchAction, selectedConnectionKey, assignedFilter, statusFilter],
+    [conversationListApiPath, searchAction, selectedConnectionKey, assignedFilter, statusFilter, ponerFiltrosNuevos],
   );
 
   // Si la URL tiene `q` (p.ej. se buscó y luego se abrió un chat: el href del chat arrastra el `q`),
@@ -574,6 +596,7 @@ export function SharedInbox({
       if (statusFilter !== "open") {
         params.set("status", statusFilter);
       }
+      ponerFiltrosNuevos(params);
 
       const response = await fetch(`${conversationListApiPath}?${params.toString()}`, {
         credentials: "same-origin",
@@ -663,6 +686,7 @@ export function SharedInbox({
     selectedConnectionKey,
     assignedFilter,
     statusFilter,
+    ponerFiltrosNuevos,
   ]);
 
   const pendingConversation = usePendingConversationSelection();
@@ -2266,6 +2290,10 @@ export function SharedInbox({
         statusFilter={statusFilter}
         assignedCounts={assignedCounts}
         isManager={isManager}
+        filtros={{
+          etapas: etapasEnLaUrl ? (etapasEnLaUrl.split(",") as EtapaCrm[]) : [],
+          sinResponder: sinResponderEnLaUrl,
+        }}
         hasMoreConversationItems={hasMoreConversationItems}
         isLoadingMoreConversationItems={isLoadingMoreConversationItems}
         onLoadMoreConversationItems={loadMoreConversationItems}

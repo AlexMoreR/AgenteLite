@@ -7,6 +7,12 @@ import { scheduleContactAvatarRefresh, type ContactAvatarTarget } from "@/lib/co
 import { extractEvolutionMessageText, extractEvolutionPushName } from "@/lib/evolution-webhook";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { getVisibleChannelIds, resolverConexionElegida } from "@/lib/channel-visibility";
+import {
+  idsSinResponder,
+  leerFiltrosDeBandeja,
+  whereDeEtapas,
+  type FiltrosDeBandeja,
+} from "@/features/chats/services/filtros-de-bandeja";
 import { isSnoozed } from "@/lib/lead-snooze";
 import { prisma } from "@/lib/prisma";
 
@@ -130,6 +136,7 @@ async function getAgentConversationList(input: {
   selectedConnectionKey: string;
   assignedFilter: "all" | "mine" | "unassigned";
   statusFilter: "all" | "open" | "resolved";
+  filtros: FiltrosDeBandeja;
   currentUserId: string;
   // Canales que esta persona puede ver, o null si ve todos (ver channel-visibility).
   visibleChannelIds: string[] | null;
@@ -149,9 +156,28 @@ async function getAgentConversationList(input: {
       : input.statusFilter === "all"
         ? {}
         : { status: { in: ["OPEN", "PENDING"] } };
+  /**
+   * Esta ruta es la que refresca la bandeja SOLA cada pocos segundos.
+   *
+   * Si el filtro se aplicara solo en la pantalla, la asesora lo pondria, veria la lista corta un
+   * instante y a los segundos volveria a llenarse de todo. Ya paso con el estado: resolver un chat
+   * no servia de nada porque esta ruta lo devolvia de nuevo.
+   */
+  const sinResponder = input.filtros.sinResponder
+    ? await idsSinResponder({
+        workspaceId: input.workspaceId,
+        visibleChannelIds: input.visibleChannelIds,
+        channelId: input.selectedConnectionKey.startsWith("channel:")
+          ? input.selectedConnectionKey.slice("channel:".length)
+          : null,
+      })
+    : null;
+
   const conversationWhere: Prisma.ConversationWhereInput = {
     workspaceId: input.workspaceId,
     AND: [
+      whereDeEtapas(input.filtros),
+      sinResponder ? { id: { in: sinResponder } } : {},
       input.visibleChannelIds ? { channelId: { in: input.visibleChannelIds } } : {},
       input.selectedConnectionKey.startsWith("channel:")
         ? { channelId: input.selectedConnectionKey.slice("channel:".length) }
@@ -576,6 +602,7 @@ export async function GET(request: Request) {
     }),
     assignedFilter,
     statusFilter,
+    filtros: leerFiltrosDeBandeja((clave) => requestUrl.searchParams.get(clave)),
     currentUserId: session.user.id,
     visibleChannelIds,
     offset,

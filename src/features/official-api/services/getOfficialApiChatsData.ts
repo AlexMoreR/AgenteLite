@@ -4,6 +4,10 @@ import { prisma } from "@/lib/prisma";
 import { getOfficialApiConfigByWorkspaceId, hasOfficialApiBaseCredentials } from "@/lib/official-api-config";
 import { downloadOfficialApiMedia, extractMediaRefFromRawPayload } from "@/lib/official-api-media";
 import type { OfficialApiChatsData } from "@/features/official-api/types/official-api";
+import {
+  SIN_FILTROS,
+  type FiltrosDeBandeja,
+} from "@/features/chats/services/filtros-de-bandeja";
 
 function normalizeSearch(value: string | undefined) {
   return typeof value === "string" ? value.trim() : "";
@@ -98,6 +102,53 @@ function inferOfficialApiMessageType(rawPayload: unknown, mediaUrl: string | nul
   return "TEXT";
 }
 
+/**
+ * Los filtros nuevos de la bandeja, traducidos a SQL del canal oficial.
+ *
+ * Vive aparte porque lo usan DOS consultas que se escriben en lugares distintos: la de la lista y
+ * la del contador de arriba. Cuando no coincidian, la asesora veia veinte chats y al lado un
+ * numero que hablaba de otra cosa.
+ *
+ * Las condiciones usan el alias `c` para la conversacion: quien las inserte tiene que llamarla asi.
+ */
+export function fragmentosDeFiltrosOficiales(filtros: FiltrosDeBandeja): {
+  etapa: Prisma.Sql;
+  sinResponder: Prisma.Sql;
+} {
+  return {
+    etapa:
+      filtros.etapas.length > 0
+        ? Prisma.sql`AND EXISTS (
+            SELECT 1
+            FROM "OfficialApiContact" ficha
+            INNER JOIN "Contact" crmf ON crmf."id" = ficha."crmContactId"
+            WHERE ficha."id" = c."contactId"
+              AND crmf."crmStage"::text IN (${Prisma.join(filtros.etapas)})
+          )`
+        : Prisma.empty,
+
+    /*
+      Aca si se puede preguntar de la forma evidente: el canal oficial tiene decenas de
+      conversaciones, no miles. En el canal viejo la misma pregunta tardaba 108 segundos y hubo que
+      escribirla de otra forma (ver filtros-de-bandeja).
+
+      Las notas de actividad se guardan como salientes de tipo SYSTEM: no son una respuesta, y sin
+      excluirlas cualquier chat con una nota figuraria como ya contestado.
+    */
+    sinResponder: filtros.sinResponder
+      ? Prisma.sql`AND (
+          SELECT MAX(entrante."createdAt") FROM "OfficialApiMessage" entrante
+          WHERE entrante."conversationId" = c."id" AND entrante."direction" = 'INBOUND'
+        ) > COALESCE((
+          SELECT MAX(saliente."createdAt") FROM "OfficialApiMessage" saliente
+          WHERE saliente."conversationId" = c."id"
+            AND saliente."direction" = 'OUTBOUND'
+            AND saliente."type"::text <> 'SYSTEM'
+        ), TIMESTAMP '1970-01-01')`
+      : Prisma.empty,
+  };
+}
+
 function buildOfficialChatsCacheKey(input: {
   workspaceId: string;
   configId: string;
@@ -107,6 +158,7 @@ function buildOfficialChatsCacheKey(input: {
   statusFilter?: OfficialChatsStatusFilter;
   assignedFilter?: OfficialChatsAssignedFilter;
   currentUserId?: string;
+  filtros?: FiltrosDeBandeja;
 }) {
   return JSON.stringify({
     workspaceId: input.workspaceId,
@@ -119,6 +171,9 @@ function buildOfficialChatsCacheKey(input: {
     // cacheado de otra, o el de "Todas" que se pidio un segundo antes.
     assignedFilter: input.assignedFilter ?? "all",
     currentUserId: input.currentUserId ?? "",
+    // Los filtros nuevos TIENEN que entrar en la clave: si no, la lista filtrada por etapa se le
+    // sirve despues a quien no filtro nada, y al reves.
+    filtros: input.filtros ?? SIN_FILTROS,
   });
 }
 
@@ -141,6 +196,8 @@ export async function getOfficialApiChatsData(input: {
   assignedFilter?: OfficialChatsAssignedFilter;
   /** Quien esta mirando la bandeja. Hace falta para resolver "Mias". */
   currentUserId?: string;
+  /** Etapa del embudo y "sin responder", los mismos que se aplican al canal viejo. */
+  filtros?: FiltrosDeBandeja;
 }): Promise<OfficialApiChatsData> {
   try {
     return await loadOfficialApiChatsData(input);
@@ -166,6 +223,7 @@ async function loadOfficialApiChatsData(input: {
   assignedFilter?: OfficialChatsAssignedFilter;
   /** Quien esta mirando la bandeja. Hace falta para resolver "Mias". */
   currentUserId?: string;
+  filtros?: FiltrosDeBandeja;
 }): Promise<OfficialApiChatsData> {
   const INITIAL_MESSAGE_LIMIT = 20;
   const config = await getOfficialApiConfigByWorkspaceId(input.workspaceId);
@@ -191,6 +249,7 @@ async function loadOfficialApiChatsData(input: {
     statusFilter: input.statusFilter,
     assignedFilter: input.assignedFilter,
     currentUserId: input.currentUserId,
+    filtros: input.filtros,
   });
   const cachedEntry = officialChatsCache.get(cacheKey);
   if (cachedEntry && cachedEntry.expiresAt > Date.now()) {
@@ -237,6 +296,17 @@ async function loadOfficialApiChatsData(input: {
           ? Prisma.sql`AND c."assignedToUserId" = ${currentUserId}`
           : Prisma.sql`AND false`
         : Prisma.empty;
+
+  /**
+   * Los mismos filtros nuevos que el canal viejo, aplicados aca tambien.
+   *
+   * Este es el cuarto lugar. La lista de la bandeja mezcla DOS fuentes que no se conocen entre si,
+   * y un filtro que se aplique en una sola deja pasar la otra ENTERA: la asesora pide "solo los
+   * Calientes" y le siguen apareciendo los del canal oficial, sin ningun aviso de que eso pasa.
+   */
+  const filtros = input.filtros ?? SIN_FILTROS;
+  const { etapa: officialStageFilter, sinResponder: officialPendingFilter } =
+    fragmentosDeFiltrosOficiales(filtros);
 
   type OfficialConversationDetailRow = {
     conversationId: string;
@@ -534,6 +604,8 @@ async function loadOfficialApiChatsData(input: {
         WHERE c."configId" = ${activeConfig.id}
           ${officialStatusFilter}
           ${officialAssignedFilter}
+          ${officialStageFilter}
+          ${officialPendingFilter}
           ${officialSearchFilter}
         ORDER BY c."lastMessageAt" DESC NULLS LAST, c."updatedAt" DESC
         LIMIT ${conversationListLimit}
@@ -570,6 +642,8 @@ async function loadOfficialApiChatsData(input: {
           WHERE c."configId" = ${activeConfig.id}
             ${officialStatusFilter}
             ${officialAssignedFilter}
+            ${officialStageFilter}
+            ${officialPendingFilter}
           ORDER BY c."lastMessageAt" DESC NULLS LAST, c."updatedAt" DESC
           LIMIT ${conversationListLimit}
         ),
