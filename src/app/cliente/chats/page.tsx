@@ -1100,7 +1100,15 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         enabled
         realtimeEnabled={chatsRealtimeSyncEnabled}
         selectedConversationKey={selectedUnified?.key ?? null}
-        officialRefreshMs={officialChatsData.conversations.length > 0 || hayCanalWaha ? 8000 : 0}
+        /*
+          Los canales WAHA no necesitan el intervalo corto: el altavoz les avisa al instante
+          cuando pasa algo de verdad. Cada tick vuelve a pedir el arbol entero al servidor, asi
+          que aca queda solo como red de seguridad por si el altavoz se cae. La API oficial si lo
+          necesita corto: no tiene altavoz propio para sus mensajes.
+        */
+        officialRefreshMs={
+          officialChatsData.conversations.length > 0 ? 8000 : hayCanalWaha ? 30000 : 0
+        }
       />
       <ChatsOfficialRealtime
         enabled={officialChatsData.conversations.length > 0 || hayCanalWaha}
