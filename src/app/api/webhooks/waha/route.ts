@@ -74,6 +74,10 @@ export async function POST(request: NextRequest) {
 
   const traduccion = traducirEventoWaha(cuerpo);
   if (!traduccion.evolution) {
+    // TEMPORAL: se imprime el evento entero para ver que trae la presencia. Se quita enseguida.
+    if ((cuerpo as { event?: unknown }).event === "presence.update") {
+      console.log("[waha presencia CRUDA]", JSON.stringify(cuerpo).slice(0, 700));
+    }
     console.log("[waha webhook] evento ignorado:", traduccion.motivo);
     return NextResponse.json({ ok: true, ignorado: traduccion.motivo });
   }
