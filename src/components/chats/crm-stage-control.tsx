@@ -3,10 +3,47 @@
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Check, ChevronDown, Target } from "lucide-react";
+import { ArrowLeft, Check, ChevronDown } from "lucide-react";
 import { updateCrmStageAction } from "@/app/actions/crm-actions";
 import { CRM_LOST_REASONS, CRM_STAGE_META, CRM_STAGE_ORDER } from "@/features/crm/domain/crm-config";
 import type { CrmStage } from "@/features/crm/types";
+
+/**
+ * Cuanta gente hay en cada etapa, compartido por todas las filas.
+ *
+ * El selector se abre desde cientos de conversaciones: si cada una pidiera el conteo, abrir la
+ * lista serian cientos de consultas para un numero que cambia de a poco. Se pide una vez y se
+ * reusa durante medio minuto.
+ */
+const VIDA_DEL_CONTEO_MS = 30_000;
+let conteoEnMemoria: { datos: Record<string, number>; pedidoEn: number } | null = null;
+let conteoEnVuelo: Promise<Record<string, number>> | null = null;
+
+async function traerConteoDeEtapas(): Promise<Record<string, number>> {
+  if (conteoEnMemoria && Date.now() - conteoEnMemoria.pedidoEn < VIDA_DEL_CONTEO_MS) {
+    return conteoEnMemoria.datos;
+  }
+  if (conteoEnVuelo) {
+    return conteoEnVuelo;
+  }
+
+  conteoEnVuelo = fetch("/api/cliente/crm/conteo-etapas", {
+    credentials: "same-origin",
+    cache: "no-store",
+  })
+    .then((respuesta) => (respuesta.ok ? respuesta.json() : null))
+    .then((datos: { conteo?: Record<string, number> } | null) => {
+      const conteo = datos?.conteo ?? {};
+      conteoEnMemoria = { datos: conteo, pedidoEn: Date.now() };
+      return conteo;
+    })
+    .catch(() => ({}))
+    .finally(() => {
+      conteoEnVuelo = null;
+    });
+
+  return conteoEnVuelo;
+}
 
 type CrmStageControlProps = {
   contactId: string;
@@ -105,6 +142,7 @@ export function CrmStageControl({ contactId, stage, variant = "pill" }: CrmStage
     blanca asomando. Por eso se mide donde quedo la etiqueta y se dibuja encima de todo.
   */
   const [posicion, setPosicion] = useState<{ top: number; left: number } | null>(null);
+  const [conteo, setConteo] = useState<Record<string, number>>(() => conteoEnMemoria?.datos ?? {});
 
   useEffect(() => {
     if (!open) {
@@ -128,6 +166,9 @@ export function CrmStageControl({ contactId, stage, variant = "pill" }: CrmStage
     };
 
     ubicar();
+    // El conteo se pide al ABRIR, no al pintar la fila: si no, serian cientos de consultas por
+    // un dato que casi nadie mira.
+    void traerConteoDeEtapas().then(setConteo);
     // Si la lista se desplaza con el panel abierto, seguirlo seria peor que cerrarlo: quedaria
     // flotando lejos de la fila que lo abrio.
     const cerrar = () => setOpen(false);
@@ -202,23 +243,21 @@ export function CrmStageControl({ contactId, stage, variant = "pill" }: CrmStage
           style={{ top: posicion.top, left: posicion.left, width: 224 }}
           className="fixed z-[100] max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-xl border border-border bg-popover shadow-[0_18px_50px_-24px_rgba(15,23,42,0.35)]"
         >
-          <div className="flex items-center gap-1.5 border-b border-border px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-            {askingLostReason ? (
-              <button
-                type="button"
-                onClick={() => setAskingLostReason(false)}
-                className="inline-flex items-center gap-1.5 transition hover:text-foreground"
-              >
-                <ArrowLeft className="h-3.5 w-3.5" />
-                ¿Por qué se perdió?
-              </button>
-            ) : (
-              <>
-                <Target className="h-3.5 w-3.5" />
-                Etapa del CRM
-              </>
-            )}
-          </div>
+          {/*
+            Sin titulo: la lista de etapas de colores ya dice que es esto, y el renglon gastaba
+            espacio en una pantalla de celular. La cabecera queda solo para poder VOLVER cuando se
+            esta eligiendo el motivo de la perdida.
+          */}
+          {askingLostReason ? (
+            <button
+              type="button"
+              onClick={() => setAskingLostReason(false)}
+              className="flex w-full items-center gap-1.5 border-b border-border px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground transition hover:text-foreground"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+              ¿Por qué se perdió?
+            </button>
+          ) : null}
 
           <div className="max-h-[60vh] overflow-y-auto py-1">
             {askingLostReason
@@ -247,9 +286,21 @@ export function CrmStageControl({ contactId, stage, variant = "pill" }: CrmStage
                     >
                       {CRM_STAGE_META[stageValue].label}
                     </span>
-                    {stageValue === currentStage ? (
-                      <Check className="h-4 w-4 shrink-0 text-emerald-500" />
-                    ) : null}
+                    <span className="flex shrink-0 items-center gap-2">
+                      {/*
+                        Cuanta gente hay ahi. Ver que "Tibio" tiene 0 y "Frio" mil dice mas del
+                        embudo que cualquier informe, y lo dice justo cuando uno va a mover a
+                        alguien.
+                      */}
+                      {conteo[stageValue] === undefined ? null : (
+                        <span className="text-[12px] font-medium tabular-nums text-muted-foreground">
+                          {conteo[stageValue]}
+                        </span>
+                      )}
+                      {stageValue === currentStage ? (
+                        <Check className="h-4 w-4 text-emerald-500" />
+                      ) : null}
+                    </span>
                   </button>
                 ))}
           </div>
