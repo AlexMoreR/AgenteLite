@@ -1,5 +1,11 @@
 import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
+import {
+  WAHA_GATEWAY_KIND,
+  comoMensajeDeEvolution,
+  listarChatsWaha,
+  mensajesDeChatWaha,
+} from "@/lib/waha";
 import { prisma } from "@/lib/prisma";
 import {
   ensureEvolutionInstanceFullHistory,
@@ -661,6 +667,37 @@ function buildMessageRecordIdentity(message: UnknownRecord, jidHint?: string | n
   return `jid:${remoteJid}|ts:${timestamp}|dir:${direction}|type:${type}|text:${text.slice(0, 160)}`;
 }
 
+/**
+ * Trae el historial de un chat desde WAHA y lo deja en el formato de Evolution.
+ *
+ * Pasa por el MISMO traductor que usa el webhook, asi un mensaje importado y uno que llega en
+ * vivo quedan guardados igual. Escribir una conversion aparte era garantizar que con el tiempo el
+ * historial mostrara las cosas distinto que el chat.
+ */
+async function fetchWahaChatMessageRecords(input: {
+  connection: { baseUrl: string; apiToken: string };
+  instanceName: string;
+  remoteJid: string;
+  limite: number;
+}): Promise<UnknownRecord[]> {
+  // WAHA habla en @c.us; el resto del CRM en @s.whatsapp.net.
+  const telefono = input.remoteJid.split("@")[0]?.replace(/\D/g, "") ?? "";
+  if (!telefono) {
+    return [];
+  }
+
+  const crudos = await mensajesDeChatWaha({
+    connection: input.connection,
+    sesion: input.instanceName,
+    chatId: `${telefono}@c.us`,
+    limite: input.limite,
+  }).catch(() => []);
+
+  return crudos
+    .map((mensaje) => comoMensajeDeEvolution(input.instanceName, mensaje))
+    .filter((mensaje): mensaje is Record<string, unknown> => Boolean(mensaje)) as UnknownRecord[];
+}
+
 async function fetchEvolutionChatMessageRecords(
   instanceName: string,
   remoteJid: string,
@@ -668,6 +705,16 @@ async function fetchEvolutionChatMessageRecords(
   options?: { maxPages?: number },
   connection?: EvolutionConnection | null,
 ) {
+  if (connection?.kind === WAHA_GATEWAY_KIND) {
+    return fetchWahaChatMessageRecords({
+      connection: { baseUrl: connection.baseUrl, apiToken: connection.apiToken },
+      instanceName,
+      remoteJid,
+      // El preview solo quiere una muestra; el import, todo lo que haya.
+      limite: options?.maxPages && options.maxPages <= 1 ? 20 : 300,
+    });
+  }
+
   // El import necesita TODAS las paginas; el preview solo la primera (mas recientes),
   // para no disparar decenas de llamadas a Evolution solo para mostrar una muestra.
   const pageCap = Math.max(1, Math.min(options?.maxPages ?? MAX_MESSAGE_PAGES, MAX_MESSAGE_PAGES));
@@ -1119,11 +1166,33 @@ async function evolutionSyncRequest<T>(
 // telefono ya nos mando al vincularse (ver scanEvolutionGoHistoryCandidates, mas abajo).
 //
 // Sin conexion por-canal se usa la configuracion global, que hoy apunta a evogo (GO).
+/**
+ * Si el gateway puede DECIRNOS que chats tiene.
+ *
+ * evogo no puede: no expone forma de listar chats ni mensajes, y por eso el boton "Sincronizar
+ * chats" nunca funciono ahi (cae al camino de HISTORYSYNC, que le pide el historial al celular).
+ * Evolution API y WAHA si guardan su propia base y la exponen.
+ */
 function supportsRemoteChatSync(connection: EvolutionConnection | null) {
-  return connection?.kind === "EVOLUTION_API";
+  return connection?.kind === "EVOLUTION_API" || connection?.kind === WAHA_GATEWAY_KIND;
 }
 
 async function fetchEvolutionChats(instanceName: string, connection?: EvolutionConnection | null) {
+  if (connection?.kind === WAHA_GATEWAY_KIND) {
+    const chats = await listarChatsWaha({
+      connection: { baseUrl: connection.baseUrl, apiToken: connection.apiToken },
+      sesion: instanceName,
+    });
+    // Se devuelven con los nombres de campo que ya sabe leer el resto: `id` trae el JID y de ahi
+    // sale el telefono, que es lo unico que hace falta para cruzarlo con los contactos locales.
+    return chats.map((chat) => ({
+      id: chat.id,
+      remoteJid: chat.id,
+      pushName: chat.nombre,
+      profilePicUrl: chat.foto,
+    })) as UnknownRecord[];
+  }
+
   const payload = await evolutionSyncRequest<unknown>(`/chat/findChats/${instanceName}`, {
     method: "POST",
     body: JSON.stringify({}),

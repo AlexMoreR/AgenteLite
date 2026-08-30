@@ -439,6 +439,16 @@ function nodoSegunMime(mimetype: string): string {
 
 export function traducirEventoWaha(
   cuerpo: unknown,
+  /**
+   * `historial: true` cuando el mensaje viene de una importacion y no del webhook.
+   *
+   * Cambia una sola cosa, y es importante: al importar NO se piden los adjuntos -bajarlos todos
+   * multiplicaria el tiempo y el peso por cada foto de cada chat-, asi que los mensajes con
+   * archivo llegan sin url. En vivo eso significa "WAHA todavia la esta bajando" y conviene
+   * esperar; al importar significa "no la pedimos", y descartarlos dejaria la conversacion con
+   * agujeros. Se guardan igual, con su tipo y sin archivo, como hace WhatsApp Web.
+   */
+  opciones?: { historial?: boolean },
 ):
   | { evolution: Record<string, unknown>; media?: MediaPendiente; motivo?: undefined }
   | { evolution?: undefined; media?: undefined; motivo: string } {
@@ -504,10 +514,11 @@ export function traducirEventoWaha(
     vacia en el chat, y la asesora creeria que el cliente no mando nada; WAHA vuelve a avisar
     cuando lo tiene.
   */
-  if (mensaje.hasMedia === true && !urlDelArchivo) {
+  if (mensaje.hasMedia === true && !urlDelArchivo && !opciones?.historial) {
     return { motivo: "media sin url todavia (WAHA aun la esta bajando)" };
   }
-  if (!tieneMedia && !texto.trim()) {
+  const mediaSinArchivo = mensaje.hasMedia === true && !urlDelArchivo;
+  if (!tieneMedia && !mediaSinArchivo && !texto.trim()) {
     return { motivo: "mensaje sin texto ni media" };
   }
 
@@ -532,10 +543,10 @@ export function traducirEventoWaha(
             ? { participant: jidDeWaha(mensaje.participant) }
             : {}),
         },
-        message: tieneMedia
+        message: tieneMedia || mediaSinArchivo
           ? {
               [nodoSegunMime(mimetype)]: {
-                url: urlDelArchivo,
+                ...(urlDelArchivo ? { url: urlDelArchivo } : {}),
                 mimetype,
                 // En WhatsApp el texto que acompana una foto ES el caption, no un mensaje aparte.
                 caption: texto,
@@ -778,4 +789,90 @@ export async function perfilDeLaLineaWaha(
     // La foto es cosmetica: si falla, la tarjeta muestra el avatar generico y nada mas.
     return null;
   }
+}
+
+/* ------------------------------------------------------------------ historial */
+
+/**
+ * Los chats de una linea, del mas reciente al mas viejo.
+ *
+ * Esto es lo que evogo NO puede hacer: no tiene forma de listar chats ni mensajes, y por eso el
+ * boton "Sincronizar chats" nunca funciono ahi. En WAHA se piden y llegan.
+ */
+export async function listarChatsWaha(input: {
+  connection: WahaConnection;
+  sesion: string;
+  limite?: number;
+}): Promise<Array<{ id: string; nombre: string | null; foto: string | null }>> {
+  const limite = Math.min(Math.max(input.limite ?? 100, 1), 500);
+  const datos = await wahaRequest<Array<Record<string, unknown>>>(
+    input.connection,
+    `/api/${encodeURIComponent(input.sesion)}/chats/overview?limit=${limite}`,
+  );
+
+  if (!Array.isArray(datos)) {
+    return [];
+  }
+
+  return datos
+    .map((chat) => ({
+      id: typeof chat.id === "string" ? chat.id : "",
+      nombre: typeof chat.name === "string" ? chat.name : null,
+      foto: typeof chat.picture === "string" ? chat.picture : null,
+    }))
+    /*
+      Los grupos se descartan.
+
+      El CRM trabaja por CONTACTO: un grupo no tiene un telefono al que atribuirle la
+      conversacion, y traerlos llenaria el embudo de "leads" que no son personas.
+    */
+    .filter((chat) => chat.id && chat.id.endsWith("@c.us"));
+}
+
+/** Los mensajes de un chat, tal como los guarda WAHA (formato WAMessage). */
+export async function mensajesDeChatWaha(input: {
+  connection: WahaConnection;
+  sesion: string;
+  chatId: string;
+  limite?: number;
+  desplazamiento?: number;
+}): Promise<Array<Record<string, unknown>>> {
+  const limite = Math.min(Math.max(input.limite ?? 100, 1), 500);
+  const desde = Math.max(input.desplazamiento ?? 0, 0);
+  /*
+    downloadMedia=false a proposito.
+
+    Traer el historial con los archivos adentro multiplica el tiempo y el peso por cada foto de
+    cada chat. Lo que importa al importar es la conversacion; la media entrante se resuelve
+    despues, cuando alguien abre ese chat.
+  */
+  const datos = await wahaRequest<Array<Record<string, unknown>>>(
+    input.connection,
+    `/api/${encodeURIComponent(input.sesion)}/chats/${encodeURIComponent(input.chatId)}/messages` +
+      `?limit=${limite}&offset=${desde}&downloadMedia=false`,
+  );
+
+  return Array.isArray(datos) ? datos : [];
+}
+
+/**
+ * Convierte un mensaje historico de WAHA al formato que entiende el resto del CRM.
+ *
+ * Reusa el MISMO traductor del webhook: asi un mensaje importado y uno que llega en vivo se
+ * guardan igual, con el mismo tipo y el mismo id. Si se escribiera aparte, las dos formas se
+ * irian separando y un dia el historial mostraria las cosas distinto que el chat.
+ */
+export function comoMensajeDeEvolution(
+  sesion: string,
+  mensaje: Record<string, unknown>,
+): Record<string, unknown> | null {
+  const traduccion = traducirEventoWaha(
+    { event: "message", session: sesion, payload: mensaje },
+    { historial: true },
+  );
+  if (!traduccion.evolution) {
+    return null;
+  }
+  const datos = traduccion.evolution.data;
+  return datos && typeof datos === "object" ? (datos as Record<string, unknown>) : null;
 }
