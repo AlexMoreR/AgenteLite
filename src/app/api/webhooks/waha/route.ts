@@ -56,7 +56,17 @@ export async function POST(request: NextRequest) {
   */
   const ack = leerAckWaha(cuerpo);
   if (ack) {
-    await aplicarAck(ack);
+    /*
+      Tambien se avisa por el acuse, no solo por los mensajes.
+
+      Sin esto el check quedaba correcto en la base al instante pero el navegador recien lo veia
+      en el refresco de respaldo: hasta 8 segundos mirando un mensaje que ya estaba entregado.
+      Solo se avisa cuando el estado AVANZO de verdad, asi que son a lo sumo dos por mensaje.
+    */
+    const workspaceId = await aplicarAck(ack);
+    if (workspaceId) {
+      void notifyRealtimeUpdate({ workspaceId, type: "waha-ack" });
+    }
     return NextResponse.json({ ok: true });
   }
 
@@ -119,8 +129,17 @@ export async function GET() {
   return NextResponse.json({ ok: true, endpoint: "waha" });
 }
 
-/** Marca en el mensaje lo que WhatsApp acaba de contarnos: llego, lo leyeron, o fallo. */
-async function aplicarAck(ack: { sesion: string; idMensaje: string; estado: EstadoDeEntrega }) {
+/**
+ * Marca en el mensaje lo que WhatsApp acaba de contarnos: llego, lo leyeron, o fallo.
+ *
+ * Devuelve el negocio cuando de verdad cambio algo, para que el que llama avise al altavoz. Si no
+ * cambio nada devuelve null y no se molesta a ningun navegador.
+ */
+async function aplicarAck(ack: {
+  sesion: string;
+  idMensaje: string;
+  estado: EstadoDeEntrega;
+}): Promise<string | null> {
   /*
     Se busca tambien por el id CRUDO, no solo por la cadena completa.
 
@@ -143,17 +162,17 @@ async function aplicarAck(ack: { sesion: string; idMensaje: string; estado: Esta
       ],
     },
     orderBy: { createdAt: "desc" },
-    select: { id: true, status: true },
+    select: { id: true, status: true, workspaceId: true },
   });
 
   if (!mensaje) {
     // Normal para lo que se envia desde el celular, fuera del CRM: ese mensaje no es nuestro.
     console.log(`[waha ack] sin mensaje para ${ack.idMensaje} en ${ack.sesion}`);
-    return;
+    return null;
   }
   if (!avanzaElEstado(mensaje.status, ack.estado)) {
     console.log(`[waha ack] ${ack.estado} no avanza sobre ${mensaje.status}`);
-    return;
+    return null;
   }
 
   // Se deja rastro: sin esto, el camino del ack era mudo y averiguar por que un mensaje no
@@ -171,4 +190,6 @@ async function aplicarAck(ack: { sesion: string; idMensaje: string; estado: Esta
       ...(ack.estado === "FAILED" ? { failedAt: ahora } : {}),
     },
   });
+
+  return mensaje.workspaceId;
 }
