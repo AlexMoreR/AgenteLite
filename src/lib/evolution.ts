@@ -2047,6 +2047,85 @@ export async function connectEvolutionApiToChannel(input: {
   return { instanceName: provisioned.instanceName };
 }
 
+/**
+ * Pasa un canal EXISTENTE de su gateway actual a WAHA, sin perder nada.
+ *
+ * Lo que la gente teme perder -conversaciones, mensajes, contactos, etapas, etiquetas,
+ * seguimientos, el agente- NO vive en el gateway: cuelga del canal, en nuestra base. El gateway es
+ * solo el cable por donde entran y salen los mensajes. Por eso se apunta el MISMO canal a la
+ * sesion nueva en vez de crear otro: crear otro dejaria las 1.785 conversaciones colgando del
+ * viejo, que es exactamente la forma de perderlas.
+ *
+ * La instancia anterior NO se borra y queda anotada: si WAHA falla, se apunta el canal de vuelta
+ * y el negocio sigue como antes. Un cambio de gateway sin camino de regreso no es una migracion,
+ * es una apuesta.
+ *
+ * OJO: mientras los dos gateways esten conectados al MISMO numero, los dos reciben todo. Hay que
+ * desconectar el viejo DESPUES de verificar que el nuevo anda.
+ */
+export async function connectWahaToChannel(input: {
+  channelId: string;
+  workspaceId: string;
+  baseUrl: string;
+  apiKey: string;
+}) {
+  const channel = await prisma.whatsAppChannel.findFirst({
+    where: { id: input.channelId, workspaceId: input.workspaceId, provider: "EVOLUTION" },
+    select: { id: true, name: true, evolutionInstanceName: true, metadata: true },
+  });
+  if (!channel) {
+    throw new Error("Canal no encontrado");
+  }
+
+  const connection = buildConnectionFromGatewayInput({
+    kind: WAHA_GATEWAY_KIND,
+    baseUrl: input.baseUrl,
+    apiKey: input.apiKey,
+  });
+  if (!connection?.baseUrl || !connection.apiToken) {
+    throw new Error("Falta la URL o la clave del servidor WAHA");
+  }
+  const conexion: WahaConnection = {
+    baseUrl: connection.baseUrl,
+    apiToken: connection.apiToken,
+  };
+
+  const sesion = await nombreDeSesionWahaLibre(conexion, channel.name);
+  const creada = await asegurarSesionWaha({
+    connection: conexion,
+    sesion,
+    webhookUrl: urlDeWebhookWaha(),
+  });
+
+  const baseMetadata =
+    channel.metadata && typeof channel.metadata === "object" && !Array.isArray(channel.metadata)
+      ? (channel.metadata as Record<string, unknown>)
+      : {};
+
+  await prisma.whatsAppChannel.update({
+    where: { id: channel.id },
+    data: {
+      evolutionInstanceName: sesion,
+      // El id externo era el de la instancia vieja: dejarlo apuntaria a algo que ya no manda.
+      evolutionExternalKey: null,
+      status: creada?.status === "WORKING" ? "CONNECTED" : "QRCODE",
+      qrCode: null,
+      metadata: {
+        ...baseMetadata,
+        // La vuelta atras, en un solo lugar y legible.
+        gatewayAnterior: {
+          instanceName: channel.evolutionInstanceName,
+          gateway: baseMetadata.gateway ?? null,
+          movidoEn: new Date().toISOString(),
+        },
+        ...(buildGatewayMetadata(connection) ?? {}),
+      } as Prisma.InputJsonValue,
+    },
+  });
+
+  return { instanceName: sesion, instanciaAnterior: channel.evolutionInstanceName };
+}
+
 // Recrea la instancia de Evolution para un canal EXISTENTE sin borrar el canal:
 // crea una instancia nueva, apunta el canal a ella (nuevo QR) y borra la vieja en evogo.
 // Conserva conversaciones, contactos, CRM, etiquetas, agente y colaboradores (todo cuelga del channelId).

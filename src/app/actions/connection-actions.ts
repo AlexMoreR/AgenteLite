@@ -8,6 +8,7 @@ import { auth } from "@/auth";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import {
   connectEvolutionApiToChannel,
+  connectWahaToChannel,
   createEvolutionChannel,
   deleteEvolutionInstance,
   recreateEvolutionInstanceForChannel,
@@ -612,4 +613,67 @@ export async function toggleConnectionChannelCrmAction(formData: FormData): Prom
   const okMessage = crmEstabaPrendido ? "CRM+apagado+para+este+canal" : "CRM+encendido+para+este+canal";
   const returnTo = parsed.data.returnTo?.trim() || `/cliente/conexion/whatsapp-business/${channel.id}`;
   redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}ok=${okMessage}`);
+}
+
+/**
+ * Pasa un canal existente a WAHA.
+ *
+ * No crea un canal nuevo: apunta el MISMO a la sesion nueva. Crear otro dejaria las
+ * conversaciones, los contactos y el CRM colgando del viejo, que es la forma de perderlos.
+ *
+ * La instancia anterior queda anotada en el canal para poder volver atras.
+ */
+export async function pasarCanalAWahaAction(formData: FormData): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE"].includes(session.user.role)) {
+    redirect("/unauthorized");
+  }
+  await requireClientWorkspaceAccess("connection");
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    redirect("/cliente/conexion?error=Debes+crear+tu+negocio+primero");
+  }
+
+  const channelId = getRequiredFormValue(formData, "channelId")?.trim() ?? "";
+  const gatewayId = getRequiredFormValue(formData, "gatewayId")?.trim() ?? "";
+  if (!channelId || !gatewayId) {
+    redirect("/cliente/conexion?error=Datos+invalidos");
+  }
+
+  const channel = await prisma.whatsAppChannel.findFirst({
+    where: { id: channelId, workspaceId: membership.workspace.id, provider: "EVOLUTION" },
+    select: { id: true },
+  });
+  if (!channel) {
+    redirect("/cliente/conexion?error=Canal+no+encontrado");
+  }
+
+  // La URL y la clave salen del catalogo del admin, nunca del formulario.
+  const gateways = await getEvolutionGateways();
+  const gateway = gateways.find((item) => item.id === gatewayId && item.kind === "WAHA");
+  if (!gateway) {
+    redirect("/cliente/conexion?error=El+servidor+WAHA+elegido+ya+no+existe");
+  }
+
+  const detailPath = `/cliente/conexion/whatsapp-business/${channel.id}`;
+  try {
+    await connectWahaToChannel({
+      channelId: channel.id,
+      workspaceId: membership.workspace.id,
+      baseUrl: gateway.baseUrl,
+      apiKey: gateway.apiKey,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "No se pudo pasar el canal a WAHA";
+    redirect(`${detailPath}?error=${encodeURIComponent(message)}`);
+  }
+
+  revalidatePath("/cliente/conexion");
+  revalidatePath(detailPath);
+  redirect(
+    `${detailPath}?ok=${encodeURIComponent(
+      "Canal pasado a WAHA. Escaneá el QR; el historial y el CRM quedaron intactos.",
+    )}`,
+  );
 }
