@@ -278,6 +278,9 @@ export const ConversationPanel = memo(function ConversationPanel({
   const audioConfig = composer?.audio;
   const mediaConfig = composer?.media;
   const mediaFileInputRef = useRef<HTMLInputElement | null>(null);
+  // Aparte del de fotos: con un solo input, el selector del celular ofrece la galeria y esconde
+  // el explorador de archivos, que es justo donde esta el PDF.
+  const documentoFileInputRef = useRef<HTMLInputElement | null>(null);
   const [isSendingMedia, setIsSendingMedia] = useState(false);
   const [isSendingLocation, setIsSendingLocation] = useState(false);
   // Mensajes optimistas de archivos en envío: el documento/imagen aparece en el chat con un
@@ -1300,6 +1303,25 @@ export const ConversationPanel = memo(function ConversationPanel({
                                 }
                               }}
                             />
+                            <input
+                              ref={documentoFileInputRef}
+                              type="file"
+                              /*
+                                Se listan los tipos en vez de aceptar cualquier cosa: WhatsApp
+                                rechaza los ejecutables, y descubrirlo recien al enviar deja el
+                                archivo subido y el mensaje en rojo.
+                              */
+                              accept="application/pdf,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.txt,.zip,.rar"
+                              multiple
+                              className="hidden"
+                              onChange={(event) => {
+                                const files = Array.from(event.currentTarget.files ?? []);
+                                event.currentTarget.value = "";
+                                if (files.length > 0) {
+                                  setPendingMediaFiles(files);
+                                }
+                              }}
+                            />
                             <Popover open={isAttachMenuOpen} onOpenChange={setIsAttachMenuOpen}>
                               <PopoverTrigger asChild>
                                 <Button
@@ -1426,13 +1448,6 @@ export const ConversationPanel = memo(function ConversationPanel({
                                   <AlarmClock className="size-5 shrink-0 text-[#8b5cf6]" />
                                   <span>Agendar seguimiento</span>
                                 </Button>
-                                {/* Se saco "Documento".
-                                    Mandaba a buscar el PDF en Drive, bajarlo al celular y volver a
-                                    subirlo, cada vez, en cada conversacion: 15 MB por cliente que
-                                    con la señal de la calle no llegaban a subir. Los catalogos son
-                                    siempre los mismos ocho y ahora viven en la Biblioteca, donde
-                                    salen en un segundo. Para un archivo suelto que no esta ahi,
-                                    "Agregar archivo" dentro de la Biblioteca hace la subida. */}
                                 <Button
                                   type="button"
                                   variant="ghost"
@@ -1444,6 +1459,31 @@ export const ConversationPanel = memo(function ConversationPanel({
                                 >
                                   <ImageIcon className="size-5 shrink-0 text-[#2f9bff]" />
                                   <span>Fotos y videos</span>
+                                </Button>
+                                {/*
+                                  Documentos, al lado de la Biblioteca y no en su lugar.
+
+                                  Esto estuvo sacado un tiempo, y con razon: para mandar un catalogo
+                                  obligaba a buscarlo en Drive, bajarlo al celular y volver a
+                                  subirlo, 15 MB por cliente que con la señal de la calle no
+                                  terminaban de subir. Para eso esta la Biblioteca, donde los ocho
+                                  catalogos de siempre salen en un segundo.
+
+                                  Pero un archivo suelto -la cotizacion de ESE cliente, una remision,
+                                  la cedula que mandan por correo- no vive en la Biblioteca y no
+                                  tiene por que ensuciarla. Ese es el caso que quedaba sin salida.
+                                */}
+                                <Button
+                                  type="button"
+                                  onClick={() => {
+                                    setIsAttachMenuOpen(false);
+                                    documentoFileInputRef.current?.click();
+                                  }}
+                                  variant="ghost"
+                                  className="flex h-auto w-full items-center justify-start gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-normal text-foreground transition hover:bg-muted focus:outline-none focus-visible:bg-muted"
+                                >
+                                  <FileText className="size-5 shrink-0 text-[#ec4899]" />
+                                  <span>Documento</span>
                                 </Button>
                                 {/* Ubicación del local con UN toque: las coordenadas salen de la
                                     configuración de Negocio, la asesora no tiene que buscar nada. */}
