@@ -53,6 +53,14 @@ export function ChatTagsControl({
   const [selectedColor, setSelectedColor] = useState(PRESET_COLORS[0]);
   // Id de la etiqueta cuyo borrado total está pendiente de confirmar (en la lista del popover).
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
+  /**
+   * Que fallo al cargar, si fallo.
+   *
+   * Sin esto un fallo se veia como "Cargando..." PARA SIEMPRE: la promesa quedaba rechazada, nadie
+   * la atajaba, `loaded` nunca pasaba a true y el modal se quedaba tildado sin decir nada. Es lo
+   * que pasa cuando la pestaña quedo con el codigo viejo despues de un despliegue.
+   */
+  const [fallo, setFallo] = useState(false);
   const [state, formAction, isPending] = useActionState(createEtiquetaAction, createInitialState);
   const [busy, startTransition] = useTransition();
 
@@ -74,14 +82,22 @@ export function ChatTagsControl({
     };
   }, [contactId]);
 
+  const [intento, setIntento] = useState(0);
+
   useEffect(() => {
     if (!popoverOpen) return;
-    void loadAll().then((next) => {
-      setEtiquetas(next.etiquetas);
-      setAssignedIds(next.assignedIds);
-      setLoaded(true);
-    });
-  }, [popoverOpen, loadAll]);
+    void loadAll()
+      .then((next) => {
+        setFallo(false);
+        setEtiquetas(next.etiquetas);
+        setAssignedIds(next.assignedIds);
+        setLoaded(true);
+      })
+      .catch(() => {
+        setFallo(true);
+        setLoaded(true);
+      });
+  }, [popoverOpen, loadAll, intento]);
 
   useEffect(() => {
     if (!state.success) return;
@@ -278,6 +294,31 @@ export function ChatTagsControl({
           <div className="min-h-0 flex-1 overflow-y-auto px-2 py-1.5">
             {!loaded ? (
               <p className="py-4 text-center text-xs text-muted-foreground">Cargando…</p>
+            ) : fallo ? (
+              /* Casi siempre es la pestaña con el codigo viejo despues de un despliegue: por eso
+                 se ofrece reintentar y, si insiste, recargar. */
+              <div className="space-y-2 py-4 text-center">
+                <p className="text-xs text-muted-foreground">No se pudieron cargar las etiquetas.</p>
+                <div className="flex items-center justify-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLoaded(false);
+                      setIntento((valor) => valor + 1);
+                    }}
+                    className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-muted"
+                  >
+                    Reintentar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => window.location.reload()}
+                    className="rounded-lg px-3 py-1.5 text-xs font-medium text-muted-foreground transition hover:text-foreground"
+                  >
+                    Recargar la página
+                  </button>
+                </div>
+              </div>
             ) : etiquetas.length === 0 ? (
               <p className="py-4 text-center text-xs text-muted-foreground">Sin etiquetas aún</p>
             ) : (

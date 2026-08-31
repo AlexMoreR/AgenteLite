@@ -21,6 +21,33 @@ const nextConfig: NextConfig = {
         generateBuildId: async () => deploymentId,
       }
     : {}),
+
+  /**
+   * El icono y el manifiesto se guardan en el navegador.
+   *
+   * Salian con `max-age=0, must-revalidate`, asi que el telefono preguntaba por los dos en CADA
+   * carga de la app: medido, 567 ms y 589 ms de ida y vuelta, antes de que se vea nada. Son dos
+   * archivos que no cambian nunca.
+   *
+   * Un dia de cache con una semana de gracia: si algun dia cambia el icono, el peor caso es que
+   * alguien vea el viejo hasta mañana.
+   */
+  async headers() {
+    return [
+      {
+        source: "/icon",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=86400, stale-while-revalidate=604800" },
+        ],
+      },
+      {
+        source: "/manifest.webmanifest",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=86400, stale-while-revalidate=604800" },
+        ],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

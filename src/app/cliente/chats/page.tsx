@@ -36,7 +36,7 @@ import {
   whereDeEtapas,
 } from "@/features/chats/services/filtros-de-bandeja";
 import { isSnoozed } from "@/lib/lead-snooze";
-import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
+import { syncLeadLifecycleForContacts } from "@/lib/contact-default-tags";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -575,21 +575,27 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
             AND m."direction" = 'OUTBOUND'
           GROUP BY m."contactId"
         `;
-        const outboundCountByContactId = new Map<string, number>();
+        const conHistorial = new Set<string>();
         for (const row of outboundRows) {
-          outboundCountByContactId.set(row.contactId, row.outboundCount);
+          if (row.outboundCount > 0) {
+            conHistorial.add(row.contactId);
+          }
         }
 
-        await Promise.allSettled(
-          contactIds.map((contactId) =>
-            syncLeadLifecycleForContact({
-              workspaceId: membership.workspace.id,
-              contactId,
-              newLeadTagName,
-              hasHistory: (outboundCountByContactId.get(contactId) ?? 0) > 0,
-            }),
-          ),
-        );
+        /*
+          Todos juntos, no uno por uno.
+
+          Antes era una llamada por contacto y cada una hacia unas seis consultas: con 20 contactos
+          en pantalla, 120 consultas -casi todas escrituras- cada vez que alguien abria o refrescaba
+          los chats, y casi siempre para dejar todo como ya estaba. Ahora son seis en total, y
+          cuando no hay nada que cambiar -el caso normal- no se escribe nada.
+        */
+        await syncLeadLifecycleForContacts({
+          workspaceId: membership.workspace.id,
+          contactIds,
+          conHistorial,
+          newLeadTagName,
+        });
       } catch {
         // No bloqueamos la carga si falla la sincronización de tags en segundo plano.
       }
